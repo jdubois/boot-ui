@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.McpToolInfo;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.quarkus.QuarkusPanelAccessConfig;
 import io.github.jdubois.bootui.quarkus.mcp.McpServerState;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -26,21 +27,25 @@ import org.eclipse.microprofile.config.Config;
  * lifetime of the running application; the toggle is gated by the shared {@code LocalhostGuard} write
  * floor enforced by {@code BootUiQuarkusSafetyFilter}.
  *
- * <p>Quarkus has no per-panel enable/read-only model yet, so each tool's {@code panelEnabled} is
- * reported {@code true} and {@code panelReadOnly} {@code false} — the catalog itself is already gated
- * by panel availability when it is built ({@code QuarkusMcpTools}).
+ * <p>Each tool's {@code panelEnabled}/{@code panelReadOnly} are read live from the same
+ * {@code bootui.panels.*} / {@code bootui.read-only} config {@code QuarkusPanelAccessFilter} enforces
+ * (via {@link QuarkusPanelAccessConfig}), mirroring the Spring adapter's {@code
+ * McpServerController.buildStatus()} exactly — the catalog itself is separately gated by panel
+ * <em>availability</em> when it is built ({@code QuarkusMcpTools}).
  */
 @Path("/bootui/api/mcp-server")
 public class McpServerResource {
 
     private final McpServerState state;
     private final McpDispatcher dispatcher;
+    private final QuarkusPanelAccessConfig accessConfig;
     private final int maxResults;
 
     @Inject
     public McpServerResource(McpServerState state, McpDispatcher dispatcher, Config config) {
         this.state = state;
         this.dispatcher = dispatcher;
+        this.accessConfig = new QuarkusPanelAccessConfig(config);
         this.maxResults = Math.max(
                 1,
                 config.getOptionalValue("bootui.mcp.max-results", Integer.class).orElse(200));
@@ -64,7 +69,7 @@ public class McpServerResource {
 
     private McpServerStatus buildStatus() {
         List<McpToolInfo> toolInfos =
-                dispatcher.tools().stream().map(McpServerResource::toInfo).toList();
+                dispatcher.tools().stream().map(this::toInfo).toList();
         return new McpServerStatus(
                 state.isEnabled(),
                 state.configuredMode(),
@@ -79,9 +84,14 @@ public class McpServerResource {
                 toolInfos);
     }
 
-    private static McpToolInfo toInfo(McpTool tool) {
-        // Quarkus has no per-panel enable/read-only toggle: panelEnabled=true, panelReadOnly=false.
-        return new McpToolInfo(tool.name(), tool.description(), tool.panelId(), tool.action(), true, false);
+    private McpToolInfo toInfo(McpTool tool) {
+        return new McpToolInfo(
+                tool.name(),
+                tool.description(),
+                tool.panelId(),
+                tool.action(),
+                accessConfig.isPanelEnabled(tool.panelId()),
+                accessConfig.isPanelReadOnly(tool.panelId()));
     }
 
     private static String serverVersion() {

@@ -244,4 +244,71 @@ class QuarkusPanelAvailabilityTest {
                 .isTrue();
         assertThat(pools.unavailableReason()).isNull();
     }
+
+    @Test
+    void panelIsEnabledByDefault() {
+        assertThat(manifestById().get(BootUiPanels.MEMORY).enabled()).isTrue();
+    }
+
+    @Test
+    void panelEnabledReflectsTheConfigDrivenPerPanelToggle() {
+        StubConfig disabled = new StubConfig(Map.of("bootui.panels.memory.enabled", "false"));
+        Map<String, PanelDto> panels = manifestById(disabled);
+
+        assertThat(panels.get(BootUiPanels.MEMORY).enabled())
+                .as("Memory is disabled via bootui.panels.memory.enabled=false")
+                .isFalse();
+        assertThat(panels.get(BootUiPanels.ARCHITECTURE).enabled())
+                .as("Other panels stay enabled")
+                .isTrue();
+    }
+
+    @Test
+    void actionCapablePanelReadOnlyReflectsTheConfigDrivenPerPanelToggle() {
+        StubConfig readOnly = new StubConfig(Map.of("bootui.panels.memory.read-only", "true"));
+        PanelDto memory = manifestById(readOnly).get(BootUiPanels.MEMORY);
+
+        assertThat(memory.readOnly()).isTrue();
+        assertThat(memory.readOnlyReason()).isEqualTo("Panel is read-only via bootui.panels.memory.read-only=true");
+    }
+
+    @Test
+    void nonActionCapablePanelIsNeverReadOnlyEvenIfItsOwnReadOnlyFlagIsSet() {
+        // Health has no action endpoints, so the per-panel read-only toggle (like Spring's PanelsController)
+        // never surfaces as readOnly=true for it.
+        StubConfig readOnly = new StubConfig(Map.of("bootui.panels.health.read-only", "true"));
+        PanelDto health = manifestById(readOnly).get(BootUiPanels.HEALTH);
+
+        assertThat(health.readOnly()).isFalse();
+        assertThat(health.readOnlyReason()).isNull();
+    }
+
+    @Test
+    void globalReadOnlyForcesEveryActionCapablePanelReadOnly() {
+        StubConfig globalReadOnly = new StubConfig(Map.of("bootui.read-only", "true"));
+        Map<String, PanelDto> panels = manifestById(globalReadOnly);
+
+        PanelDto memory = panels.get(BootUiPanels.MEMORY);
+        assertThat(memory.readOnly()).isTrue();
+        assertThat(memory.readOnlyReason()).isEqualTo("BootUI is read-only via bootui.read-only=true");
+    }
+
+    @Test
+    void globalReadOnlyDoesNotAffectNonActionCapablePanels() {
+        StubConfig globalReadOnly = new StubConfig(Map.of("bootui.read-only", "true"));
+        PanelDto health = manifestById(globalReadOnly).get(BootUiPanels.HEALTH);
+
+        assertThat(health.readOnly()).isFalse();
+        assertThat(health.readOnlyReason()).isNull();
+    }
+
+    @Test
+    void configPanelStaysInherentlyReadOnlyRegardlessOfTheNewConfigDrivenToggle() {
+        // Pre-existing, unrelated behavior: Quarkus's Configuration panel has no write path at all yet, so it
+        // must stay read-only even with no bootui.panels.config.read-only / bootui.read-only set.
+        PanelDto config = manifestById().get(BootUiPanels.CONFIG);
+        assertThat(config.readOnly()).isTrue();
+        assertThat(config.readOnlyReason())
+                .containsIgnoringCase("Runtime config overrides are not available on Quarkus");
+    }
 }

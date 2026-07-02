@@ -45,12 +45,18 @@ import org.eclipse.microprofile.config.Config;
  * engine {@code PentestingScanner}, whose framework-neutral value comes from two synthetic loopback probes
  * (security headers, cookies, CORS, TRACE, technology disclosure), so the Quarkus adapter supplies only the
  * live server port + context path and a deliberately neutral endpoint/security/config snapshot (the
- * Spring-Security and Actuator checks stay inert on Quarkus). Read-only is not yet modelled, so no panel is
- * read-only ({@code readOnlyReason} stays {@code null})
- * — note Traces (its buffer can be cleared), Loggers (a logger level can be set), HTTP Probe (it issues a
- * request), Architecture (it runs a scan and dismisses rules), Pentesting (it runs a scan), Vulnerabilities
- * (it runs an OSV scan) and Cache (it clears caches) are
- * action-capable, plus the Memory advisor (it runs a scan), so they are the Quarkus panels exposing state-changing actions.</p>
+ * Spring-Security and Actuator checks stay inert on Quarkus) — note Traces (its buffer can be cleared),
+ * Loggers (a logger level can be set), HTTP Probe (it issues a request), Architecture (it runs a scan and
+ * dismisses rules), Pentesting (it runs a scan), Vulnerabilities (it runs an OSV scan) and Cache (it clears
+ * caches) are action-capable, plus the Memory advisor (it runs a scan), so they are the Quarkus panels
+ * exposing state-changing actions. Per-panel enabled/read-only gating is modelled exactly like the Spring
+ * adapter's {@code PanelAccessFilter}: {@code enabled} reflects the live
+ * {@code bootui.panels.<id>.enabled} config (default {@code true}), and {@code readOnly}/{@code
+ * readOnlyReason} reflect the OR of the live {@code bootui.panels.<id>.read-only} / global {@code
+ * bootui.read-only} config (default {@code false}) with the Configuration panel's own inherent
+ * read-only-ness (it has no write path on Quarkus at all yet, unrelated to this config — see below); both
+ * are computed by {@link QuarkusPanelAccessConfig}, shared with {@link QuarkusPanelAccessFilter} so the
+ * manifest and the enforcing filter can never disagree.</p>
  *
  * <p>The <strong>Hibernate</strong> (ORM mapping) advisor is available <em>dynamically</em>: unlike the
  * statically-available panels above, it is lit up only when the application actually uses Hibernate ORM. The
@@ -339,6 +345,7 @@ public class QuarkusPanelAvailability {
     private final boolean restApiPresent;
     private final boolean copilotPanelAvailable;
     private final boolean claudeCodePanelAvailable;
+    private final QuarkusPanelAccessConfig accessConfig;
 
     @Inject
     public QuarkusPanelAvailability(Config config) {
@@ -369,6 +376,7 @@ public class QuarkusPanelAvailability {
         QuarkusClaudeCodeProperties claude = new QuarkusClaudeCodeProperties(config);
         this.copilotPanelAvailable = agentDirectoryPresent(copilot);
         this.claudeCodePanelAvailable = agentDirectoryPresent(claude);
+        this.accessConfig = new QuarkusPanelAccessConfig(config);
     }
 
     private static boolean agentDirectoryPresent(io.github.jdubois.bootui.spi.agent.AgentSessionProperties settings) {
@@ -392,12 +400,25 @@ public class QuarkusPanelAvailability {
                 BootUiPanels.all().stream().map(this::toDto).toList());
     }
 
+    /**
+     * Builds the manifest entry for a single panel: {@code available} is platform-specific (computed by
+     * {@link #isPanelAvailable}); {@code enabled} and {@code readOnly} are config-driven, computed the same
+     * way regardless of availability (mirroring the Spring adapter's {@code PanelsController.panel()},
+     * which does not gate {@code enabled}/{@code readOnly} on availability either). The Configuration
+     * panel's own inherent read-only-ness (it has no write path on Quarkus yet — a separate, unrelated gap)
+     * is preserved as-is and OR'd with the new config-driven read-only check.
+     */
     private PanelDto toDto(BootUiPanels.Panel panel) {
         boolean available = isPanelAvailable(panel.id());
         String unavailableReason = available ? null : unavailableReason(panel.id());
-        boolean readOnly = available && BootUiPanels.CONFIG.equals(panel.id());
-        String readOnlyReason = readOnly ? CONFIG_READONLY : null;
-        return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, readOnly, readOnlyReason);
+        boolean enabled = accessConfig.isPanelEnabled(panel.id());
+        boolean configReadOnly = available && BootUiPanels.CONFIG.equals(panel.id());
+        boolean accessReadOnly = panel.actionCapable() && accessConfig.isPanelReadOnly(panel.id());
+        boolean readOnly = configReadOnly || accessReadOnly;
+        String readOnlyReason = configReadOnly
+                ? CONFIG_READONLY
+                : (accessReadOnly ? accessConfig.panelReadOnlyReason(panel.id()) : null);
+        return new PanelDto(panel.id(), panel.title(), available, unavailableReason, enabled, readOnly, readOnlyReason);
     }
 
     /**

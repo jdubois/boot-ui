@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.quarkus.mcp;
 
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
+import io.github.jdubois.bootui.quarkus.QuarkusPanelAccessConfig;
+import io.github.jdubois.bootui.spi.McpPanelPolicy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
@@ -11,9 +13,10 @@ import org.eclipse.microprofile.config.Config;
  *
  * <p>Mirrors the Spring adapter's {@code McpConfiguration} {@code @Bean} methods: it builds the live
  * {@link McpServerState} from {@code bootui.mcp.enabled} and the framework- and JSON-free engine
- * {@link McpDispatcher} from the Quarkus tool catalog, the always-enabled {@link QuarkusMcpPanelPolicy}
- * (Quarkus has no per-panel toggle yet), the BootUI version, Quarkus-flavored {@code initialize}
- * instructions, and the {@code bootui.mcp.max-results} cap.
+ * {@link McpDispatcher} from the Quarkus tool catalog, the config-driven {@link QuarkusMcpPanelPolicy}
+ * (gating {@code tools/call} on the same {@code bootui.panels.*} / {@code bootui.read-only} settings the
+ * browser UI and {@code QuarkusPanelAccessFilter} obey), the BootUI version, Quarkus-flavored
+ * {@code initialize} instructions, and the {@code bootui.mcp.max-results} cap.
  *
  * <p>{@link McpServerState} is annotation-free and produced here as a {@code @Singleton} rather than
  * being CDI-scoped itself, to avoid the ambiguity of a class being both {@code @ApplicationScoped} and
@@ -41,7 +44,8 @@ public class BootUiMcpProducer {
     public McpDispatcher mcpDispatcher(QuarkusMcpTools tools, Config config) {
         int maxResults =
                 config.getOptionalValue("bootui.mcp.max-results", Integer.class).orElse(200);
-        return new McpDispatcher(tools.tools(), new QuarkusMcpPanelPolicy(), serverVersion(), INSTRUCTIONS, maxResults);
+        McpPanelPolicy policy = new QuarkusMcpPanelPolicy(new QuarkusPanelAccessConfig(config));
+        return new McpDispatcher(tools.tools(), policy, serverVersion(), INSTRUCTIONS, maxResults);
     }
 
     private static String serverVersion() {

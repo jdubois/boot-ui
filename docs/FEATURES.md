@@ -830,7 +830,7 @@ contexts, and labels). Multiple or named datasources appear independently.
 
 The panel also exposes a confirmation-gated `update` action that applies pending change sets. It is available by default
 for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`
-(per-panel read-only gating is Spring-only today). The panel fails closed per database when its history cannot be read
+(enforced identically on Spring and Quarkus). The panel fails closed per database when its history cannot be read
 and degrades to a clear empty state when Liquibase is not on the classpath or no Liquibase databases are present.
 
 ![BootUI Liquibase panel](./images/bootui-liquibase.webp)

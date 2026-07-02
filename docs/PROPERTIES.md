@@ -44,7 +44,6 @@ equivalents).
 | Key(s)                                                                       | Scope                      | Notes                                                                                                                                      |
 | ---------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `bootui.enabled`, `bootui.enabled-profiles`, `bootui.disabled-profiles`      | Spring only                | Quarkus activates by build-time launch mode.                                                                                             |
-| `bootui.panels.<id>.enabled` / `.read-only`, `bootui.read-only`              | Spring only                | Quarkus has no per-panel access filter yet; the shared localhost write-guard still applies to every mutating request.                    |
 | `bootui.force-web`, `bootui.startup.enabled`, `bootui.startup.capacity`      | Spring only                | Driven by Spring `EnvironmentPostProcessor`s with no Quarkus analogue.                                                                   |
 | `bootui.free-on-idle.enabled` / `.timeout`                                   | Spring only                | The idle-buffer-release optimization is Spring-only.                                                                                     |
 | `bootui.dev-services.restart-enabled` / `.log-tail-bytes`                    | Spring only                | Quarkus Dev Services are build-time; the panel has no log-tail or restart controls.                                                      |
@@ -69,7 +68,11 @@ default — on both adapters. This includes the safety keys (`bootui.allow-non-l
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
 `bootui.sql-trace.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
 `bootui.exceptions.*`, `bootui.security-logs.*`, `bootui.cache.*`, `bootui.mcp.*`, `bootui.ai.*`,
-`bootui.copilot.*`, and `bootui.claude-code.*` families.
+`bootui.copilot.*`, and `bootui.claude-code.*` families. It also includes the per-panel access keys —
+`bootui.panels.<id>.enabled` / `.read-only` and the global `bootui.read-only` — which are enforced on
+Quarkus by `QuarkusPanelAccessFilter` at full behavioral parity with Spring's `PanelAccessFilter` (same
+config keys, same `BootUiPanels` path resolution, same canonical JSON 403 body); see "Panel access
+settings" below.
 
 ## Global settings
 
@@ -97,6 +100,8 @@ default — on both adapters. This includes the safety keys (`bootui.allow-non-l
 | `bootui.monitoring.exclude-self` | `true`                                  | Hide BootUI's own beans, mappings, loggers, metrics, traces, and related runtime data from monitoring panels.                   |
 
 ## Panel access settings
+
+Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelAccessFilter`).
 
 | Group           | Panel                     | Panel id                    | Enable property                                   | Read-only property                        |
 | --------------- | ------------------------- | --------------------------- | ------------------------------------------------- | ----------------------------------------- |

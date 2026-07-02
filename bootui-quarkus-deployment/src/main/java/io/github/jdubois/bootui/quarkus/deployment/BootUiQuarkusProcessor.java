@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.quarkus.QuarkusBasePackageProvider;
 import io.github.jdubois.bootui.quarkus.QuarkusDependencyProvider;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
+import io.github.jdubois.bootui.quarkus.QuarkusPanelAccessFilter;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
@@ -221,6 +222,7 @@ class BootUiQuarkusProcessor {
                         QuarkusMcpTools.class,
                         QuarkusMcpEnvelope.class,
                         BootUiQuarkusSafetyFilter.class,
+                        QuarkusPanelAccessFilter.class,
                         BootUiQuarkusStartupBanner.class)
                 .setUnremovable()
                 .build());

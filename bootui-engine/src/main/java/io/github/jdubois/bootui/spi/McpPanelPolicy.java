@@ -4,12 +4,12 @@ package io.github.jdubois.bootui.spi;
  * Resolves whether an MCP tool may be invoked, mirroring the per-panel enable / read-only toggles the
  * browser UI and REST API obey.
  *
- * <p>This is the framework-neutral gate behind {@code tools/call}. The Spring Boot adapter implements
- * it over {@code bootui.panels.*} (so a tool whose backing panel is disabled or whose action is
- * read-only is refused exactly like {@code PanelAccessFilter} blocks the equivalent HTTP request); the
- * Quarkus adapter, which has no per-panel enable/read-only model yet, implements it as always-enabled
- * and never-read-only — the shared {@code LocalhostGuard} write floor remains the only gate on a
- * state-changing MCP call there.
+ * <p>This is the framework-neutral gate behind {@code tools/call}. Both adapters implement it over
+ * {@code bootui.panels.*} (so a tool whose backing panel is disabled or whose action is read-only is
+ * refused exactly like the equivalent HTTP request is blocked — {@code PanelAccessFilter} on Spring
+ * Boot, {@code QuarkusPanelAccessFilter} on Quarkus) plus the global {@code bootui.read-only} switch;
+ * the shared {@code LocalhostGuard} write floor remains an additional, independent gate on any
+ * state-changing MCP call on both adapters.
  */
 public interface McpPanelPolicy {
 
