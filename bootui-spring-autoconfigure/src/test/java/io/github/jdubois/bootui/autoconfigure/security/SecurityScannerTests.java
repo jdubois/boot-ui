@@ -23,7 +23,7 @@ import org.springframework.security.web.FilterChainProxy;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 48;
+    private static final int RULE_COUNT = 52;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -79,9 +79,11 @@ class SecurityScannerTests {
                         "SEC-CORS-002",
                         "SEC-CORS-003",
                         "SEC-ACT-001",
-                        "SEC-CONFIG-001");
-        // Results are ordered by severity; the first finding must be HIGH.
-        assertThat(report.results().get(0).severity()).isEqualTo("HIGH");
+                        "SEC-CONFIG-001",
+                        "SEC-CONFIG-007");
+        // Results are ordered by severity; the first finding must be CRITICAL (spring.security.user.password is a
+        // literal, matching SEC-CONFIG-007).
+        assertThat(report.results().get(0).severity()).isEqualTo("CRITICAL");
         // The severity histogram leads with CRITICAL so promoted rules sort and count correctly.
         assertThat(report.severityCounts())
                 .extracting("severity")

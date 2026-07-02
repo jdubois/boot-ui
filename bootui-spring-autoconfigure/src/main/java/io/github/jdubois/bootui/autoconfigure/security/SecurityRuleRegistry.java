@@ -12,6 +12,7 @@ final class SecurityRuleRegistry {
             new WeakBcryptStrengthRule(),
             new DefaultInMemoryUserRule(),
             new DefaultLoginPageProductionRule(),
+            new BasicAuthWithoutTlsRule(),
             // Authorization
             new MissingAuthorizationFilterRule(),
             new PermitAllCatchAllRule(),
@@ -36,6 +37,8 @@ final class SecurityRuleRegistry {
             new ReferrerPolicyHeaderRule(),
             new PermissionsPolicyHeaderRule(),
             new HeaderWritersDisabledRule(),
+            new WeakHstsPolicyRule(),
+            new WeakContentSecurityPolicyRule(),
             // CORS
             new CorsWildcardOriginRule(),
             new CorsWildcardWithCredentialsRule(),
@@ -62,7 +65,8 @@ final class SecurityRuleRegistry {
             new H2ConsoleFrameOptionsRule(),
             new WebSecurityConfigurerAdapterRule(),
             new ErrorResponseDisclosureRule(),
-            new HttpsEnforcementRule());
+            new HttpsEnforcementRule(),
+            new HardcodedSecretPropertyRule());
 
     private SecurityRuleRegistry() {}
 
