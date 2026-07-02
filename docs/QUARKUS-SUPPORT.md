@@ -209,30 +209,41 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | `REST API` advisor    | **Implemented** — conventions (status codes, versioning, pagination) shared; the engine models JAX-RS `@Path` resources alongside Spring MVC, and irreducibly-Spring rules (ProblemDetail, ResponseEntity codes) SKIP honestly on JAX-RS |
 | `DB Connection Pools` | **Implemented** — reads **Agroal** metrics instead of HikariCP MXBeans via `QuarkusAgroalConnectionPoolProvider` (the sole importer of `io.agroal.*`, gated on the `AGROAL` capability). Agroal→Hikari mapping: active←activeCount, idle←availableCount, total←active+idle, pending←awaitingCount; acquisition/idle/max-lifetime timeouts map across; `validationTimeoutMs`/`keepaliveTimeMs` report `-1` (rendered "—") and `readOnly` reports `false` (no Agroal accessor). Requires `quarkus.datasource.jdbc.metrics.enabled=true` for live counts — configuration still renders without metrics, but the snapshot is null and the pool is marked unavailable with a specific reason. Read-only: no write gate |
 | `SQL Trace`           | **Implemented** — two complementary feeders into the shared `SqlTraceRecorder`: an `@Alternative` Agroal `DataSource` wrap (manual JDBC, gated on Agroal) **and** a `@PersistenceUnitExtension` Hibernate `StatementInspector` (ORM SQL, which bypasses the wrapped DataSource; gated on Hibernate). Statement text/type/category/N+1 full-fidelity; per-statement duration/rows/params are best-effort for ORM SQL (the StatementInspector SPI has no execution-end hook). `clear`/`recording` behind the `LocalhostGuard` write floor |
-| `Live Activity`       | **Implemented** — merges all four signals (HTTP requests via the Vert.x ring buffer + SQL trace + exceptions + security events) into the shared activity feed; SQL contributes only when a datasource is configured (a clean warning otherwise), and the security source is gated on the Security Logs panel's own availability. **Signal-to-request correlation is trace-id-based, gated on `quarkus-opentelemetry`:** Spring's thread-per-request anchor is unportable on the Vert.x event loop, so instead the adapter stamps the active server span's trace id at each capture point (HTTP filter, SQL recorder, exception store, and the CDI `SecurityEvent` observer) via a capability-gated `QuarkusOtelTraceIdProvider`, and the engine `LiveActivityAssembler` nests SQL/exception/security entries under the request sharing that trace id (OTel `Context` propagates across the event-loop→worker hop, including into the CDI security-event observer). A security event whose trace id uniquely matches one request also stamps that request's `securedPrincipal` (falling back only when the request's own captured principal — see `HTTP Exchanges` below — is null), so the "authenticated" badge lights up from either signal. An ambiguous trace id (shared by more than one in-flight request) is never nested and never stamps a principal, the same guard already used for SQL/exceptions. With OpenTelemetry absent, trace ids stay null and the feed renders flat (status quo). The per-request **profile** drill-down (`profileable`) stays Spring-only — see the note below the table for why. |
+| `Live Activity`       | **Implemented** — merges all four signals (HTTP requests via the Vert.x ring buffer + SQL trace + exceptions + security events) into the shared activity feed; SQL contributes only when a datasource is configured (a clean warning otherwise), and the security source is gated on the Security Logs panel's own availability. **Signal-to-request correlation is trace-id-based, gated on `quarkus-opentelemetry`:** Spring's thread-per-request anchor is unportable on the Vert.x event loop, so instead the adapter stamps the active server span's trace id at each capture point (HTTP filter, SQL recorder, exception store, and the CDI `SecurityEvent` observer) via a capability-gated `QuarkusOtelTraceIdProvider`, and the engine `LiveActivityAssembler` nests SQL/exception/security entries under the request sharing that trace id (OTel `Context` propagates across the event-loop→worker hop, including into the CDI security-event observer). A security event whose trace id uniquely matches one request also stamps that request's `securedPrincipal` (falling back only when the request's own captured principal — see `HTTP Exchanges` below — is null), so the "authenticated" badge lights up from either signal. An ambiguous trace id (shared by more than one in-flight request) is never nested and never stamps a principal, the same guard already used for SQL/exceptions. With OpenTelemetry absent, trace ids stay null and the feed renders flat (status quo). The per-request **profile** drill-down (`GET /bootui/api/activity/{id}`) is now **implemented in reduced, trace-id-only form** — see the note below the table for exactly what is and isn't ported. |
 | `HTTP Exchanges`      | **Implemented** — buffer exchanges via a Vert.x filter instead of Actuator's repository                                                       |
 | `Exceptions`          | **Implemented** — captured into the shared `ExceptionStore` by a `java.util.logging` handler (logged throwables) + a Vert.x failure handler (unhandled web failures), deduped across feeders across the whole cause chain; BootUI's own frames self-filtered. Quarkus logs an unhandled request failure synchronously (`QuarkusErrorHandler`) before the Vert.x failure handler's late `addBodyEndHandler` callback runs, so the log handler is normally the feeder the store's dedup keeps; it resolves the owning request's method/path itself from the CDI-current `CurrentVertxRequest`, so both feeders carry full web context. The `handler` field (the JAX-RS resource class + method serving the request, e.g. `MyResource#doSomething`, matching Spring's `HandlerMethod`-derived format) is resolved the same way by `QuarkusResourceHandlers`, reading RESTEasy Reactive's current-request state (`CurrentRequestManager`/`ResteasyReactiveResourceInfo`, the same mechanism `quarkus-rest-jackson` itself uses for per-method `@JsonView` resolution) — populated/cleared in lockstep with the `CurrentVertxRequest` above, so it survives the same event-loop→worker hop |
 | `Security Logs`       | **Implemented** — captures Quarkus CDI security events into the shared `SecurityEventBuffer` via `QuarkusSecurityEventCapture` (a `@Observes SecurityEvent` observer), which replaces Spring's `AuditEventRepository`. Gated on `quarkus-security` (the observer is excluded by the deployment processor when no security extension is present, R2) and `quarkus.security.events.enabled=true` (panel reports unavailable with a clear message when events are disabled). Honest partial: Quarkus fires events only for authentication success/failure and authorization failure — no logout or session events (no Quarkus equivalent). SSE `/stream` ticks on each capture. Read-only (no write endpoints) |
 | `Log Tail`            | **Implemented** — captured via a `java.util.logging` `Handler` (`QuarkusLogTailHandler`) attached to the root JBoss LogManager logger at `StartupEvent` (detached at `ShutdownEvent` so dev-mode restarts never leak handlers). The handler feeds the shared `LogTailBuffer`; both `/recent` (snapshot) and the SSE `/stream` (live fan-out with atomic snapshot-then-subscribe to avoid gaps) are full-fidelity. BootUI's own loggers are self-filtered. Identical wire to Spring's Logback appender path |
 
-**Why `profileable` (the per-request profiler drill-down) stays `false` on Quarkus.** Spring's `/activity/request/{id}`
-profiler is a Symfony-style join across SQL, exceptions, security audit events, the distributed trace, and timing for one
-request (`LiveActivityCorrelator`) — it is not CPU/flame-graph sampling. Its richness comes from a tiered correlation
-strategy, and three of its four tiers key on **serving-thread identity**: a servlet request runs start-to-finish on one
-worker thread that serves only one request at a time, so SQL, exceptions, and security events observed on that thread
-within its time window belong to it exactly, even with no distributed tracing configured at all (`threadMatched` is a
-first-class field on `RequestProfileSecurityDto`/carried by `RequestProfileExceptionDto`'s `thread`). Quarkus's Vert.x
-event-loop-plus-worker-thread model has no equivalent "the one thread that served this request" identity — handling can
-hop across the event loop and one or more worker threads — so those three tiers have nothing to key on and cannot be
-ported as-is. Only the profiler's *strongest* tier (trace id, used to attach the distributed trace) is inherently
-portable, and — thanks to this same change — Quarkus's captured HTTP/SQL/exception/security records now all carry a
-trace id when `quarkus-opentelemetry` is present, exactly like the `LiveActivityAssembler` correlation above. A
-trace-id-only reduced profile (skip the thread-based tiers, correlate only what shares an exact trace id, and report
-unavailable without one) is therefore technically buildable on top of this PR's infrastructure, but it would only work
-with OpenTelemetry present — unlike Spring's, which works out of the box — and the request/exception/security DTOs'
-`threadMatched`/thread-identity fields would have no faithful Quarkus meaning. Rather than force that mismatch or ship a
-partial/fake port, `profileable` stays `false` and the drill-down stays Spring-only; a trace-id-only Quarkus profiler is
-a plausible, bounded follow-up (see the PR description) rather than something to build inline here.
+**Why the per-request profiler (`GET /bootui/api/activity/{id}`) is trace-id-only on Quarkus.** Spring's
+`/activity/request/{id}` profiler is a Symfony-style join across SQL, exceptions, security audit events, the distributed
+trace, and timing for one request (`LiveActivityCorrelator`) — it is not CPU/flame-graph sampling. Its richness comes
+from a **tiered** correlation strategy: (1) OpenTelemetry trace id (the strongest, most precise signal), then, for
+requests without one, (2) HTTP method+path+time-window+thread heuristics for exceptions, (3) serving-thread correlation
+for SQL, and (4) time-window+principal for security events. Tiers 2-4 key on **serving-thread identity**: a servlet
+request runs start-to-finish on one worker thread that serves only one request at a time, so SQL, exceptions, and
+security events observed on that thread within its time window belong to it exactly, even with no distributed tracing
+configured at all (`threadMatched` is a first-class field on `RequestProfileSecurityDto`/carried by
+`RequestProfileExceptionDto`'s `thread`). Quarkus's Vert.x event-loop-plus-worker-thread model has no equivalent "the one
+thread that served this request" identity — handling can hop across the event loop and one or more worker threads — so
+tiers 2-4 have nothing to key on and are **not ported** (this was investigated and correctly ruled out as infeasible; see
+the PR that shipped this trace-id-only profiler for the reasoning).
+
+Tier 1, however, **is** portable and **is now implemented**: the same trace-id stamping that powers the `LiveActivityAssembler`
+nesting above (§ the `Live Activity` row) is reused by a dedicated engine class, `RequestProfileAssembler`, to answer
+`GET /bootui/api/activity/{id}` directly. When the requested exchange carries a trace id, the endpoint gathers every
+SQL/exception/security entry sharing that exact trace id and returns `available: true` with `sqlCorrelationApproximate:
+false` (trace-id matching is exact, unlike Spring's time-window heuristics for untraced requests) and a `notes` entry
+disclosing that this is a reduced, trace-id-only profile — no time-window/thread-based correlation. `threadMatched`
+always reports `false` (Quarkus has no thread-identity concept to key on), while `principalMatched` on
+`RequestProfileSecurityDto` **is** honestly computed by comparing principals. Ambiguous trace ids (shared by more than
+one in-flight request — the same edge case the main feed already guards) render an `available: true` profile with empty
+correlated lists plus an explanatory note, never a hard failure or cross-request data leak. When the exchange has no
+trace id at all — OpenTelemetry absent, or this particular request predates `quarkus-opentelemetry` being added — the
+endpoint honestly returns `available: false` with a clear reason
+(`RequestProfileDto.unavailable(...)`) rather than fabricating a partial result. In the main feed, `ActivityEntryDto.profileable`
+is computed adapter-side in `LiveActivityResource`: `true` for request entries with a resolvable trace id, `false`
+otherwise; the shared engine's own `profileable` default is untouched so Spring is completely unaffected.
 
 ### 5.4 Replaced with a Quarkus-native panel (2)
 
@@ -378,9 +389,9 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 - **Reactive capture fidelity.** Vert.x-based request/exchange/SQL capture must be verified to match the servlet panels'
   detail (timing, headers, correlation). Correlation is now resolved via the OpenTelemetry trace id (Live Activity nests
   SQL/exceptions/security events under their request, and stamps `securedPrincipal`, when `quarkus-opentelemetry` is
-  present); the remaining gap is the Spring-only per-request profile drill-down, whose richness leans on
-  thread-per-request serving-thread identity that the Vert.x model has no equivalent for (§5.3 has the detailed
-  reasoning). A reduced trace-id-only profiler is a plausible follow-up but is not implemented.
+  present); the per-request profile drill-down is now implemented too, but in reduced, trace-id-only form — Spring's
+  time-window/thread-based tiers lean on servlet thread-per-request serving-thread identity that the Vert.x model has no
+  equivalent for, so they remain deliberately unported (§5.3 has the detailed reasoning).
 - **Module naming & coordinates.** New shared/adapter modules keep `com.julien-dubois.bootui:*` coordinates and
   `io.github.jdubois.bootui.*` packages; the Quarkus extension follows Quarkus's `runtime` / `deployment` convention.
 - **Docs & checks.** The Quarkus application advisor is backed by `docs/QUARKUS-ADVISOR-CHECKS.md` and the Quarkus
@@ -424,7 +435,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | REST API            | **done**    | Rebuild | REST conventions engine          | JAX-RS handler-model builder                |
 | DB Connection Pools | **done**    | Rebuild | Pool model                       | `DataSourcePoolProvider` → Agroal           |
 | SQL Trace           | **done**    | Rebuild | SQL trace model                  | `SqlTraceSource` → Agroal/JDBC              |
-| Live Activity       | **done**    | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x; OTel trace-id correlation |
+| Live Activity       | **done**    | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x; OTel trace-id correlation + trace-id-only profile drill-down |
 | HTTP Exchanges      | **done**    | Rebuild | Exchange model                   | `HttpExchangeProvider` → Vert.x             |
 | Exceptions          | **done**    | Rebuild | Exception model                  | Vert.x failure handler                      |
 | Security Logs       | **done**    | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |

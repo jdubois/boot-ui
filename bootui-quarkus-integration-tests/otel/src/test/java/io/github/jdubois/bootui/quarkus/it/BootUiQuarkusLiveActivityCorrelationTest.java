@@ -82,8 +82,9 @@ class BootUiQuarkusLiveActivityCorrelationTest {
                 .as("the engine must nest the SQL entry under its owning request via the shared trace id")
                 .isEqualTo(requestId);
 
-        assertThat(request.path("profileable").asBoolean(true))
-                .as("profileable stays false on Quarkus (no per-request profile drill-down endpoint)")
-                .isFalse();
+        assertThat(request.path("profileable").asBoolean(false))
+                .as("profileable is true on Quarkus once the request carries a resolvable trace id — see "
+                        + "BootUiQuarkusLiveActivityProfileTest for the drill-down endpoint itself")
+                .isTrue();
     }
 }
