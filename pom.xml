@@ -237,6 +237,15 @@
                         <publishingServerId>central</publishingServerId>
                         <autoPublish>${central.autoPublish}</autoPublish>
                         <skip>${maven.deploy.skip}</skip>
+                        <!--
+                            Sonatype only mandates md5+sha1 checksums (sha256/sha512 are optional, see
+                            https://central.sonatype.org/publish/requirements/#provide-file-checksums). The
+                            plugin's default ("all") generates all four, roughly doubling the checksum/signature
+                            file fanout per artifact and eating into Central's new monthly file-count quota
+                            (see https://central.sonatype.org/publish/maven-central-publishing-limits/) for no
+                            validation benefit. "required" drops sha256/sha512 while staying fully compliant.
+                        -->
+                        <checksums>required</checksums>
                     </configuration>
                 </plugin>
             </plugins>
