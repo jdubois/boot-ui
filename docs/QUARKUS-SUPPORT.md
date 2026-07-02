@@ -372,12 +372,14 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 - **Run:** `./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev` starts Quarkus dev mode and serves the console at
   `http://localhost:8080/bootui` — the analogue of the Spring sample app's `spring-boot:run` smoke-test path. Quarkus
   live reload replaces DevTools for the inner loop. (`-am` builds the upstream `bootui-quarkus` extension first.)
-- **e2e:** a `bootui-quarkus-sample-app/e2e/` Playwright project mirrors `bootui-spring-sample-app/e2e/`. Keep the specs for the
-  ~36 supported panels; drop the specs for panels not shipped on Quarkus (`beans`, `conditions`, `startup`,
-  `profile-diff`, `spring-security`, `data`, `http-sessions`, `graalvm`, `crac`, `devtools`, `security`); add
-  `quarkus-advisor.spec.js` and `quarkus-cache.spec.js`. Reuse the existing `fixtures.js` / `app-shell.spec.js` patterns.
-  To honor the "as much common code as possible" goal, factor the panel-agnostic Playwright helpers into a shared
-  library both suites import, rather than copying them.
+- **e2e:** a `bootui-quarkus-sample-app/e2e/` Playwright project mirrors `bootui-spring-sample-app/e2e/`, with one spec per
+  supported panel plus `quarkus-advisor.spec.js` / `cache.spec.js`; drop specs only for the panels genuinely not shipped
+  on Quarkus (`conditions`, `startup`, `spring-security`, `data`, `http-sessions`, `graalvm`, `crac`, `devtools`) covered
+  instead by `not-applicable.spec.js`. (An earlier revision of this plan also listed `beans`, `profile-diff`, and
+  `security` as drop candidates; all three shipped and now have dedicated specs — see §5 for the authoritative
+  per-panel availability.) Reuse the existing `fixtures.js` / `app-shell.spec.js` patterns. To honor the "as much common
+  code as possible" goal, factor the panel-agnostic Playwright helpers into a shared library both suites import, rather
+  than copying them.
 - **CI:** add a job mirroring the existing Spring e2e job in `.github/workflows/build.yml` — build the extension + sample
   app, `npx playwright install --with-deps chromium`, then `npm test` — so **both** platforms are gated on every build.
 - **Screenshots:** the docs screenshots in `docs/images/bootui-*.webp` are captured from the Spring sample app and stay

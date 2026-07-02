@@ -83,9 +83,14 @@ function formatValue(entry) {
 
 function typeBadgeClass(typeName) {
   if (!typeName) return 'bg-secondary'
-  if (typeName.includes('FAILURE') || typeName.includes('DENIED')) return 'bg-danger'
-  if (typeName.includes('SUCCESS')) return 'bg-success'
-  if (typeName.includes('AUTHORIZATION')) return 'bg-warning text-dark'
+  // Case-insensitive on purpose: Spring's audit events use SCREAMING_SNAKE_CASE
+  // (AUTHENTICATION_SUCCESS) but Quarkus's CDI security events use their raw PascalCase class
+  // names (AuthenticationFailureEvent), so a case-sensitive match against all-caps keywords would
+  // silently miss every Quarkus type and fall through to the generic badge color.
+  const upperTypeName = typeName.toUpperCase()
+  if (upperTypeName.includes('FAILURE') || upperTypeName.includes('DENIED')) return 'bg-danger'
+  if (upperTypeName.includes('SUCCESS')) return 'bg-success'
+  if (upperTypeName.includes('AUTHORIZATION')) return 'bg-warning text-dark'
   return 'bg-primary'
 }
 </script>
