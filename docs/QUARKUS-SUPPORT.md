@@ -280,7 +280,15 @@ adapters).
   "reason":"<reason>"}` JSON 403 body). It runs as a lower-priority Vert.x filter than `BootUiQuarkusSafetyFilter`, so
   the loopback/Host/CSRF guard always evaluates first. `QuarkusPanelAvailability` and `QuarkusMcpPanelPolicy` (the MCP
   tool gate) both read the same config, so a disabled or read-only panel is refused consistently across the REST API,
-  the `/bootui/api/panels` manifest, and the MCP bridge.
+  the `/bootui/api/panels` manifest, and the MCP bridge. Backend/integration coverage lives alongside the runtime
+  classes; **browser-level** coverage is `bootui-quarkus-sample-app/e2e/tests/read-only.spec.js`, the Quarkus twin of
+  the Spring sample's `read-only.spec.js` — it spawns fresh, throwaway `quarkus:dev` instances with
+  `bootui.read-only` / `bootui.panels.<id>.read-only` passed as plain JVM system properties (MicroProfile Config
+  picks these up live, the same mechanism `playwright.config.js` already relies on for `-Dquarkus.http.port`) and
+  asserts both the API (403 + canonical reason) and the shared Vue UI (disabled controls, the `panel-read-only-alert`
+  banner) reflect the setting. One divergence from the Spring spec: it cannot use the `config` panel as the
+  "unaffected control panel" the way Spring does, because Configuration is *always* read-only on Quarkus for an
+  unrelated reason (no runtime-override write path yet — see above); it uses `memory` instead.
 
 ## 7. Code-sharing scorecard
 
