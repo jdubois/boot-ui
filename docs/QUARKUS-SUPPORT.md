@@ -267,6 +267,24 @@ adapters).
 - **Dev-mode-only extension.** The `bootui-quarkus-deployment` module registers BootUI's routes and beans **only in dev
   mode** via `@BuildStep`. This is the natural Quarkus analogue of BootUI's "active only in `dev`/`local`, fail closed"
   rule, and it means BootUI is simply absent from production/native builds.
+- **The static shell is dark in production too, not just the API.** The launch-mode-gated `@BuildStep`s above stop
+  BootUI's own CDI beans/JAX-RS resources from being wired in `LaunchMode.NORMAL`, but the compiled Vue bundle at
+  `META-INF/resources/bootui/` used to remain reachable regardless: Quarkus' built-in static-resource handler serves any
+  classpath resource under `META-INF/resources/**` unconditionally, wired by `quarkus-vertx-http` independently of this
+  extension's build steps, and Quarkus offers no build-time mechanism to exclude a single path from that scan. Left
+  alone, a production deployment would still answer `GET /bootui/` with the empty SPA shell's `index.html`/JS/CSS — no
+  working API behind it, but reachable. `BootUiProdShellGuardFilter` closes this: a CDI Vert.x filter registered by its
+  own **always-on** `@BuildStep` (deliberately *not* launch-mode-gated, the opposite polarity from every other build
+  step in the extension), whose `handle()` method reads a CDI-injected `LaunchMode` and answers a plain `404` for
+  `/bootui`/`/bootui/**` only when it is `LaunchMode.NORMAL` — an immediate no-op pass-through otherwise, so
+  dev/`@QuarkusTest` behavior is unaffected. Net effect: `/bootui`/`/bootui/**` is a plain 404 in production, at parity
+  with the Spring adapter (which never registers any BootUI route when inactive, so nothing is reachable there either).
+  Proven by a genuine `LaunchMode.NORMAL` build+run via `QuarkusProdModeTest`
+  (`BootUiQuarkusProdShellGuardBootTest`, in the dedicated `bootui-quarkus-prod-shell-guard-integration-tests`
+  module — kept separate from every `@QuarkusTest`-based module because Quarkus's own test framework refuses to mix
+  `QuarkusProdModeTest` and `@QuarkusTest` in the same Surefire fork), alongside a white-box unit suite
+  (`BootUiProdShellGuardFilterTest`, in `bootui-quarkus-integration-tests`) — see `BootUiQuarkusProcessor`'s class
+  Javadoc for the full investigation.
 - **Native is therefore a non-issue.** Quarkus dev mode always runs on the JVM, so the bytecode-scanning advisors,
   classpath Maven metadata (`Vulnerabilities`), and JVM MXBeans all work exactly as on Spring. The native-image
   limitations (no runtime classpath scan, stripped metadata) only apply to production native images, which BootUI never
