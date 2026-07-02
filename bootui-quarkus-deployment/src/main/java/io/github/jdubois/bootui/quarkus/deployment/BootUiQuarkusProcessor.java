@@ -107,7 +107,12 @@ class BootUiQuarkusProcessor {
 
     // BootUI's own resources are filtered out of the captured Mappings inventory by package and by path,
     // mirroring the Spring BootUiSelfDataFilter (which inspects the handler class and the request path).
-    private static final String BOOTUI_PACKAGE_PREFIX = "io.github.jdubois.bootui";
+    // Scoped to the Quarkus adapter's own JAX-RS resource package (`...quarkus.web`), not the whole
+    // `io.github.jdubois.bootui` root: a bare root-package prefix would also swallow any application code
+    // that happens to be packaged under that root (for example a sample/demo app using
+    // `io.github.jdubois.bootui.sample`), exactly the boundary the shared engine `InternalPackageMatcher`
+    // already draws for the Quarkus adapter (`io.github.jdubois.bootui.quarkus` + `...core`).
+    private static final String BOOTUI_PACKAGE_PREFIX = "io.github.jdubois.bootui.quarkus";
     private static final String BOOTUI_PATH_PREFIX = "/bootui";
 
     // Referenced by class name only: this is the sole OpenTelemetry-importing type in the extension, and
@@ -954,7 +959,7 @@ class BootUiQuarkusProcessor {
             }
             ClassInfo resource = pathAnnotation.target().asClass();
             String resourceClass = resource.name().toString();
-            if (resourceClass.startsWith(BOOTUI_PACKAGE_PREFIX)) {
+            if (resourceClass.equals(BOOTUI_PACKAGE_PREFIX) || resourceClass.startsWith(BOOTUI_PACKAGE_PREFIX + ".")) {
                 continue; // BootUI's own resources, identified by their package (mirrors the Spring filter)
             }
             String classPath = annotationString(pathAnnotation);

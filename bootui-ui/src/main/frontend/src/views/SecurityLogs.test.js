@@ -67,4 +67,28 @@ describe('SecurityLogs', () => {
 
     expect(wrapper.text()).toContain('No audit events match the current filters.')
   })
+
+  it('colors Quarkus PascalCase event types the same as Spring SCREAMING_SNAKE_CASE equivalents', async () => {
+    // Regression test: typeBadgeClass() used to compare typeName against ALL-CAPS keywords with a
+    // case-sensitive .includes(), so Quarkus's raw CDI event class names (e.g.
+    // "AuthenticationFailureEvent") never matched and every Quarkus badge silently fell through to
+    // the generic bg-primary color instead of the intended red/green/yellow semantic color.
+    const wrapper = await mountWith(
+      report({
+        events: [
+          event({type: 'AuthenticationSuccessEvent'}),
+          event({type: 'AuthenticationFailureEvent'}),
+          event({type: 'AuthorizationFailureEvent'})
+        ],
+        typeSummaries: [{type: 'AuthenticationSuccessEvent', count: 1}]
+      }),
+      {platform: 'quarkus'}
+    )
+
+    const badges = wrapper.findAll('tbody .badge')
+    expect(badges).toHaveLength(3)
+    expect(badges[0].classes()).toContain('bg-success')
+    expect(badges[1].classes()).toContain('bg-danger')
+    expect(badges[2].classes()).toContain('bg-danger')
+  })
 })

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.beans;
 
 import io.github.jdubois.bootui.core.dto.BeanSummary;
+import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.spi.Bean;
@@ -28,8 +29,13 @@ import java.util.Locale;
  * CDI qualifiers have no {@link BeanSummary} field — the DTO is the frozen UI contract — so they are not
  * surfaced. {@code aliases} is therefore always empty. For producer (<code>@Produces</code>) beans Arc reports
  * the declaring class as {@link Bean#getBeanClass()}, so such beans show their producer's class as the type;
- * this also makes the BootUI self-filter robust, since BootUI's own engine services are produced from a
- * single producer class under {@code io.github.jdubois.bootui}.</p>
+ * this also makes the BootUI self-filter robust, since BootUI's own engine services are produced from
+ * producer classes under {@code io.github.jdubois.bootui.quarkus}. The self-filter reuses the shared engine
+ * {@link InternalPackageMatcher} scoped to {@code io.github.jdubois.bootui.quarkus}/{@code .core} (the same
+ * prefixes {@code QuarkusScheduledTaskProvider} and the Log Tail/Exceptions captures use) rather than the
+ * whole {@code io.github.jdubois.bootui} tree, so it does not also swallow application code that happens to
+ * live under that root package (for example a sample/demo app packaged as {@code io.github.jdubois.bootui.sample}),
+ * nor the framework-neutral {@code engine}/{@code spi} packages.</p>
  *
  * <p>The inventory reflects the beans Arc actually retains: Arc removes unused beans at build time as an
  * optimization, so a bean that is never injected (and is not {@code @Unremovable}) does not appear here.
@@ -37,7 +43,8 @@ import java.util.Locale;
  */
 public final class QuarkusBeanProvider implements BeanProvider {
 
-    private static final String BOOTUI_PACKAGE_PREFIX = "io.github.jdubois.bootui";
+    private static final InternalPackageMatcher INTERNAL_PACKAGES =
+            new InternalPackageMatcher(List.of("io.github.jdubois.bootui.quarkus", "io.github.jdubois.bootui.core"));
 
     private static final List<String> FRAMEWORK_PREFIXES =
             List.of("io.quarkus.", "io.vertx.", "org.jboss.", "io.smallrye.", "org.eclipse.microprofile.", "io.netty.");
@@ -63,7 +70,7 @@ public final class QuarkusBeanProvider implements BeanProvider {
         for (Bean<?> bean : beanManager.getBeans(Object.class, Any.Literal.INSTANCE)) {
             Class<?> beanClass = bean.getBeanClass();
             String type = beanClass == null ? null : beanClass.getName();
-            if (type != null && isBootUiBean(type)) {
+            if (type != null && INTERNAL_PACKAGES.matchesName(type)) {
                 continue;
             }
             summaries.add(toSummary(bean, beanClass, type));
@@ -91,15 +98,11 @@ public final class QuarkusBeanProvider implements BeanProvider {
         return scope == null ? null : scope.getSimpleName();
     }
 
-    private boolean isBootUiBean(String type) {
-        return type.equals(BOOTUI_PACKAGE_PREFIX) || type.startsWith(BOOTUI_PACKAGE_PREFIX + ".");
-    }
-
     private String classify(String type) {
         if (type == null) {
             return "OTHER";
         }
-        if (isBootUiBean(type)) {
+        if (INTERNAL_PACKAGES.matchesName(type)) {
             return "BOOTUI";
         }
         for (String prefix : FRAMEWORK_PREFIXES) {

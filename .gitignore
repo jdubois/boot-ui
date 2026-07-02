@@ -45,5 +45,8 @@ dist/
 # Local env
 .env
 *.env.local
+
+# Per-worktree Maven repo-local override (see docs on isolating parallel worktrees)
+/.mvn/maven.config
 /bootui-spring-sample-app/Dockerfile-native
 /bootui-spring-sample-app/src/main/resources/META-INF/native-image/com.julien-dubois.bootui/bootui-spring-sample-app/reachability-metadata.json
