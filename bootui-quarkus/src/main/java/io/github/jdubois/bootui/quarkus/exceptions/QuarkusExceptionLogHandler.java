@@ -35,6 +35,12 @@ import java.util.logging.LogRecord;
  * gap by resolving the context at the point that actually wins the race. It is nullable and fully guarded:
  * with no provider, no active request scope (e.g. a background/scheduled failure), or a failure, the
  * method/path are simply {@code null}, same as before.</p>
+ *
+ * <p>The handler (JAX-RS resource class + method) is resolved the same way, via {@link
+ * QuarkusResourceHandlers#currentHandler()} — RESTEasy Reactive's own current-request accessor, populated
+ * and cleared in lockstep with the same CDI request scope {@link CurrentVertxRequest} follows, so it is
+ * available at exactly the point this handler already reads method/path from. See that class's Javadoc for
+ * why the underlying API is a reasonably stable extension point rather than a fragile internal.</p>
  */
 public final class QuarkusExceptionLogHandler extends Handler {
 
@@ -69,7 +75,8 @@ public final class QuarkusExceptionLogHandler extends Handler {
             RoutingContext rc = currentRoutingContext();
             String method = rc == null ? null : rc.request().method().name();
             String path = rc == null ? null : rc.normalizedPath();
-            store.record(thrown, Thread.currentThread().getName(), method, path, null, "log", currentTraceId());
+            String handler = QuarkusResourceHandlers.currentHandler();
+            store.record(thrown, Thread.currentThread().getName(), method, path, handler, "log", currentTraceId());
         } catch (RuntimeException ignored) {
             // Diagnostics capture must never interfere with the application's logging.
         } finally {
