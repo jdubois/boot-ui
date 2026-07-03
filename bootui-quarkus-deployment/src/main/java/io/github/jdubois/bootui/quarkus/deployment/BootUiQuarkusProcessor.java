@@ -21,6 +21,7 @@ import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServices;
 import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServicesProvider;
 import io.github.jdubois.bootui.quarkus.devservices.RawDevService;
 import io.github.jdubois.bootui.quarkus.exceptions.QuarkusExceptionCapture;
+import io.github.jdubois.bootui.quarkus.exceptions.QuarkusPreMappingExceptionCaptureHandler;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLogTailCapture;
 import io.github.jdubois.bootui.quarkus.mappings.MappingsRecorder;
 import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
@@ -65,6 +66,7 @@ import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageProxyDefinitionBuildItem;
 import io.quarkus.deployment.pkg.builditem.CurateOutcomeBuildItem;
 import io.quarkus.maven.dependency.ResolvedDependency;
+import io.quarkus.resteasy.reactive.server.spi.PreExceptionMapperHandlerBuildItem;
 import io.quarkus.runtime.LaunchMode;
 import jakarta.inject.Singleton;
 import java.util.ArrayList;
@@ -247,6 +249,36 @@ class BootUiQuarkusProcessor {
                         BootUiQuarkusStartupBanner.class)
                 .setUnremovable()
                 .build());
+    }
+
+    /**
+     * Registers {@link QuarkusPreMappingExceptionCaptureHandler} as a {@code PreExceptionMapperHandlerBuildItem}
+     * — the RESTEasy Reactive extension point Quarkus' own OpenTelemetry extension uses ({@code
+     * AttachExceptionHandler}) to observe an exception before it is resolved to a response. This is what
+     * closes the one capture gap {@code QuarkusExceptionLogHandler} (feeds on logged throwables) and {@code
+     * QuarkusExceptionCaptureFilter} (feeds on {@code RoutingContext.failure()}) cannot reach on their own: an
+     * exception resolved by the application's own {@code ExceptionMapper}/{@code @ServerExceptionMapper} that
+     * does not itself log the throwable — RESTEasy Reactive never sets {@code RoutingContext.failure()} for a
+     * mapper-handled exception, so neither existing feeder ever sees it. Quarkus guarantees this handler runs
+     * for every exception about to be mapped, mapped or not, so it also covers the already-handled unhandled-
+     * exception case; that overlap is harmless because {@code ExceptionStore.record} dedups by throwable
+     * identity — whichever feeder observes a given throwable first simply wins the race, same as the existing
+     * two-feeder overlap.
+     *
+     * <p>The handler is a plain object with no CDI dependencies (see its Javadoc for why), so — unlike {@link
+     * #registerConsole} — this needs no {@link AdditionalBeanBuildItem}, just the build item itself. Gated to
+     * non-production launch modes, matching every other capture build step: in {@link LaunchMode#NORMAL} the
+     * whole console is dark, so there is nothing to feed.</p>
+     */
+    @BuildStep
+    void registerExceptionPreMappingCapture(
+            LaunchModeBuildItem launchMode,
+            BuildProducer<PreExceptionMapperHandlerBuildItem> preExceptionMapperHandlers) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return; // production: console is dark, no capture
+        }
+        preExceptionMapperHandlers.produce(
+                new PreExceptionMapperHandlerBuildItem(new QuarkusPreMappingExceptionCaptureHandler()));
     }
 
     /**
