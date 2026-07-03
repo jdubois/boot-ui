@@ -999,6 +999,18 @@ request context. The list updates live over **Server-Sent Events** — the brows
 and re-fetches whenever an exception is captured or the store is cleared, rather than polling on a fixed interval — and can be
 filtered by text, by capture source (web vs. logged), or to application-originated exceptions only.
 
+On top of that existing grouping, each group carries a Sentry-style triage status — **Open** (the default for every new
+group), **Acknowledged** (seen, still being investigated), or **Resolved** (believed fixed) — shown as a badge on the row
+and changed inline with a button group, the same one-click convention used by the Loggers panel's per-logger level
+setter. Changing status calls `POST /bootui/api/exceptions/{id}/status` with `{"status": "..."}`, validated against the
+three values (400 on anything else, 404 for an unknown group), and returns the updated group. If a group marked
+**Resolved** throws again, BootUI treats this as a regression: the group automatically reopens to **Open** and a
+lifetime "Reopened ×N" counter is incremented and surfaced next to the status badge, so a developer immediately sees
+that a failure they thought was fixed has come back. An **Acknowledged** group does not auto-transition on new
+occurrences — it keeps accumulating its count and last-seen time, since the developer already knows about it and
+hasn't claimed it's fixed; only a **Resolved** group can regress. An optional status filter (All/Open/Acknowledged/
+Resolved) narrows the list alongside the existing text/source filters.
+
 Exception messages follow the same exposure policy as the rest of BootUI: they are scrubbed of secret-like
 `key=value` assignments under the default `bootui.expose-values=MASKED`, omitted entirely under `METADATA_ONLY`, and shown
 verbatim only under `FULL`. Request paths are captured without their query string so query-string secrets are never
@@ -1014,7 +1026,9 @@ complementary sources: a `java.util.logging` handler that records anything logge
 own loggers), and a Vert.x failure handler that records the throwable escaping a failed request with its method and
 path. The shared store still de-duplicates by throwable identity across the cause chain, so a failure seen by both
 sources is counted once. Capture is installed on `StartupEvent` and detached on `ShutdownEvent`, wired in dev/test
-only and never in production, and bounded by the same `bootui.exceptions.*` limits.
+only and never in production, and bounded by the same `bootui.exceptions.*` limits. The triage workflow and regression
+detection above are engine-level, so they behave identically on Quarkus: `ExceptionsResource` exposes the same
+`POST /bootui/api/exceptions/{id}/status` endpoint with the same validation and status codes.
 
 ![BootUI Exceptions panel](./images/bootui-exceptions.webp)
 

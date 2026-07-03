@@ -254,6 +254,8 @@ class LiveActivityAssemblerTests {
                 "/orders",
                 "Handler#x",
                 "web",
-                lastTraceId);
+                lastTraceId,
+                "OPEN",
+                0);
     }
 }

@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -50,6 +51,43 @@ public final class ExceptionsService {
                 detail.occurrences().stream().map(this::toOccurrenceDto).toList());
     }
 
+    /**
+     * Parses a triage status value from the {@code POST .../status} request body, case-insensitively.
+     *
+     * @throws IllegalArgumentException if {@code value} is blank or not one of {@code OPEN},
+     *     {@code ACKNOWLEDGED}, or {@code RESOLVED} — mapped to a 400 response by both adapters
+     */
+    public static ExceptionStore.Status parseStatus(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Invalid status '" + value + "'; expected one of OPEN, ACKNOWLEDGED, RESOLVED");
+        }
+        try {
+            return ExceptionStore.Status.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException(
+                    "Invalid status '" + value + "'; expected one of OPEN, ACKNOWLEDGED, RESOLVED", ex);
+        }
+    }
+
+    /**
+     * Changes the triage status of one exception group, validating {@code rawStatus} before checking
+     * whether the group exists (so a malformed status always yields a 400, regardless of store/group
+     * state).
+     *
+     * @return the updated {@link ExceptionGroupDto}, or {@code null} if {@code store} is {@code null} or
+     *     {@code fingerprint} is unknown (both mapped to a 404 response by the adapters)
+     * @throws IllegalArgumentException if {@code rawStatus} is not a valid status
+     */
+    public ExceptionGroupDto updateStatus(ExceptionStore store, String fingerprint, String rawStatus) {
+        ExceptionStore.Status status = parseStatus(rawStatus);
+        if (store == null) {
+            return null;
+        }
+        ExceptionStore.GroupSummary updated = store.setStatus(fingerprint, status);
+        return updated == null ? null : toGroupDto(updated);
+    }
+
     private ExceptionGroupDto toGroupDto(ExceptionStore.GroupSummary summary) {
         ExceptionStore.Occurrence last = summary.last();
         return new ExceptionGroupDto(
@@ -66,7 +104,9 @@ public final class ExceptionsService {
                 last == null ? null : last.requestPath(),
                 last == null ? null : last.handler(),
                 last == null ? null : last.source(),
-                last == null ? null : last.traceId());
+                last == null ? null : last.traceId(),
+                summary.status().name(),
+                summary.regressionCount());
     }
 
     private ExceptionFrameDto toFrameDto(ExceptionStore.Frame frame) {

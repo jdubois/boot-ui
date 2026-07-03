@@ -462,6 +462,8 @@ class LiveActivityServiceTests {
                 "/a",
                 "h",
                 "s",
-                null);
+                null,
+                "OPEN",
+                0);
     }
 }
