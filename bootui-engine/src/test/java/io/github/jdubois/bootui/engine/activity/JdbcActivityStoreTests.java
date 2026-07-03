@@ -77,7 +77,21 @@ class JdbcActivityStoreTests {
     void insertsPreserveNullOptionalFields() {
         JdbcActivityStore store = new JdbcActivityStore(newDataSource(), "bootui_activity");
         ActivityEntryDto original = new ActivityEntryDto(
-                "sql-1", "SQL", 1L, "OK", "select 1", null, null, null, null, null, null, null, false, null, null,
+                "sql-1",
+                "SQL",
+                1L,
+                "OK",
+                "select 1",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
                 false);
         store.appendBatch(List.of(new StoredActivityEntry(INSTANCE, 1, original)));
 
