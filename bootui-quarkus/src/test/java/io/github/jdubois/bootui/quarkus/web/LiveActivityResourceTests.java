@@ -54,7 +54,8 @@ class LiveActivityResourceTests {
     @Test
     void activityDelegatesEntriesAndPageInfoToStoreWhenPersistenceEnabled() {
         ActivityEntryDto storedEntry = new ActivityEntryDto(
-                "sql-1", "SQL", 1_000L, "OK", "select 1", null, null, null, null, null, null, null, false, null, null);
+                "sql-1", "SQL", 1_000L, "OK", "select 1", null, null, null, null, null, null, null, false, null, null,
+                false);
         ActivityPage page =
                 new ActivityPage(List.of(new StoredActivityEntry("instance-a", 1L, storedEntry)), "cursor-2", true);
         RecordingActivityStore store = new RecordingActivityStore(page);

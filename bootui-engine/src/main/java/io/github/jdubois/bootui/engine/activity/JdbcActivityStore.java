@@ -161,6 +161,7 @@ public final class JdbcActivityStore implements ActivityStore {
                 + "profileable INTEGER NOT NULL, "
                 + "parent_entry_id VARCHAR(128), "
                 + "secured_principal VARCHAR(256), "
+                + "sql_n_plus_one_suspected INTEGER NOT NULL, "
                 + "PRIMARY KEY (instance_id, seq))";
     }
 
@@ -171,8 +172,8 @@ public final class JdbcActivityStore implements ActivityStore {
     private void insertBatch(List<StoredActivityEntry> entries) throws SQLException {
         String sql = "INSERT INTO " + tableName + " (instance_id, seq, entry_id, entry_type, occurred_at, "
                 + "severity, summary, detail, duration_ms, correlation_id, http_method, path, status_code, "
-                + "thread_name, profileable, parent_entry_id, secured_principal) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + "thread_name, profileable, parent_entry_id, secured_principal, sql_n_plus_one_suspected) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
@@ -196,6 +197,7 @@ public final class JdbcActivityStore implements ActivityStore {
                 statement.setInt(i++, entry.profileable() ? 1 : 0);
                 statement.setString(i++, entry.parentId());
                 statement.setString(i++, entry.securedPrincipal());
+                statement.setInt(i++, entry.sqlNPlusOneSuspected() ? 1 : 0);
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -205,7 +207,7 @@ public final class JdbcActivityStore implements ActivityStore {
     private ActivityPage runQuery(ActivityQuery query) throws SQLException {
         StringBuilder sql = new StringBuilder("SELECT instance_id, seq, entry_id, entry_type, occurred_at, "
                 + "severity, summary, detail, duration_ms, correlation_id, http_method, path, status_code, "
-                + "thread_name, profileable, parent_entry_id, secured_principal FROM "
+                + "thread_name, profileable, parent_entry_id, secured_principal, sql_n_plus_one_suspected FROM "
                 + tableName
                 + " WHERE instance_id = ?");
         List<Object> params = new ArrayList<>();
@@ -289,7 +291,8 @@ public final class JdbcActivityStore implements ActivityStore {
                 rs.getString("thread_name"),
                 rs.getInt("profileable") != 0,
                 rs.getString("parent_entry_id"),
-                rs.getString("secured_principal"));
+                rs.getString("secured_principal"),
+                rs.getInt("sql_n_plus_one_suspected") != 0);
         return new StoredActivityEntry(instanceId, seq, entry);
     }
 
