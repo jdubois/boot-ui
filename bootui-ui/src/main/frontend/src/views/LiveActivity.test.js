@@ -3,6 +3,10 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import LiveActivity from './LiveActivity.vue'
 
+vi.mock('../utils/useConfirm.js', () => ({
+  useConfirm: () => ({confirm: () => Promise.resolve(true)})
+}))
+
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
@@ -48,6 +52,8 @@ function activityReport(overrides = {}) {
     warnings: [],
     typeCounts: {REQUEST: 1, SQL: 0, EXCEPTION: 0, SECURITY: 0},
     entries: [requestEntry()],
+    pageInfo: null,
+    persistenceOption: {active: false, dataSourceAvailable: false, tableName: 'bootui_activity'},
     ...overrides
   }
 }
@@ -166,5 +172,179 @@ describe('LiveActivity', () => {
     const report = writeText.mock.calls[0][0]
     expect(report).toContain('[N+1]')
     expect(report).toContain('at com.example.TodoRepository.findById(TodoRepository.java:42)')
+  })
+
+  it('shows a tip with the current in-memory event count when persistence is not active', async () => {
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Currently saving 1 event in memory')
+  })
+
+  it('hides the in-memory event count tip once persistence is active', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport({
+          pageInfo: {persistent: true, nextCursor: null, hasMore: false},
+          persistenceOption: {active: true, dataSourceAvailable: true, tableName: 'bootui_activity'}
+        }),
+        requestProfile()
+      )
+    )
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Currently saving')
+  })
+
+  it('shows the "Use a database" button when persistence is not active', async () => {
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    expect(wrapper.findAll('button').find((b) => b.text().includes('Use a database'))).toBeTruthy()
+  })
+
+  it('hides the "Use a database" button once persistence is active', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport({
+          pageInfo: {persistent: true, nextCursor: null, hasMore: false},
+          persistenceOption: {active: true, dataSourceAvailable: true, tableName: 'bootui_activity'}
+        }),
+        requestProfile()
+      )
+    )
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    expect(wrapper.findAll('button').find((b) => b.text().includes('Use a database'))).toBeFalsy()
+  })
+
+  it('points to setup documentation when no datasource is available', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport({persistenceOption: {active: false, dataSourceAvailable: false, tableName: 'bootui_activity'}}),
+        requestProfile()
+      )
+    )
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Use a database'))
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No')
+    expect(wrapper.text()).toContain('DataSource')
+    expect(wrapper.text()).toContain('bean was found')
+    expect(wrapper.findAll('button').find((b) => b.text().includes('Use the existing datasource'))).toBeFalsy()
+    expect(wrapper.get('a[href*="julien-dubois.com"]').text()).toContain('View setup documentation')
+  })
+
+  it('offers to switch to the existing datasource when one is already configured', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport({persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'bootui_activity'}}),
+        requestProfile()
+      )
+    )
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Use a database'))
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('reuse the existing one right now')
+    expect(wrapper.findAll('button').find((b) => b.text().includes('Use the existing datasource'))).toBeTruthy()
+  })
+
+  it('switches to the database when the existing-datasource action is confirmed', async () => {
+    let persistedNow = false
+    const notPersisted = activityReport({
+      persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'bootui_activity'}
+    })
+    const persisted = activityReport({
+      pageInfo: {persistent: true, nextCursor: null, hasMore: false},
+      persistenceOption: {active: true, dataSourceAvailable: true, tableName: 'bootui_activity'}
+    })
+    const fetchMock = vi.fn((url) => {
+      if (url === 'api/activity/use-existing-datasource') {
+        persistedNow = true
+        return Promise.resolve(
+          jsonResponse({
+            status: 'success',
+            message: 'Live Activity is now saving to the "bootui_activity" table.',
+            tableName: 'bootui_activity'
+          })
+        )
+      }
+      if (typeof url === 'string' && url.startsWith('api/activity/request/')) {
+        return Promise.resolve(jsonResponse(requestProfile()))
+      }
+      return Promise.resolve(jsonResponse(persistedNow ? persisted : notPersisted))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Use a database'))
+      .trigger('click')
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Use the existing datasource'))
+      .trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'api/activity/use-existing-datasource',
+      expect.objectContaining({method: 'POST', body: JSON.stringify({confirm: true})})
+    )
+    expect(wrapper.text()).toContain('Live Activity is now saving to the "bootui_activity" table.')
+    expect(wrapper.findAll('button').find((b) => b.text().includes('Use a database'))).toBeFalsy()
+  })
+
+  it('disables the existing-datasource switch action when the panel is read-only', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport({persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'bootui_activity'}}),
+        requestProfile()
+      )
+    )
+
+    wrapper = mount(LiveActivity, {
+      props: {panel: {readOnly: true, readOnlyReason: 'BootUI is read-only'}}
+    })
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Use a database'))
+      .trigger('click')
+    await flushPromises()
+
+    const switchButton = wrapper.findAll('button').find((b) => b.text().includes('Use the existing datasource'))
+    expect(switchButton.attributes('disabled')).toBeDefined()
   })
 })

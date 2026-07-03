@@ -150,7 +150,7 @@ public class QuarkusMcpTools {
                                 + "and security events, grouped by request/trace so related signals (e.g. the "
                                 + "slow query or exception behind one HTTP request) are easy to spot together.",
                         BootUiPanels.ACTIVITY,
-                        args -> liveActivity.activity(args.limit())));
+                        args -> liveActivity.activity(args.limit(), null, null, null, null, null, null, null)));
         addIfAvailable(
                 registry,
                 availability,

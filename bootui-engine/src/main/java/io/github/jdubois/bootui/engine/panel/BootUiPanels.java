@@ -113,7 +113,7 @@ public final class BootUiPanels {
             new Panel(CRAC, "CRaC", true, "/crac"),
             new Panel(SQL_TRACE, "SQL Trace", true, "/sql-trace"),
             new Panel(MCP_SERVER, "MCP Server", true, "/mcp-server"),
-            new Panel(ACTIVITY, "Live Activity", false, "/activity"));
+            new Panel(ACTIVITY, "Live Activity", true, "/activity"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

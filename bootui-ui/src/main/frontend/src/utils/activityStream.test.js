@@ -1,5 +1,14 @@
 import {describe, expect, it} from 'vitest'
-import {bucketEntries, deepLink, filterEntries, groupEntries, nestEntries} from './activityStream.js'
+import {
+  appendOlderPage,
+  bucketEntries,
+  buildActivityQueryParams,
+  deepLink,
+  filterEntries,
+  groupEntries,
+  mergeActivityPages,
+  nestEntries
+} from './activityStream.js'
 
 const entries = [
   {id: 'r2', type: 'REQUEST', severity: 'ERROR', summary: 'GET /b → 500', path: '/b', method: 'GET', timestamp: 3000},
@@ -147,5 +156,68 @@ describe('deepLink', () => {
   it('returns null for security entries and unknown types', () => {
     expect(deepLink({type: 'SECURITY', summary: 'AUTHENTICATION_FAILURE'})).toBeNull()
     expect(deepLink(null)).toBeNull()
+  })
+})
+
+describe('mergeActivityPages', () => {
+  it('returns the head as-is when no older entries have been loaded', () => {
+    const head = [{id: 'a'}, {id: 'b'}]
+    expect(mergeActivityPages(head, [])).toBe(head)
+    expect(mergeActivityPages(head, null)).toBe(head)
+  })
+
+  it('appends older entries after the head, preserving order', () => {
+    const head = [{id: 'a'}, {id: 'b'}]
+    const older = [{id: 'c'}, {id: 'd'}]
+    expect(mergeActivityPages(head, older).map((e) => e.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('drops older entries that have drifted into the head after a refresh', () => {
+    const head = [{id: 'a'}, {id: 'b'}]
+    const older = [{id: 'b'}, {id: 'c'}]
+    expect(mergeActivityPages(head, older).map((e) => e.id)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('appendOlderPage', () => {
+  it('appends fresh entries after the already-accumulated older list', () => {
+    const head = [{id: 'a'}]
+    const older = [{id: 'b'}]
+    const newEntries = [{id: 'c'}, {id: 'd'}]
+    expect(appendOlderPage(head, older, newEntries).map((e) => e.id)).toEqual(['b', 'c', 'd'])
+  })
+
+  it('drops entries already visible in the head or already accumulated', () => {
+    const head = [{id: 'a'}]
+    const older = [{id: 'b'}]
+    const newEntries = [{id: 'a'}, {id: 'b'}, {id: 'c'}]
+    expect(appendOlderPage(head, older, newEntries).map((e) => e.id)).toEqual(['b', 'c'])
+  })
+
+  it('handles empty accumulators', () => {
+    expect(appendOlderPage([], [], [{id: 'a'}]).map((e) => e.id)).toEqual(['a'])
+  })
+})
+
+describe('buildActivityQueryParams', () => {
+  it('returns an empty object when no filters are set', () => {
+    expect(buildActivityQueryParams()).toEqual({})
+    expect(buildActivityQueryParams({})).toEqual({})
+  })
+
+  it('includes type, severity and a trimmed free-text needle', () => {
+    expect(buildActivityQueryParams({type: 'SQL', severity: 'ERROR', text: '  orders  '})).toEqual({
+      type: 'SQL',
+      severity: 'ERROR',
+      q: 'orders'
+    })
+  })
+
+  it('forces severity to ERROR when errorsOnly is set, overriding an explicit severity', () => {
+    expect(buildActivityQueryParams({severity: 'SLOW', errorsOnly: true})).toEqual({severity: 'ERROR'})
+  })
+
+  it('omits blank filters', () => {
+    expect(buildActivityQueryParams({type: '', severity: '', text: '   ', errorsOnly: false})).toEqual({})
   })
 })

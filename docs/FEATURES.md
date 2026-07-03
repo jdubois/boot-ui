@@ -118,10 +118,41 @@ the **Escape** key (with focus trapped inside while open), and offers a **Copy p
 already-masked correlated timeline (request + SQL + exceptions + security events, including any flagged N+1 call sites)
 as plain text to paste straight into a bug report.
 
-The panel is read-only and inherits BootUI's full safety model (loopback filter, Host allow-list, cross-site write
-defenses, value masking). The stream is capped by `bootui.activity.max-entries`, the slow-request threshold is
-`bootui.activity.request-slow-threshold-ms`, and individual sources can be turned off through their existing
-`bootui.panels.*` toggles (a disabled source simply drops out of the stream).
+The panel inherits BootUI's full safety model (loopback filter, Host allow-list, cross-site write defenses, value
+masking); its reads are read-only, and its one state-changing action (switching to a database, described below) is
+confirmation-gated and blocked like any other action when the app or panel is read-only. The stream is capped by
+`bootui.activity.max-entries`, the slow-request threshold is `bootui.activity.request-slow-threshold-ms`, and individual
+sources can be turned off through their existing `bootui.panels.*` toggles (a disabled source simply drops out of the
+stream).
+
+By default the stream is in-memory only, so history is lost on a restart and the feed can only show as far back as the
+small buffers behind it reach. Setting `bootui.activity.persistence.enabled=true` additionally buffers
+captured entries and flushes them to a SQL database over direct JDBC every `bootui.activity.persistence.flush-interval`
+(5 seconds by default), so history survives a restart and the dashboard can page back much further. The backing table
+(`bootui.activity.persistence.table-name`, default `bootui_activity`) is created automatically the first time it is
+needed, and several BootUI instances — for example several replicas of the same application — can safely point at the
+same table: each instance tags its own rows with an `instanceId` (defaulting to the `HOSTNAME` environment variable) and
+never reads or prunes another instance's rows. Recently captured entries are visible in the dashboard immediately, even
+before they have been flushed, because reads always merge the in-memory buffer with the durable store; if a flush ever
+fails, its entries are put back in the buffer rather than lost, and are retried on the next flush. Once persistence is
+confirmed on, the panel gains a **Load older** button beneath the stream that pages further back into history, and the
+type/severity/free-text filters are additionally pushed to the database as a real query instead of only filtering the
+entries already on screen; a small "· persisted history" note next to the panel subtitle confirms durable storage is
+active. By default (persistence off) none of this changes anything: no extra bean, thread, or connection is created, and
+the feed behaves exactly as before. See `docs/PROPERTIES.md` for the full list of `bootui.activity.persistence.*`
+properties, including how to point at a small dedicated connection instead of reusing the host application's own
+`DataSource`.
+
+Turning persistence on does not require editing configuration or restarting the app. Whenever it is not yet active, a
+"Currently saving N events in memory" tip appears next to the panel title alongside a **Use a database** button; opening
+it reveals setup documentation and, if the application already has a `DataSource` bean, a **Use the existing
+datasource** action. That action is confirmation-gated exactly like other destructive/state-changing actions elsewhere
+in BootUI (Flyway migrate/clean, Liquibase update, Cache clear): once confirmed, it checks the current datasource,
+creates the backing table if it does not already exist, and hot-switches the running instance from the in-memory buffer
+to durable storage — with no dropped entries and no restart. This switch is **runtime-only**: it changes nothing on
+disk, so a later restart reverts to the in-memory default unless `bootui.activity.persistence.enabled=true` is also set
+in configuration. If no `DataSource` is present, the button instead links straight to the setup documentation for
+configuring one (a dedicated one, just for Live Activity, or reusing an existing one).
 
 On Quarkus the panel merges all four signals: HTTP requests (from the same Vert.x-fed ring buffer as HTTP Exchanges),
 SQL trace, exceptions, and security events, alongside JVM heap KPIs. SQL trace contributes only when a JDBC datasource is
@@ -145,6 +176,16 @@ rather than fabricating a partial profile (see `docs/QUARKUS-SUPPORT.md` for the
 list-level row badge, and call-site capture are computed by the same shared engine code Spring uses (the correlation
 tier above only changes *which* SQL gets grouped, never how a group is flagged or its call sites collected), so a
 Quarkus request that resolves any SQL correlation gets byte-identical N+1 flagging to Spring.
+
+The optional durable persistence backend described above is available on Quarkus too, with an identical config surface,
+wire contract, and shared engine machinery (`ActivityStore`/`BufferedActivityStore`/`JdbcActivityStore`). A dedicated
+`QuarkusActivityCapture` CDI bean owns the capture-poller lifecycle (starting it at `@Observes StartupEvent` and
+stopping it, with a final flush, at `@Observes ShutdownEvent`) where the Spring adapter instead wires the same
+poller/coordinator inline in its controller. One narrower, pre-existing gap carries over: because Quarkus's baseline
+feed has no server-side `type`/`severity`/`since` filtering to begin with (see above), those filters only take effect
+on Quarkus once persistence is switched on. The runtime "Use the existing datasource" switch described above works
+identically on Quarkus: the same engine-level `ActivitySwitchService` backs a thin JAX-RS mirror of Spring's endpoint,
+so the tip, button, and confirmation flow behave the same regardless of adapter.
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 

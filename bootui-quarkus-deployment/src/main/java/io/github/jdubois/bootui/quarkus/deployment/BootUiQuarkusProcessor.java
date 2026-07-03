@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.quarkus.QuarkusPanelAccessFilter;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
+import io.github.jdubois.bootui.quarkus.activity.QuarkusActivityCapture;
 import io.github.jdubois.bootui.quarkus.agent.AgentSessionProducer;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.devservices.DevServicesRecorder;
@@ -234,6 +235,7 @@ class BootUiQuarkusProcessor {
                         QuarkusHttpExchangeCaptureFilter.class,
                         HttpExchangesResource.class,
                         LiveActivityResource.class,
+                        QuarkusActivityCapture.class,
                         SecurityLogsResource.class,
                         SqlTraceResource.class,
                         AgentSessionProducer.class,

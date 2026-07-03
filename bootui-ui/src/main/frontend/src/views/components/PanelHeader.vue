@@ -70,7 +70,10 @@ onBeforeUnmount(stopRelativeTimer)
   <div class="panel-header mb-3">
     <div class="panel-header__info">
       <h2 class="mb-0"><i v-if="icon" :class="['bi', icon, 'me-2']"></i>{{ title }}</h2>
-      <p v-if="subtitle" class="text-muted small mb-0 mt-1">{{ subtitle }}</p>
+      <p v-if="subtitle" class="text-muted small mb-0 mt-1 d-flex align-items-center flex-wrap gap-4">
+        <span>{{ subtitle }}</span>
+        <slot name="subtitle-actions"></slot>
+      </p>
     </div>
     <div class="panel-header__actions">
       <span v-if="lastFetchedText" class="last-fetched-text">{{ lastFetchedText }}</span>

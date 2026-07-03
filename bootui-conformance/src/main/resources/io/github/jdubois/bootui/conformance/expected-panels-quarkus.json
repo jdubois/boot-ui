@@ -48,6 +48,6 @@
     { "id": "crac", "title": "CRaC", "actionCapable": true },
     { "id": "sql-trace", "title": "SQL Trace", "actionCapable": true },
     { "id": "mcp-server", "title": "MCP Server", "actionCapable": true },
-    { "id": "activity", "title": "Live Activity", "actionCapable": false }
+    { "id": "activity", "title": "Live Activity", "actionCapable": true }
   ]
 }

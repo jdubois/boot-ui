@@ -718,14 +718,82 @@ Features:
   `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1, together with the distinct application call
   site(s) that issued them (from SQL Trace's call-site capture, `bootui.sql-trace.capture-call-site`, on by default) so a
   flagged group names exactly where in the code to look.
+- Optional durable persistence (`bootui.activity.persistence.enabled`, off by default, available on both adapters): in
+  addition to today's in-memory-only default, captured entries can also be written to a SQL database over direct JDBC so
+  history survives a restart and the dashboard can page back further than fits in memory. The design is a pluggable
+  `ActivityStore` abstraction with two implementations:
+  - `InMemoryActivityStore` — formalizes today's behavior (a bounded ring buffer) and remains the default; enabling
+    persistence never removes or changes this default, it only adds a second store behind the same interface.
+  - `JdbcActivityStore` — plain JDBC (no ORM), reusable against either the host application's own `DataSource` (the
+    same one the SQL Trace panel may already be tracing) or a small dedicated, non-pooled connection configured
+    through `bootui.activity.persistence.dedicated-*`. The backing table (`bootui.activity.persistence.table-name`,
+    default `bootui_activity`) is created automatically on first use with a probe-then-create check that is safe when
+    several instances start concurrently against the same schema.
+  A `BufferedActivityStore` decorator wraps the JDBC store and provides, uniformly for any future `ActivityStore`
+  implementation:
+  - Write-behind buffering with a scheduled flush every `bootui.activity.persistence.flush-interval` (default 5s).
+  - Merge-for-reads: a query is served from the in-memory buffer merged with the durable store, so recently captured
+    entries are visible in the dashboard immediately, even before their next scheduled flush.
+  - Re-queue on failure: entries from a failed flush are put back at the front of the buffer instead of being lost, and
+    are retried on the next flush.
+  - A flush guard (`BootUiJdbcCaptureGuard`) suppresses BootUI's own JDBC calls (create/probe/insert/select) from being
+    recorded by the SQL Trace panel, preventing the store's own writes and reads from feeding back into the very
+    activity feed being captured.
+  Persisted rows are namespaced by an `instanceId` (`bootui.activity.persistence.instance-id`, defaulting to the
+  `HOSTNAME` environment variable or a generated `<app-name>-<random>` id), so several BootUI instances — for example
+  several replicas of the same application — can share one database table without seeing or pruning each other's rows
+  (multi-tenant by partition key, not by separate tables). Rows older than `bootui.activity.persistence.retention`
+  (default 7 days) are pruned periodically, scoped to the pruning instance's own rows only. When persistence is
+  enabled, `GET /bootui/api/activity` additionally accepts `q` (free-text), `until`, `cursor`, and `pageSize` and
+  serves pagination/filter/search from the durable store (a keyset cursor over `(occurred_at, seq)`, stable under
+  concurrent writes); the response's `pageInfo.persistent` flag tells the dashboard to page further back with
+  `pageInfo.nextCursor`. KPIs, type counts, sources, and warnings are always computed from the live in-memory merge
+  regardless of persistence — they summarize "right now", not whichever historical page happens to be browsed.
+  Entries are masked before they are ever buffered or written, so persisted rows are immutable with respect to later
+  masking-policy changes.
+
+  On Quarkus, a dedicated `QuarkusActivityCapture` CDI bean (`@Observes StartupEvent`/`ShutdownEvent`) owns the
+  capture-poller lifecycle that the Spring adapter instead wires inline in its controller constructor/`shutdown()`; the
+  `ActivityStore`/`BufferedActivityStore`/`JdbcActivityStore`/`ActivityStoreFactory` engine machinery, every
+  `bootui.activity.persistence.*` key, and the wire contract are identical on both adapters, and the `ActivityStore` and
+  `ActivityPersistenceSettings` beans are always produced (persistence disabled is just `enabled() == false`, matching
+  the Spring `@ConditionalOnProperty` default). One narrower, pre-existing divergence carries over: Quarkus's baseline
+  (persistence-disabled) feed has no server-side `type`/`severity`/`since` filtering — unlike Spring's separate
+  `LiveActivityService`, the shared engine `LiveActivityAssembler` Quarkus's resource calls has none — so on Quarkus
+  those filters take effect only once persistence is enabled and the query is served from the `ActivityStore`; the KPI
+  strip stays computed from the full, unfiltered live merge either way on both adapters.
+- Runtime switch to a database, with no restart required: every `GET /bootui/api/activity` response carries a
+  `persistenceOption` (whether persistence is currently active, whether a `DataSource` bean is present, and the
+  configured table name), driving a "Currently saving N events in memory" tip and a "Use a database" disclosure next to
+  the panel title whenever persistence is not yet active. If a `DataSource` is available, the disclosure offers a
+  confirmation-gated "Use the existing datasource" action (`POST /bootui/api/activity/use-existing-datasource`,
+  mirroring the confirmation UX of other state-changing actions such as Flyway migrate/clean or Cache clear) that
+  atomically swaps the running instance's `ActivityStore` — behind a `SwitchableActivityStore` indirection — from
+  `InMemoryActivityStore` to a `BufferedActivityStore`/`JdbcActivityStore` pair: it verifies/creates the backing table
+  against the current `DataSource` and starts the same capture-poller/flush cycle a startup-enabled instance would have,
+  with no restart and no dropped entries. If no `DataSource` is present, the disclosure instead links to setup
+  documentation for configuring one (or a dedicated one) and enabling persistence at startup. The switch is
+  **runtime-only**: it does not write configuration, so a later restart reverts to the in-memory default unless
+  persistence is also turned on via `bootui.activity.persistence.enabled=true`. Identical on both adapters (Spring's
+  `LiveActivityController` and Quarkus's `LiveActivityResource` share the same engine-level `ActivitySwitchService`).
 
 Acceptance criteria:
 
-- The panel is read-only and inherits the loopback filter, Host allow-list, cross-site write defenses, and value masking
-  from the underlying sources.
+- The panel's reads inherit the loopback filter, Host allow-list, cross-site write defenses, and value masking from the
+  underlying sources; the "Use the existing datasource" switch is a state-changing action allowed only when neither the
+  app nor the Live Activity panel is read-only, gated by the same explicit confirmation used by other destructive
+  actions (Flyway migrate/clean, Liquibase update, Cache clear).
 - Sources that are absent or disabled (through their own `bootui.panels.*` toggles) simply drop out of the stream; when
   no source is available the panel returns a stable unavailable report.
 - SQL↔request correlation is presented as approximate and never fabricates trace-id links that do not exist.
+- With `bootui.activity.persistence.enabled=false` (the default), behavior, response shape, and the merged in-memory
+  feed are unchanged from before persistence existed; no additional bean, thread, or connection is created.
+- With persistence enabled, the backing table is created automatically if absent, entries survive a restart, a failed
+  flush never loses entries, and BootUI's own persistence-related JDBC traffic never appears in the SQL Trace panel or
+  feeds back into the Live Activity stream.
+- The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
+  `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
+  active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
 
 ### 5.15 Profile Diff Panel
 
@@ -1238,9 +1306,10 @@ Initial endpoints:
 | `/bootui/api/mcp-server`                     | GET    | MCP Server panel status (enabled state, configured mode, transport, advertised tools)  |
 | `/bootui/api/mcp-server/toggle`              | POST   | Enable/disable the MCP server at runtime, overriding `bootui.mcp.enabled`               |
 | `/bootui/api/mcp`                            | GET/POST | Local-only MCP JSON-RPC 2.0 endpoint and status (served only while the server is enabled) |
-| `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`) |
+| `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |
+| `/bootui/api/activity/use-existing-datasource` | POST | Hot-switch Live Activity from in-memory to the existing `DataSource` (confirmation-gated) |
 
 ### 6.5 Configuration properties
 

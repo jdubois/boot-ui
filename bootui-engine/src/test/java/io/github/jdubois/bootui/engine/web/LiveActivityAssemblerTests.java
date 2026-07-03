@@ -104,7 +104,7 @@ class LiveActivityAssemblerTests {
         LiveActivityReport report =
                 assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
 
-        ActivityEntryDto securityEntry = entry(report, "sec-0");
+        ActivityEntryDto securityEntry = securityEntry(report);
         assertThat(securityEntry.type()).isEqualTo("SECURITY");
         assertThat(securityEntry.severity()).isEqualTo("OK");
         assertThat(securityEntry.summary()).isEqualTo("AUTHENTICATION_SUCCESS · alice");
@@ -122,7 +122,7 @@ class LiveActivityAssemblerTests {
         LiveActivityReport report =
                 assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
 
-        assertThat(entry(report, "sec-0").severity()).isEqualTo("WARN");
+        assertThat(securityEntry(report).severity()).isEqualTo("WARN");
     }
 
     @Test
@@ -134,7 +134,7 @@ class LiveActivityAssemblerTests {
         LiveActivityReport report =
                 assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
 
-        assertThat(entry(report, "sec-0").parentId()).isNull();
+        assertThat(securityEntry(report).parentId()).isNull();
         assertThat(entry(report, "req-1").securedPrincipal()).isNull();
         assertThat(entry(report, "req-2").securedPrincipal()).isNull();
     }
@@ -147,7 +147,7 @@ class LiveActivityAssemblerTests {
         LiveActivityReport report =
                 assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
 
-        ActivityEntryDto securityEntry = entry(report, "sec-0");
+        ActivityEntryDto securityEntry = securityEntry(report);
         assertThat(securityEntry.parentId()).isNull();
         assertThat(securityEntry.correlationId()).isNull();
         assertThat(entry(report, "req-1").securedPrincipal()).isNull();
@@ -226,6 +226,17 @@ class LiveActivityAssemblerTests {
                 .filter(e -> e.id().equals(id))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("no entry with id " + id));
+    }
+
+    /**
+     * Security entry ids are a content hash (see {@link SecurityActivityIds}), not a predictable literal,
+     * so tests locate the single security entry by type instead of hardcoding an id.
+     */
+    private static ActivityEntryDto securityEntry(LiveActivityReport report) {
+        return report.entries().stream()
+                .filter(e -> "SECURITY".equals(e.type()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no SECURITY entry in report"));
     }
 
     private static HttpExchangesReport requests(HttpExchangeDto... exchanges) {
