@@ -24,11 +24,14 @@ const error = ref(null)
 const {message: banner, flash, show, clear} = useFlashMessage(4000)
 const filter = ref('')
 const sourceFilter = ref('all')
+const statusFilter = ref('all')
 const appOnly = ref(false)
 const selectedId = ref(null)
 const detailLoading = ref(false)
 const busy = ref(false)
 const lastFetched = ref(null)
+
+const STATUSES = ['OPEN', 'ACKNOWLEDGED', 'RESOLVED']
 
 async function fetchExceptions() {
   error.value = null
@@ -95,12 +98,63 @@ async function clearAll() {
   }
 }
 
+function statusLabel(status) {
+  return (
+    {
+      OPEN: 'Open',
+      ACKNOWLEDGED: 'Acknowledged',
+      RESOLVED: 'Resolved'
+    }[status] || status
+  )
+}
+
+function statusBadgeClass(status) {
+  return (
+    {
+      OPEN: 'text-bg-danger',
+      ACKNOWLEDGED: 'text-bg-warning',
+      RESOLVED: 'text-bg-success'
+    }[status] || 'text-bg-secondary'
+  )
+}
+
+function applyUpdatedGroup(updated) {
+  if (report.value && report.value.groups) {
+    const i = report.value.groups.findIndex((g) => g.id === updated.id)
+    if (i >= 0) report.value.groups[i] = updated
+  }
+  if (detail.value && detail.value.group && detail.value.group.id === updated.id) {
+    detail.value.group = updated
+  }
+}
+
+async function changeStatus(group, status) {
+  if (readOnly.value) {
+    flash(readOnlyReason.value, 'warning')
+    return
+  }
+  try {
+    const res = await apiFetch(`api/exceptions/${encodeURIComponent(group.id)}/status`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({status})
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const updated = await res.json()
+    applyUpdatedGroup(updated)
+    flash(`Status changed to ${statusLabel(updated.status)}.`, 'success')
+  } catch (e) {
+    show(formatLoadError(e, 'Could not update status'), 'danger')
+  }
+}
+
 const filteredGroups = computed(() => {
   if (!report.value || !report.value.groups) return []
   const text = filter.value.trim().toLowerCase()
   return report.value.groups.filter((g) => {
     if (appOnly.value && !g.applicationException) return false
     if (sourceFilter.value !== 'all' && g.lastSource !== sourceFilter.value) return false
+    if (statusFilter.value !== 'all' && g.status !== statusFilter.value) return false
     if (!text) return true
     return (
       (g.exceptionClassName || '').toLowerCase().includes(text) ||
@@ -199,14 +253,20 @@ onMounted(() => {
                 placeholder="Filter by exception type, message, or location…"
               />
             </div>
-            <div class="col-6 col-lg-3">
+            <div class="col-6 col-lg-2">
               <select v-model="sourceFilter" class="form-select form-select-sm" aria-label="Source filter">
                 <option value="all">All sources</option>
                 <option value="web">Web requests</option>
                 <option value="log">Logged</option>
               </select>
             </div>
-            <div class="col-6 col-lg-3">
+            <div class="col-6 col-lg-2">
+              <select v-model="statusFilter" class="form-select form-select-sm" aria-label="Status filter">
+                <option value="all">All statuses</option>
+                <option v-for="s in STATUSES" :key="s" :value="s">{{ statusLabel(s) }}</option>
+              </select>
+            </div>
+            <div class="col-6 col-lg-2">
               <div class="form-check">
                 <input id="exceptions-app-only" v-model="appOnly" class="form-check-input" type="checkbox" />
                 <label class="form-check-label small" for="exceptions-app-only">Application only</label>
@@ -221,6 +281,7 @@ onMounted(() => {
                   <th>Last seen</th>
                   <th>Exception</th>
                   <th>Source</th>
+                  <th>Status</th>
                   <th class="text-end">Count</th>
                   <th></th>
                 </tr>
@@ -254,6 +315,33 @@ onMounted(() => {
                     <td>
                       <span :class="sourceBadgeClass(g.lastSource)" class="badge">{{ g.lastSource || '—' }}</span>
                     </td>
+                    <td>
+                      <div class="d-flex flex-column gap-1">
+                        <div>
+                          <span :class="['badge', statusBadgeClass(g.status)]">{{ statusLabel(g.status) }}</span>
+                          <span
+                            v-if="g.regressionCount > 0"
+                            class="badge rounded-pill text-bg-danger ms-1"
+                            :title="`Reopened after being marked resolved ${g.regressionCount} time(s)`"
+                          >
+                            <i class="bi bi-arrow-repeat me-1"></i>Reopened ×{{ g.regressionCount }}
+                          </span>
+                        </div>
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Change status">
+                          <button
+                            v-for="s in STATUSES"
+                            :key="s"
+                            type="button"
+                            :disabled="readOnly"
+                            :class="{active: g.status === s}"
+                            class="btn btn-outline-secondary"
+                            @click="changeStatus(g, s)"
+                          >
+                            {{ statusLabel(s) }}
+                          </button>
+                        </div>
+                      </div>
+                    </td>
                     <td class="text-end">
                       <span class="badge text-bg-dark">{{ formatNumber(g.count) }}</span>
                     </td>
@@ -263,17 +351,20 @@ onMounted(() => {
                         class="btn btn-sm btn-outline-primary"
                         @click="toggleException(g.id)"
                       >
-                        {{ g.id === selectedId ? 'Close' : 'Open' }}
+                        {{ g.id === selectedId ? 'Hide' : 'Details' }}
                       </button>
                     </td>
                   </tr>
                   <tr v-if="g.id === selectedId" class="exception-detail-row">
-                    <td class="p-0" colspan="5">
+                    <td class="p-0" colspan="6">
                       <div class="exception-drawer card m-2">
                         <div class="card-header d-flex justify-content-between align-items-center">
                           <div class="text-truncate">
                             <i class="bi bi-exclamation-octagon me-2"></i>
                             <span class="fw-semibold">{{ g.exceptionClassName }}</span>
+                            <span :class="['badge', statusBadgeClass(g.status)]" class="ms-2">{{
+                              statusLabel(g.status)
+                            }}</span>
                           </div>
                           <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">Close</button>
                         </div>

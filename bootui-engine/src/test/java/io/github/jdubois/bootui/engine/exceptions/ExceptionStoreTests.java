@@ -161,6 +161,106 @@ class ExceptionStoreTests {
         assertThat(store.totalExceptions()).isEqualTo(1);
     }
 
+    @Test
+    void newGroupsDefaultToOpenStatusWithNoRegressions() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(new IllegalStateException("boom"), "main", null, null, null, "log");
+
+        ExceptionStore.GroupSummary summary = store.groups().get(0);
+        assertThat(summary.status()).isEqualTo(ExceptionStore.Status.OPEN);
+        assertThat(summary.regressionCount()).isZero();
+    }
+
+    @Test
+    void setStatusUpdatesAKnownGroupAndReturnsTheUpdatedSummary() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(new IllegalStateException("boom"), "main", null, null, null, "log");
+        String fingerprint = store.groups().get(0).fingerprint();
+
+        ExceptionStore.GroupSummary updated = store.setStatus(fingerprint, ExceptionStore.Status.ACKNOWLEDGED);
+
+        assertThat(updated).isNotNull();
+        assertThat(updated.status()).isEqualTo(ExceptionStore.Status.ACKNOWLEDGED);
+        assertThat(store.groups().get(0).status()).isEqualTo(ExceptionStore.Status.ACKNOWLEDGED);
+    }
+
+    @Test
+    void setStatusReturnsNullForAnUnknownFingerprint() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+
+        assertThat(store.setStatus("does-not-exist", ExceptionStore.Status.RESOLVED))
+                .isNull();
+    }
+
+    @Test
+    void acknowledgedGroupsDoNotAutoTransitionOnNewOccurrences() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        // Both throwables must share the exact same call site so they fingerprint into one group -
+        // the stack trace (and therefore the fingerprint) is captured at construction time, so
+        // generating them from a single loop line (like sameOrigin does) is required here.
+        List<Throwable> throwables = sameOrigin(2);
+        store.record(throwables.get(0), "main", null, null, null, "log");
+        String fingerprint = store.groups().get(0).fingerprint();
+        store.setStatus(fingerprint, ExceptionStore.Status.ACKNOWLEDGED);
+
+        store.record(throwables.get(1), "main", null, null, null, "log");
+
+        ExceptionStore.GroupSummary summary = store.groups().get(0);
+        assertThat(summary.status()).isEqualTo(ExceptionStore.Status.ACKNOWLEDGED);
+        assertThat(summary.regressionCount()).isZero();
+        assertThat(summary.count()).isEqualTo(2);
+    }
+
+    @Test
+    void resolvedGroupsAutoReopenAndIncrementRegressionCountOnANewOccurrence() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        List<Throwable> throwables = sameOrigin(3);
+        store.record(throwables.get(0), "main", null, null, null, "log");
+        String fingerprint = store.groups().get(0).fingerprint();
+        store.setStatus(fingerprint, ExceptionStore.Status.RESOLVED);
+
+        store.record(throwables.get(1), "main", null, null, null, "log");
+
+        ExceptionStore.GroupSummary firstRegression = store.groups().get(0);
+        assertThat(firstRegression.status()).isEqualTo(ExceptionStore.Status.OPEN);
+        assertThat(firstRegression.regressionCount()).isEqualTo(1);
+
+        // Resolve again, and confirm a second regression increments the counter further.
+        store.setStatus(fingerprint, ExceptionStore.Status.RESOLVED);
+        store.record(throwables.get(2), "main", null, null, null, "log");
+
+        ExceptionStore.GroupSummary secondRegression = store.groups().get(0);
+        assertThat(secondRegression.status()).isEqualTo(ExceptionStore.Status.OPEN);
+        assertThat(secondRegression.regressionCount()).isEqualTo(2);
+    }
+
+    @Test
+    void manualSetStatusNeverChangesRegressionCount() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(makeException(), "main", null, null, null, "log");
+        String fingerprint = store.groups().get(0).fingerprint();
+
+        store.setStatus(fingerprint, ExceptionStore.Status.ACKNOWLEDGED);
+        store.setStatus(fingerprint, ExceptionStore.Status.RESOLVED);
+        store.setStatus(fingerprint, ExceptionStore.Status.OPEN);
+
+        assertThat(store.groups().get(0).regressionCount()).isZero();
+    }
+
+    @Test
+    void setStatusNotifiesSubscribers() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(new IllegalStateException("boom"), "main", null, null, null, "log");
+        String fingerprint = store.groups().get(0).fingerprint();
+
+        java.util.concurrent.atomic.AtomicInteger notifications = new java.util.concurrent.atomic.AtomicInteger();
+        store.subscribe(notifications::incrementAndGet);
+
+        store.setStatus(fingerprint, ExceptionStore.Status.ACKNOWLEDGED);
+
+        assertThat(notifications.get()).isEqualTo(1);
+    }
+
     private static List<Throwable> sameOrigin(int count) {
         List<Throwable> throwables = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {

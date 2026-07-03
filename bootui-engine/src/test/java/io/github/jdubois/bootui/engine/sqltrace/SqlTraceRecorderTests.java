@@ -1,18 +1,27 @@
 package io.github.jdubois.bootui.engine.sqltrace;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
 import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 class SqlTraceRecorderTests {
 
     private SqlTraceRecorder recorder(boolean enabled, boolean captureParameters, int maxEntries, long slowMillis) {
-        return new SqlTraceRecorder(enabled, true, captureParameters, maxEntries, slowMillis, 2000, 200, 5);
+        return recorder(enabled, captureParameters, false, maxEntries, slowMillis);
+    }
+
+    private SqlTraceRecorder recorder(
+            boolean enabled, boolean captureParameters, boolean captureCallSite, int maxEntries, long slowMillis) {
+        return new SqlTraceRecorder(
+                enabled, true, captureParameters, captureCallSite, maxEntries, slowMillis, 2000, 200, 5);
     }
 
     private void record(SqlTraceRecorder recorder, Category category, String sql, int batchSize) {
@@ -193,7 +202,96 @@ class SqlTraceRecorderTests {
         assertThat(top.sql()).isEqualTo("select * from child where parent_id = ?");
         assertThat(top.executions()).isEqualTo(6);
         assertThat(top.potentialNPlusOne()).isTrue();
+        assertThat(top.callSites()).isEmpty();
         assertThat(groups.stream().filter(SqlTraceGroupDto::potentialNPlusOne)).hasSize(1);
+    }
+
+    @Test
+    void omitsCallSiteWhenCaptureDisabled() {
+        SqlTraceRecorder recorder = recorder(true, false, false, 10, 100);
+        record(recorder, Category.SELECT, "select 1", 0);
+        assertThat(recorder.recent().get(0).callSite()).isNull();
+    }
+
+    @Test
+    void neverThrowsAndStillRecordsWhenCallSiteCaptureIsEnabled() {
+        SqlTraceRecorder recorder = recorder(true, false, true, 10, 100);
+        record(recorder, Category.SELECT, "select 1", 0);
+        // Best-effort: within this test suite's own call stack every frame belongs to BootUI, the JDK,
+        // JUnit, or the build tool (see StackFramePrefixes), so no application frame is ever found here and
+        // the call site is null. The important guarantee under test is that enabling capture never throws
+        // or disrupts recording; the frame-selection algorithm itself (with a synthetic application frame)
+        // is covered in isolation by the selectCallSite* tests below.
+        assertThat(recorder.recent()).hasSize(1);
+        assertThat(recorder.recent().get(0).callSite()).isNull();
+    }
+
+    @Test
+    void selectCallSiteFindsFirstApplicationFrame() {
+        StackWalker.StackFrame jdk = frame("java.sql.Statement", "execute", "Statement.java", 10);
+        StackWalker.StackFrame app = frame("com.example.app.OrderRepository", "findAll", "OrderRepository.java", 42);
+
+        String result = SqlTraceRecorder.selectCallSite(Stream.of(jdk, app));
+
+        assertThat(result).isEqualTo("com.example.app.OrderRepository.findAll(OrderRepository.java:42)");
+    }
+
+    @Test
+    void selectCallSiteSkipsFrameworkAndBootUiFramesToFindTheApplicationFrame() {
+        StackWalker.StackFrame bootui = frame(
+                "io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder", "record", "SqlTraceRecorder.java", 200);
+        StackWalker.StackFrame hibernate = frame("org.hibernate.engine.spi.SessionImpl", "list", "SessionImpl.java", 5);
+        StackWalker.StackFrame app = frame("com.example.app.OrderRepository", "findAll", "OrderRepository.java", 42);
+
+        String result = SqlTraceRecorder.selectCallSite(Stream.of(bootui, hibernate, app));
+
+        assertThat(result).isEqualTo("com.example.app.OrderRepository.findAll(OrderRepository.java:42)");
+    }
+
+    @Test
+    void selectCallSiteReturnsNullWhenEveryFrameIsFrameworkOrBootUiCode() {
+        StackWalker.StackFrame bootui = frame(
+                "io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder", "record", "SqlTraceRecorder.java", 200);
+        StackWalker.StackFrame jdk = frame("java.sql.Statement", "execute", "Statement.java", 10);
+
+        assertThat(SqlTraceRecorder.selectCallSite(Stream.of(bootui, jdk))).isNull();
+    }
+
+    @Test
+    void selectCallSiteRendersUnknownSourceWhenFileNameIsMissing() {
+        StackWalker.StackFrame app = frame("com.example.app.OrderRepository", "findAll", null, 42);
+
+        assertThat(SqlTraceRecorder.selectCallSite(Stream.of(app)))
+                .isEqualTo("com.example.app.OrderRepository.findAll(Unknown Source)");
+    }
+
+    @Test
+    void selectCallSiteOmitsLineNumberWhenNegative() {
+        StackWalker.StackFrame app = frame("com.example.app.OrderRepository", "findAll", "OrderRepository.java", -1);
+
+        assertThat(SqlTraceRecorder.selectCallSite(Stream.of(app)))
+                .isEqualTo("com.example.app.OrderRepository.findAll(OrderRepository.java)");
+    }
+
+    @Test
+    void selectCallSiteGivesUpBeyondTheFrameLimit() {
+        StackWalker.StackFrame framework = frame("java.sql.Statement", "execute", "Statement.java", 10);
+        StackWalker.StackFrame app = frame("com.example.app.OrderRepository", "findAll", "OrderRepository.java", 42);
+        // 130 framework frames, then one application frame — placed beyond the 128-frame bound so the walk
+        // must give up (return null) rather than finding it.
+        Stream<StackWalker.StackFrame> frames =
+                Stream.concat(Stream.generate(() -> framework).limit(130), Stream.of(app));
+
+        assertThat(SqlTraceRecorder.selectCallSite(frames)).isNull();
+    }
+
+    private static StackWalker.StackFrame frame(String className, String methodName, String fileName, int lineNumber) {
+        StackWalker.StackFrame frame = mock(StackWalker.StackFrame.class);
+        when(frame.getClassName()).thenReturn(className);
+        when(frame.getMethodName()).thenReturn(methodName);
+        when(frame.getFileName()).thenReturn(fileName);
+        when(frame.getLineNumber()).thenReturn(lineNumber);
+        return frame;
     }
 
     @Test

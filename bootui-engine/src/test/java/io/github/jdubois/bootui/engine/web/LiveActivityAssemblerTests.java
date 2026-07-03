@@ -174,6 +174,53 @@ class LiveActivityAssemblerTests {
         assertThat(report.sources()).doesNotContain("security");
     }
 
+    @Test
+    void flagsRequestAsSqlNPlusOneSuspectedWhenItsCorrelatedSqlHitsTheThreshold() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<SqlTraceEntryDto> sql = List.of(
+                sql(1, "select * from item where order_id = ?", "trace-a", 1_001L),
+                sql(2, "select * from item where order_id = ?", "trace-a", 1_002L),
+                sql(3, "select * from item where order_id = ?", "trace-a", 1_003L),
+                sql(4, "select * from item where order_id = ?", "trace-a", 1_004L),
+                sql(5, "select * from item where order_id = ?", "trace-a", 1_005L));
+
+        LiveActivityReport report =
+                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
+
+        assertThat(entry(report, "req-1").sqlNPlusOneSuspected()).isTrue();
+    }
+
+    @Test
+    void doesNotFlagSqlNPlusOneSuspectedBelowTheThreshold() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<SqlTraceEntryDto> sql = List.of(
+                sql(1, "select * from item where order_id = ?", "trace-a", 1_001L),
+                sql(2, "select * from item where order_id = ?", "trace-a", 1_002L),
+                sql(3, "select * from item where order_id = ?", "trace-a", 1_003L),
+                sql(4, "select * from item where order_id = ?", "trace-a", 1_004L));
+
+        LiveActivityReport report =
+                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
+
+        assertThat(entry(report, "req-1").sqlNPlusOneSuspected()).isFalse();
+    }
+
+    @Test
+    void nonRequestEntriesAreNeverFlaggedAsSqlNPlusOneSuspected() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<SqlTraceEntryDto> sql = List.of(
+                sql(1, "select * from item where order_id = ?", "trace-a", 1_001L),
+                sql(2, "select * from item where order_id = ?", "trace-a", 1_002L),
+                sql(3, "select * from item where order_id = ?", "trace-a", 1_003L),
+                sql(4, "select * from item where order_id = ?", "trace-a", 1_004L),
+                sql(5, "select * from item where order_id = ?", "trace-a", 1_005L));
+
+        LiveActivityReport report =
+                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
+
+        assertThat(entry(report, "sql-1").sqlNPlusOneSuspected()).isFalse();
+    }
+
     private static ActivityEntryDto entry(LiveActivityReport report, String id) {
         return report.entries().stream()
                 .filter(e -> e.id().equals(id))
@@ -228,6 +275,10 @@ class LiveActivityAssemblerTests {
     }
 
     private static SqlTraceEntryDto sql(long id, String sql, String traceId, long epochMillis) {
+        return sql(id, sql, traceId, epochMillis, null);
+    }
+
+    private static SqlTraceEntryDto sql(long id, String sql, String traceId, long epochMillis, String callSite) {
         return new SqlTraceEntryDto(
                 id,
                 epochMillis,
@@ -243,7 +294,8 @@ class LiveActivityAssemblerTests {
                 "worker-1",
                 false,
                 List.of(),
-                traceId);
+                traceId,
+                callSite);
     }
 
     private static List<ExceptionGroupDto> exceptions() {
@@ -265,6 +317,8 @@ class LiveActivityAssemblerTests {
                 "/orders",
                 "Handler#x",
                 "web",
-                lastTraceId);
+                lastTraceId,
+                "OPEN",
+                0);
     }
 }

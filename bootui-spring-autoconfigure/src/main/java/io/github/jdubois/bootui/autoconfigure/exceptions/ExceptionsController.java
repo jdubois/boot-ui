@@ -4,18 +4,25 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
+import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
+import io.github.jdubois.bootui.core.dto.ExceptionStatusUpdateRequest;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -107,6 +114,28 @@ public class ExceptionsController {
         if (store != null) {
             store.clear();
         }
+    }
+
+    /**
+     * Changes the triage status of one exception group ({@code OPEN}/{@code ACKNOWLEDGED}/
+     * {@code RESOLVED}). See {@link ExceptionsService#updateStatus} for validation and regression
+     * semantics.
+     */
+    @PostMapping("/{id}/status")
+    public ExceptionGroupDto updateStatus(
+            @PathVariable String id, @RequestBody(required = false) ExceptionStatusUpdateRequest request) {
+        ExceptionStore store = storeProvider.getIfAvailable();
+        ExceptionGroupDto updated = service.updateStatus(store, id, request == null ? null : request.status());
+        if (updated == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "exception " + id + " not found");
+        }
+        return updated;
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
     }
 
     /**

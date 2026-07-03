@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.exceptions;
 
+import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -11,6 +12,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -34,6 +36,19 @@ import java.util.function.Predicate;
  *
  * <p>All retained data lives only in memory, is bounded, and is reset on application restart or via
  * {@link #clear()}.</p>
+ *
+ * <p><strong>Triage lifecycle.</strong> Every group carries a {@link Status}, defaulting to
+ * {@link Status#OPEN} on creation. A developer moves a group to {@link Status#ACKNOWLEDGED} (seen,
+ * still investigating) or {@link Status#RESOLVED} (believed fixed) via {@link #setStatus}. Only a
+ * {@code RESOLVED} group auto-reopens: if {@link #capture} sees another occurrence of a fingerprint
+ * whose group is currently {@code RESOLVED}, the group flips back to {@code OPEN} and its
+ * {@code regressionCount} is incremented — a Sentry-style regression signal that a fix didn't hold.
+ * An {@code ACKNOWLEDGED} group deliberately does <em>not</em> auto-transition on new occurrences; it
+ * keeps accumulating {@code count}/{@code lastSeen} only, since the developer already knows about it
+ * and has not claimed it is fixed, so silently resetting their triage state on every duplicate
+ * occurrence would be noisy and would defeat the point of acknowledging it. {@code regressionCount} is
+ * a lifetime counter: manual {@link #setStatus} calls never change it, so it keeps answering "has this
+ * exact failure signature come back before?" across any number of later manual resolves.</p>
  */
 public final class ExceptionStore {
 
@@ -45,32 +60,6 @@ public final class ExceptionStore {
 
     /** Upper bound on a retained raw message, before display masking/truncation. */
     private static final int MAX_MESSAGE_LENGTH = 4096;
-
-    private static final List<String> FRAMEWORK_PREFIXES = List.of(
-            "java.",
-            "javax.",
-            "jakarta.",
-            "jdk.",
-            "sun.",
-            "com.sun.",
-            "org.springframework.",
-            "org.apache.",
-            "ch.qos.",
-            "org.slf4j.",
-            "io.micrometer.",
-            "org.hibernate.",
-            "com.zaxxer.",
-            "org.junit.",
-            "org.gradle.",
-            "org.eclipse.",
-            "reactor.",
-            "io.netty.",
-            "io.vertx.",
-            "io.quarkus.",
-            "org.aspectj.",
-            "net.bytebuddy.",
-            "org.jboss.",
-            "io.github.jdubois.bootui.");
 
     private final int maxGroups;
     private final int maxOccurrencesPerGroup;
@@ -191,6 +180,11 @@ public final class ExceptionStore {
                 group = new Group(fingerprint, className, now);
                 groups.put(fingerprint, group);
                 evictIfNeeded();
+            } else if (group.status == Status.RESOLVED) {
+                // Regression: a group believed fixed just fired again. Reopen it and mark the
+                // regression, but leave ACKNOWLEDGED groups alone (see class Javadoc).
+                group.status = Status.OPEN;
+                group.regressionCount++;
             }
             group.message = message;
             group.frames = safeFrames;
@@ -230,6 +224,28 @@ public final class ExceptionStore {
             Group group = groups.get(fingerprint);
             return group == null ? null : group.detail();
         }
+    }
+
+    /**
+     * Manually moves a group to the given {@link Status} (e.g. acknowledging or resolving it from the
+     * UI). Unlike the automatic regression reopen in {@link #capture}, this never changes
+     * {@code regressionCount} — it is a lifetime counter of automatic reopens, not of manual triage
+     * actions. Returns the updated {@link GroupSummary}, or {@code null} if {@code fingerprint} is
+     * unknown.
+     */
+    public GroupSummary setStatus(String fingerprint, Status status) {
+        Objects.requireNonNull(status, "status");
+        GroupSummary updated;
+        synchronized (lock) {
+            Group group = groups.get(fingerprint);
+            if (group == null) {
+                return null;
+            }
+            group.status = status;
+            updated = group.summary();
+        }
+        notifyListeners();
+        return updated;
     }
 
     public void clear() {
@@ -347,12 +363,7 @@ public final class ExceptionStore {
             }
             return false;
         }
-        for (String prefix : FRAMEWORK_PREFIXES) {
-            if (className.startsWith(prefix)) {
-                return false;
-            }
-        }
-        return true;
+        return !StackFramePrefixes.isFrameworkClass(className);
     }
 
     private static String location(List<Frame> frames) {
@@ -426,6 +437,8 @@ public final class ExceptionStore {
         private long count;
         private List<Frame> frames = List.of();
         private List<Cause> causes = List.of();
+        private Status status = Status.OPEN;
+        private long regressionCount;
 
         private Group(String fingerprint, String exceptionClassName, long firstSeen) {
             this.fingerprint = fingerprint;
@@ -452,7 +465,9 @@ public final class ExceptionStore {
                     lastSeen,
                     location,
                     applicationException,
-                    last);
+                    last,
+                    status,
+                    regressionCount);
         }
 
         private GroupDetail detail() {
@@ -483,8 +498,20 @@ public final class ExceptionStore {
             long lastSeen,
             String location,
             boolean applicationException,
-            Occurrence last) {}
+            Occurrence last,
+            Status status,
+            long regressionCount) {}
 
     public record GroupDetail(
             GroupSummary summary, List<Frame> frames, List<Cause> causes, List<Occurrence> occurrences) {}
+
+    /**
+     * Triage status of a group. See the class Javadoc for the full lifecycle and the regression
+     * auto-reopen rule.
+     */
+    public enum Status {
+        OPEN,
+        ACKNOWLEDGED,
+        RESOLVED
+    }
 }

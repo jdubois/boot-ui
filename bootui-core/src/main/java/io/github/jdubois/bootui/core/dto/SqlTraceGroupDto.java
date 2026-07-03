@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.core.dto;
 
+import java.util.List;
+
 /**
  * A group of identical SQL statements captured by the SQL Trace panel, used to surface repeated
  * queries and likely N+1 access patterns.
@@ -10,6 +12,9 @@ package io.github.jdubois.bootui.core.dto;
  * @param totalDurationMillis sum of execution times across the grouped executions
  * @param maxDurationMillis slowest execution time within the group
  * @param potentialNPlusOne whether the repetition count suggests an N+1 access pattern
+ * @param callSites distinct call sites observed for this group's executions, most-recently-seen first
+ *     and bounded to a handful of entries; empty when call-site capture is disabled or no application
+ *     frame was found for any execution in the group
  */
 public record SqlTraceGroupDto(
         String sql,
@@ -17,4 +22,10 @@ public record SqlTraceGroupDto(
         long executions,
         long totalDurationMillis,
         long maxDurationMillis,
-        boolean potentialNPlusOne) {}
+        boolean potentialNPlusOne,
+        List<String> callSites) {
+
+    public SqlTraceGroupDto {
+        callSites = callSites == null ? List.of() : List.copyOf(callSites);
+    }
+}

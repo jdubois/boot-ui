@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -12,8 +13,11 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 class ExceptionsControllerTests {
@@ -100,6 +104,82 @@ class ExceptionsControllerTests {
 
         assertThat(store.totalExceptions()).isZero();
         assertThat(store.groups()).isEmpty();
+    }
+
+    @Test
+    void updateStatusChangesStatusAndReturnsTheUpdatedGroup() throws Exception {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(new IllegalStateException("boom"), "main", null, null, null, "log");
+        String id = store.groups().get(0).fingerprint();
+        MockMvc mvc = buildMvc(store, new BootUiProperties());
+
+        mvc.perform(post("/bootui/api/exceptions/{id}/status", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"ACKNOWLEDGED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.status").value("ACKNOWLEDGED"))
+                .andExpect(jsonPath("$.regressionCount").value(0));
+
+        assertThat(store.groups().get(0).status()).isEqualTo(ExceptionStore.Status.ACKNOWLEDGED);
+    }
+
+    @Test
+    void updateStatusReturnsNotFoundForAnUnknownId() throws Exception {
+        MockMvc mvc = buildMvc(new ExceptionStore(100, 25, 50), new BootUiProperties());
+
+        mvc.perform(post("/bootui/api/exceptions/{id}/status", "does-not-exist")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"OPEN\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void updateStatusReturnsBadRequestForAnInvalidStatus() throws Exception {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(new IllegalStateException("boom"), "main", null, null, null, "log");
+        String id = store.groups().get(0).fingerprint();
+        MockMvc mvc = buildMvc(store, new BootUiProperties());
+
+        mvc.perform(post("/bootui/api/exceptions/{id}/status", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"CLOSED\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    void resolvedGroupAutoReopensWithARegressionMarkerAfterANewOccurrence() throws Exception {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        // Both occurrences must share the exact same call site so they land in the same group - the
+        // stack trace (and therefore the fingerprint) is captured when the throwable is constructed.
+        List<Throwable> occurrences = sameOrigin(2);
+        store.record(occurrences.get(0), "main", null, null, null, "log");
+        String id = store.groups().get(0).fingerprint();
+        MockMvc mvc = buildMvc(store, new BootUiProperties());
+
+        mvc.perform(post("/bootui/api/exceptions/{id}/status", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"RESOLVED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RESOLVED"));
+
+        // A fresh occurrence of the same fingerprint, recorded directly on the store (as an adapter
+        // capture point would), must auto-reopen the group and mark a regression.
+        store.record(occurrences.get(1), "main", null, null, null, "log");
+
+        mvc.perform(get("/bootui/api/exceptions/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.group.status").value("OPEN"))
+                .andExpect(jsonPath("$.group.regressionCount").value(1));
+    }
+
+    private static List<Throwable> sameOrigin(int count) {
+        List<Throwable> throwables = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            throwables.add(new IllegalStateException("boom"));
+        }
+        return throwables;
     }
 
     @SuppressWarnings("unchecked")

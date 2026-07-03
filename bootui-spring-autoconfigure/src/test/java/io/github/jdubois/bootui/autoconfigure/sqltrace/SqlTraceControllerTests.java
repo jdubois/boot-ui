@@ -20,7 +20,11 @@ import org.springframework.beans.factory.ObjectProvider;
 class SqlTraceControllerTests {
 
     private SqlTraceRecorder recorder(boolean enabled, boolean captureParameters) {
-        return new SqlTraceRecorder(enabled, true, captureParameters, 10, 100, 2000, 200, 5);
+        return recorder(enabled, captureParameters, false);
+    }
+
+    private SqlTraceRecorder recorder(boolean enabled, boolean captureParameters, boolean captureCallSite) {
+        return new SqlTraceRecorder(enabled, true, captureParameters, captureCallSite, 10, 100, 2000, 200, 5);
     }
 
     private SqlTraceRecorder wrappedRecorder(boolean captureParameters) {
@@ -101,6 +105,34 @@ class SqlTraceControllerTests {
         assertThat(report.topStatements()).hasSize(1);
         assertThat(report.stats().totalQueries()).isEqualTo(1);
         assertThat(report.warnings()).anyMatch(w -> w.contains("clear text"));
+    }
+
+    @Test
+    void wiresCallSiteCaptureThroughToTheReportWithoutDisruptingRecording() {
+        SqlTraceRecorder recorder = recorder(true, false, true);
+        recorder.registerDataSource("dataSource");
+        recorder.record(
+                StatementType.STATEMENT,
+                Category.SELECT,
+                "select 1",
+                List.of(),
+                5,
+                true,
+                null,
+                null,
+                0,
+                "conn-1",
+                "main");
+        SqlTraceController controller = controller(recorder, mock(DataSource.class), ValueExposure.MASKED);
+
+        SqlTraceReport report = controller.trace();
+        // Enabling bootui.sql-trace.capture-call-site never disrupts recording. Within this test suite's
+        // own call stack no application frame is ever reachable (see SqlTraceRecorderTests'
+        // selectCallSite* tests for the frame-selection algorithm itself), so the call site is null here —
+        // what matters is that the field flows through the report unharmed.
+        assertThat(report.entries()).hasSize(1);
+        assertThat(report.entries().get(0).callSite()).isNull();
+        assertThat(report.topStatements().get(0).callSites()).isEmpty();
     }
 
     @Test

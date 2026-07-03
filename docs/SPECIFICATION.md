@@ -695,7 +695,9 @@ Features:
   precise request correlation have a null `parentId`. A `REQUEST` entry that was correlated to a Spring Security audit
   event also carries a `securedPrincipal` (the caller's principal; null when the request had no
   correlated security event naming a principal), so the client can flag it as authenticated with a
-  lock icon and a principal tag without opening the profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
+  lock icon and a principal tag without opening the profiler. It also carries a `sqlNPlusOneSuspected` boolean, computed
+  with the identical threshold/logic the per-request profiler uses below, so a request whose correlated SQL looks like
+  an N+1 access pattern can be badged directly in the list without opening its profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
   100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, health status, and heap usage.
@@ -713,7 +715,9 @@ Features:
   present, otherwise exactly by the request's
   serving thread; it falls back to an approximate time-window match only when the serving thread cannot be uniquely
   identified (concurrent identical requests or async execution). Repeated identical `SELECT`s above
-  `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1.
+  `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1, together with the distinct application call
+  site(s) that issued them (from SQL Trace's call-site capture, `bootui.sql-trace.capture-call-site`, on by default) so a
+  flagged group names exactly where in the code to look.
 - Optional durable persistence (`bootui.activity.persistence.enabled`, off by default, available on both adapters): in
   addition to today's in-memory-only default, captured entries can also be written to a SQL database over direct JDBC so
   history survives a restart and the dashboard can page back further than fits in memory. The design is a pluggable

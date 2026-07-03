@@ -275,6 +275,45 @@ class LiveActivityServiceTests {
         assertThat(parentOf(report, "r1")).isNull();
     }
 
+    @Test
+    void flagsRequestAsSqlNPlusOneSuspectedWhenItsCorrelatedSqlHitsTheThreshold() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setNPlusOneThreshold(5);
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                sql(
+                        sqlEntryOn(1, BASE.plusMillis(1001).toEpochMilli(), "http-thread", "trace-r1"),
+                        sqlEntryOn(2, BASE.plusMillis(1002).toEpochMilli(), "http-thread", "trace-r1"),
+                        sqlEntryOn(3, BASE.plusMillis(1003).toEpochMilli(), "http-thread", "trace-r1"),
+                        sqlEntryOn(4, BASE.plusMillis(1004).toEpochMilli(), "http-thread", "trace-r1"),
+                        sqlEntryOn(5, BASE.plusMillis(1005).toEpochMilli(), "http-thread", "trace-r1")),
+                null,
+                null,
+                null,
+                properties);
+
+        assertThat(sqlNPlusOneSuspectedOf(service.report(null, null, 0, 0), "r1"))
+                .isTrue();
+    }
+
+    @Test
+    void doesNotFlagSqlNPlusOneSuspectedBelowTheThreshold() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setNPlusOneThreshold(5);
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                sql(
+                        sqlEntryOn(1, BASE.plusMillis(1001).toEpochMilli(), "http-thread", "trace-r1"),
+                        sqlEntryOn(2, BASE.plusMillis(1002).toEpochMilli(), "http-thread", "trace-r1")),
+                null,
+                null,
+                null,
+                properties);
+
+        assertThat(sqlNPlusOneSuspectedOf(service.report(null, null, 0, 0), "r1"))
+                .isFalse();
+    }
+
     // --- helpers ---
 
     private static String parentOf(LiveActivityReport report, String entryId) {
@@ -303,6 +342,14 @@ class LiveActivityServiceTests {
                 .findFirst()
                 .orElseThrow()
                 .securedPrincipal();
+    }
+
+    private static boolean sqlNPlusOneSuspectedOf(LiveActivityReport report, String entryId) {
+        return report.entries().stream()
+                .filter(e -> e.id().equals(entryId))
+                .findFirst()
+                .orElseThrow()
+                .sqlNPlusOneSuspected();
     }
 
     private LiveActivityService service(
@@ -419,6 +466,7 @@ class LiveActivityServiceTests {
                 "http-thread",
                 slow,
                 List.of(),
+                null,
                 null);
     }
 
@@ -438,7 +486,8 @@ class LiveActivityServiceTests {
                 thread,
                 false,
                 List.of(),
-                traceId);
+                traceId,
+                null);
     }
 
     private static SecurityLogsController security(SecurityLogEventDto... events) {
@@ -474,6 +523,8 @@ class LiveActivityServiceTests {
                 "/a",
                 "h",
                 "s",
-                null);
+                null,
+                "OPEN",
+                0);
     }
 }

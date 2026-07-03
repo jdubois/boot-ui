@@ -19,7 +19,11 @@ import org.junit.jupiter.api.Test;
  * {@code StatementInspector}, capability-gated on {@code HIBERNATE_ORM}) closes that gap. This test issues a
  * JPQL query through the {@code EntityManager} via {@code /demo/products}, then asserts the SQL Trace panel is
  * available and shows the captured {@code select ... from Product} statement — exercising the inspector path
- * end to end on a real boot with {@code quarkus-hibernate-orm} on the classpath.</p>
+ * end to end on a real boot with {@code quarkus-hibernate-orm} on the classpath. It also proves the engine's
+ * {@code SqlTraceRecorder} call-site capture resolves through this feeder specifically: {@code
+ * DemoQueryResource} lives outside both BootUI's own packages and Hibernate/Quarkus internals, so a captured
+ * {@code callSite} pointing at it is real end-to-end evidence the stack walk skips {@code org.hibernate.*} and
+ * framework frames on the StatementInspector path, not just the simpler JDK-proxy path.</p>
  */
 @QuarkusTest
 class BootUiQuarkusSqlTraceOrmCaptureTest {
@@ -62,6 +66,7 @@ class BootUiQuarkusSqlTraceOrmCaptureTest {
                 .contains("<default>");
 
         boolean capturedProductSelect = false;
+        String callSite = null;
         for (JsonNode entry : report.path("entries")) {
             String sql = entry.path("sql").asText("").toLowerCase();
             if (sql.contains("select") && sql.contains("product")) {
@@ -69,6 +74,7 @@ class BootUiQuarkusSqlTraceOrmCaptureTest {
                 assertThat(entry.path("category").asText())
                         .as("the captured statement is classified as a SELECT")
                         .isEqualTo("SELECT");
+                callSite = entry.path("callSite").asText(null);
             }
         }
         assertThat(capturedProductSelect)
@@ -77,5 +83,15 @@ class BootUiQuarkusSqlTraceOrmCaptureTest {
         assertThat(report.path("totalCaptured").asLong())
                 .as("at least one statement was captured")
                 .isGreaterThan(0);
+
+        // Call-site capture defaults on (bootui.sql-trace.capture-call-site) and must resolve the first
+        // application frame even through the StatementInspector feeder, which runs deep inside Hibernate's own
+        // SQL-generation internals before the JDBC call - proving the stack walk correctly skips
+        // org.hibernate.*, io.quarkus.*, io.vertx.* and jakarta.* frames to land on the demo app's own
+        // DemoQueryResource, not just BootUI/framework internals.
+        assertThat(callSite)
+                .as("the captured statement's call site resolves to the demo application's own resource class")
+                .isNotBlank()
+                .contains("DemoQueryResource");
     }
 }

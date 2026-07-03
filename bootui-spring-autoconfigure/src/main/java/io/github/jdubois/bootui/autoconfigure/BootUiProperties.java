@@ -915,6 +915,17 @@ public class BootUiProperties {
         private boolean captureParameters = false;
 
         /**
+         * Whether each captured statement records the first application stack frame that
+         * triggered it (e.g. {@code OrderRepository.findByCustomer(OrderRepository.java:42)}),
+         * shown per execution and aggregated per group so a flagged N+1 group shows exactly
+         * where in the code to go fix it. On by default: unlike bound parameters, a call site
+         * names only the application's own code (class/method/line), never a value, so it
+         * carries no sensitive-data risk — this toggle is purely about the small per-statement
+         * stack-walk cost, not privacy.
+         */
+        private boolean captureCallSite = true;
+
+        /**
          * Maximum number of executed statements retained in the in-memory ring buffer.
          */
         private int maxEntries = 200;
@@ -963,6 +974,14 @@ public class BootUiProperties {
 
         public void setCaptureParameters(boolean captureParameters) {
             this.captureParameters = captureParameters;
+        }
+
+        public boolean isCaptureCallSite() {
+            return captureCallSite;
+        }
+
+        public void setCaptureCallSite(boolean captureCallSite) {
+            this.captureCallSite = captureCallSite;
         }
 
         public int getMaxEntries() {

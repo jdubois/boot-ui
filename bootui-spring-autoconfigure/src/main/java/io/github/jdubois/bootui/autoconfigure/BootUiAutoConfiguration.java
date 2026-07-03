@@ -543,6 +543,7 @@ public class BootUiAutoConfiguration {
                 enabled,
                 sqlTrace.isRecording(),
                 sqlTrace.isCaptureParameters(),
+                sqlTrace.isCaptureCallSite(),
                 sqlTrace.getMaxEntries(),
                 sqlTrace.getSlowQueryThresholdMillis(),
                 sqlTrace.getMaxSqlLength(),

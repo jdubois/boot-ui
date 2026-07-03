@@ -377,6 +377,9 @@ function renderProfileReport() {
     for (const group of p.sqlGroups) {
       const flag = group.potentialNPlusOne ? ' [N+1]' : ''
       lines.push(`  ×${group.executions}${flag} ${group.sql}`)
+      if (group.potentialNPlusOne && group.callSites && group.callSites.length) {
+        for (const site of group.callSites) lines.push(`    at ${site}`)
+      }
     }
   } else {
     lines.push('  (none correlated)')
@@ -726,6 +729,12 @@ function clearFilters() {
                     title="Correlated SQL, exceptions and security events"
                     >+{{ entry.children.length }}</span
                   >
+                  <span
+                    v-if="entry.sqlNPlusOneSuspected"
+                    class="badge rounded-pill text-bg-danger ms-2"
+                    title="Correlated SQL includes a suspected N+1 query pattern — open the profile for details"
+                    >N+1</span
+                  >
                   <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
                 </td>
                 <td class="text-end text-nowrap small">
@@ -886,6 +895,9 @@ function clearFilters() {
                 </span>
                 <span v-else class="badge text-bg-light me-1">×{{ group.executions }}</span>
                 <code>{{ group.sql }}</code>
+                <div v-if="group.callSites && group.callSites.length" class="call-sites text-muted">
+                  <div v-for="site in group.callSites" :key="site" class="font-monospace">at {{ site }}</div>
+                </div>
               </div>
               <p v-if="!profile.sql.length" class="text-muted small mb-0">No SQL correlated to this request.</p>
             </section>

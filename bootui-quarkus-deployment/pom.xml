@@ -45,6 +45,14 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson-deployment</artifactId>
         </dependency>
+        <!-- Provides PreExceptionMapperHandlerBuildItem, the RESTEasy Reactive build-time extension point
+             used to observe an exception before it is resolved by any ExceptionMapper (see
+             QuarkusPreMappingExceptionCaptureHandler). Already resolvable transitively through
+             quarkus-rest-deployment, but declared directly since its types are imported directly here. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-server-spi-deployment</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-quarkus</artifactId>

@@ -64,7 +64,10 @@ The stream merges four signal types into one feed: requests (`REQUEST`), SQL sta
 (`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
-latency badge so you can see at a glance *how* slow a request was, adjacent identical entries are collapsed with an
+latency badge so you can see at a glance *how* slow a request was. A request whose correlated SQL contains a suspected
+N+1 access pattern carries a red **N+1** badge right in the row — the same detection the per-request profiler flags in
+detail, computed with the identical threshold/logic so the two views never disagree — so a developer scanning the feed
+can spot a suspect request without opening every drawer. Adjacent identical entries are collapsed with an
 occurrence count to cut noise, and the feed can be narrowed
 by type, severity, a free-text needle (path, status, SQL, or exception class), and an **errors-only** quick toggle — the
 chosen filters are persisted in the browser so they survive a reload. A small **requests-over-time** sparkline above the
@@ -106,11 +109,14 @@ that serves only one request at a time, so statements on that thread are unambig
 thread cannot be uniquely identified (for example two genuinely concurrent identical requests, or SQL run on an async
 thread) does SQL fall back to a time-window heuristic, which is then clearly labelled **approximate** in the drawer;
 identical repeated `SELECT`s above
-`bootui.activity.n-plus-one-threshold` are flagged as a potential N+1. The drawer also shows the request's timing
+`bootui.activity.n-plus-one-threshold` are flagged as a potential N+1, and each flagged group lists the distinct call
+site(s) in your own application code that issued it — the class, method, and line captured by SQL Trace's call-site
+capture (`bootui.sql-trace.capture-call-site`, on by default) — so you know exactly which repository or service method
+to go fix. The drawer also shows the request's timing
 breakdown (time spent in SQL versus the rest), its auth/principal context, and the trace span list, can be dismissed with
 the **Escape** key (with focus trapped inside while open), and offers a **Copy profile** action that exports the
-already-masked correlated timeline (request + SQL + exceptions + security events) as plain text to paste straight into a
-bug report.
+already-masked correlated timeline (request + SQL + exceptions + security events, including any flagged N+1 call sites)
+as plain text to paste straight into a bug report.
 
 The panel is read-only and inherits BootUI's full safety model (loopback filter, Host allow-list, cross-site write
 defenses, value masking). The stream is capped by `bootui.activity.max-entries`, the slow-request threshold is
@@ -153,7 +159,10 @@ security events that share that exact trace id (`sqlCorrelationApproximate: fals
 does **not** attempt Spring's time-window/thread-based tiers for requests without a trace id, since those lean on
 serving-thread identity that the Vert.x event-loop model has no equivalent for. Without `quarkus-opentelemetry` present —
 or for a request that has no trace id captured — the drawer honestly reports itself unavailable with a clear reason
-rather than fabricating a partial profile (see `docs/QUARKUS-SUPPORT.md` for the detailed reasoning).
+rather than fabricating a partial profile (see `docs/QUARKUS-SUPPORT.md` for the detailed reasoning). N+1 detection, its
+list-level row badge, and call-site capture are computed by the same shared engine code Spring uses (the correlation
+tier above only changes *which* SQL gets grouped, never how a group is flagged or its call sites collected), so a
+Quarkus request that resolves any SQL correlation gets byte-identical N+1 flagging to Spring.
 
 The optional durable persistence backend described above is available on Quarkus too, with an identical config surface,
 wire contract, and shared engine machinery (`ActivityStore`/`BufferedActivityStore`/`JdbcActivityStore`). A dedicated
@@ -780,23 +789,31 @@ proxy built on the JDK's own dynamic-proxy support — BootUI does **not** bundl
 power this. When BootUI is active it transparently wraps each `DataSource` bean and intercepts statement execution on the
 resulting `Connection`/`Statement`/`PreparedStatement`/`CallableStatement` objects, recording the SQL text, statement
 type, SQL category (`SELECT`/`INSERT`/`UPDATE`/`DELETE`/`DDL`/`OTHER`), wall-clock duration, affected-row counts, batch
-size, originating connection, executing thread, and any failure. Spring's delegating/routing `DataSource` wrappers are
+size, originating connection, executing thread, the call site in your own application code that triggered it (when
+call-site capture is enabled — see below), and any failure. Spring's delegating/routing `DataSource` wrappers are
 skipped so executions are not double-counted, and wrapping **fails open**: if a `DataSource` cannot be proxied it is left
 untouched so application database access is never compromised.
 
 Executions are retained in a bounded in-memory ring buffer (most recent first) alongside aggregate stats (total/average/
 max time, slow-query and failure counts, per-category counters, and evictions). The panel also groups identical
 statements into a "Most frequent statements" table and flags repeated `SELECT`s that look like an **N+1 access pattern**
-(the repeat count is configurable via `bootui.sql-trace.n-plus-one-threshold`). Each execution row expands to reveal the
-full statement, bound parameters, statement type, connection id, executing thread, and error. A configurable slow-query
-threshold highlights expensive statements, and local-only **Pause/Resume** and **Clear** actions let you stop recording
-without unwrapping the data source or empty the buffer.
+(the repeat count is configurable via `bootui.sql-trace.n-plus-one-threshold`); a flagged group also lists the distinct
+call site(s) — class, method, and line — that issued it, most-recently-seen first and bounded to a handful of entries,
+so you can jump straight to the repository or service method causing the repetition. Each execution row expands to
+reveal the full statement, bound parameters, statement type, connection id, executing thread, call site, and error. A
+configurable slow-query threshold highlights expensive statements, and local-only **Pause/Resume** and **Clear** actions
+let you stop recording without unwrapping the data source or empty the buffer.
 
 The panel is read-mostly and privacy-conscious: parameter bindings are **not** captured by default, and even when
 capture is enabled they are suppressed under metadata-only value exposure and routed through the same masking rules as
-the rest of BootUI; an inline warning reminds you when captured parameters are being shown in clear text. It fails closed
-when no `DataSource` bean is wrapped. Tracing, the initial recording state, parameter capture, buffer size, the
-slow-query and N+1 thresholds, and SQL/parameter truncation limits are all configurable under `bootui.sql-trace.*`.
+the rest of BootUI; an inline warning reminds you when captured parameters are being shown in clear text. Call-site
+capture is a separate concern: a call site is metadata about your own application's code (class, method, line), never a
+bound value, so it is **not** privacy-gated — `bootui.sql-trace.capture-call-site` defaults to `true` and only trades a
+small, defensively-bounded stack walk per statement for the ability to see where a query came from; set it to `false`
+to skip that walk entirely. It fails closed
+when no `DataSource` bean is wrapped. Tracing, the initial recording state, parameter capture, call-site capture, buffer
+size, the slow-query and N+1 thresholds, and SQL/parameter truncation limits are all configurable under
+`bootui.sql-trace.*`.
 
 Because the trace buffer is genuinely event-driven, the panel refreshes over **Server-Sent Events** instead of fixed-interval
 polling: the browser subscribes to `/bootui/api/sql-trace/stream` and the server pushes a small coalesced notification the
@@ -811,7 +828,9 @@ or the tab is hidden the stream is closed, and the panel falls back to its initi
 > still fails open and the `DataSource` is left untraced rather than breaking application startup.
 
 On Quarkus the panel is identical, running over the same framework-neutral engine recorder (the bounded buffer, grouping,
-stats, and N+1 detection are byte-identical to Spring). Capture comes from two complementary feeders into that one
+stats, N+1 detection, and call-site capture are byte-identical to Spring — call site capture runs once, at the single
+`SqlTraceRecorder.record(...)` choke point both feeders below call into, so neither feeder needs its own stack-walking
+logic). Capture comes from two complementary feeders into that one
 recorder: an `@Alternative` Agroal `DataSource` that wraps the default pool with the same JDK-proxy tracer (manual JDBC
 access, gated on a datasource being present), and — because Hibernate ORM resolves its pool from Agroal's own registry
 and so bypasses that CDI `DataSource` — a `@PersistenceUnitExtension` Hibernate `StatementInspector` that records
@@ -1025,6 +1044,18 @@ request context. The list updates live over **Server-Sent Events** — the brows
 and re-fetches whenever an exception is captured or the store is cleared, rather than polling on a fixed interval — and can be
 filtered by text, by capture source (web vs. logged), or to application-originated exceptions only.
 
+On top of that existing grouping, each group carries a Sentry-style triage status — **Open** (the default for every new
+group), **Acknowledged** (seen, still being investigated), or **Resolved** (believed fixed) — shown as a badge on the row
+and changed inline with a button group, the same one-click convention used by the Loggers panel's per-logger level
+setter. Changing status calls `POST /bootui/api/exceptions/{id}/status` with `{"status": "..."}`, validated against the
+three values (400 on anything else, 404 for an unknown group), and returns the updated group. If a group marked
+**Resolved** throws again, BootUI treats this as a regression: the group automatically reopens to **Open** and a
+lifetime "Reopened ×N" counter is incremented and surfaced next to the status badge, so a developer immediately sees
+that a failure they thought was fixed has come back. An **Acknowledged** group does not auto-transition on new
+occurrences — it keeps accumulating its count and last-seen time, since the developer already knows about it and
+hasn't claimed it's fixed; only a **Resolved** group can regress. An optional status filter (All/Open/Acknowledged/
+Resolved) narrows the list alongside the existing text/source filters.
+
 Exception messages follow the same exposure policy as the rest of BootUI: they are scrubbed of secret-like
 `key=value` assignments under the default `bootui.expose-values=MASKED`, omitted entirely under `METADATA_ONLY`, and shown
 verbatim only under `FULL`. Request paths are captured without their query string so query-string secrets are never
@@ -1040,7 +1071,9 @@ complementary sources: a `java.util.logging` handler that records anything logge
 own loggers), and a Vert.x failure handler that records the throwable escaping a failed request with its method and
 path. The shared store still de-duplicates by throwable identity across the cause chain, so a failure seen by both
 sources is counted once. Capture is installed on `StartupEvent` and detached on `ShutdownEvent`, wired in dev/test
-only and never in production, and bounded by the same `bootui.exceptions.*` limits.
+only and never in production, and bounded by the same `bootui.exceptions.*` limits. The triage workflow and regression
+detection above are engine-level, so they behave identically on Quarkus: `ExceptionsResource` exposes the same
+`POST /bootui/api/exceptions/{id}/status` endpoint with the same validation and status codes.
 
 ![BootUI Exceptions panel](./images/bootui-exceptions.webp)
 
