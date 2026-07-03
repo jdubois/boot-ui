@@ -171,3 +171,66 @@ function exceptionNeedle(summary) {
   const colon = text.indexOf(': ')
   return colon > 0 ? text.slice(0, colon) : text
 }
+
+/**
+ * Merge the live head page (the always-refreshing first page) with any additional "older" pages
+ * fetched via cursor pagination, dropping ids already present in the head. This only matters when
+ * activity persistence is enabled server-side: the default in-memory mode never accumulates an
+ * older page, so this is a no-op identity pass-through for it.
+ *
+ * A duplicate can happen because the head page is re-fetched on every refresh tick and its oldest
+ * boundary can drift forward over time; de-duplicating keeps the combined list stable instead of
+ * showing the same entry twice. Order is preserved: head entries first (newest-first), then any
+ * non-duplicate older entries, so the combined list stays newest-first overall.
+ *
+ * @param {Array<object>} head newest-first entries from the current (page-1) response
+ * @param {Array<object>} older accumulated newest-first entries from "load older" pages
+ * @returns {Array<object>}
+ */
+export function mergeActivityPages(head, older) {
+  const headList = head || []
+  const olderList = older || []
+  if (!olderList.length) return headList
+  const seen = new Set(headList.map((entry) => entry.id))
+  const rest = olderList.filter((entry) => !seen.has(entry.id))
+  return [...headList, ...rest]
+}
+
+/**
+ * Append a newly fetched "load older" page to the already-accumulated older-entries list, dropping
+ * any entries already visible in the live head or already accumulated. Keeps insertion order, so
+ * repeated "load older" clicks page monotonically further back in history.
+ *
+ * @param {Array<object>} head the current live head entries
+ * @param {Array<object>} older the already-accumulated older entries
+ * @param {Array<object>} newEntries the entries from the freshly fetched older page
+ * @returns {Array<object>}
+ */
+export function appendOlderPage(head, older, newEntries) {
+  const seen = new Set([...(head || []), ...(older || [])].map((entry) => entry.id))
+  const fresh = (newEntries || []).filter((entry) => !seen.has(entry.id))
+  return [...(older || []), ...fresh]
+}
+
+/**
+ * Build the server-side query parameters for a durable-store-backed activity fetch from the
+ * dashboard's current filter selections, so filtering/search is pushed down to the store (SQL WHERE
+ * clause, when persistence is enabled) instead of only ever operating on whichever page already
+ * happens to be loaded in the browser. Blank/falsy filters are omitted.
+ *
+ * `errorsOnly` takes priority over an explicit severity selection, mirroring {@link filterEntries}
+ * which always requires ERROR severity when `errorsOnly` is set.
+ *
+ * @param {{type?: string, severity?: string, text?: string, errorsOnly?: boolean}} filters
+ * @returns {Record<string, string>}
+ */
+export function buildActivityQueryParams({type = '', severity = '', text = '', errorsOnly = false} = {}) {
+  /** @type {Record<string, string>} */
+  const params = {}
+  if (type) params.type = type
+  const effectiveSeverity = errorsOnly ? 'ERROR' : severity
+  if (effectiveSeverity) params.severity = effectiveSeverity
+  const needle = (text || '').trim()
+  if (needle) params.q = needle
+  return params
+}

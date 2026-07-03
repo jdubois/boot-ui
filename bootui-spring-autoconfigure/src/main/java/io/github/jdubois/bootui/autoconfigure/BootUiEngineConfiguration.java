@@ -21,6 +21,10 @@ import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObserva
 import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvider;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigMetadataCatalog;
+import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
+import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
+import io.github.jdubois.bootui.engine.activity.ActivityStore;
+import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
@@ -55,6 +59,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
 import java.util.List;
+import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
@@ -64,6 +69,7 @@ import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.cache.interceptor.CacheOperationSource;
 import org.springframework.context.ApplicationContext;
@@ -579,6 +585,85 @@ public class BootUiEngineConfiguration {
         ConnectionPoolService bootUiConnectionPoolService(
                 ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiExposure exposure) {
             return new ConnectionPoolService(new SpringConnectionPoolProvider(beanFactoryProvider), exposure);
+        }
+    }
+
+    /**
+     * The Live Activity JDBC persistence option is entirely opt-in and off by default: this nested,
+     * {@code @ConditionalOnProperty}-gated configuration is the only place any of its beans are declared,
+     * so with {@code bootui.activity.persistence.enabled} unset or {@code false} nothing here is even
+     * registered — no background thread, connection or bean beyond what already exists is created, and
+     * {@code GET /bootui/api/activity} stays on today's byte-identical in-memory re-merge path (see
+     * {@code LiveActivityController}).
+     *
+     * <p>{@link ActivityPersistenceSettings} is exposed as its own small {@code @Bean} (not inlined into
+     * the {@link ActivityStore} bean method, unlike e.g. {@code HeapDumpSettings}) because two independent
+     * consumers need to agree on the exact same resolved settings — in particular the same resolved
+     * {@code instanceId} — to stay correctly partitioned: the {@link ActivityStore} bean bakes it into the
+     * durable store's own query/prune scope, and {@code LiveActivityController} stamps it onto every entry
+     * its capture coordinator captures. A shared singleton bean is the simplest way to guarantee both see
+     * one, consistently resolved value (in particular, a generated instance id must be computed exactly
+     * once per process, not independently by each consumer).</p>
+     *
+     * <p>The {@link ActivityStore} bean is not explicitly closed anywhere in this configuration: its
+     * concrete type ({@code BufferedActivityStore} when enabled) exposes a public no-arg {@code close()}
+     * that Spring's default inferred-destroy-method behavior detects and invokes automatically when the
+     * context shuts down, stopping its flush/prune scheduler — the same mechanism that closes a
+     * {@code HikariDataSource} bean without any explicit {@code destroyMethod}.</p>
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "bootui.activity.persistence", name = "enabled", havingValue = "true")
+    static class ActivityPersistenceBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        ActivityPersistenceSettings bootUiActivityPersistenceSettings(
+                BootUiProperties properties, Environment environment) {
+            BootUiProperties.ActivityPersistence persistence =
+                    properties.getActivity().getPersistence();
+            String instanceId = ActivityInstanceIds.resolveOrDefault(
+                    persistence.getInstanceId(), environment.getProperty("spring.application.name"));
+            ActivityPersistenceSettings.DataSourceMode dataSourceMode =
+                    persistence.getDataSourceMode() == BootUiProperties.ActivityPersistence.DataSourceMode.DEDICATED
+                            ? ActivityPersistenceSettings.DataSourceMode.DEDICATED
+                            : ActivityPersistenceSettings.DataSourceMode.SHARED;
+            return new ActivityPersistenceSettings(
+                    persistence.isEnabled(),
+                    dataSourceMode,
+                    persistence.getDedicatedJdbcUrl(),
+                    persistence.getDedicatedUsername(),
+                    persistence.getDedicatedPassword(),
+                    persistence.getDedicatedDriverClassName(),
+                    persistence.getTableName(),
+                    persistence.getFlushInterval(),
+                    persistence.getBufferMaxEntries(),
+                    persistence.getRetention(),
+                    instanceId,
+                    persistence.getCaptureInterval());
+        }
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        ActivityStore bootUiActivityStore(
+                ActivityPersistenceSettings settings, ObjectProvider<DataSource> dataSourceProvider) {
+            return ActivityStoreFactory.create(settings, () -> resolveDataSource(dataSourceProvider));
+        }
+
+        /**
+         * Resolves the shared {@code DataSource} to reuse, mirroring {@link #resolveRegistry}: a host
+         * application may legitimately have more than one {@code DataSource} bean (for example a
+         * primary + an audit datasource), so {@code getIfAvailable()} throwing {@link
+         * NoUniqueBeanDefinitionException} falls back to the first one from {@code orderedStream()}
+         * rather than propagating and failing BootUI's own startup.
+         */
+        static DataSource resolveDataSource(ObjectProvider<DataSource> dataSourceProvider) {
+            try {
+                return dataSourceProvider.getIfAvailable();
+            } catch (NoUniqueBeanDefinitionException ex) {
+                return dataSourceProvider.orderedStream().findFirst().orElse(null);
+            }
         }
     }
 }

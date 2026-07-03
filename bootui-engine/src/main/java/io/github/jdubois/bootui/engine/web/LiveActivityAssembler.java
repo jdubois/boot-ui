@@ -169,9 +169,8 @@ public final class LiveActivityAssembler {
             entries.add(toExceptionEntry(g, traceIndex.parentRequestId(g.lastTraceId())));
         }
 
-        int securityIndex = 0;
         for (SecurityLogEventDto event : security) {
-            entries.add(toSecurityEntry(event, securityIndex++, traceIndex.parentRequestId(event.traceId())));
+            entries.add(toSecurityEntry(event, traceIndex.parentRequestId(event.traceId())));
         }
 
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
@@ -272,16 +271,17 @@ public final class LiveActivityAssembler {
     /**
      * Build a SECURITY entry for an already-masked audit/security event. Severity mirrors Spring's
      * {@code LiveActivityService.toSecurityEntry} mapping: an event type naming a failure or a denial is a
-     * {@code WARN} (worth a glance), anything else (e.g. an authentication success) is {@code OK}.
+     * {@code WARN} (worth a glance), anything else (e.g. an authentication success) is {@code OK}. The id
+     * is a stable content hash (see {@link SecurityActivityIds}), not the event's position in this list.
      */
-    private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, int index, String parentId) {
+    private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, String parentId) {
         String type = event.type() == null ? "" : event.type();
         String upperType = type.toUpperCase(Locale.ROOT);
         String severity = upperType.contains("FAILURE") || upperType.contains("DENIED") ? SEVERITY_WARN : SEVERITY_OK;
         String principal = blankToNull(event.principal());
         String summary = (type + (principal == null ? "" : " · " + principal)).trim();
         return new ActivityEntryDto(
-                "sec-" + index,
+                SecurityActivityIds.stableId(event),
                 TYPE_SECURITY,
                 parseEpochMillis(event.timestamp()),
                 severity,

@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
@@ -188,7 +189,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             int batchSize,
             String connectionId,
             String thread) {
-        if (!enabled || idleSuspended || !recording.get()) {
+        if (!enabled || idleSuspended || !recording.get() || BootUiJdbcCaptureGuard.isSuppressed()) {
             return;
         }
         CapturedStatement entry = new CapturedStatement(

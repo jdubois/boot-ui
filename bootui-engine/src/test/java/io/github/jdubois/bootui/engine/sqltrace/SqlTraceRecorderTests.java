@@ -41,6 +41,18 @@ class SqlTraceRecorderTests {
     }
 
     @Test
+    void recordsNothingWhenCaptureGuardSuppressed() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard.runSuppressed(
+                () -> record(recorder, Category.SELECT, "select 1", 0));
+        assertThat(recorder.recent()).isEmpty();
+
+        // Suppression is scoped to the block only; recording resumes normally afterward.
+        record(recorder, Category.SELECT, "select 2", 0);
+        assertThat(recorder.recent()).hasSize(1);
+    }
+
+    @Test
     void suspendForIdleClearsAndStopsRecordingUntilResumed() {
         SqlTraceRecorder recorder = recorder(true, false, 10, 100);
         record(recorder, Category.SELECT, "select 1", 0);

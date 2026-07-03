@@ -5,7 +5,16 @@ import UnavailableState from './components/UnavailableState.vue'
 import {formatBytes, formatClockTime, formatNumber} from '../utils/format.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
-import {bucketEntries, deepLink, filterEntries, groupEntries, nestEntries} from '../utils/activityStream.js'
+import {
+  appendOlderPage,
+  bucketEntries,
+  buildActivityQueryParams,
+  deepLink,
+  filterEntries,
+  groupEntries,
+  mergeActivityPages,
+  nestEntries
+} from '../utils/activityStream.js'
 
 const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY']
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
@@ -25,13 +34,49 @@ const profileError = ref(null)
 const profileRequestId = ref(null)
 const drawerEl = ref(null)
 
+// "Load older" pagination state. Only ever populated when the backing store is durable (see
+// `persistent` below); stays empty for the default in-memory mode so nothing here changes its
+// behavior. `olderEntries` accumulates pages fetched by clicking "Load older"; `olderPageInfo`
+// tracks the pagination cursor for the *next* such click (falls back to the live head's own
+// pageInfo until the first click).
+const olderEntries = ref([])
+const olderPageInfo = ref(null)
+const loadingOlder = ref(false)
+
 const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 
 restoreFilters()
 
+// Whether the backend served this response from the durable activity store rather than the
+// default live in-memory re-merge. Only known once the first response arrives.
+const persistent = computed(() => report.value?.pageInfo?.persistent === true)
+
+// Builds the request URL for the head (page-1) fetch. Filters are only pushed down as server-side
+// query params once persistence is confirmed active, so the default in-memory mode's request never
+// changes shape (it keeps fetching the bare, unfiltered endpoint exactly as before and filters
+// entirely client-side). When persistent, pushing filters server-side lets search/filter reach the
+// full durable history instead of only whatever fits in the live merge window.
+function activityUrl(extra = {}) {
+  const params = new URLSearchParams()
+  if (persistent.value) {
+    const filterParams = buildActivityQueryParams({
+      type: typeFilter.value,
+      severity: severityFilter.value,
+      text: textFilter.value,
+      errorsOnly: errorsOnly.value
+    })
+    for (const [key, value] of Object.entries(filterParams)) params.set(key, value)
+  }
+  for (const [key, value] of Object.entries(extra)) {
+    if (value != null) params.set(key, value)
+  }
+  const qs = params.toString()
+  return qs ? `api/activity?${qs}` : 'api/activity'
+}
+
 async function loadActivity() {
   try {
-    const response = await fetch('api/activity')
+    const response = await fetch(activityUrl())
     if (!response.ok) {
       throw new Error(`Request failed with status ${response.status}`)
     }
@@ -45,6 +90,38 @@ async function loadActivity() {
 }
 
 const {autoRefresh, loading, load: refreshNow} = useEventStreamRefresh('api/activity/stream', loadActivity)
+
+// Pagination info driving the "Load older" button: once at least one older page has been fetched,
+// its pageInfo takes over from the live head's, so repeated clicks keep paging further back.
+const effectivePageInfo = computed(() => olderPageInfo.value ?? report.value?.pageInfo ?? null)
+const canLoadOlder = computed(
+  () => persistent.value && !!effectivePageInfo.value?.hasMore && !!effectivePageInfo.value?.nextCursor
+)
+
+async function loadOlder() {
+  const info = effectivePageInfo.value
+  if (!info?.hasMore || !info.nextCursor || loadingOlder.value) return
+  loadingOlder.value = true
+  try {
+    const response = await fetch(activityUrl({cursor: info.nextCursor}))
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`)
+    }
+    const page = await response.json()
+    olderEntries.value = appendOlderPage(report.value?.entries, olderEntries.value, page.entries)
+    olderPageInfo.value = page.pageInfo ?? null
+    error.value = null
+  } catch (err) {
+    error.value = err.message || 'Could not load older activity'
+  } finally {
+    loadingOlder.value = false
+  }
+}
+
+// The combined dataset the table renders: the live, always-refreshing head page plus any
+// additional older pages paged in via "Load older". Degrades to exactly `report.entries` when no
+// older page has been loaded (including always, for the default in-memory mode).
+const combinedEntries = computed(() => mergeActivityPages(report.value?.entries, olderEntries.value))
 
 const available = computed(() => report.value?.available ?? false)
 const kpis = computed(() => report.value?.kpis ?? null)
@@ -60,9 +137,11 @@ const hasActiveFilters = computed(
 const collapsed = ref(new Set())
 
 const visibleEntries = computed(() => {
-  const all = report.value?.entries ?? []
+  const all = combinedEntries.value
   // While filtering/searching, keep the flat grouped list so the search spans every signal; nesting
-  // would hide children whose parent request was filtered out.
+  // would hide children whose parent request was filtered out. When persistent, the server has
+  // already scoped `all` to these same filters (see `activityUrl`); re-applying them here is a
+  // harmless no-op that keeps a single filtering code path for both modes.
   if (hasActiveFilters.value) {
     return groupEntries(
       filterEntries(all, {
@@ -121,7 +200,8 @@ const sparkBars = computed(() => {
 const subtitle = computed(() => {
   const counts = report.value?.typeCounts ?? {}
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
-  return `${formatNumber(total)} recent events · ${sources.value.length} source${sources.value.length === 1 ? '' : 's'}`
+  const base = `${formatNumber(total)} recent events · ${sources.value.length} source${sources.value.length === 1 ? '' : 's'}`
+  return persistent.value ? `${base} · persisted history` : base
 })
 
 const paused = computed(() => !autoRefresh.value)
@@ -357,10 +437,27 @@ function persistFilters() {
   }
 }
 
-watch([typeFilter, severityFilter, textFilter, errorsOnly], persistFilters)
+// A filter change invalidates any accumulated "older" pages (they were queried under the old
+// filters), and — only when persistent — needs a fresh server-side query so filtering/search reach
+// the full durable history, not just the currently loaded window. Debounced so typing in the
+// free-text box doesn't fire a request per keystroke; the default in-memory mode never reaches the
+// `persistent` branch, so it keeps filtering purely client-side with no network calls, unchanged.
+let filterReloadTimer = null
+
+watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
+  persistFilters()
+  if (!persistent.value) return
+  olderEntries.value = []
+  olderPageInfo.value = null
+  if (filterReloadTimer) clearTimeout(filterReloadTimer)
+  filterReloadTimer = setTimeout(refreshNow, 300)
+})
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  if (filterReloadTimer) clearTimeout(filterReloadTimer)
+})
 
 function clearFilters() {
   typeFilter.value = ''
@@ -690,6 +787,18 @@ function clearFilters() {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div v-if="canLoadOlder || loadingOlder" class="text-center my-3">
+        <button class="btn btn-sm btn-outline-secondary" type="button" :disabled="loadingOlder" @click="loadOlder">
+          <span
+            v-if="loadingOlder"
+            class="spinner-border spinner-border-sm me-1"
+            role="status"
+            aria-hidden="true"
+          ></span>
+          {{ loadingOlder ? 'Loading…' : 'Load older activity' }}
+        </button>
       </div>
     </template>
 

@@ -49,7 +49,7 @@ equivalents).
 | `bootui.dev-services.restart-enabled` / `.log-tail-bytes`                    | Spring only                | Quarkus Dev Services are build-time; the panel has no log-tail or restart controls.                                                      |
 | `bootui.graalvm.*`                                                           | Spring only                | The GraalVM panel is not applicable on Quarkus.                                                                                          |
 | `bootui.http-sessions.max-sessions`                                          | Spring only                | The HTTP Sessions panel is not applicable on Quarkus.                                                                                    |
-| `bootui.activity.*`                                                          | Spring only                | Per-request profiling and signal-to-request correlation are Spring-only.                                                                 |
+| `bootui.activity.max-entries`, `bootui.activity.n-plus-one-threshold`, `bootui.activity.request-slow-threshold-ms` | Spring only | Stream cap, N+1 detection threshold, and slow-request threshold apply only to Spring's richer tiered-correlation profiler; Quarkus's reduced trace-id-only profiler has no equivalent config. The optional durable-persistence backend (`bootui.activity.persistence.*`) is **shared** — see below. |
 | `bootui.telemetry.max-request-bytes`                                         | Spring only                | Sizes the embedded OTLP receiver, which Quarkus does not run (it captures spans in-process).                                             |
 | `bootui.internal.*`                                                          | **Quarkus only, internal** | Build-time facts (base packages, dependency inventory, capability-present flags) emitted by build steps. Not a user setting — never set by hand. |
 
@@ -307,6 +307,31 @@ read-only.
 | `bootui.activity.max-entries`                 | `200`   | Maximum number of merged stream entries returned per page after merging and sorting all sources.                 |
 | `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds above which a request is flagged as slow in the stream and KPI strip.                   |
 | `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request profile flags a potential N+1 pattern.  |
+
+#### Live Activity durable persistence
+
+Off by default: the merged stream stays in-memory-only, exactly as above. Setting
+`bootui.activity.persistence.enabled=true` additionally buffers captured entries and flushes them to a SQL database
+over direct JDBC, so history survives a restart and the dashboard can page back further than fits in memory. Available
+on both adapters with an identical config surface and wire contract; on Quarkus a `QuarkusActivityCapture` CDI bean
+(`@Observes StartupEvent`/`ShutdownEvent`) owns the capture-poller lifecycle instead of Spring's controller-inline
+wiring. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md) for the full design (the `ActivityStore` abstraction,
+buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and multi-tenancy).
+
+| Property                                                | Default            | Description                                                                                                                        |
+| -------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.activity.persistence.enabled`                   | `false`             | Enable durable persistence for captured Live Activity entries, in addition to the in-memory default.                             |
+| `bootui.activity.persistence.data-source-mode`          | `SHARED`            | `SHARED` reuses the host application's own `DataSource` bean; `DEDICATED` opens a small, non-pooled connection of BootUI's own using the `dedicated-*` properties below. |
+| `bootui.activity.persistence.dedicated-jdbc-url`        | _(none)_            | JDBC URL used when `data-source-mode=DEDICATED`; ignored otherwise.                                                               |
+| `bootui.activity.persistence.dedicated-username`        | _(none)_            | Username used when `data-source-mode=DEDICATED`; ignored otherwise.                                                               |
+| `bootui.activity.persistence.dedicated-password`        | _(none)_            | Password used when `data-source-mode=DEDICATED`; ignored otherwise.                                                               |
+| `bootui.activity.persistence.dedicated-driver-class-name` | _(none)_          | Optional explicit JDBC driver class for `data-source-mode=DEDICATED`; blank lets a modern JDBC 4+ driver auto-register itself.    |
+| `bootui.activity.persistence.table-name`                | `bootui_activity`   | Table name every BootUI instance pointed at the same database shares. Created automatically on first use if absent.               |
+| `bootui.activity.persistence.flush-interval`            | `5s`                | How often buffered entries are flushed to durable storage.                                                                        |
+| `bootui.activity.persistence.buffer-max-entries`        | `500`               | Capacity of both the in-memory hot read cache (entries visible before their scheduled flush) and the pending-flush queue.         |
+| `bootui.activity.persistence.retention`                 | `7d`                | How long persisted rows are kept before this instance prunes its own rows older than this on a periodic pass.                     |
+| `bootui.activity.persistence.instance-id`               | _(auto)_            | Multi-tenant partition key this instance writes/reads its rows under. Defaults to the `HOSTNAME` environment variable, or else a generated `<app-name>-<random>` id. |
+| `bootui.activity.persistence.capture-interval`          | `2s`                | How often the capture coordinator polls the merged Live Activity feed for new entries to buffer.                                  |
 
 ### Traces
 

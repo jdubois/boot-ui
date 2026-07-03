@@ -117,6 +117,24 @@ defenses, value masking). The stream is capped by `bootui.activity.max-entries`,
 `bootui.activity.request-slow-threshold-ms`, and individual sources can be turned off through their existing
 `bootui.panels.*` toggles (a disabled source simply drops out of the stream).
 
+By default the stream is in-memory only, so history is lost on a restart and the feed can only show as far back as the
+small buffers behind it reach. Setting `bootui.activity.persistence.enabled=true` additionally buffers
+captured entries and flushes them to a SQL database over direct JDBC every `bootui.activity.persistence.flush-interval`
+(5 seconds by default), so history survives a restart and the dashboard can page back much further. The backing table
+(`bootui.activity.persistence.table-name`, default `bootui_activity`) is created automatically the first time it is
+needed, and several BootUI instances — for example several replicas of the same application — can safely point at the
+same table: each instance tags its own rows with an `instanceId` (defaulting to the `HOSTNAME` environment variable) and
+never reads or prunes another instance's rows. Recently captured entries are visible in the dashboard immediately, even
+before they have been flushed, because reads always merge the in-memory buffer with the durable store; if a flush ever
+fails, its entries are put back in the buffer rather than lost, and are retried on the next flush. Once persistence is
+confirmed on, the panel gains a **Load older** button beneath the stream that pages further back into history, and the
+type/severity/free-text filters are additionally pushed to the database as a real query instead of only filtering the
+entries already on screen; a small "· persisted history" note next to the panel subtitle confirms durable storage is
+active. By default (persistence off) none of this changes anything: no extra bean, thread, or connection is created, and
+the feed behaves exactly as before. See `docs/PROPERTIES.md` for the full list of `bootui.activity.persistence.*`
+properties, including how to point at a small dedicated connection instead of reusing the host application's own
+`DataSource`.
+
 On Quarkus the panel merges all four signals: HTTP requests (from the same Vert.x-fed ring buffer as HTTP Exchanges),
 SQL trace, exceptions, and security events, alongside JVM heap KPIs. SQL trace contributes only when a JDBC datasource is
 configured (the recorder is gated on Agroal); when none is present those entries drop out and the report carries a clear
@@ -136,6 +154,14 @@ does **not** attempt Spring's time-window/thread-based tiers for requests withou
 serving-thread identity that the Vert.x event-loop model has no equivalent for. Without `quarkus-opentelemetry` present —
 or for a request that has no trace id captured — the drawer honestly reports itself unavailable with a clear reason
 rather than fabricating a partial profile (see `docs/QUARKUS-SUPPORT.md` for the detailed reasoning).
+
+The optional durable persistence backend described above is available on Quarkus too, with an identical config surface,
+wire contract, and shared engine machinery (`ActivityStore`/`BufferedActivityStore`/`JdbcActivityStore`). A dedicated
+`QuarkusActivityCapture` CDI bean owns the capture-poller lifecycle (starting it at `@Observes StartupEvent` and
+stopping it, with a final flush, at `@Observes ShutdownEvent`) where the Spring adapter instead wires the same
+poller/coordinator inline in its controller. One narrower, pre-existing gap carries over: because Quarkus's baseline
+feed has no server-side `type`/`severity`/`since` filtering to begin with (see above), those filters only take effect
+on Quarkus once persistence is switched on.
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 

@@ -8,8 +8,16 @@ import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.engine.activity.ActivityCaptureCoordinator;
+import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
+import io.github.jdubois.bootui.engine.activity.ActivityPage;
+import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
+import io.github.jdubois.bootui.engine.activity.ActivityQuery;
+import io.github.jdubois.bootui.engine.activity.ActivitySequencer;
+import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.ArrayList;
@@ -39,6 +47,15 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * masking, filtering and bounds still apply. The four sources are wired in as signals — SQL trace and
  * exceptions through their in-process subscribe hooks, security and HTTP requests through Spring
  * application events — and a single {@link BootUiChangeStream} coalesces a burst into one push.
+ *
+ * <p>When the optional JDBC persistence backend ({@code bootui.activity.persistence.enabled}) is on,
+ * this controller also owns the capture side: it stamps and periodically appends whatever
+ * {@link #service}'s merged feed has not yet captured (see {@link ActivityCapturePoller}) into the
+ * shared {@link ActivityStore} bean, and {@link #activity} then serves entries and pagination from
+ * that store — which itself merges its in-memory hot cache with the durable backend — instead of from
+ * a fresh live re-merge. This is entirely additive: with persistence disabled (the default), neither
+ * bean exists, {@link #activityStore} is {@code null}, and {@link #activity} is byte-identical to
+ * today's behavior.</p>
  */
 @RestController
 @RequestMapping("/bootui/api/activity")
@@ -50,6 +67,8 @@ public class LiveActivityController {
     private final BootUiChangeStream changeStream;
     private final List<Runnable> unsubscribers = new ArrayList<>();
     private final String selfPath;
+    private final ActivityStore activityStore;
+    private final ActivityPersistenceSettings persistenceSettings;
 
     public LiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -62,6 +81,8 @@ public class LiveActivityController {
             ObjectProvider<ExceptionStore> exceptionStore,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
+            ObjectProvider<ActivityStore> activityStoreProvider,
+            ObjectProvider<ActivityPersistenceSettings> persistenceSettingsProvider,
             BootUiProperties properties) {
         this.service = new LiveActivityService(
                 httpExchanges,
@@ -92,6 +113,21 @@ public class LiveActivityController {
         if (store != null) {
             unsubscribers.add(store.subscribe(changeStream::signal));
         }
+        this.activityStore = activityStoreProvider.getIfAvailable();
+        this.persistenceSettings = persistenceSettingsProvider.getIfAvailable();
+        if (this.activityStore != null && this.persistenceSettings != null) {
+            // Capture side of the persistence option: poll the same merged feed the panel itself reads,
+            // stamping and appending whatever has not already been captured. Reusing this.service::report
+            // (rather than re-reading the four signal sources) means self-filtering/masking/bounds are
+            // inherited identically, and no new low-level instrumentation is needed.
+            ActivitySequencer sequencer = new ActivitySequencer(persistenceSettings.instanceId());
+            ActivityCaptureCoordinator coordinator = new ActivityCaptureCoordinator(
+                    this.activityStore, sequencer, persistenceSettings.bufferMaxEntries());
+            ActivityCapturePoller poller = new ActivityCapturePoller(
+                    coordinator, () -> service.report(null, null, 0, 0).entries());
+            poller.start(persistenceSettings.captureInterval());
+            unsubscribers.add(poller::close);
+        }
     }
 
     /**
@@ -104,6 +140,9 @@ public class LiveActivityController {
      * on its own, so cleaning up at destroy time would let graceful shutdown block until its timeout on
      * every stop. Doing it here also keeps a Spring Boot DevTools restart from leaking the
      * {@code bootui-activity-stream} daemon thread (and the discarded context's class loader behind it).
+     * The capture poller (when persistence is enabled) is stopped the same way, for the same reason;
+     * the shared {@link ActivityStore} bean itself is closed separately by Spring's own inferred
+     * destroy-method lifecycle since it holds no open request/connection that shutdown must not block on.
      */
     @EventListener(ContextClosedEvent.class)
     void shutdown() {
@@ -117,8 +156,31 @@ public class LiveActivityController {
             @RequestParam(name = "type", required = false) String type,
             @RequestParam(name = "severity", required = false) String severity,
             @RequestParam(name = "since", required = false, defaultValue = "0") long since,
-            @RequestParam(name = "limit", required = false, defaultValue = "0") int limit) {
-        return service.report(type, severity, since, limit);
+            @RequestParam(name = "limit", required = false, defaultValue = "0") int limit,
+            @RequestParam(name = "q", required = false) String q,
+            @RequestParam(name = "until", required = false) Long until,
+            @RequestParam(name = "cursor", required = false) String cursor,
+            @RequestParam(name = "pageSize", required = false, defaultValue = "0") int pageSize) {
+        LiveActivityReport live = service.report(type, severity, since, limit);
+        if (activityStore == null || persistenceSettings == null) {
+            return live;
+        }
+        // Persistence enabled: the store (which itself merges its in-memory hot cache with the durable
+        // backend) serves entries and pagination, so recently captured entries are visible immediately
+        // and the dashboard can page back through history beyond what fits in memory. KPIs/type counts/
+        // sources/warnings stay computed from the current live merge above — that strip is an "at a
+        // glance, right now" summary, not scoped to whichever historical page happens to be browsed.
+        ActivityQuery query = new ActivityQuery(
+                persistenceSettings.instanceId(), type, severity, q, since > 0 ? since : null, until, cursor, pageSize);
+        ActivityPage page = activityStore.query(query);
+        return new LiveActivityReport(
+                live.available(),
+                page.entryDtos(),
+                live.typeCounts(),
+                live.kpis(),
+                live.sources(),
+                live.warnings(),
+                new ActivityPageInfo(true, page.nextCursor(), page.hasMore()));
     }
 
     @GetMapping("/request/{id}")

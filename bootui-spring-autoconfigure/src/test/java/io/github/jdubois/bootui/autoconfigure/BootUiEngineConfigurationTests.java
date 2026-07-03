@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.core.dto.LoggerDto;
 import io.github.jdubois.bootui.core.dto.LoggersReport;
 import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.MappingsReport;
+import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
@@ -32,9 +33,11 @@ import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.Metamodel;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
@@ -239,6 +242,81 @@ class BootUiEngineConfigurationTests {
 
         assertThat(report.total()).isZero();
         assertThat(report.mappings()).isEmpty();
+    }
+
+    @Test
+    void activityPersistenceSettingsFactoryMapsPropertiesWithoutTransposition() {
+        // Several adjacent fields share a type (four Durations, several Strings), so a positional
+        // transposition in the factory would compile and only surface as a wrong value at runtime. Every
+        // field below is set to a value distinct from both the default and its same-typed neighbors.
+        BootUiProperties properties = new BootUiProperties();
+        BootUiProperties.ActivityPersistence persistence =
+                properties.getActivity().getPersistence();
+        persistence.setEnabled(true);
+        persistence.setDataSourceMode(BootUiProperties.ActivityPersistence.DataSourceMode.DEDICATED);
+        persistence.setDedicatedJdbcUrl("jdbc:h2:mem:pinned");
+        persistence.setDedicatedUsername("pinned-user");
+        persistence.setDedicatedPassword("pinned-pass");
+        persistence.setDedicatedDriverClassName("org.h2.Driver");
+        persistence.setTableName("pinned_table");
+        persistence.setFlushInterval(Duration.ofSeconds(11));
+        persistence.setBufferMaxEntries(321);
+        persistence.setRetention(Duration.ofDays(3));
+        persistence.setInstanceId("pinned-instance");
+        persistence.setCaptureInterval(Duration.ofSeconds(7));
+        // instanceId is already configured (non-blank), so the Environment is not consulted for it; the
+        // HOSTNAME-env-var / generated-id fallback paths are pinned separately by ActivityInstanceIdsTests.
+        MockEnvironment environment = new MockEnvironment();
+
+        ActivityPersistenceSettings settings = new BootUiEngineConfiguration.ActivityPersistenceBackendConfiguration()
+                .bootUiActivityPersistenceSettings(properties, environment);
+
+        assertThat(settings.enabled()).isTrue();
+        assertThat(settings.dataSourceMode()).isEqualTo(ActivityPersistenceSettings.DataSourceMode.DEDICATED);
+        assertThat(settings.dedicatedJdbcUrl()).isEqualTo("jdbc:h2:mem:pinned");
+        assertThat(settings.dedicatedUsername()).isEqualTo("pinned-user");
+        assertThat(settings.dedicatedPassword()).isEqualTo("pinned-pass");
+        assertThat(settings.dedicatedDriverClassName()).isEqualTo("org.h2.Driver");
+        assertThat(settings.tableName()).isEqualTo("pinned_table");
+        assertThat(settings.flushInterval()).isEqualTo(Duration.ofSeconds(11));
+        assertThat(settings.bufferMaxEntries()).isEqualTo(321);
+        assertThat(settings.retention()).isEqualTo(Duration.ofDays(3));
+        assertThat(settings.instanceId()).isEqualTo("pinned-instance");
+        assertThat(settings.captureInterval()).isEqualTo(Duration.ofSeconds(7));
+    }
+
+    @Test
+    void activityStoreFactoryResolvesAvailableDataSource() {
+        // Mirrors resolveRegistryReturnsAvailableRegistry: pins that the ActivityStore factory's own
+        // DataSource-resolution helper (not ActivityStoreFactory.create itself, already fully tested in
+        // bootui-engine) simply returns the available bean in the common, unambiguous case.
+        DataSource dataSource = mock(DataSource.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<DataSource> dataSourceProvider = mock(ObjectProvider.class);
+        when(dataSourceProvider.getIfAvailable()).thenReturn(dataSource);
+
+        assertThat(BootUiEngineConfiguration.ActivityPersistenceBackendConfiguration.resolveDataSource(
+                        dataSourceProvider))
+                .isSameAs(dataSource);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void activityStoreFactoryResolvesDataSourceEvenWhenAmbiguous() {
+        // Mirrors resolveRegistryFallsBackToFirstWhenAmbiguous: a host application may have more than one
+        // DataSource bean (e.g. a routing/primary + audit datasource); getIfAvailable() throws in that case,
+        // so the factory must fall back to the first one from orderedStream() rather than propagating and
+        // failing BootUI's own startup.
+        DataSource first = mock(DataSource.class);
+        DataSource second = mock(DataSource.class);
+        ObjectProvider<DataSource> dataSourceProvider = mock(ObjectProvider.class);
+        when(dataSourceProvider.getIfAvailable())
+                .thenThrow(new NoUniqueBeanDefinitionException(DataSource.class, 2, "two datasources"));
+        when(dataSourceProvider.orderedStream()).thenReturn(Stream.of(first, second));
+
+        assertThat(BootUiEngineConfiguration.ActivityPersistenceBackendConfiguration.resolveDataSource(
+                        dataSourceProvider))
+                .isSameAs(first);
     }
 
     private static final class RecordingLoggerProvider implements LoggerProvider {

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
@@ -11,6 +12,10 @@ import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import io.github.jdubois.bootui.engine.activity.ActivityPage;
+import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
+import io.github.jdubois.bootui.engine.activity.ActivityQuery;
+import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
@@ -56,6 +61,19 @@ import java.util.concurrent.atomic.AtomicInteger;
  * nests SQL/exception/security entries under the request sharing that trace id, also stamping a uniquely
  * correlated security event's principal onto its parent request as {@code securedPrincipal}.
  *
+ * <p>When the optional JDBC persistence backend ({@code bootui.activity.persistence.enabled}) is on,
+ * {@code QuarkusActivityCapture} owns the capture side (polling {@link #mergedReport} and appending
+ * whatever it has not yet captured into the shared {@link ActivityStore} bean), and {@link #activity}
+ * then serves entries and pagination from that store — which itself merges its in-memory hot cache with
+ * the durable backend — instead of from a fresh live re-merge. This is entirely additive: with
+ * persistence disabled (the default), {@link #persistenceSettings}{@code .enabled()} is {@code false}
+ * and {@link #activity} is byte-identical to today's behavior. Unlike Spring's {@code
+ * LiveActivityService.report(type, severity, since, limit)}, the shared engine
+ * {@link LiveActivityAssembler} this resource calls has no type/severity/since filtering of its own, so
+ * those filters apply only through the persistence query path; the KPI strip stays computed from the
+ * full, unfiltered live merge either way (an "at a glance, right now" summary, not scoped to whichever
+ * filter or historical page is being browsed).
+ *
  * <p>The per-request <em>profile</em> drill-down ({@code GET /bootui/api/activity/request/{id}}) is a
  * <strong>reduced, trace-id-only</strong> port of Spring's fuller Symfony-style profiler: Spring's tiered
  * correlator falls back to HTTP method+path+time-window+thread heuristics when no trace id is available,
@@ -83,6 +101,8 @@ public class LiveActivityResource {
     private final SecurityEventBuffer securityBuffer;
     private final QuarkusPanelAvailability panelAvailability;
     private final TracesService tracesService;
+    private final ActivityStore activityStore;
+    private final ActivityPersistenceSettings persistenceSettings;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
     private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
@@ -98,7 +118,9 @@ public class LiveActivityResource {
             ExceptionsService exceptionsService,
             SecurityEventBuffer securityBuffer,
             QuarkusPanelAvailability panelAvailability,
-            TracesService tracesService) {
+            TracesService tracesService,
+            ActivityStore activityStore,
+            ActivityPersistenceSettings persistenceSettings) {
         this.buffer = buffer;
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
@@ -107,11 +129,58 @@ public class LiveActivityResource {
         this.securityBuffer = securityBuffer;
         this.panelAvailability = panelAvailability;
         this.tracesService = tracesService;
+        this.activityStore = activityStore;
+        this.persistenceSettings = persistenceSettings;
     }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    public LiveActivityReport activity(@QueryParam("limit") Integer limit) {
+    public LiveActivityReport activity(
+            @QueryParam("limit") Integer limit,
+            @QueryParam("type") String type,
+            @QueryParam("severity") String severity,
+            @QueryParam("q") String q,
+            @QueryParam("since") Long since,
+            @QueryParam("until") Long until,
+            @QueryParam("cursor") String cursor,
+            @QueryParam("pageSize") Integer pageSize) {
+        LiveActivityReport live = mergedReport(limit == null ? 0 : limit);
+        if (!persistenceSettings.enabled()) {
+            return live;
+        }
+        // Persistence enabled: the store (which itself merges its in-memory hot cache with the durable
+        // backend) serves entries and pagination, so recently captured entries are visible immediately
+        // and the dashboard can page back through history beyond what fits in memory. See the class
+        // Javadoc for why the KPI strip above stays computed from the full, unfiltered live merge.
+        ActivityQuery query = new ActivityQuery(
+                persistenceSettings.instanceId(),
+                type,
+                severity,
+                q,
+                since != null && since > 0 ? since : null,
+                until,
+                cursor,
+                pageSize == null ? 0 : pageSize);
+        ActivityPage page = activityStore.query(query);
+        return new LiveActivityReport(
+                live.available(),
+                page.entryDtos(),
+                live.typeCounts(),
+                live.kpis(),
+                live.sources(),
+                live.warnings(),
+                new ActivityPageInfo(true, page.nextCursor(), page.hasMore()));
+    }
+
+    /**
+     * The merged, reverse-chronological Live Activity feed — today's entire {@link #activity} body
+     * before persistence-aware pagination, extracted so {@code QuarkusActivityCapture}'s capture poller
+     * can reuse it as its feed {@link java.util.function.Supplier} without duplicating the
+     * signal-gathering/masking/profileable-stamping logic. Reusing this method (rather than re-reading
+     * the four signal sources independently) means the poller sees the exact same self-filtered, masked
+     * view the panel itself renders.
+     */
+    public LiveActivityReport mergedReport(int limit) {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
@@ -125,7 +194,7 @@ public class LiveActivityResource {
                 securityEvents(securityAvailable),
                 securityAvailable,
                 null,
-                limit == null ? 0 : limit);
+                limit);
 
         // Adapter-side post-processing over the shared assembler's output — not a change to the engine's
         // own `profileable` default (which stays `false` for every entry it builds, unaffected by this

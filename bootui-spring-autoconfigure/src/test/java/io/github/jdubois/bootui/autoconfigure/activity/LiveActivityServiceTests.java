@@ -205,7 +205,7 @@ class LiveActivityServiceTests {
                 securityCorrelations,
                 new BootUiProperties());
 
-        assertThat(parentOf(service.report(null, null, 0, 0), "sec-0")).isEqualTo("r1");
+        assertThat(parentOfSecurityEntry(service.report(null, null, 0, 0))).isEqualTo("r1");
     }
 
     @Test
@@ -256,7 +256,7 @@ class LiveActivityServiceTests {
         // The event correlates to the request (so it still nests), but a blank principal must not flag
         // the request as authenticated.
         LiveActivityReport report = service.report(null, null, 0, 0);
-        assertThat(parentOf(report, "sec-0")).isEqualTo("r1");
+        assertThat(parentOfSecurityEntry(report)).isEqualTo("r1");
         assertThat(securedPrincipalOf(report, "r1")).isNull();
     }
 
@@ -280,6 +280,18 @@ class LiveActivityServiceTests {
     private static String parentOf(LiveActivityReport report, String entryId) {
         return report.entries().stream()
                 .filter(e -> e.id().equals(entryId))
+                .findFirst()
+                .orElseThrow()
+                .parentId();
+    }
+
+    /**
+     * Security entry ids are a content hash (see {@code SecurityActivityIds}), not a predictable literal,
+     * so tests locate the single security entry by type instead of hardcoding an id.
+     */
+    private static String parentOfSecurityEntry(LiveActivityReport report) {
+        return report.entries().stream()
+                .filter(e -> "SECURITY".equals(e.type()))
                 .findFirst()
                 .orElseThrow()
                 .parentId();
