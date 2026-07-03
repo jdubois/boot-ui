@@ -39,11 +39,19 @@ class McpDispatcherTests {
             "config",
             false,
             args -> Map.of("query", String.valueOf(args.query()), "limit", args.limit()));
+    private final McpTool detail = new McpTool(
+            "get_exception_detail",
+            "Read one exception group's detail.",
+            McpToolSchema.ID,
+            "exceptions",
+            false,
+            args -> Map.of("id", args.id()));
 
     private final FakePolicy policy = new FakePolicy();
 
     private McpDispatcher dispatcher() {
-        return new McpDispatcher(List.of(overview, architecture, search), policy, "1.2.3", "instructions text", 50);
+        return new McpDispatcher(
+                List.of(overview, architecture, search, detail), policy, "1.2.3", "instructions text", 50);
     }
 
     @Test
@@ -79,8 +87,9 @@ class McpDispatcherTests {
         ToolsListResult result = (ToolsListResult) outcome;
         assertThat(result.tools())
                 .extracting(McpToolDescriptor::name)
-                .containsExactly("get_overview", "architecture_scan", "get_config");
+                .containsExactly("get_overview", "architecture_scan", "get_config", "get_exception_detail");
         assertThat(result.tools().get(2).schema()).isEqualTo(McpToolSchema.QUERY_LIMIT);
+        assertThat(result.tools().get(3).schema()).isEqualTo(McpToolSchema.ID);
     }
 
     @Test
@@ -94,7 +103,7 @@ class McpDispatcherTests {
     @Test
     void toolsCallAppliesNormalizedArguments() {
         McpDispatchOutcome outcome =
-                dispatcher().dispatch(new McpRequest("tools/call", false, null, "get_config", "  hi  ", 5));
+                dispatcher().dispatch(new McpRequest("tools/call", false, null, "get_config", "  hi  ", 5, null));
 
         Object payload = ((ToolCallResult) outcome).payload();
         assertThat(payload).isEqualTo(Map.of("query", "hi", "limit", 5));
@@ -103,9 +112,32 @@ class McpDispatcherTests {
     @Test
     void toolsCallCapsLimitAtMaxResults() {
         McpDispatchOutcome outcome =
-                dispatcher().dispatch(new McpRequest("tools/call", false, null, "get_config", null, 9999));
+                dispatcher().dispatch(new McpRequest("tools/call", false, null, "get_config", null, 9999, null));
 
         assertThat(((ToolCallResult) outcome).payload()).isEqualTo(Map.of("query", "null", "limit", 50));
+    }
+
+    @Test
+    void toolsCallWithIdSchemaPassesTrimmedIdToHandler() {
+        McpDispatchOutcome outcome = dispatcher()
+                .dispatch(new McpRequest("tools/call", false, null, "get_exception_detail", null, null, "  exc-1  "));
+
+        assertThat(((ToolCallResult) outcome).payload()).isEqualTo(Map.of("id", "exc-1"));
+    }
+
+    @Test
+    void toolsCallWithIdSchemaAndMissingIdIsInBandError() {
+        McpDispatchOutcome outcome = dispatcher().dispatch(call("get_exception_detail"));
+
+        assertThat(outcome).isEqualTo(new ToolCallError(McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
+    }
+
+    @Test
+    void toolsCallWithIdSchemaAndBlankIdIsInBandError() {
+        McpDispatchOutcome outcome = dispatcher()
+                .dispatch(new McpRequest("tools/call", false, null, "get_exception_detail", null, null, "   "));
+
+        assertThat(outcome).isEqualTo(new ToolCallError(McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
     }
 
     @Test
@@ -169,35 +201,35 @@ class McpDispatcherTests {
     @Test
     void unknownNotificationMethodProducesNoResponse() {
         McpDispatchOutcome outcome =
-                dispatcher().dispatch(new McpRequest("notifications/initialized", true, null, null, null, null));
+                dispatcher().dispatch(new McpRequest("notifications/initialized", true, null, null, null, null, null));
 
         assertThat(outcome).isInstanceOf(NoResponse.class);
     }
 
     @Test
     void blankMethodNotificationProducesNoResponse() {
-        assertThat(dispatcher().dispatch(new McpRequest("", true, null, null, null, null)))
+        assertThat(dispatcher().dispatch(new McpRequest("", true, null, null, null, null, null)))
                 .isInstanceOf(NoResponse.class);
     }
 
     @Test
     void blankMethodRequestIsInvalidParams() {
-        McpDispatchOutcome outcome = dispatcher().dispatch(new McpRequest("", false, null, null, null, null));
+        McpDispatchOutcome outcome = dispatcher().dispatch(new McpRequest("", false, null, null, null, null, null));
 
         assertThat(outcome)
                 .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_METHOD_MESSAGE));
     }
 
     private static McpRequest initialize(String protocolVersion) {
-        return new McpRequest("initialize", false, protocolVersion, null, null, null);
+        return new McpRequest("initialize", false, protocolVersion, null, null, null, null);
     }
 
     private static McpRequest method(String method) {
-        return new McpRequest(method, false, null, null, null, null);
+        return new McpRequest(method, false, null, null, null, null, null);
     }
 
     private static McpRequest call(String toolName) {
-        return new McpRequest("tools/call", false, null, toolName, null, null);
+        return new McpRequest("tools/call", false, null, toolName, null, null, null);
     }
 
     private static final class FakePolicy implements McpPanelPolicy {

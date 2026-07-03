@@ -27,9 +27,12 @@ public class BootUiMcpProducer {
 
     private static final String INSTRUCTIONS =
             "BootUI exposes a running Quarkus application. Call the *_scan advisor tools to get "
-                    + "actionable findings to fix, and the get_* tools (exceptions, security logs, SQL traces, "
-                    + "traces, HTTP exchanges, config, beans, mappings) to understand runtime behavior. All data "
-                    + "is read locally and secret values are masked.";
+                    + "actionable findings to fix, and the get_* tools (live activity, exceptions, security logs, "
+                    + "SQL traces, traces, HTTP exchanges, config, beans, mappings) to understand runtime behavior. "
+                    + "Use get_live_activity for a correlated feed of recent HTTP requests, SQL statements, "
+                    + "exceptions, and security events (grouped by request/trace), and get_exception_detail "
+                    + "(by id) for one exception's full stack trace, causes, and occurrences. All data is read "
+                    + "locally and secret values are masked.";
 
     @Produces
     @Singleton

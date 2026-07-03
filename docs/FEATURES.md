@@ -1091,13 +1091,13 @@ server is up). As a state-changing action it is gated by the same localhost-only
 
 BootUI can expose its advisors and read-only diagnostics to local AI coding agents (such as GitHub Copilot or Claude
 Code) through a local, opt-in [Model Context Protocol](https://modelcontextprotocol.io) server, so an agent can consult
-the advisors before proposing a fix and pull runtime diagnostics (exceptions, security logs, SQL traces, HTTP exchanges)
-while investigating an issue. The server is a JSON-RPC 2.0 endpoint at `POST /bootui/api/mcp` (a `GET /bootui/api/mcp`
-status request returns the advertised tool list for inspection); it is disabled by default (fail-closed) and, like the
-rest of the BootUI API, only reachable over the loopback interface. Enable it headlessly with `bootui.mcp.enabled=ON`,
-or use the prominent toggle at the top of this panel to turn it on or off **at runtime, overriding the
-`bootui.mcp.enabled` Spring Boot property** for the lifetime of the running application — the configured mode only sets
-the initial state, and the panel shows when the live state is an override.
+the advisors before proposing a fix and pull runtime diagnostics (a correlated live activity feed, exception detail,
+security logs, SQL traces, HTTP exchanges) while investigating an issue. The server is a JSON-RPC 2.0 endpoint at
+`POST /bootui/api/mcp` (a `GET /bootui/api/mcp` status request returns the advertised tool list for inspection); it is
+disabled by default (fail-closed) and, like the rest of the BootUI API, only reachable over the loopback interface.
+Enable it headlessly with `bootui.mcp.enabled=ON`, or use the prominent toggle at the top of this panel to turn it on
+or off **at runtime, overriding the `bootui.mcp.enabled` Spring Boot property** for the lifetime of the running
+application — the configured mode only sets the initial state, and the panel shows when the live state is an override.
 
 The panel explains what the server does and lists every tool it exposes. Tools reuse the existing controllers and DTOs
 rather than reimplementing anything, so every tool returns the same masked, bounded shape as the REST API, in three
@@ -1106,8 +1106,11 @@ groups:
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
   `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`. Each triggers the same scan the panel's action button
   runs and returns the report DTO.
-- **Diagnostics reads:** `get_exceptions`, `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`,
-  `get_http_exchanges`.
+- **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
+  `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`. `get_live_activity` returns the correlated feed
+  the [Live Activity panel](#live-activity) shows (HTTP requests, SQL statements, exceptions, and security events
+  grouped by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or
+  `get_live_activity`) and returns that exception group's full stack trace, causes, and individual occurrences.
 - **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`.
 
 Tools whose backing panel/controller is not present (for example Hibernate or Spring Security when those libraries are

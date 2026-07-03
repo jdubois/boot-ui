@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.mcp;
 
+import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
@@ -51,6 +52,7 @@ public class BootUiMcpTools {
             ObjectProvider<BeansController> beans,
             ObjectProvider<MappingsController> mappings,
             ObjectProvider<ExceptionsController> exceptions,
+            ObjectProvider<LiveActivityController> liveActivity,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<SqlTraceController> sqlTrace,
             ObjectProvider<TracesController> traces,
@@ -74,6 +76,7 @@ public class BootUiMcpTools {
         BeansController beansBean = beans.getIfAvailable();
         MappingsController mappingsBean = mappings.getIfAvailable();
         ExceptionsController exceptionsBean = exceptions.getIfAvailable();
+        LiveActivityController liveActivityBean = liveActivity.getIfAvailable();
         SecurityLogsController securityLogsBean = securityLogs.getIfAvailable();
         SqlTraceController sqlTraceBean = sqlTrace.getIfAvailable();
         TracesController tracesBean = traces.getIfAvailable();
@@ -158,12 +161,28 @@ public class BootUiMcpTools {
         }
 
         // --- Diagnostics / runtime read tools (panel reads; allowed when the panel is enabled) ---
+        if (liveActivityBean != null) {
+            registry.add(limitRead(
+                    "get_live_activity",
+                    "Return the correlated live activity feed: HTTP requests, SQL statements, exceptions, "
+                            + "and security events, grouped by request/trace so related signals (e.g. the "
+                            + "slow query or exception behind one HTTP request) are easy to spot together.",
+                    BootUiPanels.ACTIVITY,
+                    args -> liveActivityBean.activity(null, null, 0, args.limit())));
+        }
         if (exceptionsBean != null) {
             registry.add(read(
                     "get_exceptions",
                     "List recent unhandled exceptions captured at runtime (most recent first).",
                     BootUiPanels.EXCEPTIONS,
                     args -> exceptionsBean.list()));
+            registry.add(idRead(
+                    "get_exception_detail",
+                    "Return full detail for one exception group by id: stack trace frames, causes, and "
+                            + "individual occurrences (request method/path/handler/thread/traceId). Use the "
+                            + "'id' from get_exceptions or get_live_activity.",
+                    BootUiPanels.EXCEPTIONS,
+                    args -> exceptionsBean.detail(args.id())));
         }
         if (securityLogsBean != null) {
             registry.add(limitRead(
@@ -270,5 +289,10 @@ public class BootUiMcpTools {
     private static McpTool searchRead(
             String name, String description, String panelId, Function<McpArguments, Object> handler) {
         return new McpTool(name, description, McpToolSchema.QUERY_LIMIT, panelId, false, handler);
+    }
+
+    private static McpTool idRead(
+            String name, String description, String panelId, Function<McpArguments, Object> handler) {
+        return new McpTool(name, description, McpToolSchema.ID, panelId, false, handler);
     }
 }

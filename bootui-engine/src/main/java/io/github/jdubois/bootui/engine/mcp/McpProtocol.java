@@ -33,6 +33,8 @@ public final class McpProtocol {
     public static final String MISSING_METHOD_MESSAGE = "Missing 'method'";
     /** Reported in-band when a {@code tools/call} omits the tool name. */
     public static final String MISSING_TOOL_NAME_MESSAGE = "Missing tool name";
+    /** Reported in-band when a {@link McpToolSchema#ID} tool is called without a (non-blank) {@code id}. */
+    public static final String MISSING_ID_ARGUMENT_MESSAGE = "Missing required argument: id";
     /** Fallback in-band tool-error text when a tool fails without a message. */
     public static final String TOOL_CALL_FAILED_MESSAGE = "Tool call failed";
 
