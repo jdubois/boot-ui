@@ -181,6 +181,12 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultSqlTraceCaptureCallSiteIsTrue() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getSqlTrace().isCaptureCallSite()).isTrue();
+    }
+
+    @Test
     void defaultClaudeCodeRawRevealIsFalse() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getClaudeCode().isAllowRawReveal()).isFalse();
@@ -272,6 +278,16 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getHttpExchanges().getMaxExchanges()).isEqualTo(25);
+    }
+
+    @Test
+    void bindsSqlTraceCaptureCallSiteToFalse() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.sql-trace.capture-call-site", "false");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getSqlTrace().isCaptureCallSite()).isFalse();
     }
 
     @Test

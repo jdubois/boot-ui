@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.exceptions;
 
+import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -59,32 +60,6 @@ public final class ExceptionStore {
 
     /** Upper bound on a retained raw message, before display masking/truncation. */
     private static final int MAX_MESSAGE_LENGTH = 4096;
-
-    private static final List<String> FRAMEWORK_PREFIXES = List.of(
-            "java.",
-            "javax.",
-            "jakarta.",
-            "jdk.",
-            "sun.",
-            "com.sun.",
-            "org.springframework.",
-            "org.apache.",
-            "ch.qos.",
-            "org.slf4j.",
-            "io.micrometer.",
-            "org.hibernate.",
-            "com.zaxxer.",
-            "org.junit.",
-            "org.gradle.",
-            "org.eclipse.",
-            "reactor.",
-            "io.netty.",
-            "io.vertx.",
-            "io.quarkus.",
-            "org.aspectj.",
-            "net.bytebuddy.",
-            "org.jboss.",
-            "io.github.jdubois.bootui.");
 
     private final int maxGroups;
     private final int maxOccurrencesPerGroup;
@@ -388,12 +363,7 @@ public final class ExceptionStore {
             }
             return false;
         }
-        for (String prefix : FRAMEWORK_PREFIXES) {
-            if (className.startsWith(prefix)) {
-                return false;
-            }
-        }
-        return true;
+        return !StackFramePrefixes.isFrameworkClass(className);
     }
 
     private static String location(List<Frame> frames) {

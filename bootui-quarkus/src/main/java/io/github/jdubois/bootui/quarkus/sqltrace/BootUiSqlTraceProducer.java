@@ -44,6 +44,8 @@ public class BootUiSqlTraceProducer {
                 .orElse(true);
         boolean captureParameters = config.getOptionalValue("bootui.sql-trace.capture-parameters", Boolean.class)
                 .orElse(false);
+        boolean captureCallSite = config.getOptionalValue("bootui.sql-trace.capture-call-site", Boolean.class)
+                .orElse(true);
         int maxEntries = config.getOptionalValue("bootui.sql-trace.max-entries", Integer.class)
                 .orElse(200);
         long slowThreshold = config.getOptionalValue("bootui.sql-trace.slow-query-threshold-millis", Long.class)
@@ -58,6 +60,7 @@ public class BootUiSqlTraceProducer {
                 enabled,
                 recording,
                 captureParameters,
+                captureCallSite,
                 maxEntries,
                 slowThreshold,
                 maxSqlLength,

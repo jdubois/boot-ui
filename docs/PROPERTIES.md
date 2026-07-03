@@ -289,6 +289,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | `bootui.sql-trace.enabled`                | `true`  | Wrap `DataSource` beans with BootUI's hand-written JDBC tracing proxy. When `false`, no data source is wrapped.                              |
 | `bootui.sql-trace.recording`              | `true`  | Initial recording state. Recording can be paused and resumed at runtime from the panel without unwrapping data sources.                      |
 | `bootui.sql-trace.capture-parameters`     | `false` | Capture bound statement parameters alongside the SQL text. Off by default because values may be sensitive; metadata-only exposure suppresses them even when enabled. |
+| `bootui.sql-trace.capture-call-site`      | `true`  | Capture the call site (class, method, line) in your own application code that triggered each statement, via a small, bounded stack walk. A call site carries no bound values, so — unlike parameter capture — it is not privacy-gated and defaults on; set `false` to skip the stack walk entirely. |
 | `bootui.sql-trace.max-entries`            | `200`   | Maximum number of executed statements retained in the in-memory ring buffer.                                                                 |
 | `bootui.sql-trace.slow-query-threshold-millis` | `100` | Executions at or above this many milliseconds are flagged as slow. Set to `0` to disable slow-query flagging.                              |
 | `bootui.sql-trace.max-sql-length`         | `2000`  | Maximum retained SQL text length; longer statements are truncated.                                                                           |
@@ -299,14 +300,16 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 
 The Live Activity panel reuses the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs sources, so disabling any of
 those panels through their own `bootui.panels.*` toggles also removes them from the stream. The panel itself is
-read-only.
+read-only. A request whose correlated SQL trips `bootui.activity.n-plus-one-threshold` is flagged with a red **N+1**
+badge both in the main stream row and in its profile drawer (the same threshold, so the two views never disagree); the
+drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-trace.capture-call-site` is enabled.
 
 | Property                                      | Default | Description                                                                                                       |
-| --------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| ---------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
 | `bootui.panels.activity.enabled`              | `true`  | Show the Live Activity panel (merged stream and per-request profiler).                                           |
 | `bootui.activity.max-entries`                 | `200`   | Maximum number of merged stream entries returned per page after merging and sorting all sources.                 |
 | `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds above which a request is flagged as slow in the stream and KPI strip.                   |
-| `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request profile flags a potential N+1 pattern.  |
+| `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request is flagged with a potential N+1 pattern, both as a list-level badge and in its profile drawer. |
 
 ### Traces
 

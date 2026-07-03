@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.time.Instant;
@@ -109,9 +110,19 @@ public class LiveActivityService {
         List<ActivityEntryDto> all = new ArrayList<>();
         // Build SQL, exception and security entries first so we know which requests carry a correlated
         // security event (and the principal it ran as) before we build the request entries themselves.
+        // Also index each SQL entry by its resolved parent request id, reusing the exact same
+        // matchSqlParent(...) call already needed to build its ActivityEntryDto, so the REQUEST loop below
+        // can flag N+1 suspicion per request using precisely the SQL BootUI attributes to it.
+        Map<String, List<SqlTraceEntryDto>> sqlByRequestId = new HashMap<>();
         if (sql != null) {
             for (SqlTraceEntryDto entry : sql.entries()) {
-                all.add(toSqlEntry(entry, matchSqlParent(entry, anchors)));
+                String parentId = matchSqlParent(entry, anchors);
+                all.add(toSqlEntry(entry, parentId));
+                if (parentId != null) {
+                    sqlByRequestId
+                            .computeIfAbsent(parentId, id -> new ArrayList<>())
+                            .add(entry);
+                }
             }
         }
         if (exceptionsReport != null) {
@@ -134,10 +145,16 @@ public class LiveActivityService {
             }
         }
         if (requests != null) {
+            int nPlusOneThreshold = properties.getActivity().getNPlusOneThreshold();
             for (HttpExchangeDto exchange : requests.exchanges()) {
                 RequestAnchor anchor = anchorsById.get(exchange.id());
+                boolean sqlNPlusOneSuspected = SqlTraceGrouping.anySuspectedNPlusOne(
+                        sqlByRequestId.getOrDefault(exchange.id(), List.of()), nPlusOneThreshold);
                 all.add(toRequestEntry(
-                        exchange, anchor == null ? null : anchor.thread(), securedByRequest.get(exchange.id())));
+                        exchange,
+                        anchor == null ? null : anchor.thread(),
+                        securedByRequest.get(exchange.id()),
+                        sqlNPlusOneSuspected));
             }
         }
 
@@ -237,7 +254,8 @@ public class LiveActivityService {
         return report;
     }
 
-    private ActivityEntryDto toRequestEntry(HttpExchangeDto exchange, String servingThread, String securedPrincipal) {
+    private ActivityEntryDto toRequestEntry(
+            HttpExchangeDto exchange, String servingThread, String securedPrincipal, boolean sqlNPlusOneSuspected) {
         long timestamp =
                 exchange.timestamp() == null ? 0L : exchange.timestamp().toEpochMilli();
         int status = exchange.status();
@@ -269,7 +287,8 @@ public class LiveActivityService {
                 servingThread,
                 true,
                 null,
-                securedPrincipal);
+                securedPrincipal,
+                sqlNPlusOneSuspected);
     }
 
     private ActivityEntryDto toSqlEntry(SqlTraceEntryDto entry, String parentId) {
@@ -299,7 +318,8 @@ public class LiveActivityService {
                 entry.thread(),
                 false,
                 parentId,
-                null);
+                null,
+                false);
     }
 
     private ActivityEntryDto toExceptionEntry(ExceptionGroupDto group, String parentId) {
@@ -324,7 +344,8 @@ public class LiveActivityService {
                 group.lastThread(),
                 false,
                 parentId,
-                null);
+                null,
+                false);
     }
 
     private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, int index, String parentId) {
@@ -348,7 +369,8 @@ public class LiveActivityService {
                 null,
                 false,
                 parentId,
-                null);
+                null,
+                false);
     }
 
     /**

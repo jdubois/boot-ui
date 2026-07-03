@@ -26,6 +26,10 @@ import java.util.List;
  * @param parameters ordered, stringified parameter bindings (may be empty)
  * @param traceId Micrometer/W3C trace id active when the statement ran, or {@code null} when no
  *     tracer was present; used to correlate the statement to its originating request exactly
+ * @param callSite the first application stack frame above the JDBC call, formatted as {@code
+ *     ClassName.methodName(File.java:42)}, or {@code null} when call-site capture is disabled or no
+ *     application frame was found; never gated by value exposure since it names the application's own
+ *     code, never a bound value
  */
 public record SqlTraceEntryDto(
         long id,
@@ -42,7 +46,8 @@ public record SqlTraceEntryDto(
         String thread,
         boolean slow,
         List<String> parameters,
-        String traceId) {
+        String traceId,
+        String callSite) {
 
     public SqlTraceEntryDto {
         parameters = parameters == null ? List.of() : List.copyOf(parameters);

@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.time.Instant;
@@ -123,6 +124,20 @@ public final class LiveActivityAssembler {
             }
         }
 
+        // Same idea, computed up front so the REQUEST loop below can flag N+1 suspicion per request: group
+        // each request's own correlated SQL executions by owning request id, reusing the shared
+        // TraceCorrelationIndex uniqueness guard so an ambiguous trace id never attributes SQL to the wrong
+        // request.
+        Map<String, List<SqlTraceEntryDto>> sqlByRequestId = new HashMap<>();
+        for (SqlTraceEntryDto entry : sql) {
+            String requestId = traceIndex.parentRequestId(entry.traceId());
+            if (requestId != null) {
+                sqlByRequestId
+                        .computeIfAbsent(requestId, id -> new ArrayList<>())
+                        .add(entry);
+            }
+        }
+
         for (HttpExchangeDto e : exchanges) {
             long ts = e.timestamp() == null ? 0L : e.timestamp().toEpochMilli();
             if (e.status() >= 400) {
@@ -139,6 +154,8 @@ public final class LiveActivityAssembler {
             // rc.user()) takes precedence as the more direct signal; fall back to a correlated security
             // event's principal only when the request itself carried none.
             String securedPrincipal = e.principal() != null ? e.principal() : securedPrincipalByRequestId.get(e.id());
+            boolean sqlNPlusOneSuspected = SqlTraceGrouping.anySuspectedNPlusOne(
+                    sqlByRequestId.getOrDefault(e.id(), List.of()), SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD);
             entries.add(new ActivityEntryDto(
                     e.id(),
                     TYPE_REQUEST,
@@ -154,7 +171,8 @@ public final class LiveActivityAssembler {
                     null,
                     false,
                     null,
-                    securedPrincipal));
+                    securedPrincipal,
+                    sqlNPlusOneSuspected));
         }
 
         Long slowestQuery = null;
@@ -241,7 +259,8 @@ public final class LiveActivityAssembler {
                 entry.thread(),
                 false,
                 parentId,
-                null);
+                null,
+                false);
     }
 
     private ActivityEntryDto toExceptionEntry(ExceptionGroupDto group, String parentId) {
@@ -266,7 +285,8 @@ public final class LiveActivityAssembler {
                 group.lastThread(),
                 false,
                 parentId,
-                null);
+                null,
+                false);
     }
 
     /**
@@ -295,7 +315,8 @@ public final class LiveActivityAssembler {
                 null,
                 false,
                 parentId,
-                null);
+                null,
+                false);
     }
 
     private static String blankToNull(String value) {

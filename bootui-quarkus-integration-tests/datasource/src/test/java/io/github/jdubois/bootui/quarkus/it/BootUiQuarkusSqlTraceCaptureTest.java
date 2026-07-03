@@ -84,6 +84,17 @@ class BootUiQuarkusSqlTraceCaptureTest {
         assertThat(entry.path("parameters").size())
                 .as("bound parameter values stay masked while capture-parameters is off")
                 .isEqualTo(0);
+
+        // Call-site capture defaults on (bootui.sql-trace.capture-call-site). This query is issued directly
+        // from this test's own @BeforeEach, which lives under BootUI's own io.github.jdubois.bootui package -
+        // deny-listed as "not application code" by the same StackFramePrefixes rule that keeps BootUI's own
+        // instrumentation out of the call site, exactly like a real host application's test/framework code
+        // would be. The field must still be present on the wire (never omitted or throw); the Hibernate/
+        // StatementInspector feeder test proves a real, non-null callSite when the query instead originates
+        // from genuine application code (see BootUiQuarkusSqlTraceOrmCaptureTest).
+        assertThat(entry.has("callSite"))
+                .as("the callSite field is always present on the wire, even when null")
+                .isTrue();
     }
 
     @Test

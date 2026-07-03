@@ -24,11 +24,10 @@ import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
@@ -263,30 +262,7 @@ public class LiveActivityCorrelator {
     }
 
     private List<SqlTraceGroupDto> groupSql(List<SqlTraceEntryDto> sql) {
-        if (sql.isEmpty()) {
-            return List.of();
-        }
-        int nPlusOneThreshold = properties.getActivity().getNPlusOneThreshold();
-        Map<String, long[]> stats = new LinkedHashMap<>(); // [executions, totalDuration, maxDuration]
-        Map<String, String> categories = new LinkedHashMap<>();
-        for (SqlTraceEntryDto entry : sql) {
-            String key = normalizeSql(entry.sql());
-            long[] slot = stats.computeIfAbsent(key, k -> new long[3]);
-            slot[0] += 1;
-            slot[1] += entry.durationMillis();
-            slot[2] = Math.max(slot[2], entry.durationMillis());
-            categories.putIfAbsent(key, entry.category());
-        }
-        List<SqlTraceGroupDto> groups = new ArrayList<>();
-        for (Map.Entry<String, long[]> e : stats.entrySet()) {
-            long executions = e.getValue()[0];
-            String category = categories.getOrDefault(e.getKey(), "OTHER");
-            boolean nPlusOne = "SELECT".equalsIgnoreCase(category) && executions >= nPlusOneThreshold;
-            groups.add(
-                    new SqlTraceGroupDto(e.getKey(), category, executions, e.getValue()[1], e.getValue()[2], nPlusOne));
-        }
-        groups.sort(Comparator.comparingLong(SqlTraceGroupDto::executions).reversed());
-        return groups;
+        return SqlTraceGrouping.group(sql, properties.getActivity().getNPlusOneThreshold());
     }
 
     private ExceptionCorrelation correlateExceptions(
@@ -465,9 +441,5 @@ public class LiveActivityCorrelator {
 
     private static boolean principalMatches(String left, String right) {
         return left != null && right != null && left.equalsIgnoreCase(right);
-    }
-
-    private static String normalizeSql(String sql) {
-        return ActivitySql.normalize(sql);
     }
 }
