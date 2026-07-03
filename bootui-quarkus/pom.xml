@@ -209,6 +209,20 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!--
+          Test-scope only: LiveActivityResourceTests exercises the "Use the existing datasource" runtime
+          switch against a real, disposable database rather than hand-rolling a java.sql.DataSource/
+          Connection fake (SwitchableActivityStore/BufferedActivityStore are final, so they cannot be
+          mocked either, and this module has no Mockito). Mirrors the identical bootui-engine
+          (JdbcActivityStoreTests) and bootui-spring-autoconfigure (LiveActivityControllerTests) test
+          dependency for the same feature. H2's version is managed by the imported quarkus-bom.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

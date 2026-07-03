@@ -151,5 +151,16 @@
             <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!--
+          Test-scope only: JdbcActivityStoreTests exercises the plain-JDBC Live Activity persistence
+          store against a real, disposable database rather than mocking java.sql.*. H2's version is
+          managed by the imported spring-boot-dependencies BOM.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

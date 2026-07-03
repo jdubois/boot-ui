@@ -21,6 +21,10 @@ import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObserva
 import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvider;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigMetadataCatalog;
+import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
+import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
+import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
+import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
@@ -55,6 +59,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
 import java.util.List;
+import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
@@ -579,6 +584,89 @@ public class BootUiEngineConfiguration {
         ConnectionPoolService bootUiConnectionPoolService(
                 ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiExposure exposure) {
             return new ConnectionPoolService(new SpringConnectionPoolProvider(beanFactoryProvider), exposure);
+        }
+    }
+
+    /**
+     * The Live Activity JDBC persistence option is opt-in but its beans are now unconditional (not
+     * behind {@code @ConditionalOnProperty}): with {@code bootui.activity.persistence.enabled} unset or
+     * {@code false}, {@link #bootUiActivityStore} still returns a real bean — a {@link
+     * SwitchableActivityStore} wrapping a bare {@link io.github.jdubois.bootui.engine.activity.InMemoryActivityStore}
+     * — so {@code LiveActivityController} can always inject it directly (no more {@code ObjectProvider})
+     * and later hot-switch it to durable persistence via the "Use the existing datasource" panel action
+     * (see {@code ActivitySwitchService}) without a restart. No background thread, connection, or extra
+     * bean beyond the in-memory store itself is created until persistence is actually enabled — at
+     * startup via configuration, or later via that runtime switch.
+     *
+     * <p>{@link ActivityPersistenceSettings} is exposed as its own small {@code @Bean} (not inlined into
+     * the {@link SwitchableActivityStore} bean method, unlike e.g. {@code HeapDumpSettings}) because two
+     * independent consumers need to agree on the exact same resolved settings — in particular the same
+     * resolved {@code instanceId} — to stay correctly partitioned: the store bean bakes it into the
+     * durable store's own query/prune scope, and {@code LiveActivityController} stamps it onto every entry
+     * its capture coordinator captures. A shared singleton bean is the simplest way to guarantee both see
+     * one, consistently resolved value (in particular, a generated instance id must be computed exactly
+     * once per process, not independently by each consumer).</p>
+     *
+     * <p>The {@link SwitchableActivityStore} bean is not explicitly closed anywhere in this
+     * configuration: it exposes a public no-arg {@code close()} that Spring's default
+     * inferred-destroy-method behavior detects and invokes automatically when the context shuts down,
+     * delegating to whatever the current delegate is — a durable store's flush/prune scheduler is
+     * stopped exactly the same way whether persistence was enabled from startup or switched on later.</p>
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class ActivityPersistenceBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        ActivityPersistenceSettings bootUiActivityPersistenceSettings(
+                BootUiProperties properties, Environment environment) {
+            BootUiProperties.ActivityPersistence persistence =
+                    properties.getActivity().getPersistence();
+            String instanceId = ActivityInstanceIds.resolveOrDefault(
+                    persistence.getInstanceId(), environment.getProperty("spring.application.name"));
+            ActivityPersistenceSettings.DataSourceMode dataSourceMode =
+                    persistence.getDataSourceMode() == BootUiProperties.ActivityPersistence.DataSourceMode.DEDICATED
+                            ? ActivityPersistenceSettings.DataSourceMode.DEDICATED
+                            : ActivityPersistenceSettings.DataSourceMode.SHARED;
+            return new ActivityPersistenceSettings(
+                    persistence.isEnabled(),
+                    dataSourceMode,
+                    persistence.getDedicatedJdbcUrl(),
+                    persistence.getDedicatedUsername(),
+                    persistence.getDedicatedPassword(),
+                    persistence.getDedicatedDriverClassName(),
+                    persistence.getTableName(),
+                    persistence.getFlushInterval(),
+                    persistence.getBufferMaxEntries(),
+                    persistence.getRetention(),
+                    instanceId,
+                    persistence.getCaptureInterval());
+        }
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        SwitchableActivityStore bootUiActivityStore(
+                ActivityPersistenceSettings settings, ObjectProvider<DataSource> dataSourceProvider) {
+            return ActivityStoreFactory.create(settings, () -> resolveActivityDataSource(dataSourceProvider));
+        }
+    }
+
+    /**
+     * Resolves the shared {@code DataSource} to reuse for Live Activity persistence, mirroring {@link
+     * #resolveRegistry}: a host application may legitimately have more than one {@code DataSource} bean
+     * (for example a primary + an audit datasource), so {@code getIfAvailable()} throwing {@link
+     * NoUniqueBeanDefinitionException} falls back to the first one from {@code orderedStream()} rather
+     * than propagating and failing BootUI's own startup. Public (unlike the package-private
+     * {@link #resolveRegistry}) since {@code LiveActivityController} also calls this directly to resolve
+     * {@code dataSourceAvailable} and to feed the "Use the existing datasource" switch action.
+     */
+    public static DataSource resolveActivityDataSource(ObjectProvider<DataSource> dataSourceProvider) {
+        try {
+            return dataSourceProvider.getIfAvailable();
+        } catch (NoUniqueBeanDefinitionException ex) {
+            return dataSourceProvider.orderedStream().findFirst().orElse(null);
         }
     }
 }

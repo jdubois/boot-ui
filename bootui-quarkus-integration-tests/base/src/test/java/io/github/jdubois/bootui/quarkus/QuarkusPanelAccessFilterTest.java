@@ -302,6 +302,7 @@ class QuarkusPanelAccessFilterTest {
         requests.put("spring", new ActionRequest("POST", "/bootui/api/spring/scan"));
         requests.put("sql-trace", new ActionRequest("POST", "/bootui/api/sql-trace/clear"));
         requests.put("mcp-server", new ActionRequest("POST", "/bootui/api/mcp-server/toggle"));
+        requests.put("activity", new ActionRequest("POST", "/bootui/api/activity/use-existing-datasource"));
         return requests;
     }
 

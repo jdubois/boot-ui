@@ -20,6 +20,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
+import io.github.jdubois.bootui.engine.web.SecurityActivityIds;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.time.Instant;
@@ -132,7 +133,6 @@ public class LiveActivityService {
         }
         Map<String, String> securedByRequest = new HashMap<>();
         if (security != null) {
-            int index = 0;
             for (SecurityLogEventDto event : security.events()) {
                 String parentId = matchSecurityParent(event, anchors, securityRegistry);
                 String principal = event.principal();
@@ -141,7 +141,7 @@ public class LiveActivityService {
                 if (parentId != null && principal != null && !principal.isBlank()) {
                     securedByRequest.putIfAbsent(parentId, principal);
                 }
-                all.add(toSecurityEntry(event, index++, parentId));
+                all.add(toSecurityEntry(event, parentId));
             }
         }
         if (requests != null) {
@@ -348,14 +348,14 @@ public class LiveActivityService {
                 false);
     }
 
-    private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, int index, String parentId) {
+    private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, String parentId) {
         long timestamp = ActivitySql.parseEpochMillis(event.timestamp());
         String type = event.type() == null ? "" : event.type();
         String upper = type.toUpperCase(Locale.ROOT);
         String severity = upper.contains("FAILURE") || upper.contains("DENIED") ? SEVERITY_WARN : SEVERITY_OK;
         String principal = event.principal() == null ? "" : " · " + event.principal();
         return new ActivityEntryDto(
-                "sec-" + index,
+                SecurityActivityIds.stableId(event),
                 TYPE_SECURITY,
                 timestamp,
                 severity,

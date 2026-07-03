@@ -1530,6 +1530,12 @@ public class BootUiProperties {
          */
         private int nPlusOneThreshold = 5;
 
+        /**
+         * Optional durable-storage backend for captured entries, in addition to today's
+         * in-memory-only default.
+         */
+        private ActivityPersistence persistence = new ActivityPersistence();
+
         public int getMaxEntries() {
             return maxEntries;
         }
@@ -1552,6 +1558,191 @@ public class BootUiProperties {
 
         public void setNPlusOneThreshold(int nPlusOneThreshold) {
             this.nPlusOneThreshold = nPlusOneThreshold;
+        }
+
+        public ActivityPersistence getPersistence() {
+            return persistence;
+        }
+
+        public void setPersistence(ActivityPersistence persistence) {
+            this.persistence = persistence == null ? new ActivityPersistence() : persistence;
+        }
+    }
+
+    /**
+     * Configures the optional durable-storage backend for Live Activity. Disabled by default, which
+     * keeps today's behavior unchanged: entries live only in the small in-memory buffers of the four
+     * signal sources and nothing survives a restart. When enabled, captured entries are additionally
+     * buffered and flushed to a SQL database over direct JDBC, so the dashboard can page back through
+     * history beyond what fits in memory.
+     */
+    public static class ActivityPersistence {
+
+        /**
+         * Whether captured Live Activity entries are also durably persisted, in addition to today's
+         * in-memory-only default. Disabled by default: no background thread, connection or bean beyond
+         * what already exists is created while this is {@code false}.
+         */
+        private boolean enabled = false;
+
+        /**
+         * Where the durable store gets its JDBC connections from: {@code SHARED} reuses the host
+         * application's own {@code DataSource} bean (the same one BootUI's SQL Trace panel may already
+         * be tracing), {@code DEDICATED} opens a small, non-pooled connection of BootUI's own using the
+         * {@code dedicated-*} properties below.
+         */
+        private DataSourceMode dataSourceMode = DataSourceMode.SHARED;
+
+        /** JDBC URL for {@code data-source-mode=DEDICATED}, otherwise ignored. */
+        private String dedicatedJdbcUrl;
+
+        /** Username for {@code data-source-mode=DEDICATED}, otherwise ignored. */
+        private String dedicatedUsername;
+
+        /** Password for {@code data-source-mode=DEDICATED}, otherwise ignored. */
+        private String dedicatedPassword;
+
+        /**
+         * Optional explicit JDBC driver class to load for {@code data-source-mode=DEDICATED}; blank
+         * lets the driver auto-register itself from the classpath (the usual case for a modern JDBC 4+
+         * driver).
+         */
+        private String dedicatedDriverClassName;
+
+        /**
+         * Table name every BootUI instance pointed at the same database shares. Must be a plain SQL
+         * identifier; created automatically on first use if it does not already exist.
+         */
+        private String tableName = "bootui_activity";
+
+        /** How often buffered entries are flushed to durable storage. */
+        private Duration flushInterval = Duration.ofSeconds(5);
+
+        /**
+         * Capacity of both the in-memory hot read cache (entries visible immediately, even before
+         * their scheduled flush) and the pending-flush queue (entries awaiting their first durable
+         * write).
+         */
+        private int bufferMaxEntries = 500;
+
+        /**
+         * How long persisted rows are kept before being pruned; entries older than this are eligible
+         * for deletion on this instance's own next prune pass. Only this instance's own rows are ever
+         * pruned.
+         */
+        private Duration retention = Duration.ofDays(7);
+
+        /**
+         * The multi-tenant partition key this running instance writes and reads its rows under, so
+         * several BootUI instances can safely share one database table. Defaults to the {@code
+         * HOSTNAME} environment variable (a natural, stable identity for a container/Kubernetes pod) or
+         * else a generated {@code <app-name>-<random>} id, computed once at startup.
+         */
+        private String instanceId;
+
+        /** How often the capture coordinator polls the merged Live Activity feed for new entries. */
+        private Duration captureInterval = Duration.ofSeconds(2);
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public DataSourceMode getDataSourceMode() {
+            return dataSourceMode;
+        }
+
+        public void setDataSourceMode(DataSourceMode dataSourceMode) {
+            this.dataSourceMode = dataSourceMode == null ? DataSourceMode.SHARED : dataSourceMode;
+        }
+
+        public String getDedicatedJdbcUrl() {
+            return dedicatedJdbcUrl;
+        }
+
+        public void setDedicatedJdbcUrl(String dedicatedJdbcUrl) {
+            this.dedicatedJdbcUrl = dedicatedJdbcUrl;
+        }
+
+        public String getDedicatedUsername() {
+            return dedicatedUsername;
+        }
+
+        public void setDedicatedUsername(String dedicatedUsername) {
+            this.dedicatedUsername = dedicatedUsername;
+        }
+
+        public String getDedicatedPassword() {
+            return dedicatedPassword;
+        }
+
+        public void setDedicatedPassword(String dedicatedPassword) {
+            this.dedicatedPassword = dedicatedPassword;
+        }
+
+        public String getDedicatedDriverClassName() {
+            return dedicatedDriverClassName;
+        }
+
+        public void setDedicatedDriverClassName(String dedicatedDriverClassName) {
+            this.dedicatedDriverClassName = dedicatedDriverClassName;
+        }
+
+        public String getTableName() {
+            return tableName;
+        }
+
+        public void setTableName(String tableName) {
+            this.tableName = tableName;
+        }
+
+        public Duration getFlushInterval() {
+            return flushInterval;
+        }
+
+        public void setFlushInterval(Duration flushInterval) {
+            this.flushInterval = flushInterval;
+        }
+
+        public int getBufferMaxEntries() {
+            return bufferMaxEntries;
+        }
+
+        public void setBufferMaxEntries(int bufferMaxEntries) {
+            this.bufferMaxEntries = bufferMaxEntries;
+        }
+
+        public Duration getRetention() {
+            return retention;
+        }
+
+        public void setRetention(Duration retention) {
+            this.retention = retention;
+        }
+
+        public String getInstanceId() {
+            return instanceId;
+        }
+
+        public void setInstanceId(String instanceId) {
+            this.instanceId = instanceId;
+        }
+
+        public Duration getCaptureInterval() {
+            return captureInterval;
+        }
+
+        public void setCaptureInterval(Duration captureInterval) {
+            this.captureInterval = captureInterval;
+        }
+
+        /** Where the durable store gets its JDBC connections from. */
+        public enum DataSourceMode {
+            SHARED,
+            DEDICATED
         }
     }
 
