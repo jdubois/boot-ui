@@ -3,8 +3,8 @@ package io.github.jdubois.bootui.quarkus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
-import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
+import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
@@ -172,12 +172,13 @@ public class BootUiEngineProducer {
     /**
      * The Live Activity persistence settings, mapped once from {@code bootui.activity.persistence.*}
      * (matching the Spring adapter's {@code BootUiProperties.ActivityPersistence} defaults). Exposed as
-     * its own producer — not inlined into the {@link ActivityStore} producer — because two independent
-     * consumers must agree on the exact same resolved values, in particular the same resolved {@code
-     * instanceId}: the {@link ActivityStore} bean bakes it into the durable store's own query/prune
-     * scope, and {@code QuarkusActivityCapture} stamps it onto every entry its capture coordinator
-     * captures. {@code @Singleton} guarantees both see one, consistently resolved value — in particular,
-     * a generated instance id is computed exactly once per process, not independently by each consumer.
+     * its own producer — not inlined into the {@link SwitchableActivityStore} producer — because two
+     * independent consumers must agree on the exact same resolved values, in particular the same resolved
+     * {@code instanceId}: the {@link SwitchableActivityStore} bean bakes it into the durable store's own
+     * query/prune scope, and {@code QuarkusActivityCapture} stamps it onto every entry its capture
+     * coordinator captures. {@code @Singleton} guarantees both see one, consistently resolved value — in
+     * particular, a generated instance id is computed exactly once per process, not independently by each
+     * consumer.
      */
     @Produces
     @Singleton
@@ -222,11 +223,18 @@ public class BootUiEngineProducer {
     /**
      * The Live Activity durable store. Produced <em>unconditionally</em> (like the Cache/Flyway/Liquibase/
      * Connection-Pools services): {@link ActivityStoreFactory#create} itself branches on {@code
-     * settings.enabled()}, returning a plain in-memory store — no background thread, connection or JDBC
-     * type touched — when persistence is off, so there is no need to gate this producer on a build-time
-     * capability the way the optional-dependency panels do. When enabled with {@code
-     * data-source-mode=SHARED}, the host application's own {@code DataSource} bean is resolved live
-     * through {@link Instance}, mirroring {@link #resolveRegistry}.
+     * settings.enabled()}, returning a {@link SwitchableActivityStore} wrapping a bare {@code
+     * InMemoryActivityStore} — no background thread, connection or JDBC type touched — when persistence is
+     * off, so there is no need to gate this producer on a build-time capability the way the
+     * optional-dependency panels do. When enabled with {@code data-source-mode=SHARED}, the host
+     * application's own {@code DataSource} bean is resolved live through {@link Instance}, mirroring
+     * {@link #resolveRegistry}.
+     *
+     * <p>Declared to return the concrete {@link SwitchableActivityStore} type (not the {@code ActivityStore}
+     * interface) so {@code LiveActivityResource} and {@code QuarkusActivityCapture} can inject the concrete
+     * type and call {@code persistent()} / {@code attemptSwitchToPersistent(...)} — the same bean also
+     * satisfies {@code ActivityStore} injection points, since a CDI producer's bean types include every
+     * supertype of the declared return type.</p>
      *
      * <p>Unlike Spring — whose inferred-destroy-method convention auto-invokes a bean's {@code close()}
      * at context shutdown — CDI/Arc has no equivalent automatic behavior, so this store is explicitly
@@ -234,11 +242,19 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public ActivityStore activityStore(ActivityPersistenceSettings settings, Instance<DataSource> dataSources) {
+    public SwitchableActivityStore activityStore(
+            ActivityPersistenceSettings settings, Instance<DataSource> dataSources) {
         return ActivityStoreFactory.create(settings, () -> resolveDataSource(dataSources));
     }
 
-    static DataSource resolveDataSource(Instance<DataSource> dataSources) {
+    /**
+     * Resolves the shared {@code DataSource} to reuse for Live Activity persistence, mirroring {@link
+     * #resolveRegistry}. Public (unlike most other package-private producer helpers) since {@code
+     * LiveActivityResource} also calls this directly to resolve {@code dataSourceAvailable} and to feed
+     * the "Use the existing datasource" switch action — the Quarkus analogue of the Spring adapter's
+     * public {@code resolveActivityDataSource}.
+     */
+    public static DataSource resolveDataSource(Instance<DataSource> dataSources) {
         if (dataSources.isUnsatisfied()) {
             return null;
         }

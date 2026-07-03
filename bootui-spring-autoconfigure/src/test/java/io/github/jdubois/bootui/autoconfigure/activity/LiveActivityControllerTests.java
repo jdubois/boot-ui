@@ -15,21 +15,31 @@ import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
+import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
+import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
+import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
-import io.github.jdubois.bootui.engine.activity.ActivityStore;
+import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
+import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import javax.sql.DataSource;
+import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.ResponseEntity;
 
 class LiveActivityControllerTests {
+
+    private static final AtomicInteger DB_COUNTER = new AtomicInteger();
 
     @Test
     void streamOpensAnSseEmitter() {
@@ -56,17 +66,37 @@ class LiveActivityControllerTests {
     }
 
     @Test
-    void activityIsUnaffectedByPersistenceBeansWhenAbsent() {
-        // With no ActivityStore/ActivityPersistenceSettings beans (persistence off, the default), the
-        // response must carry no page info at all — byte-identical to today's behavior.
+    void activityCarriesNoPageInfoAndAnInactivePersistenceOptionWhenNotPersistent() {
+        // The store bean always exists (even with persistence disabled, as a bare in-memory store), so
+        // the response must carry no page info at all - byte-identical to today's behavior - while still
+        // always reporting a persistenceOption so the panel can render its "Use a database" affordance.
         LiveActivityReport result = controller(new BootUiProperties()).activity(null, null, 0, 0, null, null, null, 0);
 
         assertThat(result.pageInfo()).isNull();
+        assertThat(result.persistenceOption())
+                .isEqualTo(new ActivityPersistenceOptionDto(false, false, "bootui_activity"));
+    }
+
+    @Test
+    void activityReportsADataSourceAsAvailableWhenOneIsPresentEvenWithPersistenceOff() {
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                provider(mock(DataSource.class)),
+                new BootUiProperties());
+
+        LiveActivityReport result = controller.activity(null, null, 0, 0, null, null, null, 0);
+
+        assertThat(result.persistenceOption())
+                .isEqualTo(new ActivityPersistenceOptionDto(false, true, "bootui_activity"));
     }
 
     @Test
     void activityDelegatesEntriesAndPageInfoToStoreWhenPersistenceEnabled() throws Exception {
-        ActivityStore store = mock(ActivityStore.class);
+        SwitchableActivityStore store = mock(SwitchableActivityStore.class);
+        when(store.persistent()).thenReturn(true);
         ActivityEntryDto storedEntry = new ActivityEntryDto(
                 "sql-1",
                 "SQL",
@@ -87,13 +117,14 @@ class LiveActivityControllerTests {
         ActivityPage page =
                 new ActivityPage(List.of(new StoredActivityEntry("instance-a", 1L, storedEntry)), "cursor-2", true);
         when(store.query(any())).thenReturn(page);
-        ActivityPersistenceSettings settings = persistenceSettings("instance-a", Duration.ofSeconds(2));
+        ActivityPersistenceSettings settings = enabledSettings("instance-a", Duration.ofSeconds(2));
 
         LiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
                 empty(ExceptionStore.class),
-                provider(store),
-                provider(settings),
+                store,
+                settings,
+                empty(DataSource.class),
                 new BootUiProperties());
         try {
             LiveActivityReport expectedLive = referenceLiveReport("SQL", "OK", 0, 0, new BootUiProperties());
@@ -102,6 +133,8 @@ class LiveActivityControllerTests {
 
             assertThat(result.entries()).containsExactly(storedEntry);
             assertThat(result.pageInfo()).isEqualTo(new ActivityPageInfo(true, "cursor-2", true));
+            assertThat(result.persistenceOption())
+                    .isEqualTo(new ActivityPersistenceOptionDto(true, false, "bootui_activity"));
             // The KPI strip stays a "right now" summary from the live re-merge, not scoped to whichever
             // historical page is being browsed.
             assertThat(result.available()).isEqualTo(expectedLive.available());
@@ -130,15 +163,17 @@ class LiveActivityControllerTests {
 
     @Test
     void shutdownStopsCapturePollerThreadWhenPersistenceEnabled() throws Exception {
-        ActivityStore store = mock(ActivityStore.class);
+        SwitchableActivityStore store = mock(SwitchableActivityStore.class);
+        when(store.persistent()).thenReturn(true);
         when(store.query(any())).thenReturn(ActivityPage.EMPTY);
-        ActivityPersistenceSettings settings = persistenceSettings("instance-b", Duration.ofMillis(50));
+        ActivityPersistenceSettings settings = enabledSettings("instance-b", Duration.ofMillis(50));
 
         LiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
                 empty(ExceptionStore.class),
-                provider(store),
-                provider(settings),
+                store,
+                settings,
+                empty(DataSource.class),
                 new BootUiProperties());
 
         Thread captureThread = awaitThreadNamed("bootui-activity-capture");
@@ -151,9 +186,122 @@ class LiveActivityControllerTests {
         assertThat(awaitNotAlive(captureThread)).isTrue();
     }
 
-    private static ActivityPersistenceSettings persistenceSettings(String instanceId, Duration captureInterval) {
+    @Test
+    void useExistingDatasourceReturns404WhenNoDataSourceIsAvailable() {
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                empty(DataSource.class),
+                new BootUiProperties());
+
+        ResponseEntity<ActivitySwitchResult> response =
+                controller.useExistingDatasource(new ActivitySwitchRequest(true));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+        assertThat(response.getBody().status()).isEqualTo("unavailable");
+    }
+
+    @Test
+    void useExistingDatasourceReturns400WhenNotConfirmed() {
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                provider(mock(DataSource.class)),
+                new BootUiProperties());
+
+        ResponseEntity<ActivitySwitchResult> response = controller.useExistingDatasource(null);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody().status()).isEqualTo("blocked");
+    }
+
+    @Test
+    void useExistingDatasourceReturns200AndIsANoOpWhenAlreadyPersistent() {
+        SwitchableActivityStore store = mock(SwitchableActivityStore.class);
+        when(store.persistent()).thenReturn(true);
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                store,
+                enabledSettings("instance-c", Duration.ofSeconds(5)),
+                provider(mock(DataSource.class)),
+                new BootUiProperties());
+        try {
+            ResponseEntity<ActivitySwitchResult> response =
+                    controller.useExistingDatasource(new ActivitySwitchRequest(true));
+
+            assertThat(response.getStatusCode().value()).isEqualTo(200);
+            assertThat(response.getBody().status()).isEqualTo("already-active");
+        } finally {
+            controller.shutdown();
+        }
+    }
+
+    @Test
+    void useExistingDatasourceSwitchesTheStoreAndStartsCapturingOnSuccess() throws Exception {
+        DataSource dataSource = newDataSource();
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                provider(dataSource),
+                new BootUiProperties());
+        try {
+            ResponseEntity<ActivitySwitchResult> response =
+                    controller.useExistingDatasource(new ActivitySwitchRequest(true));
+
+            assertThat(response.getStatusCode().value()).isEqualTo(200);
+            assertThat(response.getBody().status()).isEqualTo("success");
+            assertThat(response.getBody().tableName()).isEqualTo("bootui_activity");
+
+            // The switch takes effect immediately: a subsequent GET must now report persistence active
+            // and start serving pagination from the (now durable) store, with no restart required.
+            LiveActivityReport afterSwitch = controller.activity(null, null, 0, 0, null, null, null, 0);
+            assertThat(afterSwitch.persistenceOption())
+                    .isEqualTo(new ActivityPersistenceOptionDto(true, true, "bootui_activity"));
+            assertThat(afterSwitch.pageInfo()).isNotNull();
+
+            // The capture poller this switch starts must be the controller's own, closeable on shutdown
+            // exactly like the constructor-time poller.
+            Thread captureThread = awaitThreadNamed("bootui-activity-capture");
+            assertThat(captureThread)
+                    .as("capture poller thread should have started after the switch")
+                    .isNotNull();
+        } finally {
+            controller.shutdown();
+        }
+    }
+
+    private static DataSource newDataSource() {
+        JdbcDataSource dataSource = new JdbcDataSource();
+        dataSource.setURL(
+                "jdbc:h2:mem:live-activity-controller-" + DB_COUNTER.incrementAndGet() + ";DB_CLOSE_DELAY=-1");
+        dataSource.setUser("sa");
+        dataSource.setPassword("");
+        return dataSource;
+    }
+
+    private static SwitchableActivityStore defaultActivityStore() {
+        return new SwitchableActivityStore(new InMemoryActivityStore(200));
+    }
+
+    private static ActivityPersistenceSettings disabledSettings() {
+        return persistenceSettings(false, "instance-x", Duration.ofSeconds(5));
+    }
+
+    private static ActivityPersistenceSettings enabledSettings(String instanceId, Duration captureInterval) {
+        return persistenceSettings(true, instanceId, captureInterval);
+    }
+
+    private static ActivityPersistenceSettings persistenceSettings(
+            boolean enabled, String instanceId, Duration captureInterval) {
         return new ActivityPersistenceSettings(
-                true,
+                enabled,
                 ActivityPersistenceSettings.DataSourceMode.SHARED,
                 null,
                 null,
@@ -257,16 +405,18 @@ class LiveActivityControllerTests {
         return controllerWith(
                 recorder,
                 exceptionStore,
-                empty(ActivityStore.class),
-                empty(ActivityPersistenceSettings.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                empty(DataSource.class),
                 properties);
     }
 
     private static LiveActivityController controllerWith(
             ObjectProvider<SqlTraceRecorder> recorder,
             ObjectProvider<ExceptionStore> exceptionStore,
-            ObjectProvider<ActivityStore> activityStore,
-            ObjectProvider<ActivityPersistenceSettings> persistenceSettings,
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings persistenceSettings,
+            ObjectProvider<DataSource> dataSourceProvider,
             BootUiProperties properties) {
         return new LiveActivityController(
                 empty(HttpExchangesController.class),
@@ -281,6 +431,7 @@ class LiveActivityControllerTests {
                 empty(SecurityEventCorrelationRegistry.class),
                 activityStore,
                 persistenceSettings,
+                dataSourceProvider,
                 properties);
     }
 

@@ -1,8 +1,15 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {apiFetch} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
 import UnavailableState from './components/UnavailableState.vue'
+import FlashBanner from './components/FlashBanner.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 import {formatBytes, formatClockTime, formatNumber} from '../utils/format.js'
+import {formatLoadError} from '../utils/loadError.js'
+import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
+import {useFlashMessage} from '../utils/useFlashMessage.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import {
@@ -19,6 +26,12 @@ import {
 const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY']
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
 const FILTERS_STORAGE_KEY = 'bootui.activity.filters'
+const PERSISTENCE_DOCS_URL = 'https://www.julien-dubois.com/boot-ui/properties#live-activity-durable-persistence'
+
+const props = defineProps(panelProps)
+const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
+const {message: banner, flash, clear: clearBanner} = useFlashMessage()
 
 const report = ref(null)
 const error = ref(null)
@@ -27,6 +40,12 @@ const typeFilter = ref('')
 const severityFilter = ref('')
 const textFilter = ref('')
 const errorsOnly = ref(false)
+
+// "Use a database" disclosure: reveals setup documentation (and, when a DataSource is already
+// configured, the "Use the existing datasource" switch action) next to the title. Collapsed by
+// default so the panel never surprises the user with an unsolicited call to action.
+const showDatabaseInfo = ref(false)
+const switchingToDatabase = ref(false)
 
 const profile = ref(null)
 const profileLoading = ref(false)
@@ -50,6 +69,13 @@ restoreFilters()
 // Whether the backend served this response from the durable activity store rather than the
 // default live in-memory re-merge. Only known once the first response arrives.
 const persistent = computed(() => report.value?.pageInfo?.persistent === true)
+
+// Drives the "Currently saving X events in memory" tip and "Use a database" disclosure: always
+// populated on every response (see ActivityPersistenceOptionDto), independent of whether persistence
+// is currently active, so the disclosure can explain how to enable it even before the first switch.
+const persistenceOption = computed(() => report.value?.persistenceOption ?? null)
+const dataSourceAvailable = computed(() => persistenceOption.value?.dataSourceAvailable === true)
+const memoryEventCount = computed(() => report.value?.entries?.length ?? 0)
 
 // Builds the request URL for the head (page-1) fetch. Filters are only pushed down as server-side
 // query params once persistence is confirmed active, so the default in-memory mode's request never
@@ -115,6 +141,52 @@ async function loadOlder() {
     error.value = err.message || 'Could not load older activity'
   } finally {
     loadingOlder.value = false
+  }
+}
+
+function toggleDatabaseInfo() {
+  showDatabaseInfo.value = !showDatabaseInfo.value
+}
+
+// Hot-switches this running instance from the in-memory buffer to the existing DataSource, gated by
+// the same destructive-action confirmation used elsewhere (Flyway migrate/clean, cache clear, …): it
+// creates a database table (if missing) and starts writing to it. Mirrors Flyway.vue's runAction shape.
+async function useExistingDatasource() {
+  if (readOnly.value) {
+    flash(readOnlyReason.value, 'warning')
+    return
+  }
+  const confirmed = await confirm({
+    title: 'Use the existing datasource?',
+    message:
+      'Checks the current datasource, creates the Live Activity table if it does not already exist, and switches ' +
+      'this running instance to it instead of the in-memory buffer. This switch is runtime-only: a restart reverts ' +
+      'to in-memory storage unless persistence is also enabled in configuration.',
+    confirmLabel: 'Use the existing datasource',
+    danger: true
+  })
+  if (!confirmed) return
+
+  switchingToDatabase.value = true
+  clearBanner()
+  try {
+    const res = await apiFetch('api/activity/use-existing-datasource', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirm: true})
+    })
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      flash(result.message || `HTTP ${res.status}`, 'warning')
+      return
+    }
+    flash(result.message || 'Live Activity is now saving to a database.', 'success')
+    showDatabaseInfo.value = false
+    await loadActivity()
+  } catch (err) {
+    flash(formatLoadError(err, 'Could not switch Live Activity to a database'), 'danger')
+  } finally {
+    switchingToDatabase.value = false
   }
 }
 
@@ -482,7 +554,72 @@ function clearFilters() {
       v-model:auto-refresh="autoRefresh"
       auto-refresh-title="Stream new activity live over Server-Sent Events while this tab is visible"
       @refresh="refreshNow"
-    />
+    >
+      <template #subtitle-actions>
+        <span v-if="report && !persistent">
+          Currently saving {{ formatNumber(memoryEventCount) }} event{{ memoryEventCount === 1 ? '' : 's' }} in memory
+        </span>
+        <button
+          v-if="report && !persistent"
+          type="button"
+          class="btn btn-outline-secondary btn-sm"
+          :aria-expanded="showDatabaseInfo"
+          @click="toggleDatabaseInfo"
+        >
+          <i class="bi bi-database-add me-1"></i>Use a database
+        </button>
+      </template>
+    </PanelHeader>
+
+    <FlashBanner :message="banner" @dismiss="clearBanner" />
+
+    <div
+      v-if="showDatabaseInfo && report && !persistent"
+      class="alert alert-info activity-database-info d-flex align-items-start gap-2 mb-3"
+    >
+      <i class="bi bi-database-add fs-4 flex-shrink-0"></i>
+      <div class="flex-grow-1 small">
+        <strong class="d-block mb-1">Store Live Activity in a database</strong>
+        <p class="mb-2">
+          By default, Live Activity buffers the last {{ formatNumber(memoryEventCount) }} event{{
+            memoryEventCount === 1 ? '' : 's'
+          }}
+          in memory only, and history is lost on restart. Storing entries in a database keeps them across restarts and
+          lets you page back further.
+        </p>
+        <template v-if="dataSourceAvailable">
+          <p class="mb-2">
+            A <code>DataSource</code> is already configured in this application. You can configure a dedicated, second
+            datasource just for Live Activity, or reuse the existing one right now.
+          </p>
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <SpinnerButton
+              :loading="switchingToDatabase"
+              :disabled="readOnly || switchingToDatabase"
+              :title="readOnly ? readOnlyReason : 'Switch this running instance to the existing datasource'"
+              class="btn btn-sm btn-outline-primary"
+              icon="bi-database-up"
+              label="Use the existing datasource"
+              @click="useExistingDatasource"
+            />
+            <a :href="PERSISTENCE_DOCS_URL" class="small" rel="noopener noreferrer" target="_blank">
+              View setup documentation <i class="bi bi-box-arrow-up-right"></i>
+            </a>
+          </div>
+        </template>
+        <template v-else>
+          <p class="mb-2">
+            No <code>DataSource</code> bean was found in this application. Configure one and set
+            <code>bootui.activity.persistence.enabled=true</code> (or add a dedicated JDBC URL) to store Live Activity
+            durably.
+          </p>
+          <a :href="PERSISTENCE_DOCS_URL" class="small" rel="noopener noreferrer" target="_blank">
+            View setup documentation <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+        </template>
+      </div>
+      <button type="button" class="btn-close" aria-label="Close" @click="showDatabaseInfo = false"></button>
+    </div>
 
     <UnavailableState
       v-if="report && !available"

@@ -762,11 +762,27 @@ Features:
   `LiveActivityService`, the shared engine `LiveActivityAssembler` Quarkus's resource calls has none — so on Quarkus
   those filters take effect only once persistence is enabled and the query is served from the `ActivityStore`; the KPI
   strip stays computed from the full, unfiltered live merge either way on both adapters.
+- Runtime switch to a database, with no restart required: every `GET /bootui/api/activity` response carries a
+  `persistenceOption` (whether persistence is currently active, whether a `DataSource` bean is present, and the
+  configured table name), driving a "Currently saving N events in memory" tip and a "Use a database" disclosure next to
+  the panel title whenever persistence is not yet active. If a `DataSource` is available, the disclosure offers a
+  confirmation-gated "Use the existing datasource" action (`POST /bootui/api/activity/use-existing-datasource`,
+  mirroring the confirmation UX of other state-changing actions such as Flyway migrate/clean or Cache clear) that
+  atomically swaps the running instance's `ActivityStore` — behind a `SwitchableActivityStore` indirection — from
+  `InMemoryActivityStore` to a `BufferedActivityStore`/`JdbcActivityStore` pair: it verifies/creates the backing table
+  against the current `DataSource` and starts the same capture-poller/flush cycle a startup-enabled instance would have,
+  with no restart and no dropped entries. If no `DataSource` is present, the disclosure instead links to setup
+  documentation for configuring one (or a dedicated one) and enabling persistence at startup. The switch is
+  **runtime-only**: it does not write configuration, so a later restart reverts to the in-memory default unless
+  persistence is also turned on via `bootui.activity.persistence.enabled=true`. Identical on both adapters (Spring's
+  `LiveActivityController` and Quarkus's `LiveActivityResource` share the same engine-level `ActivitySwitchService`).
 
 Acceptance criteria:
 
-- The panel is read-only and inherits the loopback filter, Host allow-list, cross-site write defenses, and value masking
-  from the underlying sources.
+- The panel's reads inherit the loopback filter, Host allow-list, cross-site write defenses, and value masking from the
+  underlying sources; the "Use the existing datasource" switch is a state-changing action allowed only when neither the
+  app nor the Live Activity panel is read-only, gated by the same explicit confirmation used by other destructive
+  actions (Flyway migrate/clean, Liquibase update, Cache clear).
 - Sources that are absent or disabled (through their own `bootui.panels.*` toggles) simply drop out of the stream; when
   no source is available the panel returns a stable unavailable report.
 - SQL↔request correlation is presented as approximate and never fabricates trace-id links that do not exist.
@@ -775,6 +791,9 @@ Acceptance criteria:
 - With persistence enabled, the backing table is created automatically if absent, entries survive a restart, a failed
   flush never loses entries, and BootUI's own persistence-related JDBC traffic never appears in the SQL Trace panel or
   feeds back into the Live Activity stream.
+- The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
+  `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
+  active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
 
 ### 5.15 Profile Diff Panel
 
@@ -1290,6 +1309,7 @@ Initial endpoints:
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |
+| `/bootui/api/activity/use-existing-datasource` | POST | Hot-switch Live Activity from in-memory to the existing `DataSource` (confirmation-gated) |
 
 ### 6.5 Configuration properties
 

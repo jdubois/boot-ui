@@ -5,8 +5,12 @@ import java.time.Duration;
 /**
  * Static configuration for the Live Activity persistence option, mapped once from {@code
  * bootui.activity.persistence.*} by each adapter's factory — see the codebase's "static settings record
- * vs. live policy interface" convention: none of these values has a runtime-override/UI-toggle path, so
- * a settings record (not an SPI policy interface) is the right shape.
+ * vs. live policy interface" convention: at startup, none of these values has a runtime-override/UI-toggle
+ * path, so a settings record (not an SPI policy interface) is the right shape. The one exception is the
+ * "Use the existing datasource" panel action (see {@code ActivitySwitchService}), which does not mutate
+ * this record or re-read it live — it builds one fresh, derived copy via {@link #withEnabledSharedMode()}
+ * and hands it directly to the new store/poller it starts, leaving every other consumer's already-injected
+ * settings instance untouched.
  *
  * @param enabled whether captured entries are also durably persisted; {@code false} keeps today's
  *     in-memory-only default behavior with no persistence machinery constructed at all
@@ -44,5 +48,29 @@ public record ActivityPersistenceSettings(
     public enum DataSourceMode {
         SHARED,
         DEDICATED
+    }
+
+    /**
+     * A copy of these settings with {@code enabled=true} and {@code dataSourceMode=SHARED}; every other
+     * field (table name, flush interval, buffer capacity, retention, instance id, capture interval) is
+     * carried over unchanged, since those are always correctly resolved by each adapter's config-binding
+     * code regardless of whether persistence starts out enabled. Used only by the "Use the existing
+     * datasource" runtime switch (see {@code ActivitySwitchService}) to build the settings its new
+     * durable store and capture poller run with.
+     */
+    public ActivityPersistenceSettings withEnabledSharedMode() {
+        return new ActivityPersistenceSettings(
+                true,
+                DataSourceMode.SHARED,
+                dedicatedJdbcUrl,
+                dedicatedUsername,
+                dedicatedPassword,
+                dedicatedDriverClassName,
+                tableName,
+                flushInterval,
+                bufferMaxEntries,
+                retention,
+                instanceId,
+                captureInterval);
     }
 }

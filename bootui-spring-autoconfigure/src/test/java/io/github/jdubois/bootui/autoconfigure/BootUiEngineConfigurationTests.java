@@ -295,8 +295,7 @@ class BootUiEngineConfigurationTests {
         ObjectProvider<DataSource> dataSourceProvider = mock(ObjectProvider.class);
         when(dataSourceProvider.getIfAvailable()).thenReturn(dataSource);
 
-        assertThat(BootUiEngineConfiguration.ActivityPersistenceBackendConfiguration.resolveDataSource(
-                        dataSourceProvider))
+        assertThat(BootUiEngineConfiguration.resolveActivityDataSource(dataSourceProvider))
                 .isSameAs(dataSource);
     }
 
@@ -314,8 +313,7 @@ class BootUiEngineConfigurationTests {
                 .thenThrow(new NoUniqueBeanDefinitionException(DataSource.class, 2, "two datasources"));
         when(dataSourceProvider.orderedStream()).thenReturn(Stream.of(first, second));
 
-        assertThat(BootUiEngineConfiguration.ActivityPersistenceBackendConfiguration.resolveDataSource(
-                        dataSourceProvider))
+        assertThat(BootUiEngineConfiguration.resolveActivityDataSource(dataSourceProvider))
                 .isSameAs(first);
     }
 

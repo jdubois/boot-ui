@@ -77,6 +77,25 @@ public final class JdbcActivityStore implements ActivityStore {
         }
     }
 
+    /**
+     * Eagerly probes for and creates this store's table (if missing), for callers that want to fail
+     * fast with a clear error before committing to this store — used by the Live Activity "use existing
+     * datasource" runtime switch (see {@code ActivityStoreFactory#createAndVerifyDurable}) so an
+     * unreachable or misconfigured database surfaces immediately as a rejected switch attempt, rather
+     * than silently on the first background flush. Idempotent, like every other schema-touching call
+     * here: safe to call even when the schema is already known-ready.
+     */
+    public void verifySchema() {
+        try {
+            BootUiJdbcCaptureGuard.runSuppressed(() -> {
+                ensureSchema();
+                return null;
+            });
+        } catch (Exception ex) {
+            throw new ActivityStoreException("Failed to verify/create the activity table", ex);
+        }
+    }
+
     @Override
     public void prune(String instanceId, long olderThanEpochMillis) {
         try {

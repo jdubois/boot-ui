@@ -270,6 +270,18 @@ Spring's separate `LiveActivityService`, the shared `LiveActivityAssembler` Quar
 those filters take effect on Quarkus only once persistence is enabled and the query is served from the `ActivityStore`
 — the KPI strip stays computed from the full, unfiltered live merge either way, on both adapters.
 
+**The runtime "Use the existing datasource" hot-switch is also implemented identically to Spring.** The shared engine
+`ActivitySwitchService` — which verifies/creates the backing table over the resolved `DataSource` and atomically swaps
+the live `SwitchableActivityStore`'s delegate from `InMemoryActivityStore` to a newly built durable
+`BufferedActivityStore`, starting its capture poller in the same step — is reused unchanged; `BootUiEngineProducer`
+`@Produces` a `SwitchableActivityStore` in front of it (rather than producing `ActivityStore` directly), and a thin
+`LiveActivityResource#useExistingDatasource` mirrors Spring's controller method: 404 when no `DataSource` is present,
+400 when the request is not explicitly confirmed, 200-and-no-op when persistence is already active, and 200 with the
+store swapped and capturing on success — all behind the shared `LocalhostGuard` write floor. Every `GET
+/bootui/api/activity` response carries the same `persistenceOption` field (`{"active": false, "dataSourceAvailable":
+true, "tableName": "bootui_activity"}`) the Vue UI reads to render the "Currently saving N events in memory" tip and
+the **Use a database** button/confirmation flow, so the panel behaves and looks identical on both adapters.
+
 ### 5.4 Replaced with a Quarkus-native panel (2)
 
 | Spring panel     | Quarkus replacement                                                                                    |

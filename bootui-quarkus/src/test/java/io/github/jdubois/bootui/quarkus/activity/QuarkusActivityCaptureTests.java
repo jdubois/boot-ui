@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
+import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
@@ -34,8 +35,8 @@ class QuarkusActivityCaptureTests {
 
     @Test
     void onStartDoesNotStartCapturePollerThreadWhenPersistenceDisabled() throws Exception {
-        QuarkusActivityCapture capture =
-                new QuarkusActivityCapture(new InMemoryActivityStore(10), disabledSettings(), liveActivityResource());
+        QuarkusActivityCapture capture = new QuarkusActivityCapture(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)), disabledSettings(), liveActivityResource());
 
         capture.onStart(null);
 
@@ -48,7 +49,9 @@ class QuarkusActivityCaptureTests {
     @Test
     void onStartAndOnStopControlTheCapturePollerThreadWhenPersistenceEnabled() throws Exception {
         QuarkusActivityCapture capture = new QuarkusActivityCapture(
-                new InMemoryActivityStore(10), enabledSettings(Duration.ofMillis(50)), liveActivityResource());
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                enabledSettings(Duration.ofMillis(50)),
+                liveActivityResource());
 
         capture.onStart(null);
         Thread captureThread = awaitThreadNamed("bootui-activity-capture");
@@ -98,8 +101,9 @@ class QuarkusActivityCaptureTests {
                 new SecurityEventBuffer(10),
                 new QuarkusPanelAvailability(config),
                 null,
-                new InMemoryActivityStore(10),
-                disabledSettings());
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                new UnsatisfiedInstance<>());
     }
 
     private static Thread awaitThreadNamed(String name) throws InterruptedException {

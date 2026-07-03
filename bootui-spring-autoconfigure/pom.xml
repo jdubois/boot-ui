@@ -155,6 +155,18 @@
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!--
+          Test-scope only: LiveActivityControllerTests exercises the "Use the existing datasource"
+          switch action's success path against a real, disposable database rather than mocking
+          java.sql.*, mirroring bootui-engine's ActivitySwitchServiceTests/JdbcActivityStoreTests. H2's
+          version is managed by the imported spring-boot-dependencies BOM.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

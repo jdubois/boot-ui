@@ -192,6 +192,41 @@ class JdbcActivityStoreTests {
     }
 
     @Test
+    void verifySchemaCreatesTheTableEagerlyWithoutRequiringAWrite() {
+        JdbcActivityStore store = new JdbcActivityStore(newDataSource(), "bootui_activity");
+        store.verifySchema();
+
+        ActivityPage page = store.query(ActivityQuery.firstPage(INSTANCE));
+        assertThat(page).isEqualTo(ActivityPage.EMPTY);
+    }
+
+    @Test
+    void verifySchemaIsIdempotent() {
+        JdbcActivityStore store = new JdbcActivityStore(newDataSource(), "bootui_activity");
+        store.verifySchema();
+        store.verifySchema();
+
+        append(store, "1", "REQUEST", 1, "OK", "hello");
+        assertThat(store.query(ActivityQuery.firstPage(INSTANCE)).entryDtos())
+                .extracting(ActivityEntryDto::id)
+                .containsExactly("1");
+    }
+
+    @Test
+    void verifySchemaWrapsFailuresAsActivityStoreException() {
+        DataSource broken = (DataSource) java.lang.reflect.Proxy.newProxyInstance(
+                DataSource.class.getClassLoader(), new Class<?>[] {DataSource.class}, (proxy, method, args) -> {
+                    if ("getConnection".equals(method.getName())) {
+                        throw new SQLException("simulated connection failure");
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+
+        JdbcActivityStore store = new JdbcActivityStore(broken, "bootui_activity");
+        assertThatThrownBy(store::verifySchema).isInstanceOf(ActivityStoreException.class);
+    }
+
+    @Test
     void everyJdbcCallRunsWithCaptureSuppressedAndRestoresAfter() throws SQLException {
         DataSource delegate = newDataSource();
         AtomicReference<Boolean> suppressedDuringGetConnection = new AtomicReference<>();

@@ -41,8 +41,8 @@ class ActivityStoreFactoryTests {
 
     @Test
     void disabledSettingsReturnAPlainInMemoryStore() {
-        try (ActivityStore store = ActivityStoreFactory.create(disabledSettings(), () -> null)) {
-            assertThat(store).isInstanceOf(InMemoryActivityStore.class);
+        try (SwitchableActivityStore store = ActivityStoreFactory.create(disabledSettings(), () -> null)) {
+            assertThat(store.delegate()).isInstanceOf(InMemoryActivityStore.class);
         }
     }
 
@@ -62,9 +62,9 @@ class ActivityStoreFactoryTests {
                 "app-1",
                 Duration.ofSeconds(1));
 
-        try (ActivityStore store = ActivityStoreFactory.create(settings, () -> null)) {
-            assertThat(store).isInstanceOf(BufferedActivityStore.class);
-            BufferedActivityStore buffered = (BufferedActivityStore) store;
+        try (SwitchableActivityStore store = ActivityStoreFactory.create(settings, () -> null)) {
+            assertThat(store.delegate()).isInstanceOf(BufferedActivityStore.class);
+            BufferedActivityStore buffered = (BufferedActivityStore) store.delegate();
 
             store.append(new StoredActivityEntry("app-1", 1, entry("1", "REQUEST", 1, "OK", "hello")));
             buffered.flushNow();
@@ -92,8 +92,8 @@ class ActivityStoreFactoryTests {
                 "app-1",
                 Duration.ofSeconds(1));
 
-        try (ActivityStore store = ActivityStoreFactory.create(settings, () -> shared)) {
-            BufferedActivityStore buffered = (BufferedActivityStore) store;
+        try (SwitchableActivityStore store = ActivityStoreFactory.create(settings, () -> shared)) {
+            BufferedActivityStore buffered = (BufferedActivityStore) store.delegate();
             store.append(new StoredActivityEntry("app-1", 1, entry("1", "REQUEST", 1, "OK", "hello")));
             buffered.flushNow();
 

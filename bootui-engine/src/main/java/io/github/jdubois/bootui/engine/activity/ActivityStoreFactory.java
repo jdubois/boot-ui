@@ -11,7 +11,9 @@ import javax.sql.DataSource;
  * <p>This is the single place that turns configuration into a concrete store composition, so both
  * adapters (and tests) build the same shape consistently: {@link InMemoryActivityStore} alone when
  * persistence is disabled, or a {@link BufferedActivityStore} wrapping a {@link JdbcActivityStore} when
- * enabled.
+ * enabled — always wrapped in a {@link SwitchableActivityStore} so the "Use a database" runtime switch
+ * (see {@code ActivitySwitchService}) can later replace the delegate without any consumer needing a new
+ * reference.
  */
 public final class ActivityStoreFactory {
 
@@ -23,15 +25,39 @@ public final class ActivityStoreFactory {
      *     invoked (and only required to return non-null) when {@code settings.dataSourceMode() ==
      *     SHARED}; pass {@code () -> null} when the adapter has no such notion
      */
-    public static ActivityStore create(
+    public static SwitchableActivityStore create(
             ActivityPersistenceSettings settings, Supplier<DataSource> sharedDataSourceSupplier) {
         InMemoryActivityStore hotCache = new InMemoryActivityStore(Math.max(1, settings.bufferMaxEntries()));
         if (!settings.enabled()) {
-            return hotCache;
+            return new SwitchableActivityStore(hotCache);
         }
 
         DataSource dataSource = resolveDataSource(settings, sharedDataSourceSupplier);
         JdbcActivityStore durable = new JdbcActivityStore(dataSource, settings.tableName());
+        BufferedActivityStore buffered = new BufferedActivityStore(
+                hotCache,
+                durable,
+                settings.flushInterval(),
+                settings.bufferMaxEntries(),
+                settings.instanceId(),
+                settings.retention());
+        return new SwitchableActivityStore(buffered);
+    }
+
+    /**
+     * Builds a durable {@link BufferedActivityStore} over {@code dataSource} and eagerly verifies its
+     * schema (see {@link JdbcActivityStore#verifySchema()}) before returning, so a broken or unreachable
+     * database is rejected immediately rather than surfacing later on the first background flush. Used
+     * only by the "Use the existing datasource" runtime switch (see {@code ActivitySwitchService}) —
+     * the startup path above stays lazy-verify-on-first-write via {@link #create}, unchanged.
+     *
+     * @throws ActivityStoreException if the schema cannot be verified/created
+     */
+    public static BufferedActivityStore createAndVerifyDurable(
+            ActivityPersistenceSettings settings, DataSource dataSource) {
+        JdbcActivityStore durable = new JdbcActivityStore(dataSource, settings.tableName());
+        durable.verifySchema();
+        InMemoryActivityStore hotCache = new InMemoryActivityStore(Math.max(1, settings.bufferMaxEntries()));
         return new BufferedActivityStore(
                 hotCache,
                 durable,
