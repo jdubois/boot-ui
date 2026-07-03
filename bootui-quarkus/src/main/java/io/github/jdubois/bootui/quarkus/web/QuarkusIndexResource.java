@@ -1,17 +1,17 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.UriInfo;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.eclipse.microprofile.config.Config;
 
 /**
  * Serves the BootUI single-page application shell at {@code /bootui} (no trailing slash).
@@ -27,27 +27,62 @@ import java.util.regex.Pattern;
  * <p>Rather than {@code 302}-redirect {@code /bootui -> /bootui/} (which a proxy that strips trailing
  * slashes could turn into an infinite loop, see the Spring adapter's {@code BootUiIndexController} and
  * #456), this JAX-RS resource answers {@code GET /bootui} directly with the same SPA shell and injects a
- * {@code <base href="{requestPath}/">} tag, mirroring the Spring adapter exactly. The
- * {@code quarkus.http.root-path} prefix (if any) is already part of {@code UriInfo#getRequestUri()}, so the
- * injected base href is correct under a non-default root-path without reading config directly.</p>
+ * {@code <base href="{root-path}/bootui/">} tag, mirroring the Spring adapter exactly. The root path is
+ * read live from the {@code quarkus.http.root-path} config key (the same pattern
+ * {@code BootUiQuarkusStartupBanner} and {@code QuarkusPentestingObservationCollector} use) rather than
+ * from the live request URI: the request path is attacker-influenced input, and echoing it back into the
+ * HTML this endpoint serves would be a reflected cross-site-scripting vector even with attribute escaping.</p>
  */
 @Path("/bootui")
 public class QuarkusIndexResource {
 
     static final String INDEX_LOCATION = "META-INF/resources/bootui/index.html";
 
+    static final String ROOT_PATH_KEY = "quarkus.http.root-path";
+
     private static final Pattern HEAD_OPEN = Pattern.compile("(?i)<head[^>]*>");
 
     private static final Pattern EXISTING_BASE = Pattern.compile("(?i)<base\\b");
 
+    private final Config config;
+
     private volatile String cachedTemplate;
 
+    @Inject
+    public QuarkusIndexResource(Config config) {
+        this.config = config;
+    }
+
     @GET
-    public Response index(@Context UriInfo uriInfo) {
-        String path = uriInfo.getRequestUri().getRawPath();
-        String baseHref = path.endsWith("/") ? path : path + "/";
+    public Response index() {
+        String baseHref = normalizeRootPath(rootPath()) + "/bootui/";
         String html = injectBaseHref(template(), baseHref);
         return Response.ok(html, MediaType.TEXT_HTML_TYPE).build();
+    }
+
+    private String rootPath() {
+        return config.getOptionalValue(ROOT_PATH_KEY, String.class).orElse("/");
+    }
+
+    /**
+     * Normalizes a {@code quarkus.http.root-path} value so a default {@code "/"} (or blank) contributes no
+     * prefix and any custom root is rendered without a trailing slash, mirroring
+     * {@code BootUiQuarkusStartupBanner.normalizeRootPath}.
+     */
+    private static String normalizeRootPath(String rootPath) {
+        if (rootPath == null || rootPath.isBlank()) {
+            return "";
+        }
+        String trimmed = rootPath.strip();
+        if (!trimmed.startsWith("/")) {
+            trimmed = "/" + trimmed;
+        }
+        int end = trimmed.length();
+        while (end > 1 && trimmed.charAt(end - 1) == '/') {
+            end--;
+        }
+        trimmed = trimmed.substring(0, end);
+        return trimmed.equals("/") ? "" : trimmed;
     }
 
     private String template() {
