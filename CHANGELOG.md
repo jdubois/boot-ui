@@ -7,6 +7,109 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-03
+
+Feature release headlined by **optional durable JDBC persistence for Live Activity** on both adapters — the feed can
+now survive an application restart instead of living only in a bounded in-memory buffer — alongside a **Sentry-style
+triage workflow** for the Exceptions panel, **SQL call-site capture with a list-level N+1 badge** in Live Activity, and
+a comprehensive audit pass across all nine advisor rule sets that fixed real bugs and grew four of them. Also fixes a
+CodeQL-flagged XSS vulnerability in the Quarkus adapter and closes the per-panel access-gating parity gap called out as
+Spring-only in 1.8.0.
+
+### Added
+
+- **Optional durable JDBC persistence for Live Activity, on both adapters.** Live Activity has always kept its feed in
+  a bounded in-memory ring buffer that's lost on restart; it can now optionally persist to a JDBC datasource instead. A
+  new `ActivityStore` abstraction backs the feed — `InMemoryActivityStore` (the unchanged default), `JdbcActivityStore`,
+  and a `BufferedActivityStore` write-behind decorator that batches writes without blocking request handling — with
+  rows namespaced per application instance (`instance_id`) so a shared database can safely serve multiple app
+  instances, and a choice of a `shared` (host-provided) or `dedicated` datasource. A runtime "Use the existing
+  datasource" button lets an operator hot-switch from in-memory to persistent capture with no restart, a
+  graceful-shutdown hook flushes the last buffered batch, and every row is masked at capture time (`SecretMasker`) so
+  persisted history is immutable and never needs re-masking on read. A new `BootUiJdbcCaptureGuard` prevents BootUI's
+  own persistence JDBC calls from being captured back into its own Live Activity feed. See
+  [docs/FEATURES.md](docs/FEATURES.md), [docs/QUARKUS-SUPPORT.md](docs/QUARKUS-SUPPORT.md), and
+  [docs/PROPERTIES.md](docs/PROPERTIES.md) for the new `bootui.activity.persistence.*` properties (#504).
+- **A Sentry-style triage workflow for the Exceptions panel.** Every exception group can now be marked **Open**,
+  **Acknowledged**, or **Resolved** via a new `POST /bootui/api/exceptions/{id}/status` endpoint (identical on both
+  adapters); a **Resolved** group that sees a new occurrence automatically reopens to **Open** and increments a
+  lifetime `regressionCount`, surfaced in the UI as a "Reopened ×N" badge — **Acknowledged** groups deliberately don't
+  auto-transition, since the developer already knows about the failure. A status filter narrows the list alongside the
+  existing text/source filters (#499).
+- **SQL call-site capture and a list-level N+1 badge in Live Activity.** `SqlTraceRecorder` now walks the capturing
+  thread's stack to resolve the first application-code frame that issued a query, surfaced as `callSite` per execution
+  and `callSites` per statement group in both the SQL Trace panel and the Live Activity per-request drawer (new
+  `bootui.sql-trace.capture-call-site` property, default `true`). Live Activity's main table now also flags a request
+  suspected of an N+1 pattern with a badge directly in the row, instead of requiring the drawer to be opened, using the
+  same shared `SqlTraceGrouping` logic and threshold the drawer already used (#500).
+- **A dismiss/restore workflow for the Vulnerabilities panel**, bringing it in line with the Architecture panel's
+  existing precedent: a vulnerability can be dismissed — keyed by `<vulnerability id>::<package name>` so the
+  dismissal survives a patch-version bump of the still-vulnerable dependency — and is then excluded from the
+  vulnerable-dependency count and severity rollups while staying visible in the UI, dimmed, with a Restore button
+  (#485).
+- **Quarkus parity features**, closing gaps against the Spring adapter: security events now correlate into Live
+  Activity the same way Spring's do (#489); Live Activity gained a reduced, trace-id-only per-request profile
+  drill-down — SQL correlation always shows "exact" and security events are badged "principal" rather than the fuller
+  thread-exact match Spring's profiler can show (#496); exceptions resolved by an application's own JAX-RS
+  `ExceptionMapper` are now captured (#501); and per-panel `bootui.panels.*` enable/read-only gating is now enforced on
+  the Quarkus adapter via a new `QuarkusPanelAccessFilter`, at full behavioral parity with Spring's `PanelAccessFilter`
+  — the one gap called out as Spring-only in 1.8.0 (#491).
+- **Two new MCP tools**, `get_live_activity` and `get_exception_detail`, extending the MCP Server panel's tool
+  catalogue (#502).
+
+### Changed
+
+- **Audited all nine advisor rule sets against primary sources** (framework reference docs, specs, and library
+  source), fixing bugs and growing coverage where real gaps were found: the **Architecture** advisor grew from 37 to
+  38 rules, fixing a Spring-only field-injection rule that false-positived on idiomatic CDI code (adding the
+  framework-neutral `ARCH-CODE-016` counterpart) plus fixes to proxy-visibility and reactive-return-type detection
+  (#486); the **Spring** application advisor grew from 35 to 37 rules, fixing a graceful-shutdown detection gap and a
+  severity-escalation gap, and adding an in-memory-database-in-production check and a public-mutable-field check
+  (#483); the **Security** advisor grew from 48 to 52 rules, adding HTTP-Basic-without-TLS, weak-HSTS, weak-CSP, and
+  hardcoded-credential-property-name checks, and cross-checked the Quarkus Security advisor's 43 rules with no changes
+  needed (#484); the **Pentesting** advisor grew from 69 to 70 rules, fixing a severity bug and (across two follow-up
+  passes) an evidence-truncation bug, and adding a DevTools remote-secret-exposure check (#479, #480); the
+  **Hibernate** advisor's 66 rules got five bug fixes, including a wrong AUTO-strategy claim, a `@Transient`-field
+  false positive, and Panache-specific false positives now correctly suppressed under Quarkus (#487); the **REST API**
+  advisor's 47 rules got JAX-RS void-handler status-detection fixes that were causing both false positives and false
+  negatives on Quarkus (#482); the **Memory** advisor's 32 rules got JVM-tuning calculator fixes for stale JDK-version
+  gates (`-XX:+ZGenerational`, `-XX:+UseStringDeduplication`) (#481); and the **Vulnerabilities** advisor kept its rule
+  count (it has no static rule catalogue) but fixed a CVSS v3 severity-parsing bug that had silently misclassified
+  every real OSV advisory, and added partial-scan-failure resilience and withdrawn-advisory filtering (#485).
+- **Expanded Playwright e2e coverage**: deep interaction specs for Quarkus's action-capable panels (#490), coverage for
+  the new Quarkus per-panel access gating (#494), and dedicated specs for 17 more Quarkus panels — bringing the
+  Quarkus e2e suite to the same interaction-level depth as Spring's (#498).
+- **Reduced BootUI's Maven Central publishing footprint** ahead of Sonatype's new monthly publishing quota: stopped
+  publishing the demo/test modules, largely the sample app's fat jar, which accounted for roughly 750MB and 92% of the
+  previously-published footprint (#477); and trimmed checksum fanout to only the md5/sha1 files Sonatype actually
+  mandates, cutting published files per release from 174 to 116 (#493).
+
+### Fixed
+
+- **Fixed a high-severity CodeQL-flagged XSS vulnerability (`java/xss`)** in `QuarkusIndexResource`, where the injected
+  `<base href>` was built from attacker-influenced request-URI data; it's now derived from the static
+  `quarkus.http.root-path` config instead, matching the Spring adapter's existing pattern. No caller-visible behavior
+  change for legitimate requests (#503).
+- **The compiled BootUI shell was still reachable in Quarkus production builds**, even though the data-bearing
+  `/bootui/api/**` surface was already dark — Quarkus wires its static-resource handler for `META-INF/resources/**`
+  unconditionally, independent of this extension's launch-mode gating. A new always-on Vert.x route filter
+  (`BootUiProdShellGuardFilter`) now answers 404 for the entire `/bootui` surface whenever `LaunchMode.NORMAL` is
+  active (#497).
+- **Quarkus Exceptions and Live Activity entries always had a null `method`, `path`, and `handler`.** The HTTP-context-
+  free log-based capture path always won a dedup race against the richer HTTP-filter capture path. Fixed by resolving
+  the current request's method/path from the CDI-current `CurrentVertxRequest` (#492) and the current resource
+  class/method from RESTEasy Reactive's `CurrentRequestManager` (#495).
+- **Three bugs found while building deeper Quarkus e2e coverage** (#498): the Beans panel hid any bean whose
+  fully-qualified name merely *started with* BootUI's own package prefix, not just BootUI's own beans; the Mappings
+  panel had the identical bug hiding real JAX-RS resources; and Security Logs badges always rendered the generic color
+  on Quarkus, because the color-matching logic checked only Spring's ALL-CAPS audit-event names against Quarkus's
+  PascalCase CDI security event class names.
+- **Corrected stale Quarkus panel-availability claims in `docs/QUARKUS-SUPPORT.md`** that still listed Database
+  Connection Pools, Security Logs, and Log Tail as not-yet-implemented after they had already shipped (#488).
+- **Fixed broken javadoc `@link` references** that were causing CI build warnings (#476).
+- **Fixed a stale Quarkus version reference in the docs and permanently guarded the release workflow** to fail the
+  release if any stale version reference remains anywhere in the repo or any `pom.xml` wasn't bumped (#478).
+
 ## [1.8.0] - 2026-07-01
 
 Feature release headlined by **Quarkus support** — BootUI is now a dual-framework developer console that runs the same
