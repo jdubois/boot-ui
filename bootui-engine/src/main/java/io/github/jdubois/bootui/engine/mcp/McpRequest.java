@@ -5,9 +5,12 @@ package io.github.jdubois.bootui.engine.mcp;
  * consumed by {@link McpDispatcher}.
  *
  * <p>The codec performs all JSON work (deciding {@code notification} from the presence of an id,
- * extracting {@code params}, and pulling the {@code tools/call} name + raw {@code query}/{@code limit}
- * arguments). The id itself is <em>not</em> carried here: the codec pairs the returned
- * {@link McpDispatchOutcome} with the original id node when it renders the response.
+ * extracting {@code params}, and pulling the {@code tools/call} name + raw {@code query}/{@code
+ * limit}/{@code id} arguments). The top-level JSON-RPC message id (used to correlate a response with
+ * its request) is <em>not</em> carried here: the codec pairs the returned {@link McpDispatchOutcome}
+ * with the original message-id node when it renders the response. {@link #rawId} below is a different,
+ * tool-specific concept: the {@code arguments.id} of an {@link McpToolSchema#ID} tool call (e.g. which
+ * exception group to fetch detail for).
  *
  * @param method the JSON-RPC method (possibly blank; the dispatcher decides what to do)
  * @param notification {@code true} when the request carried no id (no response is emitted)
@@ -16,6 +19,7 @@ package io.github.jdubois.bootui.engine.mcp;
  * @param toolName the {@code params.name} for {@code tools/call} (may be {@code null}/blank)
  * @param rawQuery the client {@code arguments.query} as parsed (may be {@code null}/blank/untrimmed)
  * @param rawLimit the client {@code arguments.limit} as parsed (may be {@code null} or out of range)
+ * @param rawId the client {@code arguments.id} as parsed (may be {@code null}/blank/untrimmed)
  */
 public record McpRequest(
         String method,
@@ -23,4 +27,5 @@ public record McpRequest(
         String requestedProtocolVersion,
         String toolName,
         String rawQuery,
-        Integer rawLimit) {}
+        Integer rawLimit,
+        String rawId) {}

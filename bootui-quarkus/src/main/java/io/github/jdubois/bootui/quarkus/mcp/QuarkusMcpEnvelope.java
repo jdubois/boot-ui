@@ -85,7 +85,13 @@ public class QuarkusMcpEnvelope {
         String toolName = params.path("name").asText();
         JsonNode arguments = params.get("arguments");
         return new McpRequest(
-                method, notification, requestedProtocolVersion, toolName, rawQuery(arguments), rawLimit(arguments));
+                method,
+                notification,
+                requestedProtocolVersion,
+                toolName,
+                rawQuery(arguments),
+                rawLimit(arguments),
+                rawId(arguments));
     }
 
     private static String rawQuery(JsonNode arguments) {
@@ -95,6 +101,13 @@ public class QuarkusMcpEnvelope {
             return null;
         }
         return arguments.get("query").asText();
+    }
+
+    private static String rawId(JsonNode arguments) {
+        if (arguments == null || !arguments.has("id") || arguments.get("id").isNull()) {
+            return null;
+        }
+        return arguments.get("id").asText();
     }
 
     private static Integer rawLimit(JsonNode arguments) {
@@ -225,6 +238,7 @@ public class QuarkusMcpEnvelope {
             case NONE -> emptyObjectSchema();
             case LIMIT -> limitSchema();
             case QUERY_LIMIT -> querySchema();
+            case ID -> idSchema();
         };
     }
 
@@ -268,5 +282,21 @@ public class QuarkusMcpEnvelope {
                 "description",
                 "Optional maximum number of items to return. Capped by the bootui.mcp.max-results server limit.");
         return limit;
+    }
+
+    private static ObjectNode idSchema() {
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode properties = JsonNodeFactory.instance.objectNode();
+        ObjectNode id = JsonNodeFactory.instance.objectNode();
+        id.put("type", "string");
+        id.put("description", "Exact identifier of the resource to fetch.");
+        properties.set("id", id);
+        schema.set("properties", properties);
+        ArrayNode required = JsonNodeFactory.instance.arrayNode();
+        required.add("id");
+        schema.set("required", required);
+        schema.put("additionalProperties", false);
+        return schema;
     }
 }

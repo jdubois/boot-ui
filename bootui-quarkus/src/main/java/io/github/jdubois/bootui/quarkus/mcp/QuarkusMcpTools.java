@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
 import io.github.jdubois.bootui.quarkus.web.HealthResource;
 import io.github.jdubois.bootui.quarkus.web.HibernateResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
+import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
 import io.github.jdubois.bootui.quarkus.web.LogTailResource;
 import io.github.jdubois.bootui.quarkus.web.MappingsResource;
 import io.github.jdubois.bootui.quarkus.web.MemoryResource;
@@ -68,6 +69,7 @@ public class QuarkusMcpTools {
             PentestingResource pentesting,
             RestApiResource restApi,
             ExceptionsResource exceptions,
+            LiveActivityResource liveActivity,
             SecurityLogsResource securityLogs,
             SqlTraceResource sqlTrace,
             TracesResource traces,
@@ -142,11 +144,31 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
+                limitRead(
+                        "get_live_activity",
+                        "Return the correlated live activity feed: HTTP requests, SQL statements, exceptions, "
+                                + "and security events, grouped by request/trace so related signals (e.g. the "
+                                + "slow query or exception behind one HTTP request) are easy to spot together.",
+                        BootUiPanels.ACTIVITY,
+                        args -> liveActivity.activity(args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
                 read(
                         "get_exceptions",
                         "List recent unhandled exceptions captured at runtime (most recent first).",
                         BootUiPanels.EXCEPTIONS,
                         args -> exceptions.list()));
+        addIfAvailable(
+                registry,
+                availability,
+                idRead(
+                        "get_exception_detail",
+                        "Return full detail for one exception group by id: stack trace frames, causes, and "
+                                + "individual occurrences (request method/path/handler/thread/traceId). Use the "
+                                + "'id' from get_exceptions or get_live_activity.",
+                        BootUiPanels.EXCEPTIONS,
+                        args -> exceptions.detail(args.id())));
         addIfAvailable(
                 registry,
                 availability,
@@ -263,5 +285,10 @@ public class QuarkusMcpTools {
     private static McpTool searchRead(
             String name, String description, String panelId, Function<McpArguments, Object> handler) {
         return new McpTool(name, description, McpToolSchema.QUERY_LIMIT, panelId, false, handler);
+    }
+
+    private static McpTool idRead(
+            String name, String description, String panelId, Function<McpArguments, Object> handler) {
+        return new McpTool(name, description, McpToolSchema.ID, panelId, false, handler);
     }
 }

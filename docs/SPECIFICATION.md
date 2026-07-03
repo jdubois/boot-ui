@@ -1426,10 +1426,12 @@ Design rules:
 - **Reuse, don't reimplement.** Each tool delegates to the same controller/service the REST API and panels use and
   returns the existing DTO records, so contracts stay stable and masked.
 - **Tool surface.** Advisor scans as action tools (`architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`,
-  `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`); diagnostics reads (`get_exceptions`,
-  `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`); and core context reads
-  (`get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`). Tools whose backing controller is absent
-  (conditional on classpath, e.g. Hibernate or Spring Security) are not advertised.
+  `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`); diagnostics reads (`get_live_activity`,
+  `get_exceptions`, `get_exception_detail`, `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`,
+  `get_http_exchanges`); and core context reads (`get_overview`, `get_health`, `get_config`, `get_beans`,
+  `get_mappings`). `get_live_activity` returns the same correlated feed as the Live Activity panel; `get_exception_detail`
+  takes a required `id` argument and returns one exception group's full stack trace, causes, and occurrences. Tools whose
+  backing controller is absent (conditional on classpath, e.g. Hibernate or Spring Security) are not advertised.
 - **Same safety model as the panels.** The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host`
   allow-list, cross-site write protection). The dispatcher enforces per-panel access: read tools require the backing
   panel to be enabled, action tools are additionally refused when the panel is read-only or `bootui.read-only=true`.
