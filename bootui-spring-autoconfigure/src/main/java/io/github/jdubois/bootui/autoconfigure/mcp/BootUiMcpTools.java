@@ -168,7 +168,7 @@ public class BootUiMcpTools {
                             + "and security events, grouped by request/trace so related signals (e.g. the "
                             + "slow query or exception behind one HTTP request) are easy to spot together.",
                     BootUiPanels.ACTIVITY,
-                    args -> liveActivityBean.activity(null, null, 0, args.limit())));
+                    args -> liveActivityBean.activity(null, null, 0, args.limit(), null, null, null, 0)));
         }
         if (exceptionsBean != null) {
             registry.add(read(
