@@ -218,8 +218,10 @@ defense), the check order, and the **exact canonical 403 messages**. The Spring 
 `BootUiQuarkusSafetyFilter` only translate their native request/config into the guard's neutral
 `LocalhostGuardRequest`/`LocalhostGuardConfig` and render the `LocalhostGuardDecision`, so the two adapters reject
 identically (same JSON `{"error":"…"}` body). The pure policy is pinned by `LocalhostGuardTests` in `bootui-engine`;
-each binding adds thin per-adapter tests that it feeds the guard correctly. One gap remains: Quarkus has no equivalent of
-Spring's `PanelAccessFilter` yet, so per-panel enable / read-only gating is Spring-only for now.
+each binding adds thin per-adapter tests that it feeds the guard correctly. Per-panel enable / read-only gating
+(`bootui.panels.*`) is enforced on both adapters too — Spring's `PanelAccessFilter` and Quarkus's
+`QuarkusPanelAccessFilter` are behavioral twins over the same `BootUiPanels` registry, the same config keys, and the
+same canonical JSON 403 body shape.
 
 ### Spring Boot
 
@@ -265,9 +267,11 @@ Spring's `PanelAccessFilter` yet, so per-panel enable / read-only gating is Spri
 - Activation is decided at **build time by launch mode** in `BootUiQuarkusProcessor.registerConsole`: in
   `LaunchMode.NORMAL` (production) the data-bearing `/bootui/api/**` endpoints, CDI beans, and Vert.x safety filter are
   **not wired at all** (prod-dark, fail-closed); `DEV` and `TEST` wire them (so `quarkus:dev` and `@QuarkusTest` exercise
-  the console). Caveat: the static Vue shell under `META-INF/resources/bootui/` is still served by Quarkus' static-resource
-  handler in every launch mode (suppressing even the empty shell in production is a known follow-up), but with the API dark
-  it has no data to show. The build step indexes the extension runtime jar so Arc/RESTEasy discover the beans and `@Path`
+  the console). The static Vue shell under `META-INF/resources/bootui/` is suppressed in production too, by a separate
+  mechanism: Quarkus' static-resource handler serves `META-INF/resources/**` unconditionally, independent of these
+  launch-mode-gated build steps, so an always-on `BootUiProdShellGuardFilter` (registered by its own never-gated
+  `@BuildStep`, `registerProdShellGuard`) answers a plain 404 for the whole `/bootui` surface whenever
+  `LaunchMode.NORMAL` is active. The build step indexes the extension runtime jar so Arc/RESTEasy discover the beans and `@Path`
   resources, and pins the SPI-backed beans unremovable. New SPI impl beans must be added to the `addBeanClasses(...)` list
   there; new `@Path` resources are auto-discovered and need no processor change.
 - `BootUiQuarkusSafetyFilter` is a **global Vert.x HTTP route filter** (registered via the `@Observes Filters` event), not
@@ -282,8 +286,14 @@ Spring's `PanelAccessFilter` yet, so per-panel enable / read-only gating is Spri
   resolves the container-gateway snapshot **eagerly at startup, off the Vert.x event loop** (the detector does blocking
   `/proc`/DNS work; lazy first-request resolution would trip the `BlockedThreadChecker`), and only when gateway trust is
   not `OFF`. When you change the policy, change the engine guard (not a binding) and keep the **exact 403 reason strings**
-  identical across adapters (the SPA / e2e may key on them). Per-panel read-only gating is still Spring-only (no Quarkus
-  `PanelAccessFilter` yet).
+  identical across adapters (the SPA / e2e may key on them).
+- `QuarkusPanelAccessFilter` is a second, lower-priority global Vert.x route filter (priority `950`, vs. the safety
+  filter's `1000`, so localhost/Host/CSRF rejection always wins first) that enforces per-panel `bootui.panels.*`
+  settings via the same `BootUiPanels` registry Spring's `PanelAccessFilter` uses — same config keys, same panel
+  resolution, and the same canonical JSON 403 body shape
+  (`{"error":"BootUI panel access denied","panel":"<id>","reason":"<reason>"}`). Only `/bootui/api/**` requests are
+  gated; the static UI shell is never panel-gated (its own production suppression is `BootUiProdShellGuardFilter`,
+  above).
 - Config is read live from MicroProfile `Config` in the SPI impls (e.g. `QuarkusExposurePolicy`) and the safety filter,
   fail-closed on missing/invalid values.
 
@@ -407,8 +417,9 @@ hide newer ones. Keep API, UI,
   aren't auto-discovered; override with the `bootui.internal.base-packages` config key — a comma-separated package list —
   if needed). Loggers is served over the JBoss LogManager that Quarkus uses at
   runtime (the Spring adapter uses Actuator's loggers endpoint) and was the first Quarkus panel with a state-changing
-  action: `POST /bootui/api/loggers/{name}` sets a level, guarded by the shared engine `LocalhostGuard` write floor and
-  the engine's refusal to mutate BootUI's own loggers (per-panel read-only gating is still Spring-only). HTTP Probe is
+  action: `POST /bootui/api/loggers/{name}` sets a level, guarded by the shared engine `LocalhostGuard` write floor,
+  `QuarkusPanelAccessFilter`'s per-panel read-only gating, and the engine's refusal to mutate BootUI's own loggers.
+  HTTP Probe is
   also action-capable (`POST /bootui/api/http-probe`): it issues a local-only request to the application's *own* loopback
   port — resolved per-probe by `QuarkusServerPortSupplier`, which selects `quarkus.http.test-port` vs `quarkus.http.port`
   by `LaunchMode` so the probe targets the actually-bound port (incl. a random `=0` port, which Quarkus rewrites the
@@ -601,11 +612,13 @@ hide newer ones. Keep API, UI,
   framework- and JSON-free dispatch core (`bootui-engine` `McpDispatcher` → a sealed `McpDispatchOutcome`) that owns
   method routing, per-panel gating, tool lookup and `max-results` capping, while each adapter keeps a thin per-Jackson
   envelope codec (`QuarkusMcpEnvelope`, Jackson 2; `BootUiMcpService`, Jackson 3), its own tool catalog
-  (`QuarkusMcpTools` — the 18 Quarkus-available tools, gated by `QuarkusPanelAvailability.isPanelAvailable` so a tool is
-  advertised iff its backing panel is live; `graalvm_scan`/`crac_scan` are absent, while `get_overview` is advertised
-  now that the Overview panel is available), live state
-  (`McpServerState`), and panel policy (`QuarkusMcpPanelPolicy` — always-enabled/never-read-only, since Quarkus has no
-  `PanelAccessFilter` yet). `POST /bootui/api/mcp` (the `@Blocking` JSON-RPC transport, `McpBridgeResource`) and the
+  (`QuarkusMcpTools` — 20 Quarkus-available tools (incl. `get_live_activity`/`get_exception_detail`), gated by
+  `QuarkusPanelAvailability.isPanelAvailable` so a tool is advertised iff its backing panel is live; `graalvm_scan`/
+  `crac_scan` are absent, while `get_overview` is advertised now that the Overview panel is available), live state
+  (`McpServerState`), and panel policy (`QuarkusMcpPanelPolicy` — delegates to `QuarkusPanelAccessConfig`, gating a
+  `tools/call` on the same `bootui.panels.*` enable/read-only toggles the browser UI and `QuarkusPanelAccessFilter`
+  obey, mirroring the Spring adapter's `SpringMcpPanelPolicy`). `POST /bootui/api/mcp` (the `@Blocking` JSON-RPC
+  transport, `McpBridgeResource`) and the
   `POST /bootui/api/mcp-server/toggle` enable switch (`McpServerResource`) both sit behind the shared `LocalhostGuard`
   write floor; the bridge short-circuits to a `-32000` error while disabled and answers byte-identically to Spring.
   Everything else is reported unavailable with a clear reason until its Quarkus backing lands.

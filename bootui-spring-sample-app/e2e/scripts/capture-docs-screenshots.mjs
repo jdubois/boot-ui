@@ -2457,7 +2457,8 @@ const dependencies = {
         'HIGH',
         'Sample advisory showing why local dependency scans are useful.',
         ['CVE-2026-0001'],
-        ['42.7.4']
+        ['42.7.4'],
+        true
       )
     ]),
     dependency('pkg:maven/io.netty/netty-handler', '4.1.95.Final', 'MEDIUM', [
@@ -2754,7 +2755,10 @@ const exceptions = {
       lastRequestMethod: 'POST',
       lastRequestPath: '/api/sample/boom',
       lastHandler: 'SampleController#boom()',
-      lastSource: 'web'
+      lastSource: 'web',
+      lastTraceId: null,
+      status: 'RESOLVED',
+      regressionCount: 2
     },
     {
       id: 'b2c3d4e5f6071829',
@@ -2769,7 +2773,10 @@ const exceptions = {
       lastRequestMethod: null,
       lastRequestPath: null,
       lastHandler: null,
-      lastSource: 'log'
+      lastSource: 'log',
+      lastTraceId: null,
+      status: 'ACKNOWLEDGED',
+      regressionCount: 0
     },
     {
       id: 'c3d4e5f607182930',
@@ -2786,7 +2793,10 @@ const exceptions = {
       lastRequestMethod: 'GET',
       lastRequestPath: '/api/sample/products',
       lastHandler: 'ProductController#list()',
-      lastSource: 'web'
+      lastSource: 'web',
+      lastTraceId: null,
+      status: 'OPEN',
+      regressionCount: 0
     }
   ]
 }
@@ -2890,6 +2900,14 @@ const sqlSelectOrderItems =
   'select oi1_0.order_id,oi1_0.id,oi1_0.product_id,oi1_0.quantity from order_items oi1_0 where oi1_0.order_id=?'
 const sqlInsertOrder = 'insert into orders (customer,reference,total,id) values (?,?,?,?)'
 
+const callSiteProductsActive = 'io.github.jdubois.bootui.sample.ProductController.list(ProductController.java:34)'
+const callSiteProductById = 'io.github.jdubois.bootui.sample.ProductController.get(ProductController.java:52)'
+const callSiteOrderItems = 'io.github.jdubois.bootui.sample.OrderService.enrichOrderItems(OrderService.java:91)'
+const callSiteInsertOrder = 'io.github.jdubois.bootui.sample.OrderService.process(OrderService.java:70)'
+const callSiteUpdatePrice =
+  'io.github.jdubois.bootui.sample.ProductAdminService.updatePrice(ProductAdminService.java:41)'
+const callSiteDeleteCart = 'io.github.jdubois.bootui.sample.CartService.removeExpiredItems(CartService.java:112)'
+
 const sqlTrace = {
   available: true,
   unavailableReason: null,
@@ -2921,7 +2939,8 @@ const sqlTrace = {
       executions: 6,
       totalDurationMillis: 61,
       maxDurationMillis: 14,
-      potentialNPlusOne: true
+      potentialNPlusOne: true,
+      callSites: [callSiteOrderItems]
     },
     {
       sql: sqlInsertOrder,
@@ -2929,7 +2948,8 @@ const sqlTrace = {
       executions: 3,
       totalDurationMillis: 18,
       maxDurationMillis: 9,
-      potentialNPlusOne: false
+      potentialNPlusOne: false,
+      callSites: [callSiteInsertOrder]
     },
     {
       sql: sqlSelectProductsActive,
@@ -2937,18 +2957,19 @@ const sqlTrace = {
       executions: 2,
       totalDurationMillis: 160,
       maxDurationMillis: 142,
-      potentialNPlusOne: false
+      potentialNPlusOne: false,
+      callSites: [callSiteProductsActive]
     }
   ],
   entries: [
-    sqlTraceEntry(14, 2, sqlSelectProductsActive, 'SELECT', 142, true, null, 'conn-2', 4),
-    sqlTraceEntry(13, 8, sqlSelectOrderItems, 'SELECT', 14, true, null, 'conn-2', 4),
-    sqlTraceEntry(12, 8, sqlSelectOrderItems, 'SELECT', 12, true, null, 'conn-2', 4),
-    sqlTraceEntry(11, 9, sqlSelectOrderItems, 'SELECT', 11, true, null, 'conn-2', 4),
-    sqlTraceEntry(10, 9, sqlSelectOrderItems, 'SELECT', 9, true, null, 'conn-2', 4),
-    sqlTraceEntry(9, 9, sqlSelectOrderItems, 'SELECT', 8, true, null, 'conn-2', 4),
-    sqlTraceEntry(8, 10, sqlSelectOrderItems, 'SELECT', 7, true, null, 'conn-2', 4),
-    sqlTraceEntry(7, 24, sqlInsertOrder, 'INSERT', 9, true, 1, 'conn-5', 6),
+    sqlTraceEntry(14, 2, sqlSelectProductsActive, 'SELECT', 142, true, null, 'conn-2', 4, null, callSiteProductsActive),
+    sqlTraceEntry(13, 8, sqlSelectOrderItems, 'SELECT', 14, true, null, 'conn-2', 4, null, callSiteOrderItems),
+    sqlTraceEntry(12, 8, sqlSelectOrderItems, 'SELECT', 12, true, null, 'conn-2', 4, null, callSiteOrderItems),
+    sqlTraceEntry(11, 9, sqlSelectOrderItems, 'SELECT', 11, true, null, 'conn-2', 4, null, callSiteOrderItems),
+    sqlTraceEntry(10, 9, sqlSelectOrderItems, 'SELECT', 9, true, null, 'conn-2', 4, null, callSiteOrderItems),
+    sqlTraceEntry(9, 9, sqlSelectOrderItems, 'SELECT', 8, true, null, 'conn-2', 4, null, callSiteOrderItems),
+    sqlTraceEntry(8, 10, sqlSelectOrderItems, 'SELECT', 7, true, null, 'conn-2', 4, null, callSiteOrderItems),
+    sqlTraceEntry(7, 24, sqlInsertOrder, 'INSERT', 9, true, 1, 'conn-5', 6, null, callSiteInsertOrder),
     sqlTraceEntry(
       6,
       26,
@@ -2959,13 +2980,38 @@ const sqlTrace = {
       null,
       'conn-5',
       6,
-      'could not execute statement [Unique index or primary key violation: PUBLIC.ORDERS(REFERENCE)]'
+      'could not execute statement [Unique index or primary key violation: PUBLIC.ORDERS(REFERENCE)]',
+      callSiteInsertOrder
     ),
-    sqlTraceEntry(5, 41, sqlInsertOrder, 'INSERT', 6, true, 1, 'conn-5', 6),
-    sqlTraceEntry(4, 58, 'update products set price=? where id=?', 'UPDATE', 5, true, 1, 'conn-3', 2),
-    sqlTraceEntry(3, 72, 'delete from cart_items where cart_id=?', 'DELETE', 4, true, 1, 'conn-3', 2),
-    sqlTraceEntry(2, 90, sqlSelectProductsActive, 'SELECT', 18, true, null, 'conn-1', 2),
-    sqlTraceEntry(1, 96, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2)
+    sqlTraceEntry(5, 41, sqlInsertOrder, 'INSERT', 6, true, 1, 'conn-5', 6, null, callSiteInsertOrder),
+    sqlTraceEntry(
+      4,
+      58,
+      'update products set price=? where id=?',
+      'UPDATE',
+      5,
+      true,
+      1,
+      'conn-3',
+      2,
+      null,
+      callSiteUpdatePrice
+    ),
+    sqlTraceEntry(
+      3,
+      72,
+      'delete from cart_items where cart_id=?',
+      'DELETE',
+      4,
+      true,
+      1,
+      'conn-3',
+      2,
+      null,
+      callSiteDeleteCart
+    ),
+    sqlTraceEntry(2, 90, sqlSelectProductsActive, 'SELECT', 18, true, null, 'conn-1', 2, null, callSiteProductsActive),
+    sqlTraceEntry(1, 96, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2, null, callSiteProductById)
   ],
   warnings: []
 }
@@ -3004,7 +3050,8 @@ const activityReport = {
       status: 200,
       thread: 'http-nio-8080-exec-3',
       profileable: true,
-      securedPrincipal: 'alice'
+      securedPrincipal: 'alice',
+      sqlNPlusOneSuspected: true
     },
     {
       id: 'act-sql-1',
@@ -3249,8 +3296,8 @@ const screenshots = [
     async (page) => {
       await page.getByText('Most frequent statements').waitFor()
       await page.getByText('possible N+1').waitFor()
-      await page.locator('tr.sql-row').first().click()
-      await page.getByText('PREPARED').first().waitFor()
+      await page.getByText('at io.github.jdubois.bootui.sample.OrderService.enrichOrderItems').waitFor()
+      await page.getByText('at io.github.jdubois.bootui.sample.ProductController.list').waitFor()
     }
   ],
   [
@@ -3270,7 +3317,16 @@ const screenshots = [
   ['security-logs', 'Security Logs', 'bootui-security-logs.webp', waitForText('AUTHENTICATION_SUCCESS')],
   ['security', 'Security', 'bootui-security.webp', waitForText('SEC-ACT-002')],
   ['pentesting', 'Pentesting', 'bootui-pentesting.webp', waitForText('Missing hardening response headers')],
-  ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.webp', waitForText('GHSA-example-001')],
+  [
+    'vulnerabilities',
+    'Vulnerabilities',
+    'bootui-vulnerabilities.webp',
+    async (page) => {
+      await page.getByText('GHSA-example-001').waitFor()
+      await page.locator('#vulnerableOnly').check()
+      await page.getByText('Dismissed').waitFor()
+    }
+  ],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.webp', waitForText('EchoScheduler.echo')],
   ['cache', 'Cache', 'bootui-cache.webp', waitForText('sample-products')],
   ['ai', 'AI Usage', 'bootui-ai.webp', waitForText('Token usage')],
@@ -3283,7 +3339,8 @@ const screenshots = [
     'bootui-exceptions.webp',
     async (page) => {
       await page.getByText('IllegalStateException').first().waitFor()
-      await page.getByRole('button', {name: 'Open'}).first().click()
+      await page.getByText('Reopened ×2').first().waitFor()
+      await page.getByRole('button', {name: 'Details'}).first().click()
       await page.getByText('Caused by: java.lang.NumberFormatException').waitFor()
     }
   ],
@@ -4027,7 +4084,7 @@ function dependency(packageName, version, highestSeverity, vulnerabilities) {
   }
 }
 
-function vulnerability(id, severity, summary, aliases, fixedVersions) {
+function vulnerability(id, severity, summary, aliases, fixedVersions, dismissed = false) {
   return {
     id,
     severity,
@@ -4035,7 +4092,8 @@ function vulnerability(id, severity, summary, aliases, fixedVersions) {
     details: summary,
     aliases,
     fixedVersions,
-    references: ['https://osv.dev/vulnerability/' + id]
+    references: ['https://osv.dev/vulnerability/' + id],
+    dismissed
   }
 }
 
@@ -4229,7 +4287,8 @@ function sqlTraceEntry(
   affectedRows,
   connectionId,
   threadSuffix,
-  errorMessage = null
+  errorMessage = null,
+  callSite = null
 ) {
   return {
     id,
@@ -4245,7 +4304,8 @@ function sqlTraceEntry(
     connectionId,
     thread: `http-nio-8080-exec-${threadSuffix}`,
     slow: durationMillis >= 100,
-    parameters: []
+    parameters: [],
+    callSite
   }
 }
 
