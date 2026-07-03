@@ -54,9 +54,12 @@ public class BootUiMcpService {
 
     private static final String INSTRUCTIONS =
             "BootUI exposes a running Spring Boot application. Call the *_scan advisor tools to get "
-                    + "actionable findings to fix, and the get_* tools (exceptions, security logs, SQL traces, "
-                    + "traces, HTTP exchanges, config, beans, mappings) to understand runtime behavior. All data "
-                    + "is read locally and secret values are masked.";
+                    + "actionable findings to fix, and the get_* tools (live activity, exceptions, security logs, "
+                    + "SQL traces, traces, HTTP exchanges, config, beans, mappings) to understand runtime behavior. "
+                    + "Use get_live_activity for a correlated feed of recent HTTP requests, SQL statements, "
+                    + "exceptions, and security events (grouped by request/trace), and get_exception_detail "
+                    + "(by id) for one exception's full stack trace, causes, and occurrences. All data is read "
+                    + "locally and secret values are masked.";
 
     private static final Logger log = LoggerFactory.getLogger(BootUiMcpService.class);
 
@@ -94,7 +97,13 @@ public class BootUiMcpService {
         String toolName = params.path("name").asString();
         JsonNode arguments = params.get("arguments");
         return new McpRequest(
-                method, notification, requestedProtocolVersion, toolName, rawQuery(arguments), rawLimit(arguments));
+                method,
+                notification,
+                requestedProtocolVersion,
+                toolName,
+                rawQuery(arguments),
+                rawLimit(arguments),
+                rawId(arguments));
     }
 
     private static String rawQuery(JsonNode arguments) {
@@ -104,6 +113,13 @@ public class BootUiMcpService {
             return null;
         }
         return arguments.get("query").asString();
+    }
+
+    private static String rawId(JsonNode arguments) {
+        if (arguments == null || !arguments.has("id") || arguments.get("id").isNull()) {
+            return null;
+        }
+        return arguments.get("id").asString();
     }
 
     private static Integer rawLimit(JsonNode arguments) {
@@ -234,6 +250,7 @@ public class BootUiMcpService {
             case NONE -> emptyObjectSchema();
             case LIMIT -> limitSchema();
             case QUERY_LIMIT -> querySchema();
+            case ID -> idSchema();
         };
     }
 
@@ -277,5 +294,21 @@ public class BootUiMcpService {
                 "description",
                 "Optional maximum number of items to return. Capped by the bootui.mcp.max-results server limit.");
         return limit;
+    }
+
+    private static ObjectNode idSchema() {
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode properties = JsonNodeFactory.instance.objectNode();
+        ObjectNode id = JsonNodeFactory.instance.objectNode();
+        id.put("type", "string");
+        id.put("description", "Exact identifier of the resource to fetch.");
+        properties.set("id", id);
+        schema.set("properties", properties);
+        ArrayNode required = JsonNodeFactory.instance.arrayNode();
+        required.add("id");
+        schema.set("required", required);
+        schema.put("additionalProperties", false);
+        return schema;
     }
 }

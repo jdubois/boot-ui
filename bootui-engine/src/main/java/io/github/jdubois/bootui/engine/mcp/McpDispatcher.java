@@ -101,8 +101,13 @@ public final class McpDispatcher {
         if (tool.action() && policy.isReadOnly(tool.panelId())) {
             return new ToolCallError(policy.readOnlyReason(tool.panelId()));
         }
+        McpArguments arguments =
+                McpArguments.normalize(request.rawQuery(), request.rawLimit(), request.rawId(), maxResults);
+        if (tool.schema() == McpToolSchema.ID && arguments.id() == null) {
+            return new ToolCallError(McpProtocol.MISSING_ID_ARGUMENT_MESSAGE);
+        }
         try {
-            Object payload = tool.invoke(McpArguments.normalize(request.rawQuery(), request.rawLimit(), maxResults));
+            Object payload = tool.invoke(arguments);
             return new ToolCallResult(payload);
         } catch (RuntimeException ex) {
             // A tool handler failure becomes a JSON-RPC error (-32603), exactly as the original Spring

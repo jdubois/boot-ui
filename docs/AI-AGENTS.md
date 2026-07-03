@@ -17,8 +17,10 @@ grounded, machine-readable context from the *actually running* application:
 
 - **Advisor scans** — architecture, REST API, Spring, Hibernate, JVM memory, Spring Security, pentesting, GraalVM and
   CRaC readiness. The agent gets the same prioritized, severity-ranked findings the panels show, with remediation hints.
-- **Runtime diagnostics** — recent exceptions, security audit events, SQL traces, distributed traces, log tail, and HTTP
-  exchanges, so the agent can correlate a failure with what the app actually did.
+- **Runtime diagnostics** — a correlated live activity feed (recent HTTP requests, SQL statements, exceptions, and
+  security events grouped by request/trace), full exception detail (stack trace, causes, occurrences) by id, security
+  audit events, SQL traces, distributed traces, log tail, and HTTP exchanges, so the agent can correlate a failure with
+  what the app actually did.
 - **Core context** — application overview, health, effective configuration (secrets masked), beans, and request
   mappings.
 
@@ -64,8 +66,11 @@ the classpath) are simply not advertised.
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
   `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`. Each runs the same scan as the panel's action button and
   returns the report DTO.
-- **Diagnostics reads:** `get_exceptions`, `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`,
-  `get_http_exchanges`.
+- **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
+  `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`. `get_live_activity` returns the correlated feed
+  the [Live Activity panel](FEATURES.md) shows (HTTP requests, SQL statements, exceptions, and security events grouped
+  by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or `get_live_activity`) and
+  returns that exception group's full stack trace, causes, and individual occurrences.
 - **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`.
 
 ### Safety model
