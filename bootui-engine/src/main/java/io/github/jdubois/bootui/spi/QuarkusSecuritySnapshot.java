@@ -50,10 +50,20 @@ import java.util.List;
  * @param xContentTypeOptionsHeader whether an X-Content-Type-Options response header is configured
  * @param denyUnannotatedEndpoints whether {@code quarkus.security.jaxrs.deny-unannotated-endpoints=true}
  * @param managementEnabled whether the separate management interface is enabled
- * @param managementHostNonLoopback whether the management interface binds a non-loopback host
- * @param jwtAllowUnsignedTokens whether {@code quarkus.smallrye-jwt.allow-unsigned-tokens=true}
+ * @param managementHostNonLoopback whether a literal (unresolved) {@code quarkus.management.host} or
+ *     {@code %prod.quarkus.management.host} key pins a non-loopback host; read as a raw config key rather
+ *     than the profile-resolved value because Quarkus's own built-in default for {@code host} is
+ *     profile-dependent ({@code localhost} in dev/test, {@code 0.0.0.0} in prod) and BootUI's Quarkus
+ *     advisor only ever runs in dev/test {@code LaunchMode}, so a resolved read would never observe the
+ *     prod default it is trying to catch
+ * @param managementHostUnpinnedForProd whether the management interface is enabled but neither a literal
+ *     {@code quarkus.management.host} nor {@code %prod.quarkus.management.host} key exists at all, meaning
+ *     a real prod deployment would silently fall back to Quarkus's own {@code 0.0.0.0} prod default
+ * @param jwtAlgorithmUnpinnedForRemoteJwks whether {@code mp.jwt.verify.publickey.location} points at a
+ *     remote ({@code http}/{@code https}) JWKS endpoint while {@code mp.jwt.verify.publickey.algorithm} is
+ *     left unset, relying on SmallRye JWT's implicit default (RS256-only) instead of explicitly pinning the
+ *     expected algorithm(s) for a key source that can rotate/change independently of this application
  * @param jdbcClearPasswordMapperEnabled whether a JDBC principal-query uses the clear-password mapper
- * @param jdbcBcryptWorkFactorLow whether a JDBC principal-query's bcrypt work-factor is set below the default (10)
  * @param embeddedUsersEnabled whether {@code quarkus.security.users.embedded.enabled=true}
  * @param jwtAudiencesConfigured whether {@code mp.jwt.verify.audiences} is configured
  * @param jwtInlinePublicKey whether {@code mp.jwt.verify.publickey} holds a static inline key (never rotates)
@@ -68,13 +78,19 @@ import java.util.List;
  * @param graphqlIntrospectionEnabled whether GraphQL schema introspection is enabled (Quarkus-specific;
  *     Spring has no first-party GraphQL equivalent)
  * @param graphqlUiAlwaysInclude whether the GraphQL UI is always included, even outside dev/test
- * @param messagingCredentialsWithoutTls whether a Kafka/Reactive-Messaging channel configures SASL
- *     credentials without an encrypted (SASL_SSL/SSL) security protocol (Quarkus-specific; Spring has no
- *     first-party reactive-messaging equivalent)
+ * @param insecureMessagingChannels the specific Kafka/Reactive-Messaging channel key prefixes that configure
+ *     SASL credentials without an encrypted (SASL_SSL/SSL) security protocol, evaluated independently per
+ *     channel so one channel's secure protocol can't mask another channel's insecure one (Quarkus-specific;
+ *     Spring has no first-party reactive-messaging equivalent); empty when none are insecure
  * @param formCookieHttpOnly whether the form-auth cookie has {@code http-only-cookie} set (Quarkus defaults
  *     this to {@code false}, unlike most frameworks)
  * @param formCookieSameSiteNone whether the form-auth cookie's {@code cookie-same-site} was weakened to {@code none}
  * @param formSessionTimeoutExcessive whether the form-auth session {@code timeout} exceeds a sane bound (8h)
+ * @param oidcHasClientSecret whether an OIDC client secret is configured ({@code quarkus.oidc.credentials.secret}
+ *     or {@code quarkus.oidc.credentials.client-secret.value}), i.e. this is a confidential rather than a
+ *     public client
+ * @param oidcPkceRequired whether {@code quarkus.oidc.authentication.pkce-required=true}
+ * @param healthUiAlwaysInclude whether {@code quarkus.smallrye-health.ui.always-include=true}
  */
 public record QuarkusSecuritySnapshot(
         boolean oidcConfigured,
@@ -117,9 +133,9 @@ public record QuarkusSecuritySnapshot(
         boolean denyUnannotatedEndpoints,
         boolean managementEnabled,
         boolean managementHostNonLoopback,
-        boolean jwtAllowUnsignedTokens,
+        boolean managementHostUnpinnedForProd,
+        boolean jwtAlgorithmUnpinnedForRemoteJwks,
         boolean jdbcClearPasswordMapperEnabled,
-        boolean jdbcBcryptWorkFactorLow,
         boolean embeddedUsersEnabled,
         boolean jwtAudiencesConfigured,
         boolean jwtInlinePublicKey,
@@ -130,10 +146,13 @@ public record QuarkusSecuritySnapshot(
         boolean graphqlPresent,
         boolean graphqlIntrospectionEnabled,
         boolean graphqlUiAlwaysInclude,
-        boolean messagingCredentialsWithoutTls,
+        List<String> insecureMessagingChannels,
         boolean formCookieHttpOnly,
         boolean formCookieSameSiteNone,
-        boolean formSessionTimeoutExcessive) {
+        boolean formSessionTimeoutExcessive,
+        boolean oidcHasClientSecret,
+        boolean oidcPkceRequired,
+        boolean healthUiAlwaysInclude) {
 
     public QuarkusSecuritySnapshot {
         permissions = permissions == null ? List.of() : List.copyOf(permissions);
@@ -141,6 +160,8 @@ public record QuarkusSecuritySnapshot(
         oidcApplicationType = oidcApplicationType == null ? "" : oidcApplicationType;
         nonApplicationRootPath =
                 nonApplicationRootPath == null || nonApplicationRootPath.isBlank() ? "/q" : nonApplicationRootPath;
+        insecureMessagingChannels =
+                insecureMessagingChannels == null ? List.of() : List.copyOf(insecureMessagingChannels);
     }
 
     public boolean anyAuthMechanism() {

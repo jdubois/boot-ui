@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 final class QuarkusSecurityChecks {
 
     private static final String VIOLATION = "VIOLATION";
-    private static final int RULE_COUNT = 43;
+    private static final int RULE_COUNT = 45;
     private static final String GUIDE = "https://quarkus.io/guides/security-overview";
     private static final Pattern MAX_AGE = Pattern.compile("max-age\\s*=\\s*(\\d+)");
     private static final long HSTS_MIN_MAX_AGE = 31536000L;
@@ -90,18 +90,20 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.http.auth.proactive=false"),
                     "Confirm this is intentional; enable quarkus.security.jaxrs.deny-unannotated-endpoints."));
         }
-        if (s.jwtAllowUnsignedTokens()) {
+        if (s.jwtAlgorithmUnpinnedForRemoteJwks()) {
             v.add(rule(
                     "QS-AUTH-006",
-                    "JWT unsigned tokens allowed",
+                    "JWT signature algorithm not pinned for a remote JWKS",
                     "Authentication",
-                    "CRITICAL",
-                    "quarkus.smallrye-jwt.allow-unsigned-tokens=true accepts JWTs with alg=none, meaning anyone"
-                            + " can forge a token with an arbitrary payload and no signature at all.",
+                    "MEDIUM",
+                    "mp.jwt.verify.publickey.location points at a remote (http/https) JWKS endpoint but"
+                            + " mp.jwt.verify.publickey.algorithm is left unset, relying on SmallRye JWT's"
+                            + " implicit RS256-only default instead of explicitly pinning the expected"
+                            + " algorithm(s) for a key source that can rotate/change independently of this"
+                            + " application.",
                     1,
-                    List.of("quarkus.smallrye-jwt.allow-unsigned-tokens=true"),
-                    "Remove the override; only allow unsigned tokens in a throwaway local dev profile, never"
-                            + " in any deployed environment."));
+                    List.of("mp.jwt.verify.publickey.location=http(s)://…, mp.jwt.verify.publickey.algorithm absent"),
+                    "Set mp.jwt.verify.publickey.algorithm explicitly to the algorithm(s) this application expects."));
         }
         if (s.embeddedUsersEnabled()) {
             v.add(rule(
@@ -152,18 +154,6 @@ final class QuarkusSecurityChecks {
                     List.of("principal-query *.clear-password-mapper.enabled=true"),
                     "Switch to bcrypt-password-mapper (or another hashing mapper) and re-hash stored passwords."));
         }
-        if (s.jdbcBcryptWorkFactorLow()) {
-            v.add(rule(
-                    "QS-AUTH-011",
-                    "JDBC identity store bcrypt work-factor too low",
-                    "Authentication",
-                    "MEDIUM",
-                    "A quarkus-elytron-security-jdbc principal-query's bcrypt-password-mapper work-factor is set"
-                            + " below the default (10), weakening resistance to offline brute-force attacks.",
-                    1,
-                    List.of("principal-query *.bcrypt-password-mapper.work-factor < 10"),
-                    "Remove the override, or raise it to at least the default of 10."));
-        }
         if (s.permissions().isEmpty() && s.annotationCount() == 0 && s.anyAuthMechanism()) {
             v.add(rule(
                     "QS-AUTHZ-001",
@@ -177,7 +167,7 @@ final class QuarkusSecurityChecks {
         }
         List<String> permitAll = new ArrayList<>();
         for (QuarkusSecurityPermission p : s.permissions()) {
-            if ("permit".equalsIgnoreCase(p.policy()) && isBroadPath(p.paths())) {
+            if ("permit".equalsIgnoreCase(p.policy()) && isBroadPath(p.paths()) && appliesToAllMethods(p.methods())) {
                 permitAll.add(p.name() + " (" + (p.paths() == null ? "/*" : p.paths()) + ")");
             }
         }
@@ -253,15 +243,17 @@ final class QuarkusSecurityChecks {
                     "Outbound TLS certificate validation disabled",
                     "Transport",
                     "HIGH",
-                    "quarkus.tls.trust-all=true disables certificate validation for all outbound TLS (REST clients,"
-                            + " OIDC, datasources), enabling man-in-the-middle attacks.",
+                    "trust-all=true is set on the default TLS registry bucket or a named bucket"
+                            + " (quarkus.tls.<name>.trust-all), disabling certificate validation for outbound"
+                            + " TLS (REST clients, OIDC, datasources, gRPC), enabling man-in-the-middle attacks.",
                     1,
-                    List.of("quarkus.tls.trust-all=true"),
+                    List.of("quarkus.tls.trust-all=true (default or a named bucket)"),
                     "Remove trust-all; import the peer's CA into a trust-store instead."));
         }
-        boolean wildcardCors =
-                s.corsEnabled() && (s.corsOrigins() == null || s.corsOrigins().contains("*"));
-        if (wildcardCors && s.corsCredentials()) {
+        boolean explicitWildcardCors = s.corsEnabled() && isExplicitWildcardOrigin(s.corsOrigins());
+        boolean unsetOriginsCors =
+                s.corsEnabled() && (s.corsOrigins() == null || s.corsOrigins().isBlank());
+        if (explicitWildcardCors && s.corsCredentials()) {
             v.add(rule(
                     "QS-CORS-002",
                     "CORS wildcard origin with credentials",
@@ -269,22 +261,39 @@ final class QuarkusSecurityChecks {
                     "CRITICAL",
                     "Credentialed cross-origin requests are allowed from any origin.",
                     1,
-                    List.of("quarkus.http.cors.origins=* with allow-credentials=true"),
+                    List.of("quarkus.http.cors.origins=" + s.corsOrigins() + " with allow-credentials=true"),
                     "Pin explicit origins; never combine wildcard with credentials."));
-        } else if (wildcardCors) {
+        } else if (explicitWildcardCors) {
             v.add(rule(
                     "QS-CORS-001",
                     "CORS allows any origin",
                     "CORS",
                     "MEDIUM",
-                    "CORS is enabled without pinned origins, allowing any site to call the API.",
+                    "CORS is enabled with an explicit wildcard origin (* or /.*/), allowing any site to call"
+                            + " the API.",
                     1,
-                    List.of("quarkus.http.cors.origins unset or *"),
+                    List.of("quarkus.http.cors.origins=" + s.corsOrigins()),
                     "Set quarkus.http.cors.origins to explicit origins."));
+        }
+        if (unsetOriginsCors) {
+            v.add(rule(
+                    "QS-CORS-005",
+                    "CORS enabled with no origins configured",
+                    "CORS",
+                    "INFO",
+                    "quarkus.http.cors is enabled but quarkus.http.cors.origins is unset. Quarkus's CORSFilter"
+                            + " then only permits same-origin requests (the most restrictive possible outcome),"
+                            + " so the filter is effectively inert until origins are configured.",
+                    1,
+                    List.of("quarkus.http.cors=true, quarkus.http.cors.origins unset"),
+                    "If cross-origin access is intended, configure quarkus.http.cors.origins explicitly;"
+                            + " otherwise this has no practical effect."));
         }
         if (s.corsEnabled()
                 && s.corsCredentials()
-                && !wildcardCors
+                && s.corsOrigins() != null
+                && !s.corsOrigins().isBlank()
+                && !explicitWildcardCors
                 && (wildcard(s.corsMethods()) || wildcard(s.corsHeaders()))) {
             v.add(rule(
                     "QS-CORS-003",
@@ -296,20 +305,6 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("cors.access-control-allow-credentials=true with cors.methods/headers=*"),
                     "List the exact methods and headers the client needs instead of *."));
-        }
-        List<String> unanchoredCorsRegexes = unanchoredCorsRegexOrigins(s);
-        if (!unanchoredCorsRegexes.isEmpty()) {
-            v.add(rule(
-                    "QS-CORS-004",
-                    "CORS regex origin pattern not anchored",
-                    "CORS",
-                    "MEDIUM",
-                    "A quarkus.http.cors.origins entry uses the /regex/ syntax without ^/$ anchors. Quarkus"
-                            + " matches the pattern anywhere in the origin string, so e.g. /example\\.com/ also"
-                            + " matches \"evil-example.com.attacker.net\" (quarkusio/quarkus#34718).",
-                    unanchoredCorsRegexes.size(),
-                    unanchoredCorsRegexes,
-                    "Anchor the pattern with ^ and $, e.g. /^https:\\/\\/(?:[a-z0-9-]+\\.)*example\\.com$/."));
         }
         if (s.hstsHeader() && isWeakHsts(s.hstsHeaderValue())) {
             v.add(rule(
@@ -447,6 +442,20 @@ final class QuarkusSecurityChecks {
                     alwaysIncluded,
                     "Restrict to dev, or remove always-include."));
         }
+        if (s.healthUiAlwaysInclude()) {
+            v.add(rule(
+                    "QS-DEV-003",
+                    "SmallRye Health UI always included",
+                    "Dev exposure",
+                    "LOW",
+                    "quarkus.smallrye-health.ui.always-include=true exposes the Health UI in every profile,"
+                            + " including production, revealing the app's health-check topology to anyone who"
+                            + " can reach it.",
+                    1,
+                    List.of("quarkus.smallrye-health.ui.always-include=true"),
+                    "Remove the override so the Health UI is only available outside production, or protect it"
+                            + " via the management interface / a permission policy."));
+        }
         if (s.oidcConfigured() && !s.oidcAudienceConfigured()) {
             v.add(rule(
                     "QS-OIDC-001",
@@ -472,6 +481,20 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.oidc.application-type=" + s.oidcApplicationType()
                             + ", cookie-force-secure=false, no TLS"),
                     "Set quarkus.oidc.authentication.cookie-force-secure=true (required behind a TLS proxy)."));
+        }
+        if (oidcWebApp && !s.oidcHasClientSecret() && !s.oidcPkceRequired()) {
+            v.add(rule(
+                    "QS-OIDC-003",
+                    "Public OIDC client without PKCE",
+                    "OIDC",
+                    "MEDIUM",
+                    "An OIDC web-app/hybrid client has no client secret configured (a public client, e.g. an SPA"
+                            + " or mobile app) and quarkus.oidc.authentication.pkce-required is not enabled,"
+                            + " leaving the authorization-code flow vulnerable to interception.",
+                    1,
+                    List.of("quarkus.oidc.application-type=" + s.oidcApplicationType()
+                            + ", no client secret, pkce-required=false"),
+                    "Set quarkus.oidc.authentication.pkce-required=true for public clients."));
         }
         if (s.managementEnabled() && s.managementHostNonLoopback()) {
             v.add(rule(
@@ -500,6 +523,21 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.http.non-application-root-path=/"),
                     "Leave non-application-root-path at its default (/q), or use the separate management"
                             + " interface (quarkus.management.enabled=true) instead."));
+        }
+        if (s.managementEnabled() && s.managementHostUnpinnedForProd()) {
+            v.add(rule(
+                    "QS-MGMT-003",
+                    "Management interface has no explicit prod-scoped host binding",
+                    "Management",
+                    "INFO",
+                    "The separate management interface is enabled but neither quarkus.management.host nor a"
+                            + " %prod-scoped override is configured, so Quarkus's own built-in profile-dependent"
+                            + " default silently applies: localhost in dev/test, but 0.0.0.0 (all interfaces) in"
+                            + " a real production deployment.",
+                    1,
+                    List.of("quarkus.management.enabled=true, quarkus.management.host /"
+                            + " %prod.quarkus.management.host absent"),
+                    "Explicitly pin %prod.quarkus.management.host to 127.0.0.1, or to the intended bind address."));
         }
         if (!s.suspectedSecretKeys().isEmpty()) {
             v.add(rule(
@@ -542,10 +580,10 @@ final class QuarkusSecurityChecks {
                     "Excessive form-auth session timeout",
                     "Session",
                     "LOW",
-                    "quarkus.http.auth.form.timeout is set above 8 hours, keeping an authenticated session alive"
-                            + " long after a user has stepped away.",
+                    "quarkus.http.auth.form.timeout is set to 8 hours or more, keeping an authenticated session"
+                            + " alive long after a user has stepped away.",
                     1,
-                    List.of("quarkus.http.auth.form.timeout > 8h"),
+                    List.of("quarkus.http.auth.form.timeout >= 8h"),
                     "Lower the timeout (the Quarkus default is 30 minutes) and pair it with new-cookie-interval."));
         }
         if (s.grpcReflectionEnabledInProd()) {
@@ -568,28 +606,32 @@ final class QuarkusSecurityChecks {
                     "GraphQL schema introspection enabled",
                     "GraphQL",
                     "LOW",
-                    "quarkus.smallrye-graphql.introspection-enabled defaults to true in every profile, including"
+                    "GraphQL schema introspection is enabled (the Quarkus default) in every profile, including"
                             + " production, letting any client enumerate the full schema (types, fields,"
                             + " mutations). Often intentional for public APIs, but worth a deliberate decision."
                             + " No Spring equivalent — Spring has no first-party GraphQL server support.",
                     1,
-                    List.of("quarkus.smallrye-graphql.introspection-enabled=true (the Quarkus default)"),
-                    "Set quarkus.smallrye-graphql.introspection-enabled=false in %prod unless the schema is"
-                            + " meant to be publicly discoverable."));
+                    List.of("quarkus.smallrye-graphql.field-visibility does not include no-introspection (the"
+                            + " Quarkus default)"),
+                    "Add no-introspection to quarkus.smallrye-graphql.field-visibility in %prod unless the"
+                            + " schema is meant to be publicly discoverable."));
         }
-        if (s.messagingCredentialsWithoutTls()) {
+        if (!s.insecureMessagingChannels().isEmpty()) {
             v.add(rule(
                     "QS-MSG-001",
                     "Messaging credentials configured without an encrypted protocol",
                     "Messaging",
                     "HIGH",
                     "A Kafka/SmallRye Reactive Messaging channel configures SASL credentials (username/password"
-                            + " or JAAS config) without a corresponding SASL_SSL/SSL security.protocol, sending"
-                            + " broker credentials in clear text over the wire. No Spring equivalent in the same"
-                            + " idiomatic reactive-messaging form.",
-                    1,
-                    List.of("*.sasl.password/*.sasl.jaas.config set, *.security.protocol not SASL_SSL/SSL"),
-                    "Set security.protocol=SASL_SSL (or SSL) alongside the SASL credentials."));
+                            + " or JAAS config) without a corresponding SASL_SSL/SSL security.protocol (its own,"
+                            + " or a global fallback), sending broker credentials in clear text over the wire."
+                            + " Each channel is evaluated independently so one channel's secure protocol can't"
+                            + " mask another channel's insecure one. No Spring equivalent in the same idiomatic"
+                            + " reactive-messaging form.",
+                    s.insecureMessagingChannels().size(),
+                    s.insecureMessagingChannels(),
+                    "Set security.protocol=SASL_SSL (or SSL) for each affected channel (or globally via"
+                            + " kafka.security.protocol)."));
         }
         return v;
     }
@@ -609,11 +651,16 @@ final class QuarkusSecurityChecks {
 
     private static boolean hasBroadProtectivePolicy(List<QuarkusSecurityPermission> perms) {
         for (QuarkusSecurityPermission p : perms) {
-            if (!"permit".equalsIgnoreCase(p.policy()) && isBroadPath(p.paths())) {
+            if (!"permit".equalsIgnoreCase(p.policy()) && isBroadPath(p.paths()) && appliesToAllMethods(p.methods())) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** A permission with no {@code methods} restriction applies to every HTTP method (Quarkus semantics). */
+    private static boolean appliesToAllMethods(String methods) {
+        return methods == null || methods.isBlank();
     }
 
     private static boolean wildcard(String csv) {
@@ -621,26 +668,21 @@ final class QuarkusSecurityChecks {
     }
 
     /**
-     * Finds {@code /regex/}-syntax CORS origin entries that are not anchored with {@code ^}/{@code $}. Quarkus
-     * matches such a pattern anywhere in the origin string rather than against the whole string, so e.g.
-     * {@code /example\.com/} also matches {@code https://evil-example.com.attacker.net}
-     * (quarkusio/quarkus#34718).
+     * Mirrors Quarkus's real {@code CORSFilter.isOriginConfiguredWithWildcard}: only a single configured origin
+     * entry equal to exactly {@code *} or the bare regex wildcard {@code /} + {@code .*} + {@code /} counts as
+     * an explicit wildcard. A multi-entry list such as {@code "*,https://foo.com"} is NOT treated as a wildcard
+     * by real Quarkus.
      */
-    private static List<String> unanchoredCorsRegexOrigins(QuarkusSecuritySnapshot s) {
-        List<String> found = new ArrayList<>();
-        if (!s.corsEnabled() || s.corsOrigins() == null) {
-            return found;
+    private static boolean isExplicitWildcardOrigin(String corsOrigins) {
+        if (corsOrigins == null || corsOrigins.isBlank()) {
+            return false;
         }
-        for (String origin : s.corsOrigins().split(",")) {
-            String o = origin.trim();
-            if (o.length() > 2 && o.startsWith("/") && o.endsWith("/")) {
-                String pattern = o.substring(1, o.length() - 1);
-                if (!pattern.startsWith("^") || !pattern.endsWith("$")) {
-                    found.add(o);
-                }
-            }
+        String[] parts = corsOrigins.split(",");
+        if (parts.length != 1) {
+            return false;
         }
-        return found;
+        String only = parts[0].trim();
+        return only.equals("*") || only.equals("/.*/");
     }
 
     private static boolean isWeakHsts(String value) {

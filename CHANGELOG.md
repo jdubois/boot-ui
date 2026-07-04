@@ -70,6 +70,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   explicit `quarkus.datasource.jdbc.max-size`, silently relying on Agroal's default pool size of 50). See
   [docs/QUARKUS-ADVISOR-CHECKS.md](docs/QUARKUS-ADVISOR-CHECKS.md) (#520).
 
+### Fixed
+
+- **Quarkus Security advisor: removed two dead-property rules, repurposed a third, and fixed several logic bugs**,
+  found via a 5-model research synthesis independently re-verified against live Quarkus/SmallRye 3.33 source (grew from
+  43 to 45 rules). `QS-AUTH-011` (JDBC bcrypt work-factor) and `QS-CORS-004` (unanchored CORS regex) were retired
+  outright: both checked config properties/behaviors that don't exist in current Quarkus (`BcryptPasswordKeyMapperConfig`
+  has no work-factor field at all, and the CORS regex full-match bypass from quarkus/quarkus#34718 was fixed in Quarkus
+  3.3.0). `QS-AUTH-006` was repurposed from a dead `allow-unsigned-tokens` check (that property never existed) into a
+  real finding for an unpinned JWT signature algorithm on a remote JWKS. `QS-GRAPHQL-001` was fixed to check the real
+  `quarkus.smallrye-graphql.field-visibility=no-introspection` mechanism instead of a non-existent
+  `introspection-enabled` property. `QS-CORS-001`/`002` no longer treat unset origins as equivalent to a wildcard
+  (Quarkus's `CORSFilter` actually restricts unset origins to same-origin-only, the opposite of the old wording) — the
+  unset case now gets its own correctly-worded `QS-CORS-005` (INFO). `QS-CORS-003`'s credentials-default modeling now
+  mirrors Quarkus's real `.orElse(originMatches)` behavior instead of assuming credentials are off when unset.
+  `QS-CFG-001` no longer blanket-excludes the entire `quarkus.*` namespace from secret scanning (it could never flag
+  `quarkus.datasource.password`, `quarkus.oidc.credentials.secret`, etc.). `QS-TLS-002`/`003` now also scan named TLS
+  registry buckets (`quarkus.tls.<name>.*`), not just the default bucket. `QS-MGMT-001` switched from resolved-value to
+  raw-key inspection for `quarkus.management.host`, since BootUI's Quarkus advisor only ever runs under dev/test
+  `LaunchMode`, where the resolved value could never observe Quarkus's real non-loopback prod default. `QS-AUTHZ-002`/
+  `004` now factor in HTTP-method-scoped permission policies (`quarkus.http.auth.permission.*.methods`) instead of
+  treating every policy as applying to all methods. `QS-MSG-001` now evaluates each messaging channel independently so
+  one channel's secure protocol can't mask another's insecure one. `QS-SESSION-003`'s wording now matches its `>= 8h`
+  trigger. Three new rules were added: `QS-OIDC-003` (public OIDC client without PKCE), `QS-DEV-003` (SmallRye Health UI
+  always-include), and `QS-MGMT-003` (management interface with no explicit prod-scoped host binding, complementing
+  `QS-MGMT-001`). See [docs/QUARKUS-CHECKS.md](docs/QUARKUS-CHECKS.md) for full details on every rule.
+
 ## [1.9.0] - 2026-07-03
 
 Feature release headlined by **optional durable JDBC persistence for Live Activity** on both adapters — the feed can

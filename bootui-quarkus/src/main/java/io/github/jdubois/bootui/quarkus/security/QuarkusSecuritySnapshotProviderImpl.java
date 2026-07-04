@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.eclipse.microprofile.config.Config;
 
@@ -33,6 +34,11 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             Pattern.compile("^quarkus\\.http\\.auth\\.permission\\.([^.]+)\\.policy$");
     private static final Pattern SECRET_NAME = Pattern.compile(
             ".*(password|passwd|secret|token|api-?key|client-secret|private-key).*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NAMED_TLS_KEY_STORE = Pattern.compile("^quarkus\\.tls\\.[^.]+\\.key-store\\..+$");
+    private static final Pattern NAMED_TLS_TRUST_ALL = Pattern.compile("^quarkus\\.tls\\.[^.]+\\.trust-all$");
+    private static final Pattern SASL_CREDENTIAL = Pattern.compile("(?i)^(.*)\\.sasl\\.(?:password|jaas\\.config)$");
+    private static final Pattern SECURITY_PROTOCOL = Pattern.compile("(?i)^(.*)\\.security\\.protocol$");
+    private static final Set<String> SECURE_KAFKA_PROTOCOLS = Set.of("SASL_SSL", "SSL");
 
     private final Config config;
 
@@ -54,10 +60,11 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 || has("quarkus.http.ssl.certificate.files")
                 || has("quarkus.http.ssl.certificate.key-files")
                 || has("quarkus.tls.key-store.p12.path")
-                || has("quarkus.tls.key-store.pem.0.cert");
+                || has("quarkus.tls.key-store.pem.0.cert")
+                || namedTlsBucketHasKeyStore();
         boolean cors = bool("quarkus.http.cors", false) || bool("quarkus.http.cors.enabled", false);
         String corsOrigins = str("quarkus.http.cors.origins", null);
-        boolean corsCreds = bool("quarkus.http.cors.access-control-allow-credentials", false);
+        boolean corsCreds = corsCredentials(corsOrigins);
         boolean hsts = has("quarkus.http.header.\"Strict-Transport-Security\".value");
         boolean csp = has("quarkus.http.header.\"Content-Security-Policy\".value");
         boolean oidcVerifyNone = "none".equalsIgnoreCase(str("quarkus.oidc.tls.verification", ""));
@@ -74,7 +81,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         boolean oidcAudience = has("quarkus.oidc.token.audience");
         String oidcAppType = str("quarkus.oidc.application-type", "").toLowerCase();
         boolean oidcCookieForceSecure = bool("quarkus.oidc.authentication.cookie-force-secure", false);
-        boolean tlsTrustAll = bool("quarkus.tls.trust-all", false);
+        boolean tlsTrustAll = bool("quarkus.tls.trust-all", false) || namedTlsBucketTrustAll();
         String corsMethods = str("quarkus.http.cors.methods", null);
         String corsHeaders = str("quarkus.http.cors.headers", null);
         String hstsValue = str("quarkus.http.header.\"Strict-Transport-Security\".value", null);
@@ -83,12 +90,17 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         boolean xContentType = has("quarkus.http.header.\"X-Content-Type-Options\".value");
         boolean denyUnannotated = bool("quarkus.security.jaxrs.deny-unannotated-endpoints", false);
         boolean managementEnabled = bool("quarkus.management.enabled", false);
+        String managementHostPin = managementHostPinnedForProd();
         boolean managementHostNonLoopback =
-                managementEnabled && !isLoopbackHost(str("quarkus.management.host", "0.0.0.0"));
+                managementEnabled && managementHostPin != null && !isLoopbackHost(managementHostPin);
+        boolean managementHostUnpinnedForProd = managementEnabled && managementHostPin == null;
 
-        boolean jwtAllowUnsigned = bool("quarkus.smallrye-jwt.allow-unsigned-tokens", false);
+        String jwksLocation = str("mp.jwt.verify.publickey.location", null);
+        boolean jwksLocationRemote = jwksLocation != null
+                && (jwksLocation.toLowerCase().startsWith("http://")
+                        || jwksLocation.toLowerCase().startsWith("https://"));
+        boolean jwtAlgorithmUnpinnedForRemoteJwks = jwksLocationRemote && !has("mp.jwt.verify.publickey.algorithm");
         boolean jdbcClearPasswordMapper = jdbcClearPasswordMapperEnabled();
-        boolean jdbcBcryptWorkFactorLow = jdbcBcryptWorkFactorLow();
         boolean embeddedUsers = bool("quarkus.security.users.embedded.enabled", false);
         boolean jwtAudiences = has("mp.jwt.verify.audiences");
         boolean jwtInlineKey = has("mp.jwt.verify.publickey");
@@ -98,13 +110,17 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         boolean grpcPresent = bool(GRPC_PRESENT_KEY, false);
         boolean grpcReflectionProd = grpcPresent && grpcReflectionEnabledInProdProfile();
         boolean graphqlPresent = bool(GRAPHQL_PRESENT_KEY, false);
-        boolean graphqlIntrospection = bool("quarkus.smallrye-graphql.introspection-enabled", true);
+        boolean graphqlIntrospection = graphqlIntrospectionEnabled();
         boolean graphqlUiAlwaysInclude = bool("quarkus.smallrye-graphql.ui.always-include", false);
-        boolean messagingCredsWithoutTls = messagingCredentialsWithoutTls();
+        List<String> insecureMessagingChannels = messagingChannelsWithCredentialsWithoutTls();
         boolean formCookieHttpOnly = bool("quarkus.http.auth.form.http-only-cookie", false);
         boolean formCookieSameSiteNone =
                 "none".equalsIgnoreCase(str("quarkus.http.auth.form.cookie-same-site", "strict"));
         boolean formSessionTimeoutExcessive = formSessionTimeoutExcessive();
+        boolean oidcHasClientSecret =
+                has("quarkus.oidc.credentials.secret") || has("quarkus.oidc.credentials.client-secret.value");
+        boolean oidcPkceRequired = bool("quarkus.oidc.authentication.pkce-required", false);
+        boolean healthUiAlwaysInclude = bool("quarkus.smallrye-health.ui.always-include", false);
 
         return new QuarkusSecuritySnapshot(
                 oidc,
@@ -147,9 +163,9 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 denyUnannotated,
                 managementEnabled,
                 managementHostNonLoopback,
-                jwtAllowUnsigned,
+                managementHostUnpinnedForProd,
+                jwtAlgorithmUnpinnedForRemoteJwks,
                 jdbcClearPasswordMapper,
-                jdbcBcryptWorkFactorLow,
                 embeddedUsers,
                 jwtAudiences,
                 jwtInlineKey,
@@ -160,10 +176,13 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 graphqlPresent,
                 graphqlIntrospection,
                 graphqlUiAlwaysInclude,
-                messagingCredsWithoutTls,
+                insecureMessagingChannels,
                 formCookieHttpOnly,
                 formCookieSameSiteNone,
-                formSessionTimeoutExcessive);
+                formSessionTimeoutExcessive,
+                oidcHasClientSecret,
+                oidcPkceRequired,
+                healthUiAlwaysInclude);
     }
 
     private static boolean isLoopbackHost(String host) {
@@ -178,25 +197,84 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 || h.equals("0:0:0:0:0:0:0:1");
     }
 
-    private boolean jdbcClearPasswordMapperEnabled() {
+    /** Raw-scans for any named TLS registry bucket ({@code quarkus.tls.<name>.key-store.*}) configuring a keystore,
+     * so a keystore pinned to a non-default bucket (e.g. for a REST client or gRPC) still counts as "TLS configured". */
+    private boolean namedTlsBucketHasKeyStore() {
         for (String name : config.getPropertyNames()) {
-            if (name.contains("principal-query")
-                    && name.endsWith("clear-password-mapper.enabled")
-                    && bool(name, false)) {
+            if (NAMED_TLS_KEY_STORE.matcher(name).matches()) {
                 return true;
             }
         }
         return false;
     }
 
-    private boolean jdbcBcryptWorkFactorLow() {
+    /** Raw-scans for any named TLS registry bucket ({@code quarkus.tls.<name>.trust-all}) set to {@code true}. */
+    private boolean namedTlsBucketTrustAll() {
         for (String name : config.getPropertyNames()) {
-            if (name.contains("principal-query") && name.endsWith("bcrypt-password-mapper.work-factor")) {
-                Integer workFactor =
-                        config.getOptionalValue(name, Integer.class).orElse(null);
-                if (workFactor != null && workFactor < 10) {
-                    return true;
-                }
+            if (NAMED_TLS_TRUST_ALL.matcher(name).matches() && bool(name, false)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Mirrors Quarkus's real {@code CORSFilter} default: {@code accessControlAllowCredentials().orElse(originMatches)}.
+     * If the property is explicitly set, that value wins; otherwise credentials are implicitly allowed whenever
+     * origins are configured as one or more precisely-pinned literal values (not a wildcard, not a {@code /regex/}),
+     * since that is the only case where Quarkus's real request-time {@code originMatches} check can be statically
+     * approximated as always-true from config alone.
+     */
+    private boolean corsCredentials(String corsOrigins) {
+        if (has("quarkus.http.cors.access-control-allow-credentials")) {
+            return bool("quarkus.http.cors.access-control-allow-credentials", false);
+        }
+        return originsArePreciselyPinned(corsOrigins);
+    }
+
+    private static boolean originsArePreciselyPinned(String corsOrigins) {
+        if (corsOrigins == null || corsOrigins.isBlank()) {
+            return false;
+        }
+        for (String entry : corsOrigins.split(",")) {
+            String trimmed = entry.trim();
+            if (trimmed.isEmpty() || trimmed.equals("*") || (trimmed.startsWith("/") && trimmed.endsWith("/"))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Checks only the literal {@code quarkus.management.host} or {@code %prod.quarkus.management.host} keys (not
+     * the profile-resolved value), mirroring {@link #grpcReflectionEnabledInProdProfile()}. Quarkus's own built-in
+     * default for {@code host} is profile-dependent ({@code localhost} in dev/test, {@code 0.0.0.0} in prod), and
+     * BootUI's Quarkus advisor only ever runs in dev/test {@code LaunchMode}, so a resolved read would never
+     * observe the prod default it is trying to catch. Returns {@code null} when neither literal key is present.
+     */
+    private String managementHostPinnedForProd() {
+        String prodScoped = literalPropertyValue("%prod.quarkus.management.host");
+        if (prodScoped != null) {
+            return prodScoped;
+        }
+        return literalPropertyValue("quarkus.management.host");
+    }
+
+    private String literalPropertyValue(String literalKey) {
+        for (String name : config.getPropertyNames()) {
+            if (name.equals(literalKey)) {
+                return str(literalKey, null);
+            }
+        }
+        return null;
+    }
+
+    private boolean jdbcClearPasswordMapperEnabled() {
+        for (String name : config.getPropertyNames()) {
+            if (name.contains("principal-query")
+                    && name.endsWith("clear-password-mapper.enabled")
+                    && bool(name, false)) {
+                return true;
             }
         }
         return false;
@@ -218,22 +296,55 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         return false;
     }
 
-    private boolean messagingCredentialsWithoutTls() {
-        boolean saslCredentialsConfigured = false;
-        boolean encryptedProtocolConfigured = false;
-        for (String name : config.getPropertyNames()) {
-            String lower = name.toLowerCase();
-            if ((lower.endsWith(".sasl.password") || lower.endsWith(".sasl.jaas.config"))
-                    && !str(name, "").isBlank()) {
-                saslCredentialsConfigured = true;
-            } else if (lower.endsWith(".security.protocol")) {
-                String protocol = str(name, "").toUpperCase();
-                if (protocol.equals("SASL_SSL") || protocol.equals("SSL")) {
-                    encryptedProtocolConfigured = true;
-                }
+    /**
+     * Real Quarkus has no {@code quarkus.smallrye-graphql.introspection-enabled} property; introspection is
+     * disabled via the {@code no-introspection} token in the comma-separated
+     * {@code quarkus.smallrye-graphql.field-visibility} list (see {@code SmallRyeGraphQLRuntimeConfig}).
+     */
+    private boolean graphqlIntrospectionEnabled() {
+        String fieldVisibility = str("quarkus.smallrye-graphql.field-visibility", "default");
+        for (String token : fieldVisibility.split(",")) {
+            if ("no-introspection".equalsIgnoreCase(token.trim())) {
+                return false;
             }
         }
-        return saslCredentialsConfigured && !encryptedProtocolConfigured;
+        return true;
+    }
+
+    /**
+     * Evaluates each Kafka/Reactive-Messaging channel prefix (e.g. {@code mp.messaging.incoming.orders}, or the
+     * bare {@code kafka} global-default bucket) independently, so one channel's secure protocol can't mask
+     * another channel's insecure one. A channel with its own {@code security.protocol} uses that value; a
+     * channel without one falls back to the global {@code kafka.security.protocol} (mirroring Kafka client
+     * config inheritance), and the global bucket itself is checked as a channel too when it directly configures
+     * credentials.
+     */
+    private List<String> messagingChannelsWithCredentialsWithoutTls() {
+        Map<String, Boolean> credentialsByPrefix = new LinkedHashMap<>();
+        Map<String, String> protocolByPrefix = new LinkedHashMap<>();
+        for (String name : config.getPropertyNames()) {
+            var credMatch = SASL_CREDENTIAL.matcher(name);
+            if (credMatch.matches()) {
+                if (!str(name, "").isBlank()) {
+                    credentialsByPrefix.put(credMatch.group(1), Boolean.TRUE);
+                }
+                continue;
+            }
+            var protoMatch = SECURITY_PROTOCOL.matcher(name);
+            if (protoMatch.matches()) {
+                protocolByPrefix.put(protoMatch.group(1), str(name, "").toUpperCase());
+            }
+        }
+        String globalProtocol = protocolByPrefix.get("kafka");
+        List<String> insecureChannels = new ArrayList<>();
+        for (String prefix : credentialsByPrefix.keySet()) {
+            String effectiveProtocol =
+                    protocolByPrefix.getOrDefault(prefix, "kafka".equals(prefix) ? null : globalProtocol);
+            if (effectiveProtocol == null || !SECURE_KAFKA_PROTOCOLS.contains(effectiveProtocol)) {
+                insecureChannels.add("kafka".equals(prefix) ? "kafka (global default)" : prefix);
+            }
+        }
+        return insecureChannels;
     }
 
     private boolean formSessionTimeoutExcessive() {
@@ -250,7 +361,8 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 String key = m.group(1);
                 String policy = str(name, "permit");
                 String paths = str("quarkus.http.auth.permission." + key + ".paths", "/*");
-                byName.put(key, new QuarkusSecurityPermission(key, paths, policy));
+                String methods = str("quarkus.http.auth.permission." + key + ".methods", null);
+                byName.put(key, new QuarkusSecurityPermission(key, paths, policy, methods));
             }
         }
         return new ArrayList<>(byName.values());
@@ -259,9 +371,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
     private List<String> suspectedSecrets() {
         List<String> out = new ArrayList<>();
         for (String name : config.getPropertyNames()) {
-            if (!name.startsWith("quarkus.")
-                    && !name.startsWith("bootui.")
-                    && SECRET_NAME.matcher(name).matches()) {
+            if (!name.startsWith("bootui.") && SECRET_NAME.matcher(name).matches()) {
                 String value = str(name, "");
                 if (!value.isBlank() && !value.contains("${")) {
                     out.add(name);
