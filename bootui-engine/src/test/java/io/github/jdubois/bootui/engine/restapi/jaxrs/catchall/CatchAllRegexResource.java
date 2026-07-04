@@ -16,6 +16,6 @@ public class CatchAllRegexResource {
     @GET
     @Path("/{path : .*}")
     public String getAny(@PathParam("path") String path) {
-        return path;
+        return "ok";
     }
 }

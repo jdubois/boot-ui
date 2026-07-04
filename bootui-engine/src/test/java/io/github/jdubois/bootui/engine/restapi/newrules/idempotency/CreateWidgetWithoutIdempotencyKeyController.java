@@ -14,6 +14,6 @@ public class CreateWidgetWithoutIdempotencyKeyController {
 
     @PostMapping("/widgets")
     public String createWidget(@RequestBody String body) {
-        return body;
+        return "ok";
     }
 }

@@ -15,6 +15,6 @@ public class ConstrainedIdResource {
     @GET
     @Path("/{id:[0-9]+}")
     public String getById(@PathParam("id") String id) {
-        return id;
+        return "ok";
     }
 }

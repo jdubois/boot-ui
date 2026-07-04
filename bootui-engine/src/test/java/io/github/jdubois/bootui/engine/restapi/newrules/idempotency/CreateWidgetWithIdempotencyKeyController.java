@@ -15,6 +15,6 @@ public class CreateWidgetWithIdempotencyKeyController {
 
     @PostMapping("/widgets")
     public String createWidget(@RequestBody String body, @RequestHeader("Idempotency-Key") String idempotencyKey) {
-        return body;
+        return "ok";
     }
 }
