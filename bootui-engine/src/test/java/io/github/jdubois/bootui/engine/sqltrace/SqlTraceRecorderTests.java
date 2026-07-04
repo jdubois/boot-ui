@@ -398,8 +398,7 @@ class SqlTraceRecorderTests {
         assertThat(recorder.recent()).hasSize(1);
     }
 
-    private static final class RecordingSpanEnricher
-            implements io.github.jdubois.bootui.engine.telemetry.SpanEnricher {
+    private static final class RecordingSpanEnricher implements io.github.jdubois.bootui.engine.telemetry.SpanEnricher {
         private final List<Boolean> calls = new java.util.ArrayList<>();
 
         @Override

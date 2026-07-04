@@ -83,7 +83,9 @@ class BootUiQuarkusSpanEnrichmentTest {
                 .isNotNull();
 
         Response detail = probe().get("/bootui/api/traces/" + boomTraceId);
-        assertThat(detail.status()).as("GET /bootui/api/traces/{traceId} status").isEqualTo(200);
+        assertThat(detail.status())
+                .as("GET /bootui/api/traces/{traceId} status")
+                .isEqualTo(200);
 
         String exceptionType = null;
         long exceptionCount = 0;

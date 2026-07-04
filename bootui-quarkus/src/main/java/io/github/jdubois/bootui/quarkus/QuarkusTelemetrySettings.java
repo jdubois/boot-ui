@@ -58,7 +58,6 @@ public class QuarkusTelemetrySettings implements TelemetrySettings {
 
     @Override
     public boolean enrichmentEnabled() {
-        return config.getOptionalValue("bootui.telemetry.enrich", Boolean.class)
-                .orElse(Boolean.TRUE);
+        return config.getOptionalValue("bootui.telemetry.enrich", Boolean.class).orElse(Boolean.TRUE);
     }
 }

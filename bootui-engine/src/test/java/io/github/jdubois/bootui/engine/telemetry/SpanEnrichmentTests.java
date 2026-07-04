@@ -66,7 +66,8 @@ class SpanEnrichmentTests {
                 .addSpanProcessor(SimpleSpanProcessor.create(new BootUiSpanExporter(store, SELF, ENABLED)))
                 .build();
         try {
-            Span span = provider.get("test").spanBuilder("GET /api/orders")
+            Span span = provider.get("test")
+                    .spanBuilder("GET /api/orders")
                     .setSpanKind(SpanKind.SERVER)
                     .startSpan();
             try (Scope scope = span.makeCurrent()) {
@@ -87,11 +88,15 @@ class SpanEnrichmentTests {
                     .isEqualTo("pod-7");
             assertThat(stored.attributes().get(BootUiSpanAttributes.SQL_QUERIES).asLong())
                     .isEqualTo(2L);
-            assertThat(stored.attributes().get(BootUiSpanAttributes.SQL_N_PLUS_ONE).value())
+            assertThat(stored.attributes()
+                            .get(BootUiSpanAttributes.SQL_N_PLUS_ONE)
+                            .value())
                     .isEqualTo(true);
             assertThat(stored.attributes().get(BootUiSpanAttributes.EXCEPTIONS).asLong())
                     .isEqualTo(1L);
-            assertThat(stored.attributes().get(BootUiSpanAttributes.EXCEPTION_TYPE).asString())
+            assertThat(stored.attributes()
+                            .get(BootUiSpanAttributes.EXCEPTION_TYPE)
+                            .asString())
                     .isEqualTo("java.lang.IllegalStateException");
         } finally {
             provider.shutdown().join(1, TimeUnit.SECONDS);
@@ -117,7 +122,8 @@ class SpanEnrichmentTests {
                 .addSpanProcessor(SimpleSpanProcessor.create(new BootUiSpanExporter(store, SELF, ENRICH_OFF)))
                 .build();
         try {
-            Span span = provider.get("test").spanBuilder("GET /api/orders")
+            Span span = provider.get("test")
+                    .spanBuilder("GET /api/orders")
                     .setSpanKind(SpanKind.SERVER)
                     .startSpan();
             try (Scope scope = span.makeCurrent()) {
@@ -130,7 +136,8 @@ class SpanEnrichmentTests {
 
             NormalizedSpan stored = store.recentTraces(1).get(0).spans().get(0);
             assertThat(stored.attributes().get(BootUiSpanAttributes.ENRICHED)).isNull();
-            assertThat(stored.attributes().get(BootUiSpanAttributes.SQL_QUERIES)).isNull();
+            assertThat(stored.attributes().get(BootUiSpanAttributes.SQL_QUERIES))
+                    .isNull();
             assertThat(stored.attributes().get(BootUiSpanAttributes.EXCEPTIONS)).isNull();
             assertThat(enricher.enabled()).isFalse();
         } finally {
