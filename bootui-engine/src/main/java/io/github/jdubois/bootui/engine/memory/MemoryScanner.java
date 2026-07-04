@@ -53,6 +53,24 @@ public final class MemoryScanner {
      */
     private MemoryContext.GcSample previousGcSample;
 
+    /**
+     * Cross-scan state for MEM-POOL-007's buffer-pool growth-without-release trend: each pool's used
+     * bytes and consecutive-increase streak as of the previous scan. Guarded by {@link #scan()}.
+     */
+    private Map<String, Long> previousBufferPoolUsed = Map.of();
+
+    private Map<String, Integer> previousBufferPoolStreaks = Map.of();
+    private boolean previousBufferPoolSampleAvailable;
+
+    /**
+     * Cross-scan state for MEM-HEAP-008's post-GC old-generation usage trend. Guarded by
+     * {@link #scan()}.
+     */
+    private long previousOldGenUsedBytes = -1;
+
+    private int previousOldGenStreak;
+    private boolean previousOldGenSampleAvailable;
+
     MemoryScanner(MemoryCollector collector, Clock clock) {
         this(collector::collect, clock);
     }
@@ -105,7 +123,11 @@ public final class MemoryScanner {
                 ? MemoryContext.GcTrend.unavailable()
                 : MemoryContext.GcTrend.between(previousGcSample, context.preHistogramGc());
         previousGcSample = currentSample;
-        MemoryContext evaluated = context.withGcTrend(trend);
+        MemoryContext.BufferPoolTrend bufferPoolTrend =
+                computeBufferPoolTrend(context.memory().bufferPools());
+        MemoryContext.OldGenTrend oldGenTrend = computeOldGenTrend(context.postGcHeap());
+        MemoryContext evaluated =
+                context.withGcTrend(trend).withBufferPoolTrend(bufferPoolTrend).withOldGenTrend(oldGenTrend);
 
         List<MemoryRuleResultDto> results = MemoryRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(evaluated))
@@ -117,6 +139,67 @@ public final class MemoryScanner {
             message += " Some rules could not be evaluated.";
         }
         return report(status, message, clock.millis(), summary(evaluated), results.size(), results);
+    }
+
+    /**
+     * Computes each buffer pool's consecutive-increase streak against the previous scan's readings
+     * (MEM-POOL-007's native-buffer-leak signal). A pool's streak grows only when its used-byte
+     * reading strictly increased since the previous scan; a decrease, a plateau, or a pool absent from
+     * the previous scan resets that pool's streak to zero. The very first scan of a new scanner
+     * instance has no previous sample to compare against, so it seeds the baseline and reports
+     * {@link MemoryContext.BufferPoolTrend#unavailable()}.
+     */
+    private MemoryContext.BufferPoolTrend computeBufferPoolTrend(List<MemoryContext.BufferPoolSnapshot> pools) {
+        Map<String, Long> currentUsed = new LinkedHashMap<>();
+        for (MemoryContext.BufferPoolSnapshot pool : pools) {
+            currentUsed.put(pool.name(), pool.used());
+        }
+
+        Map<String, Integer> streaks = new LinkedHashMap<>();
+        for (Map.Entry<String, Long> entry : currentUsed.entrySet()) {
+            String name = entry.getKey();
+            long used = entry.getValue();
+            Long previous = previousBufferPoolUsed.get(name);
+            int streak =
+                    (previous != null && used > previous) ? previousBufferPoolStreaks.getOrDefault(name, 0) + 1 : 0;
+            streaks.put(name, streak);
+        }
+
+        MemoryContext.BufferPoolTrend trend = previousBufferPoolSampleAvailable
+                ? new MemoryContext.BufferPoolTrend(true, streaks)
+                : MemoryContext.BufferPoolTrend.unavailable();
+
+        previousBufferPoolUsed = currentUsed;
+        previousBufferPoolStreaks = streaks;
+        previousBufferPoolSampleAvailable = true;
+        return trend;
+    }
+
+    /**
+     * Computes the post-GC old-generation usage trend against the previous scan (MEM-HEAP-008's
+     * leak-trend signal). Only advances the streak when this scan's post-GC old-generation reading is
+     * available; a scan where it is not (histogram not run, or the collector exposes no old-gen pool)
+     * leaves the previous sample untouched so one unavailable scan does not erase a real accumulating
+     * trend. As with the other cross-scan trends, the first available sample seeds the baseline and
+     * reports {@link MemoryContext.OldGenTrend#unavailable()}.
+     */
+    private MemoryContext.OldGenTrend computeOldGenTrend(MemoryContext.PostGcHeapData postGcHeap) {
+        if (!postGcHeap.oldGenAvailable()) {
+            return MemoryContext.OldGenTrend.unavailable();
+        }
+        long used = postGcHeap.oldGenUsed();
+        MemoryContext.OldGenTrend trend;
+        if (previousOldGenSampleAvailable) {
+            int streak = used > previousOldGenUsedBytes ? previousOldGenStreak + 1 : 0;
+            trend = new MemoryContext.OldGenTrend(true, streak, used);
+            previousOldGenStreak = streak;
+        } else {
+            trend = MemoryContext.OldGenTrend.unavailable();
+            previousOldGenStreak = 0;
+        }
+        previousOldGenUsedBytes = used;
+        previousOldGenSampleAvailable = true;
+        return trend;
     }
 
     private MemoryReport report(
