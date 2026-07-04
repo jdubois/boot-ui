@@ -366,22 +366,33 @@ mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catal
 On Quarkus the panel is identical, running the same shared rule engine over the same report contract when
 `quarkus-hibernate-orm` is present: entities are discovered from the live JPA `EntityManagerFactory` metamodel (across
 all persistence units, de-duplicated by identity), and most mapping/identifier/fetch rules apply unchanged. A few
-platform differences are worth noting. First, persistence configuration is read through a key-mapping layer that
-translates the Spring property names the rules expect onto their Quarkus equivalents — `ddl-auto`/`hbm2ddl.auto` →
-`quarkus.hibernate-orm.schema-management.strategy` (or the deprecated `quarkus.hibernate-orm.database.generation`,
-including the `drop-and-create` ↔ `create-drop` value alias),
-`show-sql` → `quarkus.hibernate-orm.log.sql`, `format_sql` → `quarkus.hibernate-orm.log.format-sql`, and `batch_size` →
-`quarkus.hibernate-orm.jdbc.statement-batch-size`. Unmapped configuration rules find no value and stay silent, and
-their INFO advisories may still cite the Spring-flavored property name. Second, the Open-Session-in-View check is
-correctly **inert** on Quarkus: Quarkus has no OSIV concept, so the effective state is always disabled and the rule never
-fires (on Spring a missing `spring.jpa.open-in-view` defaults to the web-on behaviour). Third, bytecode enhancement is
-always considered enabled on Quarkus — it enhances every entity unconditionally at build time with no config-based
-opt-out — so the two lazy-`@OneToOne` findings that depend on enhancement being disabled never fire there. Fourth, and
-specific to **Panache** active-record entities: once a Panache extension (`quarkus-hibernate-orm-panache` or
-`quarkus-hibernate-reactive-panache`) is on the classpath, its build-time bytecode rewrite makes public-field access on
-any Hibernate-managed class behave like a getter/setter call app-wide, so the public-persistent-field finding does not
-fire; and the `@GeneratedValue`-without-strategy finding ignores the `id` field Panache's own base entity declares
-(an application-declared identifier is still checked normally). Spring Data repository hints (missing-strategy-aware
+platform differences are worth noting. First, persistence configuration is read through a key-mapping layer
+(`QuarkusHibernatePropertyLookup`) that translates the Spring/native-Hibernate property names the rules expect onto
+their Quarkus equivalents — `ddl-auto`/`hbm2ddl.auto` → `quarkus.hibernate-orm.schema-management.strategy` (or the
+deprecated `quarkus.hibernate-orm.database.generation`, including the `drop-and-create` ↔ `create-drop` value alias),
+`show-sql` → `quarkus.hibernate-orm.log.sql`, `format_sql` → `quarkus.hibernate-orm.log.format-sql`, `batch_size` →
+`quarkus.hibernate-orm.jdbc.statement-batch-size`, `default_batch_fetch_size` → `quarkus.hibernate-orm.fetch.batch-size`,
+`jdbc.time_zone` → `quarkus.hibernate-orm.jdbc.timezone`, `generate_statistics` → `quarkus.hibernate-orm.statistics`,
+`query.in_clause_parameter_padding` → `quarkus.hibernate-orm.query.in-clause-parameter-padding`,
+`query.fail_on_pagination_over_collection_fetch` →
+`quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch`, and both `cache.use_query_cache` and
+`cache.use_second_level_cache` → Quarkus' single unified `quarkus.hibernate-orm.second-level-caching-enabled` toggle.
+A native `quarkus.hibernate-orm.log.bind-parameters` flag is also read as the neutral bind-parameter-logging signal. For
+any other `hibernate.*` key with no first-class Quarkus config option (for example `hibernate.order_inserts` /
+`hibernate.order_updates`), the lookup falls back to Quarkus' generic
+`quarkus.hibernate-orm.unsupported-properties."..."` escape hatch, which a live-boot test confirmed reaches Hibernate's
+own bootstrapped settings. Only a handful of genuinely Hikari/Spring-specific signals stay unmapped (Hikari's
+auto-commit setting, which Agroal has no equivalent for) and their INFO advisories may still cite the Spring-flavored
+property name. Second, the Open-Session-in-View check is correctly **inert** on Quarkus: Quarkus has no OSIV concept,
+so the effective state is always disabled and the rule never fires (on Spring a missing `spring.jpa.open-in-view`
+defaults to the web-on behaviour). Third, bytecode enhancement is always considered enabled on Quarkus — it enhances
+every entity unconditionally at build time with no config-based opt-out — so the two lazy-`@OneToOne` findings that
+depend on enhancement being disabled never fire there. Fourth, and specific to **Panache** active-record entities:
+once a Panache extension (`quarkus-hibernate-orm-panache` or `quarkus-hibernate-reactive-panache`) is on the
+classpath, its build-time bytecode rewrite makes public-field access on any Hibernate-managed class behave like a
+getter/setter call app-wide, so the public-persistent-field finding does not fire; and the
+`@GeneratedValue`-without-strategy finding ignores the `id` field Panache's own base entity declares (an
+application-declared identifier is still checked normally). Spring Data repository hints (missing-strategy-aware
 `isNew()` detection for assigned identifiers) are specific to Spring Data JPA's `save()` semantics: without Spring Data
 Commons on the classpath — the normal case for a Panache app, whose `persist()` has no such ambiguity — that whole
 check is skipped rather than reported.

@@ -23,7 +23,10 @@ import org.junit.jupiter.api.Test;
  * metamodel (via the capability-gated {@code QuarkusEntityDiscovery}) and runs the shared engine rule registry,
  * that a known annotation-driven advisory fires against the deliberately-imperfect {@link org.acme.hibdemo.Product}
  * entity, and — crucially — that the Spring-only Open-Session-in-View rule {@code HIB-CONFIG-001} stays inert,
- * proving {@code QuarkusHibernatePropertyLookup}'s OSIV neutralization works against a live SmallRye Config.</p>
+ * proving {@code QuarkusHibernatePropertyLookup}'s OSIV neutralization works against a live SmallRye Config. It
+ * also proves three more {@code QuarkusHibernatePropertyLookup} aliases end to end (batch fetching, statistics,
+ * JDBC time zone — see {@code application.properties}): {@code HIB-FETCH-002}/{@code HIB-CONFIG-007}/
+ * {@code HIB-CONFIG-013} would each false-positive on every Quarkus scan without them.</p>
  */
 @QuarkusTest
 class BootUiQuarkusHibernateAdvisorTest {
@@ -90,6 +93,19 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .as("Open-Session-in-View (HIB-CONFIG-001) must stay inert on Quarkus — there is no OSIV, so the"
                         + " property lookup reports it disabled and the rule passes")
                 .doesNotContain("HIB-CONFIG-001");
+        assertThat(violationIds)
+                .as("quarkus.hibernate-orm.fetch.batch-size=16 (application.properties) must be read back as"
+                        + " hibernate.default_batch_fetch_size, so the Product.tags lazy @ManyToMany collection is"
+                        + " covered and HIB-FETCH-002 does not false-positive")
+                .doesNotContain("HIB-FETCH-002");
+        assertThat(violationIds)
+                .as("quarkus.hibernate-orm.statistics=true must be read back as hibernate.generate_statistics, so"
+                        + " HIB-CONFIG-007 does not false-positive")
+                .doesNotContain("HIB-CONFIG-007");
+        assertThat(violationIds)
+                .as("quarkus.hibernate-orm.jdbc.timezone=UTC must be read back as hibernate.jdbc.time_zone, so"
+                        + " HIB-CONFIG-013 does not false-positive")
+                .doesNotContain("HIB-CONFIG-013");
 
         // The result is cached, so a subsequent GET reflects the scan without re-running it.
         Response cached = probe().get("/bootui/api/hibernate");

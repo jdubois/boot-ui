@@ -58,15 +58,20 @@ includes up to a handful of sample mapped members plus a remediation link.
   generated SQL itself; the `org.hibernate.limitInMemory` query hint restores the pre-7.4 in-memory behavior. The check
   is skipped (not silently dropped) on 7.4+ runtimes, and the skip reason explains why.
 
-### HIB-FETCH-004 - Entities should avoid multiple bag collections
+### HIB-FETCH-004 - Review entities with multiple bag collections
 
-- **Severity**: MEDIUM
+- **Severity**: INFO
 - **Inspects**: `@OneToMany` and `@ManyToMany` collection attributes.
-- **Fires when**: an entity declares two or more unordered `List` / `Collection` associations without `@OrderColumn`.
-- **Why it matters**: fetching multiple bag collections together is fragile and can lead to cartesian products or
-  `MultipleBagFetchException`.
-- **Recommendation**: fetch at most one bag collection per query, persist list order with `@OrderColumn`, or split loading
-  into targeted queries.
+- **Fires when**: an entity declares two or more unordered `List` / `Collection` associations (bags) without
+  `@OrderColumn`.
+- **Why it matters**: declaring multiple bags is common and safe on its own - the risk is only realized if two of them
+  are ever join-fetched in the same query, which throws `MultipleBagFetchException`. HIB-QUERY-007 already flags that
+  specific case (`JOIN FETCH` of 2+ collections in the same query); this rule is downgraded to an informational reminder
+  to keep it that way rather than standing as a violation on ordinary, safe aggregate-root entities that never fetch
+  both bags together.
+- **Recommendation**: no action is required unless you plan to fetch these together: never `JOIN FETCH` more than one of
+  these collections in the same query. Add `@OrderColumn` when list order is persistent, or use `Set<>` if you do need
+  to fetch two of them eagerly in one query.
 
 ### HIB-FETCH-002 - Batch fetching should cover lazy secondary-select associations
 
@@ -80,6 +85,9 @@ includes up to a handful of sample mapped members plus a remediation link.
   is traversed across multiple owner rows.
 - **Recommendation**: set a bounded global batch-fetch size or targeted `@BatchSize` for associations traversed across
   multiple owners; use explicit fetch plans or paged/filtered queries for a single oversized collection.
+- **Quarkus**: `hibernate.default_batch_fetch_size` maps to `quarkus.hibernate-orm.fetch.batch-size` via
+  `QuarkusHibernatePropertyLookup`, so a global batch-fetch size configured with the native Quarkus property name is
+  read back correctly and this rule does not false-positive.
 
 ### HIB-FETCH-005 - @Lob attributes should be loaded lazily
 
@@ -133,19 +141,23 @@ includes up to a handful of sample mapped members plus a remediation link.
 ### HIB-ID-004 - @GeneratedValue should declare an explicit strategy
 
 - **Severity**: MEDIUM
-- **Inspects**: identifier attributes annotated with `@GeneratedValue`.
+- **Inspects**: identifier attributes annotated with `@GeneratedValue`, excluding `UUID`-typed identifiers.
 - **Fires when**: `strategy` is omitted (or set to `AUTO`).
-- **Why it matters**: `AUTO` never resolves to the database's native `IDENTITY`/auto-increment column. Hibernate's
-  `GeneratorBinder` always maps the JPA `AUTO` strategy to its own `SequenceStyleGenerator`, which uses a real database
-  `SEQUENCE` where the dialect supports one (PostgreSQL, Oracle, H2, SQL Server, ...) and falls back to a slower,
-  row-locking table-based emulation otherwise (e.g. MySQL, which has no native sequence object) - verified directly
-  against the current Hibernate ORM source (`correspondingGeneratorName(GenerationType)` in `GeneratorBinder`, whose
-  `default` case - covering `AUTO` - always returns `SequenceStyleGenerator`, never `IDENTITY`) and the ORM user guide's
-  "Interpreting AUTO" section. Leaving the strategy on `AUTO` means silently accepting whichever of those two Hibernate
-  picks for the current database, instead of a strategy the team has actually reviewed.
+- **Why it matters**: for numeric identifiers, `AUTO` never resolves to the database's native `IDENTITY`/auto-increment
+  column. Hibernate's `GeneratorBinder` always maps the JPA `AUTO` strategy to its own `SequenceStyleGenerator`, which
+  uses a real database `SEQUENCE` where the dialect supports one (PostgreSQL, Oracle, H2, SQL Server, ...) and falls back
+  to a slower, row-locking table-based emulation otherwise (e.g. MySQL, which has no native sequence object) - verified
+  directly against the current Hibernate ORM source (`correspondingGeneratorName(GenerationType)` in `GeneratorBinder`,
+  whose `default` case - covering `AUTO` - always returns `SequenceStyleGenerator`, never `IDENTITY`) and the ORM user
+  guide's "Interpreting AUTO" section. Leaving the strategy on `AUTO` means silently accepting whichever of those two
+  Hibernate picks for the current database, instead of a strategy the team has actually reviewed.
 - **Recommendation**: pick the strategy that fits the target database (for example `SEQUENCE` with `allocationSize` on
   Postgres/Oracle, `IDENTITY` only when truly required) and set it explicitly instead of relying on `AUTO`'s
   dialect-dependent sequence-or-table fallback.
+- **UUID identifiers**: skipped entirely - for a `UUID`-typed identifier, Hibernate 6 interprets `AUTO` as the
+  `UuidGenerator`, not a sequence, so this rule's "sequence-or-table fallback" rationale does not apply. HIB-ID-005 owns
+  the UUID case exclusively, so a `UUID @Id @GeneratedValue` with no explicit strategy is flagged only once, by
+  HIB-ID-005, with UUID-specific guidance instead of a misleading sequence/table warning.
 - **Quarkus/Panache**: skipped for the `id` field inherited as-is from Panache's own `PanacheEntity` (ORM or Reactive),
   which declares `@Id @GeneratedValue public Long id;` with no explicit strategy and cannot be annotated by the
   application. A custom identifier the application declares itself (including on a `PanacheEntityBase` subclass) is
@@ -154,12 +166,21 @@ includes up to a handful of sample mapped members plus a remediation link.
 ### HIB-ID-005 - UUID identifiers should use @UuidGenerator
 
 - **Severity**: LOW
-- **Inspects**: `UUID` identifier attributes annotated with `@GeneratedValue`.
+- **Inspects**: `UUID` identifier attributes annotated with `@GeneratedValue`, and the runtime Hibernate ORM version.
 - **Fires when**: the attribute is not also annotated with `@UuidGenerator`.
-- **Why it matters**: the JPA default generates random UUIDs (v4), which fragment B-tree indexes; Hibernate's
-  `@UuidGenerator(style = TIME)` yields index-friendly identifiers.
-- **Recommendation**: annotate UUID identifiers with `@UuidGenerator` and pick the style that matches the target
-  database.
+- **Why it matters**: the JPA default generates random UUIDs (v4), which fragment B-tree indexes.
+- **Recommendation (Hibernate 7.0+)**: annotate the identifier with `@UuidGenerator(style = VERSION_7)` (`VERSION_6` is
+  also acceptable). Both styles are monotonic, index-friendly UUID variants and only exist starting in Hibernate 7.0
+  (both `@Incubating`) - confirmed by diffing `UuidGenerator.java` between the 6.6 branch (only `AUTO`/`RANDOM`/`TIME`)
+  and the 7.0 branch (adds `VERSION_6`/`VERSION_7`).
+- **Recommendation (before Hibernate 7.0)**: `style = TIME` is the only style available. It produces an RFC 4122
+  **version 1** UUID (per `@UuidGenerator`'s own Javadoc: "time-based generation strategy consistent with RFC 4122
+  version 1, but with IP address instead of MAC address"), which places the fast-changing `time_low` field first and is
+  **not materially more index-friendly than a random (v4) UUID** - it does not yield the monotonic ordering that makes
+  `VERSION_6`/`VERSION_7` genuinely index-friendly. The recommendation is annotated with this caveat rather than
+  presenting `TIME` as a real fix.
+- **Version detection**: the runtime Hibernate ORM version is read from `HibernateContext`/`HibernateEntityModel` the
+  same way HIB-FETCH-003/HIB-CONFIG-016 gate their Hibernate-7.4 pagination behavior.
 
 ### HIB-ID-006 - GenerationType.IDENTITY disables JDBC batch inserts
 
@@ -171,6 +192,20 @@ includes up to a handful of sample mapped members plus a remediation link.
   preventing JDBC insert batching for those entities despite the configured batch size.
 - **Recommendation**: switch IDENTITY identifiers to `SEQUENCE` with a pooled `allocationSize` so Hibernate can batch
   inserts, or drop the JDBC batch-size expectation for these entities.
+
+### HIB-ID-007 - Composite identifier classes must satisfy the JPA contract
+
+- **Severity**: HIGH
+- **Inspects**: `@EmbeddedId` attribute types and `@IdClass` values (including inherited from a superclass).
+- **Fires when**: the composite identifier class is not `Serializable`, has no public no-arg constructor, or does not
+  override both `equals` and `hashCode`.
+- **Why it matters**: JPA and Hibernate require all four for a composite identifier class to work correctly - this is a
+  pure, deterministic contract check with essentially zero false-positive risk. Violating any of these can silently
+  break entity equality, second-level caching, and collection lookups.
+- **Recommendation**: make the composite identifier class implement `Serializable`, declare a public no-arg constructor,
+  and override both `equals` and `hashCode` over every identifier field.
+- **Quarkus/Panache**: applies identically - this check inspects only the identifier class via reflection, with no
+  framework-specific behavior.
 
 ## Mapping
 
@@ -260,15 +295,19 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: `Optional` is a return-type convenience, not a stable persistent attribute type.
 - **Recommendation**: map the underlying nullable type and expose `Optional` from a non-persistent getter if desired.
 
-### HIB-MAP-010 - @ElementCollection List should persist order
+### HIB-MAP-010 - @ElementCollection List should persist order with @OrderColumn
 
 - **Severity**: MEDIUM
 - **Inspects**: `@ElementCollection` attributes typed as `List`.
-- **Fires when**: the list has neither `@OrderColumn` nor `@OrderBy`.
-- **Why it matters**: without an ordering strategy, Hibernate treats any change to the list as a delete-and-reinsert of
-  the entire collection table.
-- **Recommendation**: add `@OrderColumn` for index-tracked lists or `@OrderBy` for query-time ordering, or switch the
-  attribute to a `Set`.
+- **Fires when**: the list does not declare `@OrderColumn` - regardless of whether it declares `@OrderBy`.
+- **Why it matters**: without `@OrderColumn`, Hibernate cannot compute a minimal diff on mutation and instead deletes and
+  reinserts the entire collection table. `@OrderBy` is **not** an equivalent fix: it only adds a query-time SQL
+  `ORDER BY` and is never persisted, so it does nothing to change this mutation behavior. The sibling rule HIB-MAP-004's
+  `isBagAttribute()` helper already treats only `@OrderColumn` as removing bag semantics and deliberately ignores
+  `@OrderBy`, so this rule now matches that same standard instead of presenting `@OrderBy` as an alternative.
+- **Recommendation**: add `@OrderColumn` to persist the list's index so Hibernate can update rows in place. `@OrderBy`
+  does not solve the mutation cost - keep it only if you also want read-time ordering, alongside `@OrderColumn`, not
+  instead of it. Otherwise prefer `Set<>` if insertion order does not matter.
 
 ### HIB-MAP-011 - Entity classes should not be final
 
@@ -418,10 +457,13 @@ includes up to a handful of sample mapped members plus a remediation link.
 ### HIB-ENTITY-005 - Persistent fields should not be public
 
 - **Severity**: LOW
-- **Inspects**: entity attributes reachable as public fields.
-- **Fires when**: a persistent field is `public`. A field annotated `@Transient` is never flagged - it is not
-  written to the database, so it carries none of the accessor-bypass risk this check targets (for example a public
-  `@Transient` flag field used by a hand-written `isNew()`/`Persistable` implementation).
+- **Inspects**: entity attributes backed by a `java.lang.reflect.Field` that is `public`.
+- **Fires when**: a field-access persistent field is `public`. A field annotated `@Transient` is never flagged - it is
+  not written to the database, so it carries none of the accessor-bypass risk this check targets (for example a public
+  `@Transient` flag field used by a hand-written `isNew()`/`Persistable` implementation). Property-access (getter-mapped)
+  attributes are never flagged either, even when the underlying getter method is `public` - the metamodel resolves those
+  attributes from a `Method`, not a `Field`, and public getters are the normal, fully JPA/Hibernate-instrumented way to
+  expose a property-access attribute.
 - **Why it matters**: public fields let callers bypass Hibernate's instrumentation for lazy loading and dirty tracking.
 - **Recommendation**: keep persistent fields private (or package-private) and expose mutators when needed; this
   preserves proxy substitution and bytecode-enhancer guarantees.
@@ -472,6 +514,21 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: add a `@Version` attribute (for example a `Long` or `Instant`) so concurrent updates fail fast with
   an optimistic-lock exception; skip this only for append-only, read-only, or reference data where lost updates cannot
   occur.
+
+### HIB-ENTITY-009 - Unique business-key columns should consider @NaturalId
+
+- **Severity**: INFO
+- **Inspects**: `@Column(unique = true)` attributes and entity-level `@Table(uniqueConstraints = @UniqueConstraint(...))`
+  declarations.
+- **Fires when**: a unique column exists and no attribute on the entity is annotated
+  `org.hibernate.annotations.NaturalId`.
+- **Why it matters**: a unique business key (email, ISBN, order number) is frequently queried by value.
+  `@NaturalId` lets Hibernate resolve the entity from the natural-id cache/lookup without needing a full JPQL query - a
+  well-documented performance pattern. This is advisory, not a defect: a unique column is not always a natural lookup
+  key, so the finding is INFO severity.
+- **Recommendation**: consider annotating the business-key attribute(s) with `@NaturalId` so lookups by that value can
+  use Hibernate's natural-id resolution instead of a full query.
+- **Quarkus/Panache**: applies identically - this check inspects only annotation metadata via reflection.
 
 ## Query
 
@@ -588,6 +645,13 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Fires when**: a positive batch size is configured but either ordering property is not `true`.
 - **Why it matters**: batches are grouped by SQL/table shape; interleaved entity types reduce batch efficiency.
 - **Recommendation**: enable both ordering properties when batching writes across multiple entity types.
+- **Quarkus**: `hibernate.order_inserts`/`hibernate.order_updates` have no first-class `quarkus.hibernate-orm.*`
+  equivalent, but `QuarkusHibernatePropertyLookup` falls back to Quarkus' generic
+  `quarkus.hibernate-orm.unsupported-properties."hibernate.order_inserts"` (and `"hibernate.order_updates"`) escape
+  hatch. A live-boot spike against `bootui-quarkus-integration-tests` confirmed this end to end: with
+  `quarkus.hibernate-orm.jdbc.statement-batch-size` and both `unsupported-properties` entries set, Hibernate's own
+  `SessionFactoryOptions.isOrderInsertsEnabled()`/`isOrderUpdatesEnabled()` both report `true` at runtime, and this
+  rule correctly does not fire.
 
 ### HIB-CONFIG-006 - Slow query logging should be available in development
 
@@ -605,6 +669,9 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: statistics expose query counts, fetch counts, and cache hit ratios useful during performance tuning.
 - **Recommendation**: enable statistics in development or performance-test profiles when investigating data-access
   behavior.
+- **Quarkus**: `hibernate.generate_statistics` maps to `quarkus.hibernate-orm.statistics` via
+  `QuarkusHibernatePropertyLookup`, so this rule no longer false-positives when statistics are enabled with the
+  native Quarkus property name.
 
 ### HIB-CONFIG-008 - Connection providers should disable auto-commit explicitly
 
@@ -625,6 +692,10 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Fires when**: such a query exists and `hibernate.query.in_clause_parameter_padding` is not enabled.
 - **Why it matters**: variable-length `IN` predicates can produce many SQL shapes and reduce plan-cache reuse.
 - **Recommendation**: enable IN-clause parameter padding when the database benefits from statement plan reuse.
+- **Quarkus**: `hibernate.query.in_clause_parameter_padding` maps to
+  `quarkus.hibernate-orm.query.in-clause-parameter-padding` via `QuarkusHibernatePropertyLookup`, so the property is
+  read correctly. The repository-scanning half of this rule only inspects Spring Data JPQL query methods, so it has
+  nothing to flag on a Panache-based Quarkus app regardless of the property value.
 
 ### HIB-CONFIG-010 - Query cache requires a second-level cache provider
 
@@ -635,6 +706,11 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: query caching depends on the second-level cache infrastructure and proper entity caching.
 - **Recommendation**: disable query caching or configure a region factory and cache entities returned by cacheable entity
   queries.
+- **Quarkus**: `hibernate.cache.use_query_cache` maps to `quarkus.hibernate-orm.second-level-caching-enabled` via
+  `QuarkusHibernatePropertyLookup` — Quarkus exposes a single unified toggle for second-level/query caching, not a
+  separate query-cache property, so both the query-cache and second-level-cache reads resolve to the same Quarkus
+  setting. `hibernate.cache.region.factory_class` has no first-class Quarkus equivalent but is still reachable via
+  the `unsupported-properties` fallback if explicitly configured.
 
 ### HIB-CONFIG-011 - Cacheable entities should declare an explicit cache strategy
 
@@ -644,6 +720,9 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: cache concurrency behavior should be explicit for cached entities.
 - **Recommendation**: add a Hibernate cache concurrency strategy, or remove `@Cacheable` when the entity should not use the
   second-level cache.
+- **Quarkus**: `hibernate.cache.use_second_level_cache` maps to the same
+  `quarkus.hibernate-orm.second-level-caching-enabled` toggle as HIB-CONFIG-010, so the precondition check for
+  "second-level caching appears configured" is read correctly on Quarkus too.
 
 ### HIB-CONFIG-002 - Schema generation should not mutate non-test databases
 
@@ -677,6 +756,9 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Fires when**: neither property is set.
 - **Why it matters**: without a fixed zone, JDBC binds and reads use the JVM default zone, so results vary across hosts.
 - **Recommendation**: pin `hibernate.jdbc.time_zone=UTC` (or another fixed zone) for deterministic timestamp handling.
+- **Quarkus**: `hibernate.jdbc.time_zone` maps to `quarkus.hibernate-orm.jdbc.timezone` via
+  `QuarkusHibernatePropertyLookup`, so this rule no longer false-positives when the zone is pinned with the native
+  Quarkus property name.
 
 ### HIB-CONFIG-014 - Hibernate's built-in connection pool should not be used
 
@@ -715,6 +797,9 @@ includes up to a handful of sample mapped members plus a remediation link.
   the generated SQL by default, so the in-memory blowup this safety net guards against no longer happens without opting
   back in via `org.hibernate.limitInMemory`. The check is skipped (not silently dropped) on 7.4+ runtimes, and the skip
   reason explains why.
+- **Quarkus**: `hibernate.query.fail_on_pagination_over_collection_fetch` maps to
+  `quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch` via `QuarkusHibernatePropertyLookup`, so this
+  rule no longer false-positives when the safety net is enabled with the native Quarkus property name.
 
 ### HIB-CONFIG-017 - Disable SQL formatting in production
 
@@ -725,6 +810,20 @@ includes up to a handful of sample mapped members plus a remediation link.
   logging is disabled, so it is wasted work in production.
 - **Recommendation**: disable `hibernate.format_sql` in production profiles and keep it enabled only for local development
   where readable SQL helps.
+
+### HIB-CONFIG-018 - Bind-parameter logging should be off in production
+
+- **Severity**: HIGH
+- **Inspects**: TRACE-level logging for `org.hibernate.orm.jdbc.bind` (and the legacy
+  `org.hibernate.type.descriptor.sql.BasicBinder` binder logger), plus the active Spring/Quarkus profile.
+- **Fires when**: a production-like profile is active and bind-parameter logging is enabled at TRACE.
+- **Why it matters**: at TRACE, Hibernate logs every bound parameter value - this can leak PII, credentials, or tokens
+  passed as query parameters into application logs.
+- **Recommendation**: keep bind-parameter logging off in production; only enable it temporarily, in a non-production
+  environment, while diagnosing a specific issue.
+- **Quarkus**: also detects the Quarkus-native `quarkus.hibernate-orm.log.bind-parameters` convenience flag (and its
+  deprecated `.bind-param` alias), which `QuarkusHibernatePropertyLookup` reports as the neutral TRACE logger state -
+  Quarkus's own guide explicitly warns against enabling this in production.
 
 ## Caching
 

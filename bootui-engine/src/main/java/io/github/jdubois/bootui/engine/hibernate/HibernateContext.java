@@ -169,6 +169,27 @@ record HibernateContext(
         }
         return false;
     }
+
+    /**
+     * True when Hibernate's bind-parameter binder logger is at TRACE, the only level at which
+     * {@code org.hibernate.engine.jdbc.internal.JdbcBindingLogging} actually logs bound parameter values
+     * (it gates every value-logging call on {@code Logger.isTraceEnabled()}, never DEBUG). Unlike
+     * {@link #isSqlLoggingEnabled()} — which treats DEBUG-or-TRACE on either the SQL or binder category as
+     * "some SQL logging is happening", a coarser performance signal — this check is deliberately narrower and
+     * TRACE-only, because it exists to catch a security/data-leak risk (bound values, which may hold PII,
+     * credentials, or tokens, being written to application logs), not merely verbose statement logging.
+     */
+    boolean isBindParameterLoggingEnabled() {
+        for (String key : List.of(
+                "logging.level.org.hibernate.orm.jdbc.bind",
+                "logging.level.org.hibernate.type.descriptor.sql.BasicBinder")) {
+            String value = firstProperty(key);
+            if (value != null && "trace".equalsIgnoreCase(value)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
 
 record HibernateRuntimeVersion(String display, Integer major, Integer minor) {

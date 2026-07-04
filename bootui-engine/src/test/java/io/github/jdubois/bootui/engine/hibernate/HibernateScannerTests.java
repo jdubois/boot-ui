@@ -56,7 +56,7 @@ import org.junit.jupiter.api.Test;
 
 class HibernateScannerTests {
 
-    private static final int RULE_COUNT = 66;
+    private static final int RULE_COUNT = 69;
     private static final String AFFECTED_HIBERNATE_VERSION = "7.3.9.Final";
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 

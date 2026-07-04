@@ -7,6 +7,42 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Three new Hibernate advisor rules**, from a second, deeper audit pass dedicated to the Hibernate advisor alone:
+  `HIB-ID-007` (composite identifier classes — `@EmbeddedId`/`@IdClass` — must be `Serializable`, expose a public no-arg
+  constructor, and override both `equals` and `hashCode`, HIGH), `HIB-CONFIG-018` (bind-parameter logging should not be
+  left on in production — `org.hibernate.orm.jdbc.bind`/the legacy SQL binder logger at `TRACE`, or
+  `quarkus.hibernate-orm.log.bind-parameters=true`, HIGH), and `HIB-ENTITY-009` (a unique business-key column with no
+  `@NaturalId`-annotated attribute is a missed lookup-performance opportunity, INFO). The Hibernate advisor now has 69
+  rules, up from 66.
+
+### Changed
+
+- **Second Hibernate advisor audit pass**, cross-validated by 5 independent AI models (Claude Opus 4.8, GPT-5.5,
+  Gemini 3.1 Pro, GPT-5.3-Codex, Claude Sonnet 5) auditing the ruleset against official Hibernate ORM/Quarkus/Spring
+  Data docs and Hibernate's own GitHub source: expanded the Quarkus adapter's `QuarkusHibernatePropertyLookup` with 7
+  more confirmed Hibernate-property aliases that were previously unreadable on Quarkus and so guaranteed false
+  positives for operators who had actually configured them correctly — `default_batch_fetch_size`, `jdbc.time_zone`,
+  `generate_statistics`, `query.fail_on_pagination_over_collection_fetch`, `query.in_clause_parameter_padding`,
+  `cache.use_query_cache`, and `cache.use_second_level_cache` (the last two both map to Quarkus' single unified
+  `second-level-caching-enabled` toggle) — plus a generic `quarkus.hibernate-orm.unsupported-properties."..."` fallback
+  for keys with no first-class Quarkus option (e.g. `hibernate.order_inserts`/`order_updates`), confirmed end-to-end by
+  a live-boot test asserting Hibernate's own `SessionFactoryOptions` picks the values up. Also fixed: `HIB-ID-004`
+  double-reported every UUID-typed identifier alongside `HIB-ID-005` and asserted an AUTO-strategy rationale that's
+  wrong for UUID ids (now correctly deferred to `HIB-ID-005`); `HIB-ID-005`'s UUID remediation recommended
+  `@UuidGenerator(style = TIME)` as "index-friendly," but `TIME` is an RFC 4122 v1 style with the same index
+  fragmentation problem as random UUIDs — the truly index-friendly `VERSION_6`/`VERSION_7` styles only exist on
+  Hibernate 7.0+, so the remediation is now version-gated to the running Hibernate version; `HIB-ENTITY-005` false
+  positived on every property-access (getter-mapped) entity because its field-vs-method heuristic only worked for the
+  reflection-based scan path, not the real `EntityManagerFactory`-metamodel path — it now keys off an explicit
+  field-access flag; `HIB-MAP-010` incorrectly treated `@OrderBy` as an equally valid alternative to `@OrderColumn` for
+  avoiding delete-and-reinsert list updates, when only `@OrderColumn` actually persists an index (this was already
+  inconsistent with the sibling `HIB-MAP-004` rule's own bag-detection logic); and `HIB-FETCH-004` was downgraded from
+  MEDIUM to INFO after review showed it fired on any entity merely declaring 2+ lazy bag collections, a common and safe
+  pattern — the actual failure mode (`MultipleBagFetchException`) is already covered by `HIB-QUERY-007`, which fires
+  only when bags are actually join-fetched together.
+
 ## [1.9.0] - 2026-07-03
 
 Feature release headlined by **optional durable JDBC persistence for Live Activity** on both adapters — the feed can
