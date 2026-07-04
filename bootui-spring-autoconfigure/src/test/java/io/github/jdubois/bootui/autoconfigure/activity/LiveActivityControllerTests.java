@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -84,6 +85,7 @@ class LiveActivityControllerTests {
                 empty(ExceptionStore.class),
                 defaultActivityStore(),
                 disabledSettings(),
+                disabledForwardingSettings(),
                 provider(mock(DataSource.class)),
                 new BootUiProperties());
 
@@ -124,6 +126,7 @@ class LiveActivityControllerTests {
                 empty(ExceptionStore.class),
                 store,
                 settings,
+                disabledForwardingSettings(),
                 empty(DataSource.class),
                 new BootUiProperties());
         try {
@@ -173,6 +176,7 @@ class LiveActivityControllerTests {
                 empty(ExceptionStore.class),
                 store,
                 settings,
+                disabledForwardingSettings(),
                 empty(DataSource.class),
                 new BootUiProperties());
 
@@ -193,6 +197,7 @@ class LiveActivityControllerTests {
                 empty(ExceptionStore.class),
                 defaultActivityStore(),
                 disabledSettings(),
+                disabledForwardingSettings(),
                 empty(DataSource.class),
                 new BootUiProperties());
 
@@ -210,6 +215,7 @@ class LiveActivityControllerTests {
                 empty(ExceptionStore.class),
                 defaultActivityStore(),
                 disabledSettings(),
+                disabledForwardingSettings(),
                 provider(mock(DataSource.class)),
                 new BootUiProperties());
 
@@ -228,6 +234,7 @@ class LiveActivityControllerTests {
                 empty(ExceptionStore.class),
                 store,
                 enabledSettings("instance-c", Duration.ofSeconds(5)),
+                disabledForwardingSettings(),
                 provider(mock(DataSource.class)),
                 new BootUiProperties());
         try {
@@ -249,6 +256,7 @@ class LiveActivityControllerTests {
                 empty(ExceptionStore.class),
                 defaultActivityStore(),
                 disabledSettings(),
+                disabledForwardingSettings(),
                 provider(dataSource),
                 new BootUiProperties());
         try {
@@ -313,6 +321,23 @@ class LiveActivityControllerTests {
                 Duration.ofDays(7),
                 instanceId,
                 captureInterval);
+    }
+
+    // None of these tests exercise forwarding directly (see HttpActivityStoreTests /
+    // ActivityStoreFactoryTests for that); every call site below passes this disabled default so the
+    // controller's forwarding branch is simply never taken, matching production behavior when forwarding
+    // is not configured.
+    private static ActivityForwardingSettings disabledForwardingSettings() {
+        return new ActivityForwardingSettings(
+                false,
+                null,
+                null,
+                Duration.ofSeconds(2),
+                Duration.ofSeconds(5),
+                Duration.ofSeconds(5),
+                500,
+                "instance-x",
+                Duration.ofSeconds(2));
     }
 
     private static LiveActivityReport referenceLiveReport(
@@ -407,6 +432,7 @@ class LiveActivityControllerTests {
                 exceptionStore,
                 defaultActivityStore(),
                 disabledSettings(),
+                disabledForwardingSettings(),
                 empty(DataSource.class),
                 properties);
     }
@@ -416,6 +442,7 @@ class LiveActivityControllerTests {
             ObjectProvider<ExceptionStore> exceptionStore,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
+            ActivityForwardingSettings forwardingSettings,
             ObjectProvider<DataSource> dataSourceProvider,
             BootUiProperties properties) {
         return new LiveActivityController(
@@ -431,6 +458,7 @@ class LiveActivityControllerTests {
                 empty(SecurityEventCorrelationRegistry.class),
                 activityStore,
                 persistenceSettings,
+                forwardingSettings,
                 dataSourceProvider,
                 properties);
     }

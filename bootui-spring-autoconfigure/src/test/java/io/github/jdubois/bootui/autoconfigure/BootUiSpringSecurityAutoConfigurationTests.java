@@ -68,6 +68,27 @@ class BootUiSpringSecurityAutoConfigurationTests {
     }
 
     @Test
+    void permitsActivityForwardPostWithoutCsrfToken() {
+        // The Live Activity forwarding receiver is called by a peer BootUI instance's HttpActivityStore
+        // (java.net.http.HttpClient), not a browser, so it cannot present the SPA CSRF token/cookie
+        // handshake either — a 403 here would silently break cross-instance forwarding. A single
+        // well-formed entry is sent (an empty batch is itself rejected with 400 by design) so a 200
+        // response confirms both the CSRF exemption and that the request actually reached the controller.
+        String body = "{\"entries\":[{\"instanceId\":\"peer-instance\",\"seq\":1,\"entry\":{"
+                + "\"id\":\"e1\",\"type\":\"REQUEST\",\"timestamp\":1700000000000,\"severity\":\"INFO\","
+                + "\"summary\":\"test\",\"detail\":null,\"durationMs\":null,\"correlationId\":null,"
+                + "\"method\":null,\"path\":null,\"status\":null,\"thread\":null,\"profileable\":false,"
+                + "\"parentId\":null,\"securedPrincipal\":null,\"sqlNPlusOneSuspected\":false}}]}";
+        ResponseEntity<String> forward = client().post()
+                .uri("/bootui/api/activity/forward")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toEntity(String.class);
+        assertThat(forward.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
     void bootUiSecurityChainMatchesExactRootsAndDescendants() {
         assertThat(bootUiSecurityFilterChain.matches(request("/bootui"))).isTrue();
         assertThat(bootUiSecurityFilterChain.matches(request("/bootui/"))).isTrue();

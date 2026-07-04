@@ -6,14 +6,18 @@ import javax.sql.DataSource;
 /**
  * Builds the {@link ActivityStore} a running BootUI instance uses for Live Activity, from {@link
  * ActivityPersistenceSettings} plus an adapter-supplied way to obtain the host application's own {@code
- * DataSource} for {@link ActivityPersistenceSettings.DataSourceMode#SHARED} mode.
+ * DataSource} for {@link ActivityPersistenceSettings.DataSourceMode#SHARED} mode — or, via the
+ * three-argument {@link #create(ActivityPersistenceSettings, ActivityForwardingSettings, Supplier)}
+ * overload, from {@link ActivityForwardingSettings} instead, when this instance forwards its captured
+ * entries to a peer over HTTP rather than persisting them locally.
  *
  * <p>This is the single place that turns configuration into a concrete store composition, so both
  * adapters (and tests) build the same shape consistently: {@link InMemoryActivityStore} alone when
- * persistence is disabled, or a {@link BufferedActivityStore} wrapping a {@link JdbcActivityStore} when
- * enabled — always wrapped in a {@link SwitchableActivityStore} so the "Use a database" runtime switch
- * (see {@code ActivitySwitchService}) can later replace the delegate without any consumer needing a new
- * reference.
+ * neither backend is enabled, a {@link BufferedActivityStore} wrapping a {@link JdbcActivityStore} when
+ * JDBC persistence is enabled, or a {@link BufferedActivityStore} wrapping an {@link HttpActivityStore}
+ * when HTTP forwarding is enabled instead — always wrapped in a {@link SwitchableActivityStore} so the
+ * "Use a database" runtime switch (see {@code ActivitySwitchService}) can later replace the delegate
+ * without any consumer needing a new reference.
  */
 public final class ActivityStoreFactory {
 
@@ -41,6 +45,58 @@ public final class ActivityStoreFactory {
                 settings.bufferMaxEntries(),
                 settings.instanceId(),
                 settings.retention());
+        return new SwitchableActivityStore(buffered);
+    }
+
+    /**
+     * The forwarding-aware twin of {@link #create(ActivityPersistenceSettings, Supplier)}: also
+     * considers {@code forwardingSettings} and, when it is enabled, builds an HTTP-forwarding store
+     * instead of a JDBC one. The two-arg overload above is kept completely unchanged (and this one
+     * delegates to it whenever forwarding is not in play) since {@code ActivitySwitchService} and
+     * existing tests call it directly and have no notion of forwarding at all.
+     *
+     * @param persistenceSettings the resolved JDBC-persistence configuration
+     * @param forwardingSettings the resolved HTTP-forwarding configuration, or {@code null} when the
+     *     calling adapter has no notion of forwarding at all (treated identically to a settings instance
+     *     with {@code enabled=false})
+     * @param sharedDataSourceSupplier resolves the host application's own {@code DataSource} bean; see
+     *     {@link #create(ActivityPersistenceSettings, Supplier)}. Not invoked at all when forwarding is
+     *     what ends up enabled, since forwarding needs no {@code DataSource}
+     * @throws ActivityStoreException if both {@code persistenceSettings.enabled()} and {@code
+     *     forwardingSettings.enabled()} are {@code true} — the two backends are mutually exclusive for a
+     *     single instance, and failing fast at startup is safer than silently prioritizing one
+     */
+    public static SwitchableActivityStore create(
+            ActivityPersistenceSettings persistenceSettings,
+            ActivityForwardingSettings forwardingSettings,
+            Supplier<DataSource> sharedDataSourceSupplier) {
+        boolean forwardingEnabled = forwardingSettings != null && forwardingSettings.enabled();
+        if (persistenceSettings.enabled() && forwardingEnabled) {
+            throw new ActivityStoreException(
+                    "bootui.activity.persistence.enabled and bootui.activity.forwarding.enabled cannot both be"
+                            + " true; pick exactly one Live Activity durability backend for this instance",
+                    null);
+        }
+        if (forwardingEnabled) {
+            return createForwarding(forwardingSettings);
+        }
+        return create(persistenceSettings, sharedDataSourceSupplier);
+    }
+
+    /**
+     * Builds a {@link BufferedActivityStore} wrapping an {@link HttpActivityStore} as its durable tier —
+     * the write-behind buffering/scheduled-flush/retry-requeue/bounded-drop/shutdown-bounding behavior is
+     * inherited entirely from {@link BufferedActivityStore}, unmodified. The four-arg constructor is used
+     * deliberately (no {@code instanceId}/{@code retention} pair, so no periodic prune is scheduled):
+     * there is no local durable data on this instance to prune — the entries live, and age out, on the
+     * peer's own durable store under the peer's own retention configuration.
+     */
+    private static SwitchableActivityStore createForwarding(ActivityForwardingSettings settings) {
+        InMemoryActivityStore hotCache = new InMemoryActivityStore(Math.max(1, settings.bufferMaxEntries()));
+        HttpActivityStore durable = new HttpActivityStore(
+                settings.peerBaseUrl(), settings.sharedSecret(), settings.connectTimeout(), settings.requestTimeout());
+        BufferedActivityStore buffered =
+                new BufferedActivityStore(hotCache, durable, settings.flushInterval(), settings.bufferMaxEntries());
         return new SwitchableActivityStore(buffered);
     }
 

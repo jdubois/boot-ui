@@ -21,6 +21,7 @@ import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObserva
 import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvider;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigMetadataCatalog;
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
@@ -610,6 +611,13 @@ public class BootUiEngineConfiguration {
      * bean beyond the in-memory store itself is created until persistence is actually enabled — at
      * startup via configuration, or later via that runtime switch.
      *
+     * <p>The HTTP-forwarding alternative ({@code bootui.activity.forwarding.*}, see {@link
+     * ActivityForwardingSettings}) follows the identical unconditional-bean shape: {@link
+     * #bootUiActivityForwardingSettings} is always constructed too, and {@link #bootUiActivityStore}
+     * resolves which of the two (if either) is actually enabled via {@link
+     * ActivityStoreFactory#create(ActivityPersistenceSettings, ActivityForwardingSettings,
+     * java.util.function.Supplier)}, which also fails fast at startup if both are enabled at once.</p>
+     *
      * <p>{@link ActivityPersistenceSettings} is exposed as its own small {@code @Bean} (not inlined into
      * the {@link SwitchableActivityStore} bean method, unlike e.g. {@code HeapDumpSettings}) because two
      * independent consumers need to agree on the exact same resolved settings — in particular the same
@@ -617,7 +625,9 @@ public class BootUiEngineConfiguration {
      * durable store's own query/prune scope, and {@code LiveActivityController} stamps it onto every entry
      * its capture coordinator captures. A shared singleton bean is the simplest way to guarantee both see
      * one, consistently resolved value (in particular, a generated instance id must be computed exactly
-     * once per process, not independently by each consumer).</p>
+     * once per process, not independently by each consumer). {@link ActivityForwardingSettings} is its own
+     * bean for the identical reason: {@code LiveActivityController} needs the same resolved {@code
+     * instanceId}/{@code captureInterval} to start a forwarding-aware capture poller.</p>
      *
      * <p>The {@link SwitchableActivityStore} bean is not explicitly closed anywhere in this
      * configuration: it exposes a public no-arg {@code close()} that Spring's default
@@ -656,12 +666,42 @@ public class BootUiEngineConfiguration {
                     persistence.getCaptureInterval());
         }
 
+        /**
+         * Mirrors {@link #bootUiActivityPersistenceSettings} exactly, for the HTTP-forwarding
+         * alternative: always constructed regardless of {@code enabled}, and resolving {@code
+         * instanceId} the same way, so a forwarding-configured instance stamps captured entries with the
+         * same stable identity a persistence-configured one would.
+         */
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        ActivityForwardingSettings bootUiActivityForwardingSettings(
+                BootUiProperties properties, Environment environment) {
+            BootUiProperties.ActivityForwarding forwarding =
+                    properties.getActivity().getForwarding();
+            String instanceId = ActivityInstanceIds.resolveOrDefault(
+                    forwarding.getInstanceId(), environment.getProperty("spring.application.name"));
+            return new ActivityForwardingSettings(
+                    forwarding.isEnabled(),
+                    forwarding.getPeerBaseUrl(),
+                    forwarding.getSharedSecret(),
+                    forwarding.getConnectTimeout(),
+                    forwarding.getRequestTimeout(),
+                    forwarding.getFlushInterval(),
+                    forwarding.getBufferMaxEntries(),
+                    instanceId,
+                    forwarding.getCaptureInterval());
+        }
+
         @Bean
         @Lazy
         @ConditionalOnMissingBean
         SwitchableActivityStore bootUiActivityStore(
-                ActivityPersistenceSettings settings, ObjectProvider<DataSource> dataSourceProvider) {
-            return ActivityStoreFactory.create(settings, () -> resolveActivityDataSource(dataSourceProvider));
+                ActivityPersistenceSettings persistenceSettings,
+                ActivityForwardingSettings forwardingSettings,
+                ObjectProvider<DataSource> dataSourceProvider) {
+            return ActivityStoreFactory.create(
+                    persistenceSettings, forwardingSettings, () -> resolveActivityDataSource(dataSourceProvider));
         }
     }
 

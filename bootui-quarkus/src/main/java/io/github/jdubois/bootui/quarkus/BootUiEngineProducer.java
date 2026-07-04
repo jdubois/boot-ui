@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
@@ -241,14 +242,53 @@ public class BootUiEngineProducer {
     }
 
     /**
+     * The Live Activity HTTP-forwarding settings, mapped once from {@code bootui.activity.forwarding.*}
+     * — the forwarding-aware twin of {@link #activityPersistenceSettings}, mirroring the Spring adapter's
+     * {@code BootUiProperties.ActivityForwarding} defaults exactly. Exposed as its own producer for the
+     * identical reason: {@code QuarkusActivityCapture} needs the same resolved {@code instanceId}/{@code
+     * captureInterval} this producer resolves, whichever backend (persistence or forwarding) actually
+     * ends up enabled.
+     */
+    @Produces
+    @Singleton
+    public ActivityForwardingSettings activityForwardingSettings(Config config) {
+        boolean enabled = config.getOptionalValue("bootui.activity.forwarding.enabled", Boolean.class)
+                .orElse(Boolean.FALSE);
+        String instanceId = ActivityInstanceIds.resolveOrDefault(
+                config.getOptionalValue("bootui.activity.forwarding.instance-id", String.class)
+                        .orElse(null),
+                config.getOptionalValue("quarkus.application.name", String.class)
+                        .orElse(null));
+        return new ActivityForwardingSettings(
+                enabled,
+                config.getOptionalValue("bootui.activity.forwarding.peer-base-url", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.forwarding.shared-secret", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.forwarding.connect-timeout", Duration.class)
+                        .orElse(Duration.ofSeconds(2)),
+                config.getOptionalValue("bootui.activity.forwarding.request-timeout", Duration.class)
+                        .orElse(Duration.ofSeconds(5)),
+                config.getOptionalValue("bootui.activity.forwarding.flush-interval", Duration.class)
+                        .orElse(Duration.ofSeconds(5)),
+                config.getOptionalValue("bootui.activity.forwarding.buffer-max-entries", Integer.class)
+                        .orElse(500),
+                instanceId,
+                config.getOptionalValue("bootui.activity.forwarding.capture-interval", Duration.class)
+                        .orElse(Duration.ofSeconds(2)));
+    }
+
+    /**
      * The Live Activity durable store. Produced <em>unconditionally</em> (like the Cache/Flyway/Liquibase/
-     * Connection-Pools services): {@link ActivityStoreFactory#create} itself branches on {@code
-     * settings.enabled()}, returning a {@link SwitchableActivityStore} wrapping a bare {@code
-     * InMemoryActivityStore} — no background thread, connection or JDBC type touched — when persistence is
-     * off, so there is no need to gate this producer on a build-time capability the way the
-     * optional-dependency panels do. When enabled with {@code data-source-mode=SHARED}, the host
-     * application's own {@code DataSource} bean is resolved live through {@link Instance}, mirroring
-     * {@link #resolveRegistry}.
+     * Connection-Pools services): {@link ActivityStoreFactory#create(ActivityPersistenceSettings,
+     * ActivityForwardingSettings, java.util.function.Supplier)} itself branches on {@code
+     * persistenceSettings.enabled()}/{@code forwardingSettings.enabled()}, returning a {@link
+     * SwitchableActivityStore} wrapping a bare {@code InMemoryActivityStore} — no background thread,
+     * connection or JDBC/HTTP type touched — when neither is enabled, so there is no need to gate this
+     * producer on a build-time capability the way the optional-dependency panels do. When persistence is
+     * enabled with {@code data-source-mode=SHARED}, the host application's own {@code DataSource} bean is
+     * resolved live through {@link Instance}, mirroring {@link #resolveRegistry}; when forwarding is
+     * enabled instead, no {@code DataSource} is touched at all.
      *
      * <p>Declared to return the concrete {@link SwitchableActivityStore} type (not the {@code ActivityStore}
      * interface) so {@code LiveActivityResource} and {@code QuarkusActivityCapture} can inject the concrete
@@ -263,8 +303,11 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public SwitchableActivityStore activityStore(
-            ActivityPersistenceSettings settings, Instance<DataSource> dataSources) {
-        return ActivityStoreFactory.create(settings, () -> resolveDataSource(dataSources));
+            ActivityPersistenceSettings persistenceSettings,
+            ActivityForwardingSettings forwardingSettings,
+            Instance<DataSource> dataSources) {
+        return ActivityStoreFactory.create(
+                persistenceSettings, forwardingSettings, () -> resolveDataSource(dataSources));
     }
 
     /**

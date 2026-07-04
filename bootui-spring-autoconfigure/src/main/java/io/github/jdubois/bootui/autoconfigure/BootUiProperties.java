@@ -1566,6 +1566,14 @@ public class BootUiProperties {
          */
         private ActivityPersistence persistence = new ActivityPersistence();
 
+        /**
+         * Optional HTTP-forwarding alternative to {@link #persistence}: instead of persisting captured
+         * entries locally, ship them to a peer BootUI instance's own Live Activity forwarding endpoint,
+         * which persists them into its own durable store. Mutually exclusive with {@link #persistence}
+         * being enabled at the same time.
+         */
+        private ActivityForwarding forwarding = new ActivityForwarding();
+
         public int getMaxEntries() {
             return maxEntries;
         }
@@ -1596,6 +1604,14 @@ public class BootUiProperties {
 
         public void setPersistence(ActivityPersistence persistence) {
             this.persistence = persistence == null ? new ActivityPersistence() : persistence;
+        }
+
+        public ActivityForwarding getForwarding() {
+            return forwarding;
+        }
+
+        public void setForwarding(ActivityForwarding forwarding) {
+            this.forwarding = forwarding == null ? new ActivityForwarding() : forwarding;
         }
     }
 
@@ -1773,6 +1789,140 @@ public class BootUiProperties {
         public enum DataSourceMode {
             SHARED,
             DEDICATED
+        }
+    }
+
+    /**
+     * Configures the optional HTTP-forwarding alternative to {@link ActivityPersistence}: instead of
+     * this instance persisting captured Live Activity entries into its own database, it ships them to a
+     * peer BootUI instance's forwarding endpoint over plain HTTP, and that peer persists them into its
+     * own already-configured durable store. This is what lets cross-instance Live Activity forwarding
+     * work without a database shared between the two processes — only the receiving instance needs one.
+     * Disabled by default, like {@link ActivityPersistence}; the two are mutually exclusive; enabling
+     * both at once fails fast at startup rather than silently prioritizing one.
+     */
+    public static class ActivityForwarding {
+
+        /**
+         * Whether captured Live Activity entries are forwarded to a peer instance over HTTP instead of
+         * (or in the absence of) local durable persistence. Disabled by default: no background thread,
+         * HTTP client or bean beyond what already exists is created while this is {@code false}.
+         */
+        private boolean enabled = false;
+
+        /**
+         * The receiving instance's base URL, e.g. {@code http://localhost:8080}. Required (and
+         * validated as a well-formed absolute URL) when {@code enabled} is {@code true}; the forwarding
+         * endpoint path is appended automatically.
+         */
+        private String peerBaseUrl;
+
+        /**
+         * Optional bearer token attached to every forwarded batch and checked by the receiver as
+         * defense-in-depth on top of the existing loopback/Host-allow-list guard every BootUI endpoint
+         * already has. Blank (the default) disables the check on both ends: the sender attaches nothing
+         * and the receiver accepts any request, matching every other BootUI mutating action's
+         * zero-config trust model. When set, configure the identical value on both the sender's {@code
+         * forwarding.shared-secret} and the receiver's own property of the same name.
+         */
+        private String sharedSecret;
+
+        /** Maximum time to establish the TCP connection to the peer before failing the attempt. */
+        private Duration connectTimeout = Duration.ofSeconds(2);
+
+        /** Maximum time to wait for the peer's full HTTP response before failing the attempt. */
+        private Duration requestTimeout = Duration.ofSeconds(5);
+
+        /** How often buffered entries are sent to the peer. */
+        private Duration flushInterval = Duration.ofSeconds(5);
+
+        /**
+         * Capacity of the pending-forward queue; the oldest entries are dropped (with a warning) once
+         * exceeded during a sustained peer outage, rather than growing unbounded.
+         */
+        private int bufferMaxEntries = 500;
+
+        /**
+         * The multi-tenant partition key this running instance stamps captured entries with, carried
+         * through unchanged to the receiver so forwarded rows are correctly attributed to the sender,
+         * not the receiver, in the receiver's own durable store. Defaults the same way {@link
+         * ActivityPersistence#getInstanceId()} does.
+         */
+        private String instanceId;
+
+        /** How often the capture coordinator polls the merged Live Activity feed for new entries to forward. */
+        private Duration captureInterval = Duration.ofSeconds(2);
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getPeerBaseUrl() {
+            return peerBaseUrl;
+        }
+
+        public void setPeerBaseUrl(String peerBaseUrl) {
+            this.peerBaseUrl = peerBaseUrl;
+        }
+
+        public String getSharedSecret() {
+            return sharedSecret;
+        }
+
+        public void setSharedSecret(String sharedSecret) {
+            this.sharedSecret = sharedSecret;
+        }
+
+        public Duration getConnectTimeout() {
+            return connectTimeout;
+        }
+
+        public void setConnectTimeout(Duration connectTimeout) {
+            this.connectTimeout = connectTimeout;
+        }
+
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout;
+        }
+
+        public Duration getFlushInterval() {
+            return flushInterval;
+        }
+
+        public void setFlushInterval(Duration flushInterval) {
+            this.flushInterval = flushInterval;
+        }
+
+        public int getBufferMaxEntries() {
+            return bufferMaxEntries;
+        }
+
+        public void setBufferMaxEntries(int bufferMaxEntries) {
+            this.bufferMaxEntries = bufferMaxEntries;
+        }
+
+        public String getInstanceId() {
+            return instanceId;
+        }
+
+        public void setInstanceId(String instanceId) {
+            this.instanceId = instanceId;
+        }
+
+        public Duration getCaptureInterval() {
+            return captureInterval;
+        }
+
+        public void setCaptureInterval(Duration captureInterval) {
+            this.captureInterval = captureInterval;
         }
     }
 

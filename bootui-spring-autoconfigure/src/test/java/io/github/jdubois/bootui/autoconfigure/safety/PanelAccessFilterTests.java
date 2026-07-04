@@ -137,6 +137,37 @@ class PanelAccessFilterTests {
     }
 
     @Test
+    void perPanelReadOnlyBlocksActivityForwardAction() throws Exception {
+        // Pins that the ACTIVITY panel's existing prefix-based matching (already proven generically by
+        // globalReadOnlyBlocksActionCapablePanelActions' "activity" -> use-existing-datasource row above)
+        // also covers the new /activity/forward receiving endpoint with zero registry changes: both
+        // paths share the same /activity/** prefix in BootUiPanels, so no new panel-id or route entry was
+        // needed to gate this endpoint.
+        properties.panel("activity").setReadOnly(true);
+        MockHttpServletRequest request = request("POST", "/bootui/api/activity/forward");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString())
+                .contains("\"panel\":\"activity\"")
+                .contains("bootui.panels.activity.read-only=true");
+    }
+
+    @Test
+    void blocksDisabledActivityPanelForwardAction() throws Exception {
+        properties.panel("activity").setEnabled(false);
+        MockHttpServletRequest request = request("POST", "/bootui/api/activity/forward");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("\"panel\":\"activity\"");
+    }
+
+    @Test
     void globalReadOnlyDoesNotBlockReadOnlyPanelWithoutActions() throws Exception {
         properties.setReadOnly(true);
         MockHttpServletRequest request = request("GET", "/bootui/api/metrics");

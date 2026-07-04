@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.activity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
@@ -25,18 +26,21 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Pins {@link QuarkusActivityCapture}'s lifecycle: with persistence disabled (the default), {@link
- * QuarkusActivityCapture#onStart} must start no background thread and {@link
- * QuarkusActivityCapture#onStop} must not fail even though no poller was ever created; with persistence
- * enabled, the capture poller thread must start on {@code onStart} and stop on {@code onStop} — mirroring
- * the Spring adapter's {@code shutdownStopsCapturePollerThreadWhenPersistenceEnabled}.
+ * Pins {@link QuarkusActivityCapture}'s lifecycle: with both persistence and forwarding disabled (the
+ * default), {@link QuarkusActivityCapture#onStart} must start no background thread and {@link
+ * QuarkusActivityCapture#onStop} must not fail even though no poller was ever created; with either
+ * persistence or forwarding enabled, the capture poller thread must start on {@code onStart} and stop on
+ * {@code onStop} — mirroring the Spring adapter's {@code shutdownStopsCapturePollerThreadWhenPersistenceEnabled}.
  */
 class QuarkusActivityCaptureTests {
 
     @Test
-    void onStartDoesNotStartCapturePollerThreadWhenPersistenceDisabled() throws Exception {
+    void onStartDoesNotStartCapturePollerThreadWhenPersistenceAndForwardingDisabled() throws Exception {
         QuarkusActivityCapture capture = new QuarkusActivityCapture(
-                new SwitchableActivityStore(new InMemoryActivityStore(10)), disabledSettings(), liveActivityResource());
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                disabledForwardingSettings(),
+                liveActivityResource());
 
         capture.onStart(null);
 
@@ -51,12 +55,37 @@ class QuarkusActivityCaptureTests {
         QuarkusActivityCapture capture = new QuarkusActivityCapture(
                 new SwitchableActivityStore(new InMemoryActivityStore(10)),
                 enabledSettings(Duration.ofMillis(50)),
+                disabledForwardingSettings(),
                 liveActivityResource());
 
         capture.onStart(null);
         Thread captureThread = awaitThreadNamed("bootui-activity-capture");
         assertThat(captureThread)
                 .as("capture poller thread should have started")
+                .isNotNull();
+
+        capture.onStop(null);
+
+        assertThat(awaitNotAlive(captureThread)).isTrue();
+    }
+
+    @Test
+    void onStartAndOnStopControlTheCapturePollerThreadWhenForwardingEnabledInstead() throws Exception {
+        // Mirrors the persistence-enabled test above: a Quarkus instance configured purely as an
+        // HTTP-forwarding sender (persistence disabled) must still start and stop the same capture
+        // poller mechanics, fed from ActivityForwardingSettings instead of ActivityPersistenceSettings —
+        // without this, forwarding.enabled=true alone would build a working HttpActivityStore that never
+        // receives anything to forward.
+        QuarkusActivityCapture capture = new QuarkusActivityCapture(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                enabledForwardingSettings(Duration.ofMillis(50)),
+                liveActivityResource());
+
+        capture.onStart(null);
+        Thread captureThread = awaitThreadNamed("bootui-activity-capture");
+        assertThat(captureThread)
+                .as("capture poller thread should have started from forwarding settings alone")
                 .isNotNull();
 
         capture.onStop(null);
@@ -84,6 +113,27 @@ class QuarkusActivityCaptureTests {
                 Duration.ofSeconds(5),
                 500,
                 Duration.ofDays(7),
+                "instance-a",
+                captureInterval);
+    }
+
+    private static ActivityForwardingSettings disabledForwardingSettings() {
+        return forwardingSettings(false, Duration.ofSeconds(2));
+    }
+
+    private static ActivityForwardingSettings enabledForwardingSettings(Duration captureInterval) {
+        return forwardingSettings(true, captureInterval);
+    }
+
+    private static ActivityForwardingSettings forwardingSettings(boolean enabled, Duration captureInterval) {
+        return new ActivityForwardingSettings(
+                enabled,
+                "http://localhost:8080",
+                null,
+                Duration.ofSeconds(2),
+                Duration.ofSeconds(5),
+                Duration.ofSeconds(5),
+                500,
                 "instance-a",
                 captureInterval);
     }

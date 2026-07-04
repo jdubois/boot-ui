@@ -78,6 +78,38 @@ class ActivityCaptureFactoryTests {
         assertThat(store.allAppended).hasSize(countAtClose);
     }
 
+    @Test
+    void primitiveOverloadStartsAnEquivalentPollerForNonPersistenceCallers() throws InterruptedException {
+        // ActivityForwardingSettings has no ActivityPersistenceSettings of its own, so an HTTP-forwarding
+        // sender's capture-start site must be able to drive the same sequencer/coordinator/poller trio
+        // through this primitive-typed overload directly.
+        RecordingStore store = new RecordingStore();
+        try (ActivityCapturePoller poller = ActivityCaptureFactory.start(
+                store, "instance-z", 200, Duration.ofMillis(10), () -> List.of(entry("1", "REQUEST", 1, "OK", "hi")))) {
+            waitUntil(() -> !store.allAppended.isEmpty(), Duration.ofSeconds(2));
+
+            assertThat(store.allAppended).hasSize(1);
+            assertThat(store.allAppended.get(0).instanceId()).isEqualTo("instance-z");
+            assertThat(store.allAppended.get(0).entry().id()).isEqualTo("1");
+        }
+    }
+
+    @Test
+    void settingsTypedOverloadDelegatesToThePrimitiveOverloadUnchanged() throws InterruptedException {
+        // Regression guard for the refactor: the existing ActivityPersistenceSettings-typed overload must
+        // keep behaving identically now that its body is just a delegating call.
+        RecordingStore store = new RecordingStore();
+        try (ActivityCapturePoller poller = ActivityCaptureFactory.start(
+                store,
+                settings("instance-w", Duration.ofMillis(10)),
+                () -> List.of(entry("1", "REQUEST", 1, "OK", "hi")))) {
+            waitUntil(() -> !store.allAppended.isEmpty(), Duration.ofSeconds(2));
+
+            assertThat(store.allAppended).hasSize(1);
+            assertThat(store.allAppended.get(0).instanceId()).isEqualTo("instance-w");
+        }
+    }
+
     private static void waitUntil(BooleanSupplier condition, Duration timeout) throws InterruptedException {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (!condition.getAsBoolean()) {

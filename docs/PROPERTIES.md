@@ -49,7 +49,7 @@ equivalents).
 | `bootui.dev-services.restart-enabled` / `.log-tail-bytes`                    | Spring only                | Quarkus Dev Services are build-time; the panel has no log-tail or restart controls.                                                      |
 | `bootui.graalvm.*`                                                           | Spring only                | The GraalVM panel is not applicable on Quarkus.                                                                                          |
 | `bootui.http-sessions.max-sessions`                                          | Spring only                | The HTTP Sessions panel is not applicable on Quarkus.                                                                                    |
-| `bootui.activity.max-entries`, `bootui.activity.n-plus-one-threshold`, `bootui.activity.request-slow-threshold-ms` | Spring only | Stream cap, N+1 detection threshold, and slow-request threshold apply only to Spring's richer tiered-correlation profiler; Quarkus's reduced trace-id-only profiler has no equivalent config. The optional durable-persistence backend (`bootui.activity.persistence.*`) is **shared** — see below. |
+| `bootui.activity.max-entries`, `bootui.activity.n-plus-one-threshold`, `bootui.activity.request-slow-threshold-ms` | Spring only | Stream cap, N+1 detection threshold, and slow-request threshold apply only to Spring's richer tiered-correlation profiler; Quarkus's reduced trace-id-only profiler has no equivalent config. The optional durable-persistence backend (`bootui.activity.persistence.*`) and the HTTP-forwarding sender (`bootui.activity.forwarding.*`) are **shared** — see below. The forwarding *receiver* endpoint (`POST /bootui/api/activity/forward`) exists only on Spring in this version. |
 | `bootui.telemetry.max-request-bytes`                                         | Spring only                | Sizes the embedded OTLP receiver, which Quarkus does not run (it captures spans in-process).                                             |
 | `bootui.internal.*`                                                          | **Quarkus only, internal** | Build-time facts (base packages, dependency inventory, capability-present flags) emitted by build steps. Not a user setting — never set by hand. |
 
@@ -335,6 +335,30 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | `bootui.activity.persistence.retention`                 | `7d`                | How long persisted rows are kept before this instance prunes its own rows older than this on a periodic pass.                     |
 | `bootui.activity.persistence.instance-id`               | _(auto)_            | Multi-tenant partition key this instance writes/reads its rows under. Defaults to the `HOSTNAME` environment variable, or else a generated `<app-name>-<random>` id. |
 | `bootui.activity.persistence.capture-interval`          | `2s`                | How often the capture coordinator polls the merged Live Activity feed for new entries to buffer.                                  |
+
+#### Live Activity HTTP forwarding
+
+Off by default, and additive alongside (never in place of) the persistence settings above: setting
+`bootui.activity.forwarding.enabled=true` turns this instance into a forwarding **sender**, shipping captured entries
+over plain HTTP to a peer BootUI instance's `POST /bootui/api/activity/forward` endpoint instead of persisting them
+locally — no shared database required between the two processes. Available on both adapters as a sender (same config
+surface and wire contract); the **receiving** endpoint exists only on the Spring adapter in this version. Enabling
+both `bootui.activity.persistence.enabled` and `bootui.activity.forwarding.enabled` on the same instance fails fast at
+startup rather than silently prioritizing one — an instance is either a durable store or a forwarding sender, never
+both. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md) for the full design (the `HttpActivityStore`/
+`BufferedActivityStore` composition, the write-only `query()` tradeoff, the security posture, and known limitations).
+
+| Property                                              | Default | Description                                                                                                                        |
+| ------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `bootui.activity.forwarding.enabled`                  | `false` | Forward captured Live Activity entries to a peer instance over HTTP instead of (or in the absence of) local durable persistence.  |
+| `bootui.activity.forwarding.peer-base-url`             | _(none)_ | The receiving instance's base URL, e.g. `http://localhost:8080`. Required (and validated as a well-formed absolute URL) when `enabled=true`; the forwarding endpoint path is appended automatically. |
+| `bootui.activity.forwarding.shared-secret`             | _(none)_ | Optional bearer token attached to every forwarded batch and checked by the receiver as defense-in-depth on top of the existing loopback/Host-allow-list guard. Blank (the default) disables the check on both ends. Configure the identical value on both the sender's and the receiver's property of the same name. |
+| `bootui.activity.forwarding.connect-timeout`           | `2s`    | Maximum time to establish the TCP connection to the peer before failing the attempt.                                              |
+| `bootui.activity.forwarding.request-timeout`           | `5s`    | Maximum time to wait for the peer's full HTTP response before failing the attempt.                                                |
+| `bootui.activity.forwarding.flush-interval`            | `5s`    | How often buffered entries are sent to the peer.                                                                                  |
+| `bootui.activity.forwarding.buffer-max-entries`        | `500`   | Capacity of the pending-forward queue; the oldest entries are dropped (with a one-time warning) once exceeded during a sustained peer outage, rather than growing unbounded. |
+| `bootui.activity.forwarding.instance-id`               | _(auto)_ | The multi-tenant partition key this instance stamps captured entries with, carried through unchanged to the receiver. Defaults the same way `bootui.activity.persistence.instance-id` does. |
+| `bootui.activity.forwarding.capture-interval`          | `2s`    | How often the capture coordinator polls the merged Live Activity feed for new entries to forward.                                 |
 
 ### Traces
 
