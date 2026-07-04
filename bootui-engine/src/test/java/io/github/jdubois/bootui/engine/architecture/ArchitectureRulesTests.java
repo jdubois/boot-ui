@@ -9,6 +9,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.PrintWriter;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -19,7 +20,9 @@ import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.boot.SpringApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Async;
@@ -98,6 +101,36 @@ class ArchitectureRulesTests {
     }
 
     @Test
+    void noStandardStreamsFlagsNoArgPrintStackTraceExclusively() {
+        ArchitectureRuleResultDto standardStreamsResult =
+                evaluate(new NoStandardStreamsRule(), NoArgPrintStackTraceCaller.class);
+        ArchitectureRuleResultDto printStackTraceResult =
+                evaluate(new NoPrintStackTraceRule(), NoArgPrintStackTraceCaller.class);
+
+        assertThat(standardStreamsResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(standardStreamsResult.id()).isEqualTo("ARCH-CODE-001");
+        assertThat(printStackTraceResult.status())
+                .as("the no-arg printStackTrace() overload is exclusively covered by ARCH-CODE-001, so"
+                        + " ARCH-CODE-005 must not also fire on the same call site")
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void noPrintStackTraceFlagsArgTakingOverloadExclusively() {
+        ArchitectureRuleResultDto printStackTraceResult =
+                evaluate(new NoPrintStackTraceRule(), WriterArgPrintStackTraceCaller.class);
+        ArchitectureRuleResultDto standardStreamsResult =
+                evaluate(new NoStandardStreamsRule(), WriterArgPrintStackTraceCaller.class);
+
+        assertThat(printStackTraceResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(printStackTraceResult.id()).isEqualTo("ARCH-CODE-005");
+        assertThat(standardStreamsResult.status())
+                .as("the printStackTrace(PrintWriter) overload is exclusively covered by ARCH-CODE-005, so"
+                        + " ARCH-CODE-001 must not also fire on the same call site")
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
     void loggersShouldBePrivateStaticFinalFlagsMutableOrVisibleLoggers() {
         ArchitectureRuleResultDto result =
                 evaluate(new LoggersShouldBePrivateStaticFinalRule(), VisibleLoggerComponent.class);
@@ -118,6 +151,41 @@ class ArchitectureRulesTests {
     }
 
     @Test
+    void loggersShouldBePrivateStaticFinalExemptsContainerManagedInjectionPoints() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LoggersShouldBePrivateStaticFinalRule(), ContainerManagedLoggerComponent.class);
+
+        assertThat(result.status())
+                .as("@Inject/@Autowired/@Resource logger fields are wired by the container, e.g. Quarkus's"
+                        + " idiomatic `@Inject Logger log;`, so they are exempt from the private/static/final"
+                        + " requirement")
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void loggersShouldBePrivateStaticFinalAllowsProtectedInstanceLoggerInAbstractBaseClass() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LoggersShouldBePrivateStaticFinalRule(), AbstractLoggingBaseComponent.class);
+
+        assertThat(result.status())
+                .as("a protected, final, non-static logger initialized via LoggerFactory.getLogger(getClass())"
+                        + " in an abstract base class is a well-known SLF4J idiom for subclass-shared loggers")
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void loggersShouldBePrivateStaticFinalStillFlagsPlainPublicInstanceLogger() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LoggersShouldBePrivateStaticFinalRule(), PublicInstanceLoggerComponent.class);
+
+        assertThat(result.status())
+                .as("a non-final, non-static, non-injected, non-abstract-base-class public logger field is"
+                        + " neither recognized alternate pattern, so it must still be flagged")
+                .isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-012");
+    }
+
+    @Test
     void noTestFrameworkDependenciesFlagsMainCodeUsingTestApis() {
         ArchitectureRuleResultDto result = evaluate(new NoTestFrameworkDependenciesRule(), TestFrameworkUser.class);
 
@@ -125,6 +193,21 @@ class ArchitectureRulesTests {
         assertThat(result.id()).isEqualTo("ARCH-CODE-013");
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("org.junit"));
+    }
+
+    @Test
+    void noTestFrameworkDependenciesFlagsMainCodeUsingQuarkusTestApi() {
+        ArchitectureRuleResultDto result =
+                evaluate(new NoTestFrameworkDependenciesRule(), QuarkusTestFrameworkUser.class);
+
+        assertThat(result.status())
+                .as("io.quarkus.test.. must be flagged the same way org.springframework.boot.test.. already is,"
+                        + " so a Quarkus app leaking @QuarkusTest into main sources gets the same warning a Spring"
+                        + " app leaking @SpringBootTest already does")
+                .isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-013");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("io.quarkus.test.junit.QuarkusTest"));
     }
 
     @Test
@@ -329,29 +412,6 @@ class ArchitectureRulesTests {
     }
 
     @Test
-    void layeredArchitectureDirectionFlagsWebDependingDirectlyOnPersistence() {
-        ArchitectureRuleResultDto result =
-                evaluate(new LayeredArchitectureDirectionRule(), LayeredController.class, LayeredRepository.class);
-
-        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
-        assertThat(result.id()).isEqualTo("ARCH-SPRING-016");
-        assertThat(result.violationCount()).isPositive();
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("LayeredRepository"));
-    }
-
-    @Test
-    void layeredArchitectureDirectionPassesForCanonicalWebToServiceToRepositoryChain() {
-        ArchitectureRuleResultDto result = evaluate(
-                new LayeredArchitectureDirectionRule(),
-                CompliantController.class,
-                CompliantService.class,
-                CompliantRepository.class);
-
-        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
-    }
-
-    @Test
     void noSystemExitFlagsRuntimeExitAndHalt() {
         ArchitectureRuleResultDto result = evaluate(new NoSystemExitRule(), JvmTerminator.class);
 
@@ -361,6 +421,30 @@ class ArchitectureRulesTests {
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("exit"))
                 .anySatisfy(sample -> assertThat(sample).contains("halt"));
+    }
+
+    @Test
+    void noSystemExitExemptsSystemExitCalledDirectlyFromStaticMain() {
+        ArchitectureRuleResultDto result = evaluate(new NoSystemExitRule(), SpringExitLauncher.class);
+
+        assertThat(result.status())
+                .as("System.exit(SpringApplication.exit(context, ...)) from a static main method is Spring"
+                        + " Boot's own documented CLI/batch exit-code idiom, so it must not be flagged")
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void noSystemExitStillFlagsSystemExitFromNonMainMethod() {
+        ArchitectureRuleResultDto result = evaluate(new NoSystemExitRule(), NonMainSystemExitCaller.class);
+
+        assertThat(result.status())
+                .as("a System.exit call from a service/controller/business-logic method (not the static main"
+                        + " entry point) must still be flagged")
+                .isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-006");
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("exit"));
     }
 
     @Test
@@ -652,6 +736,54 @@ class ArchitectureRulesTests {
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
     }
 
+    @Test
+    void noDirectThreadInstantiationFlagsNewThread() {
+        ArchitectureRuleResultDto result = evaluate(new NoDirectThreadInstantiationRule(), DirectThreadCreator.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-017");
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("Thread"));
+    }
+
+    @Test
+    void noDirectThreadInstantiationFlagsThreadSubclassInstantiation() {
+        ArchitectureRuleResultDto result = evaluate(
+                new NoDirectThreadInstantiationRule(), CustomThreadInstantiator.class, CustomThreadSubclass.class);
+
+        assertThat(result.status())
+                .as("isAssignableTo(Thread.class) must also catch instantiating a class that extends Thread,"
+                        + " not just the Thread constructor itself")
+                .isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-017");
+    }
+
+    @Test
+    void noDirectThreadInstantiationPassesForManagedExecutorUsage() {
+        ArchitectureRuleResultDto result = evaluate(new NoDirectThreadInstantiationRule(), ManagedExecutorUser.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void assertionsShouldHaveDetailMessageFlagsMessagelessAssertion() {
+        ArchitectureRuleResultDto result =
+                evaluate(new AssertionsShouldHaveDetailMessageRule(), MessagelessAssertionUser.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-018");
+        assertThat(result.severity()).isEqualTo("INFO");
+    }
+
+    @Test
+    void assertionsShouldHaveDetailMessagePassesForMessageBearingAssertion() {
+        ArchitectureRuleResultDto result =
+                evaluate(new AssertionsShouldHaveDetailMessageRule(), MessageBearingAssertionUser.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
     private static ArchitectureRuleResultDto evaluate(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = new ClassFileImporter().importClasses(classes);
         return rule.evaluate(
@@ -688,6 +820,20 @@ class ArchitectureRulesTests {
 
     private interface PaymentPort {}
 
+    private static class NoArgPrintStackTraceCaller {
+
+        void log(Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static class WriterArgPrintStackTraceCaller {
+
+        void log(Exception e, PrintWriter writer) {
+            e.printStackTrace(writer);
+        }
+    }
+
     private static class VisibleLoggerComponent {
 
         static final Logger LOGGER = LoggerFactory.getLogger(VisibleLoggerComponent.class);
@@ -698,10 +844,35 @@ class ArchitectureRulesTests {
         private static final Logger LOGGER = LoggerFactory.getLogger(WellFormedLoggerComponent.class);
     }
 
+    private static class ContainerManagedLoggerComponent {
+
+        @Inject
+        Logger injectedLogger;
+
+        @Autowired
+        Logger autowiredLogger;
+
+        @Resource
+        Logger resourceLogger;
+    }
+
+    private abstract static class AbstractLoggingBaseComponent {
+
+        protected final Logger logger = LoggerFactory.getLogger(getClass());
+    }
+
+    private static class PublicInstanceLoggerComponent {
+
+        public Logger logger = LoggerFactory.getLogger(getClass());
+    }
+
     private static class TestFrameworkUser {
 
         private final org.junit.jupiter.api.TestInfo testInfo = null;
     }
+
+    @io.quarkus.test.junit.QuarkusTest
+    private static class QuarkusTestFrameworkUser {}
 
     @Repository
     private static class RepositoryDependingOnService {
@@ -864,48 +1035,27 @@ class ArchitectureRulesTests {
     @ConfigurationProperties(prefix = "demo.immutable")
     private record ImmutableConfigurationProperties(String name, int size) {}
 
-    @RestController
-    private static class LayeredController {
-
-        LayeredController(LayeredRepository repository) {
-            this.repository = repository;
-        }
-
-        private final LayeredRepository repository;
-    }
-
-    @Repository
-    private static class LayeredRepository {}
-
-    @RestController
-    private static class CompliantController {
-
-        CompliantController(CompliantService service) {
-            this.service = service;
-        }
-
-        private final CompliantService service;
-    }
-
-    @Service
-    private static class CompliantService {
-
-        CompliantService(CompliantRepository repository) {
-            this.repository = repository;
-        }
-
-        private final CompliantRepository repository;
-    }
-
-    @Repository
-    private static class CompliantRepository {}
-
     private static class JvmTerminator {
 
         void terminate() {
             System.exit(0);
             Runtime.getRuntime().exit(1);
             Runtime.getRuntime().halt(2);
+        }
+    }
+
+    private static class SpringExitLauncher {
+
+        public static void main(String[] args) {
+            ConfigurableApplicationContext context = SpringApplication.run(SpringExitLauncher.class, args);
+            System.exit(SpringApplication.exit(context));
+        }
+    }
+
+    private static class NonMainSystemExitCaller {
+
+        void shutdown() {
+            System.exit(1);
         }
     }
 
@@ -1117,6 +1267,43 @@ class ArchitectureRulesTests {
         @Scheduled(fixedDelay = 1000)
         io.smallrye.mutiny.Multi<String> multi() {
             return null;
+        }
+    }
+
+    private static class DirectThreadCreator {
+
+        void start() {
+            new Thread(() -> {}).start();
+        }
+    }
+
+    private static class CustomThreadSubclass extends Thread {}
+
+    private static class CustomThreadInstantiator {
+
+        void start() {
+            new CustomThreadSubclass().start();
+        }
+    }
+
+    private static class ManagedExecutorUser {
+
+        void submit() {
+            java.util.concurrent.Executors.newFixedThreadPool(2).submit(() -> {});
+        }
+    }
+
+    private static class MessagelessAssertionUser {
+
+        void check(int x) {
+            assert x > 0;
+        }
+    }
+
+    private static class MessageBearingAssertionUser {
+
+        void check(int x) {
+            assert x > 0 : "x must be positive";
         }
     }
 }

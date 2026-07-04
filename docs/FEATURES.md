@@ -257,14 +257,14 @@ configuration, imports the compiled classes from that package, and evaluates a f
 architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
 exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
 deprecated APIs, poorly named exceptions/interfaces, mutable/visible loggers, production dependencies on test
-frameworks, public mutable static fields, non-final utility classes, or standard-annotation (`jakarta.inject.Inject` /
-`@Resource`) field injection), and Spring stereotype/proxy heuristics (no `@Autowired`/`@Value` field
-injection, controllers should not depend on repositories, repositories should not depend on controllers or services,
-services should not depend on controllers, services and repositories should stay servlet-agnostic, no self-invocation or
-unproxyable proxy annotations, async/scheduled method signatures should be supported, async should stay out of
-configuration classes, stereotypes should stay outside the default package, `@ConfigurationProperties` classes should be
-immutable, stereotype dependencies should flow web → service → repository, and code should avoid
-`AopContext.currentProxy()`). When BootUI is installed through
+frameworks, public mutable static fields, non-final utility classes, standard-annotation (`jakarta.inject.Inject` /
+`@Resource`) field injection, direct `Thread` instantiation, or message-less assertions), and Spring stereotype/proxy
+heuristics (no `@Autowired`/`@Value` field injection, controllers should not depend on repositories, repositories
+should not depend on controllers or services, services should not depend on controllers, services and repositories
+should stay servlet-agnostic, no self-invocation or unproxyable proxy annotations, async/scheduled method signatures
+should be supported, async should stay out of configuration classes, stereotypes should stay outside the default
+package, `@ConfigurationProperties` classes should be immutable, and code should avoid `AopContext.currentProxy()`).
+When BootUI is installed through
 `bootui-spring-boot-starter`, ArchUnit is included transitively; the panel is available when a base package is resolvable
 and the scan runs on demand, caching the last report.
 
