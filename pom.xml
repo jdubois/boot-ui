@@ -41,6 +41,7 @@
         <module>bootui-engine</module>
         <module>bootui-spring-autoconfigure</module>
         <module>bootui-spring-boot-starter</module>
+        <module>bootui-spring-boot-starter-reactive</module>
         <module>bootui-ui</module>
         <module>bootui-conformance</module>
         <module>bootui-spring-sample-app</module>
