@@ -15,7 +15,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   left on in production — `org.hibernate.orm.jdbc.bind`/the legacy SQL binder logger at `TRACE`, or
   `quarkus.hibernate-orm.log.bind-parameters=true`, HIGH), and `HIB-ENTITY-009` (a unique business-key column with no
   `@NaturalId`-annotated attribute is a missed lookup-performance opportunity, INFO). The Hibernate advisor now has 69
-  rules, up from 66.
+  rules, up from 66 (#511).
 
 ### Changed
 
@@ -41,7 +41,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   inconsistent with the sibling `HIB-MAP-004` rule's own bag-detection logic); and `HIB-FETCH-004` was downgraded from
   MEDIUM to INFO after review showed it fired on any entity merely declaring 2+ lazy bag collections, a common and safe
   pattern — the actual failure mode (`MultipleBagFetchException`) is already covered by `HIB-QUERY-007`, which fires
-  only when bags are actually join-fetched together.
+  only when bags are actually join-fetched together (#511).
 
 ## [1.9.0] - 2026-07-03
 
