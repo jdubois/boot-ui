@@ -543,9 +543,25 @@ Features:
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
 - Derive severity from a real CVSS v3.0/v3.1 Base Score computed from the advisory's CVSS vector (per the FIRST.org
-  specification) when present, falling back to the advisory's `database_specific` severity label otherwise; render
-  `UNKNOWN` only when neither is available, never silently drop the finding.
+  specification) when present, preferring a package-level `affected[].severity` entry matching the scanned dependency
+  over the advisory's top-level `severity[]` (the OSV schema states the two are mutually exclusive), falling back to
+  the advisory's `database_specific` severity label when no CVSS vector is present at either level; render `UNKNOWN`
+  only when none of these is available, never silently drop the finding.
 - Exclude advisories marked `withdrawn` by OSV from results and counts.
+- Follow OSV `/v1/querybatch` pagination (`next_page_token`) until every query is exhausted or a bounded page-count
+  safety limit is hit, and partition the outgoing package list into batches of at most 1,000 queries (OSV's documented
+  hard limit per request), merging every page/batch back into one result set.
+- Fetch distinct advisory details (`GET /v1/vulns/{id}`) with a small bounded concurrency (up to 10 at a time) instead of
+  one at a time, so scans against a dependency tree with many distinct advisories stay responsive.
+- Enrich each CVE-aliased advisory with FIRST.org [EPSS](https://www.first.org/epss/) exploit-probability data
+  (probability + percentile) in one batched request per scan, alongside the OSV calls; EPSS is a likelihood-of-
+  exploitation signal that deliberately complements, rather than replaces, the CVSS severity-if-exploited score. EPSS
+  lookups can be disabled independently of OSV scanning, and a failed/unreachable EPSS request never fails the scan or
+  discards the underlying OSV results — it just omits the EPSS figures.
+- Derive an explicit `fixAvailable` signal per advisory by comparing the dependency's currently-resolved version
+  against the advisory's `fixedVersions` (lightweight Maven-version-aware comparison), so the UI can render an
+  unambiguous "no fix published yet" state instead of leaving an empty `fixedVersions` list ambiguous between "checked,
+  none published" and "unknown".
 - Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
 - Allow dismissing/restoring an individual vulnerability finding for a specific dependency, excluding it from the
   vulnerable count and severity rollups until restored, consistent with the dismiss/restore workflow shared by every
@@ -559,6 +575,14 @@ Acceptance criteria:
   inventory; a failure fetching one advisory's details does not discard advisories that were already fetched
   successfully, degrading the scan to a partial-success status instead of an outright error.
 - Scan size is bounded by configuration so large classpaths remain responsive.
+
+Known limitation: the dependency inventory on both adapters is coordinate-based (one resolved JAR = one artifact
+coordinate). A vulnerable library relocated/repackaged inside a shaded or uber JAR has no `pom.properties`/build-time
+coordinate of its own, so it is invisible to the inventory and cannot be flagged — the same reduced-fidelity honesty
+precedent already documented for other panels (for example Cache, Beans). Direct-vs-transitive dependency provenance
+("introduced through") is not yet tracked on either adapter; Quarkus could source it from its build-time application
+dependency graph, but Spring's classpath-based inventory has no equivalent graph today, so this is deferred rather than
+shipped asymmetrically.
 
 ### 5.12 Scheduled Tasks Inspector
 
@@ -1345,6 +1369,8 @@ Initial properties:
 | `bootui.vulnerabilities.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
 | `bootui.vulnerabilities.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
 | `bootui.vulnerabilities.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
+| `bootui.vulnerabilities.epss-enabled`           | `true`                                  | Allow the batched FIRST.org EPSS exploit-probability lookup during a scan.                        |
+| `bootui.vulnerabilities.epss-base-uri`          | `https://api.first.org`                | Base URI of the FIRST.org EPSS API queried during a scan.                                         |
 | `bootui.github.api-enabled`                  | `true`                                  | Allow GitHub panel refresh calls to GitHub APIs.                                                  |
 | `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                             |
 | `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                        |

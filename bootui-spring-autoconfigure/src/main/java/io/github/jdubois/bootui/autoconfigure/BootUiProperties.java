@@ -648,6 +648,20 @@ public class BootUiProperties {
          */
         private String osvBaseUri = "https://api.osv.dev";
 
+        /**
+         * Allow enriching CVE-aliased advisories with FIRST.org EPSS (exploit-probability) scores during a
+         * scan. Same on-demand-only network behaviour as {@code osvEnabled}: only called from the
+         * user-initiated scan action, never on page render.
+         */
+        private boolean epssEnabled = true;
+
+        /**
+         * Base URI of the FIRST.org EPSS API queried during a scan. Configurable mainly so tests can point
+         * at a local stub; defaults to the public EPSS endpoint, and matches the Quarkus adapter's
+         * {@code bootui.vulnerabilities.epss-base-uri} key.
+         */
+        private String epssBaseUri = "https://api.first.org";
+
         public boolean isOsvEnabled() {
             return osvEnabled;
         }
@@ -686,6 +700,22 @@ public class BootUiProperties {
 
         public void setOsvBaseUri(String osvBaseUri) {
             this.osvBaseUri = osvBaseUri;
+        }
+
+        public boolean isEpssEnabled() {
+            return epssEnabled;
+        }
+
+        public void setEpssEnabled(boolean epssEnabled) {
+            this.epssEnabled = epssEnabled;
+        }
+
+        public String getEpssBaseUri() {
+            return epssBaseUri;
+        }
+
+        public void setEpssBaseUri(String epssBaseUri) {
+            this.epssBaseUri = epssBaseUri;
         }
     }
 

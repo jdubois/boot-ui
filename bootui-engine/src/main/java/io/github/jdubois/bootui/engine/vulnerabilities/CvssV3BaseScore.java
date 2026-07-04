@@ -33,11 +33,17 @@ import java.util.Map;
  * Score equation: scores are derived from a roughly 270-entry "MacroVector" lookup table (six equivalence
  * classes, each assigned by boolean conditions on the supplied metrics) with interpolation against
  * "highest/lowest severity vector" reference data from FIRST's non-public expert-elicitation study.
- * Reproducing that faithfully from the written specification alone &mdash; without executing FIRST's own
- * reference implementation &mdash; risks a silently-wrong score for a security-sensitive feature, so v4.0
- * vectors are not scored here. {@link DependencyReports#parseScore(String)} explicitly returns {@code null}
- * for {@code CVSS:4.x} vectors, and callers fall back to the {@code database_specific.severity} label for
- * those advisories.
+ * Reproducing that faithfully from the written specification alone risks a silently-wrong score for a
+ * security-sensitive feature, so v4.0 vectors are not scored here. Should a future contributor want to add
+ * v4.0 support, FIRST now publishes a reference implementation and test vectors in its
+ * <a href="https://github.com/FIRSTdotorg/cvss-resources">cvss-resources</a> repository, and independent
+ * community ports such as <a
+ * href="https://github.com/org-metaeffekt/metaeffekt-universal-cvss-calculator">org-metaeffekt/metaeffekt-universal-cvss-calculator</a>
+ * and <a href="https://github.com/pandatix/js-cvss">pandatix/js-cvss</a> exist to cross-check a from-scratch
+ * Java port against &mdash; but validating a new implementation against those is future work, not something
+ * this codebase does today. {@link DependencyReports#parseScore(String)} explicitly returns {@code null} for
+ * {@code CVSS:4.x} vectors, and callers fall back to the {@code database_specific.severity} label for those
+ * advisories.
  *
  * <p>CVSS v2 vectors (unprefixed, e.g. {@code "AV:N/AC:L/Au:N/C:P/I:P/A:P"}) are likewise not scored: the
  * format was superseded in 2015 and zero occurrences were found across a 170-advisory sample of real

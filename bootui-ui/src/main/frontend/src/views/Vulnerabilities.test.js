@@ -3,7 +3,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import Vulnerabilities from './Vulnerabilities.vue'
 
-function vulnerability(id, severity, dismissed = false) {
+function vulnerability(id, severity, dismissed = false, overrides = {}) {
   return {
     id,
     summary: `${id} summary`,
@@ -13,7 +13,11 @@ function vulnerability(id, severity, dismissed = false) {
     aliases: [],
     references: [],
     fixedVersions: [],
-    dismissed
+    fixAvailable: false,
+    epssScore: null,
+    epssPercentile: null,
+    dismissed,
+    ...overrides
   }
 }
 
@@ -175,5 +179,119 @@ describe('Vulnerabilities', () => {
       expect.objectContaining({method: 'DELETE'})
     )
     expect(wrapper.text()).toContain('Dismiss')
+  })
+
+  it('renders the numeric CVSS base score next to the severity badge', async () => {
+    const scored = dependency(
+      'org.example:scored',
+      '1.0.0',
+      [vulnerability('GHSA-scored-0001', 'HIGH', false, {score: 8.1})],
+      'HIGH'
+    )
+    const {wrapper} = await mountWithReports([report([scored])])
+
+    expect(wrapper.text()).toContain('HIGH · 8.1')
+  })
+
+  it('omits the CVSS score suffix when the advisory carries no score', async () => {
+    const unscored = dependency(
+      'org.example:unscored',
+      '1.0.0',
+      [vulnerability('GHSA-unscored-0001', 'HIGH', false, {score: null})],
+      'HIGH'
+    )
+    const {wrapper} = await mountWithReports([report([unscored])])
+
+    expect(wrapper.text()).not.toContain('·')
+  })
+
+  it('renders an EPSS badge with likelihood-of-exploitation when epssScore is present', async () => {
+    const withEpss = dependency(
+      'org.example:epss',
+      '1.0.0',
+      [
+        vulnerability('CVE-2021-44228', 'CRITICAL', false, {
+          score: 10.0,
+          aliases: ['CVE-2021-44228'],
+          epssScore: 0.023,
+          epssPercentile: 0.92
+        })
+      ],
+      'CRITICAL'
+    )
+    const {wrapper} = await mountWithReports([report([withEpss])])
+
+    expect(wrapper.text()).toContain('2.3% EPSS')
+    const badge = wrapper.findAll('.badge').find((b) => b.text().includes('EPSS'))
+    expect(badge.attributes('title')).toContain('92nd percentile')
+  })
+
+  it('omits the EPSS badge entirely when epssScore is null', async () => {
+    const noEpss = dependency(
+      'org.example:no-epss',
+      '1.0.0',
+      [vulnerability('GHSA-no-epss-0001', 'HIGH', false, {epssScore: null})],
+      'HIGH'
+    )
+    const {wrapper} = await mountWithReports([report([noEpss])])
+
+    expect(wrapper.text()).not.toContain('EPSS')
+  })
+
+  it('shows "No fix published yet" when fixedVersions is empty', async () => {
+    const noFix = dependency(
+      'org.example:no-fix',
+      '1.0.0',
+      [vulnerability('GHSA-no-fix-0001', 'HIGH', false, {fixedVersions: [], fixAvailable: false})],
+      'HIGH'
+    )
+    const {wrapper} = await mountWithReports([report([noFix])])
+
+    expect(wrapper.text()).toContain('No fix published yet')
+  })
+
+  it('shows the upgrade target when a newer fixed version is available', async () => {
+    const fixable = dependency(
+      'org.example:fixable',
+      '1.0.0',
+      [vulnerability('GHSA-fixable-0001', 'HIGH', false, {fixedVersions: ['1.2.0'], fixAvailable: true})],
+      'HIGH'
+    )
+    const {wrapper} = await mountWithReports([report([fixable])])
+
+    expect(wrapper.text()).toContain('fixed in 1.2.0')
+    expect(wrapper.text()).not.toContain('No fix published yet')
+  })
+
+  it('shows "already on a fixed version" when fixedVersions is non-empty but fixAvailable is false', async () => {
+    const alreadyFixed = dependency(
+      'org.example:already-fixed',
+      '2.0.0',
+      [vulnerability('GHSA-already-fixed-0001', 'HIGH', false, {fixedVersions: ['1.5.0'], fixAvailable: false})],
+      'HIGH'
+    )
+    const {wrapper} = await mountWithReports([report([alreadyFixed])])
+
+    expect(wrapper.text()).toContain('already on a fixed version')
+    expect(wrapper.text()).not.toContain('No fix published yet')
+  })
+
+  it('links a CVE alias to NVD and a GHSA alias to GitHub Advisories', async () => {
+    const aliased = dependency(
+      'org.example:aliased',
+      '1.0.0',
+      [
+        vulnerability('GHSA-aliased-0001', 'CRITICAL', false, {
+          aliases: ['CVE-2021-44228', 'GHSA-aliased-0001']
+        })
+      ],
+      'CRITICAL'
+    )
+    const {wrapper} = await mountWithReports([report([aliased])])
+
+    const cveLink = wrapper.findAll('a').find((a) => a.text() === 'CVE-2021-44228')
+    const ghsaLink = wrapper.findAll('a').find((a) => a.text() === 'GHSA-aliased-0001')
+    expect(cveLink.attributes('href')).toBe('https://nvd.nist.gov/vuln/detail/CVE-2021-44228')
+    expect(ghsaLink.attributes('href')).toBe('https://github.com/advisories/GHSA-aliased-0001')
   })
 })
