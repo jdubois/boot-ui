@@ -28,10 +28,12 @@ import org.eclipse.microprofile.config.Config;
  * <ul>
  *   <li>The store and the traces transform share the live {@link QuarkusTelemetrySettings} bean (telemetry
  *       enabled flag + retention limits read per call).</li>
- *   <li>The traces transform's self-trace classifier is built from the operator-configured
- *       {@code bootui.path}/{@code bootui.api-path} and {@code bootui.monitoring.exclude-self} — the
- *       <em>transform</em> classification (BF1), distinct from the capture-side classifier in
- *       {@link BootUiOtelProducer} which is hardcoded to {@code "/bootui"}.</li>
+ *   <li>{@link #selfTelemetryClassifier(Config)} is the <strong>single shared</strong> self-traffic
+ *       classifier for the whole Quarkus adapter, built once from the operator-configured
+ *       {@code bootui.path}/{@code bootui.api-path} and {@code bootui.monitoring.exclude-self}.
+ *       {@link BootUiEngineProducer} (Metrics, Cache) and the OTel-gated {@link BootUiOtelProducer}
+ *       (capture) inject this same instance rather than building their own, so capture and every
+ *       transform/display panel can never disagree on which paths are BootUI's own.</li>
  *   <li>The AI usage settings are supplied fresh per request so {@code bootui.ai.*} and
  *       {@code bootui.telemetry.enabled} overrides are honored live.</li>
  * </ul>
@@ -45,10 +47,28 @@ public class BootUiTelemetryProducer {
         return new TelemetryStore(settings);
     }
 
+    /**
+     * The single shared self-traffic classifier for the whole Quarkus adapter &mdash; injected by both the
+     * capture side ({@link BootUiOtelProducer}) and every transform/display consumer ({@link
+     * BootUiEngineProducer}, {@link #tracesService}) instead of each building its own. See the class-level
+     * javadoc.
+     */
     @Produces
     @Singleton
-    public TracesService tracesService(TelemetryStore store, QuarkusTelemetrySettings settings, Config config) {
-        return new TracesService(store, settings, transformClassifier(config));
+    public SelfTelemetryClassifier selfTelemetryClassifier(Config config) {
+        boolean excludeSelf = config.getOptionalValue("bootui.monitoring.exclude-self", Boolean.class)
+                .orElse(Boolean.TRUE);
+        String path = config.getOptionalValue("bootui.path", String.class).orElse("/bootui");
+        String apiPath =
+                config.getOptionalValue("bootui.api-path", String.class).orElse("/bootui/api");
+        return new SelfTelemetryClassifier(excludeSelf, path, apiPath);
+    }
+
+    @Produces
+    @Singleton
+    public TracesService tracesService(
+            TelemetryStore store, QuarkusTelemetrySettings settings, SelfTelemetryClassifier selfClassifier) {
+        return new TracesService(store, settings, selfClassifier);
     }
 
     @Produces
@@ -63,14 +83,5 @@ public class BootUiTelemetryProducer {
                 config.getOptionalValue("bootui.ai.show-content-capture-banner", Boolean.class)
                         .orElse(Boolean.TRUE));
         return new AiUsageService(store, aiSettings, System::currentTimeMillis);
-    }
-
-    private static SelfTelemetryClassifier transformClassifier(Config config) {
-        boolean excludeSelf = config.getOptionalValue("bootui.monitoring.exclude-self", Boolean.class)
-                .orElse(Boolean.TRUE);
-        String path = config.getOptionalValue("bootui.path", String.class).orElse("/bootui");
-        String apiPath =
-                config.getOptionalValue("bootui.api-path", String.class).orElse("/bootui/api");
-        return new SelfTelemetryClassifier(excludeSelf, path, apiPath);
     }
 }

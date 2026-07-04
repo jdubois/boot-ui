@@ -10,18 +10,22 @@ import java.util.Set;
  * Framework-neutral classifier that recognizes telemetry produced by BootUI itself, so a console
  * never reports on its own {@code /bootui/**} traffic.
  *
- * <p>This holds only the path/span/trace matching logic shared by two distinct call sites, which
- * are intentionally configured differently:</p>
- * <ul>
- *   <li><b>Capture</b> ({@link BootUiSpanExporter} and the OTLP receiver) drops self spans using the
- *       {@code bootui.telemetry.exclude-self-spans} flag and the hardcoded {@code "/bootui"} base
- *       path &mdash; see {@link #forPaths(String, String)}.</li>
- *   <li><b>Transform</b> (the Traces read API) filters self traces using the
- *       {@code bootui.monitoring.exclude-self} flag and the operator-configured {@code bootui.path}.</li>
- * </ul>
+ * <p>Each adapter builds <strong>exactly one</strong> instance from the operator-configured
+ * {@code bootui.path} / {@code bootui.api-path} and shares it between every call site that needs
+ * self-traffic recognition &mdash; capture ({@link BootUiSpanExporter}, the OTLP receiver) and
+ * transform (the Traces read API, and, via each adapter's broader self-data filter, the Beans,
+ * Mappings, Loggers, and Metrics panels). A single shared instance guarantees capture and transform
+ * can never disagree on which paths are BootUI's own, which two independently-configured instances
+ * previously could when {@code bootui.path} was customized.</p>
  *
- * <p>Both are byte-identical on default deployments but diverge when {@code bootui.path} is
- * customized or only one flag is toggled, so the two classifiers must stay separate instances.</p>
+ * <p>The two call sites still apply <em>different flags</em> on top of the same path-matching logic,
+ * because they answer different questions: capture (via {@link BootUiSpanExporter}) ANDs
+ * {@link #isBootUiSpan(NormalizedSpan)} with the telemetry-specific
+ * {@code bootui.telemetry.exclude-self-spans} flag to decide whether to keep a span in the bounded
+ * store at all, while {@link #shouldInclude(boolean)} / {@link #shouldIncludeTrace(Collection)} use
+ * this classifier's own {@code excludeSelf} field &mdash; sourced from the general
+ * {@code bootui.monitoring.exclude-self} flag shared by every monitoring panel &mdash; to decide
+ * whether already-stored data is displayed.</p>
  */
 public final class SelfTelemetryClassifier {
 
@@ -35,11 +39,6 @@ public final class SelfTelemetryClassifier {
     public SelfTelemetryClassifier(boolean excludeSelf, String path, String apiPath) {
         this.excludeSelf = excludeSelf;
         this.selfPaths = selfPaths(path, apiPath);
-    }
-
-    /** Capture-side classifier: always excludes self, over the hardcoded {@code "/bootui"} base path. */
-    public static SelfTelemetryClassifier forPaths(String path, String apiPath) {
-        return new SelfTelemetryClassifier(true, path, apiPath);
     }
 
     /** Classifier that includes everything (self-exclusion disabled). */

@@ -7,7 +7,6 @@ import io.opentelemetry.sdk.trace.SpanProcessor;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
-import org.eclipse.microprofile.config.Config;
 
 /**
  * OpenTelemetry capture wiring for the Quarkus adapter: produces the in-process {@link SpanProcessor} that
@@ -34,13 +33,10 @@ public class BootUiOtelProducer {
 
     @Produces
     @Singleton
-    public SpanProcessor bootUiSpanProcessor(TelemetryStore store, QuarkusTelemetrySettings settings, Config config) {
-        String apiPath =
-                config.getOptionalValue("bootui.api-path", String.class).orElse("/bootui/api");
-        // Capture-side classification (BF1): the base path is hardcoded to "/bootui", exactly as the Spring
-        // exporter does — distinct from the operator-configured transform classifier in
-        // BootUiTelemetryProducer.
-        SelfTelemetryClassifier captureClassifier = SelfTelemetryClassifier.forPaths("/bootui", apiPath);
-        return SimpleSpanProcessor.create(new BootUiSpanExporter(store, captureClassifier, settings));
+    public SpanProcessor bootUiSpanProcessor(
+            TelemetryStore store, QuarkusTelemetrySettings settings, SelfTelemetryClassifier selfClassifier) {
+        // Capture-side classification (BF1) now shares the same instance as every transform/display
+        // consumer — produced once in BootUiTelemetryProducer — instead of building its own.
+        return SimpleSpanProcessor.create(new BootUiSpanExporter(store, selfClassifier, settings));
     }
 }
