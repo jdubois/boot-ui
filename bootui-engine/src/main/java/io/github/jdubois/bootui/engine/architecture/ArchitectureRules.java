@@ -6,15 +6,17 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
-import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaConstructor;
+import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaField;
+import com.tngtech.archunit.core.domain.JavaFieldAccess;
 import com.tngtech.archunit.core.domain.JavaMember;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
@@ -315,18 +317,26 @@ final class NoJodaTimeRule extends AbstractArchitectureRule {
 }
 
 /**
- * Flags calls to {@code Throwable.printStackTrace()}, which writes to the standard error stream and
- * bypasses structured logging.
+ * Flags calls to the {@code Throwable.printStackTrace(PrintStream)} / {@code printStackTrace(PrintWriter)}
+ * overloads, which bypass structured logging.
+ *
+ * <p>Deliberately scoped to the arg-taking overloads only. ArchUnit's built-in {@code
+ * GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS} (see {@link NoStandardStreamsRule},
+ * ARCH-CODE-001) already matches the no-arg {@code printStackTrace()} call specifically (its {@code
+ * ACCESS_STANDARD_STREAMS} condition ORs in a {@code callOfPrintStackTrace} check guarded by {@code
+ * rawParameterTypes(new Class[0])}), so matching the no-arg overload here too would double-report the
+ * exact same call site under two rule IDs. Requiring at least one parameter keeps this rule
+ * complementary to ARCH-CODE-001 instead of overlapping it.</p>
  */
 final class NoPrintStackTraceRule extends AbstractArchitectureRule {
 
     NoPrintStackTraceRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-CODE-005",
-                "Classes should not call Throwable.printStackTrace()",
+                "Classes should not call Throwable.printStackTrace(PrintStream/PrintWriter)",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects calls to Throwable.printStackTrace(), which write to System.err and bypass structured logging.",
+                "Detects calls to the Throwable.printStackTrace(PrintStream) or printStackTrace(PrintWriter) overloads, which bypass structured logging. The no-arg printStackTrace() overload is covered by ARCH-CODE-001 (it writes directly to System.err).",
                 "Log the exception through the project logging facade (e.g. SLF4J) instead of calling printStackTrace().",
                 "https://docs.spring.io/spring-boot/reference/features/logging.html"));
     }
@@ -335,21 +345,33 @@ final class NoPrintStackTraceRule extends AbstractArchitectureRule {
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
                 .should()
-                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("Throwable.printStackTrace() is called") {
-                    @Override
-                    public boolean test(JavaMethodCall call) {
-                        MethodCallTarget target = call.getTarget();
-                        return target.getName().equals("printStackTrace")
-                                && target.getOwner().isAssignableTo(Throwable.class);
-                    }
-                })
-                .as("Classes should not call Throwable.printStackTrace()");
+                .callMethodWhere(
+                        new DescribedPredicate<JavaMethodCall>(
+                                "Throwable.printStackTrace(PrintStream) or printStackTrace(PrintWriter) is called") {
+                            @Override
+                            public boolean test(JavaMethodCall call) {
+                                MethodCallTarget target = call.getTarget();
+                                return target.getName().equals("printStackTrace")
+                                        && target.getOwner().isAssignableTo(Throwable.class)
+                                        && !target.getRawParameterTypes().isEmpty();
+                            }
+                        })
+                .as("Classes should not call Throwable.printStackTrace(PrintStream/PrintWriter)");
     }
 }
 
 /**
  * Flags calls that forcibly terminate the JVM ({@code System.exit(int)}, {@code Runtime.exit(int)},
  * or {@code Runtime.halt(int)}), which bypass orderly application and container shutdown.
+ *
+ * <p>{@code System.exit(int)} is exempt when called directly from a static {@code main} method: this
+ * is Spring Boot's own officially documented pattern for propagating an {@code ExitCodeGenerator}
+ * result from CLI/batch applications, {@code System.exit(SpringApplication.exit(context, ...))}. See
+ * the Spring Boot reference docs, "Application Exit":
+ * https://docs.spring.io/spring-boot/reference/features/spring-application.html#features.spring-application.application-exit
+ * . A {@code System.exit} call from anywhere else &mdash; a service, controller, or other
+ * business-logic class &mdash; is still flagged, as are all {@code Runtime.exit}/{@code Runtime.halt}
+ * calls regardless of origin.
  */
 final class NoSystemExitRule extends AbstractArchitectureRule {
 
@@ -359,8 +381,14 @@ final class NoSystemExitRule extends AbstractArchitectureRule {
                 "Classes should not forcibly terminate the JVM",
                 ArchitectureCategory.CODING_PRACTICES,
                 "HIGH",
-                "Detects calls to System.exit(int), Runtime.exit(int), or Runtime.halt(int), which abruptly terminate the JVM and bypass orderly shutdown.",
-                "Let the container or application framework manage the lifecycle instead of calling System.exit() or Runtime.exit()/halt().",
+                "Detects calls to System.exit(int), Runtime.exit(int), or Runtime.halt(int), which abruptly"
+                        + " terminate the JVM and bypass orderly shutdown. Exempts System.exit(int) called directly"
+                        + " from a static main method, which is Spring Boot's documented"
+                        + " System.exit(SpringApplication.exit(context, ...)) exit-code idiom for CLI/batch apps.",
+                "Let the container or application framework manage the lifecycle instead of calling System.exit() or"
+                        + " Runtime.exit()/halt(). If you do need to propagate a process exit code from a CLI/batch"
+                        + " application, call System.exit(SpringApplication.exit(context, ...)) from the static main"
+                        + " method only.",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/System.html#exit(int)"));
     }
 
@@ -368,12 +396,30 @@ final class NoSystemExitRule extends AbstractArchitectureRule {
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
                 .should()
-                .callMethod(System.class, "exit", int.class)
+                .callMethodWhere(
+                        new DescribedPredicate<JavaMethodCall>(
+                                "System.exit(int) is called from a method other than a static main entry point") {
+                            @Override
+                            public boolean test(JavaMethodCall call) {
+                                return isSystemExit(call.getTarget()) && !isStaticMainMethod(call.getOrigin());
+                            }
+                        })
                 .orShould()
                 .callMethod(Runtime.class, "exit", int.class)
                 .orShould()
                 .callMethod(Runtime.class, "halt", int.class)
                 .as("Classes should not forcibly terminate the JVM");
+    }
+
+    private static boolean isSystemExit(MethodCallTarget target) {
+        return target.getName().equals("exit")
+                && target.getOwner().isEquivalentTo(System.class)
+                && target.getRawParameterTypes().size() == 1
+                && target.getRawParameterTypes().get(0).isEquivalentTo(int.class);
+    }
+
+    private static boolean isStaticMainMethod(JavaCodeUnit origin) {
+        return origin.getName().equals("main") && origin.getModifiers().contains(JavaModifier.STATIC);
     }
 }
 
@@ -707,9 +753,30 @@ final class InterfacesShouldNotHaveInterfaceSuffixRule extends AbstractArchitect
 }
 
 /**
- * Flags loggers that are not private static final.
+ * Flags loggers that are not private static final, except for two well-known alternate patterns.
+ *
+ * <p>Container-managed injection points ({@code @Inject}/{@code @Autowired}/{@code @Resource}) are
+ * exempt entirely: a field wired by the container is non-static by construction, so the idiomatic
+ * Quarkus CDI pattern {@code @Inject Logger log;} is not a violation. See the Quarkus Logging guide's
+ * "logging with injection" section: https://quarkus.io/guides/logging#logging-with-injection .
+ *
+ * <p>A {@code protected}, non-static, {@code final} logger declared in an abstract base class and
+ * initialized via {@code LoggerFactory.getLogger(getClass())} is also accepted as an alternate valid
+ * pattern: subclasses inherit the field and each logs under its own runtime class name, which requires
+ * the field to be an instance (non-static) member. The SLF4J FAQ explicitly declines to recommend
+ * static over instance loggers ("we no longer recommend one approach over the other") and documents
+ * instance loggers as IOC-friendly: https://www.slf4j.org/faq.html#declared_static . This is
+ * implemented as an alternate passing condition alongside the primary private/static/final rule, not a
+ * weakening of it: a plain non-final, non-static, non-injected, non-abstract-base-class logger field
+ * (e.g. a mutable public field) still fails.
  */
 final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRule {
+
+    private static final Set<String> CONTAINER_MANAGED_ANNOTATIONS = Set.of(
+            "jakarta.inject.Inject",
+            "javax.inject.Inject",
+            "org.springframework.beans.factory.annotation.Autowired",
+            "jakarta.annotation.Resource");
 
     LoggersShouldBePrivateStaticFinalRule() {
         super(new ArchitectureRuleDefinition(
@@ -717,9 +784,16 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                 "Loggers should be private static final",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects logger fields (SLF4J, Log4j2, Commons Logging, JBoss Logging, java.util.logging, or Logback) that are not private, static, and final.",
-                "Make logger fields private, static, and final to avoid visibility issues and unnecessary allocations.",
-                "https://www.slf4j.org/manual.html"));
+                "Detects logger fields (SLF4J, Log4j2, Commons Logging, JBoss Logging, java.util.logging, or"
+                        + " Logback) that are not private, static, and final. Exempts container-managed injection"
+                        + " points (@Inject/@Autowired/@Resource, e.g. Quarkus's `@Inject Logger log;`) and a"
+                        + " protected, non-static, final logger declared in an abstract base class and initialized"
+                        + " via LoggerFactory.getLogger(getClass()) so each subclass logs under its own name.",
+                "Make logger fields private, static, and final. For a logger shared with subclasses, declare it"
+                        + " protected, non-static, and final in an abstract base class, initialized with"
+                        + " LoggerFactory.getLogger(getClass()). Container-managed logger injection points are"
+                        + " exempt because the container wires them, not the class itself.",
+                "https://www.slf4j.org/faq.html#declared_static"));
     }
 
     @Override
@@ -736,13 +810,59 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                 .haveRawType("org.jboss.logging.Logger")
                 .or()
                 .haveRawType("ch.qos.logback.classic.Logger")
-                .should()
-                .bePrivate()
-                .andShould()
-                .beStatic()
-                .andShould()
-                .beFinal()
+                .should(
+                        new ArchCondition<JavaField>("be private, static and final; a container-managed injection"
+                                + " point; or a protected instance logger in an abstract base class") {
+                            @Override
+                            public void check(JavaField field, ConditionEvents events) {
+                                if (isContainerManagedInjectionPoint(field)
+                                        || isPrivateStaticFinal(field)
+                                        || isProtectedAbstractBaseClassLogger(field)) {
+                                    return;
+                                }
+                                events.add(SimpleConditionEvent.violated(
+                                        field,
+                                        "Logger field " + field.getFullName()
+                                                + " should be private, static, and final (or,"
+                                                + " for a base-class logger shared with subclasses, protected, final, and"
+                                                + " initialized via LoggerFactory.getLogger(getClass()) in an abstract"
+                                                + " class)"));
+                            }
+                        })
                 .allowEmptyShould(true);
+    }
+
+    private static boolean isContainerManagedInjectionPoint(JavaField field) {
+        return CONTAINER_MANAGED_ANNOTATIONS.stream().anyMatch(field::isAnnotatedWith);
+    }
+
+    private static boolean isPrivateStaticFinal(JavaField field) {
+        Set<JavaModifier> modifiers = field.getModifiers();
+        return modifiers.contains(JavaModifier.PRIVATE)
+                && modifiers.contains(JavaModifier.STATIC)
+                && modifiers.contains(JavaModifier.FINAL);
+    }
+
+    private static boolean isProtectedAbstractBaseClassLogger(JavaField field) {
+        Set<JavaModifier> modifiers = field.getModifiers();
+        if (!modifiers.contains(JavaModifier.PROTECTED)
+                || modifiers.contains(JavaModifier.STATIC)
+                || !modifiers.contains(JavaModifier.FINAL)) {
+            return false;
+        }
+        if (!field.getOwner().getModifiers().contains(JavaModifier.ABSTRACT)) {
+            return false;
+        }
+        return field.getAccessesToSelf().stream()
+                .filter(access -> access.getAccessType() == JavaFieldAccess.AccessType.SET)
+                .map(JavaFieldAccess::getOrigin)
+                .anyMatch(LoggersShouldBePrivateStaticFinalRule::callsGetClass);
+    }
+
+    private static boolean callsGetClass(JavaCodeUnit origin) {
+        return origin.getMethodCallsFromSelf().stream()
+                .anyMatch(call -> call.getTarget().getName().equals("getClass")
+                        && call.getTarget().getRawParameterTypes().isEmpty());
     }
 }
 
@@ -757,7 +877,7 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
                 "Application classes should not depend on test frameworks",
                 ArchitectureCategory.CODING_PRACTICES,
                 "MEDIUM",
-                "Detects dependencies from application classes to common test-only APIs such as JUnit, Mockito, AssertJ, Spring Test, Hamcrest, or Testcontainers.",
+                "Detects dependencies from application classes to common test-only APIs such as JUnit, Mockito, AssertJ, Hamcrest, Testcontainers, Spring Test, Quarkus's @QuarkusTest, or RestAssured.",
                 "Move test helpers and assertions to test sources; production code should not depend on test frameworks.",
                 "https://www.archunit.org/userguide/html/000_Index.html"));
     }
@@ -774,7 +894,9 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
                         "org.hamcrest..",
                         "org.springframework.boot.test..",
                         "org.springframework.test..",
-                        "org.testcontainers..");
+                        "org.testcontainers..",
+                        "io.quarkus.test..",
+                        "io.restassured..");
     }
 }
 
@@ -1349,51 +1471,6 @@ final class ConfigurationPropertiesShouldBeImmutableRule extends AbstractArchite
 }
 
 /**
- * Flags dependencies among {@code @Controller} / {@code @RestController}, {@code @Service}, and
- * {@code @Repository} beans that do not follow the canonical web -&gt; service -&gt; repository
- * direction.
- *
- * <p>This is the holistic, slice-based complement to the individual stereotype dependency rules:
- * each stereotype layer may be accessed only from itself or the layer immediately above it, so the
- * dependency graph between the three layers stays directed and downward. Only dependencies whose
- * source and target are both annotated stereotypes are considered, so plain classes never trigger
- * a violation.</p>
- */
-final class LayeredArchitectureDirectionRule extends AbstractArchitectureRule {
-
-    LayeredArchitectureDirectionRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-SPRING-016",
-                "Layered architecture dependencies should flow from web to service to repository",
-                ArchitectureCategory.SPRING_STEREOTYPES,
-                "MEDIUM",
-                "Detects dependencies among @Controller/@RestController, @Service, and @Repository beans that violate the web -> service -> repository direction.",
-                "Keep dependencies flowing downward: controllers depend on services, services depend on repositories, and lower layers never depend on higher ones.",
-                "https://www.archunit.org/userguide/html/000_Index.html#_layer_checks"));
-    }
-
-    @Override
-    ArchRule rule(ArchitectureContext context) {
-        return layeredArchitecture()
-                .consideringOnlyDependenciesInLayers()
-                .withOptionalLayers(true)
-                .layer("Web")
-                .definedBy(SpringStereotypes.CONTROLLER_ANNOTATED)
-                .layer("Service")
-                .definedBy(SpringStereotypes.SERVICE_ANNOTATED)
-                .layer("Persistence")
-                .definedBy(SpringStereotypes.REPOSITORY_ANNOTATED)
-                .whereLayer("Web")
-                .mayOnlyBeAccessedByLayers("Web")
-                .whereLayer("Service")
-                .mayOnlyBeAccessedByLayers("Web", "Service")
-                .whereLayer("Persistence")
-                .mayOnlyBeAccessedByLayers("Service", "Persistence")
-                .as("Layered architecture dependencies should flow from web to service to repository");
-    }
-}
-
-/**
  * Flags direct calls between {@code @Bean} methods declared in the same class when that class is not
  * a full {@code @Configuration(proxyBeanMethods=true)}. In lite mode such a call is a plain method
  * invocation, so the Spring container does not intercept it and a second, unmanaged instance is
@@ -1691,5 +1768,68 @@ final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractAr
             }
         }
         return null;
+    }
+}
+
+/**
+ * Flags direct {@code new Thread(...)} construction (including instantiating a class that extends
+ * {@code Thread}) from application code.
+ *
+ * <p>An unmanaged thread bypasses pool sizing, naming, and uncaught-exception handling, and sits
+ * outside both frameworks' managed-concurrency story: Spring's {@code TaskExecutor} / {@code @Async}
+ * (and {@code spring.threads.virtual.enabled} on Java 21+), or Quarkus's {@code ManagedExecutor} /
+ * {@code @RunOnVirtualThread}. This mirrors Effective Java Item 80, "Prefer executors, tasks, and
+ * streams to threads", and the JDK {@code java.util.concurrent.Executor} Javadoc. See the Quarkus
+ * context-propagation guide: https://quarkus.io/guides/context-propagation .
+ */
+final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
+
+    NoDirectThreadInstantiationRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-017",
+                "Classes should not directly instantiate Thread",
+                ArchitectureCategory.CODING_PRACTICES,
+                "MEDIUM",
+                "Detects new Thread(...) construction (including instantiating a Thread subclass), which bypasses pool sizing/naming/uncaught-exception handling and does not participate in Spring's TaskExecutor/@Async or Quarkus's ManagedExecutor/@RunOnVirtualThread managed-concurrency model.",
+                "Use a managed executor instead of instantiating Thread directly: java.util.concurrent.ExecutorService/Executors, Spring's TaskExecutor or @Async, or Quarkus's ManagedExecutor or @RunOnVirtualThread.",
+                "https://quarkus.io/guides/context-propagation"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses()
+                .should()
+                .callConstructorWhere(new DescribedPredicate<JavaConstructorCall>("a Thread constructor is called") {
+                    @Override
+                    public boolean test(JavaConstructorCall call) {
+                        return call.getTarget().getOwner().isAssignableTo(Thread.class);
+                    }
+                })
+                .as("Classes should not directly instantiate Thread");
+    }
+}
+
+/**
+ * Flags {@code assert} statements (compiled as a no-arg {@code new AssertionError()}) that have no
+ * detail message, which produce near-useless failure diagnostics.
+ *
+ * <p>Wires in ArchUnit's own ready-made {@code GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE}.
+ */
+final class AssertionsShouldHaveDetailMessageRule extends AbstractArchitectureRule {
+
+    AssertionsShouldHaveDetailMessageRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-018",
+                "Assertions should have a detail message",
+                ArchitectureCategory.CODING_PRACTICES,
+                "INFO",
+                "Detects assert statements (compiled as new AssertionError() with no arguments) that have no detail message, which produce near-useless failure diagnostics.",
+                "Add a detail message, e.g. \"assert x > 0 : \\\"x must be positive\\\";\", so a failure explains what was expected.",
+                "https://www.archunit.org/userguide/html/000_Index.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE;
     }
 }

@@ -59,9 +59,10 @@ Severity reflects the worst plausible impact if the finding is real, not the lik
 
 - **CRITICAL** — supported for the most severe correctness or safety problems. No active check currently emits this
   severity.
-- **HIGH** — a serious structural problem with clear maintenance impact.
-- **MEDIUM** — weakens maintainability or layering and usually warrants a fix (e.g. package cycles, field injection,
-  layering inversions).
+- **HIGH** — a serious structural problem with clear maintenance impact (e.g. package cycles — see ARCH-PKG-001 — or
+  forcibly terminating the JVM).
+- **MEDIUM** — weakens maintainability or layering and usually warrants a fix (e.g. field injection, layering
+  inversions).
 - **LOW** — defense-in-depth / hygiene gap (e.g. standard-stream use, generic exceptions, `java.util.logging`).
 - **INFO** — informational convention prompt (e.g. legacy library use, deprecated APIs).
 
@@ -129,11 +130,14 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Fires when**: a class references Joda-Time types instead of `java.time`.
 - **Recommendation**: migrate Joda-Time usage to the standard `java.time` API.
 
-### ARCH-CODE-005 — Classes should not call Throwable.printStackTrace()
+### ARCH-CODE-005 — Classes should not call Throwable.printStackTrace(PrintStream/PrintWriter)
 
 - **Severity**: LOW
-- **Inspects**: calls to `Throwable.printStackTrace()` on any exception type.
-- **Fires when**: a class calls `printStackTrace()` instead of logging the exception.
+- **Inspects**: calls to the `Throwable.printStackTrace(PrintStream)` or `printStackTrace(PrintWriter)` overloads.
+- **Fires when**: a class calls one of the arg-taking `printStackTrace` overloads instead of logging the exception. The
+  no-arg `printStackTrace()` overload is deliberately **not** matched here: it is already covered by ARCH-CODE-001
+  (ArchUnit's built-in standard-streams check matches the no-arg overload directly), so this rule only reports the
+  overloads ARCH-CODE-001 does not, instead of double-reporting the same no-arg call site under two rule IDs.
 - **Recommendation**: log the exception through the project logging facade (e.g. SLF4J) so the stack trace is structured
   and configurable.
 
@@ -142,8 +146,15 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Severity**: HIGH
 - **Inspects**: calls to `System.exit(int)`, `Runtime.exit(int)`, or `Runtime.halt(int)`.
 - **Fires when**: a class abruptly terminates the JVM instead of letting the framework manage shutdown.
+  `System.exit(int)` is exempt when called directly from a static `main` method: this is Spring Boot's own officially
+  documented pattern for propagating an `ExitCodeGenerator` result from CLI/batch applications,
+  `System.exit(SpringApplication.exit(context, ...))` — see the Spring Boot reference docs,
+  ["Application Exit"](https://docs.spring.io/spring-boot/reference/features/spring-application.html#features.spring-application.application-exit).
+  A `System.exit` call from anywhere else — a service, controller, or other business-logic class — is still flagged, as
+  are all `Runtime.exit`/`Runtime.halt` calls regardless of origin.
 - **Recommendation**: let the container or application framework manage the lifecycle instead of calling
-  `System.exit()`, `Runtime.exit()`, or `Runtime.halt()`.
+  `System.exit()`, `Runtime.exit()`, or `Runtime.halt()`. If you do need to propagate a process exit code from a
+  CLI/batch application, call `System.exit(SpringApplication.exit(context, ...))` from the static `main` method only.
 
 ### ARCH-CODE-007 — Classes should not access JDK-internal APIs
 
@@ -189,15 +200,26 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Severity**: LOW
 - **Inspects**: logger fields whose raw type is SLF4J, Log4j2, Commons Logging, JBoss Logging, `java.util.logging`, or
   Logback.
-- **Fires when**: a logger field is not `private`, `static`, and `final`.
+- **Fires when**: a logger field is not `private`, `static`, and `final` — with two recognized alternate patterns.
+  Container-managed injection points (`@Inject`/`@Autowired`/`@Resource`, e.g. Quarkus's idiomatic `@Inject Logger
+  log;`) are exempt entirely, since a field wired by the container is non-static by construction — see the
+  [Quarkus Logging guide's "logging with injection" section](https://quarkus.io/guides/logging#logging-with-injection).
+  A `protected`, non-static, `final` logger declared in an abstract base class and initialized via
+  `LoggerFactory.getLogger(getClass())` is also accepted: subclasses inherit the field and each logs under its own
+  runtime class name, which requires the field to be an instance member; the SLF4J FAQ explicitly declines to
+  recommend static over instance loggers ("we no longer recommend one approach over the other") and documents instance
+  loggers as IOC-friendly — see the [SLF4J FAQ](https://www.slf4j.org/faq.html#declared_static). A plain non-final,
+  non-static, non-injected, non-abstract-base-class logger field (e.g. a mutable public field) still fails.
 - **Recommendation**: make logger fields `private static final` to avoid accidental external access and per-instance
-  logger allocations.
+  logger allocations. For a logger shared with subclasses, declare it `protected`, non-static, and `final` in an
+  abstract base class, initialized with `LoggerFactory.getLogger(getClass())`. Container-managed logger injection
+  points are exempt because the container wires them, not the class itself.
 
 ### ARCH-CODE-013 — Application classes should not depend on test frameworks
 
 - **Severity**: MEDIUM
 - **Inspects**: dependencies on common test-only APIs such as JUnit, Mockito, AssertJ, Hamcrest, Spring Test, Spring Boot
-  Test, or Testcontainers.
+  Test, Testcontainers, Quarkus's `@QuarkusTest` (`io.quarkus.test..`), or RestAssured (`io.restassured..`).
 - **Fires when**: an application class references a test framework type.
 - **Why it matters**: production code that depends on test frameworks is usually an accidental source-set leak and can
   pull unnecessary or unavailable test libraries into runtime code.
@@ -238,6 +260,33 @@ include up to a handful of sample detail lines from ArchUnit.
   Spring annotations anywhere on its classpath.
 - **Recommendation**: prefer constructor injection so dependencies are explicit, final, and easy to test; CDI containers
   such as Quarkus' Arc inject constructor parameters just as readily as fields.
+
+### ARCH-CODE-017 — Classes should not directly instantiate Thread
+
+- **Severity**: MEDIUM
+- **Inspects**: `new Thread(...)` constructor calls, including instantiating a class that extends `Thread`.
+- **Fires when**: application code directly constructs a `Thread` (or a `Thread` subclass) instead of using a managed
+  executor.
+- **Why it matters**: an unmanaged thread bypasses pool sizing, naming, and uncaught-exception handling, and sits
+  outside both frameworks' managed-concurrency story — Spring's `TaskExecutor` / `@Async` (and
+  `spring.threads.virtual.enabled` on Java 21+), or Quarkus's `ManagedExecutor` / `@RunOnVirtualThread`. This mirrors
+  [Effective Java Item 80](https://www.oreilly.com/library/view/effective-java-3rd/9780134686097/), "Prefer executors,
+  tasks, and streams to threads", and the JDK `java.util.concurrent.Executor` Javadoc. See the
+  [Quarkus context-propagation guide](https://quarkus.io/guides/context-propagation).
+- **Recommendation**: use a managed executor instead of instantiating `Thread` directly:
+  `java.util.concurrent.ExecutorService`/`Executors`, Spring's `TaskExecutor` or `@Async`, or Quarkus's
+  `ManagedExecutor` or `@RunOnVirtualThread`.
+
+### ARCH-CODE-018 — Assertions should have a detail message
+
+- **Severity**: INFO
+- **Inspects**: `assert` statements, which compile to a no-arg `new AssertionError()` when they have no detail message
+  (via ArchUnit's built-in `GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE`).
+- **Fires when**: a class contains an `assert` statement with no detail message (`assert x > 0;`), which produces a
+  near-useless failure diagnostic. An `assert` with a message (`assert x > 0 : "x must be positive";`) compiles to the
+  message-taking overload and is not matched.
+- **Recommendation**: add a detail message, e.g. `assert x > 0 : "x must be positive";`, so a failure explains what was
+  expected.
 
 ## Spring stereotypes
 
@@ -410,19 +459,15 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Recommendation**: bind configuration through a record or a constructor with `final` fields so configuration state is
   immutable.
 
-### ARCH-SPRING-016 — Layered architecture dependencies should flow from web to service to repository
-
-- **Severity**: MEDIUM
-- **Inspects**: dependencies among `@Controller` / `@RestController` (web), `@Service` (service), and `@Repository`
-  (persistence) beans. Only dependencies whose source and target are both stereotype-annotated are considered, so plain
-  classes never trigger a violation.
-- **Fires when**: a dependency runs against the canonical `web → service → repository` direction — for example a
-  controller depending directly on a repository (skipping the service layer), a repository depending on a service, or any
-  lower layer depending on a higher one.
-- **Why it matters**: this is the holistic, slice-based complement to the individual stereotype dependency rules; keeping
-  the three stereotype layers in a single downward direction preserves a clean, testable layering.
-- **Recommendation**: keep dependencies flowing downward — controllers depend on services, services depend on
-  repositories, and lower layers never depend on higher ones.
+> **Removed: ARCH-SPRING-016** ("Layered architecture dependencies should flow from web to service to repository"). This
+> holistic rule used ArchUnit's `layeredArchitecture()` over the same three stereotype layers (web/service/persistence)
+> that ARCH-SPRING-002 (controllers → repositories), ARCH-SPRING-003 (repositories → controllers), ARCH-SPRING-006
+> (services → controllers), and ARCH-SPRING-007 (repositories → services) already check individually. Its violation set
+> was verified to be the exact union of what those four pairwise rules already catch, so every real violation was being
+> reported **twice** — once under its specific pairwise rule ID, once under ARCH-SPRING-016 — inflating the panel's
+> violation and severity counts. The rule was removed and the four granular pairwise rules were kept, since they give
+> clearer, more specific per-pair messages (e.g. "Controller X depends on Repository Y" is more actionable than a
+> generic layer-violation message).
 
 ### ARCH-SPRING-017 — Lite-mode @Bean methods should not call sibling @Bean methods
 
