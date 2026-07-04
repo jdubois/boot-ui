@@ -407,8 +407,8 @@ class SqlTraceRecorderTests {
         }
 
         @Override
-        public void onSqlStatement(boolean nPlusOneSuspected) {
-            calls.add(nPlusOneSuspected);
+        public void onSqlStatement(java.util.function.BooleanSupplier nPlusOneSuspected) {
+            calls.add(nPlusOneSuspected != null && nPlusOneSuspected.getAsBoolean());
         }
     }
 }

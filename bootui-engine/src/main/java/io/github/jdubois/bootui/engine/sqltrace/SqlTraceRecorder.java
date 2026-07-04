@@ -254,8 +254,9 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         if (!enricher.enabled()) {
             return;
         }
-        boolean nPlusOne = traceId != null && suspectsNPlusOne(traceId);
-        enricher.onSqlStatement(nPlusOne);
+        // Supply the N+1 suspicion lazily: the enricher evaluates it only while the span is not yet flagged,
+        // so the per-trace grouping scan is skipped once a request is already suspected (and when uncorrelated).
+        enricher.onSqlStatement(() -> traceId != null && suspectsNPlusOne(traceId));
     }
 
     private boolean suspectsNPlusOne(String traceId) {

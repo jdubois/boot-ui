@@ -4,6 +4,7 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 
 /**
  * OpenTelemetry-backed {@link SpanEnricher}: stamps {@code bootui.*} depth attributes on the currently
@@ -44,7 +45,7 @@ public final class OtelSpanEnricher implements SpanEnricher {
     }
 
     @Override
-    public void onSqlStatement(boolean nPlusOneSuspected) {
+    public void onSqlStatement(BooleanSupplier nPlusOneSuspected) {
         if (!enabled()) {
             return;
         }
@@ -59,7 +60,11 @@ public final class OtelSpanEnricher implements SpanEnricher {
             boolean nPlusOne;
             synchronized (state) {
                 state.sqlQueries++;
-                state.nPlusOne |= nPlusOneSuspected;
+                // Evaluate the (potentially O(n)) N+1 grouping scan only while this span is not yet flagged;
+                // once suspected it is sticky, so subsequent statements skip the supplier entirely.
+                if (!state.nPlusOne && nPlusOneSuspected != null && nPlusOneSuspected.getAsBoolean()) {
+                    state.nPlusOne = true;
+                }
                 queries = state.sqlQueries;
                 nPlusOne = state.nPlusOne;
             }

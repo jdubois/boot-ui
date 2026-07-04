@@ -71,8 +71,8 @@ class SpanEnrichmentTests {
                     .setSpanKind(SpanKind.SERVER)
                     .startSpan();
             try (Scope scope = span.makeCurrent()) {
-                enricher.onSqlStatement(false);
-                enricher.onSqlStatement(true);
+                enricher.onSqlStatement(() -> false);
+                enricher.onSqlStatement(() -> true);
                 enricher.onException("java.lang.IllegalStateException");
             } finally {
                 span.end();
@@ -107,7 +107,7 @@ class SpanEnrichmentTests {
     void enricherIsInertWithoutAnActiveSpan() {
         OtelSpanEnricher enricher = new OtelSpanEnricher(ENABLED);
         // No current span: the invalid span context short-circuits without throwing.
-        enricher.onSqlStatement(true);
+        enricher.onSqlStatement(() -> true);
         enricher.onException("java.lang.RuntimeException");
         assertThat(enricher.enabled()).isTrue();
     }
@@ -127,7 +127,7 @@ class SpanEnrichmentTests {
                     .setSpanKind(SpanKind.SERVER)
                     .startSpan();
             try (Scope scope = span.makeCurrent()) {
-                enricher.onSqlStatement(true);
+                enricher.onSqlStatement(() -> true);
                 enricher.onException("java.lang.IllegalStateException");
             } finally {
                 span.end();
@@ -140,6 +140,53 @@ class SpanEnrichmentTests {
                     .isNull();
             assertThat(stored.attributes().get(BootUiSpanAttributes.EXCEPTIONS)).isNull();
             assertThat(enricher.enabled()).isFalse();
+        } finally {
+            provider.shutdown().join(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void noOpEnricherIsDisabledAndSwallowsCalls() {
+        assertThat(SpanEnricher.NO_OP.enabled()).isFalse();
+        // No-op must never throw regardless of arguments, even with a supplier that would throw if invoked.
+        SpanEnricher.NO_OP.onSqlStatement(() -> {
+            throw new IllegalStateException("supplier must not be evaluated by the no-op enricher");
+        });
+        SpanEnricher.NO_OP.onException("java.lang.RuntimeException");
+    }
+
+    @Test
+    void nPlusOneSupplierIsEvaluatedOnlyUntilTheSpanIsFlagged() {
+        OtelSpanEnricher enricher = new OtelSpanEnricher(ENABLED);
+        SdkTracerProvider provider = SdkTracerProvider.builder()
+                .setResource(Resource.create(Attributes.empty()))
+                .build();
+        java.util.concurrent.atomic.AtomicInteger evaluations = new java.util.concurrent.atomic.AtomicInteger();
+        try {
+            Span span = provider.get("test")
+                    .spanBuilder("GET /api/orders")
+                    .setSpanKind(SpanKind.SERVER)
+                    .startSpan();
+            try (Scope scope = span.makeCurrent()) {
+                // First statement: not yet suspected — supplier evaluated, stays unflagged.
+                enricher.onSqlStatement(() -> {
+                    evaluations.incrementAndGet();
+                    return false;
+                });
+                // Second statement: suspected — supplier evaluated, flags the span sticky.
+                enricher.onSqlStatement(() -> {
+                    evaluations.incrementAndGet();
+                    return true;
+                });
+                // Third statement: already flagged — supplier must be skipped entirely.
+                enricher.onSqlStatement(() -> {
+                    evaluations.incrementAndGet();
+                    return true;
+                });
+            } finally {
+                span.end();
+            }
+            assertThat(evaluations.get()).isEqualTo(2);
         } finally {
             provider.shutdown().join(1, TimeUnit.SECONDS);
         }

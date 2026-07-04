@@ -162,7 +162,9 @@ const enrichment = computed(() => {
     const excType = attrValue(span, 'bootui.exception.type')
     if (excType) exceptionTypes.add(excType)
   }
-  if (!enriched && sqlQueries === 0 && exceptions === 0) return null
+  if (!enriched && sqlQueries === 0 && exceptions === 0 && services.size === 0 && exceptionTypes.size === 0) {
+    return null
+  }
   return {
     enriched,
     sqlQueries,
