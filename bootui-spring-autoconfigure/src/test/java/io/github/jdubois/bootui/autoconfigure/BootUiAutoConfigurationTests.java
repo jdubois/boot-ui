@@ -604,6 +604,34 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void registersSpanEnrichmentBeansWithTheExporter() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            assertThat(context).hasBean("bootUiIdentitySpanProcessor");
+            assertThat(context).hasBean("bootUiSpanEnricher");
+            assertThat(context).hasBean("bootUiSpanEnricherInstaller");
+        });
+    }
+
+    @Test
+    void skipsSpanEnrichmentBeansWhenTelemetryIsDisabled() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.telemetry.enabled=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean("bootUiIdentitySpanProcessor");
+                    assertThat(context).doesNotHaveBean("bootUiSpanEnricher");
+                    assertThat(context).doesNotHaveBean("bootUiSpanEnricherInstaller");
+                });
+    }
+
+    @Test
+    void skipsSpanEnrichmentBeansWhenTracesPanelIsDisabled() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.panels.traces.enabled=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean("bootUiIdentitySpanProcessor");
+                    assertThat(context).doesNotHaveBean("bootUiSpanEnricher");
+                });
+    }
+
+    @Test
     void skipsLogTailPanelWhenLogbackIsMissing() {
         runner.withPropertyValues("bootui.enabled=ON")
                 .withClassLoader(new FilteredClassLoader("ch.qos.logback.classic"))
