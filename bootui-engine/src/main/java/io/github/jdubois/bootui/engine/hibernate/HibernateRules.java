@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
+import java.io.Serializable;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -673,11 +674,11 @@ final class MultipleBagCollectionRule extends AbstractHibernateRule {
         super(
                 new HibernateRuleDefinition(
                         "HIB-FETCH-004",
-                        "Entities should avoid multiple bag collections",
+                        "Review entities with multiple bag collections",
                         HibernateCategory.FETCHING,
-                        "MEDIUM",
-                        "Detects entities with two or more unordered List/Collection associations.",
-                        "Fetch at most one bag collection per query, add @OrderColumn when list order is persistent, or split loading into targeted queries.",
+                        "INFO",
+                        "Detects entities with two or more unordered List/Collection associations (bags). Declaring multiple bags is common and safe on its own - the risk is only realized if two of them are ever join-fetched in the same query, which throws MultipleBagFetchException. HIB-QUERY-007 already flags that specific case (JOIN FETCH of 2+ collections in the same query); this is an informational reminder to keep it that way.",
+                        "No action is required unless you plan to fetch these together: never JOIN FETCH more than one of these collections in the same query. Add @OrderColumn when list order is persistent, or use Set<> if you do need to fetch two of them eagerly in one query.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies"));
     }
 
@@ -1363,7 +1364,7 @@ final class GeneratedValueWithoutStrategyRule extends AbstractHibernateRule {
                         "@GeneratedValue should declare an explicit strategy",
                         HibernateCategory.IDENTIFIERS,
                         "MEDIUM",
-                        "Detects @GeneratedValue without an explicit strategy, which defaults to AUTO. Hibernate's GeneratorBinder always resolves AUTO to its own SequenceStyleGenerator - a database SEQUENCE where the dialect supports one (PostgreSQL, Oracle, H2, SQL Server) or a slower table-based fallback otherwise (e.g. MySQL) - never the database's native IDENTITY/auto-increment column.",
+                        "Detects @GeneratedValue without an explicit strategy, which defaults to AUTO. For a numeric identifier, Hibernate's GeneratorBinder always resolves AUTO to its own SequenceStyleGenerator - a database SEQUENCE where the dialect supports one (PostgreSQL, Oracle, H2, SQL Server) or a slower table-based fallback otherwise (e.g. MySQL) - never the database's native IDENTITY/auto-increment column. UUID-typed identifiers are a distinct case Hibernate resolves to UuidGenerator instead; HIB-ID-005 owns that finding so it is excluded here.",
                         "Pick the strategy that fits the database (SEQUENCE with allocationSize on Postgres/Oracle, IDENTITY only when truly required) and set it explicitly instead of relying on AUTO's dialect-dependent sequence-or-table fallback.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-auto"));
     }
@@ -1380,6 +1381,12 @@ final class GeneratedValueWithoutStrategyRule extends AbstractHibernateRule {
                 // Panache's own PanacheEntity declares "@Id @GeneratedValue public Long id" with no explicit
                 // strategy; the application inherits it as-is and cannot annotate it, so it is not a real finding.
                 if (HibernateRuleModelSupport.isFrameworkDeclaredPanacheIdentifier(attribute)) {
+                    continue;
+                }
+                // AUTO on a UUID-typed identifier resolves to Hibernate's UuidGenerator, not a sequence; that
+                // case - and its own remediation - belongs exclusively to HIB-ID-005, so double-reporting the
+                // same attribute here (with a rationale that is factually wrong for UUID ids) is avoided.
+                if (attribute.isUuidType()) {
                     continue;
                 }
                 String strategy = attribute.annotationValueName(generated, "strategy");
@@ -1402,20 +1409,24 @@ final class UuidIdentifierGeneratorRule extends AbstractHibernateRule {
                         HibernateCategory.IDENTIFIERS,
                         "LOW",
                         "Detects UUID identifiers that rely on @GeneratedValue without the Hibernate @UuidGenerator strategy.",
-                        "Annotate UUID identifiers with @UuidGenerator (TIME for index-friendly v6/v7-style values) instead of inheriting the JPA default, which yields random v4 UUIDs that fragment B-tree indexes.",
+                        "Annotate UUID identifiers with @UuidGenerator instead of inheriting the JPA default, which yields random v4 UUIDs that fragment B-tree indexes. On Hibernate 7.0+, prefer style = VERSION_7 (VERSION_6 is also acceptable) for monotonic, index-friendly values; before 7.0, only style = TIME is available - it produces an RFC 4122 version 1 UUID, which is not materially more index-friendly than a random UUID.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-uuid"));
     }
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         List<String> details = new ArrayList<>();
+        String recommendedStyle = context.hibernateVersion().isAtLeastMajorMinor(7, 0)
+                ? "style = VERSION_7 (or VERSION_6): monotonic, index-friendly"
+                : "style = TIME (only pre-7.0 option); RFC 4122 v1, no more index-friendly than random";
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 if (!attribute.hasId() || !attribute.isUuidType()) {
                     continue;
                 }
                 if (attribute.hasGeneratedValue() && !attribute.hasUuidGenerator()) {
-                    details.add(attribute.description() + " is a UUID identifier without @UuidGenerator.");
+                    details.add(attribute.description() + " is a UUID id without @UuidGenerator; use @UuidGenerator("
+                            + recommendedStyle + ").");
                 }
             }
         }
@@ -1429,11 +1440,11 @@ final class ElementCollectionListOrderRule extends AbstractHibernateRule {
         super(
                 new HibernateRuleDefinition(
                         "HIB-MAP-010",
-                        "@ElementCollection List should persist order",
+                        "@ElementCollection List should persist order with @OrderColumn",
                         HibernateCategory.MAPPING,
                         "MEDIUM",
-                        "Detects @ElementCollection List attributes that do not declare @OrderColumn or @OrderBy, so Hibernate treats every change as a delete-and-reinsert.",
-                        "Add @OrderColumn for index-tracked lists or @OrderBy for query-time ordering; otherwise prefer Set<> or be aware that mutations rewrite the entire collection table.",
+                        "Detects @ElementCollection List attributes that do not declare @OrderColumn, so Hibernate cannot compute a minimal diff on mutation and instead deletes and reinserts the entire collection. @OrderBy is not an equivalent fix: it only adds a query-time SQL ORDER BY and is never persisted, so it does not change this mutation behavior at all.",
+                        "Add @OrderColumn to persist the list's index so Hibernate can update rows in place. @OrderBy does not solve the mutation cost - keep it only if you also want read-time ordering, alongside @OrderColumn, not instead of it. Otherwise prefer Set<> if insertion order does not matter.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#collections-list"));
     }
 
@@ -1442,12 +1453,11 @@ final class ElementCollectionListOrderRule extends AbstractHibernateRule {
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
-                if (attribute.isElementCollection()
-                        && attribute.isListAttribute()
-                        && !attribute.hasOrderColumn()
-                        && !attribute.hasOrderBy()) {
-                    details.add(attribute.description()
-                            + " is an @ElementCollection List without @OrderColumn or @OrderBy.");
+                if (attribute.isElementCollection() && attribute.isListAttribute() && !attribute.hasOrderColumn()) {
+                    details.add(attribute.description() + " is an @ElementCollection List without @OrderColumn"
+                            + (attribute.hasOrderBy()
+                                    ? " (its @OrderBy only affects read-time ordering and does not fix this)."
+                                    : "."));
                 }
             }
         }
@@ -1773,7 +1783,10 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
-                if (attribute.publicMember() && !attribute.name().endsWith("()") && !attribute.isTransient()) {
+                // fieldMember (not the "()"-suffixed name heuristic) is what actually distinguishes field
+                // access from property (getter) access; property-access entities resolve their attributes
+                // from a public getter Method, which is fully JPA/Hibernate-instrumented and not a finding.
+                if (attribute.publicMember() && attribute.fieldMember() && !attribute.isTransient()) {
                     details.add(attribute.description() + " is exposed as a public field.");
                 }
             }
@@ -2169,6 +2182,32 @@ final class FormatSqlInProductionRule extends AbstractHibernateRule {
         }
         if (context.isPropertyTrue("spring.jpa.properties.hibernate.format_sql", "hibernate.format_sql")) {
             return violation(List.of("hibernate.format_sql is enabled while a production profile is active."));
+        }
+        return pass();
+    }
+}
+
+final class BindParameterLoggingInProductionRule extends AbstractHibernateRule {
+
+    BindParameterLoggingInProductionRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-CONFIG-018",
+                "Bind-parameter logging should be off in production",
+                HibernateCategory.CONFIGURATION,
+                "HIGH",
+                "Detects TRACE logging for org.hibernate.orm.jdbc.bind (or the legacy org.hibernate.type.descriptor.sql.BasicBinder binder logger, or the Quarkus-native quarkus.hibernate-orm.log.bind-parameters convenience flag) while a production-like profile is active. At TRACE, Hibernate logs every bound parameter value, which can leak PII, credentials, or tokens passed as query parameters into application logs.",
+                "Keep bind-parameter logging off in production; only enable it temporarily, in a non-production environment, while diagnosing a specific issue.",
+                "https://quarkus.io/guides/hibernate-orm"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (!context.isProductionProfileActive()) {
+            return pass();
+        }
+        if (context.isBindParameterLoggingEnabled()) {
+            return violation(
+                    List.of("Bind-parameter logging is enabled at TRACE while a production profile is active."));
         }
         return pass();
     }
@@ -2636,6 +2675,85 @@ final class MissingVersionRule extends AbstractHibernateRule {
     }
 }
 
+final class NaturalIdCandidateRule extends AbstractHibernateRule {
+
+    private static final String NATURAL_ID = "org.hibernate.annotations.NaturalId";
+
+    NaturalIdCandidateRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-ENTITY-009",
+                "Unique business-key columns should consider @NaturalId",
+                HibernateCategory.ENTITY_DESIGN,
+                "INFO",
+                "Detects entities with a @Column(unique = true) attribute, or a @Table(uniqueConstraints = ...) constraint, that have no attribute annotated org.hibernate.annotations.NaturalId.",
+                "If the unique column is a genuine business key (for example email, ISBN, order number), annotate it with org.hibernate.annotations.NaturalId so Hibernate can resolve the entity from the natural-id lookup/cache instead of a full JPQL query. This is advisory: not every unique column is a natural lookup key, so only apply it where it fits.",
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#naturalid"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            boolean hasNaturalId =
+                    entity.attributes().stream().anyMatch(attribute -> attribute.annotation(NATURAL_ID) != null);
+            if (hasNaturalId) {
+                continue;
+            }
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                Annotation column = attribute.columnAnnotation();
+                if (column != null && Boolean.TRUE.equals(attribute.annotationBooleanValue(column, "unique"))) {
+                    details.add(
+                            attribute.description()
+                                    + " is a unique column with no @NaturalId attribute on this entity; if it is a business key (email, ISBN, order number, ...), consider org.hibernate.annotations.NaturalId.");
+                }
+            }
+            Set<String> tableUniqueColumns = tableUniqueConstraintColumns(entity.javaType());
+            if (!tableUniqueColumns.isEmpty()) {
+                details.add(
+                        entity.name() + " declares a @Table unique constraint on column(s) "
+                                + String.join(", ", tableUniqueColumns)
+                                + " with no @NaturalId attribute; if this is a business key, consider org.hibernate.annotations.NaturalId.");
+            }
+        }
+        return violation(details);
+    }
+
+    // Optional JPA type: compare by class name instead of hard-referencing a class that may be absent at runtime.
+    @SuppressWarnings("java:S1872")
+    private Set<String> tableUniqueConstraintColumns(Class<?> javaType) {
+        Set<String> columns = new LinkedHashSet<>();
+        Class<?> current = javaType;
+        while (current != null && current != Object.class) {
+            for (Annotation ann : current.getDeclaredAnnotations()) {
+                if (!"jakarta.persistence.Table".equals(ann.annotationType().getName())) {
+                    continue;
+                }
+                try {
+                    Annotation[] constraints = (Annotation[])
+                            ann.annotationType().getMethod("uniqueConstraints").invoke(ann);
+                    for (Annotation constraint : constraints) {
+                        Object names = constraint
+                                .annotationType()
+                                .getMethod("columnNames")
+                                .invoke(constraint);
+                        if (names instanceof String[] columnNames) {
+                            for (String name : columnNames) {
+                                if (name != null && !name.isBlank()) {
+                                    columns.add(name.trim().toLowerCase(Locale.ROOT));
+                                }
+                            }
+                        }
+                    }
+                } catch (ReflectiveOperationException ex) {
+                    throw new IllegalStateException(ex);
+                }
+            }
+            current = current.getSuperclass();
+        }
+        return columns;
+    }
+}
+
 final class IdentityDisablesBatchingRule extends AbstractHibernateRule {
 
     IdentityDisablesBatchingRule() {
@@ -2673,6 +2791,100 @@ final class IdentityDisablesBatchingRule extends AbstractHibernateRule {
             }
         }
         return violation(details);
+    }
+}
+
+final class CompositeIdentifierContractRule extends AbstractHibernateRule {
+
+    private static final String EMBEDDED_ID = "jakarta.persistence.EmbeddedId";
+    private static final String ID_CLASS = "jakarta.persistence.IdClass";
+
+    CompositeIdentifierContractRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-ID-007",
+                        "Composite identifier classes must satisfy the JPA contract",
+                        HibernateCategory.IDENTIFIERS,
+                        "HIGH",
+                        "Detects @EmbeddedId / @IdClass primary-key classes that are not Serializable, lack a public no-arg constructor, or do not override both equals and hashCode. JPA and Hibernate require all four for a composite identifier class to work correctly.",
+                        "Make the composite identifier class implement Serializable, declare a public no-arg constructor, and override both equals and hashCode over every identifier field; violating any of these can silently break entity equality, second-level caching, and collection lookups.",
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-composite"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        List<String> details = new ArrayList<>();
+        Set<Class<?>> checked = new HashSet<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.annotation(EMBEDDED_ID) != null) {
+                    checkCompositeIdClass(
+                            attribute.rawType(), attribute.description() + " (@EmbeddedId)", checked, details);
+                }
+            }
+            Class<?> idClass = idClassValue(entity.annotationInHierarchy(ID_CLASS));
+            if (idClass != null) {
+                checkCompositeIdClass(idClass, entity.name() + " (@IdClass)", checked, details);
+            }
+        }
+        return violation(details);
+    }
+
+    private static void checkCompositeIdClass(
+            Class<?> idClass, String description, Set<Class<?>> checked, List<String> details) {
+        if (idClass == null || !checked.add(idClass)) {
+            return;
+        }
+        List<String> problems = new ArrayList<>();
+        if (!Serializable.class.isAssignableFrom(idClass)) {
+            problems.add("not Serializable");
+        }
+        if (!hasPublicNoArgConstructor(idClass)) {
+            problems.add("no public no-arg ctor");
+        }
+        if (!overrides(idClass, "equals", Object.class)) {
+            problems.add("no equals() override");
+        }
+        if (!overrides(idClass, "hashCode")) {
+            problems.add("no hashCode() override");
+        }
+        if (!problems.isEmpty()) {
+            // Simple name only: the entity description already gives full package context, and this keeps
+            // the (truncation-bounded) detail message well within HibernateRuleSupport.detail()'s budget.
+            details.add(
+                    description + ": id class " + idClass.getSimpleName() + " is " + String.join(", ", problems) + ".");
+        }
+    }
+
+    private static boolean hasPublicNoArgConstructor(Class<?> type) {
+        try {
+            // getConstructor() (as opposed to getDeclaredConstructor()) only ever returns public constructors,
+            // so success alone already proves the "public no-arg constructor" requirement.
+            type.getConstructor();
+            return true;
+        } catch (NoSuchMethodException ex) {
+            return false;
+        }
+    }
+
+    private static boolean overrides(Class<?> type, String name, Class<?>... parameterTypes) {
+        try {
+            return type.getMethod(name, parameterTypes).getDeclaringClass() != Object.class;
+        } catch (NoSuchMethodException ex) {
+            return false;
+        }
+    }
+
+    private static Class<?> idClassValue(Annotation annotation) {
+        if (annotation == null) {
+            return null;
+        }
+        try {
+            Object value = annotation.annotationType().getMethod("value").invoke(annotation);
+            return value instanceof Class<?> classValue ? classValue : null;
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return null;
+        }
     }
 }
 

@@ -20,6 +20,7 @@ public record HibernateAttributeModel(
         Type genericType,
         String persistentAttributeType,
         boolean publicMember,
+        boolean fieldMember,
         List<Annotation> annotations) {
 
     private static final String BASIC = "jakarta.persistence.Basic";
@@ -54,6 +55,9 @@ public record HibernateAttributeModel(
     static HibernateAttributeModel fromMember(String name, Member member, String persistentAttributeType) {
         RawType rawType = rawType(member);
         String entityName = member.getDeclaringClass().getName();
+        // The JPA metamodel always reports the plain attribute name here (e.g. "id"), never a "()"-suffixed
+        // method name, even when the entity uses property (getter) access - so field-vs-property access can
+        // only be told apart from the resolved Member's actual runtime type, not from the name shape.
         return new HibernateAttributeModel(
                 entityName,
                 name,
@@ -61,6 +65,7 @@ public record HibernateAttributeModel(
                 rawType.genericType(),
                 persistentAttributeType,
                 Modifier.isPublic(member.getModifiers()),
+                member instanceof Field,
                 annotations(member));
     }
 
@@ -72,6 +77,7 @@ public record HibernateAttributeModel(
                 field.getGenericType(),
                 persistentAttributeType(field),
                 Modifier.isPublic(field.getModifiers()),
+                true,
                 List.of(field.getAnnotations()));
     }
 
@@ -83,6 +89,7 @@ public record HibernateAttributeModel(
                 method.getGenericReturnType(),
                 persistentAttributeType(method),
                 Modifier.isPublic(method.getModifiers()),
+                false,
                 List.of(method.getAnnotations()));
     }
 

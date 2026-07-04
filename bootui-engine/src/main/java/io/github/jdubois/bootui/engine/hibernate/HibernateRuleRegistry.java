@@ -19,6 +19,7 @@ final class HibernateRuleRegistry {
             new GeneratedValueWithoutStrategyRule(),
             new UuidIdentifierGeneratorRule(),
             new IdentityDisablesBatchingRule(),
+            new CompositeIdentifierContractRule(),
             // Mapping
             new UnidirectionalOneToManyRule(),
             new ManyToManyListRule(),
@@ -50,6 +51,7 @@ final class HibernateRuleRegistry {
             new PrimitiveIdentifierOrVersionRule(),
             new AssignedIdPersistableRule(),
             new MissingVersionRule(),
+            new NaturalIdCandidateRule(),
 
             // Query
             new ModifyingClearAutomaticallyRule(),
@@ -77,6 +79,7 @@ final class HibernateRuleRegistry {
             new DeferDatasourceInitializationRule(),
             new FailOnPaginationOverCollectionFetchRule(),
             new FormatSqlInProductionRule(),
+            new BindParameterLoggingInProductionRule(),
 
             // Caching
             new CacheAssociationCoverageRule(),

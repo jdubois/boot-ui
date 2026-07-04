@@ -4,21 +4,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.IdClass;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
+import jakarta.persistence.OrderBy;
+import jakarta.persistence.OrderColumn;
 import jakarta.persistence.SequenceGenerator;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
+import java.io.Serializable;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
+import org.hibernate.annotations.NaturalId;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Persistable;
 
@@ -438,6 +449,40 @@ class HibernateRulesTests {
                 .anySatisfy(sample -> assertThat(sample).contains("customer_id"));
     }
 
+    // --- HIB-MAP-010 --------------------------------------------------------
+
+    @Test
+    void elementCollectionListOrderRulePassesWithOrderColumn() {
+        HibernateRuleResultDto result = new ElementCollectionListOrderRule()
+                .evaluate(context(new TestEnvironment(), OrderColumnElementCollectionEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void elementCollectionListOrderRuleFlagsPlainListWithNoOrderingAnnotation() {
+        HibernateRuleResultDto result = new ElementCollectionListOrderRule()
+                .evaluate(context(new TestEnvironment(), UnorderedElementCollectionEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("without @OrderColumn"));
+    }
+
+    @Test
+    void elementCollectionListOrderRuleFlagsOrderByAloneBecauseItIsNotPersisted() {
+        // @OrderBy only adds a query-time SQL ORDER BY and is never persisted, so Hibernate still cannot
+        // compute a minimal diff on mutation - it is not a valid alternative to @OrderColumn.
+        HibernateRuleResultDto result = new ElementCollectionListOrderRule()
+                .evaluate(context(new TestEnvironment(), OrderByOnlyElementCollectionEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("without @OrderColumn")
+                        .contains("@OrderBy only affects read-time ordering"));
+    }
+
     // --- HIB-ENTITY-005 ------------------------------------------------------
     //
     // isPanacheFieldAccessRewriteActive() is a raw Class.forName classpath probe, so its "Panache present"
@@ -469,6 +514,27 @@ class HibernateRulesTests {
                 .anySatisfy(sample -> assertThat(sample).contains("persistentName"));
         assertThat(result.sampleViolations())
                 .noneSatisfy(sample -> assertThat(sample).contains("cachedFlag"));
+    }
+
+    @Test
+    void publicPersistentFieldRuleIgnoresPropertyAccessGetters() throws NoSuchMethodException {
+        // HibernateEntityModel.fromClass() (used by every other fixture via the context(...) helper) walks
+        // fields and methods separately, so it cannot reproduce the real bug: the actual scan path,
+        // JpaMetamodelReader.toAttributeModel(), resolves one Member per JPA attribute via
+        // attribute.getJavaMember() and always passes the plain attribute name ("name", never "name()"), even
+        // when that Member is a public getter Method for a property-access (getter-mapped) entity. Building
+        // the attribute with HibernateAttributeModel.fromMember(...) directly - exactly as JpaMetamodelReader
+        // does - reproduces that path here.
+        Method getter = PropertyAccessEntity.class.getDeclaredMethod("getName");
+        HibernateAttributeModel propertyAttribute = HibernateAttributeModel.fromMember("name", getter, "BASIC");
+        HibernateEntityModel entity = new HibernateEntityModel(
+                PropertyAccessEntity.class.getName(), PropertyAccessEntity.class, List.of(propertyAttribute));
+        HibernateContext context = new HibernateContext(
+                List.of(entity), List.of(), new TestEnvironment().lookup(), List.of(), "7.3.9.Final");
+
+        HibernateRuleResultDto result = new PublicPersistentFieldRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
     @Test
@@ -524,9 +590,72 @@ class HibernateRulesTests {
     }
 
     @Test
+    void generatedValueWithoutStrategyRuleSkipsUuidIdentifiersSoOnlyHibId005OwnsThem() {
+        // A UUID-typed @Id @GeneratedValue with no explicit strategy resolves to Hibernate's UuidGenerator, not
+        // a sequence, so HIB-ID-004's "AUTO always resolves to a sequence" rationale does not apply to it; that
+        // finding belongs exclusively to HIB-ID-005, which is asserted separately below.
+        HibernateContext context = context(new TestEnvironment(), UuidIdentifierEntity.class);
+
+        HibernateRuleResultDto result = new GeneratedValueWithoutStrategyRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    // --- HIB-ID-005 -----------------------------------------------------------
+
+    @Test
+    void uuidIdentifierGeneratorRuleFlagsUuidIdWithoutUuidGeneratorAndOnlyThatRuleFires() {
+        HibernateContext context = context(new TestEnvironment(), UuidIdentifierEntity.class);
+
+        HibernateRuleResultDto uuidResult = new UuidIdentifierGeneratorRule().evaluate(context);
+        HibernateRuleResultDto generatedValueResult = new GeneratedValueWithoutStrategyRule().evaluate(context);
+
+        assertThat(uuidResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(uuidResult.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("is a UUID id without @UuidGenerator"));
+        assertThat(generatedValueResult.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void uuidIdentifierGeneratorRuleRecommendsVersion7OnHibernate7AndAbove() {
+        HibernateEntityModel entity = HibernateEntityModel.fromClass(UuidIdentifierEntity.class);
+        HibernateContext context = new HibernateContext(
+                List.of(entity), List.of(), new TestEnvironment().lookup(), List.of(), "7.0.0.Final");
+
+        HibernateRuleResultDto result = new UuidIdentifierGeneratorRule().evaluate(context);
+
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample ->
+                        assertThat(sample).contains("style = VERSION_7").doesNotContain("style = TIME"));
+    }
+
+    @Test
+    void uuidIdentifierGeneratorRuleRecommendsTimeStyleBeforeHibernate7() {
+        HibernateEntityModel entity = HibernateEntityModel.fromClass(UuidIdentifierEntity.class);
+        HibernateContext context = new HibernateContext(
+                List.of(entity), List.of(), new TestEnvironment().lookup(), List.of(), "6.6.5.Final");
+
+        HibernateRuleResultDto result = new UuidIdentifierGeneratorRule().evaluate(context);
+
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("style = TIME")
+                        .contains("no more index-friendly than random")
+                        .doesNotContain("VERSION_7")
+                        .doesNotContain("VERSION_6"));
+    }
+
+    @Test
     void isFrameworkDeclaredPanacheIdentifierMatchesBothOrmAndReactiveBaseClasses() {
         HibernateAttributeModel ormIdentifier = new HibernateAttributeModel(
-                "io.quarkus.hibernate.orm.panache.PanacheEntity", "id", Long.class, Long.class, null, true, List.of());
+                "io.quarkus.hibernate.orm.panache.PanacheEntity",
+                "id",
+                Long.class,
+                Long.class,
+                null,
+                true,
+                true,
+                List.of());
         HibernateAttributeModel reactiveIdentifier = new HibernateAttributeModel(
                 "io.quarkus.hibernate.reactive.panache.PanacheEntity",
                 "id",
@@ -534,9 +663,10 @@ class HibernateRulesTests {
                 Long.class,
                 null,
                 true,
+                true,
                 List.of());
-        HibernateAttributeModel applicationOwnedIdentifier =
-                new HibernateAttributeModel("com.example.Order", "id", Long.class, Long.class, null, false, List.of());
+        HibernateAttributeModel applicationOwnedIdentifier = new HibernateAttributeModel(
+                "com.example.Order", "id", Long.class, Long.class, null, false, true, List.of());
 
         assertThat(HibernateRuleModelSupport.isFrameworkDeclaredPanacheIdentifier(ormIdentifier))
                 .isTrue();
@@ -613,6 +743,146 @@ class HibernateRulesTests {
         assertThat(HibernateRuleModelSupport.isSpringDataPersistableAvailable()).isTrue();
     }
 
+    // --- HIB-ID-007 -------------------------------------------------------------
+
+    @Test
+    void compositeIdentifierContractRulePassesForWellFormedEmbeddedId() {
+        HibernateRuleResultDto result = new CompositeIdentifierContractRule()
+                .evaluate(context(new TestEnvironment(), WellFormedEmbeddedIdEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void compositeIdentifierContractRuleFlagsEmbeddedIdViolatingTheFullContract() {
+        HibernateRuleResultDto result = new CompositeIdentifierContractRule()
+                .evaluate(context(new TestEnvironment(), BrokenEmbeddedIdEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("not Serializable")
+                        .contains("no public no-arg ctor")
+                        .contains("no equals() override")
+                        .contains("no hashCode() override"));
+    }
+
+    @Test
+    void compositeIdentifierContractRulePassesForWellFormedIdClass() {
+        HibernateRuleResultDto result = new CompositeIdentifierContractRule()
+                .evaluate(context(new TestEnvironment(), WellFormedIdClassEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void compositeIdentifierContractRuleFlagsIdClassMissingOnlySerializable() {
+        HibernateRuleResultDto result = new CompositeIdentifierContractRule()
+                .evaluate(context(new TestEnvironment(), BrokenIdClassEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("not Serializable"));
+        assertThat(result.sampleViolations())
+                .noneSatisfy(sample -> assertThat(sample).contains("override"));
+    }
+
+    // --- HIB-CONFIG-018 ----------------------------------------------------------
+
+    @Test
+    void bindParameterLoggingInProductionRuleFlagsTraceBinderLoggingInProduction() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("logging.level.org.hibernate.orm.jdbc.bind", "TRACE");
+        environment.setActiveProfiles("prod");
+
+        HibernateRuleResultDto result = new BindParameterLoggingInProductionRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+    }
+
+    @Test
+    void bindParameterLoggingInProductionRuleFlagsLegacyBasicBinderTraceLoggingInProduction() {
+        TestEnvironment environment = new TestEnvironment()
+                .withProperty("logging.level.org.hibernate.type.descriptor.sql.BasicBinder", "trace");
+        environment.setActiveProfiles("production");
+
+        HibernateRuleResultDto result = new BindParameterLoggingInProductionRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void bindParameterLoggingInProductionRulePassesWhenNotInProduction() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("logging.level.org.hibernate.orm.jdbc.bind", "TRACE");
+
+        HibernateRuleResultDto result = new BindParameterLoggingInProductionRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void bindParameterLoggingInProductionRulePassesWhenLoggingNotEnabledInProduction() {
+        TestEnvironment environment = new TestEnvironment();
+        environment.setActiveProfiles("prod");
+
+        HibernateRuleResultDto result = new BindParameterLoggingInProductionRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void bindParameterLoggingInProductionRulePassesForDebugLevelInProduction() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("logging.level.org.hibernate.orm.jdbc.bind", "DEBUG");
+        environment.setActiveProfiles("prod");
+
+        HibernateRuleResultDto result = new BindParameterLoggingInProductionRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    // --- HIB-ENTITY-009 ----------------------------------------------------------
+
+    @Test
+    void naturalIdCandidateRuleFlagsUniqueColumnWithoutNaturalId() {
+        HibernateRuleResultDto result = new NaturalIdCandidateRule()
+                .evaluate(context(new TestEnvironment(), UniqueColumnWithoutNaturalIdEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.INFO);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("email").contains("unique column"));
+    }
+
+    @Test
+    void naturalIdCandidateRulePassesWhenNaturalIdIsDeclared() {
+        HibernateRuleResultDto result =
+                new NaturalIdCandidateRule().evaluate(context(new TestEnvironment(), NaturalIdEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void naturalIdCandidateRuleFlagsTableLevelUniqueConstraintWithoutNaturalId() {
+        HibernateRuleResultDto result = new NaturalIdCandidateRule()
+                .evaluate(context(new TestEnvironment(), TableUniqueConstraintEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("isbn"));
+    }
+
+    @Test
+    void naturalIdCandidateRulePassesWhenNoUniqueColumnDeclared() {
+        HibernateRuleResultDto result =
+                new NaturalIdCandidateRule().evaluate(context(new TestEnvironment(), SequenceEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
     // --- Fixtures -----------------------------------------------------------
 
     /** Copies {@code template} onto a different declaring class name, without needing a real class of that name. */
@@ -624,6 +894,7 @@ class HibernateRulesTests {
                 template.genericType(),
                 template.persistentAttributeType(),
                 template.publicMember(),
+                template.fieldMember(),
                 template.annotations());
     }
 
@@ -725,10 +996,46 @@ class HibernateRulesTests {
     }
 
     @Entity
+    static class OrderColumnElementCollectionEntity {
+        @Id
+        Long id;
+
+        @ElementCollection
+        @OrderColumn(name = "tag_order")
+        List<String> tags;
+    }
+
+    @Entity
+    static class UnorderedElementCollectionEntity {
+        @Id
+        Long id;
+
+        @ElementCollection
+        List<String> tags;
+    }
+
+    @Entity
+    static class OrderByOnlyElementCollectionEntity {
+        @Id
+        Long id;
+
+        @ElementCollection
+        @OrderBy("name")
+        List<String> tags;
+    }
+
+    @Entity
     static class AutoGeneratedValueEntity {
         @Id
         @GeneratedValue
         Long id;
+    }
+
+    @Entity
+    static class UuidIdentifierEntity {
+        @Id
+        @GeneratedValue
+        UUID id;
     }
 
     @Entity
@@ -796,5 +1103,152 @@ class HibernateRulesTests {
         public boolean cachedFlag;
     }
 
+    /**
+     * Entity using property (getter) access - "name" is backed by a public getter Method, not a field. This is
+     * fully supported, instrumented JPA/Hibernate behavior and must not be treated as an exposed public field.
+     */
+    @Entity
+    static class PropertyAccessEntity {
+        private Long id;
+        private String name;
+
+        @Id
+        public Long getId() {
+            return id;
+        }
+
+        public String getName() {
+            return name;
+        }
+    }
+
     static class Child {}
+
+    /** Well-formed composite identifier class: implements Serializable, public no-arg ctor, equals + hashCode. */
+    static class WellFormedEmbeddedIdKey implements Serializable {
+        private Long orderId;
+        private Long lineNumber;
+
+        public WellFormedEmbeddedIdKey() {}
+
+        WellFormedEmbeddedIdKey(Long orderId, Long lineNumber) {
+            this.orderId = orderId;
+            this.lineNumber = lineNumber;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof WellFormedEmbeddedIdKey key
+                    && java.util.Objects.equals(orderId, key.orderId)
+                    && java.util.Objects.equals(lineNumber, key.lineNumber);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(orderId, lineNumber);
+        }
+    }
+
+    @Entity
+    static class WellFormedEmbeddedIdEntity {
+        @EmbeddedId
+        WellFormedEmbeddedIdKey id;
+    }
+
+    /** Composite identifier class violating every part of the JPA contract HIB-ID-007 checks. */
+    static class BrokenEmbeddedIdKey {
+        private final Long orderId;
+
+        BrokenEmbeddedIdKey(Long orderId) {
+            this.orderId = orderId;
+        }
+    }
+
+    @Entity
+    static class BrokenEmbeddedIdEntity {
+        @EmbeddedId
+        BrokenEmbeddedIdKey id;
+    }
+
+    /** Well-formed @IdClass identifier class. */
+    static class WellFormedIdClassKey implements Serializable {
+        private Long orderId;
+        private Long lineNumber;
+
+        public WellFormedIdClassKey() {}
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof WellFormedIdClassKey;
+        }
+
+        @Override
+        public int hashCode() {
+            return 0;
+        }
+    }
+
+    @Entity
+    @IdClass(WellFormedIdClassKey.class)
+    static class WellFormedIdClassEntity {
+        @Id
+        Long orderId;
+
+        @Id
+        Long lineNumber;
+    }
+
+    /** @IdClass identifier class missing only Serializable - has a public no-arg ctor and overrides equals/hashCode. */
+    static class BrokenIdClassKey {
+
+        public BrokenIdClassKey() {}
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof BrokenIdClassKey;
+        }
+
+        @Override
+        public int hashCode() {
+            return 0;
+        }
+    }
+
+    @Entity
+    @IdClass(BrokenIdClassKey.class)
+    static class BrokenIdClassEntity {
+        @Id
+        Long orderId;
+
+        @Id
+        Long lineNumber;
+    }
+
+    @Entity
+    static class UniqueColumnWithoutNaturalIdEntity {
+        @Id
+        Long id;
+
+        @Column(unique = true)
+        String email;
+    }
+
+    @Entity
+    static class NaturalIdEntity {
+        @Id
+        Long id;
+
+        @NaturalId
+        @Column(unique = true)
+        String email;
+    }
+
+    @Entity
+    @Table(uniqueConstraints = @UniqueConstraint(columnNames = "isbn"))
+    static class TableUniqueConstraintEntity {
+        @Id
+        Long id;
+
+        String isbn;
+    }
 }
