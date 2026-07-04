@@ -167,6 +167,17 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          Test-scope only: CracRuntimeInventoryCollectorTests constructs a real RedisCacheManager (over a
+          mocked RedisConnectionFactory, no live Redis needed) to verify the remote-backed cache manager
+          exclusion (see CracRuntimeInventoryCollector.isRedisCacheManager). Version is managed by the
+          Spring Boot BOM imported at the root pom.
+        -->
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-redis</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

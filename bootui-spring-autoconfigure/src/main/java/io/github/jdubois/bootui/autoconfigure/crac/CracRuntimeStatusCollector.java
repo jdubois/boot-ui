@@ -6,6 +6,7 @@ import java.lang.management.RuntimeMXBean;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
+import org.springframework.core.SpringProperties;
 import org.springframework.core.env.Environment;
 
 /**
@@ -28,6 +29,7 @@ final class CracRuntimeStatusCollector {
     private final Supplier<List<String>> jvmArgumentsSupplier;
     private final ClassPresenceCheck classPresenceCheck;
     private final Supplier<CracRuntimeInventory> inventorySupplier;
+    private final Supplier<String> actualCheckpointPropertySupplier;
 
     CracRuntimeStatusCollector(Environment environment) {
         this(environment, CracRuntimeInventory::empty);
@@ -49,10 +51,30 @@ final class CracRuntimeStatusCollector {
             Supplier<List<String>> jvmArgumentsSupplier,
             ClassPresenceCheck classPresenceCheck,
             Supplier<CracRuntimeInventory> inventorySupplier) {
+        this(
+                environment,
+                jvmArgumentsSupplier,
+                classPresenceCheck,
+                inventorySupplier,
+                defaultActualCheckpointPropertySupplier());
+    }
+
+    /**
+     * Fullest constructor. {@code actualCheckpointPropertySupplier} reads the property that actually
+     * controls Spring Framework's automatic checkpoint-on-refresh — see {@link #checkpointOnRefresh()}
+     * for why this is deliberately not the Spring Boot {@link Environment}.
+     */
+    CracRuntimeStatusCollector(
+            Environment environment,
+            Supplier<List<String>> jvmArgumentsSupplier,
+            ClassPresenceCheck classPresenceCheck,
+            Supplier<CracRuntimeInventory> inventorySupplier,
+            Supplier<String> actualCheckpointPropertySupplier) {
         this.environment = environment;
         this.jvmArgumentsSupplier = jvmArgumentsSupplier;
         this.classPresenceCheck = classPresenceCheck;
         this.inventorySupplier = inventorySupplier;
+        this.actualCheckpointPropertySupplier = actualCheckpointPropertySupplier;
     }
 
     CracRuntimeStatusDto collect() {
@@ -92,6 +114,14 @@ final class CracRuntimeStatusCollector {
             caveats.add("Configuration is frozen into the checkpoint. Environment variables, system properties, and "
                     + "the active Spring profile are read when the checkpoint is taken, not when it is restored; "
                     + "changing them for a restore-only start has no effect until a new checkpoint is taken.");
+        } else if (environmentClaimsCheckpointOnRefresh()) {
+            caveats.add("spring.context.checkpoint=onRefresh is set in the Spring Environment (for example "
+                    + "application.yml, application.properties, or an OS environment variable), but Spring "
+                    + "Framework's DefaultLifecycleProcessor only honors this property through "
+                    + "org.springframework.core.SpringProperties: a JVM system property "
+                    + "(-Dspring.context.checkpoint=onRefresh) or a classpath spring.properties file, never the "
+                    + "Spring Boot Environment. No automatic checkpoint will actually be taken on context refresh; "
+                    + "set the property as a JVM system property or in a classpath spring.properties file instead.");
         }
         List<String> poolBeans = safeInventory().connectionPoolBeans();
         if (!poolBeans.isEmpty()) {
@@ -111,11 +141,40 @@ final class CracRuntimeStatusCollector {
         }
     }
 
+    /**
+     * Whether an automatic checkpoint is actually taken on context refresh. Spring Framework's {@code
+     * DefaultLifecycleProcessor} reads {@code spring.context.checkpoint} only through {@code
+     * org.springframework.core.SpringProperties} — a JVM system property or a classpath {@code
+     * spring.properties} file — and never through the Spring Boot {@link Environment}. Setting the
+     * property in {@code application.yml}/{@code application.properties} (or as a plain OS environment
+     * variable picked up by the Environment) has no effect on this behavior, so this method
+     * deliberately reads the same source Spring Framework itself reads, rather than the Environment,
+     * to avoid reporting an automatic checkpoint that will not actually happen. See {@link
+     * #environmentClaimsCheckpointOnRefresh()} for the check that detects that specific mismatch.
+     */
     private boolean checkpointOnRefresh() {
-        if (environment == null) {
-            return false;
+        return isOnRefresh(safeActualCheckpointProperty());
+    }
+
+    /**
+     * Whether the Spring Boot {@link Environment} reports {@code spring.context.checkpoint=onRefresh}
+     * (for example from {@code application.yml} or an OS environment variable). This does NOT mean an
+     * automatic checkpoint will actually be taken — see {@link #checkpointOnRefresh()} — it exists only
+     * to detect and warn about that common mismatch in {@link #restoreCaveats(boolean)}.
+     */
+    private boolean environmentClaimsCheckpointOnRefresh() {
+        return environment != null && isOnRefresh(environment.getProperty("spring.context.checkpoint"));
+    }
+
+    private String safeActualCheckpointProperty() {
+        try {
+            return actualCheckpointPropertySupplier == null ? null : actualCheckpointPropertySupplier.get();
+        } catch (RuntimeException ex) {
+            return null;
         }
-        String value = environment.getProperty("spring.context.checkpoint");
+    }
+
+    private static boolean isOnRefresh(String value) {
         return value != null && "onRefresh".equalsIgnoreCase(value.trim());
     }
 
@@ -168,8 +227,13 @@ final class CracRuntimeStatusCollector {
                     + "checkpoint is taken once the application context refreshes"
                     + (checkpointTo == null ? "." : " into " + checkpointTo + ".");
         }
-        return "This JVM is CRaC-capable. Trigger a checkpoint with jcmd <pid> JDK.checkpoint or by setting "
-                + "spring.context.checkpoint=onRefresh, and run the readiness checks below first.";
+        return "This JVM is CRaC-capable. Trigger a checkpoint with jcmd <pid> JDK.checkpoint, or take one "
+                + "automatically on context refresh by setting spring.context.checkpoint=onRefresh as a JVM "
+                + "system property (-Dspring.context.checkpoint=onRefresh) or in a classpath spring.properties "
+                + "file. Setting it in application.yml/application.properties alone has no effect, since Spring "
+                + "Framework's checkpoint-on-refresh support reads this property through "
+                + "org.springframework.core.SpringProperties, not the Spring Boot Environment. Run the readiness "
+                + "checks below first.";
     }
 
     private static Supplier<List<String>> defaultJvmArguments() {
@@ -179,6 +243,22 @@ final class CracRuntimeStatusCollector {
                 return runtimeMxBean == null ? List.of() : runtimeMxBean.getInputArguments();
             } catch (RuntimeException ex) {
                 return List.of();
+            }
+        };
+    }
+
+    /**
+     * Reads {@code spring.context.checkpoint} the same way Spring Framework's {@code
+     * DefaultLifecycleProcessor} does: through {@code org.springframework.core.SpringProperties}, which
+     * consults a JVM system property or a classpath {@code spring.properties} file, never the Spring
+     * Boot {@link Environment}.
+     */
+    private static Supplier<String> defaultActualCheckpointPropertySupplier() {
+        return () -> {
+            try {
+                return SpringProperties.getProperty("spring.context.checkpoint");
+            } catch (RuntimeException | LinkageError ex) {
+                return null;
             }
         };
     }

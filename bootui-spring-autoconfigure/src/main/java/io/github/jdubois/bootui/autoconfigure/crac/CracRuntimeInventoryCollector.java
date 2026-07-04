@@ -10,13 +10,14 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.util.ClassUtils;
 
 /**
- * Collects the host application's live connection-pool and cache-manager beans into a
- * {@link CracRuntimeInventory}.
+ * Collects the host application's live connection-pool and cache-manager beans, plus whether the
+ * {@code org.crac:crac} API is on the classpath, into a {@link CracRuntimeInventory}.
  *
  * <p>The collector inspects the running {@link ApplicationContext} for the bean types that hold the
  * OS sockets CRaC cares about — JDBC {@code DataSource}s, Redis/RabbitMQ/Kafka/Mongo/Cassandra/JMS/
  * R2DBC connection factories and similar pooled clients — plus Spring {@code CacheManager} beans
- * whose contents are frozen into the checkpoint. Every type is resolved lazily and bounded to types
+ * backed by local, in-heap storage (remote-backed managers such as Redis's are excluded, since their
+ * entries are not frozen into the checkpoint). Every type is resolved lazily and bounded to types
  * that are actually on the classpath, so a missing optional dependency never fails the scan. All
  * access is read-only and never triggers a checkpoint.</p>
  */
@@ -50,6 +51,20 @@ public final class CracRuntimeInventoryCollector {
     /** A no-op cache manager holds no entries, so it is irrelevant to checkpoint/restore. */
     private static final String NO_OP_CACHE_MANAGER_TYPE_NAME = "org.springframework.cache.support.NoOpCacheManager";
 
+    /**
+     * A remote/external-store-backed cache manager does not freeze its entries into the checkpoint
+     * image: the data lives outside the JVM heap in the external store, so a restored process sees
+     * live data from that store rather than a stale in-heap snapshot. Spring Data Redis's manager is
+     * excluded here; Hazelcast and other remote caches are deliberately left in scope because Hazelcast
+     * in particular can run embedded (in-heap) as well as client-server, and there is no reliable way
+     * to tell which mode a given bean is in from its type alone.
+     */
+    private static final String REDIS_CACHE_MANAGER_TYPE_NAME =
+            "org.springframework.data.redis.cache.RedisCacheManager";
+
+    /** Fully-qualified name of the org.crac API's entry point, used only to test classpath presence. */
+    private static final String CRAC_CORE_TYPE_NAME = "org.crac.Core";
+
     private CracRuntimeInventoryCollector() {}
 
     public static CracRuntimeInventory collect(ApplicationContext applicationContext) {
@@ -61,10 +76,25 @@ public final class CracRuntimeInventoryCollector {
             List<String> cacheBeans = detectBeans(
                     applicationContext,
                     List.of(CACHE_MANAGER_TYPE_NAME),
-                    type -> NO_OP_CACHE_MANAGER_TYPE_NAME.equals(type.getName()));
-            return new CracRuntimeInventory(poolBeans, cacheBeans);
+                    type -> NO_OP_CACHE_MANAGER_TYPE_NAME.equals(type.getName()) || isRedisCacheManager(type));
+            boolean cracApiPresent =
+                    ClassUtils.isPresent(CRAC_CORE_TYPE_NAME, CracRuntimeInventoryCollector.class.getClassLoader());
+            return new CracRuntimeInventory(poolBeans, cacheBeans, cracApiPresent);
         } catch (RuntimeException ex) {
             return CracRuntimeInventory.empty();
+        }
+    }
+
+    private static boolean isRedisCacheManager(Class<?> type) {
+        ClassLoader classLoader = CracRuntimeInventoryCollector.class.getClassLoader();
+        if (!ClassUtils.isPresent(REDIS_CACHE_MANAGER_TYPE_NAME, classLoader)) {
+            return false;
+        }
+        try {
+            Class<?> redisCacheManagerType = ClassUtils.forName(REDIS_CACHE_MANAGER_TYPE_NAME, classLoader);
+            return redisCacheManagerType.isAssignableFrom(type);
+        } catch (ClassNotFoundException | LinkageError ex) {
+            return false;
         }
     }
 
