@@ -13,6 +13,7 @@ final class GraalVmCheckRegistry {
             new ClassLoaderUsageCheck(),
             new DeepReflectionCheck(),
             new AnnotationReflectionCheck(),
+            new UnsafeAllocateInstanceCheck(),
             new DynamicProxyCheck(),
             new ResourceAccessCheck(),
             new ResourceBundleCheck(),
@@ -33,6 +34,7 @@ final class GraalVmCheckRegistry {
             new MethodHandleUsageCheck(),
             new SecurityProviderCheck(),
             new JmxUsageCheck(),
+            new JmxDynamicMBeanCheck(),
             new ForeignFunctionUsageCheck());
 
     private GraalVmCheckRegistry() {}

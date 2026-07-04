@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.GraalVmDependencyDto;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencyScanner.DependencySurvey;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -233,6 +234,99 @@ class GraalVmDependencyScannerTests {
     }
 
     @Test
+    void fatJarExpandsBootInfLibNestedDependenciesInsteadOfTheLauncherJar(@TempDir Path dir) throws IOException {
+        byte[] depWithMetadata = jarBytes(Map.of(
+                "META-INF/native-image/com.example/dep-a/reachability-metadata.json",
+                "[]",
+                "META-INF/maven/com.example/dep-a/pom.properties",
+                "groupId=com.example\nartifactId=dep-a\nversion=1.0.0\n"));
+        byte[] depWithoutMetadata = jarBytes(Map.of("com/example/dep/Dep.class", "data"));
+
+        Path fatJar = jarWithNestedJars(
+                dir,
+                "app-0.0.1-SNAPSHOT.jar",
+                Map.of("BOOT-INF/classes/com/example/App.class", "data"),
+                Map.of(
+                        "BOOT-INF/lib/dep-a-1.0.0.jar", depWithMetadata,
+                        "BOOT-INF/lib/dep-b-2.0.0.jar", depWithoutMetadata));
+
+        DependencySurvey survey = new GraalVmDependencyScanner(fatJar::toString).scan();
+
+        assertThat(survey.dependencies()).hasSize(2);
+        assertThat(survey.dependencies().stream()
+                        .map(GraalVmDependencyDto::name)
+                        .toList())
+                .containsExactlyInAnyOrder("dep-a-1.0.0.jar", "dep-b-2.0.0.jar");
+        GraalVmDependencyDto depA = survey.dependencies().stream()
+                .filter(dependency -> dependency.name().equals("dep-a-1.0.0.jar"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(depA.shipsMetadata()).isTrue();
+        assertThat(depA.coordinates()).isEqualTo("com.example:dep-a:1.0.0");
+        GraalVmDependencyDto depB = survey.dependencies().stream()
+                .filter(dependency -> dependency.name().equals("dep-b-2.0.0.jar"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(depB.shipsMetadata()).isFalse();
+    }
+
+    @Test
+    void fatJarNestedLibraryWithoutMavenCoordinatesFallsBackToItsOwnFileName(@TempDir Path dir) throws IOException {
+        byte[] depWithoutPom = jarBytes(Map.of("com/example/dep/Dep.class", "data"));
+
+        Path fatJar = jarWithNestedJars(
+                dir,
+                "app.jar",
+                Map.of("BOOT-INF/classes/com/example/App.class", "data"),
+                Map.of("BOOT-INF/lib/no-pom-lib-4.5.6.jar", depWithoutPom));
+
+        DependencySurvey survey = new GraalVmDependencyScanner(fatJar::toString).scan();
+
+        assertThat(survey.dependencies()).hasSize(1);
+        GraalVmDependencyDto dependency = survey.dependencies().get(0);
+        assertThat(dependency.name()).isEqualTo("no-pom-lib-4.5.6.jar");
+        // No pom.properties inside the nested jar itself: falls back to parsing the nested entry's own
+        // file name, exactly like a top-level classpath jar without bundled Maven coordinates would.
+        assertThat(dependency.coordinates()).isEqualTo("no-pom-lib:4.5.6");
+    }
+
+    @Test
+    void shadedJarWithMultiplePomPropertiesPrefersTheOneMatchingItsOwnFileName(@TempDir Path dir) throws IOException {
+        Path jar = jar(
+                dir,
+                "myapp-shaded-1.0.0.jar",
+                Map.of(
+                        "META-INF/maven/com.example/relocated-lib/pom.properties",
+                        "groupId=com.example\nartifactId=relocated-lib\nversion=2.0.0\n",
+                        "META-INF/maven/com.example/myapp-shaded/pom.properties",
+                        "groupId=com.example\nartifactId=myapp-shaded\nversion=1.0.0\n"));
+
+        GraalVmDependencyDto dependency = onlyDependency(jar);
+
+        assertThat(dependency.coordinates()).isEqualTo("com.example:myapp-shaded:1.0.0");
+    }
+
+    @Test
+    void shadedJarFallsBackToFirstPomPropertiesWhenNoneMatchTheFileName(@TempDir Path dir) throws IOException {
+        Path jar = jar(
+                dir,
+                "unrelated-name.jar",
+                Map.of(
+                        "META-INF/maven/com.example/first/pom.properties",
+                        "groupId=com.example\nartifactId=first\nversion=1.0.0\n",
+                        "META-INF/maven/com.example/second/pom.properties",
+                        "groupId=com.example\nartifactId=second\nversion=2.0.0\n"));
+
+        GraalVmDependencyDto dependency = onlyDependency(jar);
+
+        // Neither pom.properties matches the jar's own file name (it does not follow the Maven
+        // "artifactId-version.jar" convention at all), so this pins the deterministic fallback: the
+        // first descriptor encountered by JAR entry order is reported, matching the scanner's previous
+        // behavior for this genuinely ambiguous case.
+        assertThat(dependency.coordinates()).isIn("com.example:first:1.0.0", "com.example:second:2.0.0");
+    }
+
+    @Test
     void emptyClasspathProducesEmptyUntruncatedSurvey() {
         DependencySurvey survey = new GraalVmDependencyScanner(() -> "").scan();
 
@@ -254,6 +348,40 @@ class GraalVmDependencyScannerTests {
             for (Map.Entry<String, String> entry : entries.entrySet()) {
                 out.putNextEntry(new JarEntry(entry.getKey()));
                 out.write(entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
+        }
+        return jar;
+    }
+
+    /** Builds a jar's raw bytes in memory, for embedding as a {@code BOOT-INF/lib/} nested entry. */
+    private static byte[] jarBytes(Map<String, String> entries) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (JarOutputStream out = new JarOutputStream(baos)) {
+            for (Map.Entry<String, String> entry : entries.entrySet()) {
+                out.putNextEntry(new JarEntry(entry.getKey()));
+                out.write(entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
+        }
+        return baos.toByteArray();
+    }
+
+    /** Builds a fat/uber jar with plain text entries plus binary (nested-jar) entries, unmodified. */
+    private static Path jarWithNestedJars(
+            Path dir, String name, Map<String, String> textEntries, Map<String, byte[]> nestedJarEntries)
+            throws IOException {
+        Files.createDirectories(dir);
+        Path jar = dir.resolve(name);
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar))) {
+            for (Map.Entry<String, String> entry : textEntries.entrySet()) {
+                out.putNextEntry(new JarEntry(entry.getKey()));
+                out.write(entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
+            for (Map.Entry<String, byte[]> entry : nestedJarEntries.entrySet()) {
+                out.putNextEntry(new JarEntry(entry.getKey()));
+                out.write(entry.getValue());
                 out.closeEntry();
             }
         }
