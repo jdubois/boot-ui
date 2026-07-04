@@ -371,4 +371,45 @@ class SqlTraceRecorderTests {
         assertThat(recorder.recent()).hasSize(1);
         assertThat(recorder.recent().get(0).traceId()).isNull();
     }
+
+    @Test
+    void enrichesActiveSpanPerStatementAndFlagsNPlusOneForTheTrace() {
+        SqlTraceRecorder recorder = recorder(true, false, 100, 100);
+        recorder.setTraceIdProvider(() -> "trace-1");
+        RecordingSpanEnricher enricher = new RecordingSpanEnricher();
+        recorder.setSpanEnricher(enricher);
+
+        // Five repeated selects on the same trace trip the default N+1 threshold (5).
+        for (int i = 0; i < 5; i++) {
+            record(recorder, Category.SELECT, "select * from item where order_id = ?", 0);
+        }
+
+        assertThat(enricher.calls).hasSize(5);
+        assertThat(enricher.calls.get(0)).isFalse();
+        assertThat(enricher.calls.get(4)).isTrue();
+    }
+
+    @Test
+    void noOpEnricherSkipsPerTraceGrouping() {
+        SqlTraceRecorder recorder = recorder(true, false, 100, 100);
+        recorder.setTraceIdProvider(() -> "trace-1");
+        // Default enricher is NO_OP (disabled): recording still works and nothing throws.
+        record(recorder, Category.SELECT, "select 1", 0);
+        assertThat(recorder.recent()).hasSize(1);
+    }
+
+    private static final class RecordingSpanEnricher
+            implements io.github.jdubois.bootui.engine.telemetry.SpanEnricher {
+        private final List<Boolean> calls = new java.util.ArrayList<>();
+
+        @Override
+        public boolean enabled() {
+            return true;
+        }
+
+        @Override
+        public void onSqlStatement(boolean nPlusOneSuspected) {
+            calls.add(nPlusOneSuspected);
+        }
+    }
 }

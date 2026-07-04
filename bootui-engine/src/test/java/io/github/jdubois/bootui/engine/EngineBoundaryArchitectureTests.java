@@ -67,13 +67,20 @@ class EngineBoundaryArchitectureTests {
             .that()
             .resideInAPackage("io.github.jdubois.bootui.engine..")
             // Exclude BootUiSpanExporter and the synthetic switch-map class (BootUiSpanExporter$1) that
-            // javac emits for its switch over io.opentelemetry.api.common.AttributeType.
+            // javac emits for its switch over io.opentelemetry.api.common.AttributeType, plus the two other
+            // concentrated OTel-touching enrichment types (the identity SpanProcessor stamped on span start
+            // and the capture-time span enricher).
             .and()
             .haveNameNotMatching(".*BootUiSpanExporter(\\$.*)?")
+            .and()
+            .haveNameNotMatching(".*BootUiIdentitySpanProcessor")
+            .and()
+            .haveNameNotMatching(".*OtelSpanEnricher")
             .should()
             .dependOnClassesThat()
-            .resideInAnyPackage("io.opentelemetry.sdk..", "io.opentelemetry.api..")
-            .because("the OpenTelemetry SDK is an optional dependency concentrated in BootUiSpanExporter "
-                    + "(R2 optional-dependency port); the rest of the telemetry engine works over neutral "
-                    + "NormalizedSpan records so the OTLP-decoding adapter never forces OTel on a consumer");
+            .resideInAnyPackage("io.opentelemetry.sdk..", "io.opentelemetry.api..", "io.opentelemetry.context..")
+            .because("the OpenTelemetry SDK is an optional dependency concentrated in BootUiSpanExporter, "
+                    + "BootUiIdentitySpanProcessor and OtelSpanEnricher (R2 optional-dependency port); the rest "
+                    + "of the telemetry engine works over neutral NormalizedSpan records so the OTLP-decoding "
+                    + "adapter never forces OTel on a consumer");
 }
