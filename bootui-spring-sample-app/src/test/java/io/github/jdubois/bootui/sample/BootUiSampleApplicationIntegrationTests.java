@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -30,14 +29,17 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * End-to-end tests that boot the sample app on a random port and call BootUI's
  * REST API through HTTP, exercising auto-configuration, the localhost-only filter
  * for loopback callers, and the override persistence path.
+ *
+ * <p>Runs Docker-free against the {@code dev} profile's in-memory H2 database (the
+ * assertions are database-vendor-agnostic), so it exercises the same H2-backed
+ * JPA / Flyway / Liquibase wiring the sample app uses by default. A distinct
+ * in-memory database name keeps it isolated from {@link BootUiSampleApplicationDevProfileTests},
+ * which shares the same JVM during the module's test run.
  */
 @SpringBootTest(
         classes = BootUiSampleApplication.class,
@@ -45,6 +47,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
         properties = {
             "spring.profiles.active=dev",
             "spring.docker.compose.enabled=false",
+            "spring.datasource.url=jdbc:h2:mem:bootui_it;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
             "spring.cache.type=simple",
             "spring.autoconfigure.exclude="
                     + "org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,"
@@ -58,14 +61,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
             "bootui.show-banner=false",
             "bootui.overrides-file=target/bootui-test-overrides.properties"
         })
-@Testcontainers(disabledWithoutDocker = true)
 class BootUiSampleApplicationIntegrationTests {
 
     private static final Path OVERRIDES_FILE = Paths.get("target/bootui-test-overrides.properties");
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
 
     @LocalServerPort
     int port;
