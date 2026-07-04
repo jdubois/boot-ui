@@ -36,6 +36,8 @@ record SecurityContext(
         List<String> oauth2TokenValidatorTypes,
         boolean strictHttpFirewallWeakened,
         boolean hideUserNotFoundExceptionsDisabled,
+        List<String> opaqueTokenIntrospectorTypes,
+        boolean generatedUserDetailsManagerPresent,
         Environment environment) {
     SecurityContext {
         chains = List.copyOf(chains);
@@ -43,6 +45,7 @@ record SecurityContext(
         corsConfigs = List.copyOf(corsConfigs);
         jwtDecoderTypes = List.copyOf(jwtDecoderTypes);
         oauth2TokenValidatorTypes = List.copyOf(oauth2TokenValidatorTypes);
+        opaqueTokenIntrospectorTypes = List.copyOf(opaqueTokenIntrospectorTypes);
     }
 
     /** The fully-qualified type names of the discovered {@code PasswordEncoder} beans. */

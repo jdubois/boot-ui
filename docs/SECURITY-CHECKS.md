@@ -92,6 +92,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Leave hideUserNotFoundExceptions at its default (true) so a failed login always reports the same generic BadCredentialsException regardless of whether the username exists.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/dao-authentication-provider.html>
 
+### SEC-AUTH-009 - Do not run production on Spring Boot's auto-generated default user
+
+- **Severity**: HIGH
+- **Detects**: Detects Spring Boot's auto-configured InMemoryUserDetailsManager (created only when no UserDetailsService/AuthenticationManager/AuthenticationProvider bean and no spring.security.user.* property are present) while a production profile is active. Unlike SEC-AUTH-004 (an explicitly-configured static user), this is the fully-default case: Spring Boot generates a random password for a single 'user' account and logs it to the console at startup, which Spring Boot's own documentation warns is for development use only.
+- **Recommendation**: Register a real UserDetailsService, AuthenticationProvider, or external identity provider before running in production; do not rely on the console-logged generated password.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/spring-security.html>
+
 ## Authorization
 
 ### SEC-AUTHZ-001 - Every filter chain should enforce authorization
@@ -202,6 +209,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Detects**: Detects a RememberMeAuthenticationFilter whose signing key is shorter than 16 characters, which makes the remember-me token's HMAC signature easier to brute-force and forge. Only the key's length is inspected -- the key value itself is never read into a finding.
 - **Recommendation**: Configure a long, random remember-me key (16+ characters, generated from a secure source) via rememberMe().key(...), ideally sourced from an externalized secret rather than a literal in configuration.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/rememberme.html>
+
+### SEC-SESSION-009 - Custom session cookie names should use a __Host-/__Secure- prefix
+
+- **Severity**: LOW
+- **Detects**: Detects server.servlet.session.cookie.name configured to a custom value that does not start with the __Host- or __Secure- cookie-name prefix (exact case -- browsers only honor these prefixes verbatim). The unmodified default name, JSESSIONID, is not flagged; this rule only fires once an application has already chosen to customize the cookie name.
+- **Recommendation**: Name the session cookie __Host-<name> (requires Secure, no Domain attribute, and Path=/) or, at minimum, __Secure-<name>, so the browser rejects the cookie unless it was set over HTTPS -- hardening against cookie-tossing from a sibling or subdomain.
+- **Learn more**: <https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html#cookie-name-prefixes>
 
 ## Transport & security headers
 
@@ -356,11 +370,11 @@ custom source is never misreported as verified-safe.
 - **Recommendation**: Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication/authorization.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.security>
 
-### SEC-ACT-004 - Actuator health details should not be exposed unconditionally
+### SEC-ACT-004 - Actuator health details/components should not be exposed unconditionally
 
 - **Severity**: HIGH
-- **Detects**: Detects management.endpoint.health.show-details=always, which leaks infrastructure details to anonymous callers.
-- **Recommendation**: Change management.endpoint.health.show-details to 'when-authorized' (the default) or ensure the /health endpoint is strictly authenticated.
+- **Detects**: Detects management.endpoint.health.show-details=always or show-components=always, either of which leaks infrastructure/component details (disk space, database, custom health indicators, dependency versions) to anonymous callers. Spring Boot's own default for both properties is 'never' (not 'when-authorized', which was the default prior to Spring Boot 3.0).
+- **Recommendation**: Leave show-details/show-components at 'never' (the default), or set them to 'when-authorized' and require authentication for the health endpoint.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details>
 
 ### SEC-ACT-005 - The actuator shutdown endpoint should not be enabled
@@ -386,12 +400,12 @@ custom source is never misreported as verified-safe.
 
 ## OAuth2 / JWT resource server
 
-### SEC-OAUTH-001 - JWT resource server must validate tokens via issuer or JWK set
+### SEC-OAUTH-001 - Resource server must validate tokens via JWT issuer/JWK or opaque-token introspection
 
 - **Severity**: HIGH
-- **Detects**: Detects a bearer-token resource server with no issuer-uri, jwk-set-uri, public key, or JwtDecoder bean configured.
-- **Recommendation**: Configure spring.security.oauth2.resourceserver.jwt.issuer-uri (or jwk-set-uri / a JwtDecoder bean) so signatures and the issuer are verified.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html>
+- **Detects**: Detects a bearer-token resource server with neither JWT validation (issuer-uri, jwk-set-uri, public key, or a JwtDecoder bean) nor opaque-token validation (introspection-uri or an OpaqueTokenIntrospector bean) configured. BearerTokenAuthenticationFilter is installed identically for oauth2ResourceServer().jwt(...) and .opaqueToken(...), so both validation styles are accepted.
+- **Recommendation**: Configure spring.security.oauth2.resourceserver.jwt.issuer-uri (or jwk-set-uri / a JwtDecoder bean) for JWT resource servers, or spring.security.oauth2.resourceserver.opaquetoken.introspection-uri (or a custom OpaqueTokenIntrospector bean) for opaque-token resource servers, so incoming bearer tokens are actually verified.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html>
 
 ### SEC-OAUTH-002 - Validate the JWT audience claim
 
