@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
@@ -11,6 +12,8 @@ import io.github.jdubois.bootui.core.dto.RequestProfileSecurityDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
+import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -29,7 +32,7 @@ class RequestProfileAssemblerTests {
     @Test
     void unavailableWhenRequestNotFound() {
         RequestProfileDto profile =
-                assembler.profile("missing-1", null, List.of(), List.of(), List.of(), List.of(), null);
+                assembler.profile("missing-1", null, List.of(), List.of(), List.of(), List.of(), null, null, null);
 
         assertThat(profile.available()).isFalse();
         assertThat(profile.unavailableReason()).isEqualTo("Request missing-1 is no longer in the buffer");
@@ -39,8 +42,8 @@ class RequestProfileAssemblerTests {
     void unavailableWhenRequestHasNoTraceId() {
         HttpExchangeDto request = request("req-1", "/orders", null, null, 1_000L, 50L);
 
-        RequestProfileDto profile =
-                assembler.profile("req-1", request, List.of(request), List.of(), List.of(), List.of(), null);
+        RequestProfileDto profile = assembler.profile(
+                "req-1", request, List.of(request), List.of(), List.of(), List.of(), null, null, null);
 
         assertThat(profile.available()).isFalse();
         assertThat(profile.unavailableReason()).contains("No distributed trace id was captured");
@@ -58,7 +61,8 @@ class RequestProfileAssemblerTests {
                 security("alice", "AUTHENTICATION_SUCCESS", "trace-a", 1_040L),
                 security("bob", "AUTHENTICATION_SUCCESS", "trace-b", 1_050L));
 
-        RequestProfileDto profile = assembler.profile("req-1", request, allExchanges, sql, exceptions, security, null);
+        RequestProfileDto profile =
+                assembler.profile("req-1", request, allExchanges, sql, exceptions, security, null, null, null);
 
         assertThat(profile.available()).isTrue();
         assertThat(profile.unavailableReason()).isNull();
@@ -88,8 +92,8 @@ class RequestProfileAssemblerTests {
         HttpExchangeDto other = request("req-2", "/items", "trace-a", null, 2_000L, 50L);
         List<SqlTraceEntryDto> sql = List.of(sql(1, "select 1", "trace-a", 10L, 1_010L));
 
-        RequestProfileDto profile =
-                assembler.profile("req-1", request, List.of(request, other), sql, List.of(), List.of(), null);
+        RequestProfileDto profile = assembler.profile(
+                "req-1", request, List.of(request, other), sql, List.of(), List.of(), null, null, null);
 
         assertThat(profile.available()).isTrue();
         assertThat(profile.sql()).isEmpty();
@@ -131,7 +135,7 @@ class RequestProfileAssemblerTests {
                         "com.example.OrderService.loadItems(OrderService.java:42)"));
 
         RequestProfileDto profile =
-                assembler.profile("req-1", request, List.of(request), sql, List.of(), List.of(), null);
+                assembler.profile("req-1", request, List.of(request), sql, List.of(), List.of(), null, null, null);
 
         assertThat(profile.sqlGroups()).hasSize(1);
         assertThat(profile.sqlGroups().get(0).executions()).isEqualTo(5L);
@@ -153,14 +157,101 @@ class RequestProfileAssemblerTests {
         TraceDetailDto matchingTrace = new TraceDetailDto("trace-a", List.of());
         TraceDetailDto mismatchedTrace = new TraceDetailDto("trace-other", List.of());
 
-        RequestProfileDto matched =
-                assembler.profile("req-1", request, List.of(request), List.of(), List.of(), List.of(), matchingTrace);
-        RequestProfileDto mismatched =
-                assembler.profile("req-1", request, List.of(request), List.of(), List.of(), List.of(), mismatchedTrace);
+        RequestProfileDto matched = assembler.profile(
+                "req-1", request, List.of(request), List.of(), List.of(), List.of(), matchingTrace, null, null);
+        RequestProfileDto mismatched = assembler.profile(
+                "req-1", request, List.of(request), List.of(), List.of(), List.of(), mismatchedTrace, null, null);
 
         assertThat(matched.trace()).isEqualTo(matchingTrace);
         assertThat(matched.notes()).anyMatch(note -> note.contains("Trace matched by id trace-a"));
         assertThat(mismatched.trace()).isNull();
+    }
+
+    @Test
+    void remoteActivityIsPopulatedFromASharedActivityStoreWhenRequestIsOwned() {
+        HttpExchangeDto request = request("req-1", "/orders", "trace-a", null, 1_000L, 50L);
+        InMemoryActivityStore store = new InMemoryActivityStore(10);
+        store.append(new StoredActivityEntry(
+                "other-instance",
+                1,
+                new ActivityEntryDto(
+                        "remote-1",
+                        "SQL",
+                        900L,
+                        "OK",
+                        "select 1",
+                        null,
+                        5L,
+                        "trace-a",
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        null,
+                        null,
+                        false)));
+
+        RequestProfileDto profile = assembler.profile(
+                "req-1", request, List.of(request), List.of(), List.of(), List.of(), null, store, "this-instance");
+
+        assertThat(profile.remoteActivity()).hasSize(1);
+        assertThat(profile.remoteActivity().get(0).instanceId()).isEqualTo("other-instance");
+        assertThat(profile.remoteActivity().get(0).entry().id()).isEqualTo("remote-1");
+        assertThat(profile.notes())
+                .anyMatch(note -> note.contains("Found 1 signal(s) captured by other BootUI instance(s)"));
+    }
+
+    @Test
+    void remoteActivityIsSkippedWhenTheRequestsTraceIdIsAmbiguousEvenIfTheStoreHasMatchingRows() {
+        HttpExchangeDto request = request("req-1", "/orders", "trace-a", null, 1_000L, 50L);
+        HttpExchangeDto other = request("req-2", "/items", "trace-a", null, 2_000L, 50L);
+        InMemoryActivityStore store = new InMemoryActivityStore(10);
+        store.append(new StoredActivityEntry(
+                "other-instance",
+                1,
+                new ActivityEntryDto(
+                        "remote-1",
+                        "SQL",
+                        900L,
+                        "OK",
+                        "select 1",
+                        null,
+                        5L,
+                        "trace-a",
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        null,
+                        null,
+                        false)));
+
+        RequestProfileDto profile = assembler.profile(
+                "req-1",
+                request,
+                List.of(request, other),
+                List.of(),
+                List.of(),
+                List.of(),
+                null,
+                store,
+                "this-instance");
+
+        // The ambiguity guard (owned == false) must suppress remote correlation too, not just local SQL/
+        // exceptions/security, since it relies on the same possibly-reused trace id.
+        assertThat(profile.remoteActivity()).isEmpty();
+    }
+
+    @Test
+    void remoteActivityIsEmptyWhenNoActivityStoreIsConfigured() {
+        HttpExchangeDto request = request("req-1", "/orders", "trace-a", null, 1_000L, 50L);
+
+        RequestProfileDto profile = assembler.profile(
+                "req-1", request, List.of(request), List.of(), List.of(), List.of(), null, null, null);
+
+        assertThat(profile.remoteActivity()).isEmpty();
     }
 
     private static HttpExchangeDto request(

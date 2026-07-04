@@ -806,6 +806,27 @@ Features:
   **runtime-only**: it does not write configuration, so a later restart reverts to the in-memory default unless
   persistence is also turned on via `bootui.activity.persistence.enabled=true`. Identical on both adapters (Spring's
   `LiveActivityController` and Quarkus's `LiveActivityResource` share the same engine-level `ActivitySwitchService`).
+- Cross-instance correlation over that same shared table: because rows are namespaced by `instanceId` but written to
+  one physical `bootui_activity` table, separate BootUI instances that persist to the same database — for example a
+  Spring Boot instance and a Quarkus instance that call each other over HTTP as part of one distributed request — can
+  see each other's signals for that request without ever calling each other directly. `ActivityStore` adds a second,
+  narrower query, `queryByCorrelationId(correlationId, limit)`, deliberately unscoped by `instanceId` (unlike the
+  panel's normal `query()`), and the engine `RemoteActivityCorrelator` uses it to append a `remoteActivity` list to
+  `GET /bootui/api/activity/request/{id}`: the entries a *different* instance captured under the exact same
+  W3C distributed-trace id as the profiled request, oldest-first, each with its originating `parentId` cleared (it
+  would otherwise reference that other instance's own local request id) and this instance's own entries excluded (they
+  are already shown through this instance's normal local correlation). The lookup is a narrow, single-key read driven
+  by one already-open request profile — never a general cross-instance browse of the shared table — so it trusts the
+  shared trace id at face value (effectively globally unique per distributed request) and is capped at 100 entries per
+  request so a pathological shared table (e.g. a reused/collided trace id) cannot balloon one profile response. On
+  Quarkus, the lookup additionally runs only when the profiled request's own trace id was itself unambiguous (the same
+  tier-1 ownership check that already gates its local SQL/exception/security correlation); Spring's tiered correlator
+  has no equivalent single ownership gate over the whole profile, so it always attempts the remote lookup once a trace
+  id is present. Either way, the result is empty — and the rest of the profile is unaffected — whenever persistence is
+  disabled, no store is configured, or no other instance recorded anything under that trace id, so this is purely
+  additive: existing single-instance profiles are unchanged. The profiler UI renders a "Remote activity" section
+  (instance id, type, severity, summary per entry) only when the list is non-empty, and the plain-text "Copy profile"
+  report includes the same entries when present.
 
 Acceptance criteria:
 
@@ -824,6 +845,11 @@ Acceptance criteria:
 - The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
   `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
   active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
+- Cross-instance `remoteActivity` correlation never fabricates or guesses a link across instances: it is keyed
+  exactly on the profiled request's own distributed-trace id, excludes this instance's own rows, is capped at 100
+  entries, and is empty (not an error) whenever persistence is disabled, no store is configured, or no other instance
+  recorded anything under that trace id — a single-instance deployment's profile is byte-identical to before this
+  capability existed.
 
 ### 5.15 Profile Diff Panel
 

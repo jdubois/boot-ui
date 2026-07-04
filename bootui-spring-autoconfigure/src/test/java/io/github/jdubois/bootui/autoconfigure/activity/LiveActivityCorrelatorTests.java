@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
@@ -26,6 +27,11 @@ import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
+import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
+import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
+import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -35,6 +41,22 @@ class LiveActivityCorrelatorTests {
 
     private static final Instant BASE = Instant.parse("2026-06-14T10:00:00Z");
     private static final long START = BASE.toEpochMilli();
+    // No test here exercises cross-instance correlation directly (see RemoteActivityCorrelatorTests for
+    // that); a null activityStore short-circuits RemoteActivityCorrelator.forRequest to an empty list, but
+    // persistenceSettings must stay non-null since profile() unconditionally reads instanceId() from it.
+    private static final ActivityPersistenceSettings TEST_PERSISTENCE_SETTINGS = new ActivityPersistenceSettings(
+            false,
+            ActivityPersistenceSettings.DataSourceMode.SHARED,
+            null,
+            null,
+            null,
+            null,
+            "bootui_activity",
+            Duration.ofSeconds(5),
+            500,
+            Duration.ofDays(7),
+            "test-instance",
+            Duration.ofSeconds(2));
 
     @Test
     void returnsUnavailableWhenRequestNotFound() {
@@ -383,7 +405,105 @@ class LiveActivityCorrelatorTests {
         assertThat(profile.sqlCorrelationApproximate()).isTrue();
     }
 
+    @Test
+    void remoteActivityIsPopulatedFromASharedActivityStore() {
+        SwitchableActivityStore activityStore = new SwitchableActivityStore(new InMemoryActivityStore(10));
+        activityStore.append(new StoredActivityEntry(
+                "other-instance",
+                1,
+                new ActivityEntryDto(
+                        "remote-1",
+                        "SQL",
+                        START - 100,
+                        "OK",
+                        "select 1",
+                        null,
+                        5L,
+                        "trace-abc",
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        null,
+                        null,
+                        false)));
+        LiveActivityCorrelator correlator = correlatorWithActivityStore(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L, "trace-abc")), activityStore);
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.remoteActivity()).hasSize(1);
+        assertThat(profile.remoteActivity().get(0).instanceId()).isEqualTo("other-instance");
+        assertThat(profile.remoteActivity().get(0).entry().id()).isEqualTo("remote-1");
+        assertThat(profile.notes())
+                .anyMatch(note -> note.contains("Found 1 signal(s) captured by other BootUI instance(s)"));
+    }
+
+    @Test
+    void remoteActivityExcludesEntriesCapturedByThisSameInstance() {
+        SwitchableActivityStore activityStore = new SwitchableActivityStore(new InMemoryActivityStore(10));
+        // TEST_PERSISTENCE_SETTINGS.instanceId() is "test-instance": an entry stamped with that same id
+        // is this instance's own local capture, already represented by sql()/exceptions()/security()
+        // above, and must not also be echoed back as "remote".
+        activityStore.append(new StoredActivityEntry(
+                "test-instance",
+                1,
+                new ActivityEntryDto(
+                        "own-1",
+                        "SQL",
+                        START - 100,
+                        "OK",
+                        "select 1",
+                        null,
+                        5L,
+                        "trace-abc",
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        null,
+                        null,
+                        false)));
+        LiveActivityCorrelator correlator = correlatorWithActivityStore(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L, "trace-abc")), activityStore);
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.remoteActivity()).isEmpty();
+    }
+
+    @Test
+    void remoteActivityIsEmptyWhenNoActivityStoreIsConfigured() {
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L, "trace-abc")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.remoteActivity()).isEmpty();
+    }
+
     // --- helpers ---
+
+    private LiveActivityCorrelator correlatorWithActivityStore(
+            HttpExchangesController requests, SwitchableActivityStore activityStore) {
+        return new LiveActivityCorrelator(
+                provider(requests),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                new BootUiProperties(),
+                activityStore,
+                TEST_PERSISTENCE_SETTINGS);
+    }
 
     private LiveActivityCorrelator correlator(
             HttpExchangesController requests,
@@ -432,7 +552,9 @@ class LiveActivityCorrelatorTests {
                 provider(traces),
                 provider(requestCorrelations),
                 provider(securityCorrelations),
-                properties);
+                properties,
+                null,
+                TEST_PERSISTENCE_SETTINGS);
     }
 
     @SuppressWarnings("unchecked")

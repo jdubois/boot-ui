@@ -22,6 +22,10 @@ import java.util.List;
  * @param trace the distributed trace for this request when a trace id matched, or {@code null}
  * @param timing coarse timing breakdown
  * @param notes human-readable notes about how correlation was performed and its caveats
+ * @param remoteActivity signals a <strong>different</strong> BootUI instance captured under this same
+ *     trace id, when this instance's activity store is a shared durable store (see {@link
+ *     RemoteActivityEntryDto}); empty when persistence is disabled/not shared, or no other instance
+ *     recorded anything for this trace id
  */
 public record RequestProfileDto(
         boolean available,
@@ -34,7 +38,8 @@ public record RequestProfileDto(
         List<RequestProfileSecurityDto> security,
         TraceDetailDto trace,
         RequestProfileTimingDto timing,
-        List<String> notes) {
+        List<String> notes,
+        List<RemoteActivityEntryDto> remoteActivity) {
 
     public RequestProfileDto {
         sql = sql == null ? List.of() : List.copyOf(sql);
@@ -42,10 +47,12 @@ public record RequestProfileDto(
         exceptions = exceptions == null ? List.of() : List.copyOf(exceptions);
         security = security == null ? List.of() : List.copyOf(security);
         notes = notes == null ? List.of() : List.copyOf(notes);
+        remoteActivity = remoteActivity == null ? List.of() : List.copyOf(remoteActivity);
     }
 
     public static RequestProfileDto unavailable(String reason) {
         return new RequestProfileDto(
-                false, reason, null, List.of(), List.of(), false, List.of(), List.of(), null, null, List.of());
+                false, reason, null, List.of(), List.of(), false, List.of(), List.of(), null, null, List.of(),
+                List.of());
     }
 }

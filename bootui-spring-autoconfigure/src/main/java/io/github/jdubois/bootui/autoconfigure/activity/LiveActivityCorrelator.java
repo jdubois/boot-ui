@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
+import io.github.jdubois.bootui.core.dto.RemoteActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileExceptionDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileSecurityDto;
@@ -23,6 +24,9 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
+import io.github.jdubois.bootui.engine.activity.RemoteActivityCorrelator;
+import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.util.ArrayList;
@@ -61,6 +65,8 @@ public class LiveActivityCorrelator {
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
     private final BootUiProperties properties;
+    private final SwitchableActivityStore activityStore;
+    private final ActivityPersistenceSettings persistenceSettings;
 
     public LiveActivityCorrelator(
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -70,7 +76,9 @@ public class LiveActivityCorrelator {
             ObjectProvider<TracesController> traces,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
-            BootUiProperties properties) {
+            BootUiProperties properties,
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings persistenceSettings) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
         this.exceptions = exceptions;
@@ -79,6 +87,8 @@ public class LiveActivityCorrelator {
         this.requestCorrelations = requestCorrelations;
         this.securityCorrelations = securityCorrelations;
         this.properties = properties;
+        this.activityStore = activityStore;
+        this.persistenceSettings = persistenceSettings;
     }
 
     /** Build the profile for the request with the given HTTP exchange id. */
@@ -140,6 +150,13 @@ public class LiveActivityCorrelator {
             notes.add("Trace matched by id " + request.traceId() + ".");
         }
 
+        List<RemoteActivityEntryDto> remoteActivity =
+                RemoteActivityCorrelator.forRequest(activityStore, request.traceId(), persistenceSettings.instanceId());
+        if (!remoteActivity.isEmpty()) {
+            notes.add("Found " + remoteActivity.size() + " signal(s) captured by other BootUI instance(s) sharing "
+                    + "this trace id via the shared activity store.");
+        }
+
         long sqlMs = sql.stream().mapToLong(SqlTraceEntryDto::durationMillis).sum();
         Double sqlPercent = (request.durationMs() != null && request.durationMs() > 0)
                 ? Math.round(10000.0 * sqlMs / request.durationMs()) / 100.0
@@ -148,7 +165,18 @@ public class LiveActivityCorrelator {
                 new RequestProfileTimingDto(request.durationMs(), sqlMs, sql.size(), sqlPercent);
 
         return new RequestProfileDto(
-                true, null, request, sql, sqlGroups, sqlApproximate, requestExceptions, security, trace, timing, notes);
+                true,
+                null,
+                request,
+                sql,
+                sqlGroups,
+                sqlApproximate,
+                requestExceptions,
+                security,
+                trace,
+                timing,
+                notes,
+                remoteActivity);
     }
 
     private HttpExchangeDto findRequest(String requestId) {

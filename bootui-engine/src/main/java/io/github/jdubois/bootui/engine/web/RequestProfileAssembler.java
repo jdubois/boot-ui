@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
+import io.github.jdubois.bootui.core.dto.RemoteActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileExceptionDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileSecurityDto;
@@ -12,6 +13,8 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import io.github.jdubois.bootui.engine.activity.ActivityStore;
+import io.github.jdubois.bootui.engine.activity.RemoteActivityCorrelator;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -61,6 +64,13 @@ public final class RequestProfileAssembler {
      *     {@code null} when the security-log source is unavailable
      * @param trace the distributed trace detail for the request's trace id, when cheaply available, or
      *     {@code null}
+     * @param activityStore this instance's activity store, queried via {@link
+     *     RemoteActivityCorrelator#forRequest} for signals a <em>different</em> BootUI instance captured
+     *     under the same trace id when it is a shared durable store; {@code null} skips the lookup
+     *     entirely (e.g. persistence disabled)
+     * @param ownInstanceId this instance's own {@code instanceId}, excluded from the remote-activity
+     *     result since its entries are already represented by {@code sql}/{@code exceptions}/{@code
+     *     security} above
      */
     public RequestProfileDto profile(
             String requestId,
@@ -69,7 +79,9 @@ public final class RequestProfileAssembler {
             List<SqlTraceEntryDto> sqlEntries,
             List<ExceptionDetailDto> exceptionDetails,
             List<SecurityLogEventDto> securityEvents,
-            TraceDetailDto trace) {
+            TraceDetailDto trace,
+            ActivityStore activityStore,
+            String ownInstanceId) {
         if (request == null) {
             return RequestProfileDto.unavailable("Request " + requestId + " is no longer in the buffer");
         }
@@ -119,6 +131,13 @@ public final class RequestProfileAssembler {
             notes.add("Trace matched by id " + traceId + ".");
         }
 
+        List<RemoteActivityEntryDto> remoteActivity =
+                owned ? RemoteActivityCorrelator.forRequest(activityStore, traceId, ownInstanceId) : List.of();
+        if (!remoteActivity.isEmpty()) {
+            notes.add("Found " + remoteActivity.size() + " signal(s) captured by other BootUI instance(s) sharing "
+                    + "this trace id via the shared activity store.");
+        }
+
         long sqlMs = sql.stream().mapToLong(SqlTraceEntryDto::durationMillis).sum();
         Double sqlPercent = (request.durationMs() != null && request.durationMs() > 0)
                 ? Math.round(10000.0 * sqlMs / request.durationMs()) / 100.0
@@ -127,7 +146,18 @@ public final class RequestProfileAssembler {
                 new RequestProfileTimingDto(request.durationMs(), sqlMs, sql.size(), sqlPercent);
 
         return new RequestProfileDto(
-                true, null, request, sql, sqlGroups, false, exceptions, security, matchedTrace, timing, notes);
+                true,
+                null,
+                request,
+                sql,
+                sqlGroups,
+                false,
+                exceptions,
+                security,
+                matchedTrace,
+                timing,
+                notes,
+                remoteActivity);
     }
 
     private static List<SqlTraceEntryDto> matchingSql(String traceId, List<SqlTraceEntryDto> sqlEntries) {

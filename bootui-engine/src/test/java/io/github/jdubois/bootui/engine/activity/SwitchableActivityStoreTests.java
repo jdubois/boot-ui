@@ -56,6 +56,32 @@ class SwitchableActivityStoreTests {
     }
 
     @Test
+    void queryByCorrelationIdReachesTheDelegateRatherThanTheInterfaceDefaultEmptyList() {
+        AtomicBoolean queried = new AtomicBoolean();
+        ActivityStore recording = new ActivityStore() {
+            @Override
+            public void appendBatch(List<StoredActivityEntry> entries) {}
+
+            @Override
+            public ActivityPage query(ActivityQuery query) {
+                return ActivityPage.EMPTY;
+            }
+
+            @Override
+            public List<StoredActivityEntry> queryByCorrelationId(String correlationId, int limit) {
+                queried.set(true);
+                return List.of(new StoredActivityEntry("app-1", 1, entry("1", "REQUEST", 1, "OK", "hello")));
+            }
+        };
+
+        SwitchableActivityStore store = new SwitchableActivityStore(recording);
+        List<StoredActivityEntry> matches = store.queryByCorrelationId("trace-a", 10);
+
+        assertThat(queried).isTrue();
+        assertThat(matches).extracting(s -> s.entry().id()).containsExactly("1");
+    }
+
+    @Test
     void isNotPersistentWhenDelegateIsInMemory() {
         SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(10));
         assertThat(store.persistent()).isFalse();

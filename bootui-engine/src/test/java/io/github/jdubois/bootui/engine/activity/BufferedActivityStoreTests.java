@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.activity;
 
 import static io.github.jdubois.bootui.engine.activity.ActivityTestFixtures.entry;
+import static io.github.jdubois.bootui.engine.activity.ActivityTestFixtures.entryWithCorrelation;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
@@ -13,6 +14,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class BufferedActivityStoreTests {
@@ -55,6 +57,18 @@ class BufferedActivityStoreTests {
         }
 
         @Override
+        public List<StoredActivityEntry> queryByCorrelationId(String correlationId, int limit) {
+            if (correlationId == null || correlationId.isBlank()) {
+                return List.of();
+            }
+            return accepted.stream()
+                    .filter(e -> correlationId.equals(e.entry().correlationId()))
+                    .sorted(Comparator.comparingLong(StoredActivityEntry::seq).reversed())
+                    .limit(limit)
+                    .collect(Collectors.toList());
+        }
+
+        @Override
         public void close() {
             closed.set(true);
         }
@@ -62,6 +76,11 @@ class BufferedActivityStoreTests {
 
     private StoredActivityEntry stampedEntry(long seq, String id) {
         return new StoredActivityEntry(INSTANCE, seq, entry(id, "REQUEST", seq, "OK", "entry " + id));
+    }
+
+    private StoredActivityEntry stampedEntryWithCorrelation(long seq, String id, String correlationId) {
+        return new StoredActivityEntry(
+                INSTANCE, seq, entryWithCorrelation(id, "REQUEST", seq, "OK", "entry " + id, correlationId));
     }
 
     @Test
@@ -109,6 +128,64 @@ class BufferedActivityStoreTests {
             ActivityPage page = store.query(new ActivityQuery(INSTANCE, null, null, null, null, null, null, 3));
             assertThat(page.entryDtos()).extracting(ActivityEntryDto::id).containsExactly("3", "2", "1");
             assertThat(page.hasMore()).isFalse();
+        }
+    }
+
+    @Test
+    void queryByCorrelationIdFindsEntryInHotCacheBeforeFlush() {
+        FakeDurableStore durable = new FakeDurableStore();
+        try (BufferedActivityStore store =
+                new BufferedActivityStore(new InMemoryActivityStore(10), durable, LONG_INTERVAL, 100)) {
+            store.append(stampedEntryWithCorrelation(1, "1", "trace-a"));
+
+            // Not yet flushed, so only the hot cache has it — proves hotCache alone is consulted too.
+            List<StoredActivityEntry> matches = store.queryByCorrelationId("trace-a", 10);
+            assertThat(matches).extracting(s -> s.entry().id()).containsExactly("1");
+        }
+    }
+
+    @Test
+    void queryByCorrelationIdMergesHotAndDurableTiersAndDedupesAfterFlush() {
+        FakeDurableStore durable = new FakeDurableStore();
+        try (BufferedActivityStore store =
+                new BufferedActivityStore(new InMemoryActivityStore(10), durable, LONG_INTERVAL, 100)) {
+            store.append(stampedEntryWithCorrelation(1, "1", "trace-a"));
+            store.append(stampedEntryWithCorrelation(2, "2", "trace-a"));
+            store.flushNow();
+            // Captured after the flush: visible only in the hot cache (durable never saw it).
+            store.append(stampedEntryWithCorrelation(3, "3", "trace-a"));
+
+            // Entries 1 and 2 exist in both tiers post-flush but must be deduped to one copy each.
+            List<StoredActivityEntry> matches = store.queryByCorrelationId("trace-a", 10);
+            assertThat(matches).extracting(s -> s.entry().id()).containsExactly("3", "2", "1");
+        }
+    }
+
+    @Test
+    void queryByCorrelationIdRespectsLimitAfterMerging() {
+        FakeDurableStore durable = new FakeDurableStore();
+        try (BufferedActivityStore store =
+                new BufferedActivityStore(new InMemoryActivityStore(10), durable, LONG_INTERVAL, 100)) {
+            store.append(stampedEntryWithCorrelation(1, "1", "trace-a"));
+            store.append(stampedEntryWithCorrelation(2, "2", "trace-a"));
+            store.append(stampedEntryWithCorrelation(3, "3", "trace-a"));
+            store.flushNow();
+
+            List<StoredActivityEntry> matches = store.queryByCorrelationId("trace-a", 2);
+            assertThat(matches).extracting(s -> s.entry().id()).containsExactly("3", "2");
+        }
+    }
+
+    @Test
+    void queryByCorrelationIdReturnsEmptyForBlankCorrelationId() {
+        FakeDurableStore durable = new FakeDurableStore();
+        try (BufferedActivityStore store =
+                new BufferedActivityStore(new InMemoryActivityStore(10), durable, LONG_INTERVAL, 100)) {
+            store.append(stampedEntryWithCorrelation(1, "1", "trace-a"));
+
+            assertThat(store.queryByCorrelationId(null, 10)).isEmpty();
+            assertThat(store.queryByCorrelationId("", 10)).isEmpty();
+            assertThat(store.queryByCorrelationId("no-such-trace", 10)).isEmpty();
         }
     }
 

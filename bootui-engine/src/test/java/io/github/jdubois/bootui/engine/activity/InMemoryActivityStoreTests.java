@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.activity;
 
 import static io.github.jdubois.bootui.engine.activity.ActivityTestFixtures.entry;
+import static io.github.jdubois.bootui.engine.activity.ActivityTestFixtures.entryWithCorrelation;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
@@ -121,5 +122,45 @@ class InMemoryActivityStoreTests {
         store.appendBatch(null);
         store.appendBatch(List.of());
         assertThat(store.query(ActivityQuery.firstPage(INSTANCE)).entryDtos()).isEmpty();
+    }
+
+    @Test
+    void queryByCorrelationIdMatchesAcrossInstancesNewestFirst() {
+        InMemoryActivityStore store = new InMemoryActivityStore(10);
+        store.append(new StoredActivityEntry(
+                "app-1", 1, entryWithCorrelation("1", "REQUEST", 1, "OK", "entry 1", "trace-a")));
+        store.append(new StoredActivityEntry(
+                "app-2", 2, entryWithCorrelation("2", "REQUEST", 2, "OK", "entry 2", "trace-a")));
+        // different trace, must be excluded
+        store.append(new StoredActivityEntry(
+                "app-1", 3, entryWithCorrelation("3", "REQUEST", 3, "OK", "entry 3", "trace-b")));
+
+        List<StoredActivityEntry> matches = store.queryByCorrelationId("trace-a", 10);
+        assertThat(matches).extracting(s -> s.entry().id()).containsExactly("2", "1");
+    }
+
+    @Test
+    void queryByCorrelationIdRespectsLimit() {
+        InMemoryActivityStore store = new InMemoryActivityStore(10);
+        store.append(new StoredActivityEntry(
+                "app-1", 1, entryWithCorrelation("1", "REQUEST", 1, "OK", "entry 1", "trace-a")));
+        store.append(new StoredActivityEntry(
+                "app-1", 2, entryWithCorrelation("2", "REQUEST", 2, "OK", "entry 2", "trace-a")));
+        store.append(new StoredActivityEntry(
+                "app-1", 3, entryWithCorrelation("3", "REQUEST", 3, "OK", "entry 3", "trace-a")));
+
+        List<StoredActivityEntry> matches = store.queryByCorrelationId("trace-a", 2);
+        assertThat(matches).extracting(s -> s.entry().id()).containsExactly("3", "2");
+    }
+
+    @Test
+    void queryByCorrelationIdReturnsEmptyForBlankOrUnmatchedId() {
+        InMemoryActivityStore store = new InMemoryActivityStore(10);
+        store.append(new StoredActivityEntry(
+                "app-1", 1, entryWithCorrelation("1", "REQUEST", 1, "OK", "entry 1", "trace-a")));
+
+        assertThat(store.queryByCorrelationId(null, 10)).isEmpty();
+        assertThat(store.queryByCorrelationId("", 10)).isEmpty();
+        assertThat(store.queryByCorrelationId("no-such-trace", 10)).isEmpty();
     }
 }

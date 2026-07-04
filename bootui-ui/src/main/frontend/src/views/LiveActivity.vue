@@ -474,6 +474,13 @@ function renderProfileReport() {
       lines.push(`  ${event.type}${principal}${match}`)
     }
   }
+  if (p.remoteActivity && p.remoteActivity.length) {
+    lines.push('')
+    lines.push('Remote activity (other BootUI instances sharing this trace id):')
+    for (const remote of p.remoteActivity) {
+      lines.push(`  [${remote.instanceId}] ${remote.entry.type} · ${remote.entry.severity} · ${remote.entry.summary}`)
+    }
+  }
   if (p.notes && p.notes.length) {
     lines.push('')
     lines.push('Notes:')
@@ -1067,6 +1074,21 @@ function clearFilters() {
                 >
                   principal
                 </span>
+              </div>
+            </section>
+
+            <section v-if="profile.remoteActivity && profile.remoteActivity.length" class="mb-3">
+              <h3 class="h6">Remote activity</h3>
+              <p class="text-muted small mb-2">
+                Captured by other BootUI instances sharing this request's trace id via the shared activity store.
+              </p>
+              <div v-for="(remote, index) in profile.remoteActivity" :key="index" class="small mb-1">
+                <span class="badge text-bg-secondary me-1">{{ remote.instanceId }}</span>
+                <i :class="['bi', typeIcon(remote.entry.type), 'me-1']"></i>
+                <span :class="['badge', severityBadgeClass(remote.entry.severity)]" class="me-1">{{
+                  remote.entry.severity
+                }}</span>
+                <span>{{ remote.entry.summary }}</span>
               </div>
             </section>
 

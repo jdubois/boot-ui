@@ -165,6 +165,34 @@ public final class BufferedActivityStore implements ActivityStore {
         return new ActivityPage(page, nextCursor, hasMore);
     }
 
+    @Override
+    public List<StoredActivityEntry> queryByCorrelationId(String correlationId, int limit) {
+        if (correlationId == null || correlationId.isBlank()) {
+            return List.of();
+        }
+        // Same merge-for-reads rationale as query(): an entry captured moments ago may still only be in
+        // the hot cache (not yet flushed), so both sides must be consulted and deduped.
+        List<StoredActivityEntry> hot = hotCache.queryByCorrelationId(correlationId, limit);
+        List<StoredActivityEntry> fromDurable = durable.queryByCorrelationId(correlationId, limit);
+
+        List<StoredActivityEntry> merged = new ArrayList<>(hot.size() + fromDurable.size());
+        merged.addAll(hot);
+        merged.addAll(fromDurable);
+        merged.sort(
+                Comparator.comparingLong((StoredActivityEntry s) -> s.entry().timestamp())
+                        .thenComparingLong(StoredActivityEntry::seq)
+                        .reversed());
+
+        List<StoredActivityEntry> deduped = new ArrayList<>(merged.size());
+        Set<String> seen = new HashSet<>();
+        for (StoredActivityEntry entry : merged) {
+            if (seen.add(entry.instanceId() + '#' + entry.seq()) && deduped.size() < limit) {
+                deduped.add(entry);
+            }
+        }
+        return deduped;
+    }
+
     /** Number of entries currently awaiting their first durable-write attempt. Exposed for tests/diagnostics. */
     public int pendingCount() {
         synchronized (pendingLock) {

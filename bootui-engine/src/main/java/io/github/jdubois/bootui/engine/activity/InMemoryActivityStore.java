@@ -79,6 +79,26 @@ public final class InMemoryActivityStore implements ActivityStore {
         return new ActivityPage(page, nextCursor, hasMore);
     }
 
+    @Override
+    public List<StoredActivityEntry> queryByCorrelationId(String correlationId, int limit) {
+        if (correlationId == null || correlationId.isBlank()) {
+            return List.of();
+        }
+        List<StoredActivityEntry> snapshot;
+        synchronized (lock) {
+            snapshot = new ArrayList<>(buffer);
+        }
+        List<StoredActivityEntry> matches = new ArrayList<>();
+        // The buffer is stored oldest-first; walk it newest-first, same as query() above.
+        for (int i = snapshot.size() - 1; i >= 0 && matches.size() < limit; i--) {
+            StoredActivityEntry stored = snapshot.get(i);
+            if (correlationId.equals(stored.entry().correlationId())) {
+                matches.add(stored);
+            }
+        }
+        return matches;
+    }
+
     private static boolean matchesFilters(
             ActivityEntryDto entry, String type, String severity, String text, Long since, Long until) {
         if (since != null && entry.timestamp() <= since) {

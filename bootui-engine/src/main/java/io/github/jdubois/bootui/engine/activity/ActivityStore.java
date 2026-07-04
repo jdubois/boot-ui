@@ -32,6 +32,27 @@ public interface ActivityStore extends AutoCloseable {
     ActivityPage query(ActivityQuery query);
 
     /**
+     * Returns every entry sharing {@code correlationId} — the same W3C distributed-trace id every {@link
+     * io.github.jdubois.bootui.core.dto.ActivityEntryDto} already carries — newest-first, capped at
+     * {@code limit}. Returns an empty list for a {@code null}/blank {@code correlationId}.
+     *
+     * <p>Deliberately <strong>not</strong> instance-scoped, unlike {@link #query}: when several
+     * cooperating BootUI instances are pointed at the same durable store (the "shared table" persistence
+     * setup), this is the one seam that lets a request profiled on one instance surface the signals a
+     * <em>different</em> instance captured for the same distributed request — an explicit, single-key
+     * lookup keyed on a value that is effectively globally unique per distributed request, triggered only
+     * when a caller already knows one specific request's own trace id (never a general cross-instance
+     * browse).</p>
+     *
+     * <p>The default implementation returns an empty list: an in-memory-only store never crosses process
+     * boundaries, so it has nothing to contribute beyond what local, same-instance correlation already
+     * found.</p>
+     */
+    default List<StoredActivityEntry> queryByCorrelationId(String correlationId, int limit) {
+        return List.of();
+    }
+
+    /**
      * Deletes {@code instanceId}'s own rows older than {@code olderThanEpochMillis}, enforcing the
      * configured retention window. The default implementation does nothing: a bounded in-memory store
      * already self-evicts by capacity and has no separate retention concept.

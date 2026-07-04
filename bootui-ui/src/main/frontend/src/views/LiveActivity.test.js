@@ -88,6 +88,7 @@ function requestProfile(overrides = {}) {
     trace: null,
     timing: {sqlCount: 6, sqlMs: 60, sqlPercent: 50},
     notes: [],
+    remoteActivity: [],
     ...overrides
   }
 }
@@ -172,6 +173,115 @@ describe('LiveActivity', () => {
     const report = writeText.mock.calls[0][0]
     expect(report).toContain('[N+1]')
     expect(report).toContain('at com.example.TodoRepository.findById(TodoRepository.java:42)')
+  })
+
+  it('shows remote activity captured by other BootUI instances in the request profile drawer', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport(),
+        requestProfile({
+          remoteActivity: [
+            {
+              instanceId: 'quarkus-app',
+              entry: {
+                id: 'remote-1',
+                type: 'SQL',
+                timestamp: 1700000000500,
+                severity: 'OK',
+                summary: 'select * from product where id = ?',
+                detail: null,
+                durationMs: 5,
+                correlationId: 'trace-a',
+                method: null,
+                path: null,
+                status: null,
+                thread: null,
+                profileable: false,
+                parentId: null,
+                securedPrincipal: null,
+                sqlNPlusOneSuspected: false
+              }
+            }
+          ]
+        })
+      )
+    )
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('.activity-drawer')
+    expect(drawer.text()).toContain('Remote activity')
+    expect(drawer.text()).toContain('quarkus-app')
+    expect(drawer.text()).toContain('select * from product where id = ?')
+  })
+
+  it('hides the remote activity section when no other instance recorded anything for this trace id', async () => {
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile({remoteActivity: []})))
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('.activity-drawer')
+    expect(drawer.text()).not.toContain('Remote activity')
+  })
+
+  it('includes remote activity when copying the plain-text profile report', async () => {
+    const writeText = vi.fn().mockResolvedValue()
+    vi.stubGlobal('navigator', {clipboard: {writeText}})
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport(),
+        requestProfile({
+          remoteActivity: [
+            {
+              instanceId: 'quarkus-app',
+              entry: {
+                id: 'remote-1',
+                type: 'SQL',
+                timestamp: 1700000000500,
+                severity: 'OK',
+                summary: 'select * from product where id = ?',
+                detail: null,
+                durationMs: 5,
+                correlationId: 'trace-a',
+                method: null,
+                path: null,
+                status: null,
+                thread: null,
+                profileable: false,
+                parentId: null,
+                securedPrincipal: null,
+                sqlNPlusOneSuspected: false
+              }
+            }
+          ]
+        })
+      )
+    )
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const copyButton = wrapper.findAll('button').find((b) => b.text().includes('Copy profile'))
+    await copyButton.trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const report = writeText.mock.calls[0][0]
+    expect(report).toContain('Remote activity')
+    expect(report).toContain('[quarkus-app] SQL · OK · select * from product where id = ?')
   })
 
   it('shows a tip with the current in-memory event count when persistence is not active', async () => {

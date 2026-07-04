@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.activity;
 
 import static io.github.jdubois.bootui.engine.activity.ActivityTestFixtures.entry;
+import static io.github.jdubois.bootui.engine.activity.ActivityTestFixtures.entryWithCorrelation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -160,6 +161,54 @@ class JdbcActivityStoreTests {
         assertThat(storeA.query(ActivityQuery.firstPage("app-b")).entryDtos())
                 .extracting(ActivityEntryDto::id)
                 .containsExactly("2");
+    }
+
+    @Test
+    void queryByCorrelationIdMatchesAcrossInstancesSharingOneTable() {
+        // This is the crux of cross-instance Live Activity correlation: two stores standing in for two
+        // separate BootUI-instrumented processes, pointed at the same physical table, and
+        // queryByCorrelationId (unlike query()) deliberately has no instance_id predicate.
+        DataSource dataSource = newDataSource();
+        JdbcActivityStore storeA = new JdbcActivityStore(dataSource, "bootui_activity");
+        JdbcActivityStore storeB = new JdbcActivityStore(dataSource, "bootui_activity");
+        storeA.appendBatch(List.of(new StoredActivityEntry(
+                "app-a", 1, entryWithCorrelation("1", "REQUEST", 100, "OK", "from a", "trace-shared"))));
+        storeB.appendBatch(List.of(new StoredActivityEntry(
+                "app-b", 1, entryWithCorrelation("2", "SQL", 200, "OK", "from b", "trace-shared"))));
+        storeA.appendBatch(List.of(new StoredActivityEntry(
+                "app-a", 2, entryWithCorrelation("3", "REQUEST", 300, "OK", "unrelated", "trace-other"))));
+
+        // Queried from either store's connection to the shared table, both rows are visible regardless
+        // of which instance wrote them.
+        List<StoredActivityEntry> fromA = storeA.queryByCorrelationId("trace-shared", 10);
+        assertThat(fromA).extracting(s -> s.entry().id()).containsExactly("2", "1");
+        assertThat(fromA).extracting(StoredActivityEntry::instanceId).containsExactlyInAnyOrder("app-a", "app-b");
+
+        List<StoredActivityEntry> fromB = storeB.queryByCorrelationId("trace-shared", 10);
+        assertThat(fromB).extracting(s -> s.entry().id()).containsExactly("2", "1");
+    }
+
+    @Test
+    void queryByCorrelationIdRespectsLimit() {
+        JdbcActivityStore store = new JdbcActivityStore(newDataSource(), "bootui_activity");
+        store.appendBatch(List.of(
+                new StoredActivityEntry("app-a", 1, entryWithCorrelation("1", "REQUEST", 100, "OK", "a", "trace-a")),
+                new StoredActivityEntry("app-a", 2, entryWithCorrelation("2", "REQUEST", 200, "OK", "b", "trace-a")),
+                new StoredActivityEntry("app-a", 3, entryWithCorrelation("3", "REQUEST", 300, "OK", "c", "trace-a"))));
+
+        List<StoredActivityEntry> matches = store.queryByCorrelationId("trace-a", 2);
+        assertThat(matches).extracting(s -> s.entry().id()).containsExactly("3", "2");
+    }
+
+    @Test
+    void queryByCorrelationIdReturnsEmptyForBlankOrMissingId() {
+        JdbcActivityStore store = new JdbcActivityStore(newDataSource(), "bootui_activity");
+        store.appendBatch(List.of(
+                new StoredActivityEntry("app-a", 1, entryWithCorrelation("1", "REQUEST", 100, "OK", "a", "trace-a"))));
+
+        assertThat(store.queryByCorrelationId(null, 10)).isEmpty();
+        assertThat(store.queryByCorrelationId("", 10)).isEmpty();
+        assertThat(store.queryByCorrelationId("no-such-trace", 10)).isEmpty();
     }
 
     @Test

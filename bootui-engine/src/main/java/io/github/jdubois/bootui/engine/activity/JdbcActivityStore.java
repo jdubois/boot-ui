@@ -97,6 +97,21 @@ public final class JdbcActivityStore implements ActivityStore {
     }
 
     @Override
+    public List<StoredActivityEntry> queryByCorrelationId(String correlationId, int limit) {
+        if (correlationId == null || correlationId.isBlank()) {
+            return List.of();
+        }
+        try {
+            return BootUiJdbcCaptureGuard.runSuppressed(() -> {
+                ensureSchema();
+                return runCorrelationQuery(correlationId, Math.max(1, limit));
+            });
+        } catch (Exception ex) {
+            throw new ActivityStoreException("Failed to query activity entries by correlation id", ex);
+        }
+    }
+
+    @Override
     public void prune(String instanceId, long olderThanEpochMillis) {
         try {
             BootUiJdbcCaptureGuard.runSuppressed(() -> {
@@ -145,6 +160,13 @@ public final class JdbcActivityStore implements ActivityStore {
                 // exist from a concurrent creator, or the dialect names indexes differently); never fail
                 // the whole store over it.
             }
+            try (Statement statement = connection.createStatement()) {
+                statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
+                statement.executeUpdate(createCorrelationIndexSql());
+            } catch (SQLException indexFailed) {
+                // Same rationale as the time index above: a performance aid for queryByCorrelationId's
+                // cross-instance lookup, not a correctness requirement.
+            }
             schemaReady.set(true);
         }
     }
@@ -186,6 +208,15 @@ public final class JdbcActivityStore implements ActivityStore {
 
     private String createIndexSql() {
         return "CREATE INDEX idx_" + tableName + "_time ON " + tableName + " (instance_id, occurred_at, seq)";
+    }
+
+    /**
+     * Supports {@link #queryByCorrelationId}, the one query in this store that is deliberately not
+     * scoped by {@code instance_id} (see that method's Javadoc) and so cannot benefit from {@link
+     * #createIndexSql()}'s composite index, whose leading column is {@code instance_id}.
+     */
+    private String createCorrelationIndexSql() {
+        return "CREATE INDEX idx_" + tableName + "_correlation ON " + tableName + " (correlation_id)";
     }
 
     private void insertBatch(List<StoredActivityEntry> entries) throws SQLException {
@@ -290,6 +321,31 @@ public final class JdbcActivityStore implements ActivityStore {
             nextCursor = new ActivityCursor(last.entry().timestamp(), last.seq()).encode();
         }
         return new ActivityPage(page, nextCursor, hasMore);
+    }
+
+    /**
+     * Backs {@link #queryByCorrelationId}: the one query in this store with no {@code instance_id}
+     * predicate, deliberately, so it returns rows written by every instance sharing this table.
+     */
+    private List<StoredActivityEntry> runCorrelationQuery(String correlationId, int limit) throws SQLException {
+        String sql = "SELECT instance_id, seq, entry_id, entry_type, occurred_at, "
+                + "severity, summary, detail, duration_ms, correlation_id, http_method, path, status_code, "
+                + "thread_name, profileable, parent_entry_id, secured_principal, sql_n_plus_one_suspected FROM "
+                + tableName
+                + " WHERE correlation_id = ? ORDER BY occurred_at DESC, seq DESC OFFSET 0 ROWS FETCH FIRST ? ROWS ONLY";
+        List<StoredActivityEntry> matches = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
+            statement.setString(1, correlationId);
+            statement.setInt(2, limit);
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    matches.add(toStoredEntry(rs));
+                }
+            }
+        }
+        return matches;
     }
 
     private StoredActivityEntry toStoredEntry(ResultSet rs) throws SQLException {

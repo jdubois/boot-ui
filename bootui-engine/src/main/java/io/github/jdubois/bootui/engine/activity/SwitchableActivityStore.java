@@ -38,6 +38,11 @@ public final class SwitchableActivityStore implements ActivityStore {
     }
 
     @Override
+    public List<StoredActivityEntry> queryByCorrelationId(String correlationId, int limit) {
+        return delegate.get().queryByCorrelationId(correlationId, limit);
+    }
+
+    @Override
     public void prune(String instanceId, long olderThanEpochMillis) {
         delegate.get().prune(instanceId, olderThanEpochMillis);
     }

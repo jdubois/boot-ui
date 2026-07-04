@@ -115,7 +115,9 @@ public class LiveActivityController {
                 traces,
                 requestCorrelations,
                 securityCorrelations,
-                properties);
+                properties,
+                activityStore,
+                persistenceSettings);
         this.securityCorrelations = securityCorrelations.getIfAvailable();
         this.changeStream = new BootUiChangeStream("activity");
         this.selfPath = properties.getPath();

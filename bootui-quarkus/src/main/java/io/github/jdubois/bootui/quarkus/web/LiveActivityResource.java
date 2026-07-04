@@ -322,7 +322,9 @@ public class LiveActivityResource {
                 sqlSnapshot().entries(),
                 allExceptionDetails(),
                 securityEvents(securityAvailable),
-                trace);
+                trace,
+                activityStore,
+                persistenceSettings.instanceId());
     }
 
     @GET
