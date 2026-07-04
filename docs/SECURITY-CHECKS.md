@@ -85,6 +85,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Enforce HTTPS via server.ssl.* (or a forwarded-headers strategy when TLS terminates upstream) for any chain using httpBasic(), or switch to a mechanism that does not repeat credentials on every request.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/basic.html>
 
+### SEC-AUTH-008 - hideUserNotFoundExceptions should stay enabled
+
+- **Severity**: MEDIUM
+- **Detects**: Detects an AbstractUserDetailsAuthenticationProvider (e.g. DaoAuthenticationProvider) with hideUserNotFoundExceptions explicitly set to false, which lets a login failure distinguish an unknown username from a wrong password -- a username-enumeration oracle.
+- **Recommendation**: Leave hideUserNotFoundExceptions at its default (true) so a failed login always reports the same generic BadCredentialsException regardless of whether the username exists.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/dao-authentication-provider.html>
+
 ## Authorization
 
 ### SEC-AUTHZ-001 - Every filter chain should enforce authorization
@@ -114,6 +121,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Detects**: Detects a chain that matches any request placed before more specific chains, which then never run.
 - **Recommendation**: Give earlier chains an explicit securityMatcher and keep the catch-all (any request) chain last by @Order.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/configuration/java.html#_multiple_httpsecurity_instances>
+
+### SEC-AUTHZ-005 - Broader authorizeHttpRequests matchers should not shadow narrower ones
+
+- **Severity**: HIGH
+- **Detects**: Detects an unconditional, method-agnostic catch-all matcher (e.g. requestMatchers("/**")) registered before a narrower matcher in the same chain's authorizeHttpRequests rules. Requests are matched in declaration order and Spring Security does not guard against this (unlike anyRequest(), a plain requestMatchers("/**") does not block further rules from being added after it), so the narrower, later rule can never take effect.
+- **Recommendation**: Register narrower matchers (e.g. requestMatchers("/admin/**").hasRole("ADMIN")) before the broader catch-all, or replace the catch-all with anyRequest() so later requestMatchers additions are rejected at startup instead of silently ignored.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
 ## CSRF
 
@@ -182,6 +196,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Set sessionManagement().maximumSessions(n) so a stolen or shared credential cannot open unlimited concurrent sessions.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html#ns-concurrent-sessions>
 
+### SEC-SESSION-008 - Remember-me signing key should be sufficiently long
+
+- **Severity**: MEDIUM
+- **Detects**: Detects a RememberMeAuthenticationFilter whose signing key is shorter than 16 characters, which makes the remember-me token's HMAC signature easier to brute-force and forge. Only the key's length is inspected -- the key value itself is never read into a finding.
+- **Recommendation**: Configure a long, random remember-me key (16+ characters, generated from a secure source) via rememberMe().key(...), ideally sourced from an externalized secret rather than a literal in configuration.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/rememberme.html>
+
 ## Transport & security headers
 
 ### SEC-HEAD-001 - HTTP Strict Transport Security should be emitted
@@ -240,26 +261,38 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Keep the default HstsHeaderWriter settings (max-age=31536000, includeSubDomains=true), or configure headers().httpStrictTransportSecurity() explicitly with those values.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-hsts>
 
-### SEC-HEAD-009 - Content-Security-Policy should not allow unsafe-inline/unsafe-eval or wildcard sources
+### SEC-HEAD-009 - Content-Security-Policy should not allow unsafe-inline/unsafe-eval, unscoped wildcards, or omit key hardening directives
 
 - **Severity**: MEDIUM
-- **Detects**: Detects a ContentSecurityPolicyHeaderWriter policy that includes 'unsafe-inline' or 'unsafe-eval', or a wildcard (*) default-src/script-src, which largely defeats the XSS mitigation a CSP is meant to provide.
-- **Recommendation**: Remove 'unsafe-inline'/'unsafe-eval' and wildcard sources; use nonces or hashes for the scripts/styles the application actually serves.
+- **Detects**: Detects a ContentSecurityPolicyHeaderWriter policy that includes 'unsafe-inline' or 'unsafe-eval', an unscoped wildcard source (bare `*` or a scheme-only wildcard such as `https://*`, but not a scoped pattern like `https://*.example.com`), or that omits the base-uri/frame-ancestors directives or both object-src and default-src -- all of which weaken the XSS/clickjacking mitigation a CSP is meant to provide.
+- **Recommendation**: Remove 'unsafe-inline'/'unsafe-eval' and unscoped wildcard sources (scope wildcards to a trusted domain, e.g. `https://*.example.com`); add `base-uri 'self'`, `frame-ancestors 'none'` (or an explicit allow-list), and an object-src (or default-src) directive.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-csp>
 
+### SEC-HEAD-010 - Cross-origin isolation headers should be considered
+
+- **Severity**: INFO
+- **Detects**: Detects chains whose header writers emit neither a Cross-Origin-Opener-Policy nor a Cross-Origin-Embedder-Policy header (neither is sent by default).
+- **Recommendation**: Add CrossOriginOpenerPolicyHeaderWriter / CrossOriginEmbedderPolicyHeaderWriter via headers().crossOriginOpenerPolicy(...) / .crossOriginEmbedderPolicy(...) if the application needs cross-origin isolation (e.g. for SharedArrayBuffer) or Spectre-style side-channel hardening.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html>
+
 ## CORS
+
+A custom `CorsConfigurationSource` bean (one BootUI cannot introspect for `CorsConfiguration` objects) is indeterminate,
+not automatically hardened: SEC-CORS-001, SEC-CORS-002, SEC-CORS-004, and SEC-CORS-006 render **SKIPPED** rather than a
+silent pass whenever such a bean is present and no introspectable `CorsConfiguration` already produced a finding, so a
+custom source is never misreported as verified-safe.
 
 ### SEC-CORS-001 - CORS should not allow all origins
 
 - **Severity**: HIGH
-- **Detects**: Detects a CorsConfiguration that allows the * wildcard origin.
+- **Detects**: Detects a CorsConfiguration that allows the * wildcard origin. Renders SKIPPED instead of a pass when a non-introspectable custom CorsConfigurationSource is present and no introspectable configuration already produced a finding.
 - **Recommendation**: Enumerate the exact trusted origins instead of "*"; use allowedOriginPatterns only for tightly-scoped patterns.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html>
 
 ### SEC-CORS-002 - CORS must not combine wildcard origins with credentials
 
 - **Severity**: HIGH
-- **Detects**: Detects a CorsConfiguration that allows the * origin together with allowCredentials=true.
+- **Detects**: Detects a CorsConfiguration that allows the * origin together with allowCredentials=true. Renders SKIPPED instead of a pass when a non-introspectable custom CorsConfigurationSource is present and no introspectable configuration already produced a finding.
 - **Recommendation**: Never pair allowCredentials(true) with a wildcard origin; list explicit origins so cookies and auth headers are not leaked cross-site.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html>
 
@@ -273,14 +306,14 @@ includes up to a handful of sample details plus a remediation link.
 ### SEC-CORS-004 - CORS should not allow all methods or headers with credentials
 
 - **Severity**: MEDIUM
-- **Detects**: Detects a CorsConfiguration that allows the * wildcard for methods or headers together with allowCredentials=true.
+- **Detects**: Detects a CorsConfiguration that allows the * wildcard for methods or headers together with allowCredentials=true. Renders SKIPPED instead of a pass when a non-introspectable custom CorsConfigurationSource is present and no introspectable configuration already produced a finding.
 - **Recommendation**: Enumerate the exact methods and headers the API needs instead of "*" when credentials are allowed, so cross-site callers cannot send arbitrary authenticated requests.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html>
 
 ### SEC-CORS-006 - CORS should not allow broad origin patterns
 
 - **Severity**: MEDIUM (HIGH when any broad pattern has allowCredentials=true)
-- **Detects**: Detects allowedOriginPatterns that match a dangerously broad set of origins (wildcard scheme or host, e.g. https://*, *://*, *.com) beyond the exact "*" already covered by SEC-CORS-001/002.
+- **Detects**: Detects allowedOriginPatterns that match a dangerously broad set of origins (wildcard scheme or host, e.g. https://*, *://*, *.com) beyond the exact "*" already covered by SEC-CORS-001/002. Renders SKIPPED instead of a pass when a non-introspectable custom CorsConfigurationSource is present and no introspectable configuration already produced a finding.
 - **Recommendation**: Replace broad patterns with the exact origins (or tightly-scoped subdomain wildcards such as https://*.example.com) the application trusts; broad patterns combined with credentials let untrusted sites make authenticated cross-site calls.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc-cors.html>
 
@@ -305,21 +338,21 @@ includes up to a handful of sample details plus a remediation link.
 ### SEC-ACT-001 - Actuator endpoints should not all be web-exposed
 
 - **Severity**: HIGH
-- **Detects**: Detects management.endpoints.web.exposure.include=* exposing every actuator endpoint over HTTP.
+- **Detects**: Detects management.endpoints.web.exposure.include=* exposing actuator endpoints over HTTP beyond health/info, after subtracting management.endpoints.web.exposure.exclude. A wildcard include fully hardened by excluding every sensitive endpoint is not flagged.
 - **Recommendation**: Expose only the endpoints you need (e.g. health, info) and secure the rest behind authentication.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.exposing>
 
 ### SEC-ACT-002 - Sensitive actuator endpoints should not be exposed
 
 - **Severity**: HIGH
-- **Detects**: Detects high-value actuator endpoints (env, beans, configprops, heapdump, threaddump, shutdown) in the web exposure list.
-- **Recommendation**: Remove sensitive endpoints from management.endpoints.web.exposure.include or protect them with authentication.
+- **Detects**: Detects high-value actuator endpoints (env, beans, configprops, heapdump, threaddump, shutdown, loggers, mappings) that remain web-exposed once management.endpoints.web.exposure.exclude is subtracted from the include list.
+- **Recommendation**: Remove sensitive endpoints from management.endpoints.web.exposure.include (or add them to management.endpoints.web.exposure.exclude) so they are not reachable, or protect them with authentication.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.exposing>
 
 ### SEC-ACT-003 - Exposed actuator endpoints should be protected by a security chain
 
 - **Severity**: MEDIUM
-- **Detects**: Detects web-exposed actuator endpoints (beyond health/info) when no filter chain references /actuator.
+- **Detects**: Detects web-exposed actuator endpoints (beyond health/info, after subtracting management.endpoints.web.exposure.exclude) when no filter chain references /actuator.
 - **Recommendation**: Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication/authorization.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.security>
 
@@ -340,7 +373,7 @@ includes up to a handful of sample details plus a remediation link.
 ### SEC-ACT-006 - Sensitive actuator endpoints should use an isolated management port
 
 - **Severity**: INFO
-- **Detects**: Notes that sensitive actuator endpoints are exposed on the main application port because management.server.port is unset.
+- **Detects**: Notes that sensitive actuator endpoints (beyond health/info, after subtracting management.endpoints.web.exposure.exclude) are exposed on the main application port because management.server.port is unset.
 - **Recommendation**: Set management.server.port to a separate, network-restricted port so actuator endpoints are not reachable on the public application port.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/monitoring.html#actuator.monitoring.customizing-management-server-port>
 
@@ -362,8 +395,8 @@ includes up to a handful of sample details plus a remediation link.
 
 ### SEC-OAUTH-002 - Validate the JWT audience claim
 
-- **Severity**: MEDIUM (INFO when a custom JwtDecoder is present)
-- **Detects**: Notes that issuer/JWK-based resource servers do not validate the aud claim unless a custom validator is added; a custom JwtDecoder is reported as an INFO advisory because it may already validate the claim.
+- **Severity**: MEDIUM (INFO when a custom OAuth2TokenValidator or a custom JwtDecoder is present)
+- **Detects**: Notes that issuer-based resource servers do not validate the aud claim unless a custom OAuth2TokenValidator bean (including one composed via DelegatingOAuth2TokenValidator) or a custom JwtDecoder is registered; either is reported as an INFO advisory because it may already validate the claim.
 - **Recommendation**: Add an audience OAuth2TokenValidator to the JwtDecoder so tokens minted for other resource servers are rejected.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-validation>
 
@@ -390,13 +423,6 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Disable the H2 console in production (keep it to dev profiles) so frame-options are not loosened and the database UI is not reachable.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.h2-web-console>
 
-### SEC-CONFIG-003 - Replace WebSecurityConfigurerAdapter with a component-based configuration
-
-- **Severity**: LOW
-- **Detects**: Detects a WebSecurityConfigurerAdapter bean; the class was removed in Spring Security 6.
-- **Recommendation**: Expose SecurityFilterChain and WebSecurityCustomizer beans instead of extending WebSecurityConfigurerAdapter.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/configuration/java.html>
-
 ### SEC-CONFIG-005 - Error responses should not leak stack traces or internal messages
 
 - **Severity**: MEDIUM
@@ -413,7 +439,21 @@ includes up to a handful of sample details plus a remediation link.
 
 ### SEC-CONFIG-007 - Configuration should not hold literal secret values
 
-- **Severity**: CRITICAL
-- **Detects**: Detects configuration property names that look like they hold a credential (password, secret, token, api-key, client-secret, private-key) whose value is a literal, unresolved string rather than an externalized reference. System properties, the OS environment, the random-value source, and mounted config-tree secrets are not scanned because they are already externalized. Property values are never read into the finding; only the offending property name is reported.
+- **Severity**: HIGH
+- **Detects**: Detects configuration property names that look like they hold a credential (password, secret, token, api-key, client-secret, private-key) whose value is a literal, unresolved string rather than an externalized reference. Keys ending in a lifetime/shape suffix (-expiration, -expiry, -expires, -ttl, -timeout, -duration, -validity, -max-age, -refresh-interval) are excluded because they configure how long a token lives, not its value (e.g. jwt.token.expiration=3600). System properties, the OS environment, the random-value source, and mounted config-tree secrets are not scanned because they are already externalized. Property values are never read into the finding; only the offending property name is reported. This remains a name-based heuristic, not a secret-shape check, so review each finding -- it may still name a non-secret value (e.g. oauth.token.type=Bearer).
 - **Recommendation**: Move the literal value out of the configuration file into an environment variable, a secrets manager, or a mounted config-tree secret, and reference it with ${ENV_VAR_NAME} instead of a hardcoded literal.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/external-config.html>
+
+### SEC-CONFIG-008 - StrictHttpFirewall should not relax its default URL protections
+
+- **Severity**: HIGH
+- **Detects**: Detects a custom StrictHttpFirewall bean that has re-allowed one or more normally-blocked encoded/raw URL tokens (URL-encoded slash, backslash, semicolon, or double slash), which can enable authorization-matcher bypass or path-traversal style attacks.
+- **Recommendation**: Keep the StrictHttpFirewall defaults; only relax a specific token (e.g. setAllowUrlEncodedSlash(true)) after verifying every downstream matcher and handler safely tolerates it.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/firewall.html>
+
+### SEC-CONFIG-009 - Spring Security framework logging should not run at DEBUG/TRACE in production
+
+- **Severity**: MEDIUM
+- **Detects**: Detects logging.level.org.springframework.security=DEBUG (or TRACE) while a production profile is active, which logs filter chain decisions, header values, and request/response details. Distinct from spring.security.debug (SEC-CONFIG-001), Spring Security's own dedicated debug filter.
+- **Recommendation**: Keep org.springframework.security logging at INFO or WARN in production; reserve DEBUG/TRACE for local troubleshooting.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/logging.html#features.logging.log-levels>

@@ -32,13 +32,17 @@ record SecurityContext(
         boolean methodSecurityEnabled,
         boolean globalMethodSecurityLegacyPresent,
         boolean methodSecurityAnnotationsPresent,
-        boolean webSecurityConfigurerAdapterPresent,
+        boolean customCorsSourcePresent,
+        List<String> oauth2TokenValidatorTypes,
+        boolean strictHttpFirewallWeakened,
+        boolean hideUserNotFoundExceptionsDisabled,
         Environment environment) {
     SecurityContext {
         chains = List.copyOf(chains);
         passwordEncoders = List.copyOf(passwordEncoders);
         corsConfigs = List.copyOf(corsConfigs);
         jwtDecoderTypes = List.copyOf(jwtDecoderTypes);
+        oauth2TokenValidatorTypes = List.copyOf(oauth2TokenValidatorTypes);
     }
 
     /** The fully-qualified type names of the discovered {@code PasswordEncoder} beans. */
@@ -83,6 +87,87 @@ record SecurityContext(
         return chains.stream()
                 .anyMatch(
                         chain -> chain.hasFilter("ChannelProcessingFilter") || chain.hasFilter("HttpsRedirectFilter"));
+    }
+
+    /**
+     * Actuator endpoint ids this advisor treats as sensitive: capable of leaking configuration,
+     * environment variables, credentials, thread/heap contents, or letting a caller reconfigure or
+     * shut down the application.
+     */
+    static final List<String> SENSITIVE_ACTUATOR_ENDPOINTS =
+            List.of("env", "beans", "configprops", "heapdump", "threaddump", "shutdown", "loggers", "mappings");
+
+    private static Set<String> tokenize(String commaSeparated) {
+        if (commaSeparated == null || commaSeparated.isBlank()) {
+            return Set.of();
+        }
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String token : commaSeparated.toLowerCase(Locale.ROOT).split(",")) {
+            String trimmed = token.trim();
+            if (!trimmed.isEmpty()) {
+                tokens.add(trimmed);
+            }
+        }
+        return tokens;
+    }
+
+    /**
+     * The subset of {@link #SENSITIVE_ACTUATOR_ENDPOINTS} still reachable once
+     * {@code management.endpoints.web.exposure.exclude} has been applied to
+     * {@code management.endpoints.web.exposure.include}. A wildcard include with no exclude at all
+     * returns an empty set so callers don't double-report the blanket-exposure finding that
+     * {@code SEC-ACT-001} already raises for that exact (unhardened) case.
+     */
+    Set<String> effectiveSensitiveActuatorExposure() {
+        String include = firstHostProperty("management.endpoints.web.exposure.include");
+        if (include == null) {
+            return Set.of();
+        }
+        String normalized = include.trim();
+        Set<String> excluded = tokenize(firstHostProperty("management.endpoints.web.exposure.exclude"));
+        boolean wildcardInclude = normalized.equals("*");
+        if (wildcardInclude && excluded.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> included = wildcardInclude ? Set.of() : tokenize(normalized);
+        Set<String> exposed = new LinkedHashSet<>();
+        for (String sensitive : SENSITIVE_ACTUATOR_ENDPOINTS) {
+            boolean isIncluded = wildcardInclude || included.contains(sensitive);
+            if (isIncluded && !excluded.contains(sensitive)) {
+                exposed.add(sensitive);
+            }
+        }
+        return exposed;
+    }
+
+    /**
+     * {@code true} when the effective actuator exposure (include minus exclude) reaches beyond the
+     * always-safe {@code health}/{@code info} endpoints. Used by rules that flag "more than the
+     * basics are reachable" regardless of which specific sensitive endpoint is involved.
+     */
+    boolean exposesBeyondHealthAndInfo() {
+        String include = firstHostProperty("management.endpoints.web.exposure.include");
+        if (include == null) {
+            return false;
+        }
+        String normalized = include.toLowerCase(Locale.ROOT).trim();
+        Set<String> excluded = tokenize(firstHostProperty("management.endpoints.web.exposure.exclude"));
+        if (normalized.equals("*")) {
+            if (excluded.isEmpty()) {
+                return true;
+            }
+            return !excluded.containsAll(SENSITIVE_ACTUATOR_ENDPOINTS);
+        }
+        for (String token : normalized.split(",")) {
+            String trimmed = token.trim();
+            if (trimmed.isEmpty() || trimmed.equals("health") || trimmed.equals("info")) {
+                continue;
+            }
+            if (!excluded.contains(trimmed)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     String firstProperty(String... keys) {
@@ -174,9 +259,20 @@ record SecurityContext(
             ".*(password|passwd|secret|token|api-?key|client-secret|private-key).*", Pattern.CASE_INSENSITIVE);
 
     /**
+     * Key suffixes that indicate a property configures the <em>lifetime</em> or <em>shape</em> of a
+     * credential/token rather than holding its literal value -- e.g. {@code jwt.token.expiration=3600}
+     * is a TTL in seconds, not a hardcoded secret, even though its key contains "token" and would
+     * otherwise match {@link #SUSPECTED_SECRET_KEY}.
+     */
+    private static final Pattern NON_SECRET_VALUE_KEY_SUFFIX = Pattern.compile(
+            ".*[.-](expiration|expiry|expires|ttl|timeout|duration|validity|max-age|maxage|refresh-interval)$",
+            Pattern.CASE_INSENSITIVE);
+
+    /**
      * Configuration property names (never values) that look like they hold a credential -- matching
-     * {@link #SUSPECTED_SECRET_KEY} -- and whose raw, per-source value is a non-blank literal rather
-     * than an unresolved {@code ${...}} placeholder reference. Only ordinary, file-like configuration
+     * {@link #SUSPECTED_SECRET_KEY} but not the non-secret {@link #NON_SECRET_VALUE_KEY_SUFFIX} (a
+     * TTL/expiry/timeout key) -- and whose raw, per-source value is a non-blank literal rather than
+     * an unresolved {@code ${...}} placeholder reference. Only ordinary, file-like configuration
      * sources are scanned: system properties, the OS environment, the random-value source, BootUI's
      * own defaults, and mounted config-tree secrets are excluded because they are already legitimate
      * externalization mechanisms, not hardcoded literals. The literal value itself is never returned
@@ -200,7 +296,8 @@ record SecurityContext(
                         || name.toLowerCase(Locale.ROOT).startsWith("bootui.")) {
                     continue;
                 }
-                if (!SUSPECTED_SECRET_KEY.matcher(name).matches()) {
+                if (!SUSPECTED_SECRET_KEY.matcher(name).matches()
+                        || NON_SECRET_VALUE_KEY_SUFFIX.matcher(name).matches()) {
                     continue;
                 }
                 Object rawValue = propertySource.getProperty(name);

@@ -19,13 +19,16 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authentication.dao.AbstractUserDetailsAuthenticationProvider;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.authorization.AuthorizationResult;
 import org.springframework.security.core.Authentication;
@@ -34,6 +37,14 @@ import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.access.intercept.RequestMatcherDelegatingAuthorizationManager;
+import org.springframework.security.web.authentication.RememberMeServices;
+import org.springframework.security.web.authentication.rememberme.AbstractRememberMeServices;
+import org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter;
+import org.springframework.security.web.firewall.StrictHttpFirewall;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcherEntry;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -236,8 +247,10 @@ final class SecurityScanner {
         ListableBeanFactory beanFactory = beanFactories.getIfAvailable();
         List<PasswordEncoderModel> passwordEncoders = discoverPasswordEncoders(beanFactory);
         List<String> jwtDecoderTypes = beanTypeNames(beanFactory, "org.springframework.security.oauth2.jwt.JwtDecoder");
+        List<String> oauth2TokenValidatorTypes =
+                beanTypeNames(beanFactory, "org.springframework.security.oauth2.core.OAuth2TokenValidator");
         List<CorsConfigModel> corsConfigs = new ArrayList<>();
-        boolean corsSourcePresent = discoverCors(beanFactory, corsConfigs, errors);
+        CorsDiscoveryResult corsDiscovery = discoverCors(beanFactory, corsConfigs, errors);
         boolean methodSecurityEnabled = !beanTypeNames(
                                 beanFactory,
                                 "org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor")
@@ -250,22 +263,23 @@ final class SecurityScanner {
                         beanFactory,
                         "org.springframework.security.config.annotation.method.configuration.GlobalMethodSecurityConfiguration")
                 .isEmpty();
-        boolean webSecurityConfigurerAdapter = !beanTypeNames(
-                        beanFactory,
-                        "org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter")
-                .isEmpty();
         boolean methodSecurityAnnotations = discoverMethodSecurityAnnotations(beanFactory);
+        boolean strictHttpFirewallWeakened = discoverStrictHttpFirewallWeakened(beanFactory);
+        boolean hideUserNotFoundExceptionsDisabled = discoverHideUserNotFoundExceptionsDisabled(beanFactory);
 
         SecurityContext context = new SecurityContext(
                 chains,
                 passwordEncoders,
                 corsConfigs,
-                corsSourcePresent,
+                corsDiscovery.sourcePresent(),
                 jwtDecoderTypes,
                 methodSecurityEnabled,
                 globalMethodSecurityLegacy,
                 methodSecurityAnnotations,
-                webSecurityConfigurerAdapter,
+                corsDiscovery.customSourcePresent(),
+                oauth2TokenValidatorTypes,
+                strictHttpFirewallWeakened,
+                hideUserNotFoundExceptionsDisabled,
                 environment);
         return new SecurityDiscovery(context, errors);
     }
@@ -275,9 +289,12 @@ final class SecurityScanner {
         List<String> filterNames =
                 filters.stream().map(f -> f.getClass().getSimpleName()).toList();
         String matcher = matcherDescription(chain);
-        Boolean permitsAllAnonymous = simulateAnonymous(filters);
+        AuthorizationManager<HttpServletRequest> authorizationManager = authorizationManager(filters);
+        Boolean permitsAllAnonymous = simulateAnonymous(authorizationManager);
         Boolean sessionFixationDisabled = detectSessionFixationDisabled(filters);
         HeaderWriterInfo headerWriters = detectHeaderWriters(filters);
+        Boolean authorizationRuleShadowed = detectAuthorizationRuleShadowed(authorizationManager);
+        Integer rememberMeKeyLength = detectRememberMeKeyLength(filters);
         return new FilterChainModel(
                 index,
                 matcher,
@@ -287,7 +304,9 @@ final class SecurityScanner {
                 headerWriters.names(),
                 headerWriters.hstsMaxAgeSeconds(),
                 headerWriters.hstsIncludeSubdomains(),
-                headerWriters.cspPolicyDirectives());
+                headerWriters.cspPolicyDirectives(),
+                authorizationRuleShadowed,
+                rememberMeKeyLength);
     }
 
     private static String matcherDescription(SecurityFilterChain chain) {
@@ -301,8 +320,7 @@ final class SecurityScanner {
         return "(custom chain: " + chain.getClass().getSimpleName() + ")";
     }
 
-    private static Boolean simulateAnonymous(List<Filter> filters) {
-        AuthorizationManager<HttpServletRequest> manager = authorizationManager(filters);
+    private static Boolean simulateAnonymous(AuthorizationManager<HttpServletRequest> manager) {
         if (manager == null) {
             return null;
         }
@@ -325,6 +343,80 @@ final class SecurityScanner {
                 } catch (RuntimeException | LinkageError ex) {
                     return null;
                 }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Matches a Spring Security 7 {@code PathPatternRequestMatcher} toString of the bare, unscoped
+     * catch-all form {@code "PathPattern [/**]"} -- deliberately excluding a method-qualified variant
+     * such as {@code "PathPattern [GET /**]"}, which only shadows requests using that one HTTP method
+     * and so is not treated as an unconditional catch-all here.
+     */
+    private static final Pattern UNCONDITIONAL_CATCH_ALL_PATTERN = Pattern.compile("\\[/\\*\\*]");
+
+    /**
+     * {@code true} when {@code null} (indeterminate -- the chain's {@code AuthorizationManager} could
+     * not be introspected), {@code true} when an earlier, broader {@code authorizeHttpRequests}
+     * matcher shadows a later, narrower one (so the later rule can never take effect since Spring
+     * Security's {@code RequestMatcherDelegatingAuthorizationManager} evaluates matchers in
+     * declaration order and returns on the first match), {@code false} when no such shadowing was
+     * detected. Only an unconditional, method-agnostic catch-all matcher (Spring Security's
+     * {@code AnyRequestMatcher}, or an explicit {@code "/**"} pattern with no HTTP-method
+     * restriction) is treated as shadowing -- a method-scoped catch-all such as
+     * {@code requestMatchers(HttpMethod.GET, "/**")} is deliberately not flagged, since it only
+     * shadows requests using that one method and determining general matcher subsumption across
+     * methods and path patterns is out of scope for this bounded, low-false-positive check.
+     */
+    private static Boolean detectAuthorizationRuleShadowed(AuthorizationManager<HttpServletRequest> manager) {
+        if (!(manager instanceof RequestMatcherDelegatingAuthorizationManager)) {
+            return null;
+        }
+        Object mappingsField = readField(manager, "mappings");
+        if (!(mappingsField instanceof List<?> mappings) || mappings.size() < 2) {
+            return false;
+        }
+        // The last entry is allowed to be a catch-all (it is the final fallback rule and shadows
+        // nothing after it), so only entries before it are checked.
+        for (int i = 0; i < mappings.size() - 1; i++) {
+            if (mappings.get(i) instanceof RequestMatcherEntry<?> matcherEntry
+                    && isUnconditionalCatchAllMatcher(matcherEntry.getRequestMatcher())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isUnconditionalCatchAllMatcher(RequestMatcher matcher) {
+        if (matcher instanceof AnyRequestMatcher) {
+            return true;
+        }
+        String normalized = String.valueOf(matcher).toLowerCase(Locale.ROOT).trim();
+        return normalized.equals("any request")
+                || normalized.contains("anyrequest")
+                || UNCONDITIONAL_CATCH_ALL_PATTERN.matcher(normalized).find();
+    }
+
+    /**
+     * The length of the signing key configured on this chain's {@code RememberMeAuthenticationFilter}
+     * (via its {@code AbstractRememberMeServices}), or {@code null} when no remember-me filter is
+     * present or its key could not be read. Only the length is retained -- never the key itself --
+     * so a short/predictable key can be flagged without the key value ever leaving this process.
+     */
+    private static Integer detectRememberMeKeyLength(List<Filter> filters) {
+        for (Filter filter : filters) {
+            if (filter instanceof RememberMeAuthenticationFilter rememberMeFilter) {
+                try {
+                    RememberMeServices services = rememberMeFilter.getRememberMeServices();
+                    if (services instanceof AbstractRememberMeServices abstractServices) {
+                        String key = abstractServices.getKey();
+                        return key == null ? null : key.length();
+                    }
+                } catch (RuntimeException | LinkageError ex) {
+                    return null;
+                }
+                return null;
             }
         }
         return null;
@@ -415,21 +507,34 @@ final class SecurityScanner {
         return NO_HEADER_WRITERS;
     }
 
-    private static boolean discoverCors(
+    /**
+     * Whether at least one {@code CorsConfigurationSource} bean was found ({@code sourcePresent}),
+     * and whether at least one of those beans is a type other than {@code
+     * UrlBasedCorsConfigurationSource} ({@code customSourcePresent}) -- the only source type this
+     * scanner can actually introspect the per-path {@code CorsConfiguration} entries of. A custom
+     * source means the CORS-related rules cannot see the real configuration and should render
+     * indeterminate rather than silently passing.
+     */
+    private record CorsDiscoveryResult(boolean sourcePresent, boolean customSourcePresent) {}
+
+    private static final CorsDiscoveryResult NO_CORS_SOURCES = new CorsDiscoveryResult(false, false);
+
+    private static CorsDiscoveryResult discoverCors(
             ListableBeanFactory beanFactory, List<CorsConfigModel> corsConfigs, List<String> errors) {
         if (beanFactory == null) {
-            return false;
+            return NO_CORS_SOURCES;
         }
         Map<String, CorsConfigurationSource> sources;
         try {
             sources = beanFactory.getBeansOfType(CorsConfigurationSource.class);
         } catch (RuntimeException | LinkageError ex) {
             errors.add("CORS sources: " + safeMessage(ex));
-            return false;
+            return NO_CORS_SOURCES;
         }
         if (sources.isEmpty()) {
-            return false;
+            return NO_CORS_SOURCES;
         }
+        boolean customSourcePresent = false;
         for (CorsConfigurationSource source : sources.values()) {
             if (source instanceof UrlBasedCorsConfigurationSource urlSource) {
                 try {
@@ -450,9 +555,11 @@ final class SecurityScanner {
                 } catch (RuntimeException | LinkageError ex) {
                     errors.add("CORS configuration: " + safeMessage(ex));
                 }
+            } else {
+                customSourcePresent = true;
             }
         }
-        return true;
+        return new CorsDiscoveryResult(true, customSourcePresent);
     }
 
     private static boolean discoverMethodSecurityAnnotations(ListableBeanFactory beanFactory) {
@@ -527,6 +634,63 @@ final class SecurityScanner {
             }
         } catch (RuntimeException | LinkageError ex) {
             return false;
+        }
+        return false;
+    }
+
+    /**
+     * Default tokens a {@code StrictHttpFirewall} blocks in its {@code encodedUrlBlocklist} unless a
+     * setter such as {@code setAllowUrlEncodedSlash(true)} explicitly relaxes it. Used to detect when
+     * a custom {@code StrictHttpFirewall} bean has weakened Spring Security's default URL validation
+     * (e.g. re-enabling the encoded-slash / backslash / semicolon path-confusion vectors historically
+     * exploited to bypass authorization rules).
+     */
+    private static final List<String> FIREWALL_DEFAULT_BLOCKED_TOKENS = List.of("%2f", "%5c", ";", "%2f%2f");
+
+    private static boolean discoverStrictHttpFirewallWeakened(ListableBeanFactory beanFactory) {
+        if (beanFactory == null) {
+            return false;
+        }
+        Map<String, StrictHttpFirewall> firewalls;
+        try {
+            firewalls = beanFactory.getBeansOfType(StrictHttpFirewall.class);
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+        for (StrictHttpFirewall firewall : firewalls.values()) {
+            if (firewall == null) {
+                continue;
+            }
+            Object blocklist = readField(firewall, "encodedUrlBlocklist");
+            if (blocklist instanceof Set<?> blocked
+                    && FIREWALL_DEFAULT_BLOCKED_TOKENS.stream().anyMatch(token -> !blocked.contains(token))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * {@code true} when a {@code DaoAuthenticationProvider} (or another {@code
+     * AbstractUserDetailsAuthenticationProvider}) bean has been explicitly configured with {@code
+     * hideUserNotFoundExceptions=false}, which lets an attacker distinguish "user not found" from
+     * "bad password" and enumerate valid usernames. The field defaults to {@code true}, so this only
+     * fires when a host application has actively disabled the protection.
+     */
+    private static boolean discoverHideUserNotFoundExceptionsDisabled(ListableBeanFactory beanFactory) {
+        if (beanFactory == null) {
+            return false;
+        }
+        Map<String, AbstractUserDetailsAuthenticationProvider> providers;
+        try {
+            providers = beanFactory.getBeansOfType(AbstractUserDetailsAuthenticationProvider.class);
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+        for (AbstractUserDetailsAuthenticationProvider provider : providers.values()) {
+            if (provider != null && Boolean.FALSE.equals(readField(provider, "hideUserNotFoundExceptions"))) {
+                return true;
+            }
         }
         return false;
     }

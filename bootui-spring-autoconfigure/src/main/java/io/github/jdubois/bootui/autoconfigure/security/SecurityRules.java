@@ -255,6 +255,31 @@ final class BasicAuthWithoutTlsRule extends AbstractSecurityRule {
     }
 }
 
+final class UsernameEnumerationRiskRule extends AbstractSecurityRule {
+
+    UsernameEnumerationRiskRule() {
+        super(
+                new SecurityRuleDefinition(
+                        "SEC-AUTH-008",
+                        "hideUserNotFoundExceptions should stay enabled",
+                        SecurityCategory.AUTHENTICATION,
+                        "MEDIUM",
+                        "Detects an AbstractUserDetailsAuthenticationProvider (e.g. DaoAuthenticationProvider) with hideUserNotFoundExceptions explicitly set to false, which lets a login failure distinguish an unknown username from a wrong password -- a username-enumeration oracle.",
+                        "Leave hideUserNotFoundExceptions at its default (true) so a failed login always reports the same generic BadCredentialsException regardless of whether the username exists.",
+                        "https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/dao-authentication-provider.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        if (context.hideUserNotFoundExceptionsDisabled()) {
+            return violation(
+                    List.of(
+                            "An authentication provider sets hideUserNotFoundExceptions=false, allowing username enumeration via login error differences."));
+        }
+        return pass();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Authorization
 // ---------------------------------------------------------------------------
@@ -372,6 +397,33 @@ final class CatchAllChainOrderingRule extends AbstractSecurityRule {
             if (chain.matchesAnyRequest()) {
                 details.add(chain.describe()
                         + " matches any request but is not the last chain; later chains are unreachable.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class AuthorizationRuleShadowedRule extends AbstractSecurityRule {
+
+    AuthorizationRuleShadowedRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-AUTHZ-005",
+                "Broader authorizeHttpRequests matchers should not shadow narrower ones",
+                SecurityCategory.AUTHORIZATION,
+                "HIGH",
+                "Detects an unconditional, method-agnostic catch-all matcher (e.g. requestMatchers(\"/**\")) registered before a narrower matcher in the same chain's authorizeHttpRequests rules. Requests are matched in declaration order and Spring Security does not guard against this (unlike anyRequest(), a plain requestMatchers(\"/**\") does not block further rules from being added after it), so the narrower, later rule can never take effect.",
+                "Register narrower matchers (e.g. requestMatchers(\"/admin/**\").hasRole(\"ADMIN\")) before the broader catch-all, or replace the catch-all with anyRequest() so later requestMatchers additions are rejected at startup instead of silently ignored.",
+                "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (Boolean.TRUE.equals(chain.authorizationRuleShadowed())) {
+                details.add(
+                        chain.describe()
+                                + " registers a broader matcher before a narrower one in its authorizeHttpRequests rules; the narrower rule is unreachable.");
             }
         }
         return violation(details);
@@ -628,6 +680,35 @@ final class ConcurrentSessionControlRule extends AbstractSecurityRule {
     }
 }
 
+final class WeakRememberMeKeyRule extends AbstractSecurityRule {
+
+    private static final int MIN_KEY_LENGTH = 16;
+
+    WeakRememberMeKeyRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-SESSION-008",
+                "Remember-me signing key should be sufficiently long",
+                SecurityCategory.SESSION,
+                "MEDIUM",
+                "Detects a RememberMeAuthenticationFilter whose signing key is shorter than 16 characters, which makes the remember-me token's HMAC signature easier to brute-force and forge. Only the key's length is inspected -- the key value itself is never read into a finding.",
+                "Configure a long, random remember-me key (16+ characters, generated from a secure source) via rememberMe().key(...), ideally sourced from an externalized secret rather than a literal in configuration.",
+                "https://docs.spring.io/spring-security/reference/servlet/authentication/rememberme.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            Integer keyLength = chain.rememberMeKeyLength();
+            if (keyLength != null && keyLength < MIN_KEY_LENGTH) {
+                details.add(chain.describe() + " configures a remember-me signing key shorter than " + MIN_KEY_LENGTH
+                        + " characters.");
+            }
+        }
+        return violation(details);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Transport & security headers
 // ---------------------------------------------------------------------------
@@ -851,11 +932,11 @@ final class WeakContentSecurityPolicyRule extends AbstractSecurityRule {
     WeakContentSecurityPolicyRule() {
         super(new SecurityRuleDefinition(
                 "SEC-HEAD-009",
-                "Content-Security-Policy should not allow unsafe-inline/unsafe-eval or wildcard sources",
+                "Content-Security-Policy should not allow unsafe-inline/unsafe-eval, unscoped wildcards, or omit key hardening directives",
                 SecurityCategory.HEADERS,
                 "MEDIUM",
-                "Detects a ContentSecurityPolicyHeaderWriter policy that includes 'unsafe-inline' or 'unsafe-eval', or a wildcard (*) default-src/script-src, which largely defeats the XSS mitigation a CSP is meant to provide.",
-                "Remove 'unsafe-inline'/'unsafe-eval' and wildcard sources; use nonces or hashes for the scripts/styles the application actually serves.",
+                "Detects a ContentSecurityPolicyHeaderWriter policy that includes 'unsafe-inline' or 'unsafe-eval', an unscoped wildcard source (bare * or a scheme-only wildcard such as https://*, but not a scoped pattern like https://*.example.com), or that omits the base-uri/frame-ancestors directives or both object-src and default-src -- all of which weaken the XSS/clickjacking mitigation a CSP is meant to provide.",
+                "Remove 'unsafe-inline'/'unsafe-eval' and unscoped wildcard sources (scope wildcards to a trusted domain, e.g. https://*.example.com); add base-uri 'self', frame-ancestors 'none' (or an explicit allow-list), and an object-src (or default-src) directive.",
                 "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-csp"));
     }
 
@@ -866,7 +947,35 @@ final class WeakContentSecurityPolicyRule extends AbstractSecurityRule {
             if (chain.hasWeakCsp()) {
                 details.add(
                         chain.describe()
-                                + " defines a Content-Security-Policy that allows unsafe-inline/unsafe-eval or a wildcard source.");
+                                + " defines a Content-Security-Policy that allows unsafe-inline/unsafe-eval, an unscoped wildcard source, or omits base-uri/frame-ancestors/object-src hardening directives.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class CrossOriginIsolationHeadersRule extends AbstractSecurityRule {
+
+    CrossOriginIsolationHeadersRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-HEAD-010",
+                "Cross-origin isolation headers should be considered",
+                SecurityCategory.HEADERS,
+                "INFO",
+                "Detects chains whose header writers emit neither a Cross-Origin-Opener-Policy nor a Cross-Origin-Embedder-Policy header (neither is sent by default).",
+                "Add CrossOriginOpenerPolicyHeaderWriter / CrossOriginEmbedderPolicyHeaderWriter via headers().crossOriginOpenerPolicy(...) / .crossOriginEmbedderPolicy(...) if the application needs cross-origin isolation (e.g. for SharedArrayBuffer) or Spectre-style side-channel hardening.",
+                "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (chain.headerWriterFilterPresent()
+                    && !chain.hasHeaderWriterContaining("CrossOriginOpenerPolicy")
+                    && !chain.hasHeaderWriterContaining("CrossOriginEmbedderPolicy")) {
+                details.add(chain.describe()
+                        + " does not emit a Cross-Origin-Opener-Policy or Cross-Origin-Embedder-Policy header.");
             }
         }
         return violation(details);
@@ -898,6 +1007,10 @@ final class CorsWildcardOriginRule extends AbstractSecurityRule {
                 details.add(cors.describe());
             }
         }
+        if (details.isEmpty() && context.customCorsSourcePresent()) {
+            return skipped(
+                    "A custom CorsConfigurationSource is present and cannot be introspected for wildcard origins.");
+        }
         return violation(details);
     }
 }
@@ -922,6 +1035,10 @@ final class CorsWildcardWithCredentialsRule extends AbstractSecurityRule {
             if (cors.allowsWildcardOrigin() && cors.allowsCredentials()) {
                 details.add(cors.describe() + " with allowCredentials=true.");
             }
+        }
+        if (details.isEmpty() && context.customCorsSourcePresent()) {
+            return skipped(
+                    "A custom CorsConfigurationSource is present and cannot be introspected for wildcard origins with credentials.");
         }
         return violation(details);
     }
@@ -981,6 +1098,10 @@ final class CorsWildcardMethodsHeadersRule extends AbstractSecurityRule {
                 details.add(cors.describe() + " allows all request headers (*) with allowCredentials=true.");
             }
         }
+        if (details.isEmpty() && context.customCorsSourcePresent()) {
+            return skipped(
+                    "A custom CorsConfigurationSource is present and cannot be introspected for wildcard methods/headers with credentials.");
+        }
         return violation(details);
     }
 }
@@ -1014,6 +1135,10 @@ final class BroadCorsOriginPatternRule extends AbstractSecurityRule {
             String suffix = cors.allowsCredentials() ? " with allowCredentials=true" : "";
             credentialed = credentialed || cors.allowsCredentials();
             details.add(cors.describe() + " uses broad origin patterns " + broad + suffix + ".");
+        }
+        if (details.isEmpty() && context.customCorsSourcePresent()) {
+            return skipped(
+                    "A custom CorsConfigurationSource is present and cannot be introspected for broad origin patterns.");
         }
         return violation(credentialed ? SecurityRuleSupport.HIGH : SecurityRuleSupport.MEDIUM, details);
     }
@@ -1081,7 +1206,7 @@ final class ActuatorWildcardExposureRule extends AbstractSecurityRule {
                 "Actuator endpoints should not all be web-exposed",
                 SecurityCategory.ACTUATOR,
                 "HIGH",
-                "Detects management.endpoints.web.exposure.include=* exposing every actuator endpoint over HTTP.",
+                "Detects management.endpoints.web.exposure.include=* exposing actuator endpoints over HTTP beyond health/info, after subtracting management.endpoints.web.exposure.exclude. A wildcard include fully hardened by excluding every sensitive endpoint is not flagged.",
                 "Expose only the endpoints you need (e.g. health, info) and secure the rest behind authentication.",
                 "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.exposing"));
     }
@@ -1089,17 +1214,19 @@ final class ActuatorWildcardExposureRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         String include = context.firstHostProperty("management.endpoints.web.exposure.include");
-        if (include != null && include.trim().equals("*")) {
+        if (include == null || !include.trim().equals("*") || !context.exposesBeyondHealthAndInfo()) {
+            return pass();
+        }
+        String exclude = context.firstHostProperty("management.endpoints.web.exposure.exclude");
+        if (exclude == null || exclude.isBlank()) {
             return violation(List.of("management.endpoints.web.exposure.include=* exposes all actuator endpoints."));
         }
-        return pass();
+        return violation(List.of("management.endpoints.web.exposure.include=* with exclude=" + exclude.trim()
+                + " still leaves sensitive endpoints reachable beyond health/info."));
     }
 }
 
 final class ActuatorSensitiveExposureRule extends AbstractSecurityRule {
-
-    private static final List<String> SENSITIVE =
-            List.of("env", "beans", "configprops", "heapdump", "threaddump", "shutdown", "loggers", "mappings");
 
     ActuatorSensitiveExposureRule() {
         super(new SecurityRuleDefinition(
@@ -1107,29 +1234,21 @@ final class ActuatorSensitiveExposureRule extends AbstractSecurityRule {
                 "Sensitive actuator endpoints should not be exposed",
                 SecurityCategory.ACTUATOR,
                 "HIGH",
-                "Detects high-value actuator endpoints (env, beans, configprops, heapdump, threaddump, shutdown) in the web exposure list.",
-                "Remove sensitive endpoints from management.endpoints.web.exposure.include or protect them with authentication.",
+                "Detects high-value actuator endpoints (env, beans, configprops, heapdump, threaddump, shutdown, loggers, mappings) that remain web-exposed once management.endpoints.web.exposure.exclude is subtracted from the include list.",
+                "Remove sensitive endpoints from management.endpoints.web.exposure.include (or add them to management.endpoints.web.exposure.exclude) so they are not reachable, or protect them with authentication.",
                 "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.exposing"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        String include = context.firstHostProperty("management.endpoints.web.exposure.include");
-        if (include == null) {
+        Set<String> exposed = context.effectiveSensitiveActuatorExposure();
+        if (exposed.isEmpty()) {
             return pass();
         }
-        String normalized = include.toLowerCase(Locale.ROOT);
-        if (normalized.trim().equals("*")) {
-            return pass(); // covered by SEC-ACT-001
-        }
-        List<String> tokens = List.of(normalized.split(","));
-        List<String> details = new ArrayList<>();
-        for (String token : tokens) {
-            String value = token.trim();
-            if (SENSITIVE.contains(value)) {
-                details.add("Actuator endpoint '" + value + "' is web-exposed.");
-            }
-        }
+        List<String> details = exposed.stream()
+                .sorted()
+                .map(value -> "Actuator endpoint '" + value + "' is web-exposed.")
+                .toList();
         return violation(details);
     }
 }
@@ -1142,23 +1261,14 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
                 "Exposed actuator endpoints should be protected by a security chain",
                 SecurityCategory.ACTUATOR,
                 "MEDIUM",
-                "Detects web-exposed actuator endpoints (beyond health/info) when no filter chain references /actuator.",
+                "Detects web-exposed actuator endpoints (beyond health/info, after subtracting management.endpoints.web.exposure.exclude) when no filter chain references /actuator.",
                 "Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication/authorization.",
                 "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.security"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        String include = context.firstHostProperty("management.endpoints.web.exposure.include");
-        if (include == null) {
-            return pass();
-        }
-        String normalized = include.toLowerCase(Locale.ROOT).trim();
-        boolean exposesBeyondBasics = normalized.equals("*")
-                || List.of(normalized.split(",")).stream()
-                        .map(String::trim)
-                        .anyMatch(token -> !token.isEmpty() && !token.equals("health") && !token.equals("info"));
-        if (!exposesBeyondBasics) {
+        if (!context.exposesBeyondHealthAndInfo()) {
             return pass();
         }
         String base = context.firstProperty("management.endpoints.web.base-path");
@@ -1229,23 +1339,14 @@ final class ManagementPortIsolationRule extends AbstractSecurityRule {
                         "Sensitive actuator endpoints should use an isolated management port",
                         SecurityCategory.ACTUATOR,
                         "INFO",
-                        "Notes that sensitive actuator endpoints are exposed on the main application port because management.server.port is unset.",
+                        "Notes that sensitive actuator endpoints (beyond health/info, after subtracting management.endpoints.web.exposure.exclude) are exposed on the main application port because management.server.port is unset.",
                         "Set management.server.port to a separate, network-restricted port so actuator endpoints are not reachable on the public application port.",
                         "https://docs.spring.io/spring-boot/reference/actuator/monitoring.html#actuator.monitoring.customizing-management-server-port"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        String include = context.firstHostProperty("management.endpoints.web.exposure.include");
-        if (include == null) {
-            return pass();
-        }
-        String normalized = include.toLowerCase(Locale.ROOT).trim();
-        boolean exposesBeyondBasics = normalized.equals("*")
-                || List.of(normalized.split(",")).stream()
-                        .map(String::trim)
-                        .anyMatch(token -> !token.isEmpty() && !token.equals("health") && !token.equals("info"));
-        if (!exposesBeyondBasics) {
+        if (!context.exposesBeyondHealthAndInfo()) {
             return pass();
         }
         if (context.firstProperty("management.server.port") != null) {
@@ -1335,7 +1436,7 @@ final class JwtAudienceValidationRule extends AbstractSecurityRule {
                         "Validate the JWT audience claim",
                         SecurityCategory.OAUTH2,
                         "MEDIUM",
-                        "Notes that issuer-based resource servers do not validate the aud claim unless a custom validator is added.",
+                        "Notes that issuer-based resource servers do not validate the aud claim unless a custom OAuth2TokenValidator bean (including one composed via DelegatingOAuth2TokenValidator) or a custom JwtDecoder is registered.",
                         "Add an audience OAuth2TokenValidator to the JwtDecoder so tokens minted for other resource servers are rejected.",
                         "https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-validation"));
     }
@@ -1352,6 +1453,16 @@ final class JwtAudienceValidationRule extends AbstractSecurityRule {
         String audiences = context.firstProperty("spring.security.oauth2.resourceserver.jwt.audiences");
         if (audiences != null) {
             return pass();
+        }
+        if (!context.oauth2TokenValidatorTypes().isEmpty()) {
+            // A custom OAuth2TokenValidator bean (including a DelegatingOAuth2TokenValidator that
+            // composes an audience check alongside the default issuer/timestamp validators) may
+            // already validate the audience, so this is advisory only.
+            return violation(
+                    SecurityRuleSupport.INFO,
+                    List.of("Resource server uses issuer/JWK validation with a custom OAuth2TokenValidator ("
+                            + String.join(", ", context.oauth2TokenValidatorTypes())
+                            + "); confirm it validates the audience (aud) claim."));
         }
         if (!context.jwtDecoderTypes().isEmpty()) {
             // A custom JwtDecoder may already register an audience validator, so this is advisory only.
@@ -1448,28 +1559,6 @@ final class H2ConsoleFrameOptionsRule extends AbstractSecurityRule {
     }
 }
 
-final class WebSecurityConfigurerAdapterRule extends AbstractSecurityRule {
-
-    WebSecurityConfigurerAdapterRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-CONFIG-003",
-                "Replace WebSecurityConfigurerAdapter with a component-based configuration",
-                SecurityCategory.CONFIGURATION,
-                "LOW",
-                "Detects a WebSecurityConfigurerAdapter bean; the class was removed in Spring Security 6.",
-                "Expose SecurityFilterChain and WebSecurityCustomizer beans instead of extending WebSecurityConfigurerAdapter.",
-                "https://docs.spring.io/spring-security/reference/servlet/configuration/java.html"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (context.webSecurityConfigurerAdapterPresent()) {
-            return violation(List.of("A WebSecurityConfigurerAdapter is still in use."));
-        }
-        return pass();
-    }
-}
-
 final class ErrorResponseDisclosureRule extends AbstractSecurityRule {
 
     ErrorResponseDisclosureRule() {
@@ -1532,8 +1621,8 @@ final class HardcodedSecretPropertyRule extends AbstractSecurityRule {
                 "SEC-CONFIG-007",
                 "Configuration should not hold literal secret values",
                 SecurityCategory.CONFIGURATION,
-                "CRITICAL",
-                "Detects configuration property names that look like they hold a credential (password, secret, token, api-key, client-secret, private-key) whose value is a literal, unresolved string rather than an externalized reference. System properties, the OS environment, the random-value source, and mounted config-tree secrets are not scanned because they are already externalized. Property values are never read into the finding; only the offending property name is reported.",
+                "HIGH",
+                "Detects configuration property names that look like they hold a credential (password, secret, token, api-key, client-secret, private-key) whose value is a literal, unresolved string rather than an externalized reference. Keys ending in a lifetime/shape suffix (-expiration, -expiry, -expires, -ttl, -timeout, -duration, -validity, -max-age, -refresh-interval) are excluded because they configure how long a token lives, not its value (e.g. jwt.token.expiration=3600). System properties, the OS environment, the random-value source, and mounted config-tree secrets are not scanned because they are already externalized. Property values are never read into the finding; only the offending property name is reported. This remains a name-based heuristic, not a secret-shape check, so review each finding -- it may still name a non-secret value (e.g. oauth.token.type=Bearer).",
                 "Move the literal value out of the configuration file into an environment variable, a secrets manager, or a mounted config-tree secret, and reference it with ${ENV_VAR_NAME} instead of a hardcoded literal.",
                 "https://docs.spring.io/spring-boot/reference/features/external-config.html"));
     }
@@ -1550,5 +1639,57 @@ final class HardcodedSecretPropertyRule extends AbstractSecurityRule {
                         + "' appears to hold a hardcoded secret value in the application configuration.")
                 .toList();
         return violation(details);
+    }
+}
+
+final class StrictHttpFirewallWeakenedRule extends AbstractSecurityRule {
+
+    StrictHttpFirewallWeakenedRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-CONFIG-008",
+                "StrictHttpFirewall should not relax its default URL protections",
+                SecurityCategory.CONFIGURATION,
+                "HIGH",
+                "Detects a custom StrictHttpFirewall bean that has re-allowed one or more normally-blocked encoded/raw URL tokens (URL-encoded slash, backslash, semicolon, or double slash), which can enable authorization-matcher bypass or path-traversal style attacks.",
+                "Keep the StrictHttpFirewall defaults; only relax a specific token (e.g. setAllowUrlEncodedSlash(true)) after verifying every downstream matcher and handler safely tolerates it.",
+                "https://docs.spring.io/spring-security/reference/servlet/exploits/firewall.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        if (context.strictHttpFirewallWeakened()) {
+            return violation(
+                    List.of(
+                            "A StrictHttpFirewall bean re-allows one or more normally-blocked URL tokens (encoded slash, backslash, semicolon, or double slash)."));
+        }
+        return pass();
+    }
+}
+
+final class SecurityDebugLoggingProductionRule extends AbstractSecurityRule {
+
+    SecurityDebugLoggingProductionRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-CONFIG-009",
+                "Spring Security framework logging should not run at DEBUG/TRACE in production",
+                SecurityCategory.CONFIGURATION,
+                "MEDIUM",
+                "Detects logging.level.org.springframework.security=DEBUG (or TRACE) while a production profile is active, which logs filter chain decisions, header values, and request/response details. Distinct from spring.security.debug (SEC-CONFIG-001), Spring Security's own dedicated debug filter.",
+                "Keep org.springframework.security logging at INFO or WARN in production; reserve DEBUG/TRACE for local troubleshooting.",
+                "https://docs.spring.io/spring-boot/reference/features/logging.html#features.logging.log-levels"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        String level = context.firstProperty("logging.level.org.springframework.security");
+        if (level == null) {
+            return pass();
+        }
+        String normalized = level.trim().toUpperCase(Locale.ROOT);
+        if ((normalized.equals("DEBUG") || normalized.equals("TRACE")) && context.isProductionProfileActive()) {
+            return violation(List.of("logging.level.org.springframework.security=" + normalized
+                    + " while a production profile is active."));
+        }
+        return pass();
     }
 }

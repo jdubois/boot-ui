@@ -31,6 +31,14 @@ final class SecurityModel {
      * @param cspPolicyDirectives the {@code ContentSecurityPolicyHeaderWriter}'s configured
      *     {@code policyDirectives}, when a CSP writer is present and the field could be read,
      *     {@code null} otherwise
+     * @param authorizationRuleShadowed {@code TRUE} when an earlier, broader {@code
+     *     authorizeHttpRequests} matcher in this chain shadows a later, narrower one (so the later
+     *     rule can never take effect), {@code FALSE} when no shadowing was detected, {@code null}
+     *     when the chain's {@code AuthorizationManager} could not be introspected
+     * @param rememberMeKeyLength the length of the configured remember-me signing key, when a
+     *     {@code RememberMeAuthenticationFilter} is present and its key could be read, {@code null}
+     *     otherwise. Only the length is retained -- never the key itself -- so a short/predictable
+     *     key can be flagged without the key value ever leaving this process.
      */
     record FilterChainModel(
             int index,
@@ -41,11 +49,20 @@ final class SecurityModel {
             List<String> headerWriterNames,
             Long hstsMaxAgeSeconds,
             Boolean hstsIncludeSubdomains,
-            String cspPolicyDirectives) {
+            String cspPolicyDirectives,
+            Boolean authorizationRuleShadowed,
+            Integer rememberMeKeyLength) {
 
         private static final long HSTS_MIN_MAX_AGE_SECONDS = 31536000L; // HstsHeaderWriter's own 1-year default
 
-        private static final Pattern CSP_WILDCARD_SOURCE = Pattern.compile(".*(default-src|script-src)\\s+[^;]*\\*.*");
+        /**
+         * Matches a Spring Security 7 {@code PathPatternRequestMatcher} toString of the form
+         * {@code "PathPattern [/**]"} or {@code "PathPattern [GET /**]"} (an optional HTTP method
+         * followed by the catch-all pattern), so a whole-chain matcher is recognized whether or not
+         * it is method-qualified, without mistaking a scoped pattern like {@code "PathPattern
+         * [/api/**]"} for a catch-all.
+         */
+        private static final Pattern CATCH_ALL_BRACKETED_PATTERN = Pattern.compile("\\[(?:[a-z]+\\s+)?/\\*\\*]");
 
         FilterChainModel {
             filterNames = List.copyOf(filterNames);
@@ -71,6 +88,36 @@ final class SecurityModel {
                     sessionFixationDisabled,
                     headerWriterNames,
                     null,
+                    null,
+                    null,
+                    null,
+                    null);
+        }
+
+        /**
+         * Convenience constructor for callers that need the HSTS/CSP policy details but predate the
+         * authorization-shadowing and remember-me-key fields.
+         */
+        FilterChainModel(
+                int index,
+                String matcher,
+                List<String> filterNames,
+                Boolean permitsAllAnonymous,
+                Boolean sessionFixationDisabled,
+                List<String> headerWriterNames,
+                Long hstsMaxAgeSeconds,
+                Boolean hstsIncludeSubdomains,
+                String cspPolicyDirectives) {
+            this(
+                    index,
+                    matcher,
+                    filterNames,
+                    permitsAllAnonymous,
+                    sessionFixationDisabled,
+                    headerWriterNames,
+                    hstsMaxAgeSeconds,
+                    hstsIncludeSubdomains,
+                    cspPolicyDirectives,
                     null,
                     null);
         }
@@ -106,9 +153,12 @@ final class SecurityModel {
 
         /**
          * {@code true} when a {@code ContentSecurityPolicyHeaderWriter} policy allows
-         * {@code 'unsafe-inline'} / {@code 'unsafe-eval'} or a wildcard {@code default-src}/
-         * {@code script-src}, which largely defeats the XSS mitigation a CSP is meant to provide.
-         * {@code false} when no CSP writer was detected or its policy could not be read.
+         * {@code 'unsafe-inline'} / {@code 'unsafe-eval'}, a bare/unscoped wildcard {@code *} source
+         * in {@code default-src}/{@code script-src} (a scoped wildcard such as {@code
+         * https://*.example.com} is not flagged), or omits the {@code base-uri} / {@code
+         * frame-ancestors} hardening directives entirely (neither falls back to {@code default-src}
+         * per the CSP spec, unlike {@code object-src}). {@code false} when no CSP writer was detected
+         * or its policy could not be read.
          */
         boolean hasWeakCsp() {
             if (cspPolicyDirectives == null) {
@@ -118,16 +168,74 @@ final class SecurityModel {
             if (normalized.contains("'unsafe-inline'") || normalized.contains("'unsafe-eval'")) {
                 return true;
             }
-            return CSP_WILDCARD_SOURCE.matcher(normalized).matches();
+            if (hasUnscopedWildcardSource(normalized, "default-src")
+                    || hasUnscopedWildcardSource(normalized, "script-src")) {
+                return true;
+            }
+            if (!hasDirective(normalized, "base-uri") || !hasDirective(normalized, "frame-ancestors")) {
+                return true;
+            }
+            // object-src falls back to default-src per the CSP spec, so only flag its absence when
+            // default-src is also missing (nothing would restrict plugin/object content at all).
+            return !hasDirective(normalized, "object-src") && !hasDirective(normalized, "default-src");
+        }
+
+        /**
+         * {@code true} when the named directive's source list includes a bare, unscoped {@code *}
+         * token -- as opposed to a scoped wildcard such as {@code https://*.example.com}, which
+         * legitimately restricts the wildcard to a single trusted registrable domain and is not
+         * flagged.
+         */
+        private static boolean hasUnscopedWildcardSource(String normalizedPolicy, String directive) {
+            for (String segment : normalizedPolicy.split(";")) {
+                String remainder = directiveValue(segment, directive);
+                if (remainder == null) {
+                    continue;
+                }
+                for (String token : remainder.split("\\s+")) {
+                    if (token.equals("*")) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /** {@code true} when the named directive appears anywhere in the policy (with any value). */
+        private static boolean hasDirective(String normalizedPolicy, String directive) {
+            for (String segment : normalizedPolicy.split(";")) {
+                if (directiveValue(segment, directive) != null) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * When {@code segment} (one {@code ;}-delimited part of a CSP policy) is the named directive,
+         * returns its value portion (possibly empty); otherwise returns {@code null}.
+         */
+        private static String directiveValue(String segment, String directive) {
+            String trimmed = segment.trim();
+            if (trimmed.equals(directive)) {
+                return "";
+            }
+            if (trimmed.startsWith(directive + " ") || trimmed.startsWith(directive + "\t")) {
+                return trimmed.substring(directive.length()).trim();
+            }
+            return null;
         }
 
         /**
          * A chain is considered session-creating (stateful) when it installs the session management
          * or remember-me filters, maintains concurrent-session control, or runs an interactive
-         * form-login flow. Spring Security 6 no longer installs a {@code SessionManagementFilter} by
-         * default, so a normal form-login chain that still creates HTTP sessions would otherwise look
-         * stateless here; the form-login signal restores that. A chain that also accepts bearer tokens
-         * is treated as a stateless token API and is excluded from the form-login heuristic.
+         * form-login or OAuth2/OIDC login flow. Spring Security 6 no longer installs a {@code
+         * SessionManagementFilter} by default, so a normal form-login chain that still creates HTTP
+         * sessions would otherwise look stateless here; the interactive-login signal restores that.
+         * {@code OAuth2LoginAuthenticationFilter} is included because the authorization_code login
+         * flow stores request state (state/nonce/PKCE, the pre-auth redirect target) in the HTTP
+         * session just like form login does. A chain that also accepts bearer tokens is treated as a
+         * stateless token API and is excluded from the interactive-login heuristic.
          */
         boolean isStateful() {
             if (hasFilter("SessionManagementFilter")
@@ -135,8 +243,9 @@ final class SecurityModel {
                     || hasFilterContaining("ConcurrentSession")) {
                 return true;
             }
-            boolean interactiveLogin =
-                    hasFilter("UsernamePasswordAuthenticationFilter") || hasFilter("DefaultLoginPageGeneratingFilter");
+            boolean interactiveLogin = hasFilter("UsernamePasswordAuthenticationFilter")
+                    || hasFilter("DefaultLoginPageGeneratingFilter")
+                    || hasFilterContaining("OAuth2LoginAuthenticationFilter");
             return interactiveLogin && !hasFilterContaining("BearerTokenAuthenticationFilter");
         }
 
@@ -180,12 +289,15 @@ final class SecurityModel {
                 return true;
             }
             // An explicit whole-application matcher such as securityMatcher("/**"). The "/**" token is
-            // matched only when delimited (standing alone, quoted, or bracketed) so scoped patterns
-            // like "/api/**" are not mistaken for a catch-all.
+            // matched only when delimited -- standing alone, quoted, or bracketed (optionally with a
+            // leading HTTP method inside the brackets, e.g. Spring Security 7's
+            // PathPatternRequestMatcher toString "PathPattern [/**]" / "PathPattern [GET /**]") -- so
+            // scoped patterns like "/api/**" or "PathPattern [/api/**]" are not mistaken for a
+            // catch-all.
             return normalized.equals("/**")
                     || normalized.contains("'/**'")
                     || normalized.contains("\"/**\"")
-                    || normalized.contains("[/**]");
+                    || CATCH_ALL_BRACKETED_PATTERN.matcher(normalized).find();
         }
 
         String describe() {

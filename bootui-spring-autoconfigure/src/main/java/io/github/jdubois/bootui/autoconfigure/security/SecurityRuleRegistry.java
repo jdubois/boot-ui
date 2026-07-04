@@ -13,11 +13,13 @@ final class SecurityRuleRegistry {
             new DefaultInMemoryUserRule(),
             new DefaultLoginPageProductionRule(),
             new BasicAuthWithoutTlsRule(),
+            new UsernameEnumerationRiskRule(),
             // Authorization
             new MissingAuthorizationFilterRule(),
             new PermitAllCatchAllRule(),
             new EffectivelyDisabledSecurityRule(),
             new CatchAllChainOrderingRule(),
+            new AuthorizationRuleShadowedRule(),
             // CSRF
             new CsrfDisabledStatefulRule(),
             new CsrfGloballyDisabledRule(),
@@ -29,6 +31,7 @@ final class SecurityRuleRegistry {
             new SessionTimeoutRule(),
             new BearerTokenStatefulRule(),
             new ConcurrentSessionControlRule(),
+            new WeakRememberMeKeyRule(),
             // Transport & security headers
             new HstsHeaderRule(),
             new FrameOptionsRule(),
@@ -39,6 +42,7 @@ final class SecurityRuleRegistry {
             new HeaderWritersDisabledRule(),
             new WeakHstsPolicyRule(),
             new WeakContentSecurityPolicyRule(),
+            new CrossOriginIsolationHeadersRule(),
             // CORS
             new CorsWildcardOriginRule(),
             new CorsWildcardWithCredentialsRule(),
@@ -63,10 +67,11 @@ final class SecurityRuleRegistry {
             // Configuration hygiene
             new SecurityDebugRule(),
             new H2ConsoleFrameOptionsRule(),
-            new WebSecurityConfigurerAdapterRule(),
             new ErrorResponseDisclosureRule(),
             new HttpsEnforcementRule(),
-            new HardcodedSecretPropertyRule());
+            new HardcodedSecretPropertyRule(),
+            new StrictHttpFirewallWeakenedRule(),
+            new SecurityDebugLoggingProductionRule());
 
     private SecurityRuleRegistry() {}
 
