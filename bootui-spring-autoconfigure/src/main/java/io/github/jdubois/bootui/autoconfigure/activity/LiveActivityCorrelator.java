@@ -24,6 +24,8 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
+import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.RemoteActivityCorrelator;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
@@ -67,6 +69,7 @@ public class LiveActivityCorrelator {
     private final BootUiProperties properties;
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
+    private final ActivityForwardingSettings forwardingSettings;
 
     public LiveActivityCorrelator(
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -78,7 +81,8 @@ public class LiveActivityCorrelator {
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             BootUiProperties properties,
             SwitchableActivityStore activityStore,
-            ActivityPersistenceSettings persistenceSettings) {
+            ActivityPersistenceSettings persistenceSettings,
+            ActivityForwardingSettings forwardingSettings) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
         this.exceptions = exceptions;
@@ -89,6 +93,7 @@ public class LiveActivityCorrelator {
         this.properties = properties;
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
+        this.forwardingSettings = forwardingSettings;
     }
 
     /** Build the profile for the request with the given HTTP exchange id. */
@@ -150,8 +155,10 @@ public class LiveActivityCorrelator {
             notes.add("Trace matched by id " + request.traceId() + ".");
         }
 
-        List<RemoteActivityEntryDto> remoteActivity =
-                RemoteActivityCorrelator.forRequest(activityStore, request.traceId(), persistenceSettings.instanceId());
+        List<RemoteActivityEntryDto> remoteActivity = RemoteActivityCorrelator.forRequest(
+                activityStore,
+                request.traceId(),
+                ActivityInstanceIds.activeInstanceId(persistenceSettings, forwardingSettings));
         if (!remoteActivity.isEmpty()) {
             notes.add("Found " + remoteActivity.size() + " signal(s) captured by other BootUI instance(s) sharing "
                     + "this trace id via the shared activity store.");

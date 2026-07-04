@@ -153,6 +153,7 @@ class QuarkusActivityCaptureTests {
                 null,
                 new SwitchableActivityStore(new InMemoryActivityStore(10)),
                 disabledSettings(),
+                disabledForwardingSettings(),
                 new UnsatisfiedInstance<>());
     }
 

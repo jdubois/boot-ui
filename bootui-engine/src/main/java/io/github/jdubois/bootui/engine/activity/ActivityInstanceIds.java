@@ -52,6 +52,35 @@ public final class ActivityInstanceIds {
         return prefix + "-" + randomSuffix();
     }
 
+    /**
+     * Resolves which of the two independently-configured instance ids ({@link
+     * ActivityPersistenceSettings#instanceId()} or {@link ActivityForwardingSettings#instanceId()}) is the
+     * one a running instance's capture poller is actually stamping captured entries with — the id every
+     * read path (the panel's own query, the per-request "remote activity" own-instance exclusion) must
+     * query/compare against too, or it silently looks for the wrong partition key.
+     *
+     * <p>{@code ActivityStoreFactory} enforces that at most one of {@code persistenceSettings.enabled()}
+     * and {@code forwardingSettings.enabled()} is {@code true} (failing fast at startup otherwise), and
+     * both adapters' capture-poller startup already branches on exactly this condition (see {@code
+     * QuarkusActivityCapture#onStart} and the Spring {@code LiveActivityController} constructor) — this
+     * method is that same branch, reusable by every read path instead of each one re-deriving it (and
+     * risking, as happened here, silently defaulting to {@code persistenceSettings.instanceId()}
+     * unconditionally). Persistence wins when both happen to be enabled or neither is (preserving the
+     * pre-forwarding default behavior); forwarding's id is used only when it alone is enabled.
+     *
+     * @param persistenceSettings this instance's JDBC persistence settings
+     * @param forwardingSettings this instance's HTTP-forwarding settings
+     * @return {@code persistenceSettings.instanceId()} unless persistence is disabled and forwarding is
+     *     enabled instead, in which case {@code forwardingSettings.instanceId()}
+     */
+    public static String activeInstanceId(
+            ActivityPersistenceSettings persistenceSettings, ActivityForwardingSettings forwardingSettings) {
+        if (!persistenceSettings.enabled() && forwardingSettings.enabled()) {
+            return forwardingSettings.instanceId();
+        }
+        return persistenceSettings.instanceId();
+    }
+
     private static String randomSuffix() {
         StringBuilder suffix = new StringBuilder(RANDOM_SUFFIX_LENGTH);
         for (int i = 0; i < RANDOM_SUFFIX_LENGTH; i++) {

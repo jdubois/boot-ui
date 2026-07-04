@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -129,6 +130,46 @@ class LiveActivityResourceTests {
             assertThat(result.kpis()).isEqualTo(expectedLive.kpis());
             assertThat(result.sources()).isEqualTo(expectedLive.sources());
             assertThat(result.warnings()).isEqualTo(expectedLive.warnings());
+        } finally {
+            cleanup(resource, store);
+        }
+    }
+
+    @Test
+    void activityQueriesByForwardingInstanceIdWhenPersistenceIsDisabledButForwardingIsActiveInstead() {
+        // Regression test: a Quarkus instance configured purely as an HTTP-forwarding sender (persistence
+        // disabled) has its capture poller stamp entries with ActivityForwardingSettings#instanceId()
+        // (see QuarkusActivityCapture#onStart), not ActivityPersistenceSettings#instanceId(). The GET
+        // /bootui/api/activity query must look under the same id its own capture poller actually used, or
+        // every captured entry is silently filtered out even though the store reports persistent()==true
+        // and non-zero typeCounts (found via a live smoke test: entries came back empty despite the panel
+        // reporting real SQL/security counts).
+        ActivityEntryDto storedEntry = new ActivityEntryDto(
+                "sql-9",
+                "SQL",
+                1_000L,
+                "OK",
+                "select 1",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                false);
+        SwitchableActivityStore store = persistentStore(new RecordingActivityStore(ActivityPage.EMPTY), "instance-f");
+        LiveActivityResource resource = resourceWith(
+                store, disabledSettings(), enabledForwardingSettings("instance-f"), unsatisfiedDataSource());
+        try {
+            store.appendBatch(List.of(new StoredActivityEntry("instance-f", 1L, storedEntry)));
+
+            LiveActivityReport result = resource.activity(0, null, null, null, null, null, null, null);
+
+            assertThat(result.entries()).containsExactly(storedEntry);
         } finally {
             cleanup(resource, store);
         }
@@ -283,6 +324,32 @@ class LiveActivityResourceTests {
                 Duration.ofSeconds(2));
     }
 
+    // None of the tests above exercise forwarding directly (see HttpActivityStoreTests /
+    // ActivityStoreFactoryTests and LiveActivityResourceForwardingTests-style cases below for that);
+    // every resourceWith(...) call site defaults to this disabled settings object so the resource's
+    // forwarding branch is simply never taken, matching production behavior when forwarding is not
+    // configured.
+    private static ActivityForwardingSettings disabledForwardingSettings() {
+        return enabledForwardingSettings(false, "forward-instance");
+    }
+
+    private static ActivityForwardingSettings enabledForwardingSettings(String instanceId) {
+        return enabledForwardingSettings(true, instanceId);
+    }
+
+    private static ActivityForwardingSettings enabledForwardingSettings(boolean enabled, String instanceId) {
+        return new ActivityForwardingSettings(
+                enabled,
+                "http://localhost:8080",
+                null,
+                Duration.ofSeconds(2),
+                Duration.ofSeconds(5),
+                Duration.ofSeconds(5),
+                500,
+                instanceId,
+                Duration.ofSeconds(2));
+    }
+
     /**
      * A {@link SwitchableActivityStore} whose delegate is a real {@link BufferedActivityStore} (so
      * {@link SwitchableActivityStore#persistent()} is genuinely {@code true}) wrapping {@code durable} —
@@ -318,6 +385,14 @@ class LiveActivityResourceTests {
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings settings,
             Instance<DataSource> dataSources) {
+        return resourceWith(activityStore, settings, disabledForwardingSettings(), dataSources);
+    }
+
+    private static LiveActivityResource resourceWith(
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings settings,
+            ActivityForwardingSettings forwardingSettings,
+            Instance<DataSource> dataSources) {
         Config config = config(Map.of());
         return new LiveActivityResource(
                 new HttpExchangeBuffer(50),
@@ -330,6 +405,7 @@ class LiveActivityResourceTests {
                 null, // TracesService: unused by activity()/mergedReport(), only by the request() drill-down
                 activityStore,
                 settings,
+                forwardingSettings,
                 dataSources);
     }
 

@@ -16,6 +16,8 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
+import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -127,6 +129,7 @@ public class LiveActivityResource {
     private final TracesService tracesService;
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
+    private final ActivityForwardingSettings forwardingSettings;
     private final Instance<DataSource> dataSources;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
@@ -147,6 +150,7 @@ public class LiveActivityResource {
             TracesService tracesService,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
+            ActivityForwardingSettings forwardingSettings,
             Instance<DataSource> dataSources) {
         this.buffer = buffer;
         this.exposure = exposure;
@@ -158,6 +162,7 @@ public class LiveActivityResource {
         this.tracesService = tracesService;
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
+        this.forwardingSettings = forwardingSettings;
         this.dataSources = dataSources;
     }
 
@@ -207,9 +212,12 @@ public class LiveActivityResource {
         // Persistence active: the store (which itself merges its in-memory hot cache with the durable
         // backend) serves entries and pagination, so recently captured entries are visible immediately
         // and the dashboard can page back through history beyond what fits in memory. See the class
-        // Javadoc for why the KPI strip above stays computed from the full, unfiltered live merge.
+        // Javadoc for why the KPI strip above stays computed from the full, unfiltered live merge. The
+        // queried instanceId must be whichever backend's capture poller is actually stamping entries
+        // with (persistence's own id, or forwarding's when persistence is disabled and forwarding is what
+        // made the store persistent instead) — see ActivityInstanceIds#activeInstanceId.
         ActivityQuery query = new ActivityQuery(
-                persistenceSettings.instanceId(),
+                ActivityInstanceIds.activeInstanceId(persistenceSettings, forwardingSettings),
                 type,
                 severity,
                 q,
@@ -324,7 +332,7 @@ public class LiveActivityResource {
                 securityEvents(securityAvailable),
                 trace,
                 activityStore,
-                persistenceSettings.instanceId());
+                ActivityInstanceIds.activeInstanceId(persistenceSettings, forwardingSettings));
     }
 
     @GET

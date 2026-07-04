@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
@@ -56,6 +57,20 @@ class LiveActivityCorrelatorTests {
             500,
             Duration.ofDays(7),
             "test-instance",
+            Duration.ofSeconds(2));
+    // Disabled by default (matching TEST_PERSISTENCE_SETTINGS' "no forwarding configured" default) with a
+    // deliberately distinct instanceId from TEST_PERSISTENCE_SETTINGS, so a test that mixes the two up
+    // (e.g. reading persistence's id when forwarding is actually the active backend) fails loudly instead
+    // of accidentally passing because both settings happen to share the same id.
+    private static final ActivityForwardingSettings TEST_FORWARDING_SETTINGS = new ActivityForwardingSettings(
+            false,
+            null,
+            null,
+            Duration.ofSeconds(2),
+            Duration.ofSeconds(5),
+            Duration.ofSeconds(5),
+            500,
+            "test-instance-forward",
             Duration.ofSeconds(2));
 
     @Test
@@ -475,6 +490,69 @@ class LiveActivityCorrelatorTests {
     }
 
     @Test
+    void remoteActivityExcludesEntriesCapturedByThisSameInstanceWhenOnlyForwardingIsActive() {
+        // Regression test: when persistence is disabled and forwarding is the active backend instead,
+        // this instance's own capture poller stamps entries with ActivityForwardingSettings#instanceId(),
+        // not ActivityPersistenceSettings#instanceId() (see the forwarding branch this controller's
+        // constructor takes). profile() must exclude "own" entries under the id actually used, or its own
+        // local activity is mislabeled as "remote" in the request-profile drawer.
+        ActivityPersistenceSettings persistenceDisabled = new ActivityPersistenceSettings(
+                false,
+                ActivityPersistenceSettings.DataSourceMode.SHARED,
+                null,
+                null,
+                null,
+                null,
+                "bootui_activity",
+                Duration.ofSeconds(5),
+                500,
+                Duration.ofDays(7),
+                "test-instance",
+                Duration.ofSeconds(2));
+        ActivityForwardingSettings forwardingEnabled = new ActivityForwardingSettings(
+                true,
+                "http://localhost:8080",
+                null,
+                Duration.ofSeconds(2),
+                Duration.ofSeconds(5),
+                Duration.ofSeconds(5),
+                500,
+                "test-instance-forward",
+                Duration.ofSeconds(2));
+        SwitchableActivityStore activityStore = new SwitchableActivityStore(new InMemoryActivityStore(10));
+        // Stamped with forwarding's instanceId, exactly like this instance's own capture poller would.
+        activityStore.append(new StoredActivityEntry(
+                "test-instance-forward",
+                1,
+                new ActivityEntryDto(
+                        "own-1",
+                        "SQL",
+                        START - 100,
+                        "OK",
+                        "select 1",
+                        null,
+                        5L,
+                        "trace-abc",
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        null,
+                        null,
+                        false)));
+        LiveActivityCorrelator correlator = correlatorWithActivityStore(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L, "trace-abc")),
+                activityStore,
+                persistenceDisabled,
+                forwardingEnabled);
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.remoteActivity()).isEmpty();
+    }
+
+    @Test
     void remoteActivityIsEmptyWhenNoActivityStoreIsConfigured() {
         LiveActivityCorrelator correlator = correlator(
                 requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L, "trace-abc")),
@@ -492,6 +570,15 @@ class LiveActivityCorrelatorTests {
 
     private LiveActivityCorrelator correlatorWithActivityStore(
             HttpExchangesController requests, SwitchableActivityStore activityStore) {
+        return correlatorWithActivityStore(
+                requests, activityStore, TEST_PERSISTENCE_SETTINGS, TEST_FORWARDING_SETTINGS);
+    }
+
+    private LiveActivityCorrelator correlatorWithActivityStore(
+            HttpExchangesController requests,
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings persistenceSettings,
+            ActivityForwardingSettings forwardingSettings) {
         return new LiveActivityCorrelator(
                 provider(requests),
                 provider(null),
@@ -502,7 +589,8 @@ class LiveActivityCorrelatorTests {
                 provider(null),
                 new BootUiProperties(),
                 activityStore,
-                TEST_PERSISTENCE_SETTINGS);
+                persistenceSettings,
+                forwardingSettings);
     }
 
     private LiveActivityCorrelator correlator(
@@ -554,7 +642,8 @@ class LiveActivityCorrelatorTests {
                 provider(securityCorrelations),
                 properties,
                 null,
-                TEST_PERSISTENCE_SETTINGS);
+                TEST_PERSISTENCE_SETTINGS,
+                TEST_FORWARDING_SETTINGS);
     }
 
     @SuppressWarnings("unchecked")

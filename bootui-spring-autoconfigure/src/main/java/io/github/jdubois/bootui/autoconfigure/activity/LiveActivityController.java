@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
+import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -133,7 +134,8 @@ public class LiveActivityController {
                 securityCorrelations,
                 properties,
                 activityStore,
-                persistenceSettings);
+                persistenceSettings,
+                forwardingSettings);
         this.securityCorrelations = securityCorrelations.getIfAvailable();
         this.changeStream = new BootUiChangeStream("activity");
         this.selfPath = properties.getPath();
@@ -226,8 +228,18 @@ public class LiveActivityController {
         // and the dashboard can page back through history beyond what fits in memory. KPIs/type counts/
         // sources/warnings stay computed from the current live merge above — that strip is an "at a
         // glance, right now" summary, not scoped to whichever historical page happens to be browsed.
+        // The queried instanceId must be whichever backend's capture poller is actually stamping
+        // entries with (persistence's own id, or forwarding's when persistence is disabled and
+        // forwarding is what made the store persistent instead) — see ActivityInstanceIds#activeInstanceId.
         ActivityQuery query = new ActivityQuery(
-                persistenceSettings.instanceId(), type, severity, q, since > 0 ? since : null, until, cursor, pageSize);
+                ActivityInstanceIds.activeInstanceId(persistenceSettings, forwardingSettings),
+                type,
+                severity,
+                q,
+                since > 0 ? since : null,
+                until,
+                cursor,
+                pageSize);
         ActivityPage page = activityStore.query(query);
         return new LiveActivityReport(
                 live.available(),

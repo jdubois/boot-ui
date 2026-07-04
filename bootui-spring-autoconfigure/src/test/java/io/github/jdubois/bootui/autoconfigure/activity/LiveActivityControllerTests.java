@@ -165,6 +165,59 @@ class LiveActivityControllerTests {
     }
 
     @Test
+    void activityQueriesByForwardingInstanceIdWhenPersistenceIsDisabledButForwardingIsActiveInstead() {
+        // Regression test: an instance configured purely as an HTTP-forwarding sender (persistence
+        // disabled) has its capture poller stamp entries with ActivityForwardingSettings#instanceId()
+        // (see the forwarding branch in this class's constructor), not
+        // ActivityPersistenceSettings#instanceId(). The GET /bootui/api/activity query must look under
+        // the same id its own capture poller actually used, or every captured entry is silently filtered
+        // out even though the store reports persistent()==true (found via a live smoke test: entries came
+        // back empty despite the panel reporting real, non-zero typeCounts).
+        SwitchableActivityStore store = mock(SwitchableActivityStore.class);
+        when(store.persistent()).thenReturn(true);
+        ActivityEntryDto storedEntry = new ActivityEntryDto(
+                "sql-9",
+                "SQL",
+                1_000L,
+                "OK",
+                "select 1",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                false);
+        ActivityPage page =
+                new ActivityPage(List.of(new StoredActivityEntry("instance-f", 1L, storedEntry)), null, false);
+        when(store.query(any())).thenReturn(page);
+
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                store,
+                disabledSettings(),
+                enabledForwardingSettings("instance-f"),
+                empty(DataSource.class),
+                new BootUiProperties());
+        try {
+            LiveActivityReport result = controller.activity(null, null, 0, 0, null, null, null, 0);
+
+            assertThat(result.entries()).containsExactly(storedEntry);
+
+            ArgumentCaptor<ActivityQuery> captor = ArgumentCaptor.forClass(ActivityQuery.class);
+            verify(store).query(captor.capture());
+            assertThat(captor.getValue().instanceId()).isEqualTo("instance-f");
+        } finally {
+            controller.shutdown();
+        }
+    }
+
+    @Test
     void shutdownStopsCapturePollerThreadWhenPersistenceEnabled() throws Exception {
         SwitchableActivityStore store = mock(SwitchableActivityStore.class);
         when(store.persistent()).thenReturn(true);
@@ -337,6 +390,19 @@ class LiveActivityControllerTests {
                 Duration.ofSeconds(5),
                 500,
                 "instance-x",
+                Duration.ofSeconds(2));
+    }
+
+    private static ActivityForwardingSettings enabledForwardingSettings(String instanceId) {
+        return new ActivityForwardingSettings(
+                true,
+                "http://localhost:8080",
+                null,
+                Duration.ofSeconds(2),
+                Duration.ofSeconds(5),
+                Duration.ofSeconds(5),
+                500,
+                instanceId,
                 Duration.ofSeconds(2));
     }
 
