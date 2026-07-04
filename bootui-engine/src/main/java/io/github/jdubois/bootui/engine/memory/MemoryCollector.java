@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.BufferPoolSnapshot;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.ClassLoadingData;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.GcSample;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.GcTrend;
@@ -172,7 +173,13 @@ final class MemoryCollector {
         long directUsed = 0;
         long directCapacity = 0;
         long directCount = 0;
+        List<BufferPoolSnapshot> bufferPools = new ArrayList<>();
         for (BufferPoolMXBean bufferPool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
+            bufferPools.add(new BufferPoolSnapshot(
+                    bufferPool.getName(),
+                    Math.max(0, bufferPool.getMemoryUsed()),
+                    Math.max(0, bufferPool.getTotalCapacity()),
+                    Math.max(0, bufferPool.getCount())));
             if ("direct".equalsIgnoreCase(bufferPool.getName())) {
                 directUsed += Math.max(0, bufferPool.getMemoryUsed());
                 directCapacity += Math.max(0, bufferPool.getTotalCapacity());
@@ -206,7 +213,8 @@ final class MemoryCollector {
                 inputArgs,
                 gcNames,
                 containerLimit,
-                containerCurrent);
+                containerCurrent,
+                bufferPools);
     }
 
     private ThreadData collectThreads() {
@@ -269,7 +277,9 @@ final class MemoryCollector {
         int availableProcessors = ManagementFactory.getOperatingSystemMXBean().getAvailableProcessors();
         long freeSwap = readOsBeanLong("FreeSwapSpaceSize");
         long totalSwap = readOsBeanLong("TotalSwapSpaceSize");
+        long totalPhysicalMemory = readOsBeanLong("TotalPhysicalMemorySize");
         Boolean useCompressedOops = readVmOptionBoolean("UseCompressedOops");
+        LastGcPause lastGcPause = readLastGcPause();
 
         return new RuntimeData(
                 gc.uptimeMillis(),
@@ -281,7 +291,51 @@ final class MemoryCollector {
                 availableProcessors,
                 freeSwap,
                 totalSwap,
-                useCompressedOops);
+                useCompressedOops,
+                totalPhysicalMemory,
+                lastGcPause.millis(),
+                lastGcPause.collectorName());
+    }
+
+    /**
+     * The duration and originating collector of the single most recent garbage collection (MEM-GC-006's
+     * outlier-pause rule). {@link #unavailable()} on a non-HotSpot JVM or before any collection has run.
+     */
+    private record LastGcPause(long millis, String collectorName) {
+        static LastGcPause unavailable() {
+            return new LastGcPause(-1, null);
+        }
+    }
+
+    /**
+     * Reads the duration of the single most recent garbage collection across all collectors via the
+     * HotSpot-specific {@code com.sun.management.GarbageCollectorMXBean.getLastGcInfo()} extension,
+     * keeping the longest pause (and its collector name) when more than one collector has run since
+     * the JVM started. Unlike the generic scalar reads elsewhere in this class, this directly uses the
+     * {@code com.sun.management} types (there is no generic string-keyed JMX attribute for the
+     * composite "last GC info" value); the whole lookup is wrapped so a non-HotSpot JVM degrades to
+     * {@link LastGcPause#unavailable()} instead of failing this (or any other) scan.
+     */
+    private static LastGcPause readLastGcPause() {
+        try {
+            long longestDurationMillis = -1;
+            String longestCollectorName = null;
+            for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
+                if (bean instanceof com.sun.management.GarbageCollectorMXBean sunBean) {
+                    com.sun.management.GcInfo info = sunBean.getLastGcInfo();
+                    if (info != null && info.getDuration() > longestDurationMillis) {
+                        longestDurationMillis = info.getDuration();
+                        longestCollectorName = bean.getName();
+                    }
+                }
+            }
+            return longestDurationMillis >= 0
+                    ? new LastGcPause(longestDurationMillis, longestCollectorName)
+                    : LastGcPause.unavailable();
+        } catch (RuntimeException | LinkageError ex) {
+            // com.sun.management is a HotSpot extension; degrade gracefully on other JVMs.
+            return LastGcPause.unavailable();
+        }
     }
 
     private static List<HeapClassHistogramEntryDto> parseHistogram(String raw) {

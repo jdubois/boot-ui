@@ -153,7 +153,9 @@ class MemoryRulesTests {
     }
 
     @Test
-    void stackReservationLargeRelativeToContainerIsHigh() {
+    void stackReservationLargeRelativeToContainerWithoutCurrentUsageIsMedium() {
+        // Container current-usage is unknown (containerMemoryCurrentBytes not supplied), so the rule
+        // cannot confirm resident risk and must not escalate to HIGH from the ratio breach alone.
         ThreadData threads = threads(300);
         MemoryData memory = memory(256 * MB, 2 * GB, List.of(), 1 * GB, List.of("-Xmx2g"));
         MemoryContext context = context(memory, threads, PostGcHeapData.unavailable(), healthyRuntime());
@@ -161,7 +163,40 @@ class MemoryRulesTests {
         MemoryRuleResultDto result = find(scan(context), "MEM-FOOTPRINT-002");
 
         assertThat(result).isNotNull();
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.sampleViolations().get(0)).contains("virtual-memory reservation, not confirmed");
+    }
+
+    @Test
+    void stackReservationWithConfirmedResidentRiskIsHigh() {
+        // 300 threads * 1 MiB stack = 300 MiB reservation, >=20% of the 1 GiB limit (ratio breach).
+        // 800 MiB already resident + 300 MiB reservation = 1100 MiB >= the 1 GiB limit, so fully
+        // realizing the reservation would breach the container limit: confirmed resident risk.
+        ThreadData threads = threads(300);
+        MemoryData memory = memoryWithCurrent(256 * MB, 2 * GB, 1 * GB, 800 * MB);
+        MemoryContext context = context(memory, threads, PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-FOOTPRINT-002");
+
+        assertThat(result).isNotNull();
         assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations().get(0)).contains("already resident");
+    }
+
+    @Test
+    void stackReservationLargeButLittleResidentUsageIsNotEscalatedToHigh() {
+        // Regression test for the audited false positive: many idle/shallow threads reserve a large
+        // amount of virtual address space (2 GiB of 4 GiB limit, an easy ratio breach) while actual
+        // resident usage is small (300 MiB), so realizing the whole reservation would not come close
+        // to breaching the limit (2348 MiB < 4096 MiB). This must stay MEDIUM, not HIGH.
+        ThreadData threads = threads(2048);
+        MemoryData memory = memoryWithCurrent(256 * MB, 2 * GB, 4 * GB, 300 * MB);
+        MemoryContext context = context(memory, threads, PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-FOOTPRINT-002");
+
+        assertThat(result).isNotNull();
+        assertThat(result.severity()).isEqualTo("MEDIUM");
     }
 
     @Test
@@ -481,6 +516,33 @@ class MemoryRulesTests {
         assertThat(find(scan(context), "MEM-GC-004")).isNull();
     }
 
+    @Test
+    void serialGcOnMultiCoreWithSmallContainerMemoryIsSkipped() {
+        // Below Oracle's historical "server-class machine" threshold (2 CPUs AND ~2 GiB memory):
+        // a 512 MiB container limit means Serial GC is the JVM's own correct ergonomics choice here,
+        // even though 4 CPUs are visible.
+        MemoryData memory =
+                memory(256 * MB, 2 * GB, List.of(), 512 * MB, List.of(), List.of("Copy", "MarkSweepCompact"));
+        RuntimeData runtime = runtimeWithCpus(4);
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
+
+        assertThat(find(scan(context), "MEM-GC-004")).isNull();
+    }
+
+    @Test
+    void serialGcOnMultiCoreWithSufficientContainerMemoryIsFlagged() {
+        // 4 CPUs and a 4 GiB container limit are both above the "server-class machine" threshold, so
+        // Serial GC is a genuine misconfiguration here.
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), 4 * GB, List.of(), List.of("Copy", "MarkSweepCompact"));
+        RuntimeData runtime = runtimeWithCpus(4);
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-GC-004");
+
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0)).contains("4-CPU");
+    }
+
     // --- MEM-GC-005: G1 Full GC frequency ---------------------------------------------------
 
     @Test
@@ -496,6 +558,12 @@ class MemoryRulesTests {
 
         assertThat(result).isNotNull();
         assertThat(result.sampleViolations().get(0)).contains("2 time(s)");
+        // MEM-GC-005 no longer characterizes the G1 fallback Full GC as single-threaded (parallelized
+        // since JDK 10's JEP 307); it must instead frame the concern around the stop-the-world fallback.
+        assertThat(result.sampleViolations().get(0)).doesNotContainIgnoringCase("single-threaded");
+        assertThat(result.description()).containsIgnoringCase("not single-threaded");
+        assertThat(result.description()).containsIgnoringCase("stop-the-world");
+        assertThat(result.description()).contains("JEP 307");
     }
 
     @Test
@@ -600,6 +668,425 @@ class MemoryRulesTests {
         assertThat(find(scan(context), "MEM-POOL-006")).isNull();
     }
 
+    // --- MEM-POOL-001: Metaspace saturation (test coverage gap) ------------------------------
+
+    @Test
+    void metaspaceNearMaxIsFlagged() {
+        MemoryPoolSnapshot metaspace = new MemoryPoolSnapshot("Metaspace", 90 * MB, 95 * MB, 100 * MB);
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(metaspace), null, List.of());
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-POOL-001");
+
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0)).contains("90% full");
+    }
+
+    @Test
+    void metaspaceBelowThresholdIsNotFlagged() {
+        MemoryPoolSnapshot metaspace = new MemoryPoolSnapshot("Metaspace", 50 * MB, 60 * MB, 100 * MB);
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(metaspace), null, List.of());
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-POOL-001")).isNull();
+    }
+
+    @Test
+    void metaspaceWithoutConfiguredMaxIsSkipped() {
+        MemoryPoolSnapshot metaspace = new MemoryPoolSnapshot("Metaspace", 90 * MB, 95 * MB, -1);
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(metaspace), null, List.of());
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-POOL-001")).isNull();
+    }
+
+    // --- MEM-POOL-002: code cache saturation (test coverage gap) -----------------------------
+
+    @Test
+    void codeCacheSegmentNearMaxIsFlagged() {
+        MemoryPoolSnapshot segment = new MemoryPoolSnapshot("CodeHeap 'non-nmethods'", 5 * MB, 5 * MB, 5 * MB);
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(segment), null, List.of());
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-POOL-002");
+
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0)).contains("CodeHeap 'non-nmethods'");
+    }
+
+    @Test
+    void codeCacheBelowThresholdIsNotFlagged() {
+        MemoryPoolSnapshot segment = new MemoryPoolSnapshot("CodeHeap 'non-nmethods'", 2 * MB, 3 * MB, 5 * MB);
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(segment), null, List.of());
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-POOL-002")).isNull();
+    }
+
+    @Test
+    void noCodeCachePoolIsSkipped() {
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), null, List.of());
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-POOL-002")).isNull();
+    }
+
+    // --- MEM-POOL-003: direct buffer growth (test coverage gap) ------------------------------
+
+    @Test
+    void directBufferNearExplicitCapIsFlagged() {
+        MemoryData memory = new MemoryData(
+                256 * MB,
+                256 * MB,
+                2 * GB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                90 * MB,
+                90 * MB,
+                20,
+                100 * MB,
+                List.of("-XX:MaxDirectMemorySize=100m"),
+                List.of("G1 Young Generation"),
+                null,
+                null);
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-POOL-003");
+
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0)).contains("MaxDirectMemorySize");
+    }
+
+    @Test
+    void directBufferNearEffectiveHeapCapIsFlagged() {
+        // -XX:MaxDirectMemorySize is unset, so HotSpot's effective default cap equals max heap (-Xmx).
+        MemoryData memory = new MemoryData(
+                256 * MB,
+                256 * MB,
+                1 * GB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                900 * MB,
+                900 * MB,
+                20,
+                -1,
+                List.of("-Xmx1g"),
+                List.of("G1 Young Generation"),
+                null,
+                null);
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-POOL-003");
+
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0)).contains("effective default cap");
+    }
+
+    @Test
+    void modestDirectBufferUsageIsNotFlagged() {
+        MemoryData memory = new MemoryData(
+                256 * MB,
+                256 * MB,
+                2 * GB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                10 * MB,
+                10 * MB,
+                5,
+                100 * MB,
+                List.of("-XX:MaxDirectMemorySize=100m"),
+                List.of("G1 Young Generation"),
+                null,
+                null);
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-POOL-003")).isNull();
+    }
+
+    // --- MEM-GC-001: missing heap sizing in container (test coverage gap) --------------------
+
+    @Test
+    void containerLimitWithoutHeapSizingIsFlagged() {
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), 4 * GB, List.of());
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-GC-001");
+
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0)).contains("-Xmx");
+    }
+
+    @Test
+    void containerLimitWithExplicitMaxHeapIsNotFlagged() {
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), 4 * GB, List.of("-Xmx2g"));
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-GC-001")).isNull();
+    }
+
+    @Test
+    void containerLimitWithRamPercentageIsNotFlagged() {
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), 4 * GB, List.of("-XX:MaxRAMPercentage=75.0"));
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-GC-001")).isNull();
+    }
+
+    @Test
+    void noContainerLimitIsSkipped() {
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), null, List.of());
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-GC-001")).isNull();
+    }
+
+    // --- MEM-FOOTPRINT-004: high swap utilization (test coverage gap) ------------------------
+
+    @Test
+    void noSwapConfiguredIsSkipped() {
+        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, 0, 0, null);
+        MemoryContext context =
+                context(healthyMemoryForSwap(), ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
+
+        assertThat(find(scan(context), "MEM-FOOTPRINT-004")).isNull();
+    }
+
+    @Test
+    void swapStatsUnavailableIsSkipped() {
+        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, -1, -1, null);
+        MemoryContext context =
+                context(healthyMemoryForSwap(), ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
+
+        assertThat(find(scan(context), "MEM-FOOTPRINT-004")).isNull();
+    }
+
+    @Test
+    void swapBelowThresholdIsNotFlagged() {
+        // 10% swap used (well under the 50% threshold), regardless of JVM footprint.
+        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, 900 * MB, 1 * GB, null);
+        MemoryContext context =
+                context(healthyMemoryForSwap(), ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
+
+        assertThat(find(scan(context), "MEM-FOOTPRINT-004")).isNull();
+    }
+
+    @Test
+    void highSwapWithFootprintExceedingFreePhysicalIsFlagged() {
+        // 90% swap used, well above the 50% threshold. The committed footprint is set to an
+        // unrealistically large value (hundreds of petabytes) so that it exceeds the free physical
+        // memory of any real test/CI machine, deterministically exercising the violation branch
+        // without needing to mock the live OperatingSystemMXBean read.
+        long hugeFootprint = 900_000L * GB;
+        MemoryData memory = new MemoryData(
+                hugeFootprint,
+                hugeFootprint,
+                hugeFootprint * 2,
+                0,
+                0,
+                0,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of(),
+                List.of("G1 Young Generation"),
+                null,
+                null);
+        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, 100 * MB, 1 * GB, null);
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-FOOTPRINT-004");
+
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0)).contains("90%");
+    }
+
+    // --- MEM-CLASS-001: excessive loaded classes (test coverage gap) -------------------------
+
+    @Test
+    void manyLoadedClassesWithLittleUnloadingIsFlagged() {
+        MemoryContext context = classLoadingContext(60_000, 60_000, 100);
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-CLASS-001");
+
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0)).contains("60000 classes");
+        // The framework-fairness caveat (item 6): Spring-style runtime proxy/autoconfiguration class
+        // generation structurally loads more classes than an equivalent build-time framework, so the
+        // description must call this out rather than implying the threshold is framework-neutral.
+        assertThat(result.description()).containsIgnoringCase("framework");
+    }
+
+    @Test
+    void manyLoadedClassesWithActiveUnloadingIsNotFlagged() {
+        // 700 unloaded out of 60,000 loaded is >= the 1% (1-in-100) unloading ratio, so this reads as
+        // a legitimately large application rather than a classloader leak.
+        MemoryContext context = classLoadingContext(60_000, 60_000, 700);
+
+        assertThat(find(scan(context), "MEM-CLASS-001")).isNull();
+    }
+
+    @Test
+    void modestLoadedClassCountIsNotFlagged() {
+        MemoryContext context = classLoadingContext(10_000, 10_000, 0);
+
+        assertThat(find(scan(context), "MEM-CLASS-001")).isNull();
+    }
+
+    // --- MEM-GC-006: GC pause-latency outlier (new rule) -------------------------------------
+
+    @Test
+    void gcPauseAboveThresholdIsFlagged() {
+        RuntimeData runtime = runtimeWithLastGcPause(1_500, "G1 Young Generation");
+        MemoryContext context = context(
+                memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                ThreadData.empty(),
+                PostGcHeapData.unavailable(),
+                runtime);
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-GC-006");
+
+        assertThat(result).isNotNull();
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.sampleViolations().get(0)).contains("1500 ms").contains("G1 Young Generation");
+    }
+
+    @Test
+    void gcPauseBelowThresholdIsNotFlagged() {
+        RuntimeData runtime = runtimeWithLastGcPause(200, "G1 Young Generation");
+        MemoryContext context = context(
+                memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                ThreadData.empty(),
+                PostGcHeapData.unavailable(),
+                runtime);
+
+        assertThat(find(scan(context), "MEM-GC-006")).isNull();
+    }
+
+    @Test
+    void gcPauseUnavailableIsSkipped() {
+        MemoryContext context = context(
+                memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                ThreadData.empty(),
+                PostGcHeapData.unavailable(),
+                healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-GC-006")).isNull();
+    }
+
+    // --- MEM-POOL-007: buffer pool growth without release (new rule) -------------------------
+
+    @Test
+    void directBufferPoolGrowingEveryScanWithoutReleaseIsFlaggedMedium() {
+        MemoryScanner scanner = new MemoryScanner(
+                sequence(
+                        bufferPoolContext(100 * MB, 10 * MB, 1 * GB),
+                        bufferPoolContext(150 * MB, 10 * MB, 1 * GB),
+                        bufferPoolContext(200 * MB, 10 * MB, 1 * GB),
+                        bufferPoolContext(250 * MB, 10 * MB, 1 * GB)),
+                CLOCK);
+
+        scanner.scan();
+        scanner.scan();
+        scanner.scan();
+        MemoryRuleResultDto result = find(scanner.scan(), "MEM-POOL-007");
+
+        assertThat(result).isNotNull();
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.sampleViolations().get(0)).contains("'direct'").contains("3 consecutive scans");
+    }
+
+    @Test
+    void directBufferPoolGrowingAndCrossingStaticThresholdEscalatesToHigh() {
+        // Same growth streak as above, but the aggregate direct-buffer capacity is also >= 80% of
+        // -XX:MaxDirectMemorySize, so MEM-POOL-003's static threshold is independently crossed too.
+        MemoryScanner scanner = new MemoryScanner(
+                sequence(
+                        bufferPoolContext(100 * MB, 900 * MB, 1 * GB),
+                        bufferPoolContext(150 * MB, 900 * MB, 1 * GB),
+                        bufferPoolContext(200 * MB, 900 * MB, 1 * GB),
+                        bufferPoolContext(250 * MB, 900 * MB, 1 * GB)),
+                CLOCK);
+
+        scanner.scan();
+        scanner.scan();
+        scanner.scan();
+        MemoryRuleResultDto result = find(scanner.scan(), "MEM-POOL-007");
+
+        assertThat(result).isNotNull();
+        assertThat(result.severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void bufferPoolUsageThatDipsResetsTheStreakAndIsNotFlagged() {
+        MemoryScanner scanner = new MemoryScanner(
+                sequence(
+                        bufferPoolContext(100 * MB, 10 * MB, 1 * GB),
+                        bufferPoolContext(150 * MB, 10 * MB, 1 * GB),
+                        bufferPoolContext(120 * MB, 10 * MB, 1 * GB),
+                        bufferPoolContext(180 * MB, 10 * MB, 1 * GB)),
+                CLOCK);
+
+        scanner.scan();
+        scanner.scan();
+        scanner.scan();
+
+        assertThat(find(scanner.scan(), "MEM-POOL-007")).isNull();
+    }
+
+    // --- MEM-HEAP-008: old-generation usage trending upward (new rule) -----------------------
+
+    @Test
+    void oldGenerationUsageIncreasingEveryScanIsFlagged() {
+        MemoryScanner scanner = new MemoryScanner(
+                sequence(
+                        oldGenContext(100 * MB),
+                        oldGenContext(150 * MB),
+                        oldGenContext(200 * MB),
+                        oldGenContext(250 * MB)),
+                CLOCK);
+
+        scanner.scan();
+        scanner.scan();
+        scanner.scan();
+        MemoryRuleResultDto result = find(scanner.scan(), "MEM-HEAP-008");
+
+        assertThat(result).isNotNull();
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.sampleViolations().get(0)).contains("3 consecutive scans");
+    }
+
+    @Test
+    void oldGenerationUsageThatDipsResetsTheStreakAndIsNotFlagged() {
+        MemoryScanner scanner = new MemoryScanner(
+                sequence(
+                        oldGenContext(100 * MB),
+                        oldGenContext(150 * MB),
+                        oldGenContext(120 * MB),
+                        oldGenContext(180 * MB)),
+                CLOCK);
+
+        scanner.scan();
+        scanner.scan();
+        scanner.scan();
+
+        assertThat(find(scanner.scan(), "MEM-HEAP-008")).isNull();
+    }
+
+    @Test
+    void oldGenerationTrendFirstScanIsNotFlagged() {
+        MemoryScanner scanner = new MemoryScanner(sequence(oldGenContext(100 * MB)), CLOCK);
+
+        assertThat(find(scanner.scan(), "MEM-HEAP-008")).isNull();
+    }
+
     // --- helpers -----------------------------------------------------------------------------
 
     private MemoryReport scan(MemoryContext context) {
@@ -667,6 +1154,61 @@ class MemoryRulesTests {
 
     private static RuntimeData runtimeWithCpus(int cpus) {
         return new RuntimeData(300_000, 1_500, 50, 0, -1, MB, cpus, -1, -1, null);
+    }
+
+    private static RuntimeData runtimeWithLastGcPause(long millis, String collectorName) {
+        return new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, -1, -1, null, -1, millis, collectorName);
+    }
+
+    private static MemoryData healthyMemoryForSwap() {
+        return memory(256 * MB, 2 * GB, List.of(), null, List.of());
+    }
+
+    private static MemoryContext classLoadingContext(int loadedClasses, long totalLoadedClasses, long unloadedClasses) {
+        return new MemoryContext(
+                healthyMemoryForSwap(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                PostGcHeapData.unavailable(),
+                new ClassLoadingData(loadedClasses, totalLoadedClasses, unloadedClasses),
+                healthyRuntime(),
+                null,
+                GcTrend.unavailable());
+    }
+
+    /**
+     * Builds a context carrying a single "direct" {@link MemoryContext.BufferPoolSnapshot} reading
+     * (for MEM-POOL-007's cross-scan growth trend) alongside the aggregate direct-buffer scalars
+     * MEM-POOL-003 reads, so tests can independently control whether the static threshold also fires.
+     */
+    private static MemoryContext bufferPoolContext(
+            long directPoolUsed, long directBufferCapacity, long maxDirectMemoryBytes) {
+        MemoryData memory = new MemoryData(
+                256 * MB,
+                256 * MB,
+                2 * GB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                directBufferCapacity,
+                directBufferCapacity,
+                10,
+                maxDirectMemoryBytes,
+                List.of(),
+                List.of("G1 Young Generation"),
+                null,
+                null,
+                List.of(new MemoryContext.BufferPoolSnapshot("direct", directPoolUsed, directPoolUsed, 10)));
+        return context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+    }
+
+    private static MemoryContext oldGenContext(long postGcOldGenUsedBytes) {
+        return context(
+                healthyMemoryForSwap(),
+                ThreadData.empty(),
+                new PostGcHeapData(true, postGcOldGenUsedBytes, true, postGcOldGenUsedBytes),
+                healthyRuntime());
     }
 
     private static ThreadData threads(int total) {

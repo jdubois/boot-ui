@@ -22,7 +22,9 @@ record MemoryContext(
         ClassLoadingData classLoading,
         RuntimeData runtime,
         GcSample preHistogramGc,
-        GcTrend gcTrend) {
+        GcTrend gcTrend,
+        BufferPoolTrend bufferPoolTrend,
+        OldGenTrend oldGenTrend) {
 
     MemoryContext {
         memory = memory == null ? MemoryData.empty() : memory;
@@ -33,12 +35,31 @@ record MemoryContext(
         runtime = runtime == null ? RuntimeData.empty() : runtime;
         preHistogramGc = preHistogramGc == null ? GcSample.from(runtime) : preHistogramGc;
         gcTrend = gcTrend == null ? GcTrend.unavailable() : gcTrend;
+        bufferPoolTrend = bufferPoolTrend == null ? BufferPoolTrend.unavailable() : bufferPoolTrend;
+        oldGenTrend = oldGenTrend == null ? OldGenTrend.unavailable() : oldGenTrend;
+    }
+
+    /**
+     * Backward-compatible constructor for callers that predate the cross-scan buffer-pool-growth
+     * and old-generation-trend rules (MEM-POOL-007 / MEM-HEAP-008); both trends default to
+     * unavailable.
+     */
+    MemoryContext(
+            MemoryData memory,
+            ThreadData threads,
+            HeapContentData heapContent,
+            PostGcHeapData postGcHeap,
+            ClassLoadingData classLoading,
+            RuntimeData runtime,
+            GcSample preHistogramGc,
+            GcTrend gcTrend) {
+        this(memory, threads, heapContent, postGcHeap, classLoading, runtime, preHistogramGc, gcTrend, null, null);
     }
 
     /**
      * Convenience constructor used by tests and any caller that does not provide post-GC or
      * cross-scan data. The post-GC heap reading defaults to unavailable, the pre-histogram GC
-     * sample mirrors the (single) runtime reading, and the GC trend is unavailable.
+     * sample mirrors the (single) runtime reading, and every cross-scan trend is unavailable.
      */
     MemoryContext(
             MemoryData memory,
@@ -52,7 +73,46 @@ record MemoryContext(
     /** Returns a copy of this context with the scanner-computed GC trend attached. */
     MemoryContext withGcTrend(GcTrend trend) {
         return new MemoryContext(
-                memory, threads, heapContent, postGcHeap, classLoading, runtime, preHistogramGc, trend);
+                memory,
+                threads,
+                heapContent,
+                postGcHeap,
+                classLoading,
+                runtime,
+                preHistogramGc,
+                trend,
+                bufferPoolTrend,
+                oldGenTrend);
+    }
+
+    /** Returns a copy of this context with the scanner-computed buffer-pool growth trend attached. */
+    MemoryContext withBufferPoolTrend(BufferPoolTrend trend) {
+        return new MemoryContext(
+                memory,
+                threads,
+                heapContent,
+                postGcHeap,
+                classLoading,
+                runtime,
+                preHistogramGc,
+                gcTrend,
+                trend,
+                oldGenTrend);
+    }
+
+    /** Returns a copy of this context with the scanner-computed old-generation usage trend attached. */
+    MemoryContext withOldGenTrend(OldGenTrend trend) {
+        return new MemoryContext(
+                memory,
+                threads,
+                heapContent,
+                postGcHeap,
+                classLoading,
+                runtime,
+                preHistogramGc,
+                gcTrend,
+                bufferPoolTrend,
+                trend);
     }
 
     int heapUsedPercent() {
@@ -84,6 +144,13 @@ record MemoryContext(
         }
     }
 
+    /**
+     * A single {@code java.nio} buffer pool reading ({@code BufferPoolMXBean}), typically "direct"
+     * or "mapped". Captured per-pool (unlike the aggregated direct-buffer totals below) so
+     * MEM-POOL-007 can track each pool's usage across scans independently.
+     */
+    record BufferPoolSnapshot(String name, long used, long capacity, long count) {}
+
     record MemoryData(
             long heapUsed,
             long heapCommitted,
@@ -99,12 +166,53 @@ record MemoryContext(
             List<String> inputArguments,
             List<String> gcCollectorNames,
             Long containerMemoryLimitBytes,
-            Long containerMemoryCurrentBytes) {
+            Long containerMemoryCurrentBytes,
+            List<BufferPoolSnapshot> bufferPools) {
 
         MemoryData {
             pools = pools == null ? List.of() : List.copyOf(pools);
             inputArguments = inputArguments == null ? List.of() : List.copyOf(inputArguments);
             gcCollectorNames = gcCollectorNames == null ? List.of() : List.copyOf(gcCollectorNames);
+            bufferPools = bufferPools == null ? List.of() : List.copyOf(bufferPools);
+        }
+
+        /**
+         * Backward-compatible constructor for callers that predate per-pool buffer-pool tracking
+         * (MEM-POOL-007's cross-scan growth-without-release rule); defaults to no per-pool readings.
+         */
+        MemoryData(
+                long heapUsed,
+                long heapCommitted,
+                long heapMax,
+                long nonHeapUsed,
+                long nonHeapCommitted,
+                long nonHeapMax,
+                List<MemoryPoolSnapshot> pools,
+                long directBufferUsed,
+                long directBufferCapacity,
+                long directBufferCount,
+                long maxDirectMemoryBytes,
+                List<String> inputArguments,
+                List<String> gcCollectorNames,
+                Long containerMemoryLimitBytes,
+                Long containerMemoryCurrentBytes) {
+            this(
+                    heapUsed,
+                    heapCommitted,
+                    heapMax,
+                    nonHeapUsed,
+                    nonHeapCommitted,
+                    nonHeapMax,
+                    pools,
+                    directBufferUsed,
+                    directBufferCapacity,
+                    directBufferCount,
+                    maxDirectMemoryBytes,
+                    inputArguments,
+                    gcCollectorNames,
+                    containerMemoryLimitBytes,
+                    containerMemoryCurrentBytes,
+                    List.of());
         }
 
         static MemoryData empty() {
@@ -224,8 +332,10 @@ record MemoryContext(
      * Process-level scalars that are cheap single readings from the JVM but are not part of the
      * memory, thread, or heap-content snapshots: JVM uptime, cumulative GC time/count, the pending
      * finalization backlog, the parsed {@code -Xms}/{@code -Xss} sizes used by the native-memory
-     * and GC-overhead rules, plus OS-level metrics (available processors, swap space, and the
-     * UseCompressedOops VM option) collected once per scan for GC and footprint heuristics.
+     * and GC-overhead rules, OS-level metrics (available processors, physical memory, swap space,
+     * and the UseCompressedOops VM option), and the single most recent GC pause duration/collector
+     * (used by MEM-GC-006's outlier-pause rule) collected once per scan for GC and footprint
+     * heuristics.
      */
     record RuntimeData(
             long uptimeMillis,
@@ -237,9 +347,45 @@ record MemoryContext(
             int availableProcessors,
             long freeSwapSpaceBytes,
             long totalSwapSpaceBytes,
-            Boolean useCompressedOops) {
+            Boolean useCompressedOops,
+            long totalPhysicalMemoryBytes,
+            long lastGcPauseMillis,
+            String lastGcPauseCollectorName) {
 
         static final long DEFAULT_THREAD_STACK_BYTES = 1024L * 1024;
+
+        /**
+         * Backward-compatible constructor for callers that predate the total-physical-memory
+         * reading (MEM-GC-004's server-class-machine ergonomics skip) and the last-GC-pause reading
+         * (MEM-GC-006's pause-latency outlier rule). Both default to "unknown"/"unavailable" (-1) so
+         * existing behavior is preserved when these newer fields are not supplied.
+         */
+        RuntimeData(
+                long uptimeMillis,
+                long gcCollectionTimeMillis,
+                long gcCollectionCount,
+                int objectPendingFinalizationCount,
+                long initialHeapBytes,
+                long threadStackBytes,
+                int availableProcessors,
+                long freeSwapSpaceBytes,
+                long totalSwapSpaceBytes,
+                Boolean useCompressedOops) {
+            this(
+                    uptimeMillis,
+                    gcCollectionTimeMillis,
+                    gcCollectionCount,
+                    objectPendingFinalizationCount,
+                    initialHeapBytes,
+                    threadStackBytes,
+                    availableProcessors,
+                    freeSwapSpaceBytes,
+                    totalSwapSpaceBytes,
+                    useCompressedOops,
+                    -1,
+                    -1,
+                    null);
+        }
 
         static RuntimeData empty() {
             return new RuntimeData(0, -1, 0, 0, -1, DEFAULT_THREAD_STACK_BYTES, 1, -1, -1, null);
@@ -314,6 +460,44 @@ record MemoryContext(
                 }
             }
             return new GcTrend(true, deltaGcTime, deltaUptime, deltaGcCount, deltas);
+        }
+    }
+
+    /**
+     * Consecutive-scan growth tracking for {@code java.nio} buffer pools (direct/mapped), used by
+     * MEM-POOL-007 to catch a native-memory leak before a pool's absolute usage crosses
+     * MEM-POOL-003's static high-water threshold. A pool's streak counts how many scans in a row
+     * (including this one) its used-byte reading has strictly increased over the previous scan with
+     * no decrease in between; any decrease, a plateau, or a pool not seen in the previous scan resets
+     * that pool's streak to zero.
+     */
+    record BufferPoolTrend(boolean available, Map<String, Integer> consecutiveIncreaseStreaks) {
+
+        BufferPoolTrend {
+            consecutiveIncreaseStreaks =
+                    consecutiveIncreaseStreaks == null ? Map.of() : Map.copyOf(consecutiveIncreaseStreaks);
+        }
+
+        static BufferPoolTrend unavailable() {
+            return new BufferPoolTrend(false, Map.of());
+        }
+
+        int streakFor(String poolName) {
+            return consecutiveIncreaseStreaks.getOrDefault(poolName, 0);
+        }
+    }
+
+    /**
+     * Consecutive-scan trend for post-GC old-generation usage, used by MEM-HEAP-008 to catch a slow
+     * heap leak well before MEM-HEAP-002's static high-water-mark percentage fires. The streak counts
+     * how many user-triggered scans in a row (each of which forces a full GC before re-reading old-gen
+     * usage, like {@link PostGcHeapData}) have shown a strict increase in post-GC old-generation usage
+     * over the previous scan, independent of the absolute percentage.
+     */
+    record OldGenTrend(boolean available, int consecutiveIncreaseStreak, long lastUsedBytes) {
+
+        static OldGenTrend unavailable() {
+            return new OldGenTrend(false, 0, -1);
         }
     }
 }

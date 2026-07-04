@@ -8,10 +8,11 @@ final class MemoryRuleRegistry {
             // Heap pressure
             new HighHeapUtilizationRule(),
             new OldGenerationNearMaxRule(),
-            new UnsetOrSmallMaxHeapRule(),
+            new SmallMaxHeapUnderPressureRule(),
             new CompressedOopsCliffRule(),
             new PendingFinalizationBacklogRule(),
             new OverProvisionedHeapRule(),
+            new OldGenerationTrendingUpwardRule(),
             // Native memory
             new CommittedFootprintNearContainerLimitRule(),
             new PlatformThreadStackReservationRule(),
@@ -24,6 +25,7 @@ final class MemoryRuleRegistry {
             new UnboundedMetaspaceInContainerRule(),
             new CompressedClassSpaceRule(),
             new InterpretedJitModeRule(),
+            new BufferPoolGrowthWithoutReleaseRule(),
             // GC configuration
             new MissingHeapSizingInContainerRule(),
             new HighGcOverheadRule(),
@@ -31,6 +33,7 @@ final class MemoryRuleRegistry {
             new UnequalInitialAndMaxHeapRule(),
             new SerialGcOnMultiCoreRule(),
             new G1FullGcFrequencyRule(),
+            new GcPauseLatencyOutlierRule(),
             // Threads
             new DeadlockDetectedRule(),
             new HighBlockedThreadRatioRule(),

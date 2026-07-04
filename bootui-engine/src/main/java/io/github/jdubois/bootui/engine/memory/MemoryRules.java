@@ -192,19 +192,19 @@ final class OldGenerationNearMaxRule extends AbstractMemoryRule {
     }
 }
 
-final class UnsetOrSmallMaxHeapRule extends AbstractMemoryRule {
+final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
 
     private static final long MIN_CONTAINER_LIMIT = MemoryFormat.GIGABYTE;
     private static final int SMALL_HEAP_PERCENT = 15;
     private static final int PRESSURE_PERCENT = 80;
 
-    UnsetOrSmallMaxHeapRule() {
+    SmallMaxHeapUnderPressureRule() {
         super(new MemoryRuleDefinition(
                 "MEM-HEAP-003",
-                "Maximum heap is unset or capped well below the container limit",
+                "Maximum heap is capped well below the container limit",
                 MemoryCategory.HEAP_PRESSURE,
                 "LOW",
-                "Flags when -Xmx is effectively unbounded, or when a small max heap is already under pressure while a much larger container memory limit is available to grow into.",
+                "Flags when a small max heap is already under pressure while a much larger container memory limit is available to grow into. The check prefers post-GC heap occupancy (consistent with MEM-HEAP-001/002) to avoid false positives from transient garbage.",
                 "Set an explicit -Xmx or -XX:MaxRAMPercentage that lets the heap use a sensible share of the container memory limit instead of staying small while under pressure.",
                 "https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html"));
     }
@@ -751,7 +751,7 @@ final class ExcessiveLoadedClassesRule extends AbstractMemoryRule {
                 "Very large number of loaded classes with little unloading",
                 MemoryCategory.CLASS_LOADING,
                 "INFO",
-                "Flags a high loaded-class count combined with little or no class unloading, which can indicate a classloader leak or runaway dynamic class generation and pressures Metaspace. A large class count that is matched by active unloading is treated as a legitimately large application instead.",
+                "Flags a high loaded-class count combined with little or no class unloading, which can indicate a classloader leak or runaway dynamic class generation and pressures Metaspace. A large class count that is matched by active unloading is treated as a legitimately large application instead. Caveat: the threshold is not framework-neutral in practice. Frameworks that generate proxy/lambda/configuration classes at runtime (e.g. Spring Boot's CGLIB/JDK dynamic proxies, autoconfiguration, and lambda forms) structurally load more classes than an equivalent application built with a framework that does most of this at build time (e.g. Quarkus); two applications of the same real size can sit at very different distances from this threshold purely because of framework style, not application growth or a leak.",
                 "If the application does not legitimately use this many classes, look for classloader leaks (redeploys, scripting, proxy generation).",
                 "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshoot-class-loading.html"));
     }
@@ -1080,7 +1080,7 @@ final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
                 "Platform thread stacks reserve a large amount of native memory",
                 MemoryCategory.NATIVE_MEMORY,
                 "HIGH",
-                "Estimates the native memory reserved for platform thread stacks (live platform threads times the -Xss/-XX:ThreadStackSize reservation) and flags when stacks alone are a large contributor to the off-heap footprint. This is reservation, not necessarily resident memory, and it is the stacks-only early warning behind the broader MEM-FOOTPRINT-001 total-footprint estimate. Virtual threads are excluded because their stacks live on the heap. Severity is HIGH when a container memory limit is detected (reservation directly competes with the cgroup limit) and MEDIUM otherwise (virtual-memory reservation rarely equals resident set size without a container ceiling).",
+                "Estimates the native memory reserved for platform thread stacks (live platform threads times the -Xss/-XX:ThreadStackSize reservation) and flags when stacks alone are a large contributor to the off-heap footprint. Thread stacks are demand-paged virtual address-space reservations, not committed/resident memory: a JVM with many idle or shallow-call-depth threads can reserve a large amount while only a small fraction of it is ever touched (becomes resident), so a large reservation alone does not prove memory pressure. Virtual threads are excluded because their stacks live on the heap. Severity is HIGH only when the reservation is both a large share (>=20%) of a detected container memory limit AND, combined with memory already resident in the container, fully realizing the reservation would breach that limit (current + reserved >= limit) -- i.e. there is confirmed resident risk, not just a large reservation. Otherwise this is reported at MEDIUM: still worth reviewing, but without confirmed resident risk it may never materialize as actual memory pressure.",
                 "Reduce the platform thread count (bound pools, prefer virtual threads or async I/O) or lower an oversized -Xss so thread stacks do not dominate native memory.",
                 "https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html"));
     }
@@ -1094,21 +1094,31 @@ final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
         long stackBytes = context.runtime().threadStackBytes();
         long reserved = (long) platformThreads * stackBytes;
         Long limit = context.memory().containerMemoryLimitBytes();
+        Long current = context.memory().containerMemoryCurrentBytes();
         boolean relativeBreach = limit != null && limit > 0 && reserved >= limit * CONTAINER_PERCENT_THRESHOLD / 100;
         boolean absoluteBreach = reserved >= ABSOLUTE_THRESHOLD;
         if (relativeBreach || absoluteBreach) {
+            // Confirmed resident risk: fully realizing the reservation, on top of memory already
+            // resident in the container, would breach the container limit. This distinguishes a
+            // genuine near-OOM risk from a large-but-mostly-untouched virtual-memory reservation --
+            // thread stacks are demand-paged, while cgroup accounting tracks resident usage, not
+            // reservations (kernel.org: memory.current is charged/resident memory, not a reservation).
+            boolean confirmedResidentRisk = relativeBreach && current != null && current + reserved >= limit;
+            String severity = confirmedResidentRisk ? MemoryRuleSupport.HIGH : MemoryRuleSupport.MEDIUM;
             String relativeNote = limit != null && limit > 0
                     ? " (" + MemoryFormat.percentOf(reserved, limit) + "% of the container memory limit "
                             + MemoryFormat.bytes(limit) + ")"
                     : "";
-            // Reservation without a container limit is virtual memory, not necessarily resident;
-            // downgrade to MEDIUM to avoid over-alarming on apps that simply have many threads.
-            String severity = relativeBreach ? MemoryRuleSupport.HIGH : MemoryRuleSupport.MEDIUM;
+            String residencyNote = confirmedResidentRisk
+                    ? " Combined with the " + MemoryFormat.bytes(current) + " already resident in the container,"
+                            + " fully realizing this reservation would breach the container limit."
+                    : " This is a virtual-memory reservation, not confirmed resident usage; only a fraction of it"
+                            + " may ever become resident.";
             return violation(
                     severity,
                     platformThreads + " platform threads reserve about " + MemoryFormat.bytes(reserved)
                             + " of stack memory at " + MemoryFormat.bytes(stackBytes) + " each" + relativeNote
-                            + "; thread stacks are a large contributor to the native footprint.");
+                            + "; thread stacks are a large contributor to the native footprint." + residencyNote);
         }
         return pass();
     }
@@ -1263,7 +1273,7 @@ final class ContainerMemoryPressureRule extends AbstractMemoryRule {
                 "Container memory usage is near the cgroup limit",
                 MemoryCategory.NATIVE_MEMORY,
                 "HIGH",
-                "Reads the current cgroup memory usage (memory.current for cgroup v2, memory.usage_in_bytes for v1) and compares it against the detected container memory limit. When usage approaches the limit the container is at risk of an immediate OOM kill by the kernel, which is abrupt and does not trigger JVM OutOfMemoryError handling.",
+                "Reads the current cgroup memory usage (memory.current for cgroup v2, memory.usage_in_bytes for v1) and compares it against the detected container memory limit. When usage approaches the limit the container is at risk of an immediate OOM kill by the kernel, which is abrupt and does not trigger JVM OutOfMemoryError handling. Caveat: raw cgroup current-usage numbers can overstate real memory pressure. cgroup v2's memory.current includes reclaimable page cache, not only the process's own footprint, and cgroup v1's memory.usage_in_bytes is documented by the kernel itself as an approximate 'fuzz value' (the kernel's own guidance for an exact figure is memory.stat's RSS+CACHE breakdown). Treat a reading near the limit as a strong signal to investigate, not an exact resident-set measurement.",
                 "Lower -Xmx/-XX:MaxRAMPercentage, reduce non-heap memory (thread stacks, Metaspace, direct buffers), or raise the container memory limit to restore headroom.",
                 "https://docs.oracle.com/en/java/javase/21/troubleshoot/diagnostic-tools.html"));
     }
@@ -1295,15 +1305,22 @@ final class ContainerMemoryPressureRule extends AbstractMemoryRule {
 
 final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
 
+    /**
+     * Oracle's historical JVM ergonomics documentation defines a "server-class machine" as one with
+     * 2+ CPUs and at least ~2 GiB of memory; below that threshold Serial GC is the JVM's own correct
+     * default choice, not a misconfiguration. See the class-level {@code learnMoreUrl}.
+     */
+    private static final long SERVER_CLASS_MEMORY_THRESHOLD_BYTES = 2 * MemoryFormat.GIGABYTE;
+
     SerialGcOnMultiCoreRule() {
         super(new MemoryRuleDefinition(
                 "MEM-GC-004",
                 "Serial GC selected on a multi-core system",
                 MemoryCategory.GC_CONFIGURATION,
                 "LOW",
-                "Detects the Serial GC collector (bean names 'Copy' and/or 'MarkSweepCompact') running on a JVM with two or more available processors. Serial GC is single-threaded and can be selected by container ergonomics when the JVM sees only one CPU, but it underutilises multi-core hosts and causes long STW pauses at scale.",
+                "Detects the Serial GC collector (bean names 'Copy' and/or 'MarkSweepCompact') running on a JVM with two or more available processors and roughly 2 GiB or more of memory (container limit, else total physical memory). Serial GC is single-threaded and is JVM ergonomics' own correct default below Oracle's historical 'server-class machine' threshold (fewer than 2 CPUs, or less than ~2 GiB of memory) -- so this rule does not fire in that region. Above both thresholds, staying on Serial GC underutilises multi-core hosts and causes long STW pauses at scale.",
                 "Switch to G1 (-XX:+UseG1GC), ZGC (-XX:+UseZGC), or Parallel GC (-XX:+UseParallelGC) to use all available cores, unless binary size or footprint constraints explicitly require Serial.",
-                "https://docs.oracle.com/en/java/javase/21/gctuning/available-collectors.html"));
+                "https://docs.oracle.com/javase/8/docs/technotes/guides/vm/server-class.html"));
     }
 
     @Override
@@ -1317,8 +1334,28 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
         if (cpus < 2) {
             return skipped("Serial GC is expected on a single-CPU system.");
         }
+        long effectiveMemoryBytes = effectiveMemoryBytes(memory, context.runtime());
+        if (effectiveMemoryBytes >= 0 && effectiveMemoryBytes < SERVER_CLASS_MEMORY_THRESHOLD_BYTES) {
+            return skipped("Serial GC is expected below Oracle's historical 'server-class machine' ergonomics"
+                    + " threshold of 2 CPUs and ~2 GiB of memory (available: "
+                    + MemoryFormat.bytes(effectiveMemoryBytes) + ").");
+        }
         return violation("Serial GC is active ('Copy'/'MarkSweepCompact') on a " + cpus
                 + "-CPU system; Serial GC is single-threaded and will leave cores idle during collection pauses.");
+    }
+
+    /**
+     * Prefers the container memory limit (what actually bounds this JVM); falls back to total
+     * physical memory when no container limit is detected. Returns -1 when neither is known, in which
+     * case the rule does not skip (preserving the previous CPU-only behavior).
+     */
+    private static long effectiveMemoryBytes(MemoryData memory, MemoryContext.RuntimeData runtime) {
+        Long containerLimit = memory.containerMemoryLimitBytes();
+        if (containerLimit != null && containerLimit > 0) {
+            return containerLimit;
+        }
+        long totalPhysical = runtime.totalPhysicalMemoryBytes();
+        return totalPhysical > 0 ? totalPhysical : -1;
     }
 }
 
@@ -1334,7 +1371,7 @@ final class G1FullGcFrequencyRule extends AbstractMemoryRule {
                 "G1 Full GC occurred between scans",
                 MemoryCategory.GC_CONFIGURATION,
                 "MEDIUM",
-                "Detects an increase in the 'G1 Old Generation' (Full GC) collection count between two consecutive scans. G1 Full GCs are single-threaded STW stop-the-world pauses triggered by to-space exhaustion, humongous-allocation failure, or concurrent mark failure; even one Full GC per scan window is a sign of heap or tuning pressure. The first scan only establishes a baseline.",
+                "Detects an increase in the 'G1 Old Generation' (Full GC) collection count between two consecutive scans. A G1 Full GC is G1's fallback path, triggered when its normal concurrent-marking/mixed-collection cycle could not keep up with the allocation rate (to-space exhaustion, humongous-allocation failure, or concurrent mark failure). Since JDK 10 (JEP 307, 'Parallel Full GC for G1') this fallback runs on multiple threads, so it is not single-threaded, but it is still a fully stop-the-world pause across the entire heap; even one Full GC per scan window is a sign that G1 failed to reclaim memory through its normal cycle and is a sign of heap or tuning pressure. The first scan only establishes a baseline.",
                 "Increase -Xmx or tune -XX:G1HeapRegionSize to reduce humongous allocations; consider -XX:G1ReservePercent and -XX:InitiatingHeapOccupancyPercent to give G1 more head room for concurrent marking.",
                 "https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html"));
     }
@@ -1350,8 +1387,9 @@ final class G1FullGcFrequencyRule extends AbstractMemoryRule {
             return pass();
         }
         return violation("G1 Full GC occurred " + fullGcDelta + " time(s) since the last scan (G1 Old Generation"
-                + " collection count increased); Full GCs are single-threaded stop-the-world events"
-                + " caused by to-space exhaustion, humongous-allocation failure, or concurrent mark failure.");
+                + " collection count increased); a Full GC is G1's fully stop-the-world fallback path, triggered"
+                + " when its normal concurrent-marking/mixed-collection cycle could not keep up (to-space"
+                + " exhaustion, humongous-allocation failure, or concurrent mark failure).");
     }
 }
 
@@ -1517,5 +1555,159 @@ final class HighSwapUtilizationRule extends AbstractMemoryRule {
             // attribute may not exist on non-HotSpot JVMs
         }
         return -1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GC configuration (single-pause outlier)
+// ---------------------------------------------------------------------------
+
+final class GcPauseLatencyOutlierRule extends AbstractMemoryRule {
+
+    private static final long PAUSE_THRESHOLD_MILLIS = 1_000L;
+
+    GcPauseLatencyOutlierRule() {
+        super(
+                new MemoryRuleDefinition(
+                        "MEM-GC-006",
+                        "Most recent GC pause was an outlier",
+                        MemoryCategory.GC_CONFIGURATION,
+                        "MEDIUM",
+                        "Reads the duration of the single most recent garbage collection via"
+                                + " com.sun.management.GarbageCollectorMXBean.getLastGcInfo() and flags when that one pause"
+                                + " exceeds " + PAUSE_THRESHOLD_MILLIS + " ms. This complements the lifetime and recent"
+                                + " GC-overhead-ratio checks (MEM-GC-002/MEM-GC-003): a JVM can stay well under those ratio"
+                                + " thresholds on average while still hiding one catastrophic outlier pause, and a single"
+                                + " long stop-the-world pause can itself cause a request-latency spike or health-check"
+                                + " timeout even when overall GC overhead looks healthy. This is a single-sample reading"
+                                + " taken fresh on every scan, not a cross-scan trend.",
+                        "Capture GC logs (-Xlog:gc*:file=gc.log:time,level,tags) around the outlier and check the reported"
+                                + " cause; consider a lower-pause-target collector (G1's -XX:MaxGCPauseMillis, ZGC, or"
+                                + " Shenandoah) or reduce the allocation/promotion rate that triggered the long pause.",
+                        "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/GarbageCollectorMXBean.html"));
+    }
+
+    @Override
+    io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
+        long pauseMillis = context.runtime().lastGcPauseMillis();
+        if (pauseMillis < 0) {
+            return skipped("The most recent GC pause duration is not available (requires a HotSpot JVM and at"
+                    + " least one collection since JVM start).");
+        }
+        if (pauseMillis < PAUSE_THRESHOLD_MILLIS) {
+            return pass();
+        }
+        String collectorName = context.runtime().lastGcPauseCollectorName();
+        String collectorNote = collectorName != null && !collectorName.isBlank() ? " (" + collectorName + ")" : "";
+        return violation("The most recent GC pause took " + pauseMillis + " ms" + collectorNote
+                + ", a single-pause outlier at or above the " + PAUSE_THRESHOLD_MILLIS
+                + " ms threshold; this can cause a latency spike independent of average GC overhead.");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Memory pools (buffer pool growth trend)
+// ---------------------------------------------------------------------------
+
+final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
+
+    private static final int GROWTH_STREAK_THRESHOLD = 3;
+
+    BufferPoolGrowthWithoutReleaseRule() {
+        super(
+                new MemoryRuleDefinition(
+                        "MEM-POOL-007",
+                        "Buffer pool usage has grown on every recent scan without release",
+                        MemoryCategory.MEMORY_POOLS,
+                        "MEDIUM",
+                        "Tracks each java.nio buffer pool's (BufferPoolMXBean, typically 'direct' and 'mapped') used-byte"
+                                + " reading across scans and flags a pool whose usage has strictly increased on every one of"
+                                + " the last " + GROWTH_STREAK_THRESHOLD + " consecutive scans with no decrease in"
+                                + " between -- the classic native-memory-leak signature of leaked direct/mapped ByteBuffers"
+                                + " (common with NIO channel or Netty-style misuse where buffers are allocated but never"
+                                + " released). This can catch a leak while the pool is still well under MEM-POOL-003's"
+                                + " static high-water threshold, since a monotonic trend is a stronger signal than any"
+                                + " single absolute reading. Escalates to HIGH when the growing pool is the 'direct' pool"
+                                + " and MEM-POOL-003's static threshold has also been crossed. Requires several consecutive"
+                                + " user-triggered scans to build a trend; the first scans only establish the baseline.",
+                        "Audit code paths that allocate direct or mapped ByteBuffers (including NIO channels and libraries"
+                                + " like Netty) for missing release/cleaner calls, and confirm the pool eventually plateaus"
+                                + " or shrinks under normal load instead of only ever growing.",
+                        "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/BufferPoolMXBean.html"));
+    }
+
+    @Override
+    io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
+        MemoryContext.BufferPoolTrend trend = context.bufferPoolTrend();
+        if (!trend.available()) {
+            return skipped("No previous scan to compare; re-run the scan several times to measure buffer-pool growth.");
+        }
+        List<MemoryContext.BufferPoolSnapshot> pools = context.memory().bufferPools();
+        List<String> details = new ArrayList<>();
+        boolean escalateToHigh = false;
+        boolean directPoolAtStaticThreshold = MemoryRuleSupport.VIOLATION.equals(
+                new DirectBufferGrowthRule().evaluate(context).status());
+        for (MemoryContext.BufferPoolSnapshot pool : pools) {
+            int streak = trend.streakFor(pool.name());
+            if (streak < GROWTH_STREAK_THRESHOLD) {
+                continue;
+            }
+            boolean isDirectPool = "direct".equalsIgnoreCase(pool.name());
+            if (isDirectPool && directPoolAtStaticThreshold) {
+                escalateToHigh = true;
+            }
+            details.add("'" + pool.name() + "' buffer pool usage grew on " + streak
+                    + " consecutive scans without a decrease (now " + MemoryFormat.bytes(pool.used())
+                    + "); this is the classic native-memory-leak signature for leaked direct/mapped buffers.");
+        }
+        if (details.isEmpty()) {
+            return pass();
+        }
+        return violation(escalateToHigh ? MemoryRuleSupport.HIGH : MemoryRuleSupport.MEDIUM, details);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Heap pressure (old-generation usage trend)
+// ---------------------------------------------------------------------------
+
+final class OldGenerationTrendingUpwardRule extends AbstractMemoryRule {
+
+    private static final int GROWTH_STREAK_THRESHOLD = 3;
+
+    OldGenerationTrendingUpwardRule() {
+        super(new MemoryRuleDefinition(
+                "MEM-HEAP-008",
+                "Post-GC old-generation usage is trending upward across scans",
+                MemoryCategory.HEAP_PRESSURE,
+                "MEDIUM",
+                "Tracks post-GC old-generation usage (the same reading MEM-HEAP-002 compares against a static"
+                        + " percentage) across consecutive user-triggered scans and flags a monotonic increase over"
+                        + " the last " + GROWTH_STREAK_THRESHOLD + " consecutive scans with no decrease in between,"
+                        + " independent of the absolute percentage. This is the standard textbook Java heap-leak"
+                        + " diagnostic -- retained-size growth across successive full GCs -- and can catch a slow"
+                        + " leak (for example, one climbing steadily through 40% old-generation usage) well before"
+                        + " MEM-HEAP-002's static high-water-mark threshold fires. Requires several consecutive"
+                        + " scans to build a trend; the first scans only establish the baseline.",
+                "Take a heap dump and compare successive class histograms (the Heap Dump panel) to find the"
+                        + " retained-object type driving the growth, and confirm with a profiler whether this is a"
+                        + " real leak or a temporarily growing cache/working set.",
+                "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html"));
+    }
+
+    @Override
+    io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
+        MemoryContext.OldGenTrend trend = context.oldGenTrend();
+        if (!trend.available()) {
+            return skipped("No previous scan to compare; re-run the scan several times to measure the"
+                    + " old-generation trend.");
+        }
+        if (trend.consecutiveIncreaseStreak() < GROWTH_STREAK_THRESHOLD) {
+            return pass();
+        }
+        return violation("Post-GC old-generation usage has increased on " + trend.consecutiveIncreaseStreak()
+                + " consecutive scans without a decrease (now " + MemoryFormat.bytes(trend.lastUsedBytes())
+                + "); this is the classic retained-size-growth signature of a slow heap leak, independent of the"
+                + " current percentage of the old-generation pool's maximum.");
     }
 }
