@@ -108,7 +108,7 @@ final class ReflectionUsageCheck extends AbstractArchUnitGraalVmCheck {
                 "MEDIUM",
                 "Detects calls to the reflection API (Class.forName, Method.invoke, Field value get/set, Class.getDeclared*, Constructor.newInstance) that GraalVM cannot resolve at build time. Reflective metadata accessors such as Field.getName() are intentionally ignored.",
                 "Register the reflectively accessed types in reachability-metadata.json, or for application code register them with Spring's RuntimeHints (e.g. via @ImportRuntimeHints / RuntimeHintsRegistrar). Spring AOT already covers Spring-managed beans.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
     @Override
@@ -154,7 +154,7 @@ final class DynamicProxyCheck extends AbstractArchUnitGraalVmCheck {
                 "MEDIUM",
                 "Detects calls to Proxy.newProxyInstance and Proxy.getProxyClass, which create JDK dynamic proxies whose interface lists must be known to native-image. When the interface array is a compile-time constant, native-image may auto-register the proxy; runtime-computed interface sets always need explicit metadata.",
                 "Declare the proxied interfaces in reachability-metadata.json, or for application code register them with Spring's RuntimeHints (RuntimeHints.proxies().registerJdkProxy(...) via @ImportRuntimeHints). Spring's own proxy mechanisms are covered by Spring AOT.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/DynamicProxy/"));
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
     @Override
@@ -189,7 +189,7 @@ final class ResourceAccessCheck extends AbstractArchUnitGraalVmCheck {
                 "LOW",
                 "Detects calls to Class/ClassLoader getResource and getResourceAsStream, whose resources must be embedded in the native image to be available at runtime. Calls with a constant resource name are often already detected automatically by native-image; runtime-computed names always need registration.",
                 "Register the loaded resource paths (as globs) in reachability-metadata.json, or for application code register them with Spring's RuntimeHints (RuntimeHints.resources() via @ImportRuntimeHints) so native-image bundles them.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Resources/"));
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
     @Override
@@ -309,7 +309,7 @@ final class ClassLoaderUsageCheck extends AbstractArchUnitGraalVmCheck {
                 "MEDIUM",
                 "Detects calls to ClassLoader.loadClass, which load classes by name at run time; native-image cannot discover such types statically.",
                 "Register the dynamically loaded types under reflection in reachability-metadata.json, or replace ClassLoader.loadClass with direct class literals where possible.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
     @Override
@@ -345,7 +345,7 @@ final class DeepReflectionCheck extends AbstractArchUnitGraalVmCheck {
                 "MEDIUM",
                 "Detects deep reflection that bypasses access checks: AccessibleObject.setAccessible/trySetAccessible and MethodHandles.privateLookupIn, which native-image must be told about to keep the members reachable.",
                 "Register the accessed members (with allowWrite where needed) under reflection in reachability-metadata.json and ensure the required module opens are configured; prefer public APIs over deep reflection.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
     @Override
@@ -394,7 +394,7 @@ final class AnnotationReflectionCheck extends AbstractArchUnitGraalVmCheck {
                 "LOW",
                 "Detects reflective annotation queries on reflected members (Method, Field, Constructor, Parameter), whose annotations native-image only retains when the element is registered for reflection.",
                 "Register the inspected members under reflection in reachability-metadata.json so their annotations are available at run time.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
     @Override
@@ -420,6 +420,45 @@ final class AnnotationReflectionCheck extends AbstractArchUnitGraalVmCheck {
 }
 
 /**
+ * Flags calls to {@code Unsafe.allocateInstance(Class)} on {@code sun.misc.Unsafe} or
+ * {@code jdk.internal.misc.Unsafe}. Unsafe allocation constructs an instance without invoking any
+ * constructor, bypassing the construction path that native-image's reachability analysis tracks, so
+ * the allocated type needs its own {@code unsafeAllocated} reflection metadata in addition to normal
+ * type registration.
+ */
+final class UnsafeAllocateInstanceCheck extends AbstractArchUnitGraalVmCheck {
+
+    UnsafeAllocateInstanceCheck() {
+        super(new GraalVmCheckDefinition(
+                "GRAAL-REFLECT-005",
+                "Unsafe.allocateInstance bypasses construction and needs unsafeAllocated metadata",
+                GraalVmCategory.REFLECTION,
+                "MEDIUM",
+                "Detects calls to Unsafe.allocateInstance(Class) on sun.misc.Unsafe or jdk.internal.misc.Unsafe. This constructs an instance without invoking any constructor, which bypasses the construction path native-image's reachability analysis tracks; without metadata this throws MissingReflectionRegistrationError at run time.",
+                "Register the allocated type under reflection in reachability-metadata.json with \"unsafeAllocated\": true (in addition to its normal type registration), or replace Unsafe.allocateInstance with a public constructor or factory method where possible.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("Unsafe.allocateInstance() is called") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        if (!"allocateInstance".equals(target.getName())) {
+                            return false;
+                        }
+                        String ownerName = target.getOwner().getName();
+                        return "sun.misc.Unsafe".equals(ownerName) || "jdk.internal.misc.Unsafe".equals(ownerName);
+                    }
+                })
+                .as("Classes should not use Unsafe.allocateInstance without unsafeAllocated metadata");
+    }
+}
+
+/**
  * Flags {@code ResourceBundle.getBundle}, whose localized {@code .properties} files must be embedded
  * in the native image (with all locale variants) to be available at run time.
  */
@@ -433,7 +472,7 @@ final class ResourceBundleCheck extends AbstractArchUnitGraalVmCheck {
                 "LOW",
                 "Detects calls to ResourceBundle.getBundle, whose localized .properties files must be registered so native-image embeds them.",
                 "Register the bundle base names under bundles in reachability-metadata.json so native-image includes every locale variant.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Resources/"));
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
     @Override
@@ -470,7 +509,7 @@ final class ServiceLoaderCheck extends AbstractArchUnitGraalVmCheck {
                 "LOW",
                 "Detects calls to ServiceLoader.load, which discover providers via META-INF/services; native-image must reach the provider configuration and reflectively instantiate the implementations.",
                 "Ensure the META-INF/services provider files are on the classpath and register the provider implementations under reflection in reachability-metadata.json.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
     @Override
@@ -529,7 +568,7 @@ final class BuildTimeInitializationCheck extends AbstractArchUnitGraalVmCheck {
                         "Static initializer I/O or thread starts may break build-time initialization",
                         GraalVmCategory.BUILD_TIME_INIT,
                         "LOW",
-                        "Detects static initializers that perform file I/O (java.io file streams or filesystem-touching java.nio.file.Files calls) or start threads/processes directly. Since GraalVM 21.3+ classes are run-time-initialized by default, this only applies when the class is explicitly initialized at build time via --initialize-at-build-time or Spring AOT's build-time-init list.",
+                        "Detects static initializers that perform file I/O (java.io file streams or filesystem-touching java.nio.file.Files calls) or start threads/processes directly. Since GraalVM 21.3+ classes are run-time-initialized by default, this only applies when the class is explicitly initialized at build time via the native-image --initialize-at-build-time flag. Spring AOT is one way to arrive at that configuration (it can compute and pass the flag for Spring-managed classes on the application's behalf), but the flag itself — not Spring AOT — is the actual mechanism native-image reads, so this also applies to build-time initialization configured directly or by other means.",
                         "If the class is listed under --initialize-at-build-time, move the side effect out of the static initializer or switch the class to --initialize-at-run-time so the I/O or thread starts when the application runs rather than during the native build.",
                         "https://www.graalvm.org/latest/reference-manual/native-image/optimizations-and-performance/ClassInitialization/"));
     }
@@ -617,20 +656,23 @@ final class NativeMethodCheck implements GraalVmCheck {
 /**
  * Flags runtime bytecode/class generation (e.g. {@code ClassLoader.defineClass},
  * {@code MethodHandles.Lookup.defineClass/defineHiddenClass}, CGLIB {@code Enhancer}, ByteBuddy,
- * Javassist). A closed-world native image has no compiler at run time, so classes cannot be generated
- * or defined after the build.
+ * Javassist). A closed-world native image has no compiler at run time, so these calls have no
+ * general-purpose support. The native-image agent's experimental "Predefined Classes" mode is a
+ * narrow, best-effort escape hatch (see {@code GraalVmCheckDefinition#learnMoreUrl}), not a general
+ * fix: it replays only the exact bytecode traced ahead of time, so it cannot help when generation is
+ * name/bytecode-varying (e.g. driven by counters or timestamps).
  */
 final class RuntimeClassGenerationCheck extends AbstractArchUnitGraalVmCheck {
 
     RuntimeClassGenerationCheck() {
         super(new GraalVmCheckDefinition(
                 "GRAAL-CLASSGEN-001",
-                "Runtime class generation is unsupported in native images",
+                "Runtime class generation has no general-purpose support in native images",
                 GraalVmCategory.CLASS_GENERATION,
                 "HIGH",
-                "Detects runtime bytecode/class generation (ClassLoader.defineClass, MethodHandles.Lookup.defineClass/defineHiddenClass, CGLIB Enhancer, ByteBuddy, Javassist), which a closed-world native image cannot perform at run time because it has no compiler.",
-                "Generate the classes at build time (e.g. via Spring AOT / build-time processing) instead of at run time, or replace the dynamically generated types with statically compiled equivalents. No metadata enables runtime class definition in a native image.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/Compatibility/"));
+                "Detects runtime bytecode/class generation (ClassLoader.defineClass, MethodHandles.Lookup.defineClass/defineHiddenClass, CGLIB Enhancer, ByteBuddy, Javassist). A closed-world native image has no compiler at run time, so these calls are not supported for arbitrary, build-time-unknown bytecode. The native-image agent's experimental \"Predefined Classes\" mode (experimental-class-define-support) can trace and replay a bounded set of previously-seen classes, but it is best-effort, cannot handle bytecode/names that vary between runs, and is not a substitute for build-time class generation.",
+                "Generate the classes at build time (e.g. via Spring AOT / build-time processing) instead of at run time, or replace the dynamically generated types with statically compiled equivalents. If runtime class generation truly cannot be avoided, evaluate the native-image agent's experimental Predefined Classes support as a narrow fallback — but note its known limitations (single load per class loader per execution, no build-time initialization, no support for varying bytecode/names) before relying on it.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/ExperimentalAgentOptions/"));
     }
 
     @Override
@@ -685,7 +727,7 @@ final class BuildTimeStateCaptureCheck extends AbstractArchUnitGraalVmCheck {
                         "Static initializer captures build-machine state",
                         GraalVmCategory.BUILD_TIME_INIT,
                         "LOW",
-                        "Detects static initializers that read environment- or time-sensitive state (System.getenv/getProperty, current time, java.time now(), default Locale/TimeZone, InetAddress, Random/SecureRandom seeds, UUID.randomUUID). Since GraalVM 21.3+ classes are run-time-initialized by default, this is only a concern when the class is explicitly initialized at build time via --initialize-at-build-time or Spring AOT's build-time-init list.",
+                        "Detects static initializers that read environment- or time-sensitive state (System.getenv/getProperty, current time, java.time now(), default Locale/TimeZone, InetAddress, Random/SecureRandom seeds, UUID.randomUUID). Since GraalVM 21.3+ classes are run-time-initialized by default, this is only a concern when the class is explicitly initialized at build time via the native-image --initialize-at-build-time flag. Spring AOT is one way to arrive at that configuration (it can compute and pass the flag for Spring-managed classes on the application's behalf), but the flag itself — not Spring AOT — is the actual mechanism native-image reads, so this also applies to build-time initialization configured directly or by other means.",
                         "If the class is listed under --initialize-at-build-time, move the state capture into a runtime code path or switch the class to --initialize-at-run-time so the values are read when the native image starts rather than baked in during the build.",
                         "https://www.graalvm.org/latest/reference-manual/native-image/optimizations-and-performance/ClassInitialization/"));
     }
@@ -926,7 +968,7 @@ final class SpringAotConditionedBeansCheck implements GraalVmCheck {
             "MEDIUM",
             "Detects @Profile or @ConditionalOnProperty on @Configuration/@Component classes or @Bean methods. Spring AOT evaluates these conditions once at build time; if the active profiles or application properties differ between the AOT build and the production runtime, the conditioned beans may be unexpectedly absent or present in the native image.",
             "Ensure the profiles and properties active during the AOT build (native-image compilation) match the intended production configuration, or restructure the configuration to use explicit build-time selection rather than runtime conditions.",
-            "https://docs.spring.io/spring-boot/reference/packaging/native-image/introduction.html");
+            "https://docs.spring.io/spring-boot/reference/packaging/native-image/introducing-graalvm-native-images.html");
 
     private static final List<String> SPRING_COMPONENT_ANNOTATIONS = List.of(
             "org.springframework.context.annotation.Configuration",
@@ -1057,7 +1099,7 @@ final class SpelUsageCheck extends AbstractArchUnitGraalVmCheck {
         super(new GraalVmCheckDefinition(
                 "GRAAL-SPEL-001",
                 "Programmatic SpEL expression parsing relies on reflection with no AOT visibility",
-                GraalVmCategory.REFLECTION,
+                GraalVmCategory.SPRING_AOT,
                 "MEDIUM",
                 "Detects calls to ExpressionParser.parseExpression / parseRaw (SpEL programmatic API); runtime-parsed expressions use reflection to access object properties that is not visible to native-image, and the SpEL bytecode compiler is unsupported in native images.",
                 "Replace programmatic SpEL with direct Java code or annotation-driven evaluation (@PreAuthorize, @Value, @Cacheable) that Spring AOT processes statically. If programmatic SpEL is required, register all reflectively accessed types under reflection in reachability-metadata.json.",
@@ -1116,7 +1158,7 @@ final class MethodHandleUsageCheck extends AbstractArchUnitGraalVmCheck {
                 "MEDIUM",
                 "Detects calls to MethodHandles.Lookup.findVirtual/findStatic/findConstructor/unreflect* and related lookup methods; non-constant method handles require reflection metadata for the target members that is not visible to the existing REFLECT checks.",
                 "Register the target members under reflection in reachability-metadata.json so native-image retains the necessary member descriptors. For compile-time-constant handles, native-image may fold the lookup automatically.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
     @Override
@@ -1190,7 +1232,7 @@ final class JmxUsageCheck extends AbstractArchUnitGraalVmCheck {
                         "LOW",
                         "Detects calls to ManagementFactory.getPlatformMBeanServer and MBeanServer.registerMBean; JMX is disabled by default in native images and requires --enable-monitoring=jmxserver plus MBean reflection metadata.",
                         "Add --enable-monitoring=jmxserver to the native-image build arguments and register all MBean interfaces and implementations under reflection in reachability-metadata.json.",
-                        "https://www.graalvm.org/latest/reference-manual/native-image/guides/build-and-run-native-executable-with-jmx/"));
+                        "https://www.graalvm.org/latest/reference-manual/native-image/guides/build-and-run-native-executable-with-remote-jmx/"));
     }
 
     @Override
@@ -1213,6 +1255,57 @@ final class JmxUsageCheck extends AbstractArchUnitGraalVmCheck {
                             }
                         })
                 .as("Classes should not use JMX without native-image monitoring configuration");
+    }
+}
+
+/**
+ * Flags application classes assignable to {@code javax.management.DynamicMBean} (which also matches
+ * Model MBeans, since {@code javax.management.modelmbean.ModelMBean} extends {@code DynamicMBean}),
+ * other than classes based on the JDK's {@code javax.management.StandardMBean} wrapper. Native-image's
+ * JMX support only covers MXBeans and standard (interface-naming-convention) MBeans; dynamic and model
+ * MBeans define their management interface at run time, which the closed-world analysis cannot see.
+ */
+final class JmxDynamicMBeanCheck implements GraalVmCheck {
+
+    private static final GraalVmCheckDefinition DEFINITION = new GraalVmCheckDefinition(
+            "GRAAL-JMX-002",
+            "Dynamic/model MBeans are not supported by native-image JMX",
+            GraalVmCategory.JMX,
+            "HIGH",
+            "Detects application classes assignable to javax.management.DynamicMBean (including Model MBeans, since ModelMBean extends DynamicMBean), other than classes based on the JDK's StandardMBean wrapper. GraalVM's native-image JMX support only covers MXBeans and standard (interface-naming-convention) MBeans; dynamic and model MBeans are unsupported because they define their management interface at run time.",
+            "Replace the dynamic/model MBean with a standard MBean (a FooMBean interface plus a Foo implementation, or javax.management.StandardMBean composition) or an MXBean; both work with --enable-monitoring=jmxserver. There is no metadata registration that makes a dynamic or model MBean work in a native image.",
+            "https://www.graalvm.org/latest/reference-manual/native-image/guides/build-and-run-native-executable-with-remote-jmx/");
+
+    @Override
+    public GraalVmCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public GraalVmFindingDto evaluate(GraalVmContext context) {
+        try {
+            List<String> samples = new ArrayList<>();
+            int count = 0;
+            for (JavaClass javaClass : context.classes()) {
+                // StandardMBean itself implements DynamicMBean, so subclasses of the JDK's supported
+                // StandardMBean wrapper are deliberately excluded here.
+                boolean isDynamicMBean = javaClass.isAssignableTo("javax.management.DynamicMBean")
+                        && !javaClass.isAssignableTo("javax.management.StandardMBean");
+                if (isDynamicMBean) {
+                    count++;
+                    if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
+                        samples.add(GraalVmCheckSupport.detail(
+                                javaClass.getName() + " is assignable to javax.management.DynamicMBean"));
+                    }
+                }
+            }
+            if (count == 0) {
+                return GraalVmCheckSupport.ok(DEFINITION);
+            }
+            return GraalVmCheckSupport.review(DEFINITION, count, samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return GraalVmCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
     }
 }
 

@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.engine.graalvm.fixtures.CleanComponent;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.DeepReflector;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.DevOnlyConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.DynamicClassLoader;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.DynamicMBeanUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FieldMetadataReader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FieldValueAccessor;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FilesMetadataInitializer;
@@ -30,10 +31,12 @@ import io.github.jdubois.bootui.engine.graalvm.fixtures.SecondaryContextCreator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SecurityProviderRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ServiceConsumer;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SpelUser;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.StandardMBeanSubclass;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.StateCapturingInitializer;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.StaticInitializerComponent;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SupplierBeanDefiner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.UnrelatedSupplierHolder;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.UnsafeAllocator;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -79,6 +82,16 @@ class GraalVmChecksTests {
         assertThat(finding.id()).isEqualTo("GRAAL-REFLECT-004");
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(evaluate(new AnnotationReflectionCheck(), CleanComponent.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void unsafeAllocateInstanceCheckDetectsAllocateInstanceCall() {
+        GraalVmFindingDto finding = evaluate(new UnsafeAllocateInstanceCheck(), UnsafeAllocator.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-REFLECT-005");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(evaluate(new UnsafeAllocateInstanceCheck(), CleanComponent.class)
                         .status())
                 .isEqualTo("OK");
     }
@@ -264,6 +277,9 @@ class GraalVmChecksTests {
         GraalVmFindingDto finding = evaluate(new SpelUsageCheck(), SpelUser.class);
         assertThat(finding.id()).isEqualTo("GRAAL-SPEL-001");
         assertThat(finding.severity()).isEqualTo("MEDIUM");
+        // SpEL reachability is a Spring-library-specific concern (not general JDK reflection), so
+        // this check is grouped under Spring AOT rather than Reflection.
+        assertThat(finding.category()).isEqualTo(GraalVmCategory.SPRING_AOT.label());
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(evaluate(new SpelUsageCheck(), CleanComponent.class).status())
                 .isEqualTo("OK");
@@ -296,6 +312,21 @@ class GraalVmChecksTests {
         assertThat(finding.severity()).isEqualTo("LOW");
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(evaluate(new JmxUsageCheck(), CleanComponent.class).status()).isEqualTo("OK");
+    }
+
+    @Test
+    void jmxDynamicMBeanCheckDetectsDynamicMBeanButExcludesStandardMBeanSubclasses() {
+        GraalVmFindingDto finding = evaluate(new JmxDynamicMBeanCheck(), DynamicMBeanUser.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-JMX-002");
+        assertThat(finding.severity()).isEqualTo("HIGH");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        // A StandardMBean subclass also implements DynamicMBean transitively, but it is the JDK's
+        // supported standard-MBean pattern and must not be flagged.
+        assertThat(evaluate(new JmxDynamicMBeanCheck(), StandardMBeanSubclass.class)
+                        .status())
+                .isEqualTo("OK");
+        assertThat(evaluate(new JmxDynamicMBeanCheck(), CleanComponent.class).status())
+                .isEqualTo("OK");
     }
 
     @Test

@@ -5,11 +5,14 @@ readiness and can generate a `reachability-metadata.json` scaffold from the scan
 with BootUI today, what it inspects, when it fires, and what to do about it.
 
 Each check is a small class registered in
-[`GraalVmCheckRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmCheckRegistry.java)
+[`GraalVmCheckRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/graalvm/GraalVmCheckRegistry.java)
 and implemented in
-[`GraalVmChecks.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmChecks.java).
+[`GraalVmChecks.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/graalvm/GraalVmChecks.java).
 The list intentionally stays compact and reviewable; adding a new check means adding one focused class plus a registry
-entry.
+entry. The rule engine (checks, categories, the dependency scanner, and the reachability-metadata scaffold generator) is
+framework-neutral and lives in `bootui-engine`; today it is surfaced only through thin Spring adapter wiring in
+`bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/` (the controller, the
+Dockerfile generator, and the source-tree writer).
 
 ## What BootUI does
 
@@ -21,12 +24,20 @@ invoked, caching the last report in the controller.
 
 In addition to the checks, the scan does two things:
 
-- **Surveys classpath dependencies** (when the _Include dependencies_ toggle is on; it is off by default) to report which
+- **Surveys classpath dependencies** (when the _Include dependencies_ toggle is on; it is on by default) to report which
   third-party JARs already ship bundled reachability metadata under `META-INF/native-image/`. BootUI counts metadata only
   when a `.json` file exists under that directory; a JAR that only has `native-image.properties` is reported as bundling
   native-image build arguments, not reachability metadata. The survey opens only classpath JARs, stops after 500 JARs,
   and adds a warning when that cap is hit; libraries without bundled metadata may need your own configuration, repository
-  metadata, or the tracing agent.
+  metadata, or the tracing agent. A single classpath entry can expand into several reported dependencies: when the
+  application runs as a Spring Boot fat/uber jar, `java.class.path` only ever contains the outer launcher jar (Spring
+  Boot's `LaunchedURLClassLoader` resolves `BOOT-INF/lib/*.jar` through custom `nested:` URLs that never populate that
+  system property), so the survey expands the launcher jar into one inspected dependency per nested `BOOT-INF/lib/`
+  library instead of misreporting it as a single dependency named after the application's own launcher jar. When a
+  shaded/uber jar (built with, for example, the Maven Shade or Gradle Shadow plugin) bundles more than one
+  `META-INF/maven/<groupId>/<artifactId>/pom.properties` — one for itself and one for each dependency it relocated into
+  itself — the survey prefers the descriptor whose `artifactId`/`version` matches the jar's own file name, recovering the
+  shaded jar's own coordinates in the common case rather than misreporting it under one of the dependencies it relocated.
 - **Builds a `reachability-metadata.json` scaffold** from the application's own classes — reflection and serialization
   candidates plus the standard externalized-configuration resource globs — which you can download from the panel.
 - **Installs the scaffold into the source tree** when the application is detectably running from an exploded build (for
@@ -76,6 +87,31 @@ native-image configuration.
 - Spring-managed beans are already covered by Spring AOT, so findings that overlap with Spring's own AOT processing may
   be safe to ignore.
 
+## Detecting missing metadata at development time
+
+BootUI's checks are static, build-independent heuristics; they cannot see reflection driven by runtime-only data (for
+example, a class name read from a config file), so a clean scan is not a guarantee that a native image will run
+correctly. GraalVM's own recommended complement to static analysis is to make missing metadata fail loudly during
+development instead of surfacing as a silent runtime bug:
+
+- Pass **`--exact-reachability-metadata`** (or, to scope it to specific packages,
+  `--exact-reachability-metadata=<comma-separated-package-list>`) to `native-image` at build time to opt in to the
+  stricter, more debuggable reachability-metadata mode. GraalVM documents this as becoming the default behavior in a
+  future release.
+- Run the native image with **`-XX:MissingRegistrationReportingMode=Warn`** to see every place a registration is
+  missing without crashing, or with **`-XX:MissingRegistrationReportingMode=Exit`** — recommended for automated
+  tests — to make the application print the error with a full stack trace and exit immediately the first time a
+  missing registration is hit, including ones a broad `catch (Throwable t)` would otherwise silently swallow.
+
+See the ["Reachability Metadata" reference](https://www.graalvm.org/latest/reference-manual/native-image/metadata/) for
+the authoritative, up-to-date flag documentation. BootUI does not implement this as an automated check: unlike every
+other check on this page, which fires only when a specific risky bytecode/reflection construct is present, these flags
+are a blanket recommendation for essentially every native-image build regardless of what the code does — there is no
+bytecode condition to scan for, so an automated check would either fire unconditionally (defeating the panel's
+"only show what needs review" design) or require parsing the project's build file (`pom.xml` / `build.gradle`) to
+detect existing native-image arguments, a data source no other check depends on. It is listed here as a recommended
+practice to pair with the panel's static checks, not as a 28th check.
+
 ## The generated `reachability-metadata.json`
 
 The scaffold uses the modern unified
@@ -98,10 +134,10 @@ Severity reflects the worst plausible impact if the finding is real, not the lik
 - **CRITICAL** — a construct with the most severe native-image impact if the finding is real. No active GraalVM check
   currently emits this severity.
 - **HIGH** — a construct native images generally cannot support or Spring AOT cannot capture at run time (runtime class
-  generation, runtime classpath scanning, runtime instance suppliers, secondary context creation).
+  generation, runtime classpath scanning, runtime instance suppliers, secondary context creation, dynamic/model MBeans).
 - **MEDIUM** — a construct GraalVM cannot resolve at build time that will usually fail at run time without metadata
-  (reflection, dynamic class loading, deep reflection, dynamic proxies, active JDK serialization, SpEL, method handles,
-  frozen AOT conditions, custom security providers, runtime singleton registration).
+  (reflection, dynamic class loading, deep reflection, unsafe allocation, dynamic proxies, active JDK serialization, SpEL,
+  method handles, frozen AOT conditions, custom security providers, runtime singleton registration).
 - **LOW** — a construct that often needs extra configuration (runtime resource loading, resource bundles, service
   loading, reflective annotation access, static-initializer side effects, native access, native methods, JMX, foreign
   functions).
@@ -157,6 +193,17 @@ a handful of sample detail lines.
   element is registered for reflection.
 - **Recommendation**: register the inspected members under `reflection` in `reachability-metadata.json` so their
   annotations are available at run time.
+
+### GRAAL-REFLECT-005 — Unsafe.allocateInstance bypasses construction and needs unsafeAllocated metadata
+
+- **Severity**: MEDIUM
+- **Inspects**: calls to `allocateInstance(Class)` on `sun.misc.Unsafe` or `jdk.internal.misc.Unsafe`.
+- **Fires when**: a class allocates an instance via `Unsafe` instead of a constructor. Unsafe allocation bypasses the
+  construction path native-image's reachability analysis tracks, so the allocated type needs its own metadata; otherwise
+  the call throws `MissingReflectionRegistrationError` at run time.
+- **Recommendation**: register the allocated type under `reflection` in `reachability-metadata.json` with
+  `"unsafeAllocated": true` (in addition to its normal type registration), or replace `Unsafe.allocateInstance` with a
+  public constructor or factory method where possible.
 
 ## Dynamic proxies
 
@@ -238,8 +285,11 @@ a handful of sample detail lines.
   Lightweight `Files` metadata predicates such as `exists`, `isDirectory`, and `isReadable` are intentionally ignored;
   side effects in helper methods or lambdas are out of scope.
 - **Fires when**: a class runs I/O or starts a thread/process from its static initializer. Since GraalVM 21.3+ classes
-  are run-time-initialized by default, this only applies when the class is explicitly initialized at build time via
-  `--initialize-at-build-time` or Spring AOT's build-time-init list.
+  are run-time-initialized by default, this only applies when the class is explicitly initialized at build time via the
+  native-image `--initialize-at-build-time` flag. Spring AOT is one way to arrive at that configuration (it can compute
+  and pass the flag for Spring-managed classes on the application's behalf), but the flag itself — not Spring AOT — is
+  the actual mechanism native-image reads, so this also applies to build-time initialization configured directly or by
+  other means.
 - **Recommendation**: if the class is listed under `--initialize-at-build-time`, move the side effect out of the static
   initializer or switch the class to `--initialize-at-run-time` so the I/O or thread starts when the application runs
   rather than during the native build.
@@ -251,9 +301,11 @@ a handful of sample detail lines.
   `getProperties`, current time, `java.time` `now()`, default `Locale` / `TimeZone`, `InetAddress`, `Random` /
   `SecureRandom` constructors or `next*` calls, `UUID.randomUUID`).
 - **Fires when**: a class captures those values in a static initializer. Since GraalVM 21.3+ classes are
-  run-time-initialized by default, this is only a concern when the class is explicitly initialized at build time via
-  `--initialize-at-build-time` or Spring AOT's build-time-init list; GraalVM's simulated class-init safely refuses
-  unsafe initializers in ambiguous cases.
+  run-time-initialized by default, this is only a concern when the class is explicitly initialized at build time via the
+  native-image `--initialize-at-build-time` flag. Spring AOT is one way to arrive at that configuration (it can compute
+  and pass the flag for Spring-managed classes on the application's behalf), but the flag itself — not Spring AOT — is
+  the actual mechanism native-image reads, so this also applies to build-time initialization configured directly or by
+  other means; GraalVM's simulated class-init safely refuses unsafe initializers in ambiguous cases.
 - **Recommendation**: if the class is listed under `--initialize-at-build-time`, move the state capture into a runtime
   code path or switch the class to `--initialize-at-run-time` so the values are read when the native image starts
   rather than baked in during the build.
@@ -292,16 +344,22 @@ a handful of sample detail lines.
 
 ## Class generation
 
-### GRAAL-CLASSGEN-001 — Runtime class generation is unsupported in native images
+### GRAAL-CLASSGEN-001 — Runtime class generation has no general-purpose support in native images
 
 - **Severity**: HIGH
 - **Inspects**: runtime bytecode/class generation (`ClassLoader.defineClass`, `MethodHandles.Lookup.defineClass` /
   `defineHiddenClass` / `defineHiddenClassWithClassData`, CGLIB `Enhancer`, ByteBuddy, Javassist).
-- **Fires when**: a class generates or defines classes at run time; a closed-world native image cannot perform that work
-  because it has no compiler.
+- **Fires when**: a class generates or defines classes at run time. A closed-world native image has no compiler at run
+  time, so these calls are not supported for arbitrary, build-time-unknown bytecode. The native-image agent's
+  experimental ["Predefined Classes"](https://www.graalvm.org/latest/reference-manual/native-image/metadata/ExperimentalAgentOptions/)
+  mode (`experimental-class-define-support`) can trace and replay a bounded set of previously-seen classes, but it is
+  best-effort: it replays only the exact bytecode traced ahead of time, allows only one class definition per class
+  loader per execution, has no build-time-initialization support, and cannot help when classes are generated with
+  varying names or bytecode (e.g. driven by counters or timestamps) — so it is a narrow escape hatch, not a general fix.
 - **Recommendation**: generate the classes at build time (e.g. via Spring AOT / build-time processing) instead of at run
-  time, or replace the dynamically generated types with statically compiled equivalents. No metadata enables runtime
-  class definition in a native image.
+  time, or replace the dynamically generated types with statically compiled equivalents. If runtime class generation
+  truly cannot be avoided, evaluate the native-image agent's experimental Predefined Classes support as a narrow
+  fallback — but note its known limitations before relying on it.
 
 ## Classpath scanning
 
@@ -362,11 +420,13 @@ a handful of sample detail lines.
 - **Recommendation**: consolidate configuration into the main application context processed by Spring AOT, or use
   `@Import` / `@ImportResource` to include additional configuration statically at build time.
 
-## SpEL / Expression language
-
 ### GRAAL-SPEL-001 — Programmatic SpEL expression parsing relies on reflection with no AOT visibility
 
 - **Severity**: MEDIUM
+- **Category**: this check moved from `Reflection` to `Spring AOT` — SpEL reachability is a Spring-library-specific
+  concern (the SpEL bytecode compiler and reflective property access are part of Spring's own AOT story), not a
+  general-purpose reflection construct. The check ID is unchanged (`GRAAL-SPEL-001`, not renumbered into the
+  `SPRING-AOT-*` sequence) because check IDs are stable identifiers persisted in user dismissals.
 - **Inspects**: calls to `ExpressionParser.parseExpression` and `parseRaw` (the SpEL programmatic parsing API).
 - **Fires when**: a class parses a SpEL expression at run time; the parsed expression uses reflection to access object
   properties that is not visible to native-image, and the SpEL bytecode compiler is unsupported in native images.
@@ -411,3 +471,18 @@ a handful of sample detail lines.
   plus MBean reflection metadata.
 - **Recommendation**: add `--enable-monitoring=jmxserver` to the native-image build arguments and register all MBean
   interfaces and implementations under `reflection` in `reachability-metadata.json`.
+
+### GRAAL-JMX-002 — Dynamic/model MBeans are not supported by native-image JMX
+
+- **Severity**: HIGH
+- **Inspects**: application classes assignable to `javax.management.DynamicMBean` (this also covers Model MBeans, since
+  `ModelMBean` extends `DynamicMBean`), other than classes based on the JDK's `StandardMBean` wrapper (`StandardMBean`
+  itself implements `DynamicMBean`, so a naive assignability check would otherwise misflag the JDK's own supported
+  "standard MBean via subclassing" pattern).
+- **Fires when**: a class implements or extends a dynamic/model MBean type. GraalVM's native-image JMX support only
+  covers MXBeans and standard (interface-naming-convention) MBeans; dynamic and model MBeans define their management
+  interface at run time, which is unsupported because there is no metadata registration that makes a dynamic or model
+  MBean work in a native image.
+- **Recommendation**: replace the dynamic/model MBean with a standard MBean (a `FooMBean` interface plus a `Foo`
+  implementation, or `javax.management.StandardMBean` composition/subclassing) or an MXBean; both work with
+  `--enable-monitoring=jmxserver`.
