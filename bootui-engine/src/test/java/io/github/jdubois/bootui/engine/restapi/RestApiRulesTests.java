@@ -19,8 +19,13 @@ class RestApiRulesTests {
     private static final String PHASE3_BAD = "io.github.jdubois.bootui.engine.restapi.phase3.bad";
     private static final String PHASE3_GOOD = "io.github.jdubois.bootui.engine.restapi.phase3.good";
     private static final String PHASE3_FIXES = "io.github.jdubois.bootui.engine.restapi.phase3.fixes";
+    private static final String NEWRULES_IDEMPOTENCY = "io.github.jdubois.bootui.engine.restapi.newrules.idempotency";
+    private static final String NEWRULES_DEPRECATION = "io.github.jdubois.bootui.engine.restapi.newrules.deprecation";
+    private static final String NEWRULES_RETRY_AFTER = "io.github.jdubois.bootui.engine.restapi.newrules.retryafter";
+    private static final String NEWRULES_PAGINATION = "io.github.jdubois.bootui.engine.restapi.newrules.pagination";
+    private static final String NEWRULES_PAGINATION_PAGESIZE = NEWRULES_PAGINATION + ".pagesize";
 
-    private RestApiContext context(boolean springdocPresent, String... packages) {
+    private RestApiContext context(boolean openApiAnnotationsPresent, String... packages) {
         JavaClasses classes = new ClassFileImporter().importPackages(packages);
         RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
         return new RestApiContext(
@@ -28,7 +33,7 @@ class RestApiRulesTests {
                 model.controllers(),
                 model.handlers(),
                 model.exceptionHandlers(),
-                springdocPresent,
+                openApiAnnotationsPresent,
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.framework());
@@ -183,7 +188,14 @@ class RestApiRulesTests {
 
         assertThat(status(new MutatingEndpointsDeclareMediaTypesRule(), context))
                 .isEqualTo("VIOLATION");
-        assertThat(status(new PatchUsesPatchMediaTypeRule(), context)).isEqualTo("VIOLATION");
+        RestApiRuleResultDto patchResult = new PatchUsesPatchMediaTypeRule().evaluate(context);
+        assertThat(patchResult.status()).isEqualTo("VIOLATION");
+        // RAPI-VER-004: the non-JSON (application/xml) PATCH handler is still flagged...
+        assertThat(patchResult.sampleViolations()).anyMatch(v -> v.contains("patchWidget "));
+        // ...but the plain application/json PATCH handler is a legitimate partial-update pattern
+        // (RFC 5789 §2 does not mandate merge-patch+json/json-patch+json) and must now PASS, so it
+        // must not appear among the sample violations.
+        assertThat(patchResult.sampleViolations()).noneMatch(v -> v.contains("patchWidgetJson"));
     }
 
     @Test
@@ -284,6 +296,22 @@ class RestApiRulesTests {
     }
 
     @Test
+    void broadExceptionHandlerRuleAllowsA500FallbackButFlagsANon5xxCollapse() {
+        // Fix #4: a broad Exception/Throwable handler that coexists with a specific handler in the same
+        // advice, mapped to a 5xx status, is the CORRECT last-resort-fallback pattern (RFC 9110 §15.6.1)
+        // and must no longer be flagged — only a sole broad handler, or one mapped to a non-5xx status,
+        // is a real anti-pattern.
+        RestApiContext context = context(false, PHASE3_FIXES + ".broadexception");
+        RestApiRuleResultDto result = new BroadExceptionHandlerRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.sampleViolations())
+                .noneMatch(violation -> violation.contains("CoexistingBroadAndSpecificAdvice"));
+        assertThat(result.sampleViolations())
+                .anyMatch(violation -> violation.contains("BroadHandlerMappedToNonServerErrorAdvice"));
+    }
+
+    @Test
     void phase3MixedVersioningRuleFlagsAndPasses() {
         // Bad: MixedVersionController uses /v1/ path AND versioned media type.
         RestApiContext mixed = context(false, PHASE3_BAD);
@@ -330,5 +358,65 @@ class RestApiRulesTests {
         RestApiContext context = context(false, PHASE3_GOOD);
 
         assertThat(status(new CollectionsUsePluralNounsRule(), context)).isEqualTo("PASS");
+    }
+
+    @Test
+    void idempotencyKeyRuleFlagsCreationEndpointWithoutHeaderAndPassesWithIt() {
+        // Part 2 #1: a POST creation endpoint with no Idempotency-Key header cannot be safely retried
+        // by a client after a network failure. The package also contains a Spring fixture WITH the
+        // header and a JAX-RS fixture WITH the header (via @HeaderParam) to prove both frameworks are
+        // recognised — neither should be reported as a violation.
+        RestApiContext context = context(false, NEWRULES_IDEMPOTENCY);
+        RestApiRuleResultDto result = new IdempotencyKeyOnCreationEndpointsRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.sampleViolations())
+                .anyMatch(violation -> violation.contains("CreateWidgetWithoutIdempotencyKeyController"));
+        assertThat(result.sampleViolations())
+                .noneMatch(violation -> violation.contains("CreateWidgetWithIdempotencyKeyController"));
+        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("CreateWidgetResource"));
+    }
+
+    @Test
+    void deprecatedEndpointRuleIsSkippedWithoutOpenApiAndFlagsMissingOperationDeprecatedFlag() {
+        // Part 2 #2: @Deprecated alone only reaches compile-time Java consumers; HTTP clients need the
+        // OpenAPI-visible deprecated flag. Gated on OpenAPI annotations being present, like RAPI-DOC-001/002.
+        RestApiRule rule = new DeprecatedEndpointsSignalDeprecationRule();
+
+        assertThat(status(rule, context(false, NEWRULES_DEPRECATION))).isEqualTo("SKIPPED");
+
+        RestApiRuleResultDto result = rule.evaluate(context(true, NEWRULES_DEPRECATION));
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("DeprecatedWidgetController"));
+        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("DeprecatedWidgetResource"));
+    }
+
+    @Test
+    void retryAfterRuleFlagsThrottlingResponsesFromHandlersAndExceptionHandlers() {
+        // Part 2 #3: 429/503 responses should advertise Retry-After (RFC 9110 §10.2.3); this is a weak,
+        // advisory signal, so it only checks statically-visible response-status mappings.
+        RestApiContext context = context(false, NEWRULES_RETRY_AFTER);
+        RestApiRuleResultDto result = new RetryAfterOnThrottlingResponsesRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("ThrottledEndpointController"));
+        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("ServiceUnavailableAdvice"));
+
+        // A clean package with no throttling status codes must PASS.
+        assertThat(status(new RetryAfterOnThrottlingResponsesRule(), context(false, GOOD)))
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void paginationVocabularyRuleFlagsMixedFamiliesButPassesASingleFamily() {
+        // Part 2 #4: mirrors MixedVersioningStrategiesRule's pattern — flags an application that mixes
+        // more than one pagination vocabulary (page/size vs. offset/limit vs. cursor/after/before).
+        RestApiRule rule = new ConsistentPaginationVocabularyRule();
+
+        // A single pagination family in isolation must PASS.
+        assertThat(status(rule, context(false, NEWRULES_PAGINATION_PAGESIZE))).isEqualTo("PASS");
+
+        // page/size + offset/limit together in one scan must VIOLATION.
+        assertThat(status(rule, context(false, NEWRULES_PAGINATION))).isEqualTo("VIOLATION");
     }
 }

@@ -67,9 +67,16 @@ public class EdgeCaseController {
         return body;
     }
 
-    // RAPI-VER-004: PATCH declares a non-patch consumes media type.
-    @PatchMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    // RAPI-VER-004: PATCH declares a non-JSON, non-patch-specific consumes media type.
+    @PatchMapping(value = "/{id}", consumes = MediaType.APPLICATION_XML_VALUE)
     public WidgetDto patchWidget(@PathVariable String id, @RequestBody WidgetDto body) {
+        return body;
+    }
+
+    // RAPI-VER-004: plain application/json PATCH is a legitimate partial-update pattern (RFC 5789
+    // §2 does not mandate merge-patch+json/json-patch+json specifically) and must PASS.
+    @PatchMapping(value = "/{id}/rename", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public WidgetDto patchWidgetJson(@PathVariable String id, @RequestBody WidgetDto body) {
         return body;
     }
 }

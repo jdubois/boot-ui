@@ -37,7 +37,13 @@ final class RestApiHandlerModelBuilder {
             "java.util.concurrent.CompletionStage",
             "reactor.core.publisher.Mono",
             "org.springframework.web.context.request.async.DeferredResult",
-            "org.springframework.web.context.request.async.WebAsyncTask");
+            "org.springframework.web.context.request.async.WebAsyncTask",
+            // Quarkus/SmallRye Mutiny's async wrapper: https://smallrye.io/smallrye-mutiny/latest/concepts/uni/
+            "io.smallrye.mutiny.Uni",
+            // Quarkus REST's typed, GraalVM-friendly analogue of ResponseEntity<T>. Plain
+            // jakarta.ws.rs.core.Response is deliberately NOT added here: it is non-generic, so there is no
+            // generic body type to unwrap (see https://quarkus.io/guides/rest#reactive).
+            Types.QUARKUS_REST_RESPONSE);
 
     private static final Set<String> COLLECTION_TYPES = Set.of(
             "java.util.List",
@@ -45,10 +51,19 @@ final class RestApiHandlerModelBuilder {
             "java.util.Set",
             "java.lang.Iterable",
             "java.util.stream.Stream",
-            "reactor.core.publisher.Flux");
+            "reactor.core.publisher.Flux",
+            // Quarkus/SmallRye Mutiny's async stream type: https://smallrye.io/smallrye-mutiny/latest/concepts/multi/
+            "io.smallrye.mutiny.Multi");
 
-    private static final Set<String> UNTYPED_TYPES =
-            Set.of("java.lang.Object", "java.util.Map", "java.util.HashMap", "com.fasterxml.jackson.databind.JsonNode");
+    private static final Set<String> UNTYPED_TYPES = Set.of(
+            "java.lang.Object",
+            "java.util.Map",
+            "java.util.HashMap",
+            "com.fasterxml.jackson.databind.JsonNode",
+            // Spring Boot 4 ships Jackson 3 under the new tools.jackson.* package/artifact; Quarkus still ships
+            // Jackson 2 (com.fasterxml.jackson.*, above). See the Jackson 3 migration guide:
+            // https://github.com/FasterXML/jackson/blob/main/jackson3/MIGRATING_TO_JACKSON_3.md
+            "tools.jackson.databind.JsonNode");
 
     private static final Set<String> SCALAR_TYPES = Set.of(
             "java.lang.String",
@@ -99,6 +114,17 @@ final class RestApiHandlerModelBuilder {
     /** Lower-cased query-parameter names that signal manual pagination (so PAGE-001 should pass). */
     private static final Set<String> PAGE_PARAM_NAMES =
             Set.of("page", "size", "limit", "offset", "pagenumber", "pagesize", "perpage", "cursor", "after", "before");
+
+    // Pagination "family" sub-sets of PAGE_PARAM_NAMES, used to detect when an application mixes more than
+    // one pagination vocabulary across its handlers (RAPI-PAGE-003), mirroring Zalando's/Microsoft's
+    // pagination guidance that a single API should commit to one dialect.
+    private static final Set<String> PAGE_SIZE_PARAM_NAMES =
+            Set.of("page", "size", "pagenumber", "pagesize", "perpage");
+    private static final Set<String> OFFSET_LIMIT_PARAM_NAMES = Set.of("offset", "limit");
+    private static final Set<String> CURSOR_PARAM_NAMES = Set.of("cursor", "after", "before");
+
+    /** Header name (case-insensitive) recognised by the IETF HTTPAPI Idempotency-Key draft. */
+    private static final String IDEMPOTENCY_KEY_HEADER_NAME = "idempotency-key";
 
     private static final List<String> JAXRS_METHOD_ANNOTATIONS = List.of(
             Types.JAXRS_GET,
@@ -183,6 +209,7 @@ final class RestApiHandlerModelBuilder {
         scanResponseStatusException(type);
         collectExceptionHandlers(type);
         collectJaxRsExceptionMapper(type);
+        collectServerExceptionMapperMethods(type);
         if (isController(type)) {
             inspectSpringController(type);
         } else if (isJaxRsResource(type)) {
@@ -194,8 +221,8 @@ final class RestApiHandlerModelBuilder {
         springControllerCount++;
         boolean restController = annotated(type, Types.REST_CONTROLLER) || metaAnnotated(type, Types.REST_CONTROLLER);
         boolean classValidated = annotated(type, Types.VALIDATED);
-        boolean hasTag = annotated(type, Types.TAG);
-        boolean hidden = annotated(type, Types.HIDDEN);
+        boolean hasTag = hasTagAnnotation(type);
+        boolean hidden = hasHiddenAnnotation(type);
         boolean classResponseBody = annotated(type, Types.RESPONSE_BODY) || metaAnnotated(type, Types.RESPONSE_BODY);
         List<String> typeLevelPaths = mappingPaths(type, Types.REQUEST_MAPPING);
         List<String> typeLevelProduces = mappingAttribute(type, Types.REQUEST_MAPPING, "produces");
@@ -263,8 +290,8 @@ final class RestApiHandlerModelBuilder {
     private void inspectJaxRsResource(JavaClass type) {
         jaxRsResourceCount++;
         boolean classValidated = annotated(type, Types.VALIDATED) || annotated(type, Types.VALID);
-        boolean hasTag = annotated(type, Types.TAG);
-        boolean hidden = annotated(type, Types.HIDDEN);
+        boolean hasTag = hasTagAnnotation(type);
+        boolean hidden = hasHiddenAnnotation(type);
         List<String> typeLevelPaths = mappingPaths(type, Types.JAXRS_PATH);
         List<String> typeLevelProduces = mappingAttribute(type, Types.JAXRS_PRODUCES, "value");
         List<String> typeLevelConsumes = mappingAttribute(type, Types.JAXRS_CONSUMES, "value");
@@ -358,13 +385,22 @@ final class RestApiHandlerModelBuilder {
         boolean requestBodyIsSimple = false;
         boolean hasConstrainedSimpleParam = false;
         boolean hasExplicitPageParam = false;
+        boolean hasIdempotencyKeyHeader = false;
         List<String> pathVariableNames = new ArrayList<>();
+        List<String> pageQueryParamNames = new ArrayList<>();
+        // Only version-signal-matching names are folded into params/headers (not a full parameter-binding
+        // dump): JAX-RS has no Spring-style conditional-dispatch mapping attribute, and RAPI-MAP-002's
+        // duplicate-route detection also reads these two lists, so adding unrelated binding names would
+        // create false negatives there. Header/query-param API versioning (RAPI-VER-001/006) is the one
+        // place a JAX-RS parameter binding is a legitimate analogue of Spring's params=/headers= condition.
+        List<String> versionParams = new ArrayList<>();
+        List<String> versionHeaders = new ArrayList<>();
 
         for (JavaParameter parameter : method.getParameters()) {
             try {
                 if (isJaxRsEntityParam(parameter)) {
                     hasRequestBody = true;
-                    requestBodyValidated |= parameter.isAnnotatedWith(Types.VALID) || classValidated;
+                    requestBodyValidated |= parameter.isAnnotatedWith(Types.VALID);
                     requestBodyIsEntity |= safeAnnotated(parameter.getRawType(), Types.ENTITY);
                     requestBodyIsSimple |= isSimpleBodyType(parameter.getRawType());
                 } else if (hasConstraintAnnotation(parameter)) {
@@ -381,8 +417,27 @@ final class RestApiHandlerModelBuilder {
                 if (query == null) {
                     query = explicitBindingName(parameter, Types.REST_QUERY);
                 }
-                if (query != null && PAGE_PARAM_NAMES.contains(query.toLowerCase(Locale.ROOT))) {
-                    hasExplicitPageParam = true;
+                if (query != null) {
+                    pageQueryParamNames.add(query);
+                    String lowerQuery = query.toLowerCase(Locale.ROOT);
+                    if (PAGE_PARAM_NAMES.contains(lowerQuery)) {
+                        hasExplicitPageParam = true;
+                    }
+                    if (RestApiRuleHelp.VERSION_PARAM_NAMES.contains(lowerQuery)) {
+                        versionParams.add(query);
+                    }
+                }
+                String header = explicitBindingName(parameter, Types.JAXRS_HEADER_PARAM);
+                if (header == null) {
+                    header = explicitBindingName(parameter, Types.REST_HEADER);
+                }
+                if (header != null) {
+                    if (IDEMPOTENCY_KEY_HEADER_NAME.equalsIgnoreCase(header)) {
+                        hasIdempotencyKeyHeader = true;
+                    }
+                    if (RestApiRuleHelp.VERSION_PARAM_NAMES.contains(header.toLowerCase(Locale.ROOT))) {
+                        versionHeaders.add(header);
+                    }
                 }
             } catch (RuntimeException | LinkageError ex) {
                 // Skip a parameter that cannot be introspected.
@@ -397,10 +452,13 @@ final class RestApiHandlerModelBuilder {
                 || lowerName.equals("list")
                 || lowerName.startsWith("fetchall")
                 || lowerName.startsWith("readall");
-        boolean hidden = classHidden || method.isAnnotatedWith(Types.HIDDEN) || operationHidden(method);
+        boolean hidden = classHidden || hasHiddenAnnotation(method) || operationHidden(method);
         // A broad "throws Exception/Throwable" is a plain JVM method-signature fact, not a Spring-specific
         // one, so it applies to JAX-RS resource methods exactly the same way (RAPI-ERR-002).
         boolean declaresBroadThrows = declaresBroadThrows(method);
+        boolean isDeprecated = type.isAnnotatedWith(Types.DEPRECATED) || method.isAnnotatedWith(Types.DEPRECATED);
+        boolean operationMarkedDeprecated = operationMarkedDeprecated(method);
+        String paginationParamFamily = paginationFamily(false, pageQueryParamNames);
 
         return new HandlerMethodModel(
                 type.getName(),
@@ -439,20 +497,24 @@ final class RestApiHandlerModelBuilder {
                 false,
                 hasImplicitNoContentStatus ? "NO_CONTENT" : "",
                 declaresBroadThrows,
-                method.isAnnotatedWith(Types.OPERATION),
+                hasOperationAnnotation(method),
                 stateChanging,
                 findAll,
                 true,
                 "",
                 effectiveProduces,
                 effectiveConsumes,
-                List.of(),
-                List.of(),
+                List.copyOf(versionParams),
+                List.copyOf(versionHeaders),
                 List.copyOf(pathVariableNames),
                 requestBodyIsSimple,
-                method.isAnnotatedWith(Types.TAG),
+                hasTagAnnotation(method),
                 hidden,
-                false);
+                false,
+                paginationParamFamily,
+                hasIdempotencyKeyHeader,
+                isDeprecated,
+                operationMarkedDeprecated);
     }
 
     /** A JAX-RS body parameter is one with neither a binding annotation nor {@code @Context}. */
@@ -465,18 +527,110 @@ final class RestApiHandlerModelBuilder {
         return true;
     }
 
-    /** Models a JAX-RS {@code ExceptionMapper}/{@code @Provider} as centralized exception handling. */
+    /** Models a JAX-RS {@code @Provider ExceptionMapper<X>} implementation as a centralized exception handler. */
     private void collectJaxRsExceptionMapper(JavaClass type) {
         try {
-            boolean mapper = type.isAnnotatedWith(Types.JAXRS_PROVIDER)
-                    && type.getAllRawInterfaces().stream()
-                            .anyMatch(i -> Types.JAXRS_EXCEPTION_MAPPER.equals(i.getName()));
-            if (mapper) {
+            if (!type.isAnnotatedWith(Types.JAXRS_PROVIDER)) {
+                return;
+            }
+            for (JavaType iface : type.getInterfaces()) {
+                if (!Types.JAXRS_EXCEPTION_MAPPER.equals(iface.toErasure().getName())) {
+                    continue;
+                }
                 hasExceptionHandling = true;
+                JavaType argument = firstTypeArgument(iface);
+                String exceptionType = argument != null ? argument.toErasure().getName() : "java.lang.Throwable";
+                addJaxRsExceptionMapperModel(type, findMethod(type, "toResponse", 1), exceptionType);
+                return;
             }
         } catch (RuntimeException | LinkageError ex) {
             // Skip unresolvable class.
         }
+    }
+
+    /**
+     * Models a RESTEasy Reactive {@code @ServerExceptionMapper} method as a centralized exception handler.
+     * This is the simpler, {@code @Provider}-free exception-mapper style that is the idiomatic default on
+     * Quarkus (no {@code ExceptionMapper<X>} interface to implement); the method can live on any CDI bean,
+     * not just a JAX-RS resource. See https://quarkus.io/guides/rest#exception-mapping
+     */
+    private void collectServerExceptionMapperMethods(JavaClass type) {
+        for (JavaMethod method : type.getMethods()) {
+            try {
+                if (!method.isAnnotatedWith(Types.SERVER_EXCEPTION_MAPPER)) {
+                    continue;
+                }
+                hasExceptionHandling = true;
+                addJaxRsExceptionMapperModel(type, Optional.of(method), firstExceptionParameterType(method));
+            } catch (RuntimeException | LinkageError ex) {
+                // Skip a method that cannot be introspected.
+            }
+        }
+    }
+
+    /** JAX-RS/Servlet context parameter types a {@code @ServerExceptionMapper} may also declare. */
+    private static final Set<String> SERVER_EXCEPTION_MAPPER_CONTEXT_PARAM_TYPES = Set.of(
+            "jakarta.ws.rs.container.ContainerRequestContext",
+            "jakarta.ws.rs.core.UriInfo",
+            "jakarta.ws.rs.core.HttpHeaders",
+            "jakarta.ws.rs.core.Request",
+            "jakarta.servlet.http.HttpServletRequest",
+            "jakarta.servlet.http.HttpServletResponse");
+
+    /** The exception type a {@code @ServerExceptionMapper} method handles: its first non-context parameter. */
+    private static String firstExceptionParameterType(JavaMethod method) {
+        for (JavaParameter parameter : method.getParameters()) {
+            try {
+                String name = parameter.getRawType().getName();
+                if (!SERVER_EXCEPTION_MAPPER_CONTEXT_PARAM_TYPES.contains(name)) {
+                    return name;
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                // Skip a parameter that cannot be introspected.
+            }
+        }
+        return "java.lang.Throwable";
+    }
+
+    private static Optional<JavaMethod> findMethod(JavaClass type, String name, int parameterCount) {
+        for (JavaMethod method : type.getMethods()) {
+            if (method.getName().equals(name) && method.getRawParameterTypes().size() == parameterCount) {
+                return Optional.of(method);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private void addJaxRsExceptionMapperModel(JavaClass type, Optional<JavaMethod> methodOpt, String exceptionType) {
+        String methodName = methodOpt.map(JavaMethod::getName).orElse("toResponse");
+        String returnTypeName = methodOpt
+                .map(method -> method.getReturnType().toErasure().getName())
+                .orElse(Types.JAXRS_RESPONSE);
+        String bodyType = methodOpt
+                .map(method -> resolveBodyTypeName(method.getReturnType()))
+                .orElse(Types.JAXRS_RESPONSE);
+        boolean returnsResponseEntity =
+                Types.JAXRS_RESPONSE.equals(returnTypeName) || Types.QUARKUS_REST_RESPONSE.equals(returnTypeName);
+        boolean returnsVoid = "void".equals(returnTypeName) || "java.lang.Void".equals(returnTypeName);
+        boolean hasResponseParam =
+                methodOpt.map(RestApiHandlerModelBuilder::hasResponseParameter).orElse(false);
+        // No JAX-RS equivalent of Spring's ProblemDetail/@ResponseStatus exists, so those two fields are
+        // always false/empty here; RAPI-ERR-003/RAPI-ERR-006 are Spring-only rules (see SPRING_ONLY_RULE_IDS
+        // in RestApiScanner) and never evaluate JAX-RS-derived exception handlers.
+        boolean catchesExceptionOrThrowable =
+                "java.lang.Exception".equals(exceptionType) || "java.lang.Throwable".equals(exceptionType);
+        exceptionHandlers.add(new ExceptionHandlerModel(
+                type.getName(),
+                methodName,
+                bodyType,
+                false,
+                returnsResponseEntity,
+                returnsVoid,
+                false,
+                "",
+                catchesExceptionOrThrowable,
+                hasResponseParam,
+                true));
     }
 
     private void collectExceptionHandlers(JavaClass type) {
@@ -506,6 +660,7 @@ final class RestApiHandlerModelBuilder {
                         || "java.lang.Void".equals(bodyType);
                 boolean hasResponseStatus =
                         method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
+                String handlerResponseStatusValue = responseStatusValue(method, type);
                 boolean catchesExceptionOrThrowable = catchesBroadException(method);
                 boolean hasResponseParam = hasResponseParameter(method);
                 boolean methodRendersBody =
@@ -518,6 +673,7 @@ final class RestApiHandlerModelBuilder {
                         returnsResponseEntity,
                         returnsVoid,
                         hasResponseStatus,
+                        handlerResponseStatusValue,
                         catchesExceptionOrThrowable,
                         hasResponseParam,
                         methodRendersBody));
@@ -629,7 +785,9 @@ final class RestApiHandlerModelBuilder {
         boolean hasUnboundedPrimitiveRequestParam = false;
         boolean hasUnboundedMapRequestParam = false;
         boolean hasExplicitPageParam = false;
+        boolean hasIdempotencyKeyHeader = false;
         List<String> pathVariableNames = new ArrayList<>();
+        List<String> pageQueryParamNames = new ArrayList<>();
 
         for (JavaParameter parameter : method.getParameters()) {
             try {
@@ -658,14 +816,23 @@ final class RestApiHandlerModelBuilder {
                         hasUnboundedMapRequestParam = true;
                     }
                     String explicitName = explicitBindingName(parameter, Types.REQUEST_PARAM);
-                    if (explicitName != null && PAGE_PARAM_NAMES.contains(explicitName.toLowerCase(Locale.ROOT))) {
-                        hasExplicitPageParam = true;
+                    if (explicitName != null) {
+                        pageQueryParamNames.add(explicitName);
+                        if (PAGE_PARAM_NAMES.contains(explicitName.toLowerCase(Locale.ROOT))) {
+                            hasExplicitPageParam = true;
+                        }
                     }
                 }
                 if (parameter.isAnnotatedWith(Types.PATH_VARIABLE)) {
                     String explicitName = explicitBindingName(parameter, Types.PATH_VARIABLE);
                     if (explicitName != null) {
                         pathVariableNames.add(explicitName);
+                    }
+                }
+                if (parameter.isAnnotatedWith(Types.REQUEST_HEADER)) {
+                    String headerName = explicitBindingName(parameter, Types.REQUEST_HEADER);
+                    if (headerName != null && IDEMPOTENCY_KEY_HEADER_NAME.equalsIgnoreCase(headerName)) {
+                        hasIdempotencyKeyHeader = true;
                     }
                 }
                 if (Types.PAGEABLE.equals(paramTypeName)) {
@@ -681,7 +848,7 @@ final class RestApiHandlerModelBuilder {
         boolean methodHasResponseStatus = method.isAnnotatedWith(Types.RESPONSE_STATUS);
         String responseStatusValue = responseStatusValue(method, type);
         boolean declaresBroadThrows = declaresBroadThrows(method);
-        boolean hasOperation = method.isAnnotatedWith(Types.OPERATION);
+        boolean hasOperation = hasOperationAnnotation(method);
         boolean stateChanging = startsWithWord(method.getName(), STATE_CHANGING_PREFIXES);
         String lowerName = method.getName().toLowerCase(Locale.ROOT);
         boolean findAll = lowerName.startsWith("findall")
@@ -703,9 +870,12 @@ final class RestApiHandlerModelBuilder {
         List<String> effectiveConsumes = consumes.isEmpty() ? List.copyOf(typeLevelConsumes) : dedupe(consumes);
         List<String> params = union(typeLevelParams, mappingStrings(method, "params"));
         List<String> headers = union(typeLevelHeaders, mappingStrings(method, "headers"));
-        boolean hasTag = method.isAnnotatedWith(Types.TAG);
-        boolean hidden = classHidden || method.isAnnotatedWith(Types.HIDDEN) || operationHidden(method);
+        boolean hasTag = hasTagAnnotation(method);
+        boolean hidden = classHidden || hasHiddenAnnotation(method) || operationHidden(method);
         boolean handlerHasResponseParam = hasResponseParameter(method);
+        boolean isDeprecated = type.isAnnotatedWith(Types.DEPRECATED) || method.isAnnotatedWith(Types.DEPRECATED);
+        boolean operationMarkedDeprecated = operationMarkedDeprecated(method);
+        String paginationParamFamily = paginationFamily(hasPageable, pageQueryParamNames);
 
         return new HandlerMethodModel(
                 type.getName(),
@@ -757,7 +927,11 @@ final class RestApiHandlerModelBuilder {
                 requestBodyIsSimple,
                 hasTag,
                 hidden,
-                handlerHasResponseParam);
+                handlerHasResponseParam,
+                paginationParamFamily,
+                hasIdempotencyKeyHeader,
+                isDeprecated,
+                operationMarkedDeprecated);
     }
 
     private static boolean readSpecificMapping(
@@ -998,10 +1172,83 @@ final class RestApiHandlerModelBuilder {
         return SIMPLE_BODY_TYPES.contains(name) || SCALAR_TYPES.contains(name) || UNTYPED_TYPES.contains(name);
     }
 
+    /**
+     * True when a method carries either the Swagger ({@code io.swagger.v3.oas.annotations}) or the
+     * MicroProfile OpenAPI ({@code org.eclipse.microprofile.openapi.annotations}) form of {@code @Tag}.
+     * SmallRye OpenAPI (Quarkus' {@code quarkus-smallrye-openapi}) recognises both annotation families
+     * equally: https://quarkus.io/guides/openapi-swaggerui
+     */
+    private static boolean hasTagAnnotation(JavaMethod method) {
+        return method.isAnnotatedWith(Types.TAG) || method.isAnnotatedWith(Types.MP_TAG);
+    }
+
+    private static boolean hasTagAnnotation(JavaClass type) {
+        return annotated(type, Types.TAG) || annotated(type, Types.MP_TAG);
+    }
+
+    /**
+     * Swagger's standalone {@code @Hidden} annotation suppresses OpenAPI documentation. MicroProfile
+     * OpenAPI has no standalone equivalent class; its analogous signal is the {@code @Operation(hidden =
+     * true)} attribute, already covered by {@link #operationHidden(JavaMethod)}.
+     */
+    private static boolean hasHiddenAnnotation(JavaMethod method) {
+        return method.isAnnotatedWith(Types.HIDDEN);
+    }
+
+    private static boolean hasHiddenAnnotation(JavaClass type) {
+        return annotated(type, Types.HIDDEN);
+    }
+
+    /** Swagger/MicroProfile OpenAPI {@code @Operation}, either of which documents an endpoint. */
+    private static boolean hasOperationAnnotation(JavaMethod method) {
+        return method.isAnnotatedWith(Types.OPERATION) || method.isAnnotatedWith(Types.MP_OPERATION);
+    }
+
     private static boolean operationHidden(JavaMethod method) {
-        Optional<JavaAnnotation<JavaMethod>> annotation = method.tryGetAnnotationOfType(Types.OPERATION);
+        return operationBooleanAttribute(method, "hidden");
+    }
+
+    /** True when {@code @Operation(deprecated = true)} is present (Swagger or MicroProfile OpenAPI). */
+    private static boolean operationMarkedDeprecated(JavaMethod method) {
+        return operationBooleanAttribute(method, "deprecated");
+    }
+
+    private static boolean operationBooleanAttribute(JavaMethod method, String attributeName) {
+        return operationAttributeTrue(method, Types.OPERATION, attributeName)
+                || operationAttributeTrue(method, Types.MP_OPERATION, attributeName);
+    }
+
+    private static boolean operationAttributeTrue(JavaMethod method, String annotationName, String attributeName) {
+        Optional<JavaAnnotation<JavaMethod>> annotation = method.tryGetAnnotationOfType(annotationName);
         return annotation.isPresent()
-                && annotation.get().get("hidden").map(Boolean.TRUE::equals).orElse(false);
+                && annotation.get().get(attributeName).map(Boolean.TRUE::equals).orElse(false);
+    }
+
+    /**
+     * Classifies a set of pagination query-parameter names (plus Spring Data {@code Pageable} binding)
+     * into a "family" used by RAPI-PAGE-003 to flag an application that mixes more than one pagination
+     * vocabulary. Returns {@code ""} when no recognised pagination parameter is present.
+     */
+    private static String paginationFamily(boolean hasPageable, List<String> queryParamNames) {
+        if (hasPageable) {
+            return "PAGE_SIZE";
+        }
+        for (String name : queryParamNames) {
+            if (PAGE_SIZE_PARAM_NAMES.contains(name.toLowerCase(Locale.ROOT))) {
+                return "PAGE_SIZE";
+            }
+        }
+        for (String name : queryParamNames) {
+            if (OFFSET_LIMIT_PARAM_NAMES.contains(name.toLowerCase(Locale.ROOT))) {
+                return "OFFSET_LIMIT";
+            }
+        }
+        for (String name : queryParamNames) {
+            if (CURSOR_PARAM_NAMES.contains(name.toLowerCase(Locale.ROOT))) {
+                return "CURSOR";
+            }
+        }
+        return "";
     }
 
     private static boolean hasResponseParameter(JavaMethod method) {

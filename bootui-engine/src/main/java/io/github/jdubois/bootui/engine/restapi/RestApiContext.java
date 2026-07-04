@@ -14,7 +14,7 @@ record RestApiContext(
         List<ControllerModel> controllers,
         List<HandlerMethodModel> handlers,
         List<ExceptionHandlerModel> exceptionHandlers,
-        boolean springdocPresent,
+        boolean openApiAnnotationsPresent,
         boolean hasExceptionHandling,
         List<String> responseStatusExceptionClasses,
         RestApiModel.Framework framework) {

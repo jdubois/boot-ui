@@ -143,7 +143,10 @@ class RestApiHandlerModelBuilderTests {
         assertThat(createWidget.effectiveConsumes()).isEmpty();
 
         HandlerMethodModel patchWidget = handler(model, "patchWidget");
-        assertThat(patchWidget.effectiveConsumes()).contains("application/json");
+        assertThat(patchWidget.effectiveConsumes()).contains("application/xml");
+
+        HandlerMethodModel patchWidgetJson = handler(model, "patchWidgetJson");
+        assertThat(patchWidgetJson.effectiveConsumes()).contains("application/json");
 
         HandlerMethodModel removeWidget = handler(model, "removeWidget");
         assertThat(removeWidget.serializesBody()).isTrue();

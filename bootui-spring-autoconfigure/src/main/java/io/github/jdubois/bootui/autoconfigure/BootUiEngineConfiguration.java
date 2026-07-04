@@ -150,7 +150,9 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     RestApiScanner bootUiRestApiScanner(BasePackageProvider basePackageProvider) {
         // Live policy: base packages are re-read on every scan via the shared BasePackageProvider SPI, the
-        // springdoc/OpenAPI presence is probed live, and the ArchUnit import runs only on demand (POST /scan).
+        // OpenAPI annotation presence (Swagger's @Operation, honored by springdoc) is probed live, and the
+        // ArchUnit import runs only on demand (POST /scan). The Quarkus adapter probes for the equivalent
+        // MicroProfile OpenAPI @Operation annotation instead (see BootUiEngineProducer).
         return RestApiScanner.usingClasspath(
                 basePackageProvider::basePackages,
                 () -> ClassUtils.isPresent(

@@ -15,8 +15,9 @@ class RestApiScannerTests {
     private static final String FIXTURES = "io.github.jdubois.bootui.engine.restapi.fixtures";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC);
 
-    private RestApiScanner scanner(List<String> basePackages, boolean springdocPresent) {
-        return new RestApiScanner(() -> basePackages, new ClassFileRestApiImporter(), () -> springdocPresent, CLOCK);
+    private RestApiScanner scanner(List<String> basePackages, boolean openApiAnnotationsPresent) {
+        return new RestApiScanner(
+                () -> basePackages, new ClassFileRestApiImporter(), () -> openApiAnnotationsPresent, CLOCK);
     }
 
     @Test
