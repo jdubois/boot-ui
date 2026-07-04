@@ -23,7 +23,7 @@ import org.springframework.security.web.FilterChainProxy;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 52;
+    private static final int RULE_COUNT = 57;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -55,6 +55,9 @@ class SecurityScannerTests {
                 false,
                 false,
                 false,
+                List.of(),
+                false,
+                false,
                 environment);
         SecurityScanner scanner = new SecurityScanner(context, CLOCK);
 
@@ -81,9 +84,10 @@ class SecurityScannerTests {
                         "SEC-ACT-001",
                         "SEC-CONFIG-001",
                         "SEC-CONFIG-007");
-        // Results are ordered by severity; the first finding must be CRITICAL (spring.security.user.password is a
-        // literal, matching SEC-CONFIG-007).
-        assertThat(report.results().get(0).severity()).isEqualTo("CRITICAL");
+        // Results are ordered by severity; the first finding must be HIGH (spring.security.user.password is a
+        // literal, matching SEC-CONFIG-007 -- HardcodedSecretPropertyRule's severity, since NoOpPasswordEncoderRule
+        // is the only remaining CRITICAL rule and no NoOp encoder is configured here).
+        assertThat(report.results().get(0).severity()).isEqualTo("HIGH");
         // The severity histogram leads with CRITICAL so promoted rules sort and count correctly.
         assertThat(report.severityCounts())
                 .extracting("severity")
@@ -110,7 +114,9 @@ class SecurityScannerTests {
                         "XContentTypeOptionsHeaderWriter",
                         "ContentSecurityPolicyHeaderWriter",
                         "ReferrerPolicyHeaderWriter",
-                        "PermissionsPolicyHeaderWriter"));
+                        "PermissionsPolicyHeaderWriter",
+                        "CrossOriginOpenerPolicyHeaderWriter",
+                        "CrossOriginEmbedderPolicyHeaderWriter"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
@@ -123,6 +129,9 @@ class SecurityScannerTests {
                 List.of(),
                 true,
                 false,
+                false,
+                false,
+                List.of(),
                 false,
                 false,
                 environment);
@@ -154,7 +163,9 @@ class SecurityScannerTests {
                         "XContentTypeOptionsHeaderWriter",
                         "ContentSecurityPolicyHeaderWriter",
                         "ReferrerPolicyHeaderWriter",
-                        "PermissionsPolicyHeaderWriter"));
+                        "PermissionsPolicyHeaderWriter",
+                        "CrossOriginOpenerPolicyHeaderWriter",
+                        "CrossOriginEmbedderPolicyHeaderWriter"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
@@ -169,6 +180,9 @@ class SecurityScannerTests {
                 List.of(),
                 true,
                 false,
+                false,
+                false,
+                List.of(),
                 false,
                 false,
                 environment);
@@ -200,7 +214,9 @@ class SecurityScannerTests {
                         "XContentTypeOptionsHeaderWriter",
                         "ContentSecurityPolicyHeaderWriter",
                         "ReferrerPolicyHeaderWriter",
-                        "PermissionsPolicyHeaderWriter"));
+                        "PermissionsPolicyHeaderWriter",
+                        "CrossOriginOpenerPolicyHeaderWriter",
+                        "CrossOriginEmbedderPolicyHeaderWriter"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui")
@@ -217,6 +233,9 @@ class SecurityScannerTests {
                 List.of(),
                 true,
                 false,
+                false,
+                false,
+                List.of(),
                 false,
                 false,
                 environment);
@@ -247,6 +266,23 @@ class SecurityScannerTests {
     }
 
     @Test
+    void scanReportsNoActuatorFindingsWhenExcludeFullyHardensAWildcardInclude() {
+        // include=* alongside an exclude naming every sensitive endpoint is Spring Boot's own
+        // documented hardening pattern (expose everything except an explicit deny-list); none of
+        // SEC-ACT-001/002/003/006 should fire once the effective exposed set is empty.
+        MockEnvironment environment = resourceServerEnvironment()
+                .withProperty("management.endpoints.web.exposure.include", "*")
+                .withProperty(
+                        "management.endpoints.web.exposure.exclude",
+                        "env,beans,configprops,heapdump,threaddump,shutdown,loggers,mappings");
+        SecurityReport report = new SecurityScanner(hardenedContext(List.of(), environment), CLOCK).scan();
+
+        assertThat(report.results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-ACT-001", "SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-006");
+    }
+
+    @Test
     void scanReturnsStableDisabledReportWhenNoFilterChainProxyIsAvailable() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
         SecurityScanner scanner = new SecurityScanner(
@@ -274,6 +310,9 @@ class SecurityScannerTests {
                 List.of(),
                 false,
                 false,
+                false,
+                false,
+                List.of(),
                 false,
                 false,
                 new MockEnvironment());
@@ -398,7 +437,9 @@ class SecurityScannerTests {
                         "XContentTypeOptionsHeaderWriter",
                         "ContentSecurityPolicyHeaderWriter",
                         "ReferrerPolicyHeaderWriter",
-                        "PermissionsPolicyHeaderWriter"));
+                        "PermissionsPolicyHeaderWriter",
+                        "CrossOriginOpenerPolicyHeaderWriter",
+                        "CrossOriginEmbedderPolicyHeaderWriter"));
     }
 
     private static MockEnvironment resourceServerEnvironment() {
@@ -418,12 +459,27 @@ class SecurityScannerTests {
                 false,
                 false,
                 false,
+                List.of(),
+                false,
+                false,
                 environment);
     }
 
     private static SecurityContext contextWith(FilterChainModel chain, MockEnvironment environment) {
         return new SecurityContext(
-                List.of(chain), List.of(), List.of(), false, List.of(), true, false, false, false, environment);
+                List.of(chain),
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                true,
+                false,
+                false,
+                false,
+                List.of(),
+                false,
+                false,
+                environment);
     }
 
     @Test
@@ -464,7 +520,19 @@ class SecurityScannerTests {
 
     private static SecurityContext emptyContext() {
         return new SecurityContext(
-                List.of(), List.of(), List.of(), false, List.of(), false, false, false, false, new MockEnvironment());
+                List.of(),
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                false,
+                false,
+                new MockEnvironment());
     }
 
     private static SecurityRuleDefinition testRuleDefinition() {
