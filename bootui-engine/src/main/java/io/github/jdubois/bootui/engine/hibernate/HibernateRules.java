@@ -743,6 +743,18 @@ final class OpenInViewRule extends AbstractHibernateRule {
                         "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-in-view"));
     }
 
+    /**
+     * Also checked by SPRING-JPA-001 ({@code OpenSessionInViewEnabledRule}) in the Spring Application
+     * Advisor, which additionally skips when no JPA {@code EntityManagerFactory} or servlet web
+     * context is present — a guard this rule cannot reproduce, since "is this a servlet web
+     * application" is a framework-specific concept the framework-neutral engine cannot see (and on
+     * Quarkus, which has no Open-Session-in-View mechanism at all, the property lookup below simply
+     * never reports it enabled, so the rule is already inert there without needing that guard). Both
+     * rules are kept deliberately: they serve two independently-browsable UI panels (Hibernate vs.
+     * Spring), and the {@link HibernateContext#isProductionProfileActive()} escalation below is
+     * mirrored from SPRING-JPA-001 so the two panels report the same severity for the same
+     * misconfiguration.
+     */
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         Boolean value = context.booleanProperty("spring.jpa.open-in-view");
@@ -750,9 +762,11 @@ final class OpenInViewRule extends AbstractHibernateRule {
             return pass();
         }
         String detail = value == null
-                ? "spring.jpa.open-in-view is not set, so Spring Boot's web default enables it."
-                : "spring.jpa.open-in-view=true is enabled.";
-        return violation(List.of(detail));
+                ? "spring.jpa.open-in-view is not set and defaults to enabled, keeping a persistence context open"
+                        + " for the entire web request."
+                : "spring.jpa.open-in-view=true keeps a persistence context open for the entire web request.";
+        String severity = context.isProductionProfileActive() ? HibernateRuleSupport.HIGH : HibernateRuleSupport.MEDIUM;
+        return violation(severity, detail);
     }
 }
 

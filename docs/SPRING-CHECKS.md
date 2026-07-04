@@ -74,7 +74,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WIRING-008 - Avoid components in the default package
 
 - **Severity**: MEDIUM
-- **Detects**: Detects application beans whose class lives in the default (unnamed) package. A class there forces component scanning to scan the entire classpath, slows startup, and breaks several Spring features.
+- **Detects**: Detects application beans whose class lives in the default (unnamed) package. A class there forces component scanning to scan the entire classpath, slows startup, and breaks several Spring features. This inspects the live bean registry, so it also catches an unannotated class wired up via an `@Bean` factory method - a case the Architecture panel's ARCH-SPRING-005 (a static ArchUnit scan restricted to classes directly annotated with a Spring stereotype) cannot see, since the plain class carries no annotation for ArchUnit to match. The two checks are kept intentionally separate for this reason; see the Architecture panel for the complementary static-scan finding.
 - **Recommendation**: Move these classes into a named package (for example com.example.app) so component scanning is bounded to your application's packages.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html>
 
@@ -104,7 +104,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-CONFIG-003 - Remove renamed or deleted Spring Boot 4 properties
 
 - **Severity**: MEDIUM
-- **Detects**: Detects configuration keys that were renamed or removed in Spring Boot 4 and therefore no longer take effect, which can silently change behaviour after an upgrade. The current curated set covers spring.dao.exceptiontranslation.enabled (renamed to spring.persistence.exceptiontranslation.enabled) and common server.undertow.* keys (Undertow was removed in Spring Boot 4).
+- **Detects**: Detects configuration keys that were renamed or removed in Spring Boot 4 and therefore no longer take effect, which can silently change behaviour after an upgrade. The curated set (individually source-verified against Spring Boot 4.1.0, 41 keys) covers: common server.undertow.* keys (Undertow was removed entirely); server.error.* (renamed to spring.web.error.*); server.servlet.encoding.* except .mapping, which still works (renamed to spring.servlet.encoding.*); spring.http.client.* (renamed to spring.http.clients.*, with .factory moving to .imperative.factory); spring.data.mongodb.* connection keys such as .host/.uri/.username (renamed to spring.mongodb.*; unrelated Spring Data settings like .gridfs.* and .auto-index-creation stay under spring.data.mongodb and are not flagged); management.tracing.enabled (renamed to management.tracing.export.enabled); and spring.session.redis.* (renamed to spring.session.data.redis.*). spring.dao.exceptiontranslation.enabled is deliberately **not** included: despite Spring Boot's own deprecation metadata suggesting a rename to spring.persistence.exceptiontranslation.enabled, DataSourceTransactionManagerAutoConfiguration still reads the old key directly and it remains fully functional - the "replacement" is an unrelated property gating JPA repository exception translation.
 - **Recommendation**: Update each key to its Spring Boot 4 equivalent (the spring-boot-properties-migrator module lists the replacements at startup) and remove keys for dropped features.
 - **Learn more**: <https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide>
 
@@ -161,12 +161,12 @@ The panel is always available (a Spring application context always exists). Bean
 - **Recommendation**: If the pooling is not deliberate, remove the custom ThreadPoolTaskExecutor or replace it with a virtual-thread executor so asynchronous work benefits from virtual threads.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
-### SPRING-PERF-003 - @Async should use an explicit executor
+### SPRING-PERF-003 - @Async should use a reviewed executor
 
 - **Severity**: MEDIUM
-- **Detects**: @EnableAsync is active but no TaskExecutor bean is defined. Without virtual threads, @Async falls back to an unbounded SimpleAsyncTaskExecutor that creates a new thread per task.
-- **Recommendation**: Define a dedicated executor (or enable spring.threads.virtual.enabled) so asynchronous work runs on a bounded, monitored thread source.
-- **Learn more**: <https://docs.spring.io/spring-framework/reference/integration/scheduling.html>
+- **Detects**: @EnableAsync is active and virtual threads are not enabled, and either (a) no TaskExecutor bean exists at all - rare, since Spring Boot auto-configures one, but when it happens @Async falls back to the unbounded SimpleAsyncTaskExecutor (a new platform thread per task) - or (b) the only TaskExecutor is Spring Boot's auto-configured `applicationTaskExecutor` left at its default settings (a bounded ThreadPoolTaskExecutor with a core pool size of 8 and an effectively unbounded queue) with neither spring.task.execution.pool.core-size nor .max-size customized, so a generic default - not a size chosen for this application's @Async workload - backs every @Async method unreviewed.
+- **Recommendation**: Define a dedicated executor sized for the workload, or explicitly review and set spring.task.execution.pool.core-size / max-size instead of relying on the unreviewed default, or enable spring.threads.virtual.enabled so @Async work is not pooled at all.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
 ### SPRING-PERF-004 - Connection pool may bottleneck virtual threads
 
@@ -222,7 +222,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WEB-004 - Do not always expose error details
 
 - **Severity**: MEDIUM
-- **Detects**: An error-detail property is set to 'always', or include-exception is true, so stack traces, exception messages, binding errors, or exception types are returned in error responses to every client - a common way to leak internal implementation details. Both spring.web.error.* and legacy server.error.* prefixes are checked.
+- **Detects**: A spring.web.error.* property is set to 'always', or include-exception is true, so stack traces, exception messages, binding errors, or exception types are returned in error responses to every client - a common way to leak internal implementation details. The legacy server.error.* prefix (renamed in Spring Boot 4) is intentionally not checked here to avoid double-reporting the same misconfiguration as SPRING-CONFIG-003, which already flags the stale server.error.* keys themselves.
 - **Recommendation**: Use 'never' (or 'on-param') for include-stacktrace / include-message / include-binding-errors, and leave include-exception false, so details are not exposed to arbitrary callers.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
@@ -252,7 +252,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-JPA-001 - Disable Open Session in View
 
 - **Severity**: MEDIUM (HIGH when a production-like profile is active)
-- **Detects**: Detects a servlet JPA application where spring.jpa.open-in-view is not set (and therefore defaults to enabled) or is explicitly true. Open Session in View keeps a JPA persistence context (and often its database connection) open for the whole web request, hides lazy-loading boundaries, encourages N+1 queries, and holds connections longer under load.
+- **Detects**: Detects a servlet JPA application where spring.jpa.open-in-view is not set (and therefore defaults to enabled) or is explicitly true. Open Session in View keeps a JPA persistence context (and often its database connection) open for the whole web request, hides lazy-loading boundaries, encourages N+1 queries, and holds connections longer under load. The Hibernate panel's HIB-CONFIG-001 checks the same property and mirrors the same production-profile severity escalation, but cannot reproduce this rule's servlet/EntityManagerFactory skip-guard (a framework-neutral engine has no concept of "is this a servlet web application"); both are kept so each panel reports the finding for its own domain without contradicting the other.
 - **Recommendation**: Set spring.jpa.open-in-view=false and load the associations each request needs explicitly (fetch joins, entity graphs, or DTO projections).
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-entity-manager-in-view>
 

@@ -97,6 +97,72 @@ class SpringRulesTests {
                 .isEqualTo("PASS");
     }
 
+    // ── SPRING-PERF-003: @Async left on the unreviewed Boot-default executor ──────
+
+    @Test
+    void asyncWithoutCustomExecutorFlagsUnreviewedBootDefault() {
+        AsyncWithoutCustomExecutorRule rule = new AsyncWithoutCustomExecutorRule();
+        List<BeanRef> bootDefaultOnly = List.of(new BeanRef("applicationTaskExecutor", false));
+
+        // No @EnableAsync at all: nothing to check.
+        assertThat(rule.evaluate(context(env()).taskExecutors(bootDefaultOnly).build())
+                        .status())
+                .isEqualTo("PASS");
+
+        // Virtual threads replace the pooled executor entirely, so the rule does not apply.
+        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
+                                .asyncEnabled(true)
+                                .taskExecutors(bootDefaultOnly)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+
+        // Rare case: TaskExecutionAutoConfiguration itself is absent, so @Async falls back to the
+        // truly unbounded SimpleAsyncTaskExecutor.
+        assertThat(rule.evaluate(context(env()).asyncEnabled(true).build()).status())
+                .isEqualTo("VIOLATION");
+
+        // Common case: the only TaskExecutor is Boot's auto-configured applicationTaskExecutor, left
+        // at its default pool size — this is the real, previously-missed risk.
+        assertThat(rule.evaluate(context(env())
+                                .asyncEnabled(true)
+                                .taskExecutors(bootDefaultOnly)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+
+        // Reviewing the pool size (core-size or max-size) suppresses the finding.
+        assertThat(rule.evaluate(context(env().withProperty("spring.task.execution.pool.core-size", "16"))
+                                .asyncEnabled(true)
+                                .taskExecutors(bootDefaultOnly)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env().withProperty("spring.task.execution.pool.max-size", "32"))
+                                .asyncEnabled(true)
+                                .taskExecutors(bootDefaultOnly)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+
+        // A custom, deliberately-named executor (not the Boot default) is assumed reviewed.
+        assertThat(rule.evaluate(context(env())
+                                .asyncEnabled(true)
+                                .taskExecutors(List.of(new BeanRef("reportingExecutor", false)))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+
+        // Multiple executors are an ambiguity case handled by SPRING-WIRING-004, not this rule.
+        assertThat(rule.evaluate(context(env())
+                                .asyncEnabled(true)
+                                .taskExecutors(List.of(
+                                        new BeanRef("applicationTaskExecutor", false), new BeanRef("other", false)))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
     // ── SPRING-WIRING-006: multiple transaction managers ─────────────────────────
 
     @Test
@@ -170,16 +236,52 @@ class SpringRulesTests {
     void renamedOrRemovedPropertiesFlagged() {
         RemovedOrRenamedPropertyRule rule = new RemovedOrRenamedPropertyRule();
 
+        // spring.dao.exceptiontranslation.enabled is NOT a dead/renamed key (still read directly by
+        // DataSourceTransactionManagerAutoConfiguration), so it must never be flagged here — this
+        // guards against re-introducing that false positive.
         assertThat(rule.evaluate(context(env().withProperty("spring.dao.exceptiontranslation.enabled", "true"))
                                 .build())
                         .status())
-                .isEqualTo("VIOLATION");
+                .isEqualTo("PASS");
         assertThat(rule.evaluate(context(env().withProperty("server.undertow.threads.io", "4"))
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
-        // management.tracing.enabled is a valid Boot 4 key again, so it must no longer be flagged.
+        // management.tracing.enabled was deprecated (level: error) in favour of
+        // management.tracing.export.enabled since Boot 4.0, so it must be flagged.
         assertThat(rule.evaluate(context(env().withProperty("management.tracing.enabled", "true"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // Sample one entry from each of the other newly-added rename groups.
+        assertThat(rule.evaluate(context(env().withProperty("server.error.include-stacktrace", "always"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("server.servlet.encoding.charset", "UTF-8"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.http.client.connect-timeout", "5s"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.data.mongodb.host", "localhost"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.session.redis.namespace", "spring:session"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // server.servlet.encoding.mapping is deliberately NOT in the rename list (still works as-is).
+        assertThat(rule.evaluate(context(env().withProperty("server.servlet.encoding.mapping", "*.html"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        // spring.data.mongodb.gridfs.* is a Spring Data setting, unrelated to the connection-property
+        // rename, and must not be flagged either.
+        assertThat(rule.evaluate(context(env().withProperty("spring.data.mongodb.gridfs.database", "files"))
                                 .build())
                         .status())
                 .isEqualTo("PASS");
@@ -284,18 +386,18 @@ class SpringRulesTests {
     // ── SPRING-WEB-004 ───────────────────────────────────────────────────────────
 
     @Test
-    void errorDetailsExposedFlagsBothPrefixes() {
+    void errorDetailsExposedFlagsOnlySpringWebErrorPrefix() {
         ErrorDetailsExposedRule rule = new ErrorDetailsExposedRule();
 
         assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-stacktrace", "always"))
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("server.error.include-message", "always"))
+        assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-message", "always"))
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("server.error.include-exception", "true"))
+        assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-exception", "true"))
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
@@ -303,7 +405,19 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("server.error.include-exception", "false"))
+        assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-exception", "false"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        // server.error.* was renamed to spring.web.error.* in Boot 4 (SPRING-CONFIG-003 owns flagging
+        // the stale key itself), so it no longer has any live effect and must not be flagged here —
+        // otherwise this rule and SPRING-CONFIG-003 would double-report the exact same misconfiguration
+        // under two different rule IDs.
+        assertThat(rule.evaluate(context(env().withProperty("server.error.include-message", "always"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env().withProperty("server.error.include-exception", "true"))
                                 .build())
                         .status())
                 .isEqualTo("PASS");
