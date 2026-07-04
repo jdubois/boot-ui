@@ -179,7 +179,8 @@ iteration in the in-app browser (e.g. when using the Impeccable skill) — run t
 Open **`http://localhost:5173/bootui/`** (the Vite server) to see edits live. Point the proxy at a non-default backend
 port with `BOOTUI_API_PROXY_TARGET` (the Copilot app's `Vite UI dev server` script sets this to `$COPILOT_PORT`). State-
 changing panel actions work through the proxy because both adapters compare the `Origin`/`Host` **host only** (not port),
-so the browser's `:5173` origin is accepted against the `:8080`/`$COPILOT_PORT` host.
+so the browser's `:5173` origin is accepted against the backend's host regardless of its port (`:8080` for the Spring
+MVC sample, `:8081` for the Spring WebFlux sample, `:8082` for Quarkus, or `$COPILOT_PORT`).
 
 CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 17 — which builds both adapters, runs the
 shared conformance suite against both, runs the frontend Vitest suite through Maven, builds + augments the Quarkus sample

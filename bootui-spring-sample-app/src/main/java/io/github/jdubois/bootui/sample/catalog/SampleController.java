@@ -16,10 +16,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 @RestController
 @RequestMapping("/api/sample")
@@ -32,15 +35,18 @@ public class SampleController {
     private final ObservationRegistry observationRegistry;
     private final Counter ordersProcessedCounter;
     private final Timer orderDurationTimer;
+    private final RestClient quarkusRestClient;
 
     public SampleController(
             SampleSettings settings,
             SampleCatalog catalog,
             MeterRegistry meterRegistry,
-            ObservationRegistry observationRegistry) {
+            ObservationRegistry observationRegistry,
+            RestClient quarkusRestClient) {
         this.settings = settings;
         this.catalog = catalog;
         this.observationRegistry = observationRegistry;
+        this.quarkusRestClient = quarkusRestClient;
         this.ordersProcessedCounter = Counter.builder("sample.orders.processed")
                 .description("Sample orders processed by the BootUI demo metrics button")
                 .register(meterRegistry);
@@ -196,5 +202,42 @@ public class SampleController {
         int matchCount = matches == null ? 0 : matches.size();
         logger.info("Completed chained sample request: {} active products, {} search matches", activeCount, matchCount);
         return Map.of("activeProducts", activeCount, "searchMatches", matchCount);
+    }
+
+    /**
+     * Calls the companion BootUI Quarkus sample app's own secured, SQL-backed endpoint
+     * ({@code GET /api/secure/products}, HTTP Basic admin/admin) over plain HTTP. W3C trace-context
+     * propagation (on by default on both adapters) means this single browser click starts one trace
+     * that crosses both JVMs, so the BootUI Traces panel on this app shows a merged waterfall spanning
+     * this request and the Quarkus request it triggers -- including the Quarkus-side SQL query and
+     * authentication event -- once the Quarkus app is configured to export to this app's OTLP receiver
+     * (see the Quarkus sample's application.properties).
+     */
+    @GetMapping("/quarkus-secure-products")
+    public Map<String, Object> quarkusSecureProducts() {
+        try {
+            List<ProductSummary> products = quarkusRestClient
+                    .get()
+                    .uri("/api/secure/products")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<ProductSummary>>() {});
+            List<ProductSummary> safeProducts = products == null ? List.of() : products;
+            return Map.of(
+                    "service",
+                    "bootui-quarkus-sample",
+                    "baseUrl",
+                    settings.getQuarkusBaseUrl(),
+                    "authenticatedAs",
+                    "admin",
+                    "productCount",
+                    safeProducts.size(),
+                    "products",
+                    safeProducts);
+        } catch (RestClientException cause) {
+            throw new IllegalStateException(
+                    "Could not reach the Quarkus sample app at " + settings.getQuarkusBaseUrl()
+                            + ". Is it running? (./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev)",
+                    cause);
+        }
     }
 }

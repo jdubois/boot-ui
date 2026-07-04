@@ -407,8 +407,10 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 ### 8.2 Dev loop & CI
 
 - **Run:** `./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev` starts Quarkus dev mode and serves the console at
-  `http://localhost:8082/bootui` — the analogue of the Spring sample app's `spring-boot:run` smoke-test path. Quarkus
-  live reload replaces DevTools for the inner loop. (`-am` builds the upstream `bootui-quarkus` extension first.)
+  `http://localhost:8082/bootui` — the analogue of the Spring sample app's `spring-boot:run` smoke-test path (the sample
+  app defaults to 8082, not 8080, so it can run alongside the Spring servlet sample app (8080) and the Spring WebFlux
+  sample app (8081) for the cross-service trace demo — see `bootui-spring-sample-app/README.md`). Quarkus live reload
+  replaces DevTools for the inner loop. (`-am` builds the upstream `bootui-quarkus` extension first.)
 - **e2e:** a `bootui-quarkus-sample-app/e2e/` Playwright project mirrors `bootui-spring-sample-app/e2e/`, with one spec per
   supported panel plus `quarkus-advisor.spec.js` / `cache.spec.js`; drop specs only for the panels genuinely not shipped
   on Quarkus (`conditions`, `startup`, `spring-security`, `data`, `http-sessions`, `graalvm`, `crac`, `devtools`) covered
