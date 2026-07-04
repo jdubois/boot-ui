@@ -253,6 +253,23 @@ final class RestTemplateInUseRule extends AbstractSpringRule {
     }
 }
 
+/**
+ * Deliberately kept alongside ARCH-SPRING-005 ({@code StereotypesShouldNotResideInDefaultPackageRule}
+ * in {@code bootui-engine}'s Architecture advisor), not a duplicate: ARCH-SPRING-005 runs an ArchUnit
+ * static bytecode scan restricted to classes carrying a Spring stereotype annotation directly
+ * ({@code @Component}/{@code @Service}/{@code @Repository}/{@code @Controller}/{@code
+ * @RestController}/{@code @Configuration}), so it only ever sees classes that are themselves
+ * annotated. This rule instead inspects the live bean registry ({@code
+ * SpringContext#defaultPackageBeans()}), which flags any application-role bean in the default
+ * package regardless of annotation — for example a plain, unannotated POJO whose class happens to
+ * live in the default package but is wired up via an {@code @Bean} factory method elsewhere. Empirically
+ * verified with a throwaway ArchUnit fixture: an unannotated default-package class registered as a
+ * bean is invisible to ARCH-SPRING-005's {@code STEREOTYPE_ANNOTATED} predicate (it does not match,
+ * so the ArchUnit rule reports zero violations for it) but is caught here. Since the Spring advisor
+ * (this rule's home) and the Architecture advisor are two independently-browsable UI panels, keeping
+ * both also lets a user auditing either panel in isolation see this finding without needing to know
+ * to check the other.
+ */
 final class DefaultPackageComponentsRule extends AbstractSpringRule {
 
     DefaultPackageComponentsRule() {
@@ -359,11 +376,43 @@ final class DebugOrTraceLoggingRule extends AbstractSpringRule {
 
 final class RemovedOrRenamedPropertyRule extends AbstractSpringRule {
 
-    /** Curated, high-confidence keys that were renamed or removed in Spring Boot 4. */
+    /**
+     * Curated, individually source-verified keys that were renamed or removed in Spring Boot 4.
+     *
+     * <p>Every entry here was confirmed against the actual Spring Boot 4.1.0 {@code
+     * @ConfigurationProperties} binding classes (not just the deprecation metadata, which can be
+     * misleading — see the note below), so the old key is genuinely dead: no code path reads it
+     * anymore. Two candidates that looked like renames were deliberately excluded after source
+     * verification showed the "old" and "new" keys are actually independent, both-functioning
+     * properties, not a rename:
+     *
+     * <ul>
+     *   <li>{@code spring.dao.exceptiontranslation.enabled} — Boot's own deprecation metadata (and
+     *       the community OpenRewrite migration recipe, which is generated from that same metadata)
+     *       claims this was renamed to {@code spring.persistence.exceptiontranslation.enabled}. It
+     *       was not: {@code DataSourceTransactionManagerAutoConfiguration} (module {@code
+     *       spring-boot-jdbc}) still reads {@code spring.dao.exceptiontranslation.enabled} directly
+     *       to choose between {@code JdbcTransactionManager} and a plain {@code
+     *       DataSourceTransactionManager}. The "replacement" is a different property read by a
+     *       different auto-configuration ({@code PersistenceExceptionTranslationAutoConfiguration},
+     *       module {@code spring-boot-persistence}) that solely gates the JPA {@code @Repository}
+     *       exception-translation post-processor bean. Both properties are independently live.
+     *   <li>{@code spring.jackson.read} / {@code spring.jackson.write} — these bind {@code
+     *       Map<StreamReadFeature/StreamWriteFeature, Boolean>} (Jackson's general, format-agnostic
+     *       features); {@code spring.jackson.json.read} / {@code spring.jackson.json.write} bind a
+     *       different type ({@code Map<JsonReadFeature/JsonWriteFeature, Boolean>}, JSON-specific
+     *       features introduced by the Jackson 3 split). They are two distinct, still-functioning
+     *       property groups, not a rename.
+     * </ul>
+     *
+     * <p>This list also does not attempt to reproduce every entry from the community
+     * spring-boot-40-properties OpenRewrite recipe (96 entries): Kafka/RabbitMQ retry-property
+     * renames, the OTLP exporter namespace restructuring, and the Jackson enum-splitting keys above
+     * were reviewed but excluded as lower-confidence or requiring more per-entry verification than
+     * scoped here.
+     */
     private static final List<String[]> LEGACY_PROPERTIES = List.of(
-            new String[] {
-                "spring.dao.exceptiontranslation.enabled", "renamed to spring.persistence.exceptiontranslation.enabled"
-            },
+            // --- Undertow removed entirely in Spring Boot 4 -------------------------------------
             new String[] {
                 "server.undertow.threads.io", "Undertow was removed in Spring Boot 4; this property is ignored"
             },
@@ -375,7 +424,64 @@ final class RemovedOrRenamedPropertyRule extends AbstractSpringRule {
             },
             new String[] {
                 "server.undertow.buffer-size", "Undertow was removed in Spring Boot 4; this property is ignored"
-            });
+            },
+            // --- server.error.* -> spring.web.error.* (spring-boot-web-server) ------------------
+            new String[] {"server.error.include-binding-errors", "renamed to spring.web.error.include-binding-errors"},
+            new String[] {"server.error.include-exception", "renamed to spring.web.error.include-exception"},
+            new String[] {"server.error.include-message", "renamed to spring.web.error.include-message"},
+            new String[] {"server.error.include-path", "renamed to spring.web.error.include-path"},
+            new String[] {"server.error.include-stacktrace", "renamed to spring.web.error.include-stacktrace"},
+            new String[] {"server.error.path", "renamed to spring.web.error.path"},
+            new String[] {"server.error.whitelabel.enabled", "renamed to spring.web.error.whitelabel.enabled"},
+            // --- server.servlet.encoding.* -> spring.servlet.encoding.* (spring-boot-web-server,
+            // spring-boot-servlet) — note server.servlet.encoding.mapping is NOT renamed and still
+            // works, so it is intentionally excluded here. ---------------------------------------
+            new String[] {"server.servlet.encoding.charset", "renamed to spring.servlet.encoding.charset"},
+            new String[] {"server.servlet.encoding.enabled", "renamed to spring.servlet.encoding.enabled"},
+            new String[] {"server.servlet.encoding.force", "renamed to spring.servlet.encoding.force"},
+            new String[] {"server.servlet.encoding.force-request", "renamed to spring.servlet.encoding.force-request"},
+            new String[] {"server.servlet.encoding.force-response", "renamed to spring.servlet.encoding.force-response"
+            },
+            // --- spring.http.client.* -> spring.http.clients.* (spring-boot-http-client); note
+            // .factory moved to .imperative.factory, not a naive pluralization. -------------------
+            new String[] {"spring.http.client.connect-timeout", "renamed to spring.http.clients.connect-timeout"},
+            new String[] {"spring.http.client.factory", "renamed to spring.http.clients.imperative.factory"},
+            new String[] {"spring.http.client.read-timeout", "renamed to spring.http.clients.read-timeout"},
+            new String[] {"spring.http.client.redirects", "renamed to spring.http.clients.redirects"},
+            new String[] {"spring.http.client.ssl.bundle", "renamed to spring.http.clients.ssl.bundle"},
+            // --- spring.data.mongodb.* connection keys -> spring.mongodb.* (spring-boot-mongodb).
+            // Only these 13 connection-related keys moved; spring.data.mongodb.auto-index-creation,
+            // .field-naming-strategy, .gridfs.*, and .representation.big-decimal are unrelated
+            // Spring Data settings that still live under spring.data.mongodb and are NOT renamed. --
+            new String[] {"spring.data.mongodb.additional-hosts", "renamed to spring.mongodb.additional-hosts"},
+            new String[] {
+                "spring.data.mongodb.authentication-database", "renamed to spring.mongodb.authentication-database"
+            },
+            new String[] {"spring.data.mongodb.database", "renamed to spring.mongodb.database"},
+            new String[] {"spring.data.mongodb.host", "renamed to spring.mongodb.host"},
+            new String[] {"spring.data.mongodb.password", "renamed to spring.mongodb.password"},
+            new String[] {"spring.data.mongodb.port", "renamed to spring.mongodb.port"},
+            new String[] {"spring.data.mongodb.protocol", "renamed to spring.mongodb.protocol"},
+            new String[] {"spring.data.mongodb.replica-set-name", "renamed to spring.mongodb.replica-set-name"},
+            new String[] {"spring.data.mongodb.ssl.bundle", "renamed to spring.mongodb.ssl.bundle"},
+            new String[] {"spring.data.mongodb.ssl.enabled", "renamed to spring.mongodb.ssl.enabled"},
+            new String[] {"spring.data.mongodb.uri", "renamed to spring.mongodb.uri"},
+            new String[] {"spring.data.mongodb.username", "renamed to spring.mongodb.username"},
+            new String[] {"spring.data.mongodb.uuid-representation", "renamed to spring.mongodb.representation.uuid"},
+            // --- management.tracing.enabled -> management.tracing.export.enabled
+            // (spring-boot-micrometer-tracing) ----------------------------------------------------
+            new String[] {"management.tracing.enabled", "renamed to management.tracing.export.enabled"},
+            // --- spring.session.redis.* -> spring.session.data.redis.*
+            // (spring-boot-session-data-redis) ----------------------------------------------------
+            new String[] {"spring.session.redis.cleanup-cron", "renamed to spring.session.data.redis.cleanup-cron"},
+            new String[] {
+                "spring.session.redis.configure-action", "renamed to spring.session.data.redis.configure-action"
+            },
+            new String[] {"spring.session.redis.flush-mode", "renamed to spring.session.data.redis.flush-mode"},
+            new String[] {"spring.session.redis.namespace", "renamed to spring.session.data.redis.namespace"},
+            new String[] {"spring.session.redis.repository-type", "renamed to spring.session.data.redis.repository-type"
+            },
+            new String[] {"spring.session.redis.save-mode", "renamed to spring.session.data.redis.save-mode"});
 
     RemovedOrRenamedPropertyRule() {
         super(new SpringRuleDefinition(
@@ -595,25 +701,53 @@ final class VirtualThreadsOverriddenByPoolRule extends AbstractSpringRule {
 
 final class AsyncWithoutCustomExecutorRule extends AbstractSpringRule {
 
+    /**
+     * Bean name Spring Boot's {@code TaskExecutionAutoConfiguration} registers for its
+     * auto-configured default executor when the application defines no {@code Executor}/{@code
+     * AsyncConfigurer} of its own.
+     */
+    private static final String DEFAULT_TASK_EXECUTOR_BEAN = "applicationTaskExecutor";
+
     AsyncWithoutCustomExecutorRule() {
         super(new SpringRuleDefinition(
                 "SPRING-PERF-003",
-                "@Async should use an explicit executor",
+                "@Async should use a reviewed executor",
                 SpringCategory.PERFORMANCE,
                 "MEDIUM",
-                "@EnableAsync is active but no TaskExecutor bean is defined. Without virtual threads,"
-                        + " @Async falls back to an unbounded SimpleAsyncTaskExecutor that creates a new"
-                        + " thread per task.",
-                "Define a dedicated executor (or enable spring.threads.virtual.enabled) so asynchronous"
-                        + " work runs on a bounded, monitored thread source.",
-                "https://docs.spring.io/spring-framework/reference/integration/scheduling.html"));
+                "@EnableAsync is active but the application either defines no TaskExecutor bean at all,"
+                        + " or relies solely on Spring Boot's auto-configured 'applicationTaskExecutor' left"
+                        + " at its default pool settings — a bounded ThreadPoolTaskExecutor with a core pool"
+                        + " size of 8 and an effectively unbounded queue — sized for a generic default, not"
+                        + " this application's actual @Async workload.",
+                "Define a dedicated executor sized for the workload, or explicitly review and set"
+                        + " spring.task.execution.pool.core-size / max-size instead of relying on the"
+                        + " unreviewed default, or enable spring.threads.virtual.enabled so @Async work is"
+                        + " not pooled at all.",
+                "https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html"));
     }
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.asyncEnabled() && context.taskExecutors().isEmpty() && !context.isVirtualThreadsEnabled()) {
-            return violation("@EnableAsync is active with no TaskExecutor bean, so @Async uses the"
-                    + " unbounded SimpleAsyncTaskExecutor.");
+        if (!context.asyncEnabled() || context.isVirtualThreadsEnabled()) {
+            return pass();
+        }
+        List<BeanRef> executors = context.taskExecutors();
+        if (executors.isEmpty()) {
+            // Rare in practice: TaskExecutionAutoConfiguration always registers a default TaskExecutor
+            // bean unless it was explicitly excluded, so this branch only fires when that
+            // auto-configuration itself is absent — the one case where @Async genuinely falls back to
+            // an unbounded SimpleAsyncTaskExecutor (one new platform thread per task).
+            return violation("@EnableAsync is active with no TaskExecutor bean at all, so @Async uses the"
+                    + " unbounded SimpleAsyncTaskExecutor (a new platform thread per task).");
+        }
+        boolean onlyBootDefault = executors.size() == 1 && SpringModel.hasName(executors, DEFAULT_TASK_EXECUTOR_BEAN);
+        boolean poolSizeReviewed = context.hasProperty("spring.task.execution.pool.core-size")
+                || context.hasProperty("spring.task.execution.pool.max-size");
+        if (onlyBootDefault && !poolSizeReviewed) {
+            return violation("@EnableAsync is active but the only TaskExecutor is Boot's auto-configured"
+                    + " 'applicationTaskExecutor' left at its default size (core pool size 8, unbounded"
+                    + " queue); this single pool backs every @Async method and has not been reviewed for"
+                    + " this workload.");
         }
         return pass();
     }
@@ -882,7 +1016,11 @@ final class ErrorDetailsExposedRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext context) {
         List<String> findings = new ArrayList<>();
         for (String key : ERROR_DETAIL_KEYS) {
-            String value = context.firstProperty("spring.web.error." + key, "server.error." + key);
+            // Only spring.web.error.* is checked: server.error.* was renamed in Spring Boot 4 and no
+            // longer binds to anything (confirmed via WebProperties source), so treating it as a live
+            // fallback here would false-positive on a stale key that Boot now silently ignores.
+            // Detecting that stale key is SPRING-CONFIG-003's job (RemovedOrRenamedPropertyRule).
+            String value = context.firstProperty("spring.web.error." + key);
             if (value == null) {
                 continue;
             }
@@ -1152,6 +1290,15 @@ final class DangerousActuatorEndpointsAccessibleRule extends AbstractSpringRule 
     }
 }
 
+/**
+ * Deliberately kept alongside HIB-CONFIG-001 ({@code OpenInViewRule} in {@code bootui-engine}'s
+ * Hibernate advisor), which checks the same {@code spring.jpa.open-in-view} property but cannot
+ * reproduce this rule's skip-guard below: "is a servlet web application present" is a
+ * framework-specific concept the framework-neutral engine cannot see. Kept as two rules because they
+ * serve two independently-browsable UI panels (Spring vs. Hibernate); the production-profile severity
+ * escalation is mirrored on both sides so a user checking either panel sees the same severity for the
+ * same misconfiguration.
+ */
 final class OpenSessionInViewEnabledRule extends AbstractSpringRule {
 
     OpenSessionInViewEnabledRule() {

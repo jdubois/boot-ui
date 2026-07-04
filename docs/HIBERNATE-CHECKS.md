@@ -557,12 +557,16 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 ### HIB-CONFIG-001 - Open Session in View should be disabled
 
-- **Severity**: MEDIUM
-- **Inspects**: `spring.jpa.open-in-view`.
+- **Severity**: MEDIUM (HIGH when a production-like profile is active)
+- **Inspects**: `spring.jpa.open-in-view` and active Spring profiles.
 - **Fires when**: the property is `true` or absent, matching Spring Boot's default for web applications.
 - **Why it matters**: lazy loading after the service transaction has completed can hide missing fetch plans and move data
   access into the web layer.
 - **Recommendation**: set `spring.jpa.open-in-view=false` and fetch data inside transactional service boundaries.
+- **Note**: the Spring panel's SPRING-JPA-001 checks the same property and mirrors this same production-profile
+  escalation, but additionally skips when no JPA `EntityManagerFactory` or servlet web context is present - a
+  framework-specific guard this framework-neutral rule cannot reproduce. Both are kept so each panel reports the
+  finding for its own domain.
 
 ### HIB-CONFIG-003 - Lazy loading outside transactions should stay disabled
 

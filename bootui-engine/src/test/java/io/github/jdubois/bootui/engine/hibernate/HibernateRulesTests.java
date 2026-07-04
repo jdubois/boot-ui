@@ -245,6 +245,48 @@ class HibernateRulesTests {
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
+    // --- HIB-CONFIG-001 -----------------------------------------------------
+
+    @Test
+    void openInViewRuleFlagsExplicitTrue() {
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.open-in-view", "true");
+
+        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+    }
+
+    @Test
+    void openInViewRuleFlagsUnsetBootDefault() {
+        TestEnvironment environment = new TestEnvironment();
+
+        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+    }
+
+    @Test
+    void openInViewRulePassesWhenExplicitlyDisabled() {
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.open-in-view", "false");
+
+        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void openInViewRuleEscalatesToHighInProduction() {
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.open-in-view", "true");
+        environment.setActiveProfiles("prod");
+
+        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+    }
+
     // --- HIB-CONFIG-008 -----------------------------------------------------
 
     @Test
