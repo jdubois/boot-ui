@@ -10,6 +10,7 @@ import io.opentelemetry.sdk.trace.SpanProcessor;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
+import org.eclipse.microprofile.config.Config;
 
 /**
  * OpenTelemetry capture wiring for the Quarkus adapter: produces the in-process {@link SpanProcessor} that

@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
  */
 class SpanEnrichmentTests {
 
-    private static final SelfTelemetryClassifier SELF = SelfTelemetryClassifier.forPaths("/bootui", "/bootui/api");
+    private static final SelfTelemetryClassifier SELF = new SelfTelemetryClassifier(true, "/bootui", "/bootui/api");
 
     private static final TelemetrySettings ENABLED = TelemetrySettings.of(true, false, 500, 500, 4096);
 
