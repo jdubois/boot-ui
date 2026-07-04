@@ -187,6 +187,32 @@ on Quarkus once persistence is switched on. The runtime "Use the existing dataso
 identically on Quarkus: the same engine-level `ActivitySwitchService` backs a thin JAX-RS mirror of Spring's endpoint,
 so the tip, button, and confirmation flow behave the same regardless of adapter.
 
+An alternative to shared-JDBC persistence exists for topologies where instances should not share a database at all:
+setting `bootui.activity.forwarding.enabled=true` turns an instance into a forwarding **sender** instead of (or in the
+absence of) a durable store — it still captures its own merged Live Activity feed exactly as above, but instead of
+writing to a local table it buffers captured entries and ships them over plain HTTP to a peer instance's
+`bootui.activity.forwarding.peer-base-url`, which appends them straight into its own existing `ActivityStore` (in
+practice a durable, JDBC-persistence-enabled one, since that is what makes the forwarded history survive a restart on
+the receiving side). This is the natural fit for, say, a Quarkus service that wants its activity centralized on a
+separate Spring instance's dashboard without either process needing access to the other's database, or without a
+shared database existing at all. The sender's own `appendBatch` never blocks on the network: entries are buffered and
+flushed on a schedule (`bootui.activity.forwarding.flush-interval`, 5 seconds by default) exactly the way durable
+persistence buffers writes above, with the same retry-with-requeue-on-failure and bounded-drop-under-sustained-outage
+behavior, so a temporarily unreachable peer degrades gracefully rather than losing data silently or growing without
+bound. Forwarding is **write-only** in this version: the sending instance's own panel still only shows its bounded
+local view — the forwarded history lives in, and is only browsable through, the receiver's own Live Activity panel,
+tagged with the sender's `instanceId` the same way multiple instances sharing one JDBC table are distinguished today
+— so there is no "switch instance" picker to view a peer's forwarded data from the sender's own panel. Enabling both
+`bootui.activity.persistence.enabled` and `bootui.activity.forwarding.enabled` on the same instance is rejected at
+startup, since an instance is either a durable store or a forwarding sender, never both. Because the caller is another
+BootUI process rather than a browser, the receiving `POST /bootui/api/activity/forward` endpoint still inherits
+BootUI's full loopback filter, Host allow-list, and cross-site write defenses like every other endpoint, plus an
+optional `bootui.activity.forwarding.shared-secret` bearer token checked as defense-in-depth against a widened network
+perimeter turning this into an open data-injection endpoint. In this version the receiving endpoint exists only on the
+Spring adapter — Quarkus can be a forwarding **sender**, wiring its own capture poller identically to the persistence
+path above, but is not yet a **receiver** — so the natural topology today is a Quarkus sender forwarding to a Spring
+receiver. See `docs/PROPERTIES.md` for the full list of `bootui.activity.forwarding.*` properties.
+
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
 ### GitHub
