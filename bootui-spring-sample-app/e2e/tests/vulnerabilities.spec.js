@@ -136,7 +136,7 @@ function dependency(groupId, artifactId, version) {
   }
 }
 
-function vulnerability(id, severity, summary, fixedVersion, aliases = []) {
+function vulnerability(id, severity, summary, fixedVersion, aliases = [], fixAvailable = true) {
   return {
     id,
     summary,
@@ -145,6 +145,11 @@ function vulnerability(id, severity, summary, fixedVersion, aliases = []) {
     score: null,
     aliases,
     references: ['https://example.com/advisory'],
-    fixedVersions: [fixedVersion]
+    fixedVersions: [fixedVersion],
+    // Every call site here uses a fixedVersion strictly newer than the mocked dependency's current
+    // version, i.e. a genuine upgrade target -- so fixAvailable defaults to true, matching what the
+    // real DependencyReports.fixAvailable() derivation would compute for these fixtures. Override it
+    // explicitly for a scenario that should render "already on a fixed version" or "No fix published yet".
+    fixAvailable
   }
 }

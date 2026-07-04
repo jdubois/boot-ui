@@ -122,6 +122,68 @@ function scanTime() {
   return formatClockTime(data.value.scan.scannedAt)
 }
 
+function formatScore(score) {
+  return score != null ? score.toFixed(1) : null
+}
+
+function formatEpssPercent(score) {
+  return score != null ? `${(score * 100).toFixed(1)}%` : null
+}
+
+// Ordinal suffix (1st, 2nd, 3rd, 4th, 11th, 12th, 13th, ...) for the EPSS percentile tooltip.
+function ordinal(n) {
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`
+  switch (n % 10) {
+    case 1:
+      return `${n}st`
+    case 2:
+      return `${n}nd`
+    case 3:
+      return `${n}rd`
+    default:
+      return `${n}th`
+  }
+}
+
+function epssBadgeText(vulnerability) {
+  const percent = formatEpssPercent(vulnerability.epssScore)
+  return percent ? `${percent} EPSS` : null
+}
+
+// FIRST.org EPSS (https://www.first.org/epss/) estimates likelihood-of-exploitation in the next 30
+// days, complementing CVSS's severity-if-exploited score. Only set for CVE-aliased advisories.
+function epssTooltip(vulnerability) {
+  const percent = formatEpssPercent(vulnerability.epssScore)
+  if (!percent) return ''
+  if (vulnerability.epssPercentile == null) {
+    return `${percent} likelihood of exploitation in the next 30 days (EPSS)`
+  }
+  const percentile = ordinal(Math.round(vulnerability.epssPercentile * 100))
+  return `${percent} likelihood of exploitation in the next 30 days, ${percentile} percentile (EPSS)`
+}
+
+const aliasLinkBuilders = [
+  {prefix: 'CVE-', href: (alias) => `https://nvd.nist.gov/vuln/detail/${alias}`},
+  {prefix: 'GHSA-', href: (alias) => `https://github.com/advisories/${alias}`}
+]
+
+function aliasHref(alias) {
+  const builder = aliasLinkBuilders.find((entry) => alias.startsWith(entry.prefix))
+  return builder ? builder.href(alias) : null
+}
+
+// Precomputes each alias's link + separator so the template can do a plain single-variable
+// v-for (no index arithmetic inline, which vue-tsc can't reliably type against a loosely-typed
+// prop array).
+function aliasItems(vulnerability) {
+  return vulnerability.aliases.map((alias, index) => ({
+    alias,
+    href: aliasHref(alias),
+    showSeparator: index > 0
+  }))
+}
+
 async function loadDependencies() {
   try {
     data.value = await getJson('api/vulnerabilities')
@@ -279,9 +341,19 @@ onMounted(loadDependencies)
                       class="mb-2"
                     >
                       <div class="d-flex flex-wrap align-items-center gap-2">
-                        <span :class="severityClass(vulnerability.severity)" class="badge">{{
-                          vulnerability.severity
-                        }}</span>
+                        <span :class="severityClass(vulnerability.severity)" class="badge">
+                          {{ vulnerability.severity
+                          }}<template v-if="formatScore(vulnerability.score)">
+                            · {{ formatScore(vulnerability.score) }}</template
+                          >
+                        </span>
+                        <span
+                          v-if="epssBadgeText(vulnerability)"
+                          :title="epssTooltip(vulnerability)"
+                          class="badge text-bg-light border"
+                        >
+                          <i class="bi-graph-up-arrow me-1"></i>{{ epssBadgeText(vulnerability) }}
+                        </span>
                         <a
                           v-if="vulnerability.references.length"
                           :href="vulnerability.references[0]"
@@ -291,9 +363,16 @@ onMounted(loadDependencies)
                           {{ vulnerability.id }}
                         </a>
                         <span v-else class="fw-semibold">{{ vulnerability.id }}</span>
-                        <span v-if="vulnerability.fixedVersions.length" class="small text-muted">
+                        <span
+                          v-if="vulnerability.fixedVersions.length && vulnerability.fixAvailable"
+                          class="small text-muted"
+                        >
                           fixed in {{ vulnerability.fixedVersions.join(', ') }}
                         </span>
+                        <span v-else-if="vulnerability.fixedVersions.length" class="small text-muted">
+                          already on a fixed version (&ge; {{ vulnerability.fixedVersions.join(', ') }})
+                        </span>
+                        <span v-else class="small text-muted fst-italic">No fix published yet</span>
                         <span v-if="vulnerability.dismissed" class="badge text-bg-light border">Dismissed</span>
                         <button
                           :disabled="dismissLoading"
@@ -310,7 +389,11 @@ onMounted(loadDependencies)
                         {{ vulnerability.summary || vulnerability.details || 'No advisory summary available.' }}
                       </div>
                       <div v-if="vulnerability.aliases.length" class="small text-muted">
-                        {{ vulnerability.aliases.join(', ') }}
+                        <template v-for="item in aliasItems(vulnerability)" :key="item.alias">
+                          <span v-if="item.showSeparator">, </span>
+                          <a v-if="item.href" :href="item.href" rel="noreferrer" target="_blank">{{ item.alias }}</a>
+                          <span v-else>{{ item.alias }}</span>
+                        </template>
                       </div>
                     </div>
                   </div>

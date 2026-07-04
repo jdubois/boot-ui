@@ -462,17 +462,51 @@ ordered by severity first (dismissed findings sink to the bottom regardless of s
 advisories alphabetized within the same severity.
 
 Severity is derived from [OSV.dev](https://osv.dev/)'s `severity[]` entries, whose `score` field is a CVSS vector string
-for `CVSS_V3`/`CVSS_V4` types (for example `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`), never a bare number. A CVSS
-v3.0/v3.1 vector is parsed into a real numeric Base Score using the formula from the
+for `CVSS_V3`/`CVSS_V4` types (for example `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`), never a bare number. Per the
+[OSV schema](https://ossf.github.io/osv-schema/#severity), a package-level `affected[].severity` entry — when present for
+the specific dependency being scored — takes priority over the advisory's top-level `severity[]` (the schema states the
+two are mutually exclusive, and some advisories only carry severity at the package level), so the scanner looks there
+first before falling back to the top-level array. A CVSS v3.0/v3.1 vector (from either level) is parsed into a real
+numeric Base Score using the formula from the
 [FIRST.org CVSS v3.1 specification](https://www.first.org/cvss/v3-1/specification-document); CVSS v4.0 has no
 closed-form Base Score equation (its MacroVector lookup table is a much larger undertaking) and legacy CVSS v2 is
 essentially unseen in real Maven-ecosystem OSV advisories, so both fall back to the advisory's
 `database_specific.severity` label (`CRITICAL`/`HIGH`/`MODERATE`/`LOW`, normalized to BootUI's `MEDIUM` label) when no
-v3 score is present. An advisory with neither a parseable CVSS v3 score nor a `database_specific` label renders as
-`UNKNOWN` rather than being silently dropped. Advisories carrying a `withdrawn` timestamp are excluded from results
-entirely, since OSV does not filter withdrawn records out of its API responses itself. A single advisory detail fetch
-that fails (network hiccup, rate limiting) no longer aborts the whole scan: it is counted and the scan degrades to
-`PARTIAL`, keeping every advisory that *did* fetch successfully instead of discarding the whole result.
+v3 score is present at either level. An advisory with neither a parseable CVSS v3 score nor a `database_specific` label
+renders as `UNKNOWN` rather than being silently dropped. Advisories carrying a `withdrawn` timestamp are excluded from
+results entirely, since OSV does not filter withdrawn records out of its API responses itself. A single advisory detail
+fetch that fails (network hiccup, rate limiting) no longer aborts the whole scan: it is counted and the scan degrades to
+`PARTIAL`, keeping every advisory that *did* fetch successfully instead of discarding the whole result. Advisory detail
+fetches (`GET /v1/vulns/{id}`) run with a small bounded concurrency (up to 10 at a time) rather than one at a time, so a
+dependency tree with many distinct advisories no longer risks a scan taking up to `maxAdvisories` times the request
+timeout in a bad-network scenario; OSV.dev documents no rate limit for this endpoint.
+
+OSV's `/v1/querybatch` endpoint paginates when an individual query matches more than 1,000 vulnerabilities or the whole
+batch exceeds 3,000 total, returning a `next_page_token` per affected query. The scanner follows that token with
+follow-up `/v1/querybatch` calls, merging every page back into one result set, bounded by a fixed page-count safety
+limit so a pathological advisory can't loop the scan forever (degrading to `PARTIAL` if the bound is hit before
+pagination is exhausted, rather than silently truncating). Independently, OSV also enforces a hard limit of 1,000
+queries per `/v1/querybatch` request; the scanner partitions the (already `max-packages`-bounded) package list into
+batches of at most 1,000 before querying, so configuring `max-packages` above 1,000 no longer causes OSV to reject the
+whole batch with an HTTP 400.
+
+Each advisory whose `aliases` includes a `CVE-*` id is additionally enriched with
+[EPSS](https://www.first.org/epss/) (Exploit Prediction Scoring System) data from FIRST.org's free, unauthenticated API
+— one batched `GET /data/v1/epss?cve=...` request per scan, alongside the OSV calls, following the same
+"network call only on the user-initiated scan action" pattern. EPSS reports the modeled probability that a CVE will be
+exploited in the wild in the next 30 days, plus the percentile that probability ranks against every other scored CVE —
+a likelihood-of-exploitation signal that deliberately complements (rather than replaces) CVSS's severity-if-exploited
+score, and is rendered as a secondary badge next to the severity/CVSS badge (for example "2.3% EPSS", with a tooltip
+spelling out the percentile). EPSS lookups can be disabled independently of OSV scanning via
+`bootui.vulnerabilities.epss-enabled=false`, and a failed or unreachable EPSS request never fails the scan or discards
+the OSV results — it simply omits the badge for that scan.
+
+Each advisory also carries a derived `fixAvailable` boolean, computed by comparing the dependency's currently-resolved
+version against the advisory's `fixedVersions` with a lightweight Maven-version-aware comparison. This lets the UI
+distinguish three states unambiguously: a genuine upgrade target ("fixed in `x.y.z`"), a dependency that already sits at
+or above every fixed version OSV reported ("already on a fixed version"), and an advisory with no `fixedVersions` at all
+("No fix published yet") — previously all three collapsed into the same blank space in the UI, which was ambiguous
+between "no fix exists yet" and "we don't know."
 
 Like every other advisor, a vulnerability can be **dismissed** when it does not apply to your project (already
 patched downstream, accepted risk, or a fix not yet available upstream) — see the shared dismiss/restore explanation
@@ -484,12 +518,22 @@ patch-version bump of the still-vulnerable dependency. Dismissed vulnerabilities
 _Restore_ button) rather than disappearing, and are excluded from the per-dependency and panel-level vulnerable counts.
 
 On Quarkus the panel is identical, listing the local inventory first and contacting OSV.dev only on the user-initiated
-scan, over the same report contract, the same CVSS/withdrawn/partial-failure handling, and the same dismiss/restore
-workflow. The one platform difference is dependency discovery: the Spring adapter scans the classpath for
-`META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus runtime classloader, so the Quarkus inventory
-is captured at build time from the application's resolved runtime dependency model and read back at runtime (mirroring
-the Architecture panel's build-time base-package discovery). The OSV lookup itself is identical, and
-`bootui.vulnerabilities.osv-enabled=false` disables on-demand scanning on both adapters.
+scan, over the same report contract, the same CVSS/withdrawn/partial-failure handling, the same pagination/batch-
+chunking, the same EPSS enrichment, and the same dismiss/restore workflow. The one platform difference is dependency
+discovery: the Spring adapter scans the classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the
+Quarkus runtime classloader, so the Quarkus inventory is captured at build time from the application's resolved runtime
+dependency model and read back at runtime (mirroring the Architecture panel's build-time base-package discovery). The
+OSV and EPSS lookups are identical, and `bootui.vulnerabilities.osv-enabled=false` /
+`bootui.vulnerabilities.epss-enabled=false` disable on-demand scanning / EPSS enrichment on both adapters.
+
+Two known limitations, documented honestly rather than hidden: the dependency inventory on both adapters is
+coordinate-based (one resolved JAR = one Maven `groupId:artifactId:version`), so a vulnerable library that has been
+relocated or repackaged inside a shaded/uber JAR carries no `pom.properties`/build-time coordinate of its own and is
+invisible to the inventory — the same reduced-fidelity honesty precedent already applied to other panels (for example
+Cache, Beans). And direct-vs-transitive dependency provenance ("introduced through") is not yet tracked on either
+adapter: Quarkus could source it from its existing build-time application dependency graph, but Spring's classpath-based
+inventory has no equivalent dependency graph today (adding one would need POM/Maven-plugin integration, a much larger
+change), so this is deferred rather than shipped as a Quarkus-only asymmetry for now.
 
 ![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.webp)
 

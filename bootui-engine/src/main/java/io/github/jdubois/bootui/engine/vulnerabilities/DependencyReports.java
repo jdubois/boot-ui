@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.DependencySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -245,5 +246,97 @@ public final class DependencyReports {
                 (int) activeCount,
                 highestSeverity(markedVulnerabilities),
                 markedVulnerabilities);
+    }
+
+    /**
+     * Whether at least one of {@code fixedVersions} is newer than {@code currentVersion}, using the
+     * lightweight {@link MavenVersionComparator} (BootUI takes no dependency on Maven's own
+     * {@code ComparableVersion}). Backs {@link DependencyVulnerabilityDto#fixAvailable()}, which lets the UI
+     * distinguish "OSV reports no fix yet" ({@code fixedVersions} empty &mdash; this returns {@code false})
+     * from a genuine upgrade target.
+     *
+     * <p>An inconclusive per-version comparison (blank/unparseable input) is treated as "a fix is
+     * available": OSV positively reported a {@code fixed} event for this advisory, so failing to parse the
+     * version string is not grounds to hide that signal.
+     *
+     * @return {@code false} when {@code fixedVersions} is {@code null}/empty; otherwise {@code true} unless
+     *     every entry can be positively confirmed to be no newer than {@code currentVersion}
+     */
+    public static boolean fixAvailable(String currentVersion, List<String> fixedVersions) {
+        if (fixedVersions == null || fixedVersions.isEmpty()) {
+            return false;
+        }
+        for (String fixedVersion : fixedVersions) {
+            Integer compared = MavenVersionComparator.compare(currentVersion, fixedVersion);
+            if (compared == null || compared < 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Every distinct {@code CVE-*} alias referenced by any vulnerability across {@code dependencies},
+     * preserving first-seen order. Feeds an adapter's batched FIRST.org EPSS lookup (one request per scan,
+     * mirroring the OSV batch query) &mdash; EPSS is scored only per-CVE, so non-CVE aliases (bare
+     * {@code GHSA-*}/{@code OSV-*} ids with no CVE cross-reference) are not included.
+     */
+    public static List<String> cveAliases(List<DependencyDto> dependencies) {
+        Set<String> ids = new LinkedHashSet<>();
+        for (DependencyDto dependency : dependencies) {
+            for (DependencyVulnerabilityDto vulnerability : dependency.vulnerabilities()) {
+                for (String alias : vulnerability.aliases()) {
+                    if (alias != null && alias.startsWith("CVE-")) {
+                        ids.add(alias);
+                    }
+                }
+            }
+        }
+        return List.copyOf(ids);
+    }
+
+    /**
+     * Returns a copy of {@code dependencies} with each vulnerability's {@code epssScore}/{@code
+     * epssPercentile} set from the first of its {@code aliases} found in {@code epssByCve} &mdash; the
+     * counterpart to {@link #cveAliases} on the write side of the same adapter-fetched EPSS lookup. A
+     * vulnerability whose alias(es) have no entry in {@code epssByCve} (lookup disabled, failed, or the CVE
+     * has no published EPSS score) is returned unchanged, i.e. with {@code null} EPSS fields.
+     *
+     * @return {@code dependencies} unchanged if {@code epssByCve} is {@code null}/empty
+     */
+    public static List<DependencyDto> applyEpssScores(
+            List<DependencyDto> dependencies, Map<String, EpssScore> epssByCve) {
+        if (epssByCve == null || epssByCve.isEmpty()) {
+            return dependencies;
+        }
+        return dependencies.stream()
+                .map(dependency -> applyEpssScores(dependency, epssByCve))
+                .toList();
+    }
+
+    private static DependencyDto applyEpssScores(DependencyDto dependency, Map<String, EpssScore> epssByCve) {
+        List<DependencyVulnerabilityDto> updated = dependency.vulnerabilities().stream()
+                .map(vulnerability -> applyEpssScore(vulnerability, epssByCve))
+                .toList();
+        return new DependencyDto(
+                dependency.groupId(),
+                dependency.artifactId(),
+                dependency.version(),
+                dependency.packageName(),
+                dependency.source(),
+                dependency.vulnerabilityCount(),
+                dependency.highestSeverity(),
+                updated);
+    }
+
+    private static DependencyVulnerabilityDto applyEpssScore(
+            DependencyVulnerabilityDto vulnerability, Map<String, EpssScore> epssByCve) {
+        for (String alias : vulnerability.aliases()) {
+            EpssScore epssScore = epssByCve.get(alias);
+            if (epssScore != null) {
+                return vulnerability.withEpss(epssScore.probability(), epssScore.percentile());
+            }
+        }
+        return vulnerability;
     }
 }
