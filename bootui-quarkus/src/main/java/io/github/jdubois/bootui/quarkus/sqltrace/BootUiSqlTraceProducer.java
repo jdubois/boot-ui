@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.sqltrace;
 import io.agroal.api.AgroalDataSource;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
+import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.agroal.runtime.AgroalDataSourceUtil;
 import io.quarkus.datasource.common.runtime.DataSourceUtil;
@@ -37,7 +38,8 @@ public class BootUiSqlTraceProducer {
 
     @Produces
     @Singleton
-    public SqlTraceRecorder sqlTraceRecorder(Config config, Instance<TraceIdProvider> traceIdProvider) {
+    public SqlTraceRecorder sqlTraceRecorder(
+            Config config, Instance<TraceIdProvider> traceIdProvider, Instance<SpanEnricher> spanEnricher) {
         boolean enabled = config.getOptionalValue("bootui.sql-trace.enabled", Boolean.class)
                 .orElse(true);
         boolean recording = config.getOptionalValue("bootui.sql-trace.recording", Boolean.class)
@@ -73,6 +75,12 @@ public class BootUiSqlTraceProducer {
         // is unresolvable and the recorder keeps its default (null trace id → flat feed).
         if (traceIdProvider.isResolvable()) {
             recorder.setTraceIdProvider(traceIdProvider.get());
+        }
+        // When OpenTelemetry is present, install the span enricher so each recorded statement stamps
+        // bootui.sql.* depth on the active request span for the cross-service trace waterfall. Absent
+        // OpenTelemetry the enricher is unresolvable and the recorder keeps the neutral no-op.
+        if (spanEnricher.isResolvable()) {
+            recorder.setSpanEnricher(spanEnricher.get());
         }
         return recorder;
     }
