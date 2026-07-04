@@ -43,17 +43,17 @@ public final class RestApiScanner {
 
     private final Supplier<List<String>> basePackagesSupplier;
     private final RestApiClassImporter importer;
-    private final BooleanSupplier springdocPresent;
+    private final BooleanSupplier openApiAnnotationsPresent;
     private final Clock clock;
 
     RestApiScanner(
             Supplier<List<String>> basePackagesSupplier,
             RestApiClassImporter importer,
-            BooleanSupplier springdocPresent,
+            BooleanSupplier openApiAnnotationsPresent,
             Clock clock) {
         this.basePackagesSupplier = basePackagesSupplier;
         this.importer = importer;
-        this.springdocPresent = springdocPresent;
+        this.openApiAnnotationsPresent = openApiAnnotationsPresent;
         this.clock = clock;
     }
 
@@ -61,12 +61,13 @@ public final class RestApiScanner {
      * Builds a scanner that imports the host application's compiled classes from the classpath, bounded
      * to the supplied base packages. This is the entry point adapters wire: the base packages are read
      * <em>live</em> on every scan (the supplier is typically backed by a {@code BasePackageProvider} SPI),
-     * the springdoc/OpenAPI presence is probed live via {@code springdocPresent}, and the ArchUnit import
-     * runs only on demand, never at construction.
+     * the OpenAPI annotation presence (Swagger or MicroProfile OpenAPI) is probed live via
+     * {@code openApiAnnotationsPresent}, and the ArchUnit import runs only on demand, never at construction.
      */
     public static RestApiScanner usingClasspath(
-            Supplier<List<String>> basePackagesSupplier, BooleanSupplier springdocPresent, Clock clock) {
-        return new RestApiScanner(basePackagesSupplier, new ClassFileRestApiImporter(), springdocPresent, clock);
+            Supplier<List<String>> basePackagesSupplier, BooleanSupplier openApiAnnotationsPresent, Clock clock) {
+        return new RestApiScanner(
+                basePackagesSupplier, new ClassFileRestApiImporter(), openApiAnnotationsPresent, clock);
     }
 
     public RestApiReport initialReport() {
@@ -146,7 +147,7 @@ public final class RestApiScanner {
                 model.controllers(),
                 model.handlers(),
                 model.exceptionHandlers(),
-                safeSpringdocPresent(),
+                safeOpenApiAnnotationsPresent(),
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.framework());
@@ -185,9 +186,9 @@ public final class RestApiScanner {
         }
     }
 
-    private boolean safeSpringdocPresent() {
+    private boolean safeOpenApiAnnotationsPresent() {
         try {
-            return springdocPresent.getAsBoolean();
+            return openApiAnnotationsPresent.getAsBoolean();
         } catch (RuntimeException | LinkageError ex) {
             return false;
         }

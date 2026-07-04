@@ -8,7 +8,7 @@ Each rule is a small class registered in
 [`RestApiRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRuleRegistry.java)
 and implemented in
 [`RestApiRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRules.java),
-both in the framework-neutral `bootui-engine` module so the same 47 rules run identically on Spring Boot and Quarkus. The
+both in the framework-neutral `bootui-engine` module so the same 51 rules run identically on Spring Boot and Quarkus. The
 list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a registry entry.
 
 ## What BootUI does
@@ -21,6 +21,13 @@ and evaluates every registered rule against that model. Importing is bounded to 
 never the entire classpath — and runs only on demand when the scan action is invoked, caching the last report in the
 controller. A handful of rules reason about Spring-only types with no JAX-RS equivalent (RFC 9457 `ProblemDetail`); on
 Quarkus those report `SKIPPED` with an explanatory reason instead of misfiring — see RAPI-ERR-003 and RAPI-ERR-006 below.
+
+The handler model unwraps common async/reactive return-type wrappers before classifying the response body, so the
+body-shape rules below (RAPI-DTO-001/002/004/005, RAPI-RESP-004, RAPI-PAGE-001/002, RAPI-NAME-002) see the real payload
+type on both frameworks: Spring's `Mono`, `CompletableFuture`, `CompletionStage`, `DeferredResult`, and `WebAsyncTask`,
+and — on Quarkus/JAX-RS — SmallRye Mutiny's `Uni`/`Multi` (the officially-promoted reactive return types for Quarkus REST
+resources) and RESTEasy Reactive's typed `RestResponse<T>`. Plain `jakarta.ws.rs.core.Response` is intentionally left
+unwrapped: it is non-generic, and Quarkus itself cannot determine its contained type at build time.
 
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
 without an extra application dependency. The panel is available only when:
@@ -50,9 +57,11 @@ Findings are ranked in the scanner's severity order:
 - `LOW`
 - `INFO`
 
-The catalogue below ships **47 rules across 8 categories** (8 HIGH, 10 MEDIUM, 18 LOW, 11 INFO; no active CRITICAL
-rules). The `RAPI-DOC-*` documentation rules only run when springdoc-openapi is on the host classpath; otherwise they are
-reported as `SKIPPED`.
+The catalogue below ships **51 rules across 8 categories** (8 HIGH, 10 MEDIUM, 18 LOW, 15 INFO; no active CRITICAL
+rules). The `RAPI-DOC-*` documentation rules only run when OpenAPI annotations are present on the host classpath —
+Swagger/springdoc-openapi (`io.swagger.v3.oas.annotations`) on Spring, or MicroProfile OpenAPI
+(`org.eclipse.microprofile.openapi.annotations`, honored by Quarkus's `quarkus-smallrye-openapi`) on either framework;
+otherwise they are reported as `SKIPPED`.
 
 ---
 
@@ -124,7 +133,7 @@ reported as `SKIPPED`.
 ### RAPI-MAP-010 - No catch-all wildcard patterns on REST handlers
 
 - **Severity**: MEDIUM
-- **Detects**: A /** or {*path} catch-all on a REST handler silently shadows sibling routes and swallows typos as 200 OK responses, masking 404s and making API discovery unreliable.
+- **Detects**: A /** or {*path} catch-all on a REST handler silently shadows sibling routes and swallows typos as 200 OK responses, masking 404s and making API discovery unreliable. On JAX-RS/Quarkus, also flags the equivalent regex catch-all path-parameter template (e.g. {path:.*} or {path:.+}); a constrained template such as {id:[0-9]+} is not flagged.
 - **Recommendation**: Map each endpoint explicitly; use a dedicated wildcard handler only for truly generic forwarding outside the REST API surface.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
@@ -147,7 +156,7 @@ reported as `SKIPPED`.
 ### RAPI-NAME-002 - Collections use plural nouns
 
 - **Severity**: INFO
-- **Detects**: Endpoints returning a collection but addressed with a singular noun read inconsistently (/user vs /users). Uncountable or collective nouns (history, inventory, staff, info, search, news, status, etc.) are not flagged.
+- **Detects**: Endpoints returning a collection, Page, or Slice but addressed with a singular noun read inconsistently (/user vs /users). Uncountable or collective nouns (history, inventory, staff, info, search, news, status, etc.) are not flagged.
 - **Recommendation**: Use plural nouns for collection resources and keep singular forms for single-item paths.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
 
@@ -228,7 +237,7 @@ reported as `SKIPPED`.
 ### RAPI-VALID-001 - @RequestBody is validated
 
 - **Severity**: HIGH
-- **Detects**: A complex @RequestBody parameter without @Valid/@Validated is bound without bean-validation, so malformed payloads reach the business logic unchecked.
+- **Detects**: A complex @RequestBody parameter without @Valid/@Validated is bound without bean-validation, so malformed payloads reach the business logic unchecked. On JAX-RS, only a parameter-level @Valid counts — a class-level @Validated is not a meaningful JAX-RS idiom and is no longer treated as a substitute, keeping both framework paths symmetric.
 - **Recommendation**: Annotate @RequestBody parameters with @Valid (or @Validated) and declare constraints on the DTO.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html>
 
@@ -253,6 +262,13 @@ reported as `SKIPPED`.
 - **Recommendation**: Declare each accepted query parameter explicitly with a typed @RequestParam so the contract is self-documenting and validatable.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html>
 
+### RAPI-VALID-005 - Consider an Idempotency-Key header on creation endpoints
+
+- **Severity**: INFO
+- **Detects**: A POST creation endpoint (method name starting with create/add/save/insert/register/new) has no client-supplied Idempotency-Key header (@RequestHeader on Spring, @HeaderParam/@RestHeader on JAX-RS), so a client cannot safely retry the request after a network failure without risking a duplicate resource. The Idempotency-Key HTTP header is still an IETF HTTPAPI working-group Internet-Draft, but it formalises a pattern already used by Stripe, PayPal, and Azure.
+- **Recommendation**: Worth a design review: accept an Idempotency-Key header and de-duplicate retried requests by that key for non-idempotent creation endpoints.
+- **Learn more**: <https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/>
+
 ## DTO & payload contracts
 
 ### RAPI-DTO-001 - Don't expose JPA entities in responses
@@ -265,7 +281,7 @@ reported as `SKIPPED`.
 ### RAPI-DTO-002 - No untyped response bodies
 
 - **Severity**: MEDIUM
-- **Detects**: Returning Map, Object, or JsonNode as the body produces an undocumented, untyped contract that clients and OpenAPI tooling cannot model.
+- **Detects**: Returning Map, Object, or JsonNode as the body produces an undocumented, untyped contract that clients and OpenAPI tooling cannot model. Recognises both Jackson 2's com.fasterxml.jackson.databind.JsonNode (Quarkus) and Jackson 3's tools.jackson.databind.JsonNode (Spring Boot 4).
 - **Recommendation**: Return a typed DTO/record instead of Map/Object/JsonNode.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
@@ -299,12 +315,19 @@ reported as `SKIPPED`.
 - **Recommendation**: Return Page or Slice when the handler accepts a Pageable, so paging metadata reaches the client.
 - **Learn more**: <https://docs.spring.io/spring-data/commons/reference/repositories/core-extensions.html>
 
+### RAPI-PAGE-003 - Consistent pagination parameter vocabulary across handlers
+
+- **Severity**: INFO
+- **Detects**: Handlers in the same application key pagination on different vocabularies (some use page/size, others offset/limit, others cursor/after/before), producing an inconsistent contract that clients must handle specially depending on which endpoint they call.
+- **Recommendation**: Settle on a single pagination parameter vocabulary (page/size, offset/limit, or cursor/after/before) and apply it uniformly across all paginated endpoints.
+- **Learn more**: <https://opensource.zalando.com/restful-api-guidelines/#pagination>
+
 ## Versioning & content negotiation
 
 ### RAPI-VER-001 - API uses a consistent versioning strategy
 
 - **Severity**: INFO
-- **Detects**: No version signal (no /vN path segment, version header/param, versioned media type, or Spring Framework 7 version attribute) was found, or only some handlers are versioned, which makes breaking changes hard to roll out consistently.
+- **Detects**: No version signal (no /vN path segment, version header/param, versioned media type, or Spring Framework 7 version attribute) was found, or only some handlers are versioned, which makes breaking changes hard to roll out consistently. Recognises JAX-RS's @HeaderParam/@QueryParam and Quarkus's @RestHeader/@RestQuery for header/query-param versioning, matching Spring's @RequestHeader/@RequestParam.
 - **Recommendation**: Adopt one versioning strategy (path, header/param, media-type, or Spring Framework 7 version attribute) and apply it across all API endpoints before the API is consumed externally.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html>
 
@@ -325,8 +348,8 @@ reported as `SKIPPED`.
 ### RAPI-VER-004 - PATCH declares a patch media type
 
 - **Severity**: INFO
-- **Detects**: A PATCH handler that declares a consumes media type other than application/merge-patch+json or application/json-patch+json does not signal which patch document format it expects.
-- **Recommendation**: Declare consumes = application/merge-patch+json (RFC 7396) or application/json-patch+json (RFC 6902) on PATCH handlers.
+- **Detects**: A PATCH handler that declares no consumes media type at all, or declares a non-JSON concrete type, does not signal which patch document format it expects. Plain `application/json` is accepted without flagging (the common, legitimate partial-update pattern used by Google/Microsoft-style APIs with an `update_mask`/`updateMask` field) since RFC 5789 does not mandate the RFC 7396/6902 media types specifically.
+- **Recommendation**: Declare an explicit consumes media type on PATCH handlers - application/merge-patch+json (RFC 7396), application/json-patch+json (RFC 6902), or plain application/json paired with a documented partial-update convention.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc5789.html>
 
 ### RAPI-VER-005 - Response-producing endpoints declare produces consistently
@@ -339,7 +362,7 @@ reported as `SKIPPED`.
 ### RAPI-VER-006 - Consistent versioning strategy across handlers
 
 - **Severity**: INFO
-- **Detects**: Handlers in the same application use different API versioning strategies (e.g. some use /vN/ path segments, others use versioned media types or version headers/params), producing an inconsistent contract that clients must handle specially.
+- **Detects**: Handlers in the same application use different API versioning strategies (e.g. some use /vN/ path segments, others use versioned media types or version headers/params), producing an inconsistent contract that clients must handle specially. Header/query-param signals are recognised on JAX-RS handlers too (see RAPI-VER-001).
 - **Recommendation**: Settle on a single versioning strategy (path, header/param, media-type, or Spring Framework 7 version attribute) and apply it uniformly.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html>
 
@@ -348,7 +371,7 @@ reported as `SKIPPED`.
 ### RAPI-ERR-001 - Centralized exception handling exists
 
 - **Severity**: MEDIUM
-- **Detects**: Controllers are present but no @RestControllerAdvice/@ControllerAdvice with @ExceptionHandler methods (or a ResponseEntityExceptionHandler subclass) was found, so error responses are likely ad-hoc and inconsistent.
+- **Detects**: Controllers are present but no @RestControllerAdvice/@ControllerAdvice with @ExceptionHandler methods (or a ResponseEntityExceptionHandler subclass) was found, so error responses are likely ad-hoc and inconsistent. On JAX-RS/Quarkus, a classic `@Provider`-annotated `ExceptionMapper<X>` or a RESTEasy Reactive `@ServerExceptionMapper`-annotated method both count as centralized handling.
 - **Recommendation**: Add a @RestControllerAdvice with @ExceptionHandler methods (or extend ResponseEntityExceptionHandler) to produce consistent error responses.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
 
@@ -369,15 +392,15 @@ reported as `SKIPPED`.
 ### RAPI-ERR-004 - Exception handlers set an explicit error status
 
 - **Severity**: MEDIUM
-- **Detects**: An @ExceptionHandler that renders a non-ProblemDetail body but neither returns ResponseEntity, declares @ResponseStatus, nor accepts a servlet response argument falls back to 200 OK, masking the failure from clients.
+- **Detects**: An @ExceptionHandler that renders a non-ProblemDetail body but neither returns ResponseEntity, declares @ResponseStatus, nor accepts a servlet response argument falls back to 200 OK, masking the failure from clients. JAX-RS's classic `ExceptionMapper<X>` and RESTEasy Reactive's `@ServerExceptionMapper` methods are now modeled the same way as Spring `@ExceptionHandler` methods, so this rule evaluates real JAX-RS exception-handling quality instead of vacuously passing.
 - **Recommendation**: Return ResponseEntity/ProblemDetail or add @ResponseStatus so the handler responds with an error status.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
 
 ### RAPI-ERR-005 - Broad @ExceptionHandler should not collapse all errors to one status
 
 - **Severity**: LOW
-- **Detects**: @ExceptionHandler(Exception.class) or Throwable mapped to a single fixed HTTP status collapses all 4xx and 5xx semantics: a validation error, a not-found, and a server fault all look the same to clients.
-- **Recommendation**: Catch specific exception types and map each to its appropriate status (e.g. 400, 404, 409, 500), or delegate to ResponseEntityExceptionHandler.
+- **Detects**: @ExceptionHandler(Exception.class) or Throwable is the only exception handler present (so every error - validation, not-found, server fault - collapses to one status), or it maps to a fixed non-5xx status. A broad catch-all mapped to a 5xx status (RFC 9110 §15.6.1) that coexists with specific handlers for other exception types is a deliberate, correct last-resort fallback and is not flagged.
+- **Recommendation**: Catch specific exception types and map each to its appropriate status (e.g. 400, 404, 409), and keep any Exception/Throwable catch-all as a last-resort fallback mapped to a 5xx status.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
 
 ### RAPI-ERR-006 - Prefer ErrorResponseException over @ResponseStatus on exceptions
@@ -387,16 +410,30 @@ reported as `SKIPPED`.
 - **Recommendation**: Replace @ResponseStatus on exception classes with ErrorResponseException (or a subclass) so all errors consistently produce RFC 9457 ProblemDetail responses.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
 
+### RAPI-ERR-007 - 429/503 responses should advertise Retry-After
+
+- **Severity**: INFO
+- **Detects**: A handler or exception handler maps to 429 Too Many Requests or 503 Service Unavailable with no statically-visible Retry-After header, leaving clients to guess when it is safe to retry. This is a weak, advisory signal: an imperatively-set header cannot be detected by static analysis, so treat this as a reminder rather than a confirmed defect.
+- **Recommendation**: Set a Retry-After header (RFC 9110 §10.2.3) alongside 429 (RFC 6585 §4) or 503 responses so clients know when to retry.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3>
+
 ### RAPI-DOC-001 - Endpoints are documented
 
 - **Severity**: INFO
-- **Detects**: springdoc-openapi is on the classpath but some handlers have no @Operation, so the generated documentation is incomplete.
+- **Detects**: OpenAPI annotations (Swagger's `@Operation`/`@Tag`, honored by springdoc-openapi on Spring, or the identical MicroProfile OpenAPI `@Operation`/`@Tag`, honored by SmallRye OpenAPI on Quarkus) are present on the classpath but some handlers have no @Operation, so the generated documentation is incomplete.
 - **Recommendation**: Add @Operation (summary/description) to handler methods to document the API.
 - **Learn more**: <https://springdoc.org/>
 
 ### RAPI-DOC-002 - Controllers are grouped/tagged
 
 - **Severity**: INFO
-- **Detects**: springdoc-openapi is on the classpath but some controllers have no @Tag, so endpoints are not grouped in the generated documentation.
+- **Detects**: OpenAPI annotations (Swagger or MicroProfile OpenAPI, see RAPI-DOC-001) are present on the classpath but some controllers have no @Tag, so endpoints are not grouped in the generated documentation.
 - **Recommendation**: Add @Tag to controllers to group their endpoints in the OpenAPI documentation.
 - **Learn more**: <https://springdoc.org/>
+
+### RAPI-DOC-003 - Deprecated endpoints signal deprecation to HTTP clients
+
+- **Severity**: INFO
+- **Detects**: A handler (or its declaring class) is annotated @Deprecated but has no accompanying @Operation(deprecated = true). @Deprecated only communicates to compile-time Java consumers; HTTP clients calling the endpoint directly need an out-of-band signal (RFC 8594 Sunset header, or the still-draft Deprecation header). Skipped when no OpenAPI annotations are present on the classpath (see RAPI-DOC-001).
+- **Recommendation**: Add @Operation(deprecated = true) alongside @Deprecated so the generated OpenAPI document signals deprecation to HTTP clients, and consider RFC 8594's Sunset header for a concrete retirement date.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc8594.html>

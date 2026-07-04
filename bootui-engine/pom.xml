@@ -153,6 +153,32 @@
         </dependency>
 
         <!--
+          Test-scope only: JAX-RS fixtures prove the shared RestApiHandlerModelBuilder recognizes the
+          idiomatic Quarkus reactive/typed-response and OpenAPI annotation styles exactly as it does the
+          Spring Reactor/springdoc equivalents (RAPI-DTO/-PAGE/-NAME/-DOC rules must not blind-spot Quarkus).
+          Versions are pinned directly (bootui-engine intentionally never imports the quarkus-bom) but are
+          otherwise inert: these fixtures are only statically bytecode-scanned by ArchUnit, never executed.
+        -->
+        <dependency>
+            <groupId>io.smallrye.reactive</groupId>
+            <artifactId>mutiny</artifactId>
+            <version>3.3.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus.resteasy.reactive</groupId>
+            <artifactId>resteasy-reactive</artifactId>
+            <version>${quarkus.platform.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.microprofile.openapi</groupId>
+            <artifactId>microprofile-openapi-api</artifactId>
+            <version>4.1.1</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
           Test-scope only: JdbcActivityStoreTests exercises the plain-JDBC Live Activity persistence
           store against a real, disposable database rather than mocking java.sql.*. H2's version is
           managed by the imported spring-boot-dependencies BOM.

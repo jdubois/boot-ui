@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ControllerModel;
+import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.HandlerMethodModel;
 import org.junit.jupiter.api.Test;
 
@@ -23,13 +25,17 @@ class JaxRsRestApiModelTests {
     }
 
     private RestApiContext context(String pkg) {
+        return context(pkg, false);
+    }
+
+    private RestApiContext context(String pkg, boolean openApiAnnotationsPresent) {
         RestApiHandlerModelBuilder model = build(pkg);
         return new RestApiContext(
                 java.util.List.of(pkg),
                 model.controllers(),
                 model.handlers(),
                 model.exceptionHandlers(),
-                false,
+                openApiAnnotationsPresent,
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.framework());
@@ -119,5 +125,135 @@ class JaxRsRestApiModelTests {
 
         String status = new NoBroadThrowsOnHandlersRule().evaluate(context(BAD)).status();
         assertThat(status).isEqualTo(RestApiRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void unwrapsMutinyUniAndRestResponseToTheRealBodyType() {
+        // Fix #1: Uni<T>/RestResponse<T> must unwrap to T, exactly like Spring WebFlux's Mono<T> already
+        // does — otherwise bodyTypeName resolves to the wrapper class itself, silently blinding the
+        // DTO/pagination/naming rules on idiomatic Quarkus reactive handlers.
+        String widgetDto = "io.github.jdubois.bootui.engine.restapi.jaxrs.WidgetDto";
+        RestApiHandlerModelBuilder model = build(GOOD);
+
+        HandlerMethodModel uniHandler = model.handlers().stream()
+                .filter(h -> h.methodName().equals("getOne"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(uniHandler.bodyTypeName()).isEqualTo(widgetDto);
+        assertThat(uniHandler.returnsCollection()).isFalse();
+
+        HandlerMethodModel typedHandler = model.handlers().stream()
+                .filter(h -> h.methodName().equals("getTyped"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(typedHandler.bodyTypeName()).isEqualTo(widgetDto);
+        assertThat(typedHandler.returnsResponseEntity()).isTrue();
+    }
+
+    @Test
+    void unwrapsMutinyMultiAsACollectionOfTheRealBodyType() {
+        // Multi<T> is Mutiny's async-stream analogue of reactor.core.publisher.Flux<T> and must be
+        // recognised as a collection wrapper the same way, so returnsCollection()/bodyTypeName() resolve
+        // correctly instead of reporting the handler as returning a plain "Multi".
+        HandlerMethodModel multiHandler = build(GOOD).handlers().stream()
+                .filter(h -> h.methodName().equals("getAll"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(multiHandler.returnsCollection()).isTrue();
+        assertThat(multiHandler.bodyTypeName()).isEqualTo("io.github.jdubois.bootui.engine.restapi.jaxrs.WidgetDto");
+    }
+
+    @Test
+    void collectionReadsArePaginatedRuleNowSeesThroughTheMultiWrapper() {
+        // Before fix #1, Multi<WidgetDto> resolved as an unrecognised, non-collection body type, so this
+        // unpaginated collection GET was silently invisible to RAPI-PAGE-001 on Quarkus reactive resources.
+        RestApiRuleResultDto result = new CollectionReadsArePaginatedRule().evaluate(context(GOOD));
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("getAll"));
+    }
+
+    @Test
+    void serverExceptionMapperMethodIsModeledAsAnExceptionHandler() {
+        // Fix #2: a RESTEasy Reactive @ServerExceptionMapper method (no @Provider required) must populate
+        // a full ExceptionHandlerModel, not just the boolean hasExceptionHandling flag, so RAPI-ERR-004/005
+        // can actually evaluate its quality instead of vacuously passing.
+        RestApiHandlerModelBuilder model = build(GOOD + ".serverexceptionmapper");
+        assertThat(model.hasExceptionHandling()).isTrue();
+        ExceptionHandlerModel handler = model.exceptionHandlers().stream()
+                .filter(h -> h.methodName().equals("mapIllegalState"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(handler.declaringClassName())
+                .isEqualTo("io.github.jdubois.bootui.engine.restapi.jaxrs.serverexceptionmapper"
+                        + ".WidgetServerExceptionMapper");
+        assertThat(handler.catchesExceptionOrThrowable()).isFalse();
+        assertThat(handler.returnsResponseEntity()).isTrue();
+    }
+
+    @Test
+    void centralizedExceptionHandlingRulePassesForAServerExceptionMapperOnlyApp() {
+        // Before fix #2, only the classic @Provider ExceptionMapper<X> style was recognised, so a
+        // well-designed Quarkus app using only @ServerExceptionMapper false-flagged RAPI-ERR-001.
+        RestApiContext context = context(GOOD + ".serverexceptionmapper");
+        assertThat(context.controllers()).isNotEmpty();
+        String status = new CentralizedExceptionHandlingRule().evaluate(context).status();
+        assertThat(status).isEqualTo(RestApiRuleSupport.PASS);
+    }
+
+    @Test
+    void microProfileOpenApiOperationAndTagAnnotationsAreRecognized() {
+        // Fix #5: MicroProfile OpenAPI's own @Operation/@Tag (org.eclipse.microprofile.openapi.annotations)
+        // are framework-neutral annotations that quarkus-smallrye-openapi honors identically to Swagger's;
+        // a Quarkus app using only these must not be treated as undocumented.
+        RestApiHandlerModelBuilder model = build(GOOD + ".mpopenapi");
+        HandlerMethodModel list = model.handlers().stream()
+                .filter(h -> h.methodName().equals("list"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(list.hasOperationAnnotation()).isTrue();
+        // @Tag is applied at the class level on the fixture; HandlerMethodModel#hasTag() is method-level
+        // only (symmetric with the Spring path), so class-level tagging is asserted on ControllerModel.
+        ControllerModel controller = model.controllers().stream()
+                .filter(c -> c.className().equals(list.controllerClassName()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(controller.hasTag()).isTrue();
+
+        RestApiContext context = context(GOOD + ".mpopenapi", true);
+        assertThat(new EndpointsAreDocumentedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new ControllersAreTaggedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
+    }
+
+    @Test
+    void headerAndQueryParamVersionSignalsAreRecognizedOnJaxRs() {
+        // Fix #6: JAX-RS's @HeaderParam/@QueryParam are exact analogues of Spring's
+        // @RequestHeader/@RequestParam for version-signal detection; before the fix, toJaxRsHandler left
+        // params/headers empty so these could never be recognised as a versioning strategy.
+        RestApiHandlerModelBuilder model = build(GOOD + ".versioning");
+
+        HandlerMethodModel headerHandler = model.handlers().stream()
+                .filter(h -> h.methodName().equals("getByHeader"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(headerHandler.headers()).contains("Api-Version");
+        assertThat(RestApiRuleHelp.hasVersionSignal(headerHandler)).isTrue();
+
+        HandlerMethodModel queryHandler = model.handlers().stream()
+                .filter(h -> h.methodName().equals("getByQuery"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(queryHandler.params()).contains("version");
+        assertThat(RestApiRuleHelp.hasVersionSignal(queryHandler)).isTrue();
+    }
+
+    @Test
+    void catchAllPatternRuleFlagsAnAllMatchingRegexButNotAConstrainedOne() {
+        // Fix #7: a JAX-RS {token:regex} template whose regex is all-matching (.*/.+) is the JAX-RS
+        // analogue of Spring's /** or {*path} catch-all and must be flagged, while a genuinely constrained
+        // template like {id:[0-9]+} must still pass.
+        RestApiRuleResultDto result = new CatchAllPatternRule().evaluate(context(GOOD + ".catchall"));
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("CatchAllRegexResource"));
+        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("ConstrainedIdResource"));
     }
 }

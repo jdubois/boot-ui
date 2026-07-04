@@ -99,6 +99,26 @@ import org.eclipse.microprofile.config.Config;
 @ApplicationScoped
 public class BootUiEngineProducer {
 
+    /**
+     * MicroProfile OpenAPI's {@code @Operation} annotation, brought onto the classpath by
+     * {@code quarkus-smallrye-openapi}. Its presence is the Quarkus analogue of the Spring adapter's
+     * {@code ClassUtils.isPresent("io.swagger.v3.oas.annotations.Operation", ...)} probe: both signal that
+     * OpenAPI documentation annotations are available for RAPI-DOC-001/002/003 to evaluate.
+     */
+    private static final String MP_OPENAPI_OPERATION_ANNOTATION =
+            "org.eclipse.microprofile.openapi.annotations.Operation";
+
+    private static final boolean MP_OPENAPI_PRESENT = isMpOpenApiPresent();
+
+    private static boolean isMpOpenApiPresent() {
+        try {
+            Class.forName(MP_OPENAPI_OPERATION_ANNOTATION, false, BootUiEngineProducer.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
+    }
+
     @Produces
     @Singleton
     public ThreadDumpService threadDumpService(QuarkusExposurePolicy exposure) {
@@ -459,13 +479,15 @@ public class BootUiEngineProducer {
      * The REST API advisor over the application's JAX-RS resources. Mirrors {@link #architectureScanner}: the
      * shared engine {@link RestApiScanner} imports the host classes with ArchUnit bounded to the build-time
      * discovered base packages and runs the same curated ruleset (the engine now models JAX-RS resources
-     * alongside Spring controllers and skips the few Spring-only rules honestly). springdoc is Spring-only, so
-     * the OpenAPI documentation rules are reported as skipped on Quarkus; the import runs only on POST /scan.
+     * alongside Spring controllers and skips the few Spring-only rules honestly). The OpenAPI documentation
+     * rules (RAPI-DOC-001/002/003) probe for the framework-neutral MicroProfile OpenAPI {@code @Operation}
+     * annotation on the classpath — brought in by {@code quarkus-smallrye-openapi} — the same way the Spring
+     * adapter probes for Swagger's {@code @Operation}; the import runs only on POST /scan.
      */
     @Produces
     @Singleton
     public RestApiScanner restApiScanner(QuarkusBasePackageProvider basePackages) {
-        return RestApiScanner.usingClasspath(basePackages::basePackages, () -> false, Clock.systemUTC());
+        return RestApiScanner.usingClasspath(basePackages::basePackages, () -> MP_OPENAPI_PRESENT, Clock.systemUTC());
     }
 
     /**

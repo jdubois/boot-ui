@@ -40,6 +40,7 @@ final class RestApiRuleRegistry {
             new NoMassAssignmentViaEntitiesRule(),
             new OptionalPrimitiveRequestParamRule(),
             new UnboundedMapRequestParamRule(),
+            new IdempotencyKeyOnCreationEndpointsRule(),
             // DTO & payload contracts
             new NoEntitiesInResponsesRule(),
             new NoUntypedResponseBodiesRule(),
@@ -48,6 +49,7 @@ final class RestApiRuleRegistry {
             // Pagination & collections
             new CollectionReadsArePaginatedRule(),
             new ReturnPagedTypeRule(),
+            new ConsistentPaginationVocabularyRule(),
             // Versioning & content negotiation
             new ApiIsVersionedRule(),
             new MutatingEndpointsDeclareMediaTypesRule(),
@@ -62,8 +64,10 @@ final class RestApiRuleRegistry {
             new ExceptionHandlersSetErrorStatusRule(),
             new BroadExceptionHandlerRule(),
             new ResponseStatusOnExceptionRule(),
+            new RetryAfterOnThrottlingResponsesRule(),
             new EndpointsAreDocumentedRule(),
-            new ControllersAreTaggedRule());
+            new ControllersAreTaggedRule(),
+            new DeprecatedEndpointsSignalDeprecationRule());
 
     private RestApiRuleRegistry() {}
 

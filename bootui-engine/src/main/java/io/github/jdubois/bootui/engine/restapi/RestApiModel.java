@@ -42,6 +42,9 @@ final class RestApiModel {
                 "org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler";
         static final String HTTP_SERVLET_RESPONSE = "jakarta.servlet.http.HttpServletResponse";
         static final String SERVER_HTTP_RESPONSE = "org.springframework.http.server.ServerHttpResponse";
+        static final String REQUEST_HEADER = "org.springframework.web.bind.annotation.RequestHeader";
+
+        static final String DEPRECATED = "java.lang.Deprecated";
 
         static final String VALID = "jakarta.validation.Valid";
         static final String VALIDATED = "org.springframework.validation.annotation.Validated";
@@ -67,6 +70,16 @@ final class RestApiModel {
         static final String TAG = "io.swagger.v3.oas.annotations.tags.Tag";
         static final String HIDDEN = "io.swagger.v3.oas.annotations.Hidden";
 
+        // --- MicroProfile OpenAPI (org.eclipse.microprofile.openapi) — SmallRye OpenAPI (Quarkus'
+        // quarkus-smallrye-openapi) recognises both these annotations AND the Swagger ones above; a Quarkus
+        // app that idiomatically uses only the MicroProfile-native annotations must be recognised too. See
+        // https://quarkus.io/guides/openapi-swaggerui and
+        // https://download.eclipse.org/microprofile/microprofile-open-api-3.1.1/apidocs/org/eclipse/microprofile/openapi/annotations/Operation.html
+        // Note: MicroProfile OpenAPI has no standalone @Hidden annotation (unlike Swagger) — it only exposes
+        // an @Operation(hidden = true) attribute, which operationHidden(...) already covers for both families.
+        static final String MP_OPERATION = "org.eclipse.microprofile.openapi.annotations.Operation";
+        static final String MP_TAG = "org.eclipse.microprofile.openapi.annotations.tags.Tag";
+
         // --- JAX-RS (jakarta.ws.rs) — recognised so the advisor models Quarkus / JAX-RS resources too ---
         static final String JAXRS_PATH = "jakarta.ws.rs.Path";
         static final String JAXRS_GET = "jakarta.ws.rs.GET";
@@ -90,6 +103,9 @@ final class RestApiModel {
         static final String JAXRS_EXCEPTION_MAPPER = "jakarta.ws.rs.ext.ExceptionMapper";
         static final String JAXRS_RESPONSE = "jakarta.ws.rs.core.Response";
         static final String QUARKUS_REST_RESPONSE = "org.jboss.resteasy.reactive.RestResponse";
+        // RESTEasy Reactive's simpler, @Provider-free exception-mapper style (no ExceptionMapper<X>
+        // interface to implement): https://quarkus.io/guides/rest#exception-mapping
+        static final String SERVER_EXCEPTION_MAPPER = "org.jboss.resteasy.reactive.server.ServerExceptionMapper";
 
         // --- RESTEasy Reactive (quarkus-rest) parameter annotations: still mark a param as bound, so the
         // remaining unannotated parameter is correctly identified as the request entity body. ---
@@ -168,7 +184,11 @@ final class RestApiModel {
             boolean requestBodyIsSimple,
             boolean hasTag,
             boolean hidden,
-            boolean hasResponseParam) {
+            boolean hasResponseParam,
+            String paginationParamFamily,
+            boolean hasIdempotencyKeyHeader,
+            boolean isDeprecated,
+            boolean operationMarkedDeprecated) {
 
         HandlerMethodModel {
             httpMethods = List.copyOf(httpMethods);
@@ -190,7 +210,11 @@ final class RestApiModel {
         }
     }
 
-    /** An {@code @ExceptionHandler} method, used by the ProblemDetail and error-status rules. */
+    /**
+     * An {@code @ExceptionHandler} method (Spring) or JAX-RS exception mapper — either a classic
+     * {@code @Provider ExceptionMapper<X>} implementation or a RESTEasy Reactive
+     * {@code @ServerExceptionMapper} method — used by the ProblemDetail and error-status rules.
+     */
     record ExceptionHandlerModel(
             String declaringClassName,
             String methodName,
@@ -199,6 +223,7 @@ final class RestApiModel {
             boolean returnsResponseEntity,
             boolean returnsVoid,
             boolean hasResponseStatus,
+            String responseStatusValue,
             boolean catchesExceptionOrThrowable,
             boolean hasResponseParam,
             boolean rendersBody) {}
