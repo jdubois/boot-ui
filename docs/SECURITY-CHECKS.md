@@ -214,7 +214,7 @@ includes up to a handful of sample details plus a remediation link.
 
 - **Severity**: LOW
 - **Detects**: Detects server.servlet.session.cookie.name configured to a custom value that does not start with the __Host- or __Secure- cookie-name prefix (exact case -- browsers only honor these prefixes verbatim). The unmodified default name, JSESSIONID, is not flagged; this rule only fires once an application has already chosen to customize the cookie name.
-- **Recommendation**: Name the session cookie __Host-<name> (requires Secure, no Domain attribute, and Path=/) or, at minimum, __Secure-<name>, so the browser rejects the cookie unless it was set over HTTPS -- hardening against cookie-tossing from a sibling or subdomain.
+- **Recommendation**: Name the session cookie with the __Host- prefix, e.g. __Host-SESSION (requires Secure, no Domain attribute, and Path=/) or, at minimum, the __Secure- prefix, e.g. __Secure-SESSION, so the browser rejects the cookie unless it was set over HTTPS -- hardening against cookie-tossing from a sibling or subdomain.
 - **Learn more**: <https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html#cookie-name-prefixes>
 
 ## Transport & security headers
