@@ -42,10 +42,23 @@ import java.util.List;
  * @param compressionEnabled whether {@code quarkus.http.enable-compression} is on
  * @param shutdownTimeoutZeroed whether the graceful shutdown grace period was explicitly zeroed
  * @param restClientsRegistered whether any {@code @RegisterRestClient} interface is declared
- * @param restClientTimeoutConfigured whether a global or per-client REST client connect/read timeout is set
+ * @param restClientTimeoutZeroOrExcessive whether a global or per-client REST client connect/read timeout is
+ *     explicitly set to {@code 0} (disabled) or to an excessively high value — Quarkus REST clients already
+ *     default to a 15s connect-timeout/30s read-timeout, so merely leaving the timeout unset is not flagged
  * @param virtualThreadEndpointCount {@code @RunOnVirtualThread} sites (methods or classes)
  * @param virtualThreadSynchronizedCount {@code @RunOnVirtualThread} sites that are also {@code synchronized}
+ *     (a class-level {@code @RunOnVirtualThread} counts every {@code synchronized} method in that class)
  * @param jdkMajorVersion the build JDK's major version (0 if undetermined)
+ * @param mutableSingletonFields {@code @Singleton} bean fields that are public or non-final (shared mutable
+ *     state, the same risk as {@link #mutableAppScopedFields()} since a {@code @Singleton} is also one
+ *     instance shared across threads)
+ * @param legacySchemaGenerationPropertyUsed whether the deprecated {@code quarkus.hibernate-orm.database.generation}
+ *     property (or a profile/named-persistence-unit variant) is used instead of the current
+ *     {@code quarkus.hibernate-orm.schema-management.strategy}
+ * @param shutdownTimeoutConfigured whether {@code quarkus.shutdown.timeout} or
+ *     {@code quarkus.http.shutdown.timeout} is set at all (to any value, including {@code 0})
+ * @param datasourceMaxSizeConfigured whether {@code quarkus.datasource.jdbc.max-size} is explicitly set
+ *     (globally or via a {@code %prod} override)
  */
 public record QuarkusAppSnapshot(
         int applicationScopedCount,
@@ -76,10 +89,14 @@ public record QuarkusAppSnapshot(
         boolean compressionEnabled,
         boolean shutdownTimeoutZeroed,
         boolean restClientsRegistered,
-        boolean restClientTimeoutConfigured,
+        boolean restClientTimeoutZeroOrExcessive,
         int virtualThreadEndpointCount,
         int virtualThreadSynchronizedCount,
-        int jdkMajorVersion) {
+        int jdkMajorVersion,
+        List<String> mutableSingletonFields,
+        boolean legacySchemaGenerationPropertyUsed,
+        boolean shutdownTimeoutConfigured,
+        boolean datasourceMaxSizeConfigured) {
 
     public QuarkusAppSnapshot {
         mutableAppScopedFields = mutableAppScopedFields == null ? List.of() : List.copyOf(mutableAppScopedFields);
@@ -88,6 +105,7 @@ public record QuarkusAppSnapshot(
         prodSchemaGeneration = prodSchemaGeneration == null ? "" : prodSchemaGeneration;
         prodDbKind = prodDbKind == null ? "" : prodDbKind;
         publicResourceFields = publicResourceFields == null ? List.of() : List.copyOf(publicResourceFields);
+        mutableSingletonFields = mutableSingletonFields == null ? List.of() : List.copyOf(mutableSingletonFields);
     }
 
     public int beanCount() {

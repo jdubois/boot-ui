@@ -22,6 +22,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     static final String REQUEST_SCOPED_KEY = "bootui.internal.app.request-scoped";
     static final String DEPENDENT_KEY = "bootui.internal.app.dependent";
     static final String MUTABLE_FIELDS_KEY = "bootui.internal.app.mutable-fields";
+    static final String MUTABLE_SINGLETON_FIELDS_KEY = "bootui.internal.app.mutable-singleton-fields";
     static final String CONFIG_PROPERTY_KEY = "bootui.internal.app.config-property";
     static final String ENDPOINTS_KEY = "bootui.internal.app.endpoints";
     static final String DEFAULT_SCOPE_RESOURCES_KEY = "bootui.internal.app.default-scope-resources";
@@ -36,6 +37,13 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     static final String VIRTUAL_THREAD_ENDPOINTS_KEY = "bootui.internal.app.virtual-thread-endpoints";
     static final String VIRTUAL_THREAD_SYNCHRONIZED_KEY = "bootui.internal.app.virtual-thread-synchronized";
     static final String JDK_MAJOR_VERSION_KEY = "bootui.internal.app.jdk-major-version";
+
+    /**
+     * A REST client connect/read timeout at or above this bound (5 minutes) is treated as "excessive" for
+     * QA-WEB-003 — long enough that it provides essentially no protection against a hanging remote call,
+     * even though it is technically a finite value rather than the more obviously dangerous {@code 0}.
+     */
+    private static final long EXCESSIVE_REST_CLIENT_TIMEOUT_MS = 300_000L;
 
     private final Config config;
 
@@ -84,10 +92,14 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 bool("quarkus.http.enable-compression"),
                 shutdownTimeoutZeroed(),
                 count(REST_CLIENTS_KEY) > 0,
-                restClientTimeoutConfigured(),
+                restClientTimeoutZeroOrExcessive(),
                 count(VIRTUAL_THREAD_ENDPOINTS_KEY),
                 count(VIRTUAL_THREAD_SYNCHRONIZED_KEY),
-                count(JDK_MAJOR_VERSION_KEY));
+                count(JDK_MAJOR_VERSION_KEY),
+                strList(MUTABLE_SINGLETON_FIELDS_KEY),
+                legacySchemaGenerationPropertyUsed(),
+                shutdownTimeoutConfigured(),
+                datasourceMaxSizeConfigured());
     }
 
     private boolean prodLogLevelVerbose() {
@@ -99,15 +111,28 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         return isZero("quarkus.shutdown.timeout") || isZero("quarkus.http.shutdown.timeout");
     }
 
+    private boolean shutdownTimeoutConfigured() {
+        return has("quarkus.shutdown.timeout") || has("quarkus.http.shutdown.timeout");
+    }
+
     private boolean isZero(String key) {
         return config.getOptionalValue(key, Duration.class).map(d -> d.isZero()).orElse(false);
     }
 
-    private boolean restClientTimeoutConfigured() {
+    /**
+     * QA-WEB-003: unlike the presence-only check this replaces, this only fires on an <em>explicit</em>
+     * footgun — a connect/read timeout set to {@code 0} (disabled) or an excessively high value. Quarkus REST
+     * clients already default to a 15s connect-timeout / 30s read-timeout ({@code RestClientsConfig}), so
+     * merely leaving the property unset is safe and intentionally not flagged.
+     */
+    private boolean restClientTimeoutZeroOrExcessive() {
         for (String name : config.getPropertyNames()) {
             if (name.startsWith("quarkus.rest-client")
                     && (name.endsWith("connect-timeout") || name.endsWith("read-timeout"))) {
-                return true;
+                Long ms = config.getOptionalValue(name, Long.class).orElse(null);
+                if (ms != null && (ms == 0L || ms > EXCESSIVE_REST_CLIENT_TIMEOUT_MS)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -135,6 +160,26 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 || url.contains("h2:mem")
                 || url.contains("hsqldb:mem")
                 || url.contains("derby:memory");
+    }
+
+    /**
+     * QA-CFG-004: {@code quarkus.hibernate-orm.database.generation} is {@code @Deprecated(forRemoval = true)}
+     * as of Quarkus 3.22, in favour of {@code quarkus.hibernate-orm.schema-management.strategy}. Matches any
+     * profile (bare, {@code %prod.}/{@code %dev.}/…) or named-persistence-unit variant, since the property
+     * name — not just its {@code %prod} use — is what is being flagged as legacy.
+     */
+    private boolean legacySchemaGenerationPropertyUsed() {
+        for (String name : config.getPropertyNames()) {
+            if (name.endsWith("database.generation")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** QA-DB-001: the default (unnamed) datasource's own max pool size, checked bare or under {@code %prod}. */
+    private boolean datasourceMaxSizeConfigured() {
+        return has("quarkus.datasource.jdbc.max-size") || has("%prod.quarkus.datasource.jdbc.max-size");
     }
 
     private List<String> activeProfiles() {

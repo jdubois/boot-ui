@@ -42,6 +42,33 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   MEDIUM to INFO after review showed it fired on any entity merely declaring 2+ lazy bag collections, a common and safe
   pattern — the actual failure mode (`MultipleBagFetchException`) is already covered by `HIB-QUERY-007`, which fires
   only when bags are actually join-fetched together (#511).
+- **Fixed a completely non-functional Quarkus application advisor rule (`QA-SCH-001`) and corrected five other
+  rules' severity or rationale**, following a second, independent 5-model research audit, re-verified against live
+  Quarkus 3.33 source before implementation. `QA-SCH-001` (scheduled tasks without a clustered scheduler) never
+  fired in practice because the build-time processor never emitted the `bootui.internal.app.scheduled` config key
+  its own provider reads — fixed by wiring the existing `@Scheduled` Jandex scan into the same build step. Also
+  fixed: `QA-WEB-003`'s rationale incorrectly claimed Quarkus REST clients have no default timeout (they default
+  to a 15s connect-timeout / 30s read-timeout, per `RestClientsConfig`) — the rule now only fires when a timeout
+  is explicitly disabled (`0`) or excessive (over 5 minutes), rather than merely absent; `QA-RX-001` (a reactive
+  endpoint blocking the event loop on JDBC) raised from INFO to HIGH to reflect how severe and common this
+  footgun is in production, and now treats `@Transactional` as a guard alongside `@Blocking` (Quarkus REST
+  dispatches both to a worker thread) and recognizes `CompletionStage`/`CompletableFuture`/`Publisher` return
+  types in addition to `Uni`/`Multi`; `QA-PROD-001` (a Dev Services override in `%prod`) lowered from HIGH to LOW
+  after confirming Dev Services never runs in a packaged `LaunchMode.NORMAL` build regardless of this property's
+  value; `QA-PROD-002` (a destructive Hibernate schema strategy in `%prod`) now also flags `update` (previously
+  only `drop-and-create`/`create`/`drop`), with severity split CRITICAL for the outright-destructive strategies
+  (matching the sibling Hibernate advisor's `HIB-CONFIG-002`) vs. HIGH for `update`; `QA-CDI-002` (a public
+  mutable field on a JAX-RS resource) no longer false-positives on `@RequestScoped` resources, which get a fresh
+  instance per request and carry no shared-state risk; `QA-PERF-001`/`QA-PERF-002` (virtual-thread
+  adoption/pinning) now also count class-level `@RunOnVirtualThread`, not just method-level; and `QA-PROF-001` is
+  rebased on the absence of `%prod.` override keys instead of active-profile emptiness, which rarely fires on a
+  running app. Grew the advisor from 16 to 20 rules with four new checks: `QA-CDI-003` (shared mutable state on a
+  `@Singleton` bean — the same risk `QA-CDI-001` already flags for `@ApplicationScoped`), `QA-CFG-004` (the
+  deprecated `quarkus.hibernate-orm.database.generation` property, in favour of
+  `quarkus.hibernate-orm.schema-management.strategy`), `QA-WEB-004` (graceful shutdown timeout never configured
+  at all, distinct from `QA-WEB-002`'s "explicitly zeroed" case), and `QA-DB-001` (a JDBC datasource with no
+  explicit `quarkus.datasource.jdbc.max-size`, silently relying on Agroal's default pool size of 50). See
+  [docs/QUARKUS-ADVISOR-CHECKS.md](docs/QUARKUS-ADVISOR-CHECKS.md) (#520).
 
 ## [1.9.0] - 2026-07-03
 

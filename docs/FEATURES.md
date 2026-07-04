@@ -345,7 +345,7 @@ contract, and the same report shape. The [Quarkus](#quarkus) section below cover
 On the Quarkus adapter the framework-application advisor above is relabelled **Quarkus** and runs a Quarkus-native idiom
 ruleset in place of the Spring rules. It takes the same explicit, read-only approach — evaluating a curated set of checks
 against the running application and its MicroProfile `Config` — but the rules target Quarkus idioms: CDI/Arc scopes and
-shared mutable state on `@ApplicationScoped` beans, build-time type-safe configuration (`@ConfigProperty` vs
+shared mutable state on `@ApplicationScoped`/`@Singleton` beans, build-time type-safe configuration (`@ConfigProperty` vs
 `@ConfigMapping`), reactive-versus-blocking endpoints, `@Scheduled` clustering, and production-profile hygiene
 (destructive Hibernate schema strategies, SQL logging). It is the **same panel and menu slot** as the Spring advisor —
 the same `/spring` route, `/bootui/api/spring` endpoint, and report contract — so the shared UI simply renders the
