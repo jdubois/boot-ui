@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -68,6 +69,19 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * instead of from a fresh live re-merge. The store bean always exists (even with persistence disabled,
  * as a bare in-memory store), so {@link #activity} branches on the store's own live {@code
  * persistent()} state rather than the static startup settings, correctly reflecting a runtime switch.
+ *
+ * <p>When {@link #persistenceSettings} is disabled but {@link #forwardingSettings} is enabled instead,
+ * this instance is configured purely as an HTTP-forwarding sender (see {@code HttpActivityStore}): the
+ * exact same capture poller is started, just fed with the forwarding settings' own {@code instanceId}/
+ * {@code bufferMaxEntries}/{@code captureInterval} instead of the persistence settings', via {@link
+ * ActivityCaptureFactory}'s primitive-typed overload. Without this branch a forwarding-only instance
+ * would build a working {@code HttpActivityStore} that never receives anything to forward — the capture
+ * poller, not the store, is what actually reads {@link #service}'s merged feed and feeds new entries in.
+ * {@link #activity} keeps reading {@code activityStore.persistent()}/{@code query(...)} unchanged in
+ * this case too: a forwarding-configured store is still a {@code BufferedActivityStore} under {@link
+ * SwitchableActivityStore}, so the panel renders the same way it would for JDBC persistence — the only
+ * difference (documented on {@code HttpActivityStore} itself) is that {@code query()} always answers
+ * empty, since the forwarded data now lives on the peer's own durable store instead of locally.
  */
 @RestController
 @RequestMapping("/bootui/api/activity")
@@ -81,6 +95,7 @@ public class LiveActivityController {
     private final String selfPath;
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
+    private final ActivityForwardingSettings forwardingSettings;
     private final ObjectProvider<DataSource> dataSourceProvider;
 
     public LiveActivityController(
@@ -96,6 +111,7 @@ public class LiveActivityController {
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
+            ActivityForwardingSettings forwardingSettings,
             ObjectProvider<DataSource> dataSourceProvider,
             BootUiProperties properties) {
         this.service = new LiveActivityService(
@@ -129,6 +145,7 @@ public class LiveActivityController {
         }
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
+        this.forwardingSettings = forwardingSettings;
         this.dataSourceProvider = dataSourceProvider;
         if (persistenceSettings.enabled()) {
             // Capture side of the persistence option: poll the same merged feed the panel itself reads,
@@ -138,6 +155,17 @@ public class LiveActivityController {
             ActivityCapturePoller poller = ActivityCaptureFactory.start(
                     activityStore,
                     persistenceSettings,
+                    () -> service.report(null, null, 0, 0).entries());
+            unsubscribers.add(poller::close);
+        } else if (forwardingSettings.enabled()) {
+            // Mirrors the branch above exactly, for an HTTP-forwarding-only instance: same merged feed,
+            // same poller mechanics, just fed forwarding's own instanceId/bufferMaxEntries/captureInterval
+            // instead of persistence's, via the primitive-typed overload both settings types delegate to.
+            ActivityCapturePoller poller = ActivityCaptureFactory.start(
+                    activityStore,
+                    forwardingSettings.instanceId(),
+                    forwardingSettings.bufferMaxEntries(),
+                    forwardingSettings.captureInterval(),
                     () -> service.report(null, null, 0, 0).entries());
             unsubscribers.add(poller::close);
         }

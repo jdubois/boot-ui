@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.engine.activity.ActivityForwardService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,6 +52,8 @@ public class BootUiSpringSecurityAutoConfiguration {
         String otlpPattern = childSecurityPattern(properties.getApiPath(), "otlp");
         String mcpPattern = childSecurityEndpoint(properties.getApiPath(), "mcp");
         String mcpDescendantsPattern = childSecurityPattern(properties.getApiPath(), "mcp");
+        String activityForwardPattern = childSecurityEndpoint(
+                properties.getApiPath(), "activity" + ActivityForwardService.FORWARD_RELATIVE_PATH);
         log.warn(
                 "BootUI detected Spring Security and is permitting unauthenticated access to {}; "
                         + "BootUI's localhost-only filter still rejects non-loopback callers unless "
@@ -58,11 +61,17 @@ public class BootUiSpringSecurityAutoConfiguration {
                 String.join(", ", bootUiPatterns));
         return http.securityMatcher(bootUiPatterns)
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
-                // OTLP ingest and the MCP JSON-RPC endpoint are called by non-browser programmatic
-                // clients (OpenTelemetry exporters, local AI agents) that cannot present BootUI's SPA
-                // CSRF token, so they are exempted here. They remain protected from cross-site writes by
-                // LocalhostOnlyFilter's loopback, Host allow-list, and Origin/Sec-Fetch-Site checks.
-                .csrf(csrf -> csrf.spa().ignoringRequestMatchers(otlpPattern, mcpPattern, mcpDescendantsPattern))
+                // OTLP ingest, the MCP JSON-RPC endpoint, and the Live Activity forwarding receiver are all
+                // called by non-browser programmatic clients (OpenTelemetry exporters, local AI agents, and
+                // a peer BootUI instance's HttpActivityStore, respectively) that cannot present BootUI's SPA
+                // CSRF token/cookie handshake, so they are exempted here. They remain protected from
+                // cross-site writes by LocalhostOnlyFilter's loopback, Host allow-list, and
+                // Origin/Sec-Fetch-Site checks; the forwarding receiver additionally supports an optional
+                // shared-secret bearer token (bootui.activity.forwarding.shared-secret) as defense-in-depth
+                // in place of the CSRF token this exemption forgoes.
+                .csrf(csrf -> csrf.spa()
+                        .ignoringRequestMatchers(
+                                otlpPattern, mcpPattern, mcpDescendantsPattern, activityForwardPattern))
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 .build();
     }

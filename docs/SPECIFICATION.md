@@ -776,6 +776,80 @@ Features:
   **runtime-only**: it does not write configuration, so a later restart reverts to the in-memory default unless
   persistence is also turned on via `bootui.activity.persistence.enabled=true`. Identical on both adapters (Spring's
   `LiveActivityController` and Quarkus's `LiveActivityResource` share the same engine-level `ActivitySwitchService`).
+- **HTTP forwarding (`bootui.activity.forwarding.*`, off by default, additive alongside `persistence`)**: a
+  no-shared-database alternative for shipping captured entries from one BootUI instance to another over plain HTTP —
+  for example a Quarkus sample app (the sender) forwarding to a Spring sample app (the receiver), which persists them
+  into its own already-configured `JdbcActivityStore`. Modeled as a wholly separate, additive settings record
+  (`ActivityForwardingSettings`) rather than a third `ActivityPersistenceSettings.DataSourceMode`: forwarding has no
+  `DataSource` involvement and an unrelated field set (peer URL, shared secret, HTTP timeouts), so folding it into the
+  JDBC-oriented settings record would force irrelevant fields onto both paths. Enabling `persistence` and `forwarding`
+  at the same time on one instance is rejected at startup (fail-fast, not a silent priority order) — a single instance
+  is either a durable store or a forwarding sender, never both.
+  - **Sender side (`HttpActivityStore`, both adapters)**: a thin `ActivityStore` implementation that performs one
+    synchronous, bounded-timeout HTTP POST per flush and throws on any failure (connection error, timeout, or a
+    non-2xx response) — structurally identical to how `JdbcActivityStore` is a thin, synchronous backend with no
+    retry logic of its own. It is composed as the `durable` argument of the same, unmodified `BufferedActivityStore`
+    decorator used for JDBC persistence, so it inherits write-behind buffering, scheduled flush
+    (`bootui.activity.forwarding.flush-interval`), retry-with-requeue-at-front-of-queue on failure, a bounded pending
+    buffer that drops the oldest entries (with a one-time warning) rather than growing unbounded during a sustained
+    peer outage, and a bounded best-effort final flush on shutdown — with no duplicated resilience logic. Both
+    adapters wire a forwarding-configured instance's capture poller the same way a persistence-configured instance's
+    poller is wired, so `bootui.activity.forwarding.enabled=true` alone is sufficient to start capturing and
+    forwarding; `bootui.activity.forwarding.instance-id`/`capture-interval` mirror the persistence settings' fields of
+    the same name for exactly this reason.
+  - **`query()`/`queryByCorrelationId()` are write-only (documented v1 scope, not a bug)**: a forwarding-configured
+    instance's own `GET /bootui/api/activity` always reports its bounded local hot-cache view (the same as any
+    in-memory-only instance), never the peer's data — the forwarded rows live in, and are only browsable through, the
+    receiver's own Live Activity panel. Proxying reads back over HTTP was deliberately not built for this first
+    version: it would add a network round-trip to every panel poll, duplicate the peer's own query/pagination logic,
+    and still not solve the pre-existing "a panel only ever queries its own local `instanceId`" scoping limitation
+    below — so it was judged not worth the complexity for the forwarding use case (shipping data to a receiver that
+    already has a full query UI of its own).
+  - **Receiver side (Spring only in this version; Quarkus is a documented gap, not attempted)**: `POST
+    /bootui/api/activity/forward` (Spring's `ActivityForwardingController`) accepts a batch of already-masked entries
+    and appends them to the receiving instance's own local `ActivityStore` via its existing `SwitchableActivityStore`
+    — unconditionally, regardless of whether the receiver is itself also configured to forward elsewhere. It shares
+    the engine-level `ActivityForwardService` orchestration (batch-size ceiling, per-entry shape validation,
+    whole-batch-atomic rejection on any invalid entry, the optional shared-secret check below) so both adapters would
+    render byte-identical outcomes if a Quarkus receiver is added later.
+  - **Security posture.** The endpoint lives under `/bootui/api/**` like every other panel and inherits BootUI's full
+    existing safety perimeter with no new mechanism: `LocalhostOnlyFilter`'s loopback-source trust, `Host`
+    allow-listing, and cross-site-write rejection (all delegated to the framework-neutral `LocalhostGuard`), plus
+    `PanelAccessFilter`'s per-panel `bootui.panels.activity.{enabled,read-only}` gating — both already apply by
+    prefix-matching on `/activity/**` with zero registry changes. The common local demo topology (two BootUI-
+    instrumented processes on one machine, sender POSTing to `http://localhost:<port>`) already satisfies this
+    perimeter with no extra configuration: the receiver sees the connection arrive from `127.0.0.1` exactly like a
+    browser tab would, and the sender's `Host` header matches the guard's built-in loopback allow-list. On top of
+    that existing perimeter, an **optional, off-by-default shared secret** (`bootui.activity.forwarding.shared-secret`,
+    checked via the `X-BootUI-Forward-Token` header and a constant-time comparison) is available as defense-in-depth:
+    this endpoint is a *data-injection* endpoint (a peer process writes rows into this instance's durable store), not
+    a read-only GET or a same-origin browser action, so if the shared perimeter is ever legitimately widened for an
+    unrelated reason (for example adding a LAN range to `bootui.trusted-proxies` so a colleague's machine can view
+    dashboards), that widening would, as a side effect, also widen who can inject fabricated activity rows here — a
+    materially more consequential exposure than widening who can merely view a panel. The shared secret closes that
+    gap independent of however the network perimeter is configured, while staying off by default so the common local
+    topology needs no extra setup. **A second, independent CSRF defense also had to be accounted for**: when the
+    receiving Spring application also has Spring Security on its classpath, `BootUiSpringSecurityAutoConfiguration`
+    layers its own SPA-style CSRF protection (`csrf.spa()`, a browser cookie/token handshake) on top of
+    `LocalhostGuard`, already exempting the OTLP ingest and MCP JSON-RPC endpoints for the same reason: their callers
+    (OpenTelemetry exporters, local AI agents) are non-browser programmatic clients that cannot present that
+    handshake either. A peer BootUI instance's `HttpActivityStore` is exactly the same kind of caller, so
+    `/bootui/api/activity/forward` is exempted from Spring Security's CSRF filter alongside them — discovered and
+    fixed via the live Quarkus-sender-to-Spring-receiver smoke test below (a plain `curl`/`HttpClient` POST was
+    rejected with Spring Security's own generic 403 until this exemption was added). `LocalhostGuard`'s
+    loopback/Host/cross-site-write checks and the optional shared secret remain the endpoint's actual security
+    boundary either way; this exemption only removes a browser-oriented mechanism that a non-browser caller could
+    never have satisfied in the first place.
+  - **Known limitations, stated honestly:** (1) cross-instance panel visibility — forwarded rows land correctly in
+    the receiver's JDBC table under the sender's own `instanceId`, but there is no "switch instance" picker anywhere
+    today (even for the pre-existing shared-JDBC multi-instance case), so they do not automatically surface in the
+    receiver's own Live Activity panel; verify with a direct query against the configured table, not the panel UI.
+    (2) `SwitchableActivityStore.persistent()` cannot distinguish a JDBC-backed from an HTTP-forwarding-backed
+    `BufferedActivityStore` (both are the same class), so a forwarding-configured sender's `persistenceOption` still
+    names the (irrelevant) JDBC table, and its "Use the existing datasource" action reports "already active" rather
+    than a more precise message — harmless (no double-switch risk), just a cosmetic gap. (3) the receiving endpoint
+    exists only on the Spring adapter in this version; a Quarkus instance can be a forwarding *sender* but not yet a
+    *receiver*.
 
 Acceptance criteria:
 
@@ -794,6 +868,18 @@ Acceptance criteria:
 - The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
   `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
   active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
+- With `bootui.activity.forwarding.enabled=false` (the default on both), HTTP forwarding is entirely inert: no HTTP
+  client, executor, or capture poller is created beyond what already exists. Enabling both `persistence` and
+  `forwarding` at once fails fast at startup rather than silently prioritizing one. A forwarding sender's own
+  `appendBatch` call never blocks on network I/O; a sustained peer outage degrades to bounded oldest-entry drops with
+  a one-time warning, never unbounded growth, and shutdown never blocks indefinitely waiting on an unreachable peer.
+  The receiving endpoint validates its input (rejecting an empty/oversized/malformed batch, or a wrong/missing token
+  when a secret is configured) atomically — a single invalid entry rejects the whole batch rather than partially
+  applying it — and never partially or incorrectly appends to the local store as a result of a malformed request.
+- On a receiver with Spring Security on the classpath, `POST /bootui/api/activity/forward` is reachable by a
+  non-browser peer process without presenting Spring Security's own SPA CSRF token/cookie (exempted alongside the
+  pre-existing OTLP and MCP exemptions for the same non-browser-caller reason), while still passing through
+  `LocalhostGuard`'s loopback/Host/cross-site-write checks and the optional shared secret unchanged.
 
 ### 5.15 Profile Diff Panel
 

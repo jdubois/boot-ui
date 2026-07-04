@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.core.dto.LoggerDto;
 import io.github.jdubois.bootui.core.dto.LoggersReport;
 import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.MappingsReport;
+import io.github.jdubois.bootui.engine.activity.ActivityForwardingSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.health.HealthService;
@@ -283,6 +284,42 @@ class BootUiEngineConfigurationTests {
         assertThat(settings.retention()).isEqualTo(Duration.ofDays(3));
         assertThat(settings.instanceId()).isEqualTo("pinned-instance");
         assertThat(settings.captureInterval()).isEqualTo(Duration.ofSeconds(7));
+    }
+
+    @Test
+    void activityForwardingSettingsFactoryMapsPropertiesWithoutTransposition() {
+        // Mirrors activityPersistenceSettingsFactoryMapsPropertiesWithoutTransposition: several adjacent
+        // fields share a type (four Durations, several Strings), so a positional transposition in the
+        // factory would compile and only surface as a wrong value at runtime. Every field below is set
+        // to a value distinct from both the default and its same-typed neighbors.
+        BootUiProperties properties = new BootUiProperties();
+        BootUiProperties.ActivityForwarding forwarding =
+                properties.getActivity().getForwarding();
+        forwarding.setEnabled(true);
+        forwarding.setPeerBaseUrl("http://peer.example:9090");
+        forwarding.setSharedSecret("pinned-secret");
+        forwarding.setConnectTimeout(Duration.ofSeconds(13));
+        forwarding.setRequestTimeout(Duration.ofSeconds(17));
+        forwarding.setFlushInterval(Duration.ofSeconds(19));
+        forwarding.setBufferMaxEntries(654);
+        forwarding.setInstanceId("pinned-forwarding-instance");
+        forwarding.setCaptureInterval(Duration.ofSeconds(23));
+        // instanceId is already configured (non-blank), so the Environment is not consulted for it; the
+        // HOSTNAME-env-var / generated-id fallback paths are pinned separately by ActivityInstanceIdsTests.
+        MockEnvironment environment = new MockEnvironment();
+
+        ActivityForwardingSettings settings = new BootUiEngineConfiguration.ActivityPersistenceBackendConfiguration()
+                .bootUiActivityForwardingSettings(properties, environment);
+
+        assertThat(settings.enabled()).isTrue();
+        assertThat(settings.peerBaseUrl()).isEqualTo("http://peer.example:9090");
+        assertThat(settings.sharedSecret()).isEqualTo("pinned-secret");
+        assertThat(settings.connectTimeout()).isEqualTo(Duration.ofSeconds(13));
+        assertThat(settings.requestTimeout()).isEqualTo(Duration.ofSeconds(17));
+        assertThat(settings.flushInterval()).isEqualTo(Duration.ofSeconds(19));
+        assertThat(settings.bufferMaxEntries()).isEqualTo(654);
+        assertThat(settings.instanceId()).isEqualTo("pinned-forwarding-instance");
+        assertThat(settings.captureInterval()).isEqualTo(Duration.ofSeconds(23));
     }
 
     @Test
