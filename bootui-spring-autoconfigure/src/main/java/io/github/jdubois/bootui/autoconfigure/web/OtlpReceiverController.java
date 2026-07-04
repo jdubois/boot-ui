@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
@@ -11,6 +12,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -45,10 +47,26 @@ public class OtlpReceiverController {
 
     private final BootUiProperties properties;
 
+    private final SelfTelemetryClassifier selfClassifier;
+
+    /**
+     * Convenience constructor for manual/test wiring outside a Spring context; shares no state with
+     * any other component, so it builds its own default {@link BootUiSelfDataFilter}.
+     */
     public OtlpReceiverController(TelemetryStore store, OtlpSpanDecoder decoder, BootUiProperties properties) {
+        this(store, decoder, properties, BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public OtlpReceiverController(
+            TelemetryStore store,
+            OtlpSpanDecoder decoder,
+            BootUiProperties properties,
+            BootUiSelfDataFilter selfDataFilter) {
         this.store = store;
         this.decoder = decoder;
         this.properties = properties;
+        this.selfClassifier = selfDataFilter.telemetryClassifier();
     }
 
     private static ResponseEntity<byte[]> okResponse() {
@@ -78,11 +96,9 @@ public class OtlpReceiverController {
         try {
             List<NormalizedSpan> spans = decoder.decode(body);
             boolean excludeSelf = telemetry.isExcludeSelfSpans();
-            SelfTelemetryClassifier captureClassifier =
-                    SelfTelemetryClassifier.forPaths("/bootui", properties.getApiPath());
             int kept = 0;
             for (NormalizedSpan span : spans) {
-                boolean selfSpan = excludeSelf && captureClassifier.isBootUiSpan(span);
+                boolean selfSpan = excludeSelf && selfClassifier.isBootUiSpan(span);
                 if (store.add(span, selfSpan)) {
                     kept++;
                 }

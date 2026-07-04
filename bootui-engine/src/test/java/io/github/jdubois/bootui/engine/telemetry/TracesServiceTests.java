@@ -12,7 +12,7 @@ class TracesServiceTests {
 
     private static final TelemetrySettings ENABLED = TelemetrySettings.of(true, true, 500, 500, 4096);
 
-    private static final SelfTelemetryClassifier SELF = SelfTelemetryClassifier.forPaths("/bootui", "/bootui/api");
+    private static final SelfTelemetryClassifier SELF = new SelfTelemetryClassifier(true, "/bootui", "/bootui/api");
 
     @Test
     void summaryExposesHttpPathFromRootServerSpan() {

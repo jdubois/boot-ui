@@ -273,15 +273,17 @@ public class BootUiEngineProducer {
      * request through an {@link Instance} (mirroring the Spring adapter's {@code ObjectProvider} handle):
      * absent &rarr; {@code null} &rarr; the engine renders the panel as unavailable; present &rarr; the live
      * composite registry is read on every report. The meter-visibility predicate is the shared engine
-     * {@link MeterSelfFilter} built from the same transform-side {@link SelfTelemetryClassifier} the Traces
-     * read model uses (honoring {@code bootui.monitoring.exclude-self} and {@code bootui.path}), so the panel
-     * never reports BootUI's own {@code /bootui/**} traffic — exactly as the Spring adapter feeds
-     * {@code BootUiSelfDataFilter::shouldIncludeMeter}.
+     * {@link MeterSelfFilter} built from the single {@link SelfTelemetryClassifier} bean produced in
+     * {@link BootUiTelemetryProducer} (honoring {@code bootui.monitoring.exclude-self} and
+     * {@code bootui.path}) — the same instance the Traces read model and the capture-side span processor
+     * use — so the panel never reports BootUI's own {@code /bootui/**} traffic, exactly as the Spring
+     * adapter feeds {@code BootUiSelfDataFilter::shouldIncludeMeter}.
      */
     @Produces
     @Singleton
-    public MetricsReportProvider metricsReportProvider(Instance<MeterRegistry> registries, Config config) {
-        MeterSelfFilter meterFilter = new MeterSelfFilter(transformClassifier(config));
+    public MetricsReportProvider metricsReportProvider(
+            Instance<MeterRegistry> registries, SelfTelemetryClassifier selfClassifier) {
+        MeterSelfFilter meterFilter = new MeterSelfFilter(selfClassifier);
         return new MetricsReportProvider(() -> resolveRegistry(registries), meterFilter::shouldIncludeMeter);
     }
 
@@ -295,15 +297,6 @@ public class BootUiEngineProducer {
             // Multiple registries (e.g. several Micrometer backends): pick the first, like the Spring adapter.
             return registries.stream().findFirst().orElse(null);
         }
-    }
-
-    private static SelfTelemetryClassifier transformClassifier(Config config) {
-        boolean excludeSelf = config.getOptionalValue("bootui.monitoring.exclude-self", Boolean.class)
-                .orElse(Boolean.TRUE);
-        String path = config.getOptionalValue("bootui.path", String.class).orElse("/bootui");
-        String apiPath =
-                config.getOptionalValue("bootui.api-path", String.class).orElse("/bootui/api");
-        return new SelfTelemetryClassifier(excludeSelf, path, apiPath);
     }
 
     @Produces
@@ -646,15 +639,18 @@ public class BootUiEngineProducer {
      *
      * <p>Cache metrics are read live from the same {@link MeterRegistry} the Metrics panel uses (present only
      * when the application adds a {@code quarkus-micrometer} registry), through the identical
-     * {@link MeterSelfFilter} self-visibility predicate, so BootUI's own meters stay hidden — exactly as the
-     * Spring adapter feeds {@code BootUiSelfDataFilter::shouldIncludeMeter}.</p>
+     * {@link MeterSelfFilter} self-visibility predicate built from the shared {@link SelfTelemetryClassifier}
+     * bean, so BootUI's own meters stay hidden — exactly as the Spring adapter feeds
+     * {@code BootUiSelfDataFilter::shouldIncludeMeter}.</p>
      */
     @Produces
     @Singleton
     public CacheService cacheService(
-            Instance<CacheProvider> cacheProviders, Instance<MeterRegistry> registries, Config config) {
+            Instance<CacheProvider> cacheProviders,
+            Instance<MeterRegistry> registries,
+            SelfTelemetryClassifier selfClassifier) {
         CacheProvider provider = cacheProviders.isUnsatisfied() ? null : cacheProviders.get();
-        MeterSelfFilter meterFilter = new MeterSelfFilter(transformClassifier(config));
+        MeterSelfFilter meterFilter = new MeterSelfFilter(selfClassifier);
         return new CacheService(provider, () -> resolveRegistry(registries), meterFilter::shouldIncludeMeter);
     }
 
