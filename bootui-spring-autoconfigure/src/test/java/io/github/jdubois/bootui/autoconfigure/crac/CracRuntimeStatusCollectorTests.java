@@ -13,8 +13,8 @@ class CracRuntimeStatusCollectorTests {
 
     @Test
     void reportsMissingApiWhenOrgCracIsAbsent() {
-        CracRuntimeStatusCollector collector =
-                new CracRuntimeStatusCollector(new MockEnvironment(), List::of, className -> false);
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                new MockEnvironment(), List::of, className -> false, CracRuntimeInventory::empty, () -> null);
 
         CracRuntimeStatusDto status = collector.collect();
 
@@ -27,8 +27,8 @@ class CracRuntimeStatusCollectorTests {
 
     @Test
     void detectsNoOpShimWhenOnlyApiIsPresent() {
-        CracRuntimeStatusCollector collector =
-                new CracRuntimeStatusCollector(new MockEnvironment(), List::of, "org.crac.Core"::equals);
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                new MockEnvironment(), List::of, "org.crac.Core"::equals, CracRuntimeInventory::empty, () -> null);
 
         CracRuntimeStatusDto status = collector.collect();
 
@@ -44,7 +44,9 @@ class CracRuntimeStatusCollectorTests {
         CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
                 environment,
                 () -> List.of("-XX:CRaCCheckpointTo=/tmp/cr", "-Dfoo=bar", "-XX:+UseG1GC"),
-                present::contains);
+                present::contains,
+                CracRuntimeInventory::empty,
+                () -> "onRefresh");
 
         CracRuntimeStatusDto status = collector.collect();
 
@@ -59,7 +61,11 @@ class CracRuntimeStatusCollectorTests {
     @Test
     void parsesRestoreFromArgument() {
         CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
-                new MockEnvironment(), () -> List.of("-XX:CRaCRestoreFrom=/snapshots/app"), className -> true);
+                new MockEnvironment(),
+                () -> List.of("-XX:CRaCRestoreFrom=/snapshots/app"),
+                className -> true,
+                CracRuntimeInventory::empty,
+                () -> null);
 
         CracRuntimeStatusDto status = collector.collect();
 
@@ -70,17 +76,19 @@ class CracRuntimeStatusCollectorTests {
     @Test
     void addsFrozenConfigurationCaveatWhenCheckpointOnRefresh() {
         MockEnvironment environment = new MockEnvironment().withProperty("spring.context.checkpoint", "onRefresh");
-        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(environment, CracRuntimeInventory::empty);
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                environment, List::of, className -> false, CracRuntimeInventory::empty, () -> "onRefresh");
 
         CracRuntimeStatusDto status = collector.collect();
 
+        assertThat(status.checkpointOnRefresh()).isTrue();
         assertThat(status.restoreCaveats()).anyMatch(caveat -> caveat.contains("frozen into the checkpoint"));
     }
 
     @Test
     void hasNoFrozenConfigurationCaveatWithoutCheckpointOnRefresh() {
-        CracRuntimeStatusCollector collector =
-                new CracRuntimeStatusCollector(new MockEnvironment(), CracRuntimeInventory::empty);
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                new MockEnvironment(), List::of, className -> false, CracRuntimeInventory::empty, () -> null);
 
         CracRuntimeStatusDto status = collector.collect();
 
@@ -91,11 +99,53 @@ class CracRuntimeStatusCollectorTests {
     void surfacesConnectionPoolsAsRestoreCaveat() {
         CracRuntimeInventory inventory =
                 new CracRuntimeInventory(List.of("dataSource : com.zaxxer.hikari.HikariDataSource"));
-        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(new MockEnvironment(), () -> inventory);
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                new MockEnvironment(), List::of, className -> false, () -> inventory, () -> null);
 
         CracRuntimeStatusDto status = collector.collect();
 
         assertThat(status.restoreCaveats())
                 .anyMatch(caveat -> caveat.contains("connection pool") && caveat.contains("CRAC-POOL-001"));
+    }
+
+    @Test
+    void warnsWhenEnvironmentClaimsCheckpointOnRefreshButSpringPropertyIsUnset() {
+        // Spring Boot's Environment can see spring.context.checkpoint from application.yml or an OS
+        // environment variable, but Spring Framework's DefaultLifecycleProcessor only ever honors the
+        // property through org.springframework.core.SpringProperties (a JVM system property or a
+        // classpath spring.properties file). This models the mismatch: the Environment claims onRefresh
+        // is set, but the actual SpringProperties-backed source has no value, so no automatic checkpoint
+        // will really be taken.
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.context.checkpoint", "onRefresh");
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                environment, List::of, className -> false, CracRuntimeInventory::empty, () -> null);
+
+        CracRuntimeStatusDto status = collector.collect();
+
+        assertThat(status.checkpointOnRefresh()).isFalse();
+        assertThat(status.restoreCaveats())
+                .anyMatch(caveat -> caveat.contains("SpringProperties")
+                        && caveat.contains("No automatic checkpoint will actually be taken"));
+    }
+
+    @Test
+    void hasNoMismatchCaveatWhenSpringPropertyAgreesWithEnvironment() {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.context.checkpoint", "onRefresh");
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                environment, List::of, className -> false, CracRuntimeInventory::empty, () -> "onRefresh");
+
+        CracRuntimeStatusDto status = collector.collect();
+
+        assertThat(status.restoreCaveats()).noneMatch(caveat -> caveat.contains("SpringProperties"));
+    }
+
+    @Test
+    void hasNoMismatchCaveatWhenNeitherSourceClaimsCheckpointOnRefresh() {
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                new MockEnvironment(), List::of, className -> false, CracRuntimeInventory::empty, () -> null);
+
+        CracRuntimeStatusDto status = collector.collect();
+
+        assertThat(status.restoreCaveats()).noneMatch(caveat -> caveat.contains("SpringProperties"));
     }
 }

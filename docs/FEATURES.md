@@ -671,13 +671,15 @@ CRaC or BellSoft Liberica, detected via the real CRaC implementation rather than
 `spring.context.checkpoint=onRefresh` is set, and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments (read
 from the same `RuntimeMXBean` input arguments the JVM Tuning panel uses). On demand the readiness advisor imports the
 application's own classes (bounded to the detected base package(s)) and runs a curated set of `CRaC-*` checks for
-constructs that complicate checkpoint/restore — open resources and file handles held outside Spring/CRaC lifecycle,
-network listeners, live connection pools and cache managers, unmanaged threads, captured timestamps, captured
-environment/system configuration, static random seeds, eagerly captured secrets, and missing `org.crac.Resource`
-registrations. After a scan, the concerns list can be filtered in place by severity, category, or free-text search to
-focus on a subset of findings without rerunning the scan. The checks are heuristic review aids that complement, but do
-not replace, an actual checkpoint/restore run on a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md)
-for the full catalogue of checks and what each one inspects.
+constructs that complicate checkpoint/restore — open resources and file handles held outside a managed CRaC/Spring
+lifecycle, network listeners (including NIO channels), live connection pools, cache managers, and HTTP/RPC clients,
+unmanaged threads and fixed-rate scheduled tasks that may run a catch-up burst after an on-demand restore, captured
+timestamps, captured environment/system configuration, Random/SecureRandom and secret state held in static or instance
+fields, and a missing `org.crac.Resource` registration or `org.crac:crac` dependency. After a scan, the concerns list
+can be filtered in place by severity, category, or free-text search to focus on a subset of findings without rerunning
+the scan. The checks are heuristic review aids that complement, but do not replace, an actual checkpoint/restore run on
+a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what
+each one inspects.
 
 The panel also generates ready-to-use container assets for the host application: a multi-stage `Dockerfile-crac` that
 builds with a plain JDK and runs on a CRaC-enabled BellSoft Liberica JDK, plus the `checkpoint-and-run.sh` entrypoint it

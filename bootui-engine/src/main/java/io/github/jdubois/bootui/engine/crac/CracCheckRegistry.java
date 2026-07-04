@@ -14,13 +14,16 @@ final class CracCheckRegistry {
             new FileHandleCheck(),
             new SocketConstructionCheck(),
             new ConnectionPoolCheck(),
+            new UnmanagedHttpClientFieldCheck(),
             new CacheManagerCheck(),
             new UnmanagedThreadCheck(),
+            new ScheduledFixedRateTaskCheck(),
             new CapturedTimeCheck(),
             new CapturedConfigurationCheck(),
-            new StaticRandomFieldCheck(),
+            new RandomFieldCheck(),
             new CapturedSecretFieldCheck(),
-            new ResourceRegistrationCheck());
+            new ResourceRegistrationCheck(),
+            new CracDependencyCheck());
 
     private CracCheckRegistry() {}
 

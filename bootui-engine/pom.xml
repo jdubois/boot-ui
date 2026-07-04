@@ -92,6 +92,16 @@
             <artifactId>spring-context</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          Test-scope only: lets CRaC readiness fixtures implement org.crac.Resource to verify the
+          managed-lifecycle call-site exemption (see ManagedLifecycleCallSites in CracChecks.java).
+          Version is managed by the Spring Boot BOM imported at the root pom.
+        -->
+        <dependency>
+            <groupId>org.crac</groupId>
+            <artifactId>crac</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
