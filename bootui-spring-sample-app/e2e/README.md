@@ -61,7 +61,7 @@ per-panel behavior already covered by the shared `bootui-conformance` suite
 npx playwright test --config=playwright.webflux.config.js
 ```
 
-It boots `bootui-spring-webflux-sample-app` via `./mvnw spring-boot:run` on port 8080 (same
+It boots `bootui-spring-webflux-sample-app` via `./mvnw spring-boot:run` on port 8081 (same
 auto-start/reuse behavior as `npm test` above); set `BOOTUI_WEBFLUX_BASE_URL` to point at an
 already-running instance on a different host/port instead.
 

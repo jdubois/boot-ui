@@ -5,7 +5,7 @@ import {defineConfig, devices} from '@playwright/test'
  * Playwright configuration for a lightweight WebFlux smoke suite.
  *
  * Reuses this same e2e npm project (rather than a second one) to drive the BootUI console served at
- * `http://localhost:8080/bootui/` by the reactive `bootui-spring-webflux-sample-app` module - the
+ * `http://localhost:8081/bootui/` by the reactive `bootui-spring-webflux-sample-app` module - the
  * WebFlux/Netty sibling of the servlet `bootui-spring-sample-app` the default `playwright.config.js`
  * targets. This is deliberately a small smoke suite (one spec file), not a full per-panel port of the
  * servlet suite: its job is to prove the reactive adapter serves the same console shell and that the
@@ -17,7 +17,7 @@ import {defineConfig, devices} from '@playwright/test'
  * `./mvnw install` of the parent build first, including `bootui-spring-webflux-sample-app`). If you
  * already have it running on the configured port it will be reused automatically.
  */
-const PORT = Number(process.env.BOOTUI_WEBFLUX_PORT || 8080)
+const PORT = Number(process.env.BOOTUI_WEBFLUX_PORT || 8081)
 const BASE_URL = process.env.BOOTUI_WEBFLUX_BASE_URL || `http://localhost:${PORT}`
 
 export default defineConfig({
@@ -49,7 +49,7 @@ export default defineConfig({
   // Set BOOTUI_SKIP_WEBSERVER=1 to disable the auto-started Maven server when running against an
   // already-deployed instance. Like the default config, BOOTUI_WEBFLUX_PORT only changes the URL
   // Playwright polls/targets - the sample app itself listens on the port fixed in its own
-  // application.properties (8080 by default), so override both together if you need a non-default port.
+  // application.properties (8081 by default), so override both together if you need a non-default port.
   webServer: process.env.BOOTUI_SKIP_WEBSERVER
     ? undefined
     : {

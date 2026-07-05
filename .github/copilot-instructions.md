@@ -130,7 +130,7 @@ parent/core/UI modules, and those modules have no main class. Use `-am` for buil
 
 # Build/run the Quarkus sample app — requires JDK 17/21/25 (see the JDK caveat above). Point JAVA_HOME at a 17/21/25 JDK.
 JAVA_HOME=/path/to/jdk-17 ./mvnw -pl bootui-quarkus-sample-app -am install
-JAVA_HOME=/path/to/jdk-17 ./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev   # console at http://localhost:8080/bootui/
+JAVA_HOME=/path/to/jdk-17 ./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev   # console at http://localhost:8082/bootui/
 ```
 
 The Quarkus sample app uses Dev Services (Postgres) and LangChain4j/Ollama, so a full `quarkus:dev` run needs Docker
@@ -170,8 +170,9 @@ Editing Vue source does **not** hot-reload the Maven-served console: `spring-boo
 `./mvnw -pl bootui-ui install` plus a restart. For a fast loop with hot-module reload (HMR) — including live/visual
 iteration in the in-app browser (e.g. when using the Impeccable skill) — run two processes and open the **Vite** URL:
 
-1. **Backend (REST API).** Run a sample app (Spring `spring-boot:run` or Quarkus `quarkus:dev`), or the `Dev server`
-   script in `.github/github-app.yml`. Serves `http://localhost:8080/bootui` (or `$COPILOT_PORT` in the Copilot app).
+1. **Backend (REST API).** Run a sample app — Spring `spring-boot:run` (serves `http://localhost:8080/bootui`) or
+   Quarkus `quarkus:dev` (serves `http://localhost:8082/bootui`) — or the `Dev server` script in
+   `.github/github-app.yml` (serves `$COPILOT_PORT` in the Copilot app).
 2. **Frontend (HMR).** Run `(cd bootui-ui/src/main/frontend && npm install && npm run dev)`. Serves
    `http://localhost:5173/bootui/` and proxies `/bootui/api/*` to the backend.
 
