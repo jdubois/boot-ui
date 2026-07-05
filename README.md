@@ -7,9 +7,10 @@
 [![Quarkus](https://img.shields.io/badge/Quarkus-3.33.x-4695EB?logo=quarkus&logoColor=white)](https://quarkus.io/)
 [![Java](https://img.shields.io/badge/Java-17-orange?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
 
-BootUI adds an embedded, local-only developer console to your application. It runs on both **Spring Boot 4** and
-**Quarkus**, serving the same Vue UI and the same `/bootui/api/**` REST contract from a shared, framework-neutral
-engine — add the Spring Boot starter or the Quarkus extension and BootUI activates only in local development.
+BootUI adds an embedded, local-only developer console to your application. It runs on **Spring Boot 4** (servlet or
+WebFlux) and **Quarkus**, serving the same Vue UI and the same `/bootui/api/**` REST contract from a shared,
+framework-neutral engine — add the matching Spring Boot starter or the Quarkus extension and BootUI activates only in
+local development.
 
 Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 

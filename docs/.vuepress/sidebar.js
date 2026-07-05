@@ -15,7 +15,8 @@ const coreDocs = [
   'REPOSITORY.md',
   'SPECIFICATION.md',
   'PLAN.md',
-  'QUARKUS-SUPPORT.md'
+  'QUARKUS-SUPPORT.md',
+  'WEBFLUX-SUPPORT.md'
 ]
 const checkDocs = [
   'ARCHITECTURE-CHECKS.md',

@@ -3,8 +3,9 @@
 ## 1. Overview
 
 BootUI is a **local-only developer console** that adds an embedded, safe introspection and explanation layer to a
-running application. It runs on **both Spring Boot 4 and Quarkus** from a single codebase: each framework ships a thin
-adapter — a Spring Boot starter or a Quarkus extension — over a shared, framework-neutral engine, so both serve the
+running application. It runs on **Spring Boot 4 (servlet or WebFlux) and Quarkus** from a single codebase: each stack
+ships a thin adapter — a Spring Boot starter (`bootui-spring-boot-starter` for servlet, `bootui-spring-boot-starter-reactive`
+for WebFlux) or a Quarkus extension — over a shared, framework-neutral engine, so all three serve the
 **same Vue UI** and the **same `/bootui/api/**` REST contract**. It is inspired by Quarkus Dev UI, .NET Aspire Dashboard,
 Laravel Telescope, Micronaut Control Panel, and Spring Boot Admin, but is focused specifically on the inner development
 loop of a single application.
@@ -20,19 +21,24 @@ BootUI currently targets:
 - Spring Boot 4.x and Quarkus 3.x, from one shared, framework-neutral codebase.
 - Java 17 or later.
 - Maven-based applications first.
-- Spring Boot servlet web applications and Quarkus (Vert.x / RESTEasy Reactive) applications.
+- Spring Boot servlet web applications, Spring Boot WebFlux (reactive) applications, and Quarkus (Vert.x / RESTEasy
+  Reactive) applications.
 
-Maturity is stated honestly: the **Spring Boot adapter is complete** (all panels). The **Quarkus adapter is being built
-out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the current per-platform
-status.
+Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
+adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
+layer; a handful of panels (the Security advisor, the raw Spring Security panel, MCP Server, Live Activity) are not
+yet ported, and HTTP Sessions is not applicable to a reactive, container-session-free stack — see
+`docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter is being built out**, with panels
+lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the current per-platform status.
 
 Out of scope for the current 1.x line:
 
 - Spring Boot 3.x compatibility.
 - Spring Framework 6 / Boot 3 compatibility shims.
-- A dedicated BootUI Gradle plugin (the Spring starter and Quarkus extension are consumable from Maven or Gradle as
+- A dedicated BootUI Gradle plugin (the Spring starters and Quarkus extension are consumable from Maven or Gradle as
   ordinary dependencies).
-- WebFlux-specific UX beyond what Actuator mappings expose by default.
+- On Spring Boot WebFlux: a reactive Security advisor ruleset, the raw Spring Security panel, MCP Server, and Live
+  Activity (see `docs/WEBFLUX-SUPPORT.md` for the reasons and the plan to close each gap).
 
 ## 2. Product goals
 
@@ -1582,14 +1588,16 @@ Initial target:
 - Java 17 or later.
 - Spring Boot 4.x.
 - Maven first.
-- Servlet web applications first.
+- Servlet web applications first, with a WebFlux (reactive) adapter now shipping alongside it — see
+  `docs/WEBFLUX-SUPPORT.md`.
 - macOS/Linux/Windows compatible.
 
 Future compatibility:
 
 - Spring Boot 3.5 if demand requires it.
 - Gradle examples.
-- WebFlux-specific mapping improvements.
+- Closing the remaining Spring Boot WebFlux gaps: a reactive Security advisor, the raw Spring Security panel, MCP
+  Server, and Live Activity (see `docs/WEBFLUX-SUPPORT.md`).
 
 ## 9. Testing strategy
 
