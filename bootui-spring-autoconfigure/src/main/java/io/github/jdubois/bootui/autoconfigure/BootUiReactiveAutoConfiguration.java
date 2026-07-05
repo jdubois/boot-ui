@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
+import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
@@ -11,14 +12,26 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveAgentSessionController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiExceptionHandler;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiIndexController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResourceConfigurer;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveClaudeCodeController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveCopilotController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLocalhostOnlyFilter;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLogTailController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactivePanelAccessFilter;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityLogsController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
+import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -26,13 +39,17 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aot.AotDetector;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
+import org.springframework.boot.actuate.audit.AuditEventRepository;
+import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchangesProperties;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.actuate.web.exchanges.InMemoryHttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -48,6 +65,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 /**
  * Reactive (WebFlux) sibling of {@link BootUiAutoConfiguration}: activates BootUI on a Spring Boot 4
@@ -84,20 +102,40 @@ import org.springframework.core.env.Environment;
  *       adapter's resource profile.</li>
  * </ul>
  *
+ * <p><strong>Server-Sent Events panels (Phase 3 of the WebFlux port).</strong> Live Activity aside (see
+ * below), every panel that streams change notifications over SSE has a reactive twin here, rebuilt on
+ * {@code Flux<ServerSentEvent<T>>} instead of the servlet-only {@code SseEmitter}:
+ * {@link io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSqlTraceController},
+ * {@link ReactiveExceptionsController} (paired with {@link ReactiveBootUiExceptionHandler} for capture),
+ * {@link io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityLogsController},
+ * {@link ReactiveLogTailController}, and the agent-activity pair
+ * {@link ReactiveCopilotController}/{@link ReactiveClaudeCodeController} (sharing behavior via
+ * {@link ReactiveAgentSessionController}, exactly as their servlet originals share
+ * {@code AgentSessionController}). Each reactive controller reuses a coalesced-tick broadcaster,
+ * {@code ReactiveBootUiChangeStream} (a {@code Sinks.Many}-backed sibling of the servlet
+ * {@code BootUiChangeStream}), except Log Tail and the agent-activity pair, which stream actual payload
+ * data (log lines; session/dashboard snapshots) rather than a bare tick, matching their servlet
+ * originals. {@code SecurityLogsController} was reclassified during this phase: it depends only on
+ * Actuator's {@code AuditEventRepository}/{@code AuditApplicationEvent} - not on the Spring Security
+ * advisor ruleset - so it ports independently of the (still-deferred) Security advisor below.</p>
+ *
  * <p><strong>Not yet ported (need genuinely new reactive-native work, not mechanical reuse):</strong></p>
  *
  * <ul>
- *   <li><strong>Server-Sent Events panels</strong> &mdash; Live Activity, SQL Trace's {@code /stream}
- *       endpoint, Log Tail's {@code /stream} endpoint, Copilot, and Claude Code all stream over
- *       {@code org.springframework.web.servlet.mvc.method.annotation.SseEmitter}, a Spring MVC-only type
- *       with no WebFlux equivalent (WebFlux streams via {@code Flux<ServerSentEvent<T>>} return types
- *       instead). The MCP Server panel's tool catalog references these controllers too, so it is deferred
- *       alongside them. See {@code docs/WEBFLUX-SUPPORT.md} for the tracked follow-up.</li>
- *   <li><strong>Exceptions</strong> &mdash; captured via a {@code HandlerExceptionResolver}, an MVC-only
- *       extension point; needs a reactive {@code WebExceptionHandler} twin.</li>
- *   <li><strong>Spring Security advisor, Security Logs, and BootUI's own Security auto-configuration
- *       bypass</strong> &mdash; coupled to servlet Spring Security ({@code FilterChainProxy},
- *       {@code HttpSecurity}); needs a {@code ServerHttpSecurity}/{@code SecurityWebFilterChain} ruleset.</li>
+ *   <li><strong>Live Activity</strong> &mdash; aggregates several other signal sources including the
+ *       servlet-only {@code ServletRequestHandledEvent}; deferred to a later increment.</li>
+ *   <li><strong>MCP Server</strong> &mdash; {@code BootUiMcpController}/{@code McpServerController} are
+ *       themselves framework-neutral, but {@code BootUiMcpTools}'s constructor is hard-wired to the
+ *       servlet controller types ({@code ObjectProvider<ExceptionsController>},
+ *       {@code ObjectProvider<SqlTraceController>}, etc.), so it cannot resolve the new
+ *       {@code Reactive*Controller} beans above even now that they exist. Wiring the MCP beans here
+ *       would either advertise tools that silently 404, or need {@code BootUiMcpTools} itself
+ *       genericized (or a parallel reactive tools catalog); deferred pending that decision. See
+ *       {@code docs/WEBFLUX-SUPPORT.md}.</li>
+ *   <li><strong>Spring Security advisor and BootUI's own Security auto-configuration bypass</strong>
+ *       &mdash; coupled to servlet Spring Security ({@code FilterChainProxy}, {@code HttpSecurity});
+ *       needs a {@code ServerHttpSecurity}/{@code SecurityWebFilterChain} ruleset. (Security *Logs* is
+ *       ported - see above - only the advisor that analyzes security configuration is deferred.)</li>
  *   <li><strong>HTTP Sessions</strong> &mdash; {@code jakarta.servlet.http.HttpSession} /
  *       the container {@code Manager} SPI have no faithful reactive analog ({@code WebSession} is a
  *       different contract); reported {@code NOT_APPLICABLE}.</li>
@@ -166,6 +204,14 @@ import org.springframework.core.env.Environment;
     ThreadDumpController.class,
     MemoryController.class,
     DismissedRulesController.class,
+    BootUiReactiveAutoConfiguration.ReactiveSecurityAuditRepositoryConfiguration.class,
+    BootUiReactiveAutoConfiguration.ReactiveExceptionsConfiguration.class,
+    ReactiveExceptionsController.class,
+    ReactiveSqlTraceController.class,
+    ReactiveSecurityLogsController.class,
+    ReactiveLogTailController.class,
+    ReactiveCopilotController.class,
+    ReactiveClaudeCodeController.class,
     ReactiveBootUiIndexController.class,
     BootUiEngineConfiguration.class,
     BootUiOpenTelemetryConfiguration.class
@@ -212,10 +258,19 @@ public class BootUiReactiveAutoConfiguration {
             TracesController.class.getName(),
             ThreadDumpController.class.getName(),
             MemoryController.class.getName(),
-            DismissedRulesController.class.getName());
+            DismissedRulesController.class.getName(),
+            ReactiveExceptionsController.class.getName(),
+            ReactiveSqlTraceController.class.getName(),
+            ReactiveSecurityLogsController.class.getName(),
+            ReactiveCopilotController.class.getName(),
+            ReactiveClaudeCodeController.class.getName());
 
-    private static final Set<String> LAZY_BEAN_NAMES =
-            Set.of("bootUiConfigOverrideService", "bootUiDevToolsBridge", "bootUiOtlpSpanDecoder");
+    private static final Set<String> LAZY_BEAN_NAMES = Set.of(
+            "bootUiConfigOverrideService",
+            "bootUiDevToolsBridge",
+            "bootUiOtlpSpanDecoder",
+            "bootUiCopilotSessionStore",
+            "bootUiClaudeCodeSessionStore");
 
     @Bean
     static BeanFactoryPostProcessor bootUiReactiveLazyBeanPostProcessor() {
@@ -341,6 +396,137 @@ public class BootUiReactiveAutoConfiguration {
     @Bean
     public DevToolsBridge bootUiDevToolsBridge(ApplicationContext applicationContext) {
         return new DefaultDevToolsBridge(applicationContext);
+    }
+
+    /**
+     * Duplicates {@link BootUiAutoConfiguration#bootUiSqlTraceRecorder}: no stack-specific dependency.
+     * Needed by {@link io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSqlTraceController}.
+     * Deliberately does not also duplicate {@code bootUiSqlTraceRecorderIdleReclaimable} - like
+     * {@link #bootUiTelemetryStore}, the idle-reclaim bridge needs the still-deferred reactive
+     * {@code ConsoleActivityFilter}/{@code ConsoleActivityTracker} port; without it, SQL capture simply
+     * never suspends while idle (a resource-usage gap, not a correctness one).
+     */
+    @Bean
+    public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties) {
+        BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
+        boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
+        return new SqlTraceRecorder(
+                enabled,
+                sqlTrace.isRecording(),
+                sqlTrace.isCaptureParameters(),
+                sqlTrace.isCaptureCallSite(),
+                sqlTrace.getMaxEntries(),
+                sqlTrace.getSlowQueryThresholdMillis(),
+                sqlTrace.getMaxSqlLength(),
+                sqlTrace.getMaxParameterLength(),
+                sqlTrace.getNPlusOneThreshold());
+    }
+
+    /**
+     * Duplicates {@link BootUiAutoConfiguration#bootUiSqlTraceDataSourceBeanPostProcessor}: no
+     * stack-specific dependency (wraps {@code javax.sql.DataSource} beans directly). Must stay eager
+     * like its servlet counterpart - a {@link BeanPostProcessor} has to be instantiated before the
+     * regular singletons it processes, so it is deliberately absent from {@link #LAZY_BEAN_NAMES}.
+     */
+    @Bean
+    static SqlTraceDataSourceBeanPostProcessor bootUiSqlTraceDataSourceBeanPostProcessor(
+            ObjectProvider<SqlTraceRecorder> recorderProvider) {
+        return new SqlTraceDataSourceBeanPostProcessor(recorderProvider);
+    }
+
+    /**
+     * Duplicates {@link BootUiAutoConfiguration#bootUiCopilotSessionStore}: {@link CopilotSessionStore}
+     * is a {@code WatchService}-based directory watcher with no HTTP coupling, so it is stack-agnostic.
+     * Needed by {@link ReactiveCopilotController}. Marked lazy (see {@link #LAZY_BEAN_NAMES}) like its
+     * servlet counterpart, since {@code store.start()} does real I/O (registers filesystem watches).
+     */
+    @Bean(destroyMethod = "stop")
+    public CopilotSessionStore bootUiCopilotSessionStore(BootUiProperties properties) {
+        CopilotSessionStore store = new CopilotSessionStore(properties.getCopilot());
+        if (properties.getCopilot().getEnabled() != BootUiProperties.Mode.OFF) {
+            store.start();
+        }
+        return store;
+    }
+
+    /**
+     * Duplicates {@link BootUiAutoConfiguration#bootUiClaudeCodeSessionStore}: same rationale as
+     * {@link #bootUiCopilotSessionStore}. Needed by {@link ReactiveClaudeCodeController}.
+     */
+    @Bean(destroyMethod = "stop")
+    public ClaudeCodeSessionStore bootUiClaudeCodeSessionStore(BootUiProperties properties) {
+        ClaudeCodeSessionStore store = new ClaudeCodeSessionStore(properties.getClaudeCode());
+        if (properties.getClaudeCode().getEnabled() != BootUiProperties.Mode.OFF) {
+            store.start();
+        }
+        return store;
+    }
+
+    /**
+     * Reactive sibling of {@code BootUiAutoConfiguration.SecurityAuditRepositoryConfiguration}: same
+     * framework-neutral fallback {@link AuditEventRepository} bean (Actuator's audit event capture is
+     * itself stack-agnostic - events are published via {@code ApplicationEventPublisher}), needed by
+     * {@link io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityLogsController}.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.boot.actuate.audit.AuditEventRepository",
+                "org.springframework.security.authentication.event.AbstractAuthenticationEvent"
+            })
+    @ConditionalOnProperty(name = "management.auditevents.enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "bootui.panels.security-logs", name = "enabled", matchIfMissing = true)
+    static class ReactiveSecurityAuditRepositoryConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(AuditEventRepository.class)
+        AuditEventRepository bootUiAuditEventRepository() {
+            return new InMemoryAuditEventRepository();
+        }
+    }
+
+    /**
+     * Reactive sibling of {@code BootUiAutoConfiguration.ExceptionsConfiguration}: same
+     * framework-neutral {@link ExceptionStore}, but pairs it with {@link ReactiveBootUiExceptionHandler}
+     * (a {@code WebExceptionHandler}) instead of the servlet-only {@code BootUiExceptionHandlerResolver}
+     * (a {@code HandlerExceptionResolver}). Needed by {@link ReactiveExceptionsController}.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "bootui.panels.exceptions", name = "enabled", matchIfMissing = true)
+    static class ReactiveExceptionsConfiguration {
+
+        @Bean
+        ExceptionStore bootUiExceptionStore(BootUiProperties properties, ApplicationContext applicationContext) {
+            BootUiProperties.Exceptions config = properties.getExceptions();
+            ExceptionStore store = new ExceptionStore(
+                    config.getMaxGroups(),
+                    config.getMaxOccurrencesPerGroup(),
+                    config.getMaxStackFrames(),
+                    DisconnectedClientHelper::isClientDisconnectedException);
+            try {
+                if (AutoConfigurationPackages.has(applicationContext)) {
+                    store.setApplicationPackages(AutoConfigurationPackages.get(applicationContext));
+                }
+            } catch (RuntimeException ex) {
+                log.debug("BootUI could not resolve application base packages for exception capture", ex);
+            }
+            return store;
+        }
+
+        @Bean
+        ReactiveBootUiExceptionHandler bootUiReactiveBootUiExceptionHandler(ExceptionStore store) {
+            return new ReactiveBootUiExceptionHandler(store);
+        }
+
+        @Configuration(proxyBeanMethods = false)
+        @ConditionalOnClass(name = "ch.qos.logback.classic.LoggerContext")
+        static class LogbackExceptionCaptureConfiguration {
+
+            @Bean(destroyMethod = "uninstall")
+            BootUiExceptionLogAppender bootUiExceptionLogAppender(ExceptionStore store) {
+                return BootUiExceptionLogAppender.install(store);
+            }
+        }
     }
 
     /**

@@ -7,15 +7,24 @@ import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiExceptionHandler;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiIndexController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResourceConfigurer;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveClaudeCodeController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveCopilotController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLocalhostOnlyFilter;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLogTailController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactivePanelAccessFilter;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityLogsController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.web.AiController;
 import io.github.jdubois.bootui.autoconfigure.web.BeansController;
+import io.github.jdubois.bootui.autoconfigure.web.ClaudeCodeSessionStore;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigController;
+import io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore;
 import io.github.jdubois.bootui.autoconfigure.web.DevToolsController;
 import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
@@ -23,7 +32,11 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.OtlpReceiverController;
 import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
@@ -32,6 +45,9 @@ import org.springframework.boot.webflux.autoconfigure.HttpHandlerAutoConfigurati
 import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import reactor.test.StepVerifier;
 
 /**
  * Tests for {@link BootUiReactiveAutoConfiguration}: proves the reactive (WebFlux) BootUI entry point
@@ -390,6 +406,145 @@ class BootUiReactiveAutoConfigurationTests {
                             .expectStatus()
                             .isOk();
                 });
+    }
+
+    @Test
+    void registersThePhase3SseAndExceptionCapturePanelControllers() {
+        // The genuinely-new Phase 3 group: panels that needed a bespoke reactive streaming primitive
+        // (ReactiveBootUiChangeStream or a custom Flux.create) instead of a mechanical @Import, plus
+        // the reactive exception-capture path. Also asserts the supporting beans each one needed:
+        // ExceptionStore/ReactiveBootUiExceptionHandler (Exceptions), SqlTraceRecorder (SQL Trace),
+        // AuditEventRepository (Security Logs, via the duplicated fallback configuration), and the two
+        // agent session stores (Copilot/Claude Code).
+        runner.withPropertyValues("bootui.enabled=ON")
+                .run(context -> assertThat(context)
+                        .hasSingleBean(ReactiveExceptionsController.class)
+                        .hasSingleBean(ReactiveBootUiExceptionHandler.class)
+                        .hasSingleBean(ExceptionStore.class)
+                        .hasSingleBean(ReactiveSqlTraceController.class)
+                        .hasSingleBean(SqlTraceRecorder.class)
+                        .hasSingleBean(ReactiveSecurityLogsController.class)
+                        .hasSingleBean(AuditEventRepository.class)
+                        .hasSingleBean(ReactiveLogTailController.class)
+                        .hasSingleBean(ReactiveCopilotController.class)
+                        .hasSingleBean(CopilotSessionStore.class)
+                        .hasSingleBean(ReactiveClaudeCodeController.class)
+                        .hasSingleBean(ClaudeCodeSessionStore.class));
+    }
+
+    @Test
+    void servesThePhase3ReadEndpointsOverHttp() {
+        // Genuine HTTP proof (not just hasSingleBean) that DispatcherHandler routes to every Phase 3
+        // controller's read endpoint, including the ones behind a @Lazy-marked bean definition
+        // (ReactiveExceptionsController, ReactiveSqlTraceController, ReactiveSecurityLogsController,
+        // ReactiveCopilotController, ReactiveClaudeCodeController - see servesTheLazyControllersThat
+        // NeededNewlyWiredBeans for why hasSingleBean alone cannot catch a missing constructor
+        // dependency on a lazy bean).
+        webFluxRunner()
+                .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
+                .run(context -> {
+                    WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .build();
+                    client.get()
+                            .uri("/bootui/api/sql-trace")
+                            .exchange()
+                            .expectStatus()
+                            .isOk();
+                    client.get()
+                            .uri("/bootui/api/exceptions")
+                            .exchange()
+                            .expectStatus()
+                            .isOk();
+                    client.get()
+                            .uri("/bootui/api/security-logs")
+                            .exchange()
+                            .expectStatus()
+                            .isOk();
+                    client.get()
+                            .uri("/bootui/api/log-tail/recent")
+                            .exchange()
+                            .expectStatus()
+                            .isOk();
+                    client.get()
+                            .uri("/bootui/api/copilot/sessions")
+                            .exchange()
+                            .expectStatus()
+                            .isOk();
+                    client.get()
+                            .uri("/bootui/api/claude-code/sessions")
+                            .exchange()
+                            .expectStatus()
+                            .isOk();
+                });
+    }
+
+    @Test
+    void sqlTraceStreamPushesAnUpdateEventWhenRecordingIsToggled() {
+        // Proof that the real, Spring-constructed ReactiveSqlTraceController bean (built through the full
+        // autoconfiguration, with its constructor's recorder.subscribe(changeStream::signal) wiring genuinely
+        // executed) emits a coalesced "update" SSE event when the underlying recorder changes - not just that
+        // ReactiveBootUiChangeStream behaves correctly in isolation (see ReactiveBootUiChangeStreamTests for that
+        // unit-level coverage). The controller's stream() method is invoked directly rather than through
+        // WebTestClient: bindToApplicationContext's mock connector materializes/buffers the exchange and does
+        // not reliably support a never-completing SSE Flux that has not yet emitted at least one element, which
+        // made the plain HTTP round trip hang; content-type negotiation for a Flux<ServerSentEvent<T>> return
+        // type is generic Spring machinery already exercised by servesThePhase3ReadEndpointsOverHttp for this
+        // same controller's non-streaming endpoint. SqlTraceRecorder#setRecording only notifies listeners when
+        // the value actually changes, hence flipping the default (recording=true) to false.
+        webFluxRunner()
+                .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
+                .run(context -> {
+                    ReactiveSqlTraceController controller = context.getBean(ReactiveSqlTraceController.class);
+                    SqlTraceRecorder recorder = context.getBean(SqlTraceRecorder.class);
+
+                    StepVerifier.create(controller.stream())
+                            .then(() -> recorder.setRecording(false))
+                            .assertNext(event -> assertThat(event.event()).isEqualTo("update"))
+                            .thenCancel()
+                            .verify(Duration.ofSeconds(5));
+                });
+    }
+
+    @Test
+    void reactiveExceptionHandlerCapturesUnhandledControllerExceptionsIntoTheExceptionStore() {
+        // Full-stack proof of the reactive exception-capture path: an exception thrown by a genuine
+        // handler method, dispatched by the real DispatcherHandler, is observed by
+        // ReactiveBootUiExceptionHandler (registered at Ordered.HIGHEST_PRECEDENCE), recorded into the
+        // shared ExceptionStore, and then re-propagated so Spring Boot's own DefaultErrorWebExceptionHandler
+        // still renders the error response - and the captured group is visible through the normal
+        // ReactiveExceptionsController read endpoint afterwards.
+        webFluxRunner()
+                .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
+                .withBean(ThrowingTestController.class)
+                .run(context -> {
+                    WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .build();
+
+                    client.get()
+                            .uri("/bootui-test/boom")
+                            .exchange()
+                            .expectStatus()
+                            .is5xxServerError();
+
+                    client.get()
+                            .uri("/bootui/api/exceptions")
+                            .exchange()
+                            .expectStatus()
+                            .isOk()
+                            .expectBody(String.class)
+                            .value(body -> assertThat(body)
+                                    .contains("IllegalStateException")
+                                    .contains("synthetic failure for exception-capture test"));
+                });
+    }
+
+    @RestController
+    static class ThrowingTestController {
+
+        @GetMapping("/bootui-test/boom")
+        public String boom() {
+            throw new IllegalStateException("synthetic failure for exception-capture test");
+        }
     }
 
     private static ReactiveWebApplicationContextRunner webFluxRunner() {
