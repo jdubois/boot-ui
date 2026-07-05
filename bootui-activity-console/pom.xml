@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.9.0</version>
+    </parent>
+
+    <artifactId>bootui-activity-console</artifactId>
+    <name>BootUI :: Activity Console</name>
+    <description>Standalone Spring WebFlux application (planned: port 8079) that aggregates Live Activity
+        entries forwarded over HTTP from any BootUI-enabled instance on localhost (Spring Boot or Quarkus),
+        so cross-service calls show up as one correlated feed instead of being scattered across each
+        instance's own dashboard. This module currently hosts its reactive (Spring Data R2DBC)
+        ActivityStore; the WebFlux receiver/UI wiring is a separate, not-yet-built follow-up.</description>
+
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-engine</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-r2dbc</artifactId>
+        </dependency>
+        <!--
+          Transitively pulled in by the starter above, but declared explicitly because R2dbcActivityStore
+          imports io.r2dbc.spi.Row/RowMetadata directly (row mapping) rather than only going through
+          Spring Data R2DBC's own types.
+        -->
+        <dependency>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-spi</artifactId>
+        </dependency>
+
+        <!--
+          H2's R2DBC driver is the console's default, zero-config local database (same role H2 plays via
+          JDBC for every other sample/demo in this repo). Runtime scope: production code depends only on
+          the driver-agnostic io.r2dbc.spi / Spring Data R2DBC types, never on io.r2dbc.h2 directly.
+        -->
+        <dependency>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

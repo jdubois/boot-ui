@@ -42,6 +42,12 @@
         <module>bootui-spring-autoconfigure</module>
         <module>bootui-spring-boot-starter</module>
         <module>bootui-spring-boot-starter-reactive</module>
+        <!--
+            New, standalone "BootUI Activity Console" module: a dedicated Spring WebFlux app (planned port
+            8079) that aggregates Live Activity forwarded from other BootUI instances. Currently hosts only
+            its reactive (Spring Data R2DBC) ActivityStore; the WebFlux receiver/UI wiring is a follow-up.
+        -->
+        <module>bootui-activity-console</module>
         <module>bootui-ui</module>
         <module>bootui-conformance</module>
         <module>bootui-spring-sample-app</module>
@@ -139,6 +145,11 @@
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-spring-boot-starter-reactive</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.julien-dubois.bootui</groupId>
+                <artifactId>bootui-activity-console</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
