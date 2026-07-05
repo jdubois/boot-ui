@@ -38,12 +38,45 @@ public interface ReactiveActivityStore {
     Mono<ActivityPage> query(ActivityQuery query);
 
     /**
+     * Cross-instance variant of {@link #query(ActivityQuery)}: returns the merged, newest-first page
+     * across <strong>every</strong> instance the console has received data for, applying every other
+     * filter in {@code query} (type/severity/text/since/until/cursor/pageSize) but ignoring {@code
+     * query.instanceId()} entirely (the field means nothing here; callers may pass any value, including
+     * blank).
+     *
+     * <p>This is the console's primary read: unlike a host application's own panel (always scoped to its
+     * one {@code instanceId}), the whole point of the Activity Console is a single aggregated feed when
+     * several microservices call each other, so its main dashboard query has no instance to scope to.
+     */
+    Mono<ActivityPage> queryAllInstances(ActivityQuery query);
+
+    /**
      * Finds up to {@code limit} entries sharing {@code correlationId}, across every instance the console
      * has received data for (deliberately not scoped to a single {@code instanceId}), newest first. This
      * is what lets the console show one microservice-to-microservice call as a single correlated trace.
      * Returns an empty list for a blank/{@code null} {@code correlationId} or when nothing matches.
      */
     Mono<List<StoredActivityEntry>> queryByCorrelationId(String correlationId, int limit);
+
+    /**
+     * Finds the single newest entry carrying {@code entryId} as {@link
+     * io.github.jdubois.bootui.core.dto.ActivityEntryDto#id()}, across every instance the console has
+     * received data for. Backs the console's per-request drill-down ({@code GET
+     * /bootui/api/activity/request/{id}}): the shared Vue UI always requests a profile by the clicked
+     * entry's own {@code id} (never its {@code correlationId}), so the drill-down endpoint must resolve
+     * one back into the other before it can call {@link #queryByCorrelationId}.
+     *
+     * <p>An {@code entry_id} is only guaranteed unique <em>within</em> the instance that produced it
+     * (typically a per-JVM counter or the underlying framework's own exchange id) &mdash; across two
+     * independent instances forwarding to the same console, a collision is possible in principle. When
+     * more than one row matches, this deliberately returns only the single newest one rather than
+     * failing or disambiguating further: for the console's target scenario (a handful of local demo
+     * instances), this is a documented, acceptable trade-off, not a correctness bug.
+     *
+     * <p>Returns an empty {@link Mono} (not an error) for a blank/{@code null} {@code entryId} or when
+     * nothing matches.
+     */
+    Mono<StoredActivityEntry> findByEntryId(String entryId);
 
     /** Deletes {@code instanceId}'s own rows older than {@code olderThanEpochMillis}. */
     Mono<Void> prune(String instanceId, long olderThanEpochMillis);

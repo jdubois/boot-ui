@@ -42,6 +42,11 @@ import reactor.core.publisher.Mono;
  *       break portability across drivers. For the console's ingest volumes (bounded buffer flushes from a
  *       handful of local instances) this trade is a better fit than losing that portability.
  * </ul>
+ *
+ * <p>Unlike {@code JdbcActivityStore}, this store also serves an {@code instance_id}-agnostic read (
+ * {@link #queryAllInstances}), backed by its own supporting index ({@link #createGlobalIndexSql()}):
+ * the console's whole reason to exist is a single merged feed across every instance forwarding to it, so
+ * unlike a host application's own single-instance panel, its primary query has no instance to scope to.
  */
 public final class R2dbcActivityStore implements ReactiveActivityStore {
 
@@ -82,6 +87,14 @@ public final class R2dbcActivityStore implements ReactiveActivityStore {
     }
 
     @Override
+    public Mono<ActivityPage> queryAllInstances(ActivityQuery query) {
+        return ensureSchema()
+                .then(runGlobalQuery(query))
+                .timeout(QUERY_TIMEOUT)
+                .onErrorMap(ex -> new ActivityStoreException("Failed to query activity entries across instances", ex));
+    }
+
+    @Override
     public Mono<List<StoredActivityEntry>> queryByCorrelationId(String correlationId, int limit) {
         if (correlationId == null || correlationId.isBlank()) {
             return Mono.just(List.of());
@@ -90,6 +103,22 @@ public final class R2dbcActivityStore implements ReactiveActivityStore {
                 .then(runCorrelationQuery(correlationId, Math.max(1, limit)))
                 .timeout(QUERY_TIMEOUT)
                 .onErrorMap(ex -> new ActivityStoreException("Failed to query activity entries by correlation id", ex));
+    }
+
+    @Override
+    public Mono<StoredActivityEntry> findByEntryId(String entryId) {
+        if (entryId == null || entryId.isBlank()) {
+            return Mono.empty();
+        }
+        return ensureSchema()
+                .then(databaseClient
+                        .sql(SELECT_COLUMNS + " FROM " + tableName + " WHERE entry_id = :entryId "
+                                + "ORDER BY occurred_at DESC, seq DESC OFFSET 0 ROWS FETCH FIRST 1 ROW ONLY")
+                        .bind("entryId", entryId)
+                        .map(this::toStoredEntry)
+                        .first())
+                .timeout(QUERY_TIMEOUT)
+                .onErrorMap(ex -> new ActivityStoreException("Failed to find activity entry by id", ex));
     }
 
     @Override
@@ -147,6 +176,7 @@ public final class R2dbcActivityStore implements ReactiveActivityStore {
                 // The indexes are performance aids, not correctness requirements (e.g. one may already
                 // exist from a concurrent creator); never fail the whole store over either of them.
                 .then(execute(createIndexSql()).onErrorResume(ignored -> Mono.empty()))
+                .then(execute(createGlobalIndexSql()).onErrorResume(ignored -> Mono.empty()))
                 .then(execute(createCorrelationIndexSql()).onErrorResume(ignored -> Mono.empty()));
     }
 
@@ -178,6 +208,15 @@ public final class R2dbcActivityStore implements ReactiveActivityStore {
 
     private String createIndexSql() {
         return "CREATE INDEX idx_" + tableName + "_time ON " + tableName + " (instance_id, occurred_at, seq)";
+    }
+
+    /**
+     * Supports {@link #queryAllInstances}, the console's primary read: a keyset-paginated scan with no
+     * {@code instance_id} predicate at all, which cannot benefit from {@link #createIndexSql()}'s
+     * composite index since that index's leading column is {@code instance_id}.
+     */
+    private String createGlobalIndexSql() {
+        return "CREATE INDEX idx_" + tableName + "_time_global ON " + tableName + " (occurred_at, seq)";
     }
 
     /**
@@ -230,7 +269,29 @@ public final class R2dbcActivityStore implements ReactiveActivityStore {
                 .append(" WHERE instance_id = :instanceId");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("instanceId", query.instanceId());
+        return runFilteredQuery(sql, params, query);
+    }
 
+    /**
+     * Backs {@link #queryAllInstances}: identical filter/pagination handling to {@link #runQuery}, minus
+     * the {@code instance_id} predicate (and so minus {@code query.instanceId()}, which is ignored).
+     */
+    private Mono<ActivityPage> runGlobalQuery(ActivityQuery query) {
+        StringBuilder sql = new StringBuilder(SELECT_COLUMNS)
+                .append(" FROM ")
+                .append(tableName)
+                .append(" WHERE 1 = 1");
+        Map<String, Object> params = new LinkedHashMap<>();
+        return runFilteredQuery(sql, params, query);
+    }
+
+    /**
+     * Shared tail of {@link #runQuery}/{@link #runGlobalQuery}: appends the optional type/severity/text/
+     * since/until/cursor filters (identical for both), then the newest-first keyset pagination, executes,
+     * and builds the resulting page. {@code sql}/{@code params} already carry whichever instance predicate
+     * (or lack of one) distinguishes the two callers.
+     */
+    private Mono<ActivityPage> runFilteredQuery(StringBuilder sql, Map<String, Object> params, ActivityQuery query) {
         String type = blankToNull(query.type());
         if (type != null) {
             sql.append(" AND UPPER(entry_type) = :type");

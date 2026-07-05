@@ -12,11 +12,11 @@
 
     <artifactId>bootui-activity-console</artifactId>
     <name>BootUI :: Activity Console</name>
-    <description>Standalone Spring WebFlux application (planned: port 8079) that aggregates Live Activity
+    <description>Standalone Spring WebFlux application (port 8079 by default) that aggregates Live Activity
         entries forwarded over HTTP from any BootUI-enabled instance on localhost (Spring Boot or Quarkus),
         so cross-service calls show up as one correlated feed instead of being scattered across each
-        instance's own dashboard. This module currently hosts its reactive (Spring Data R2DBC)
-        ActivityStore; the WebFlux receiver/UI wiring is a separate, not-yet-built follow-up.</description>
+        instance's own dashboard. Reuses the same compiled BootUI Vue UI (bootui-ui), restricted to the
+        Live Activity panel only, and its own reactive (Spring Data R2DBC) ActivityStore.</description>
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
@@ -31,7 +31,20 @@
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-engine</artifactId>
         </dependency>
+        <!--
+          Reuses the compiled Vue SPA bundle (META-INF/resources/bootui/**) unchanged: the console serves
+          the exact same UI as every other BootUI-enabled application, just with every panel other than
+          Live Activity reported unavailable by its own minimal panels manifest (see ConsolePanelsController).
+        -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-ui</artifactId>
+        </dependency>
 
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-r2dbc</artifactId>
@@ -72,5 +85,32 @@
             <artifactId>reactor-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <!--
+                    This module inherits the BootUI parent (not spring-boot-starter-parent), so the
+                    plugin's default "repackage" execution is not pre-bound. Bind it explicitly so
+                    `package` produces a runnable Spring Boot jar (with BOOT-INF and a Main-Class).
+                -->
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

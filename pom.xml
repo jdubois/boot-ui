@@ -43,9 +43,11 @@
         <module>bootui-spring-boot-starter</module>
         <module>bootui-spring-boot-starter-reactive</module>
         <!--
-            New, standalone "BootUI Activity Console" module: a dedicated Spring WebFlux app (planned port
-            8079) that aggregates Live Activity forwarded from other BootUI instances. Currently hosts only
-            its reactive (Spring Data R2DBC) ActivityStore; the WebFlux receiver/UI wiring is a follow-up.
+            Standalone "BootUI Activity Console" module: a dedicated Spring WebFlux app (port 8079 by
+            default) that aggregates Live Activity forwarded over HTTP from other BootUI instances
+            (Spring Boot or Quarkus) into one correlated cross-service feed. Ships its own reactive
+            (Spring Data R2DBC) ActivityStore, the forwarding-receiver endpoint, an SSE change stream, and
+            the same compiled BootUI Vue UI restricted to the Live Activity panel.
         -->
         <module>bootui-activity-console</module>
         <module>bootui-ui</module>
