@@ -2,12 +2,14 @@ package io.github.jdubois.bootui.console.web;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Controller;
@@ -23,11 +25,20 @@ import reactor.core.publisher.Mono;
  * directly). Unlike the host-application adapters, the console has no configurable mount path or
  * servlet context path to account for, so the injected {@code <base href>} is always the fixed {@code
  * /bootui/}.
+ *
+ * <p>Also redirects the bare application root {@code /} straight to the Live Activity panel ({@code
+ * /bootui/#/activity}) rather than leaving it unmapped (404) or landing on the shared Vue router's
+ * default {@code /overview} route &mdash; which the console always reports unavailable, since Live
+ * Activity is the only panel it serves (see {@link ConsolePanelsController}). Redirecting with the
+ * target hash already in the {@code Location} header lets the browser navigate straight there in one
+ * hop, skipping the router's default-route flash entirely.
  */
 @Controller
 public class ConsoleIndexController {
 
     public static final String INDEX_LOCATION = "META-INF/resources/bootui/index.html";
+
+    public static final String ROOT_REDIRECT_LOCATION = "/bootui/#/activity";
 
     private static final String BASE_HREF = "/bootui/";
 
@@ -45,6 +56,14 @@ public class ConsoleIndexController {
 
     ConsoleIndexController(Resource indexResource) {
         this.indexResource = indexResource;
+    }
+
+    @GetMapping("/")
+    public Mono<Void> redirectRootToActivity(ServerWebExchange exchange) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(HttpStatus.FOUND);
+        response.getHeaders().setLocation(URI.create(ROOT_REDIRECT_LOCATION));
+        return response.setComplete();
     }
 
     @GetMapping({"/bootui", "/bootui/"})
