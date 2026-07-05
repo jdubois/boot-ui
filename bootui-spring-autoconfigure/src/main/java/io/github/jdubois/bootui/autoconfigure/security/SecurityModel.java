@@ -39,6 +39,13 @@ final class SecurityModel {
      *     {@code RememberMeAuthenticationFilter} is present and its key could be read, {@code null}
      *     otherwise. Only the length is retained -- never the key itself -- so a short/predictable
      *     key can be flagged without the key value ever leaving this process.
+     * @param oneTimeTokenSuccessHandlerInline {@code TRUE} when a {@code GenerateOneTimeTokenFilter}
+     *     (one-time-token / "magic link" login, {@code oneTimeTokenLogin()}) is present and its
+     *     configured {@code OneTimeTokenGenerationSuccessHandler} is an inline lambda, anonymous, or
+     *     local class rather than a dedicated named component, {@code FALSE} when the handler is a
+     *     dedicated class, {@code null} when no such filter is present or its handler could not be
+     *     read. Only the handler's {@code Class} shape is retained -- never the generated token
+     *     itself.
      */
     record FilterChainModel(
             int index,
@@ -51,7 +58,8 @@ final class SecurityModel {
             Boolean hstsIncludeSubdomains,
             String cspPolicyDirectives,
             Boolean authorizationRuleShadowed,
-            Integer rememberMeKeyLength) {
+            Integer rememberMeKeyLength,
+            Boolean oneTimeTokenSuccessHandlerInline) {
 
         private static final long HSTS_MIN_MAX_AGE_SECONDS = 31536000L; // HstsHeaderWriter's own 1-year default
 
@@ -91,12 +99,13 @@ final class SecurityModel {
                     null,
                     null,
                     null,
+                    null,
                     null);
         }
 
         /**
          * Convenience constructor for callers that need the HSTS/CSP policy details but predate the
-         * authorization-shadowing and remember-me-key fields.
+         * authorization-shadowing, remember-me-key, and one-time-token-handler fields.
          */
         FilterChainModel(
                 int index,
@@ -119,6 +128,38 @@ final class SecurityModel {
                     hstsIncludeSubdomains,
                     cspPolicyDirectives,
                     null,
+                    null,
+                    null);
+        }
+
+        /**
+         * Convenience constructor for callers that need the authorization-shadowing and
+         * remember-me-key fields but predate the one-time-token-handler field.
+         */
+        FilterChainModel(
+                int index,
+                String matcher,
+                List<String> filterNames,
+                Boolean permitsAllAnonymous,
+                Boolean sessionFixationDisabled,
+                List<String> headerWriterNames,
+                Long hstsMaxAgeSeconds,
+                Boolean hstsIncludeSubdomains,
+                String cspPolicyDirectives,
+                Boolean authorizationRuleShadowed,
+                Integer rememberMeKeyLength) {
+            this(
+                    index,
+                    matcher,
+                    filterNames,
+                    permitsAllAnonymous,
+                    sessionFixationDisabled,
+                    headerWriterNames,
+                    hstsMaxAgeSeconds,
+                    hstsIncludeSubdomains,
+                    cspPolicyDirectives,
+                    authorizationRuleShadowed,
+                    rememberMeKeyLength,
                     null);
         }
 
@@ -224,6 +265,19 @@ final class SecurityModel {
                 return trimmed.substring(directive.length()).trim();
             }
             return null;
+        }
+
+        /**
+         * {@code true} when this chain's one-time-token ("magic link") login is wired to a
+         * {@code OneTimeTokenGenerationSuccessHandler} whose concrete type is an inline lambda,
+         * anonymous, or local class rather than a dedicated, named component. Spring Security has no
+         * framework default for this handler -- {@code oneTimeTokenLogin()} fails to start unless one
+         * is supplied explicitly -- so an inline implementation is a strong signal that a
+         * tutorial/demo snippet (which commonly just logs or prints the generated magic-link token)
+         * was left in place rather than a considered, out-of-band delivery mechanism.
+         */
+        boolean hasInlineOneTimeTokenSuccessHandler() {
+            return Boolean.TRUE.equals(oneTimeTokenSuccessHandlerInline);
         }
 
         /**

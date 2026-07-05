@@ -23,7 +23,7 @@ import org.springframework.security.web.FilterChainProxy;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 59;
+    private static final int RULE_COUNT = 60;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -402,6 +402,48 @@ class SecurityScannerTests {
         SecurityReport report = new SecurityScanner(contextWith(chain, new MockEnvironment()), CLOCK).scan();
 
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-SESSION-007");
+    }
+
+    @Test
+    void flagsOneTimeTokenLoginWithAnInlineSuccessHandler() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("SecurityContextHolderFilter", "GenerateOneTimeTokenFilter", "AuthorizationFilter"),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                Boolean.TRUE);
+
+        SecurityReport report = new SecurityScanner(contextWith(chain, new MockEnvironment()), CLOCK).scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-AUTH-010");
+    }
+
+    @Test
+    void doesNotFlagOneTimeTokenLoginWithADedicatedSuccessHandler() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("SecurityContextHolderFilter", "GenerateOneTimeTokenFilter", "AuthorizationFilter"),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                Boolean.FALSE);
+
+        SecurityReport report = new SecurityScanner(contextWith(chain, new MockEnvironment()), CLOCK).scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-AUTH-010");
     }
 
     @Test

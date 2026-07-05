@@ -99,6 +99,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Register a real UserDetailsService, AuthenticationProvider, or external identity provider before running in production; do not rely on the console-logged generated password.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/spring-security.html>
 
+### SEC-AUTH-010 - One-Time-Token login should use a dedicated success handler, not an inline lambda
+
+- **Severity**: HIGH
+- **Detects**: Detects a one-time-token login chain (GenerateOneTimeTokenFilter, installed by oneTimeTokenLogin()) whose configured OneTimeTokenGenerationSuccessHandler is an inline lambda, anonymous, or local class rather than a dedicated, named component. Spring Security has no framework default for this handler -- oneTimeTokenLogin() fails to start unless one is supplied explicitly -- so an inline implementation is a strong signal that a tutorial/demo snippet (which commonly just logs or prints the generated magic-link token) was left in place, risking a valid authentication credential leaking into application logs.
+- **Recommendation**: Implement the handler as a dedicated, reviewed component -- following Spring Security's own MagicLinkOneTimeTokenGenerationSuccessHandler example -- that delivers the token only through a trusted out-of-band channel such as email or SMS, and never logs or renders the raw token value.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/onetimetoken.html#sending-token-to-user>
+
 ## Authorization
 
 ### SEC-AUTHZ-001 - Every filter chain should enforce authorization

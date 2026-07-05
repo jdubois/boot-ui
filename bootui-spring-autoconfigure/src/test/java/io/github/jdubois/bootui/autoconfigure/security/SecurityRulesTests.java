@@ -892,6 +892,61 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
+    // --- SEC-AUTH-010: one-time-token login success handler should not be an inline lambda --
+
+    @Test
+    void inlineOneTimeTokenSuccessHandlerFiresWhenHandlerIsInline() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("GenerateOneTimeTokenFilter"),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                Boolean.TRUE);
+
+        SecurityRuleResultDto result = new InlineOneTimeTokenSuccessHandlerRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("oneTimeTokenLogin()"));
+    }
+
+    @Test
+    void inlineOneTimeTokenSuccessHandlerPassesWhenHandlerIsADedicatedClass() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("GenerateOneTimeTokenFilter"),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                Boolean.FALSE);
+
+        SecurityRuleResultDto result = new InlineOneTimeTokenSuccessHandlerRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void inlineOneTimeTokenSuccessHandlerPassesWhenNoOneTimeTokenFilterIsPresent() {
+        FilterChainModel chain = chain("any request", List.of("SecurityContextHolderFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new InlineOneTimeTokenSuccessHandlerRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
     // --- SEC-CONFIG-008: StrictHttpFirewall weakening ---------------------------------------
 
     @Test

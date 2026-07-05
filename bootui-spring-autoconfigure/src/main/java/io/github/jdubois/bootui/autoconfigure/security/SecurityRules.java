@@ -316,6 +316,43 @@ final class GeneratedUserInProductionRule extends AbstractSecurityRule {
     }
 }
 
+final class InlineOneTimeTokenSuccessHandlerRule extends AbstractSecurityRule {
+
+    InlineOneTimeTokenSuccessHandlerRule() {
+        super(
+                new SecurityRuleDefinition(
+                        "SEC-AUTH-010",
+                        "One-Time-Token login should use a dedicated success handler, not an inline lambda",
+                        SecurityCategory.AUTHENTICATION,
+                        "HIGH",
+                        "Detects a one-time-token login chain (GenerateOneTimeTokenFilter, installed by oneTimeTokenLogin())"
+                                + " whose configured OneTimeTokenGenerationSuccessHandler is an inline lambda, anonymous, or"
+                                + " local class rather than a dedicated, named component. Spring Security has no framework"
+                                + " default for this handler -- oneTimeTokenLogin() fails to start unless one is supplied"
+                                + " explicitly -- so an inline implementation is a strong signal that a tutorial/demo snippet"
+                                + " (which commonly just logs or prints the generated magic-link token) was left in place,"
+                                + " risking a valid authentication credential leaking into application logs.",
+                        "Implement the handler as a dedicated, reviewed component -- following Spring Security's own"
+                                + " MagicLinkOneTimeTokenGenerationSuccessHandler example -- that delivers the token only"
+                                + " through a trusted out-of-band channel such as email or SMS, and never logs or renders the"
+                                + " raw token value.",
+                        "https://docs.spring.io/spring-security/reference/servlet/authentication/onetimetoken.html#sending-token-to-user"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (chain.hasInlineOneTimeTokenSuccessHandler()) {
+                details.add(chain.describe()
+                        + " wires one-time-token login (oneTimeTokenLogin()) to an inline lambda/anonymous success"
+                        + " handler instead of a dedicated, reviewable component.");
+            }
+        }
+        return violation(details);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Authorization
 // ---------------------------------------------------------------------------

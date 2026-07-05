@@ -15,6 +15,7 @@ final class SecurityRuleRegistry {
             new BasicAuthWithoutTlsRule(),
             new UsernameEnumerationRiskRule(),
             new GeneratedUserInProductionRule(),
+            new InlineOneTimeTokenSuccessHandlerRule(),
             // Authorization
             new MissingAuthorizationFilterRule(),
             new PermitAllCatchAllRule(),

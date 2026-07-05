@@ -18,6 +18,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   subdomain — the unmodified default `JSESSIONID` is not flagged, LOW). The Security advisor now has 59 rules, up
   from 57 (#522).
 
+- **One new Spring Security advisor rule**, `SEC-AUTH-010`, closing the one area the audit above did not cover:
+  one-time-token ("magic link") login. It flags a chain running `GenerateOneTimeTokenFilter` (installed by
+  `oneTimeTokenLogin()`, Spring Security 6.2+) whose configured `OneTimeTokenGenerationSuccessHandler` is an inline
+  lambda, anonymous, or local class rather than a dedicated, named component (HIGH). Note on scope: Spring Security
+  has no framework-default handler for one-time-token login — `oneTimeTokenLogin()` throws `IllegalStateException`
+  at startup unless a handler bean is supplied explicitly — so this rule does not claim a "logs to console by
+  default" finding. It instead targets the real, common risk: a *mandatory* handler wired up as a throwaway
+  tutorial/demo lambda that prints the raw magic-link token, leaking a valid authentication credential into
+  application logs. The Security advisor now has 60 rules, up from 59.
+
 - **Three new Hibernate advisor rules**, from a second, deeper audit pass dedicated to the Hibernate advisor alone:
   `HIB-ID-007` (composite identifier classes — `@EmbeddedId`/`@IdClass` — must be `Serializable`, expose a public no-arg
   constructor, and override both `equals` and `hashCode`, HIGH), `HIB-CONFIG-018` (bind-parameter logging should not be

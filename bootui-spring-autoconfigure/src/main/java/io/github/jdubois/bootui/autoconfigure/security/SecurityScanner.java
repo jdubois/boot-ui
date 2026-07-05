@@ -301,6 +301,7 @@ final class SecurityScanner {
         HeaderWriterInfo headerWriters = detectHeaderWriters(filters);
         Boolean authorizationRuleShadowed = detectAuthorizationRuleShadowed(authorizationManager);
         Integer rememberMeKeyLength = detectRememberMeKeyLength(filters);
+        Boolean oneTimeTokenSuccessHandlerInline = detectInlineOneTimeTokenSuccessHandler(filters);
         return new FilterChainModel(
                 index,
                 matcher,
@@ -312,7 +313,8 @@ final class SecurityScanner {
                 headerWriters.hstsIncludeSubdomains(),
                 headerWriters.cspPolicyDirectives(),
                 authorizationRuleShadowed,
-                rememberMeKeyLength);
+                rememberMeKeyLength,
+                oneTimeTokenSuccessHandlerInline);
     }
 
     private static String matcherDescription(SecurityFilterChain chain) {
@@ -424,6 +426,34 @@ final class SecurityScanner {
                 }
                 return null;
             }
+        }
+        return null;
+    }
+
+    /**
+     * {@code true} when this chain's {@code GenerateOneTimeTokenFilter} (one-time-token /
+     * "magic link" login, {@code oneTimeTokenLogin()}) is wired to a
+     * {@code OneTimeTokenGenerationSuccessHandler} whose concrete type is an inline lambda,
+     * anonymous, or local class, {@code false} when it is a dedicated (named) class, and
+     * {@code null} when no {@code GenerateOneTimeTokenFilter} is present on this chain or its
+     * handler field could not be read. Spring Security has no framework default for this handler --
+     * {@code oneTimeTokenLogin()} fails to start unless one is supplied explicitly -- so an inline
+     * implementation is a strong signal that a tutorial/demo snippet (which commonly just logs or
+     * prints the generated magic-link token) was left in place rather than a considered, out-of-band
+     * delivery mechanism. Only the handler's {@code Class} shape is inspected here -- never the
+     * generated token itself.
+     */
+    private static Boolean detectInlineOneTimeTokenSuccessHandler(List<Filter> filters) {
+        for (Filter filter : filters) {
+            if (!"GenerateOneTimeTokenFilter".equals(filter.getClass().getSimpleName())) {
+                continue;
+            }
+            Object handler = readField(filter, "tokenGenerationSuccessHandler");
+            if (handler == null) {
+                return null;
+            }
+            Class<?> handlerType = handler.getClass();
+            return handlerType.isSynthetic() || handlerType.isAnonymousClass() || handlerType.isLocalClass();
         }
         return null;
     }
