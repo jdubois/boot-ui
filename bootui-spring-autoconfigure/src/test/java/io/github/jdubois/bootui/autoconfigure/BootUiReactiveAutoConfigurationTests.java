@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.startsWith;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
@@ -32,7 +34,9 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.OtlpReceiverController;
 import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
@@ -545,6 +549,40 @@ class BootUiReactiveAutoConfigurationTests {
         public String boom() {
             throw new IllegalStateException("synthetic failure for exception-capture test");
         }
+    }
+
+    @Test
+    void panelsManifestReportsTheReactivePlatformOverHttp() {
+        // Full-stack proof (real DispatcherHandler, real WebFluxAutoConfiguration) that the shared,
+        // unmodified PanelsController correctly self-detects a genuine reactive ApplicationContext and
+        // (a) reports the "spring-boot-reactive" platform discriminator and (b) marks the two panels with
+        // no faithful reactive equivalent (HTTP Sessions) or not yet ported (Spring Security advisor) as
+        // unavailable with a WebFlux-specific reason - complementing PanelsControllerTests' unit-level
+        // coverage of the same behavior with an end-to-end HTTP round trip through the real reactive
+        // autoconfiguration stack.
+        webFluxRunner()
+                .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
+                .run(context -> {
+                    WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .build();
+
+                    client.get()
+                            .uri("/bootui/api/panels")
+                            .exchange()
+                            .expectStatus()
+                            .isOk()
+                            .expectBody()
+                            .jsonPath("$.platform")
+                            .isEqualTo(PanelsReport.PLATFORM_SPRING_BOOT_REACTIVE)
+                            .jsonPath("$.panels[?(@.id=='" + BootUiPanels.HTTP_SESSIONS + "')].available")
+                            .isEqualTo(false)
+                            .jsonPath("$.panels[?(@.id=='" + BootUiPanels.HTTP_SESSIONS + "')].unavailableReason")
+                            .value(contains(startsWith("Not applicable on Spring WebFlux")))
+                            .jsonPath("$.panels[?(@.id=='" + BootUiPanels.SPRING_SECURITY + "')].available")
+                            .isEqualTo(false)
+                            .jsonPath("$.panels[?(@.id=='" + BootUiPanels.SPRING_SECURITY + "')].unavailableReason")
+                            .value(contains(startsWith("Not yet ported for Spring WebFlux")));
+                });
     }
 
     private static ReactiveWebApplicationContextRunner webFluxRunner() {
