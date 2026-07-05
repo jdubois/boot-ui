@@ -106,9 +106,9 @@ public class PanelsController {
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTESTING,
                     BootUiPanels.SPRING,
-                    BootUiPanels.VULNERABILITIES -> available();
+                    BootUiPanels.VULNERABILITIES,
+                    BootUiPanels.ACTIVITY -> available();
             case BootUiPanels.MCP_SERVER -> availability(mcpServerAvailable(), mcpServerUnavailableReason());
-            case BootUiPanels.ACTIVITY -> availability(activityAvailable(), activityUnavailableReason());
             case BootUiPanels.JVM_TUNING ->
                 availability(
                         !nativeImageDetected(), "JVM Tuning is not applicable when running as a GraalVM native image");
@@ -316,15 +316,6 @@ public class PanelsController {
     private String mcpServerUnavailableReason() {
         return "Not yet ported for Spring WebFlux: the MCP tool catalog is hard-wired to the servlet panel"
                 + " controllers, so it cannot yet resolve the reactive panel surface.";
-    }
-
-    private boolean activityAvailable() {
-        return !isReactive();
-    }
-
-    private String activityUnavailableReason() {
-        return "Not yet ported for Spring WebFlux: Live Activity aggregates the servlet-only"
-                + " ServletRequestHandledEvent signal, which has no reactive equivalent wired here yet.";
     }
 
     private boolean hikariAvailable() {

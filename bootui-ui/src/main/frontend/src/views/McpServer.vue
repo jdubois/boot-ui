@@ -12,7 +12,7 @@ import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
-const {readOnly, readOnlyReason} = usePanelState(props)
+const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const status = ref(null)
 const toggling = ref(false)
 const lastFetched = ref(null)
@@ -79,7 +79,7 @@ async function toggle() {
   }
 }
 
-const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus)
+const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manifestAvailable})
 </script>
 
 <template>
@@ -98,7 +98,9 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus)
 
     <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">The MCP server toggle is read-only.</ReadOnlyNotice>
 
-    <div v-if="loading && !status" class="card">
+    <UnavailableState v-if="!manifestAvailable" icon="bi-plug" :message="manifestUnavailableReason" />
+
+    <div v-else-if="loading && !status" class="card">
       <div class="card-body text-muted">Loading MCP server status…</div>
     </div>
 

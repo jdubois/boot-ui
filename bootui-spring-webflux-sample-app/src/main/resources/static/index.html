@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1" name="viewport">
+  <link href="/favicon.svg" rel="icon" type="image/svg+xml">
+  <title>BootUI WebFlux Sample App</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+      color: #172033;
+      background: #f5f7fb;
+    }
+
+    body {
+      margin: 0;
+    }
+
+    main {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 56px 24px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 24px;
+      padding: 40px;
+      border-radius: 28px;
+      background: linear-gradient(135deg, #ffffff 0%, #eef4ff 100%);
+      box-shadow: 0 24px 70px rgba(23, 32, 51, 0.12);
+    }
+
+    .eyebrow {
+      margin: 0;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #3451b2;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 760px;
+      font-size: clamp(2.25rem, 6vw, 4.5rem);
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+
+    .lead {
+      max-width: 760px;
+      margin: 0;
+      font-size: 1.2rem;
+      color: #4a5568;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    a {
+      color: #3451b2;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border: 0;
+      border-radius: 999px;
+      background: #3451b2;
+      color: #ffffff;
+      box-shadow: 0 10px 24px rgba(52, 81, 178, 0.25);
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .button:hover {
+      text-decoration: none;
+      background: #2b459f;
+    }
+
+    .button:disabled {
+      cursor: progress;
+      opacity: 0.65;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-top: 28px;
+    }
+
+    section {
+      padding: 24px;
+      border-radius: 20px;
+      background: #ffffff;
+      box-shadow: 0 12px 36px rgba(23, 32, 51, 0.08);
+    }
+
+    .wide {
+      grid-column: 1 / -1;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1.1rem;
+    }
+
+    .form-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .chat-status {
+      color: #4a5568;
+      font-size: 0.95rem;
+    }
+
+    .test-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .test-action {
+      display: grid;
+      gap: 10px;
+      align-content: start;
+      padding: 16px;
+      border: 1px solid #d9e2f1;
+      border-radius: 18px;
+      background: #f8fbff;
+    }
+
+    .test-action p {
+      margin: 0;
+      color: #4a5568;
+      font-size: 0.95rem;
+    }
+
+    .test-action small {
+      color: #64748b;
+    }
+
+    .action-result {
+      margin-top: 16px;
+      padding: 16px;
+      overflow: auto;
+      white-space: pre-wrap;
+      border-radius: 14px;
+      background: #eef2f7;
+      color: #263245;
+      font: 0.92rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    code {
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.4rem;
+      background: #eef2f7;
+      color: #263245;
+    }
+
+  </style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <div>
+      <p class="eyebrow">Spring Boot 4 WebFlux demo</p>
+      <h1>Welcome to the BootUI WebFlux sample app</h1>
+      <p class="lead">
+        This app demonstrates BootUI running on the reactive stack (Netty, WebFlux):
+        cached lookups, blocking JDBC pushed off the event loop, Flyway/Liquibase-managed
+        data, a scheduled task, and enough runtime state for BootUI to inspect.
+      </p>
+      <div aria-label="Primary links" class="actions">
+        <a class="button" href="/bootui/">Open BootUI</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="content-grid">
+    <section aria-labelledby="lab-heading" class="wide">
+      <h2 id="lab-heading">Sample action lab</h2>
+      <p>
+        Run a few safe requests to generate data for BootUI panels. Then open the linked panels to see how BootUI
+        explains the same reactive app from different angles.
+      </p>
+      <div class="test-grid">
+        <article class="test-action">
+          <button class="button" id="notes-button" type="button">Check notes</button>
+          <p>Calls <code>GET /api/notes</code> to run a blocking JDBC query off the event loop.</p>
+          <small>Inspect: SQL Trace, Database Connection Pools, HTTP Exchanges</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="note-lookup-button" type="button">Look up a note</button>
+          <p>Calls <code>GET /api/notes/1</code> to fetch a single row by id.</p>
+          <small>Inspect: SQL Trace, HTTP Exchanges</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="greeting-button" type="button">Call configured greeting</button>
+          <p>Calls <code>GET /api/greetings/chained</code> so BootUI can show configuration-backed, cached behavior.</p>
+          <small>Inspect: Configuration, Cache, HTTP Probe</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="exception-button" type="button">Trigger an exception</button>
+          <p>Calls <code>GET /api/sample/boom</code>, which throws on purpose to record a server-side failure.</p>
+          <small>Inspect: Exceptions, Log Tail, Traces</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="metrics-burst-button" type="button">Generate metrics traffic</button>
+          <p>Calls <code>GET /api/sample/metrics-burst</code> to record a custom counter and timer several times.</p>
+          <small>Inspect: Metrics</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="allocate-button" type="button">Allocate sample memory</button>
+          <p>Calls <code>GET /api/sample/allocate</code> to briefly allocate a bounded heap buffer.</p>
+          <small>Inspect: Live Memory, Heap Dump, JVM Tuning</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="slow-button" type="button">Run a slow request</button>
+          <p>Calls <code>GET /api/sample/slow</code>, which sleeps briefly on a worker thread.</p>
+          <small>Inspect: Threads, Metrics, HTTP Exchanges</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="pool-stress-button" type="button">Exercise the connection pool</button>
+          <p>Calls <code>GET /api/sample/pool-stress</code> to run several concurrent read-only queries.</p>
+          <small>Inspect: Database Connection Pools, SQL Trace</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="chained-button" type="button">Make a multi-hop request</button>
+          <p>Calls <code>GET /api/sample/chained</code>, which nests spans across a notes read and a greeting call.</p>
+          <small>Inspect: Traces, HTTP Exchanges, SQL Trace</small>
+        </article>
+      </div>
+      <div class="form-row">
+        <span aria-live="polite" class="chat-status" id="sample-action-status" role="status"></span>
+      </div>
+      <pre class="action-result" hidden id="sample-action-result"></pre>
+    </section>
+  </div>
+</main>
+<script>
+  const notesButton = document.getElementById('notes-button')
+  const noteLookupButton = document.getElementById('note-lookup-button')
+  const greetingButton = document.getElementById('greeting-button')
+  const exceptionButton = document.getElementById('exception-button')
+  const metricsBurstButton = document.getElementById('metrics-burst-button')
+  const allocateButton = document.getElementById('allocate-button')
+  const slowButton = document.getElementById('slow-button')
+  const poolStressButton = document.getElementById('pool-stress-button')
+  const chainedButton = document.getElementById('chained-button')
+  const sampleActionStatus = document.getElementById('sample-action-status')
+  const sampleActionResult = document.getElementById('sample-action-result')
+
+  async function runSampleAction(button, loadingText, action) {
+    button.disabled = true
+    sampleActionStatus.textContent = loadingText
+    sampleActionResult.hidden = true
+    sampleActionResult.textContent = ''
+
+    try {
+      await action()
+    } catch (error) {
+      sampleActionStatus.textContent = 'Action failed'
+      sampleActionResult.textContent = error instanceof Error ? error.message : String(error)
+      sampleActionResult.hidden = false
+    } finally {
+      button.disabled = false
+    }
+  }
+
+  function showSampleResult(status, result) {
+    sampleActionStatus.textContent = status
+    sampleActionResult.textContent = result
+    sampleActionResult.hidden = false
+  }
+
+  async function readTextResponse(response) {
+    const text = await response.text()
+    return text || `(empty response, HTTP ${response.status})`
+  }
+
+  notesButton.addEventListener('click', () =>
+    runSampleAction(notesButton, 'Loading sample notes...', async () => {
+      const response = await fetch('/api/notes', {headers: {Accept: 'application/json'}})
+      const notes = await response.json()
+      if (!response.ok) {
+        throw new Error(`Notes request failed with HTTP ${response.status}`)
+      }
+      const titles = notes.map(note => `- ${note.title}`).join('\n') || '(no rows)'
+      showSampleResult(
+        `Loaded ${notes.length} note(s)`,
+        `${titles}\n\nOpen BootUI SQL Trace, Database Connection Pools, or HTTP Exchanges to inspect this request.`
+      )
+    })
+  )
+
+  noteLookupButton.addEventListener('click', () =>
+    runSampleAction(noteLookupButton, 'Looking up a note...', async () => {
+      const response = await fetch('/api/notes/1', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Note lookup failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Loaded note #${body.id}`,
+        `${body.title}\n${body.body}\n\nOpen BootUI SQL Trace or HTTP Exchanges to inspect this request.`
+      )
+    })
+  )
+
+  greetingButton.addEventListener('click', () =>
+    runSampleAction(greetingButton, 'Calling configured greeting...', async () => {
+      const response = await fetch('/api/greetings/chained')
+      const text = await readTextResponse(response)
+      if (!response.ok) {
+        throw new Error(text)
+      }
+      showSampleResult('Configured greeting returned', `${text}\n\nOpen Configuration, Cache, or HTTP Probe to inspect it.`)
+    })
+  )
+
+  exceptionButton.addEventListener('click', () =>
+    runSampleAction(exceptionButton, 'Triggering a sample exception...', async () => {
+      const response = await fetch('/api/sample/boom', {
+        headers: {Accept: 'application/json'}
+      })
+      await response.text()
+      showSampleResult(
+        `Triggered a sample exception (HTTP ${response.status})`,
+        'The server threw an IllegalStateException on purpose.\n\n' +
+          'Open BootUI Exceptions to inspect the captured stack trace and masked details.'
+      )
+    })
+  )
+
+  metricsBurstButton.addEventListener('click', () =>
+    runSampleAction(metricsBurstButton, 'Recording sample metrics...', async () => {
+      const response = await fetch('/api/sample/metrics-burst', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Metrics request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Recorded ${body.iterations} samples to ${body.counter} and ${body.timer}`,
+        `Counter total: ${body.counterTotal}\nTimer count: ${body.timerCount}\n\n` +
+          'Open BootUI Metrics and search for "sample.orders" to inspect the custom meters.'
+      )
+    })
+  )
+
+  allocateButton.addEventListener('click', () =>
+    runSampleAction(allocateButton, 'Allocating sample memory...', async () => {
+      const response = await fetch('/api/sample/allocate', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Allocation request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Allocated ${body.allocatedMb} MB (heap used ~${body.heapUsedMb} MB)`,
+        'The buffer is released after the request.\n\n' +
+          'Open BootUI Live Memory or Heap Dump to inspect the heap usage.'
+      )
+    })
+  )
+
+  slowButton.addEventListener('click', () =>
+    runSampleAction(slowButton, 'Running a slow request...', async () => {
+      const response = await fetch('/api/sample/slow', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Slow request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Request slept for ${body.sleptMillis} ms on thread ${body.thread}`,
+        'Open BootUI Threads (during the request) or Metrics to inspect the timing.'
+      )
+    })
+  )
+
+  poolStressButton.addEventListener('click', () =>
+    runSampleAction(poolStressButton, 'Exercising the connection pool...', async () => {
+      const response = await fetch('/api/sample/pool-stress', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Pool stress request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Ran ${body.queries} concurrent queries in ${body.elapsedMillis} ms`,
+        'Open BootUI Database Connection Pools to inspect active connections and usage.'
+      )
+    })
+  )
+
+  chainedButton.addEventListener('click', () =>
+    runSampleAction(chainedButton, 'Making a multi-hop request...', async () => {
+      const response = await fetch('/api/sample/chained', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Chained request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Completed a multi-hop request (${body.notes} notes, greeting "${body.greeting}")`,
+        'This request nests child spans across a notes read and a greeting call.\n\n' +
+          'Open BootUI Traces or HTTP Exchanges to inspect the correlated timeline.'
+      )
+    })
+  )
+</script>
+</body>
+</html>

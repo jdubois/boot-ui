@@ -58,6 +58,16 @@
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Fallback BootUI activation trigger for a bare `mvn spring-boot:run` / `java -jar` with no
+             explicit profile: BootUiActivationCondition checks Environment.getActiveProfiles(), not
+             getDefaultProfiles(), so spring.profiles.default=dev alone does not satisfy the
+             bootui.enabled-profiles check. spring-boot-devtools on the classpath is the other
+             activation trigger the condition checks, matching bootui-spring-sample-app's pom. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <optional>true</optional>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

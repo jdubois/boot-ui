@@ -75,7 +75,7 @@ class BootUiQuarkusLiveActivityProfileWithoutOtelTest {
         assertThat(profile.path("unavailableReason").asText(""))
                 .as("the unavailable reason must honestly name the missing capability")
                 .contains("No distributed trace id")
-                .contains("quarkus-opentelemetry");
+                .contains("OpenTelemetry");
     }
 
     @Test

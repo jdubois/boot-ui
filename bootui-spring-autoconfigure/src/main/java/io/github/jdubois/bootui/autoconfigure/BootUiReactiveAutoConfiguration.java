@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveActivitySignalFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveAgentSessionController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiExceptionHandler;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiIndexController;
@@ -19,6 +20,7 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResou
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveClaudeCodeController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveCopilotController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLogTailController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactivePanelAccessFilter;
@@ -55,9 +57,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.webflux.actuate.web.exchanges.HttpExchangesWebFilter;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
@@ -209,6 +213,7 @@ import org.springframework.web.util.DisconnectedClientHelper;
     ReactiveExceptionsController.class,
     ReactiveSqlTraceController.class,
     ReactiveSecurityLogsController.class,
+    ReactiveLiveActivityController.class,
     ReactiveLogTailController.class,
     ReactiveCopilotController.class,
     ReactiveClaudeCodeController.class,
@@ -262,6 +267,7 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveExceptionsController.class.getName(),
             ReactiveSqlTraceController.class.getName(),
             ReactiveSecurityLogsController.class.getName(),
+            ReactiveLiveActivityController.class.getName(),
             ReactiveCopilotController.class.getName(),
             ReactiveClaudeCodeController.class.getName());
 
@@ -302,6 +308,42 @@ public class BootUiReactiveAutoConfiguration {
         return activation;
     }
 
+    /**
+     * Reactive twin of {@link BootUiAutoConfiguration#bootUiStartupBanner}: logs "BootUI is available
+     * at ..." once the reactive web server has actually bound its port. Deliberately duplicates
+     * {@link BootUiAutoConfiguration#buildStartupUrl} into {@link #buildStartupUrl(Environment,
+     * BootUiProperties)} below instead of calling it directly - the method body itself is
+     * framework-neutral, but merely referencing the servlet {@code BootUiAutoConfiguration} class would
+     * force the JVM to load and verify it, which resolves the {@code jakarta.servlet.Filter}-typed
+     * signatures of its other {@code @Bean} methods (e.g. {@code FilterRegistrationBean<...>}) and throws
+     * {@code NoClassDefFoundError} on a WebFlux classpath with no servlet API at all. Same rationale as
+     * the other small helpers this class already duplicates rather than imports (see the class Javadoc).
+     */
+    @Bean
+    public ApplicationListener<ApplicationReadyEvent> bootUiStartupBanner(
+            BootUiProperties properties, Environment environment) {
+        return event -> {
+            properties.getPanels().keySet().stream()
+                    .filter(panelId -> !BootUiPanels.ids().contains(panelId))
+                    .forEach(panelId -> log.warn(
+                            "Unknown BootUI panel id '{}' configured under bootui.panels; known ids are {}",
+                            panelId,
+                            BootUiPanels.ids()));
+            if (!properties.isShowBanner()) {
+                return;
+            }
+            log.info("BootUI is available at {}", buildStartupUrl(environment, properties));
+        };
+    }
+
+    static String buildStartupUrl(Environment environment, BootUiProperties properties) {
+        boolean sslEnabled = environment.getProperty("server.ssl.enabled", Boolean.class, false);
+        String scheme = sslEnabled ? "https" : "http";
+        String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
+        String contextPath = environment.getProperty("server.servlet.context-path", "");
+        return scheme + "://localhost:" + port + contextPath + properties.getPath();
+    }
+
     @Bean
     public ReactiveLocalhostOnlyFilter bootUiReactiveLocalhostOnlyFilter(BootUiProperties properties) {
         // Same rationale as LocalhostOnlyFilter: builds its own ContainerGatewayDetector so it can
@@ -312,6 +354,12 @@ public class BootUiReactiveAutoConfiguration {
     @Bean
     public ReactivePanelAccessFilter bootUiReactivePanelAccessFilter(BootUiProperties properties) {
         return new ReactivePanelAccessFilter(properties);
+    }
+
+    @Bean
+    public ReactiveActivitySignalFilter bootUiReactiveActivitySignalFilter(
+            BootUiProperties properties, ObjectProvider<ReactiveLiveActivityController> liveActivityController) {
+        return new ReactiveActivitySignalFilter(properties, liveActivityController);
     }
 
     @Bean

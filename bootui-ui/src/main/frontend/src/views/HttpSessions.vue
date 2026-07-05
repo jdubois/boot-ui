@@ -14,7 +14,7 @@ import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
-const {readOnly, readOnlyReason} = usePanelState(props)
+const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const {confirm} = useConfirm()
 
 const report = ref(null)
@@ -34,17 +34,20 @@ async function fetchSessions() {
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSessions)
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSessions, {enabled: manifestAvailable})
 
 const sessions = computed(() => report.value?.sessions || [])
-const available = computed(() => report.value?.available !== false)
-const unavailableReason = computed(() => report.value?.unavailableReason || 'HTTP Sessions are unavailable.')
+const available = computed(() => manifestAvailable.value && report.value?.available !== false)
+const unavailableReason = computed(() => {
+  if (!manifestAvailable.value) return manifestUnavailableReason.value
+  return report.value?.unavailableReason || 'HTTP Sessions are unavailable.'
+})
 const actionEnabled = computed(() => report.value?.actionEnabled !== false)
 const actionsDisabled = computed(() => readOnly.value || !actionEnabled.value || Boolean(busy.value))
 const valueExposure = computed(() => report.value?.valueExposure || 'MASKED')
 const subtitle = computed(() => {
-  if (!report.value) return 'Inspect active Tomcat HTTP sessions'
   if (!available.value) return unavailableReason.value
+  if (!report.value) return 'Inspect active Tomcat HTTP sessions'
   return `${formatNumber(report.value.returnedSessions)} of ${formatNumber(report.value.totalSessions)} sessions · limit ${formatNumber(
     report.value.limit
   )}`
@@ -171,9 +174,9 @@ function showReadOnlyMessage() {
 
     <FlashBanner :message="banner" @dismiss="clear" />
 
-    <PanelSkeleton v-if="initialLoading" />
+    <PanelSkeleton v-if="initialLoading && manifestAvailable" />
 
-    <template v-else-if="report">
+    <template v-else-if="!manifestAvailable || report">
       <div v-if="!available" class="alert alert-secondary" role="alert">
         <i class="bi bi-info-circle me-2"></i>{{ unavailableReason }}
       </div>

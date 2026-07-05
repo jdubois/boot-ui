@@ -21,21 +21,23 @@ import java.util.List;
 
 /**
  * Framework-neutral assembly of a <strong>reduced, trace-id-only</strong> Symfony-style per-request profile,
- * for adapters that have no thread-per-request identity to correlate on (Quarkus's reactive event-loop/worker
- * model, unlike Spring's synchronous servlet model).
+ * for adapters that have no thread-per-request identity to correlate on (Quarkus's event-loop/worker model
+ * and Spring WebFlux's Reactor Netty model, unlike Spring MVC's synchronous servlet model).
  *
- * <p>Spring's {@code LiveActivityCorrelator} joins a request to its signals with a tiered strategy —
+ * <p>Spring MVC's {@code LiveActivityCorrelator} joins a request to its signals with a tiered strategy —
  * matching trace id first, falling back to HTTP method+path+time-window+thread heuristics for exceptions,
  * serving-thread correlation for SQL, and time-window+principal for security events. Tiers 2-4 rely on a
- * servlet thread serving exactly one request at a time, an invariant the Vert.x event loop does not provide,
- * so they have no reliable Quarkus equivalent and are deliberately <strong>not</strong> ported here. This
- * assembler implements tier 1 only: when (and only when) a request carries a distributed-trace id (stamped
- * via {@code Span.current()} when {@code quarkus-opentelemetry} is present — the same mechanism
- * {@link LiveActivityAssembler} uses to nest entries in the main feed), every SQL execution, exception
- * occurrence, and security event sharing that exact trace id is gathered into the profile. There is no
- * approximate/heuristic fallback: a request with no trace id (or a shared, ambiguous one — see
- * {@link TraceCorrelationIndex}) simply renders {@link RequestProfileDto#unavailable(String)} or an empty,
- * honestly-labeled correlation, never fabricated or guessed data.</p>
+ * servlet thread serving exactly one request at a time, an invariant neither the Vert.x event loop nor
+ * Reactor Netty provides, so they have no reliable equivalent on those adapters and are deliberately
+ * <strong>not</strong> ported here. This assembler implements tier 1 only: when (and only when) a request
+ * carries a distributed-trace id (stamped by the adapter — e.g. read from {@code Span.current()} when
+ * {@code quarkus-opentelemetry} is present on Quarkus — or otherwise parsed from an inbound distributed-trace
+ * propagation header, the same mechanism {@link LiveActivityAssembler} uses to nest entries in the main
+ * feed), every SQL execution, exception occurrence, and security event sharing that exact trace id is
+ * gathered into the profile. There is no approximate/heuristic fallback: a request with no trace id (or a
+ * shared, ambiguous one — see {@link TraceCorrelationIndex}) simply renders
+ * {@link RequestProfileDto#unavailable(String)} or an empty, honestly-labeled correlation, never fabricated
+ * or guessed data.</p>
  *
  * <p>Reuses {@link TraceCorrelationIndex} — the exact same trace-id→request primitive
  * {@link LiveActivityAssembler} uses for the main feed — so a request whose trace id is shared by more than
@@ -76,7 +78,8 @@ public final class RequestProfileAssembler {
         String traceId = blankToNull(request.traceId());
         if (traceId == null) {
             return RequestProfileDto.unavailable("No distributed trace id was captured for this request; "
-                    + "per-request profiling on Quarkus currently requires quarkus-opentelemetry.");
+                    + "per-request profiling requires a resolvable trace id, for example from an active "
+                    + "distributed tracing integration (such as OpenTelemetry) or an inbound propagation header.");
         }
 
         TraceCorrelationIndex traceIndex = TraceCorrelationIndex.of(allExchanges == null ? List.of() : allExchanges);
@@ -88,8 +91,8 @@ public final class RequestProfileAssembler {
         boolean owned = request.id().equals(traceIndex.parentRequestId(traceId));
 
         List<String> notes = new ArrayList<>();
-        notes.add("This is a reduced, trace-id-only profile: unlike Spring's profiler, Quarkus has no "
-                + "time-window or serving-thread correlation, so only signals sharing this exact trace id "
+        notes.add("This is a reduced, trace-id-only profile: this adapter has no time-window or "
+                + "serving-thread correlation available, so only signals sharing this exact trace id "
                 + "are shown.");
         if (!owned) {
             notes.add("This request's trace id " + traceId + " is shared by more than one captured request, "
@@ -110,8 +113,8 @@ public final class RequestProfileAssembler {
         List<RequestProfileSecurityDto> security =
                 owned ? matchingSecurity(traceId, request.principal(), securityEvents) : List.of();
         if (!security.isEmpty()) {
-            notes.add("Security events are correlated exactly by trace id " + traceId + " (Quarkus has no "
-                    + "per-request serving-thread identity to further disambiguate them, unlike Spring).");
+            notes.add("Security events are correlated exactly by trace id " + traceId + " (this adapter has "
+                    + "no per-request serving-thread identity to further disambiguate them).");
         }
 
         TraceDetailDto matchedTrace = trace != null && traceId.equals(trace.traceId()) ? trace : null;
@@ -183,8 +186,9 @@ public final class RequestProfileAssembler {
         for (SecurityLogEventDto event : securityEvents) {
             if (traceId.equals(event.traceId())) {
                 boolean principalMatched = principalMatches(requestPrincipal, event.principal());
-                // No thread-identity concept exists on Quarkus's reactive model, so this reduced profile
-                // never claims a serving-thread match; trace id is already the exact correlation key.
+                // No thread-identity concept exists on this adapter's event-loop/reactive model, so this
+                // reduced profile never claims a serving-thread match; trace id is already the exact
+                // correlation key.
                 matched.add(new RequestProfileSecurityDto(
                         event.type(), event.principal(), parseEpochMillis(event.timestamp()), principalMatched, false));
             }
@@ -200,8 +204,9 @@ public final class RequestProfileAssembler {
     /**
      * Group correlated SQL statements by normalized text for N+1 detection, delegating to the same
      * {@link SqlTraceGrouping} helper the list-level Live Activity badge and the global SQL Trace panel
-     * use, so all three agree on exactly what counts as a potential N+1 (Quarkus has no equivalent
-     * {@code bootui.activity.n-plus-one-threshold} configuration property yet, hence the fixed default).
+     * use, so all three agree on exactly what counts as a potential N+1 (neither this reduced profile nor
+     * the main feed has an equivalent {@code bootui.activity.n-plus-one-threshold} configuration property
+     * yet on the adapters that reuse it, hence the fixed default).
      */
     private static List<SqlTraceGroupDto> groupSql(List<SqlTraceEntryDto> sql) {
         return SqlTraceGrouping.group(sql, SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD);

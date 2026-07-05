@@ -9,7 +9,7 @@ import {expect, test} from '@playwright/test'
  * same Vue bundle is served either way, so once one adapter's UI is proven, the remaining risk specific
  * to WebFlux is (a) the shell actually boots and reports the right platform, (b) a representative sample
  * of panels that ARE ported render correctly, and (c) the panels that have no reactive equivalent yet
- * (HTTP Sessions, Spring Security, MCP Server, Live Activity) surface their WebFlux-specific explanation
+ * (HTTP Sessions, Spring Security, MCP Server) surface their WebFlux-specific explanation
  * through the real sidebar/alert UI rather than just the JSON contract.
  */
 test.describe('BootUI on Spring WebFlux', () => {
@@ -44,7 +44,8 @@ test.describe('BootUI on Spring WebFlux', () => {
       {id: 'flyway', heading: /Flyway migrations/},
       {id: 'liquibase', heading: /Liquibase change sets/},
       {id: 'scheduled', heading: /Scheduled Tasks/},
-      {id: 'pentesting', heading: /^Pentesting/}
+      {id: 'pentesting', heading: /^Pentesting/},
+      {id: 'activity', heading: /Live Activity/}
     ]
 
     for (const panel of panels) {
