@@ -45,6 +45,7 @@
         <module>bootui-ui</module>
         <module>bootui-conformance</module>
         <module>bootui-spring-sample-app</module>
+        <module>bootui-spring-webflux-sample-app</module>
         <module>bootui-quarkus</module>
         <module>bootui-quarkus-deployment</module>
         <module>bootui-quarkus-integration-tests</module>
@@ -133,6 +134,11 @@
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.julien-dubois.bootui</groupId>
+                <artifactId>bootui-spring-boot-starter-reactive</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

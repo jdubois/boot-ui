@@ -106,9 +106,9 @@ public class PanelsController {
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTESTING,
                     BootUiPanels.SPRING,
-                    BootUiPanels.MCP_SERVER,
-                    BootUiPanels.ACTIVITY,
                     BootUiPanels.VULNERABILITIES -> available();
+            case BootUiPanels.MCP_SERVER -> availability(mcpServerAvailable(), mcpServerUnavailableReason());
+            case BootUiPanels.ACTIVITY -> availability(activityAvailable(), activityUnavailableReason());
             case BootUiPanels.JVM_TUNING ->
                 availability(
                         !nativeImageDetected(), "JVM Tuning is not applicable when running as a GraalVM native image");
@@ -307,6 +307,24 @@ public class PanelsController {
             return "Spring Security not on the classpath";
         }
         return "No Spring Security filter chains are available";
+    }
+
+    private boolean mcpServerAvailable() {
+        return !isReactive();
+    }
+
+    private String mcpServerUnavailableReason() {
+        return "Not yet ported for Spring WebFlux: the MCP tool catalog is hard-wired to the servlet panel"
+                + " controllers, so it cannot yet resolve the reactive panel surface.";
+    }
+
+    private boolean activityAvailable() {
+        return !isReactive();
+    }
+
+    private String activityUnavailableReason() {
+        return "Not yet ported for Spring WebFlux: Live Activity aggregates the servlet-only"
+                + " ServletRequestHandledEvent signal, which has no reactive equivalent wired here yet.";
     }
 
     private boolean hikariAvailable() {

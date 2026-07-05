@@ -555,11 +555,12 @@ class BootUiReactiveAutoConfigurationTests {
     void panelsManifestReportsTheReactivePlatformOverHttp() {
         // Full-stack proof (real DispatcherHandler, real WebFluxAutoConfiguration) that the shared,
         // unmodified PanelsController correctly self-detects a genuine reactive ApplicationContext and
-        // (a) reports the "spring-boot-reactive" platform discriminator and (b) marks the two panels with
-        // no faithful reactive equivalent (HTTP Sessions) or not yet ported (Spring Security advisor) as
-        // unavailable with a WebFlux-specific reason - complementing PanelsControllerTests' unit-level
-        // coverage of the same behavior with an end-to-end HTTP round trip through the real reactive
-        // autoconfiguration stack.
+        // (a) reports the "spring-boot-reactive" platform discriminator and (b) marks the panels with no
+        // faithful reactive equivalent (HTTP Sessions), or not yet ported (Spring Security advisor, MCP
+        // Server, Live Activity - neither of the latter two is wired into this autoconfiguration, see its
+        // class Javadoc), as unavailable with a WebFlux-specific reason - complementing
+        // PanelsControllerTests' unit-level coverage of the same behavior with an end-to-end HTTP round
+        // trip through the real reactive autoconfiguration stack.
         webFluxRunner()
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
@@ -581,6 +582,14 @@ class BootUiReactiveAutoConfigurationTests {
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.SPRING_SECURITY + "')].available")
                             .isEqualTo(false)
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.SPRING_SECURITY + "')].unavailableReason")
+                            .value(contains(startsWith("Not yet ported for Spring WebFlux")))
+                            .jsonPath("$.panels[?(@.id=='" + BootUiPanels.MCP_SERVER + "')].available")
+                            .isEqualTo(false)
+                            .jsonPath("$.panels[?(@.id=='" + BootUiPanels.MCP_SERVER + "')].unavailableReason")
+                            .value(contains(startsWith("Not yet ported for Spring WebFlux")))
+                            .jsonPath("$.panels[?(@.id=='" + BootUiPanels.ACTIVITY + "')].available")
+                            .isEqualTo(false)
+                            .jsonPath("$.panels[?(@.id=='" + BootUiPanels.ACTIVITY + "')].unavailableReason")
                             .value(contains(startsWith("Not yet ported for Spring WebFlux")));
                 });
     }
