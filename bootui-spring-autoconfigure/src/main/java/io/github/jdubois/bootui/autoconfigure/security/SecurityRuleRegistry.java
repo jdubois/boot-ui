@@ -14,6 +14,7 @@ final class SecurityRuleRegistry {
             new DefaultLoginPageProductionRule(),
             new BasicAuthWithoutTlsRule(),
             new UsernameEnumerationRiskRule(),
+            new GeneratedUserInProductionRule(),
             // Authorization
             new MissingAuthorizationFilterRule(),
             new PermitAllCatchAllRule(),
@@ -32,6 +33,7 @@ final class SecurityRuleRegistry {
             new BearerTokenStatefulRule(),
             new ConcurrentSessionControlRule(),
             new WeakRememberMeKeyRule(),
+            new SessionCookieNamePrefixRule(),
             // Transport & security headers
             new HstsHeaderRule(),
             new FrameOptionsRule(),

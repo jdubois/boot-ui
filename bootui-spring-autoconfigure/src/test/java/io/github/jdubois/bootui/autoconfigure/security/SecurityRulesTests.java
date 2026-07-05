@@ -242,6 +242,136 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
+    // --- SEC-ACT-004: health show-details/show-components should not be unconditional ------
+
+    @Test
+    void healthDetailsExposureFiresForShowDetailsAlways() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("management.endpoint.health.show-details", "always");
+
+        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("show-details"));
+    }
+
+    @Test
+    void healthDetailsExposureFiresForShowComponentsAlways() {
+        // Spring Boot's show-components=always leaks the same infrastructure/component names as
+        // show-details=always, so it must be caught independently.
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("management.endpoint.health.show-components", "always");
+
+        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("show-components"));
+    }
+
+    @Test
+    void healthDetailsExposureReportsBothWhenShowDetailsAndShowComponentsAreBothAlways() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("management.endpoint.health.show-details", "always")
+                .withProperty("management.endpoint.health.show-components", "always");
+
+        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(2);
+    }
+
+    @Test
+    void healthDetailsExposurePassesWhenNeitherPropertyIsSet() {
+        // Spring Boot's actual default for both properties is 'never' (not 'when-authorized', which
+        // was the pre-3.0 default) -- confirm the rule does not flag the unconfigured/default case.
+        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(new MockEnvironment()));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void healthDetailsExposurePassesWhenAuthorizedOnly() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("management.endpoint.health.show-details", "when-authorized")
+                .withProperty("management.endpoint.health.show-components", "when-authorized");
+
+        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-OAUTH-001: JWT and opaque-token resource servers must validate tokens ----------
+
+    @Test
+    void resourceServerValidationPassesWhenNoBearerChainIsPresent() {
+        FilterChainModel chain = chain(
+                "any request",
+                List.of("SecurityContextHolderFilter", "UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new ResourceServerValidationRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void resourceServerValidationFiresWhenBearerChainHasNoJwtOrOpaqueTokenConfig() {
+        FilterChainModel chain = chain(
+                "any request",
+                List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result =
+                new ResourceServerValidationRule().evaluate(context(List.of(chain), new MockEnvironment()));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void resourceServerValidationPassesWithJwtIssuerUriConfigured() {
+        FilterChainModel chain = chain(
+                "any request",
+                List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com");
+
+        SecurityRuleResultDto result =
+                new ResourceServerValidationRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void resourceServerValidationPassesWithOpaqueTokenIntrospectionUriConfigured() {
+        // Verified false-positive fix: BearerTokenAuthenticationFilter is installed identically for
+        // .oauth2ResourceServer(oauth2 -> oauth2.jwt(...)) and .opaqueToken(...), so an opaque-token
+        // resource server configured only via the introspection-uri property must also pass.
+        FilterChainModel chain = chain(
+                "any request",
+                List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty(
+                        "spring.security.oauth2.resourceserver.opaquetoken.introspection-uri",
+                        "https://issuer.example.com/introspect");
+
+        SecurityRuleResultDto result =
+                new ResourceServerValidationRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void resourceServerValidationPassesWithOpaqueTokenIntrospectorBeanPresent() {
+        FilterChainModel chain = chain(
+                "any request",
+                List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new ResourceServerValidationRule()
+                .evaluate(contextWithOpaqueTokenIntrospector(
+                        List.of(chain), List.of("com.example.CustomOpaqueTokenIntrospector"), new MockEnvironment()));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
     // --- SEC-OAUTH-002: custom decoder is advisory ------------------------------------------
 
     @Test
@@ -284,8 +414,13 @@ class SecurityRulesTests {
     void jwtAudienceWithCustomTokenValidatorIsInfoAdvisory() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com");
-        SecurityContext context =
-                context(environment, List.of("com.example.AudienceValidatingOAuth2TokenValidator"), false, false);
+        SecurityContext context = context(
+                environment,
+                List.of("com.example.AudienceValidatingOAuth2TokenValidator"),
+                false,
+                false,
+                List.of(),
+                false);
 
         SecurityRuleResultDto result = new JwtAudienceValidationRule().evaluate(context);
 
@@ -382,6 +517,8 @@ class SecurityRulesTests {
                         true,
                         List.of(),
                         false,
+                        false,
+                        List.of(),
                         false,
                         new MockEnvironment()));
 
@@ -611,6 +748,48 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
+    // --- SEC-SESSION-009: session cookie name should use a __Host-/__Secure- prefix ---------
+
+    @Test
+    void sessionCookieNamePrefixFiresForACustomNameWithoutAPrefix() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("server.servlet.session.cookie.name", "MYSESSIONID");
+
+        SecurityRuleResultDto result = new SessionCookieNamePrefixRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("LOW");
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("MYSESSIONID"));
+    }
+
+    @Test
+    void sessionCookieNamePrefixPassesWhenNoCustomNameIsConfigured() {
+        // The unmodified default cookie name, JSESSIONID, is not flagged.
+        SecurityRuleResultDto result = new SessionCookieNamePrefixRule().evaluate(context(new MockEnvironment()));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void sessionCookieNamePrefixPassesForAHostPrefixedName() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("server.servlet.session.cookie.name", "__Host-SESSION");
+
+        SecurityRuleResultDto result = new SessionCookieNamePrefixRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void sessionCookieNamePrefixPassesForASecurePrefixedName() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("server.servlet.session.cookie.name", "__Secure-SESSION");
+
+        SecurityRuleResultDto result = new SessionCookieNamePrefixRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
     // --- SEC-AUTH-007: HTTP Basic requires TLS in production -------------------------------
 
     @Test
@@ -649,7 +828,7 @@ class SecurityRulesTests {
 
     @Test
     void usernameEnumerationRiskFiresWhenHideUserNotFoundExceptionsIsDisabled() {
-        SecurityContext context = context(new MockEnvironment(), List.of(), false, true);
+        SecurityContext context = context(new MockEnvironment(), List.of(), false, true, List.of(), false);
 
         SecurityRuleResultDto result = new UsernameEnumerationRiskRule().evaluate(context);
 
@@ -659,9 +838,56 @@ class SecurityRulesTests {
 
     @Test
     void usernameEnumerationRiskPassesWhenHideUserNotFoundExceptionsIsNotDisabled() {
-        SecurityContext context = context(new MockEnvironment(), List.of(), false, false);
+        SecurityContext context = context(new MockEnvironment(), List.of(), false, false, List.of(), false);
 
         SecurityRuleResultDto result = new UsernameEnumerationRiskRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-AUTH-009: Spring Boot's auto-generated default user should not run in production
+
+    @Test
+    void generatedUserInProductionFiresWhenNoCustomUserDetailsServiceIsConfigured() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        SecurityContext context = context(environment, List.of(), false, false, List.of(), true);
+
+        SecurityRuleResultDto result = new GeneratedUserInProductionRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void generatedUserInProductionPassesOutsideProduction() {
+        SecurityContext context = context(new MockEnvironment(), List.of(), false, false, List.of(), true);
+
+        SecurityRuleResultDto result = new GeneratedUserInProductionRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void generatedUserInProductionPassesWhenNoGeneratedUserDetailsManagerIsPresent() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        SecurityContext context = context(environment, List.of(), false, false, List.of(), false);
+
+        SecurityRuleResultDto result = new GeneratedUserInProductionRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void generatedUserInProductionPassesWhenSpringSecurityUserPropertiesAreExplicitlyConfigured() {
+        // SEC-AUTH-004 (DefaultInMemoryUserRule) already covers an explicitly-configured static user;
+        // this rule only targets the fully-default, no-configuration-at-all case.
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.security.user.name", "admin");
+        environment.setActiveProfiles("prod");
+        SecurityContext context = context(environment, List.of(), false, false, List.of(), true);
+
+        SecurityRuleResultDto result = new GeneratedUserInProductionRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
@@ -670,7 +896,7 @@ class SecurityRulesTests {
 
     @Test
     void strictHttpFirewallWeakenedFiresWhenADefaultProtectionWasReAllowed() {
-        SecurityContext context = context(new MockEnvironment(), List.of(), true, false);
+        SecurityContext context = context(new MockEnvironment(), List.of(), true, false, List.of(), false);
 
         SecurityRuleResultDto result = new StrictHttpFirewallWeakenedRule().evaluate(context);
 
@@ -680,7 +906,7 @@ class SecurityRulesTests {
 
     @Test
     void strictHttpFirewallWeakenedPassesWhenDefaultsAreUnchanged() {
-        SecurityContext context = context(new MockEnvironment(), List.of(), false, false);
+        SecurityContext context = context(new MockEnvironment(), List.of(), false, false, List.of(), false);
 
         SecurityRuleResultDto result = new StrictHttpFirewallWeakenedRule().evaluate(context);
 
@@ -1124,6 +1350,8 @@ class SecurityRulesTests {
                 List.of(),
                 false,
                 false,
+                List.of(),
+                false,
                 new MockEnvironment());
     }
 
@@ -1154,19 +1382,24 @@ class SecurityRulesTests {
                 List.of(),
                 false,
                 false,
+                List.of(),
+                false,
                 environment);
     }
 
     /**
      * Full-control overload for tests that need to set the {@code oauth2TokenValidatorTypes},
-     * {@code strictHttpFirewallWeakened}, or {@code hideUserNotFoundExceptionsDisabled} fields
+     * {@code strictHttpFirewallWeakened}, {@code hideUserNotFoundExceptionsDisabled},
+     * {@code opaqueTokenIntrospectorTypes}, or {@code generatedUserDetailsManagerPresent} fields
      * directly, without any filter chains, encoders, or CORS configs.
      */
     private static SecurityContext context(
             Environment environment,
             List<String> oauth2TokenValidatorTypes,
             boolean strictHttpFirewallWeakened,
-            boolean hideUserNotFoundExceptionsDisabled) {
+            boolean hideUserNotFoundExceptionsDisabled,
+            List<String> opaqueTokenIntrospectorTypes,
+            boolean generatedUserDetailsManagerPresent) {
         return new SecurityContext(
                 List.of(),
                 List.of(),
@@ -1180,6 +1413,33 @@ class SecurityRulesTests {
                 oauth2TokenValidatorTypes,
                 strictHttpFirewallWeakened,
                 hideUserNotFoundExceptionsDisabled,
+                opaqueTokenIntrospectorTypes,
+                generatedUserDetailsManagerPresent,
+                environment);
+    }
+
+    /**
+     * Combines custom filter chains with a set of discovered {@code OpaqueTokenIntrospector} bean
+     * types -- used only to test SEC-OAUTH-001's opaque-token-bean detection path, which neither of
+     * the overloads above can express together.
+     */
+    private static SecurityContext contextWithOpaqueTokenIntrospector(
+            List<FilterChainModel> chains, List<String> opaqueTokenIntrospectorTypes, Environment environment) {
+        return new SecurityContext(
+                chains,
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                false,
+                false,
+                opaqueTokenIntrospectorTypes,
+                false,
                 environment);
     }
 }

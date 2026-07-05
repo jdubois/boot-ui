@@ -23,7 +23,7 @@ import org.springframework.security.web.FilterChainProxy;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 57;
+    private static final int RULE_COUNT = 59;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -57,6 +57,8 @@ class SecurityScannerTests {
                 false,
                 List.of(),
                 false,
+                false,
+                List.of(),
                 false,
                 environment);
         SecurityScanner scanner = new SecurityScanner(context, CLOCK);
@@ -134,6 +136,8 @@ class SecurityScannerTests {
                 List.of(),
                 false,
                 false,
+                List.of(),
+                false,
                 environment);
         SecurityScanner scanner = new SecurityScanner(context, CLOCK);
 
@@ -184,6 +188,8 @@ class SecurityScannerTests {
                 false,
                 List.of(),
                 false,
+                false,
+                List.of(),
                 false,
                 environment);
         SecurityScanner scanner = new SecurityScanner(context, CLOCK);
@@ -237,6 +243,8 @@ class SecurityScannerTests {
                 false,
                 List.of(),
                 false,
+                false,
+                List.of(),
                 false,
                 environment);
         SecurityScanner scanner = new SecurityScanner(context, CLOCK);
@@ -314,6 +322,8 @@ class SecurityScannerTests {
                 false,
                 List.of(),
                 false,
+                false,
+                List.of(),
                 false,
                 new MockEnvironment());
         SecurityScanner scanner = new SecurityScanner(context, CLOCK);
@@ -462,6 +472,8 @@ class SecurityScannerTests {
                 List.of(),
                 false,
                 false,
+                List.of(),
+                false,
                 environment);
     }
 
@@ -478,6 +490,8 @@ class SecurityScannerTests {
                 false,
                 List.of(),
                 false,
+                false,
+                List.of(),
                 false,
                 environment);
     }
@@ -531,6 +545,8 @@ class SecurityScannerTests {
                 false,
                 List.of(),
                 false,
+                false,
+                List.of(),
                 false,
                 new MockEnvironment());
     }

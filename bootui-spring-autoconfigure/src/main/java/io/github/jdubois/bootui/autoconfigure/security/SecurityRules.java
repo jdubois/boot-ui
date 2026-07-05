@@ -280,6 +280,42 @@ final class UsernameEnumerationRiskRule extends AbstractSecurityRule {
     }
 }
 
+final class GeneratedUserInProductionRule extends AbstractSecurityRule {
+
+    GeneratedUserInProductionRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-AUTH-009",
+                "Do not run production on Spring Boot's auto-generated default user",
+                SecurityCategory.AUTHENTICATION,
+                "HIGH",
+                "Detects Spring Boot's auto-configured InMemoryUserDetailsManager (created only when no"
+                        + " UserDetailsService/AuthenticationManager/AuthenticationProvider bean and no"
+                        + " spring.security.user.* property are present) while a production profile is active. Unlike"
+                        + " SEC-AUTH-004 (an explicitly-configured static user), this is the fully-default case: Spring"
+                        + " Boot generates a random password for a single 'user' account and logs it to the console at"
+                        + " startup, which Spring Boot's own documentation warns is for development use only.",
+                "Register a real UserDetailsService, AuthenticationProvider, or external identity provider before"
+                        + " running in production; do not rely on the console-logged generated password.",
+                "https://docs.spring.io/spring-boot/reference/web/spring-security.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        if (!context.generatedUserDetailsManagerPresent() || !context.isProductionProfileActive()) {
+            return pass();
+        }
+        if (context.firstProperty("spring.security.user.name", "spring.security.user.password") != null) {
+            // spring.security.user.* is set, so SEC-AUTH-004 already covers this (explicit, non-generated
+            // credentials); avoid double-reporting the same static-account risk under two rule ids.
+            return pass();
+        }
+        return violation(List.of(
+                "Spring Boot's auto-generated default user/password (InMemoryUserDetailsManager) is active while a"
+                        + " production profile is running, with no custom UserDetailsService/AuthenticationProvider"
+                        + " and no spring.security.user.* configured."));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Authorization
 // ---------------------------------------------------------------------------
@@ -706,6 +742,37 @@ final class WeakRememberMeKeyRule extends AbstractSecurityRule {
             }
         }
         return violation(details);
+    }
+}
+
+final class SessionCookieNamePrefixRule extends AbstractSecurityRule {
+
+    SessionCookieNamePrefixRule() {
+        super(
+                new SecurityRuleDefinition(
+                        "SEC-SESSION-009",
+                        "Custom session cookie names should use a __Host-/__Secure- prefix",
+                        SecurityCategory.SESSION,
+                        "LOW",
+                        "Detects server.servlet.session.cookie.name configured to a custom value that does not start with the"
+                                + " __Host- or __Secure- cookie-name prefix (exact case -- browsers only honor these prefixes"
+                                + " verbatim). The unmodified default name, JSESSIONID, is not flagged; this rule only fires"
+                                + " once an application has already chosen to customize the cookie name.",
+                        "Name the session cookie with the __Host- prefix, e.g. __Host-SESSION (requires Secure, no"
+                                + " Domain attribute, and Path=/) or, at minimum, the __Secure- prefix, e.g."
+                                + " __Secure-SESSION, so the browser rejects the cookie unless it was set over HTTPS --"
+                                + " hardening against cookie-tossing from a sibling or subdomain.",
+                        "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html#cookie-name-prefixes"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        String name = context.firstProperty("server.servlet.session.cookie.name");
+        if (name == null || name.startsWith("__Host-") || name.startsWith("__Secure-")) {
+            return pass();
+        }
+        return violation(List.of("server.servlet.session.cookie.name is set to '" + name
+                + "', which does not use the __Host- or __Secure- cookie-name prefix."));
     }
 }
 
@@ -1290,21 +1357,29 @@ final class HealthDetailsExposureRule extends AbstractSecurityRule {
         super(
                 new SecurityRuleDefinition(
                         "SEC-ACT-004",
-                        "Actuator health details should not be exposed unconditionally",
+                        "Actuator health details/components should not be exposed unconditionally",
                         SecurityCategory.ACTUATOR,
                         "HIGH",
-                        "Detects management.endpoint.health.show-details=always, which leaks infrastructure details to anonymous callers.",
-                        "Change management.endpoint.health.show-details to 'when-authorized' (the default) or ensure the /health endpoint is strictly authenticated.",
+                        "Detects management.endpoint.health.show-details=always or show-components=always, either of"
+                                + " which leaks infrastructure/component details (disk space, database, custom health"
+                                + " indicators, dependency versions) to anonymous callers. Spring Boot's own default"
+                                + " for both properties is 'never' (not 'when-authorized', which was the default"
+                                + " prior to Spring Boot 3.0).",
+                        "Leave show-details/show-components at 'never' (the default), or set them to 'when-authorized'"
+                                + " and require authentication for the health endpoint.",
                         "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        String showDetails = context.firstHostProperty("management.endpoint.health.show-details");
-        if ("always".equalsIgnoreCase(showDetails)) {
-            return violation(List.of("management.endpoint.health.show-details is set to 'always'."));
+        List<String> details = new ArrayList<>();
+        if ("always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.health.show-details"))) {
+            details.add("management.endpoint.health.show-details is set to 'always'.");
         }
-        return pass();
+        if ("always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.health.show-components"))) {
+            details.add("management.endpoint.health.show-components is set to 'always'.");
+        }
+        return violation(details);
     }
 }
 
@@ -1398,12 +1473,20 @@ final class ResourceServerValidationRule extends AbstractSecurityRule {
     ResourceServerValidationRule() {
         super(new SecurityRuleDefinition(
                 "SEC-OAUTH-001",
-                "JWT resource server must validate tokens via issuer or JWK set",
+                "Resource server must validate tokens via JWT issuer/JWK or opaque-token introspection",
                 SecurityCategory.OAUTH2,
                 "HIGH",
-                "Detects a bearer-token resource server with no issuer-uri, jwk-set-uri, public key, or JwtDecoder bean configured.",
-                "Configure spring.security.oauth2.resourceserver.jwt.issuer-uri (or jwk-set-uri / a JwtDecoder bean) so signatures and the issuer are verified.",
-                "https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html"));
+                "Detects a bearer-token resource server with neither JWT validation (issuer-uri, jwk-set-uri,"
+                        + " public key, or a JwtDecoder bean) nor opaque-token validation (introspection-uri or an"
+                        + " OpaqueTokenIntrospector bean) configured. BearerTokenAuthenticationFilter is installed"
+                        + " identically for oauth2ResourceServer().jwt(...) and .opaqueToken(...), so both"
+                        + " validation styles are accepted.",
+                "Configure spring.security.oauth2.resourceserver.jwt.issuer-uri (or jwk-set-uri / a JwtDecoder bean)"
+                        + " for JWT resource servers, or"
+                        + " spring.security.oauth2.resourceserver.opaquetoken.introspection-uri (or a custom"
+                        + " OpaqueTokenIntrospector bean) for opaque-token resource servers, so incoming bearer"
+                        + " tokens are actually verified.",
+                "https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html"));
     }
 
     @Override
@@ -1413,17 +1496,20 @@ final class ResourceServerValidationRule extends AbstractSecurityRule {
         if (!bearerChain) {
             return pass();
         }
-        boolean configured = context.firstProperty(
+        boolean jwtConfigured = context.firstProperty(
                                 "spring.security.oauth2.resourceserver.jwt.issuer-uri",
                                 "spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
                                 "spring.security.oauth2.resourceserver.jwt.public-key-location")
                         != null
                 || !context.jwtDecoderTypes().isEmpty();
-        if (configured) {
+        boolean opaqueTokenConfigured =
+                context.firstProperty("spring.security.oauth2.resourceserver.opaquetoken.introspection-uri") != null
+                        || !context.opaqueTokenIntrospectorTypes().isEmpty();
+        if (jwtConfigured || opaqueTokenConfigured) {
             return pass();
         }
-        return violation(List.of(
-                "A bearer-token resource server is active but no issuer/JWK/JwtDecoder validation is configured."));
+        return violation(List.of("A bearer-token resource server is active but no issuer/JWK/JwtDecoder (JWT) or"
+                + " introspection-uri/OpaqueTokenIntrospector (opaque token) validation is configured."));
     }
 }
 

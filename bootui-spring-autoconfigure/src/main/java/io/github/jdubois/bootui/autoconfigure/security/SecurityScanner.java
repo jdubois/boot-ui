@@ -266,6 +266,10 @@ final class SecurityScanner {
         boolean methodSecurityAnnotations = discoverMethodSecurityAnnotations(beanFactory);
         boolean strictHttpFirewallWeakened = discoverStrictHttpFirewallWeakened(beanFactory);
         boolean hideUserNotFoundExceptionsDisabled = discoverHideUserNotFoundExceptionsDisabled(beanFactory);
+        List<String> opaqueTokenIntrospectorTypes = beanTypeNames(
+                beanFactory,
+                "org.springframework.security.oauth2.server.resource.introspection.OpaqueTokenIntrospector");
+        boolean generatedUserDetailsManagerPresent = discoverGeneratedUserDetailsManagerPresent(beanFactory);
 
         SecurityContext context = new SecurityContext(
                 chains,
@@ -280,6 +284,8 @@ final class SecurityScanner {
                 oauth2TokenValidatorTypes,
                 strictHttpFirewallWeakened,
                 hideUserNotFoundExceptionsDisabled,
+                opaqueTokenIntrospectorTypes,
+                generatedUserDetailsManagerPresent,
                 environment);
         return new SecurityDiscovery(context, errors);
     }
@@ -693,6 +699,26 @@ final class SecurityScanner {
             }
         }
         return false;
+    }
+
+    /**
+     * {@code true} when Spring Boot's own auto-configured {@code InMemoryUserDetailsManager} bean is
+     * present -- the single generated-password "user" account {@code
+     * UserDetailsServiceAutoConfiguration} creates only when no other {@code UserDetailsService},
+     * {@code AuthenticationManager}, or {@code AuthenticationProvider} bean exists. Matched by the
+     * exact bean name Spring Boot's auto-configuration registers it under ({@code
+     * inMemoryUserDetailsManager}), since the bean's type alone would also match a host application's
+     * own, deliberately-configured {@code InMemoryUserDetailsManager}.
+     */
+    private static boolean discoverGeneratedUserDetailsManagerPresent(ListableBeanFactory beanFactory) {
+        if (beanFactory == null) {
+            return false;
+        }
+        try {
+            return beanFactory.containsBean("inMemoryUserDetailsManager");
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
     }
 
     // ── Reflection / proxy helpers ───────────────────────────────────────────────
