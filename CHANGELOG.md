@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Two new Spring Security advisor rules**, from the same follow-up audit described under Changed below:
+  `SEC-AUTH-009` (Spring Boot's auto-generated default user/password must not be relied on in production — the
+  fully-default case where no `UserDetailsService`/`AuthenticationProvider` bean and no `spring.security.user.*`
+  property exist at all, distinct from `SEC-AUTH-004`'s explicitly-configured static user, HIGH) and
+  `SEC-SESSION-009` (a custom `server.servlet.session.cookie.name` should use the `__Host-`/`__Secure-` cookie-name
+  prefix so the browser enforces Secure/no-Domain/Path=/, hardening against cookie-tossing from a sibling or
+  subdomain — the unmodified default `JSESSIONID` is not flagged, LOW). The Security advisor now has 59 rules, up
+  from 57 (#522).
+
 - **Three new Hibernate advisor rules**, from a second, deeper audit pass dedicated to the Hibernate advisor alone:
   `HIB-ID-007` (composite identifier classes — `@EmbeddedId`/`@IdClass` — must be `Serializable`, expose a public no-arg
   constructor, and override both `equals` and `hashCode`, HIGH), `HIB-CONFIG-018` (bind-parameter logging should not be
@@ -18,6 +27,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rules, up from 66 (#511).
 
 ### Changed
+
+- **Follow-up Spring Security advisor audit pass**, cross-validated by 5 independent AI models (Claude Opus 4.8,
+  GPT-5.5, Gemini 3.1 Pro, GPT-5.3-Codex, Claude Sonnet 5) re-auditing the ruleset shortly after #519, catching two
+  remaining false-positive/stale-doc gaps that audit had not covered: `SEC-OAUTH-001` fired a false HIGH violation
+  on legitimate opaque-token resource servers (`.oauth2ResourceServer(oauth2 -> oauth2.opaqueToken(...))`) because
+  `BearerTokenAuthenticationFilter` is installed identically for both JWT and opaque-token resource servers, but the
+  rule only ever checked JWT-specific config — it now also accepts
+  `spring.security.oauth2.resourceserver.opaquetoken.introspection-uri` or a custom `OpaqueTokenIntrospector` bean
+  as valid proof the resource server validates tokens; and `SEC-ACT-004`'s description/recommendation claimed
+  Spring Boot's `management.endpoint.health.show-details` default is `when-authorized`, which was true before
+  Spring Boot 3.0 but the real current default is `never` — corrected the text and also added detection for
+  `management.endpoint.health.show-components=always`, which leaks the same infrastructure/component names as
+  `show-details=always` but was previously unchecked (#522).
 
 - **Second Hibernate advisor audit pass**, cross-validated by 5 independent AI models (Claude Opus 4.8, GPT-5.5,
   Gemini 3.1 Pro, GPT-5.3-Codex, Claude Sonnet 5) auditing the ruleset against official Hibernate ORM/Quarkus/Spring
