@@ -901,6 +901,64 @@ Features:
     than a more precise message — harmless (no double-switch risk), just a cosmetic gap. (3) the receiving endpoint
     exists only on the Spring adapter in this version; a Quarkus instance can be a forwarding *sender* but not yet a
     *receiver*.
+- **BootUI Activity Console (`bootui-activity-console`, a standalone dedicated receiver)**: an alternative topology to
+  the plain host-application receiver above, for anyone who wants one aggregated dashboard instead of hunting through
+  each service's own panel. It is a separate, purpose-built Spring WebFlux application (port 8079 by default) wired
+  directly against `bootui-core`/`bootui-engine` rather than `bootui-spring-autoconfigure` — deliberately: the
+  reactive adapter's `BootUiProperties` covers ~40 unrelated panel settings that would be noise on a single-purpose
+  aggregator, depending on the reactive starter would wire ~40 controllers that would all report unavailable, and
+  Live Activity itself is not yet ported to the reactive adapter regardless (see the WebFlux gap noted at the end of
+  this section) — so the console instead reuses only genuinely framework-neutral `bootui-core`/`bootui-engine` types
+  (DTOs, `LocalhostGuard`, `BootUiPanels`) behind small, self-contained WebFlux classes. It serves the identical
+  compiled Vue UI every adapter serves, restricted to the Live Activity panel by its own minimal `PanelsReport`
+  (`ConsolePanelsController` marks every other registered panel unavailable with an explanatory reason; the Vue shell
+  already collapses unavailable panels into a "Disabled / unavailable" section, so no client changes were needed).
+  - **Reception and storage**: `POST /bootui/api/activity/forward` is served at exactly
+    `ActivityForwardService.FORWARD_PATH` — the identical path and wire contract a host-application receiver serves —
+    so a `HttpActivityStore` sender's `peer-base-url` can point at either kind of receiver with no other change; batch
+    validation (size ceiling, per-entry shape, the optional shared-secret check) is kept byte-identical to the
+    host-adapter's `ActivityForwardService`, just re-implemented reactively (`ConsoleActivityForwardService`) since
+    the engine's own version is a blocking, static utility. Accepted batches are appended to a dedicated
+    `ReactiveActivityStore`/`R2dbcActivityStore` pair — the non-blocking counterpart to the engine's blocking
+    `ActivityStore`/`JdbcActivityStore`, built directly on Spring Data R2DBC's `DatabaseClient` so nothing blocks the
+    console's Netty event loop. It defaults to a zero-config in-memory H2 database (`spring.r2dbc.url`, data lost on
+    restart) and can be pointed at a durable H2 file or any other R2DBC driver (e.g. Postgres) via the same property
+    for history that survives a restart; its schema/index DDL is dialect-neutral like the JDBC store's.
+  - **Cross-instance by design, not by exception**: unlike a host-application receiver — whose own
+    `GET /bootui/api/activity` always stays scoped to its own `instanceId`, with no "switch instance" picker to view a
+    peer's forwarded rows (the known limitation called out above) — the console's primary read
+    (`queryAllInstances`) merges every instance it has ever received data from into one newest-first feed, prefixing
+    each entry's summary with `[instanceId]` (the one concession needed since the shared `ActivityEntryDto` wire
+    shape carries no instance field of its own — mirroring the exact `[instanceId] type · severity · summary`
+    convention the existing remote-activity drill-down already renders). Its per-request profiler
+    (`GET /bootui/api/activity/request/{id}`) is, by construction, entirely a "remote activity" view: every
+    correlated entry sharing the clicked entry's distributed-trace id, across every instance, oldest-first, capped at
+    100 entries per profile like the engine's own `RemoteActivityCorrelator`. A coalesced SSE change stream
+    (`GET /bootui/api/activity/stream`, mirroring the reactive adapter's own `ReactiveBootUiChangeStream` design)
+    pushes a tick to the browser after every successfully appended batch, so several senders' activity appears live
+    with no polling.
+  - **Reduced-fidelity profile, stated honestly**: because every entry arrives already flattened into the shared
+    `ActivityEntryDto` wire shape, the console's profile response always has empty `sql`/`sqlGroups`/`exceptions`/
+    `security` lists and a null `trace`/`timing` — the richer per-type detail (raw SQL text, stack traces, span
+    waterfalls) does not survive forwarding, so fabricating it would be dishonest; a `notes` entry says so explicitly
+    and points at the originating instance's own panel for that detail.
+  - **Safety model**: a thin `ConsoleSafetyFilter` binds the same shared `LocalhostGuard` every other adapter uses,
+    applied unconditionally to every route the console serves (unlike a host adapter's filter, which pattern-matches
+    `/bootui/**` first, the console *is* a single-purpose BootUI distribution — every route it has is BootUI). Its own
+    small `ConsoleSafetyProperties`/`ConsoleActivityProperties` reuse the same `bootui.*` property names
+    (`allow-non-localhost`, `allowed-hosts`, `trusted-proxies`, `trust-container-gateway`) and the same
+    `bootui.console.activity.shared-secret`/`X-BootUI-Forward-Token` mechanism described above, so operating the
+    console's perimeter needs no new mental model.
+  - **Known limitations, stated honestly:** (1) no automatic retention/pruning job runs yet — a host application's
+    own JDBC persistence prunes rows older than `bootui.activity.persistence.retention` (default 7 days), but the
+    console's table simply grows until an operator prunes it manually (the `ReactiveActivityStore.prune` method
+    exists and is unit-tested, just not yet wired to a scheduled task). (2) `findByEntryId` resolves only the single
+    newest match when two different instances' entries happen to collide on the same `entry_id` (each instance's own
+    per-JVM counter is only unique within that instance) — an accepted, documented trade-off for the console's target
+    scenario (a handful of local demo instances), not a correctness guarantee at larger scale. (3) receiving is
+    Spring-only, exactly like a host-application receiver, and the console itself has no Live Activity signals of its
+    own to forward (it is a Spring WebFlux application, and Live Activity capture is not yet ported to the reactive
+    adapter — see the WebFlux gap noted at the end of this section) — it can only ever be a receiver, never a sender.
 
 Acceptance criteria:
 
@@ -936,6 +994,17 @@ Acceptance criteria:
   non-browser peer process without presenting Spring Security's own SPA CSRF token/cookie (exempted alongside the
   pre-existing OTLP and MCP exemptions for the same non-browser-caller reason), while still passing through
   `LocalhostGuard`'s loopback/Host/cross-site-write checks and the optional shared secret unchanged.
+- The BootUI Activity Console runs and serves its Live Activity panel independently of any host application; every
+  panel other than Live Activity reports unavailable with a clear reason, and the shared Vue shell renders that
+  reason instead of hiding the panel outright.
+- The console's `queryAllInstances`/profile endpoints never fabricate cross-instance correlation: entries are merged
+  only when they share the profiled request's own distributed-trace id, are prefixed with their originating
+  `instanceId`, and are capped at 100 entries per profile, mirroring the engine's own `RemoteActivityCorrelator`
+  bound.
+- The console's forwarding-receiver endpoint validates and responds byte-identically (status codes, machine-readable
+  `status` strings, messages) to a host-application receiver for the same input, so a sender cannot tell which kind
+  of receiver it is talking to; it inherits the same `LocalhostGuard` perimeter as every other route the console
+  serves, applied unconditionally rather than by path-prefix matching.
 
 ### 5.15 Profile Diff Panel
 

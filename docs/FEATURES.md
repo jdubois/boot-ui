@@ -217,6 +217,47 @@ Spring adapter — Quarkus can be a forwarding **sender**, wiring its own captur
 path above, but is not yet a **receiver** — so the natural topology today is a Quarkus sender forwarding to a Spring
 receiver. See `docs/PROPERTIES.md` for the full list of `bootui.activity.forwarding.*` properties.
 
+A dedicated receiver also exists for anyone who wants one aggregated dashboard instead of browsing each service's own
+panel: the **BootUI Activity Console** (`bootui-activity-console`) is a standalone Spring WebFlux application, running
+on port 8079 by default, whose only job is to receive forwarded Live Activity batches from any number of BootUI
+instances and show them as one correlated, cross-service feed. It serves the exact same compiled Vue UI as every other
+adapter — restricted to just the Live Activity panel, with every other panel reported unavailable — so pointing
+several BootUI-enabled Spring Boot and/or Quarkus applications' `bootui.activity.forwarding.peer-base-url` at
+`http://localhost:8079` turns it into a single "microservices call each other" dashboard with no change on the
+sending side beyond that one property (the wire contract, `POST /bootui/api/activity/forward`, is identical to a host
+application acting as its own receiver, described above). Unlike a host-application receiver, the console's main feed
+and per-request profiler are **cross-instance by design**: `GET /bootui/api/activity` always queries across every
+sender that has ever forwarded to it (each row is prefixed with its originating `[instanceId]`), and the profiler's
+correlated-entries section resolves every instance sharing a request's distributed trace id rather than staying
+scoped to one already-open instance's own local view. This is exactly the gap the plain host-application receiver
+topology above cannot close (no "switch instance" picker) — the console exists specifically to be that missing
+aggregated view.
+
+The console persists to its own dedicated database via Spring Data R2DBC (`ReactiveActivityStore`/`R2dbcActivityStore`)
+rather than plain JDBC, since it is built on WebFlux end to end and nothing may block its Netty event loop; it
+defaults to a zero-config in-memory H2 instance (data lost on restart) and can be pointed at a durable H2 file or
+another R2DBC driver (e.g. Postgres) via the standard `spring.r2dbc.*` properties. Its own config surface is
+deliberately tiny — `bootui.console.activity.table-name` (default `bootui_console_activity`) and an optional
+`bootui.console.activity.shared-secret` checked via the same `X-BootUI-Forward-Token` header and constant-time
+comparison the forwarding receiver above uses — plus the same handful of `bootui.*` safety keys
+(`allow-non-localhost`, `allowed-hosts`, `trusted-proxies`, `trust-container-gateway`) every adapter already exposes,
+enforced by its own binding over the shared `LocalhostGuard` applied to every route it serves (the console *is*
+BootUI, not a host application with BootUI embedded in it, so there is no separate "rest of the app" left ungated). A
+change stream (`GET /bootui/api/activity/stream`) pushes a coalesced tick to the browser after every successfully
+appended batch, exactly like the SSE stream described above, so several senders' activity appears live without
+polling. See [docs/PROPERTIES.md](PROPERTIES.md) for the full property list.
+
+Because every entry arrives already flattened into the shared wire DTO, the console's per-request profiler is
+honestly reduced compared to a host application's own: it shows every correlated entry across instances (nested by
+trace id, tagged with which instance produced it), but the richer per-type detail a host application shows alongside
+them — raw SQL text, exception stack traces, the trace span waterfall — does not survive being forwarded, so those
+sections always render empty with a note explaining why; open the originating instance's own panel for that level of
+detail. The console also has no automatic retention/pruning job yet (a host application's own JDBC persistence prunes
+rows older than `bootui.activity.persistence.retention`, default 7 days) — its table simply grows until an operator
+prunes it manually. And since it is itself a Spring WebFlux application, it inherits the same "not yet a sender" gap
+noted below: it can *receive* forwarded activity from any adapter, but is not itself a source of activity to forward,
+having no in-process Live Activity signals of its own to capture.
+
 Live Activity is **not yet ported for Spring Boot WebFlux**: it aggregates the servlet-only
 `ServletRequestHandledEvent` signal, which has no reactive equivalent wired here yet. The panel reports unavailable
 with a reason explaining the gap; see [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the planned follow-up (a

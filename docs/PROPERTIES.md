@@ -360,6 +360,27 @@ both. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md) for the full design (t
 | `bootui.activity.forwarding.instance-id`               | _(auto)_ | The multi-tenant partition key this instance stamps captured entries with, carried through unchanged to the receiver. Defaults the same way `bootui.activity.persistence.instance-id` does. |
 | `bootui.activity.forwarding.capture-interval`          | `2s`    | How often the capture coordinator polls the merged Live Activity feed for new entries to forward.                                 |
 
+#### BootUI Activity Console
+
+The BootUI Activity Console (`bootui-activity-console`) is a standalone Spring WebFlux application, not a host-application
+adapter, so its configuration surface is a small, self-contained set of properties rather than the ~40-setting
+`BootUiProperties` every adapter binds. It reuses the same `bootui.*` safety property *names* host applications already
+know, and the same forwarding-receiver wire contract, but its own settings live under `bootui.console.activity.*` and
+plain Spring Boot `server.port`/`spring.r2dbc.*` keys. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md) for the full
+design (cross-instance aggregation, the reduced-fidelity profile, and known limitations).
+
+| Property                              | Default                                                        | Description                                                                                                                        |
+| -------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `server.port`                         | `8079`                                                          | The console's own HTTP port, distinct from a host application's default so it can run alongside a demo Spring Boot and/or Quarkus sample app without a port clash. |
+| `spring.r2dbc.url`                    | `r2dbc:h2:mem:///bootui-console?options=DB_CLOSE_DELAY=-1`      | R2DBC connection URL for the console's own database. The zero-config default is an in-memory H2 instance (data lost on restart); point at a file-based H2 URL or another R2DBC driver (e.g. Postgres) on the classpath for history that survives a restart. |
+| `spring.r2dbc.username` / `spring.r2dbc.password` | _(none)_                                              | Credentials for the configured R2DBC URL, when required.                                                                          |
+| `bootui.console.activity.table-name`  | `bootui_console_activity`                                       | Table name for the console's own aggregated activity store.                                                                       |
+| `bootui.console.activity.shared-secret` | _(none)_                                                      | Optional bearer token senders must present via the same `X-BootUI-Forward-Token` header/constant-time comparison a host-application receiver uses. Blank (the default) accepts any request, relying on the console's own loopback/Host-allow-list perimeter instead. |
+| `bootui.allow-non-localhost`          | `false`                                                          | Mirrors the same-named host-adapter setting: bypasses every `LocalhostGuard` check.                                               |
+| `bootui.allowed-hosts`                | _(none)_                                                         | Mirrors the same-named host-adapter setting: additional `Host` header allow-list entries.                                         |
+| `bootui.trusted-proxies`              | _(none)_                                                         | Mirrors the same-named host-adapter setting: additional trusted source CIDR ranges.                                               |
+| `bootui.trust-container-gateway`      | `OFF`                                                            | Mirrors the same-named host-adapter setting: whether to trust an auto-detected container gateway.                                 |
+
 ### Traces
 
 | Property                                     | Default   | Description                                                                                            |
