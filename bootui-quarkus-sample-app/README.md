@@ -41,7 +41,7 @@ Install the extension (and its dependencies) once, then launch the sample in dev
 ./mvnw -f bootui-quarkus-sample-app/pom.xml quarkus:dev
 ```
 
-Then open the console at <http://localhost:8080/bootui/> and the landing page at <http://localhost:8080/>.
+Then open the console at <http://localhost:8082/bootui/> and the landing page at <http://localhost:8082/>.
 Ollama is optional: the chat endpoint returns a clear "AI unavailable" response when it is not reachable.
 
 BootUI activates automatically under `quarkus:dev` (development launch mode). In a packaged production run

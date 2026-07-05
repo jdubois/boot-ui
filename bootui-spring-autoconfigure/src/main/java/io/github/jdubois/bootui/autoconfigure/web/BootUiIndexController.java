@@ -37,7 +37,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 @Controller
 public class BootUiIndexController {
 
-    static final String INDEX_LOCATION = "META-INF/resources/bootui/index.html";
+    // Public: reused verbatim by the reactive (WebFlux) sibling ReactiveBootUiIndexController in the
+    // ...autoconfigure.reactive package, so its well-tested SPA-shell HTML rewriting is not duplicated.
+    public static final String INDEX_LOCATION = "META-INF/resources/bootui/index.html";
 
     private static final Pattern HEAD_OPEN = Pattern.compile("(?i)<head[^>]*>");
 
@@ -91,8 +93,11 @@ public class BootUiIndexController {
      * Inserts a {@code <base href>} as the first child of {@code <head>} so it precedes every relative
      * asset/API URL in the document. Returns the markup unchanged when it already declares a
      * {@code <base>} tag or has no {@code <head>}.
+     *
+     * <p>Public: reused verbatim by {@code ReactiveBootUiIndexController} (the WebFlux sibling of this
+     * controller), so the two adapters cannot diverge in how they rewrite the shared SPA shell.</p>
      */
-    static String injectBaseHref(String html, String baseHref) {
+    public static String injectBaseHref(String html, String baseHref) {
         if (EXISTING_BASE.matcher(html).find()) {
             return html;
         }

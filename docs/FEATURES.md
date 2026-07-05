@@ -50,6 +50,10 @@ chrome around every panel — the header application name, framework and version
 version, active profiles, and the active/disabled status — is populated by the same framework-neutral
 `GET /bootui/api/overview` endpoint that both adapters expose for the shell.
 
+On Spring Boot WebFlux the Overview panel is fully available and identical in behavior — the dashboard aggregates
+whichever scanner panels are available on the reactive adapter (see [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for
+the current per-panel list), and the shell chrome is populated by the same `GET /bootui/api/overview` endpoint.
+
 ![BootUI Overview panel](./images/bootui-overview.webp)
 
 ### Live Activity
@@ -186,6 +190,11 @@ feed has no server-side `type`/`severity`/`since` filtering to begin with (see a
 on Quarkus once persistence is switched on. The runtime "Use the existing datasource" switch described above works
 identically on Quarkus: the same engine-level `ActivitySwitchService` backs a thin JAX-RS mirror of Spring's endpoint,
 so the tip, button, and confirmation flow behave the same regardless of adapter.
+
+Live Activity is **not yet ported for Spring Boot WebFlux**: it aggregates the servlet-only
+`ServletRequestHandledEvent` signal, which has no reactive equivalent wired here yet. The panel reports unavailable
+with a reason explaining the gap; see [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the planned follow-up (a
+`WebFilter`-based capture source mirroring the Quarkus adapter's approach above).
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
@@ -436,6 +445,12 @@ relabels the metrics ("Permission policies" in place of "Filter chains") — the
 
 ![BootUI Security panel — Quarkus Security](./images/bootui-quarkus-security.webp)
 
+This advisor is **not yet ported for Spring Boot WebFlux**: it analyzes the servlet `SecurityFilterChain` beans
+described above, and a reactive Spring Security setup registers a different bean type (`WebFilterChainProxy`) instead
+— so the panel reports unavailable with its existing "no filter chains available" reason rather than a bespoke
+WebFlux message. A `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as follow-up work. See
+[docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the current status.
+
 ### Pentesting
 
 The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks against the host application, not
@@ -579,6 +594,11 @@ at most 50 sessions by default; raise `bootui.http-sessions.max-sessions` if a l
 Clear and destroy actions are confirmation-gated and disabled by global or per-panel read-only mode. Clear removes all
 attributes from the selected session while keeping it valid; destroy invalidates the selected session. When the app is
 not running on embedded Tomcat, the panel shows an unavailable state instead of guessing at container internals.
+
+This panel is **deliberately not applicable on Spring Boot WebFlux**: HTTP Sessions are the servlet container's
+`HttpSession` API, which has no reactive equivalent (`WebSession` is a different, non-container-managed model), so the
+panel reports an honest "not applicable" reason rather than implying a port is forthcoming — the same treatment
+GraalVM/CRaC get on Quarkus.
 
 ![BootUI HTTP Sessions panel](./images/bootui-http-sessions.webp)
 
@@ -970,6 +990,10 @@ meant to explain local security wiring without exposing credentials or replacing
 
 ![BootUI Spring Security panel](./images/bootui-spring-security.webp)
 
+This panel is **not yet ported for Spring Boot WebFlux**: it reads the servlet `SecurityFilterChain` bean chain, which a
+reactive application never registers (a reactive Spring Security setup registers a `WebFilterChainProxy`/
+`SecurityWebFilterChain` instead). See [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the current status.
+
 ### Security Logs
 
 The Security Logs panel reads recent Spring Boot audit events from the application's `AuditEventRepository`, including
@@ -982,6 +1006,11 @@ and masks sensitive event data before rendering. Responses are bounded by `bootu
 `500`; if audit support is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
 On Quarkus, the panel sources its events from CDI security events (`io.quarkus.security.spi.runtime.SecurityEvent`) captured into a capped buffer instead of an `AuditEventRepository`. This is honestly partial: it requires a security extension with `quarkus.security.events.enabled=true`, and only authentication success/failure and authorization failure events are emitted — there is no Quarkus equivalent for logout/session events — otherwise the panel reports unavailable with a clear reason. Filtering, type summary, masking, and the `bootui.security-logs.max-logs` cap are identical across both frameworks.
+
+On Spring Boot WebFlux the panel is available and identical: it reads from the same `AuditEventRepository`
+abstraction, which is itself framework-neutral (Spring publishes audit events over the ordinary
+`ApplicationEventPublisher`, regardless of servlet or reactive), so no reactive-specific capture code was needed
+beyond wiring the same fallback in-memory repository.
 
 ![BootUI Security Logs panel](./images/bootui-security-logs.webp)
 
@@ -1147,6 +1176,15 @@ only and never in production, and bounded by the same `bootui.exceptions.*` limi
 detection above are engine-level, so they behave identically on Quarkus: `ExceptionsResource` exposes the same
 `POST /bootui/api/exceptions/{id}/status` endpoint with the same validation and status codes.
 
+On Spring Boot WebFlux the panel is available too, capturing into the same `ExceptionStore` over the same
+`GET /bootui/api/exceptions`/SSE contract and the same triage workflow. In place of the MVC `HandlerExceptionResolver`,
+capture comes from a `WebExceptionHandler` at the highest precedence, plus the same logback appender used on the
+servlet adapter. One honest, documented fidelity gap: a `@RestController`'s own local `@ExceptionHandler` method
+consumes an exception *inside* the WebFlux dispatch pipeline, before any `WebExceptionHandler` sees it — narrower than
+the servlet adapter's resolver-chain-based capture, which observes `@ExceptionHandler`-resolved exceptions too.
+Unhandled exceptions (the common case) are captured identically on both stacks; see
+[docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for detail.
+
 ![BootUI Exceptions panel](./images/bootui-exceptions.webp)
 
 ### HTTP Exchanges
@@ -1253,6 +1291,11 @@ live on Quarkus: `graalvm_scan` and `crac_scan` (both deliberately not applicabl
 `spring_scan` runs the Quarkus-native idiom advisor.
 
 ![BootUI MCP Server panel](./images/bootui-mcp-server.webp)
+
+This panel is **not yet ported for Spring Boot WebFlux**: the protocol core (`McpDispatcher`) is already
+framework-neutral, but the tool catalog (`BootUiMcpTools`) is hard-wired to the servlet panel controllers, so it
+cannot yet resolve the reactive panel surface. See [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the current
+status.
 
 ### DevTools
 

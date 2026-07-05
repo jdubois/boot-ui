@@ -83,14 +83,14 @@ npm test
 ```
 
 Playwright boots the sample app for you with `./mvnw quarkus:dev` and waits for
-`http://localhost:8080/bootui/api/overview`. If you already have it running, the existing server is
+`http://localhost:8082/bootui/api/overview`. If you already have it running, the existing server is
 reused.
 
 ## Useful environment variables
 
 | Variable                   | Default                   | Purpose                                                    |
 | -------------------------- | ------------------------- | ---------------------------------------------------------- |
-| `BOOTUI_SAMPLE_PORT`       | `8080`                    | Port the Quarkus sample listens on.                        |
+| `BOOTUI_SAMPLE_PORT`       | `8082`                    | Port the Quarkus sample listens on.                        |
 | `BOOTUI_BASE_URL`          | `http://localhost:<port>` | Base URL the browser hits.                                 |
 | `BOOTUI_SKIP_WEBSERVER`    | _(unset)_                 | Set to `1` to test an already-running server / list tests. |
 | `BOOTUI_WEBSERVER_TIMEOUT` | `300000`                  | Startup timeout (ms); raise it on slow Dev Services pulls. |

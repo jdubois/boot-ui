@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Liquibase-managed "sample_event" table, fully separate from the Flyway-managed
+        "sample_note" table above - tracked in Liquibase's own DATABASECHANGELOG history table.
+    -->
+    <changeSet id="1" author="bootui">
+        <comment>Create sample_event table and seed a row</comment>
+        <createTable tableName="sample_event">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="varchar(120)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <insert tableName="sample_event">
+            <column name="name" value="Application started"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

@@ -19,6 +19,7 @@ import org.springframework.boot.actuate.startup.StartupEndpoint;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.micrometer.metrics.actuate.endpoint.MetricsEndpoint;
+import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.ApplicationContext;
@@ -56,8 +57,21 @@ public class PanelsController {
     @GetMapping
     public PanelsReport panels() {
         return new PanelsReport(
-                PanelsReport.PLATFORM_SPRING_BOOT,
-                BootUiPanels.all().stream().map(this::panel).toList());
+                platform(), BootUiPanels.all().stream().map(this::panel).toList());
+    }
+
+    private String platform() {
+        return isReactive() ? PanelsReport.PLATFORM_SPRING_BOOT_REACTIVE : PanelsReport.PLATFORM_SPRING_BOOT;
+    }
+
+    // This same controller class is imported unmodified by both BootUiAutoConfiguration (servlet) and
+    // BootUiReactiveAutoConfiguration (WebFlux) - see the class-level shared-controller convention documented
+    // in BootUiReactiveAutoConfiguration. ReactiveWebApplicationContext is the deterministic Spring Boot marker
+    // for "this is the reactive stack" (set by the actual running ApplicationContext type, not a classpath
+    // heuristic), so it correctly distinguishes the two adapters even if both spring-webmvc and spring-webflux
+    // happen to be on the classpath at once.
+    private boolean isReactive() {
+        return applicationContext instanceof ReactiveWebApplicationContext;
     }
 
     private PanelDto panel(Panel definition) {
@@ -92,9 +106,9 @@ public class PanelsController {
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTESTING,
                     BootUiPanels.SPRING,
-                    BootUiPanels.MCP_SERVER,
-                    BootUiPanels.ACTIVITY,
                     BootUiPanels.VULNERABILITIES -> available();
+            case BootUiPanels.MCP_SERVER -> availability(mcpServerAvailable(), mcpServerUnavailableReason());
+            case BootUiPanels.ACTIVITY -> availability(activityAvailable(), activityUnavailableReason());
             case BootUiPanels.JVM_TUNING ->
                 availability(
                         !nativeImageDetected(), "JVM Tuning is not applicable when running as a GraalVM native image");
@@ -132,9 +146,7 @@ public class PanelsController {
             case BootUiPanels.CACHE ->
                 availability(beanPresent(CacheManager.class), "No CacheManager beans are available");
             case BootUiPanels.SPRING_SECURITY ->
-                availability(
-                        classPresent("org.springframework.security.web.SecurityFilterChain"),
-                        "Spring Security not on the classpath");
+                availability(springSecurityAvailable(), springSecurityUnavailableReason());
             case BootUiPanels.SECURITY_LOGS ->
                 availability(beanPresent(AuditEventRepository.class), "No AuditEventRepository bean is available");
             case BootUiPanels.HTTP_EXCHANGES ->
@@ -264,6 +276,11 @@ public class PanelsController {
     }
 
     private String httpSessionsUnavailableReason() {
+        if (isReactive()) {
+            return "Not applicable on Spring WebFlux: HTTP Sessions are the servlet container's HttpSession API,"
+                    + " which has no reactive equivalent (WebSession is a different, non-container-managed model),"
+                    + " so this panel does not apply here.";
+        }
         if (!classPresent("org.springframework.boot.tomcat.TomcatWebServer")
                 || !classPresent("org.apache.catalina.Manager")) {
             return "HTTP Sessions require embedded Tomcat";
@@ -272,6 +289,42 @@ public class PanelsController {
             return "HTTP Sessions require an embedded servlet web server";
         }
         return "HTTP Sessions require embedded Tomcat";
+    }
+
+    private boolean springSecurityAvailable() {
+        return !isReactive()
+                && classPresent("org.springframework.security.web.SecurityFilterChain")
+                && beanPresent("org.springframework.security.web.SecurityFilterChain");
+    }
+
+    private String springSecurityUnavailableReason() {
+        if (isReactive()) {
+            return "Not yet ported for Spring WebFlux: this advisor analyzes the servlet"
+                    + " SecurityFilterChain/HttpSecurity configuration model, which has no reactive equivalent"
+                    + " wired here yet (a ServerHttpSecurity/SecurityWebFilterChain ruleset is planned).";
+        }
+        if (!classPresent("org.springframework.security.web.SecurityFilterChain")) {
+            return "Spring Security not on the classpath";
+        }
+        return "No Spring Security filter chains are available";
+    }
+
+    private boolean mcpServerAvailable() {
+        return !isReactive();
+    }
+
+    private String mcpServerUnavailableReason() {
+        return "Not yet ported for Spring WebFlux: the MCP tool catalog is hard-wired to the servlet panel"
+                + " controllers, so it cannot yet resolve the reactive panel surface.";
+    }
+
+    private boolean activityAvailable() {
+        return !isReactive();
+    }
+
+    private String activityUnavailableReason() {
+        return "Not yet ported for Spring WebFlux: Live Activity aggregates the servlet-only"
+                + " ServletRequestHandledEvent signal, which has no reactive equivalent wired here yet.";
     }
 
     private boolean hikariAvailable() {

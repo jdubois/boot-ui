@@ -40,8 +40,9 @@ footer: Apache-2.0 Licensed | BootUI
 ## How BootUI works
 
 BootUI is served by the host application at `/bootui/`, uses internal `/bootui/api/**` endpoints, and packages the Vue UI
-so consuming applications do not need Node.js or npm. The same console runs on both **Spring Boot 4** and **Quarkus**,
-backed by a shared, framework-neutral engine that serves an identical REST contract on either runtime.
+so consuming applications do not need Node.js or npm. The same console runs on **Spring Boot 4** (servlet or WebFlux)
+and **Quarkus**, backed by a shared, framework-neutral engine that serves an identical REST contract on any of the
+three.
 
 It stays local by default: development-profile activation, loopback-only access, secret masking, read-only controls, and
 production-profile disablement. Some panels depend on optional Spring, Actuator, or development infrastructure. When data

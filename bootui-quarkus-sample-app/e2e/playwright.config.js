@@ -4,7 +4,7 @@ import {defineConfig, devices} from '@playwright/test'
 /**
  * Playwright configuration for the BootUI Quarkus sample app integration test suite.
  *
- * The tests drive the BootUI console served at `http://localhost:8080/bootui/`
+ * The tests drive the BootUI console served at `http://localhost:8082/bootui/`
  * by the `bootui-quarkus-sample-app` Quarkus module, using a real Chromium browser.
  * It is the Quarkus analogue of `bootui-spring-sample-app/e2e` and proves that the one shared
  * Vue UI works end-to-end against the Quarkus adapter, not just the Spring one.
@@ -13,9 +13,9 @@ import {defineConfig, devices} from '@playwright/test'
  * `./mvnw install` so the `bootui-quarkus` extension is in the local Maven repository, plus a
  * supported JDK — the sample is wired into the reactor only on JDK 17/21). Quarkus Dev Services
  * starts a throwaway PostgreSQL container, so **Docker (or Podman) must be running**. If you already
- * have the app running on port 8080 it is reused automatically.
+ * have the app running on port 8082 it is reused automatically.
  */
-const PORT = Number(process.env.BOOTUI_SAMPLE_PORT || 8080)
+const PORT = Number(process.env.BOOTUI_SAMPLE_PORT || 8082)
 const BASE_URL = process.env.BOOTUI_BASE_URL || `http://localhost:${PORT}`
 
 // Quarkus dev mode has to augment the application and let Dev Services pull/start the PostgreSQL

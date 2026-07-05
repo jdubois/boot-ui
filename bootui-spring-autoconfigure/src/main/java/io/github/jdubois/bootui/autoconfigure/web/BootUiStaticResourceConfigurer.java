@@ -26,9 +26,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 public class BootUiStaticResourceConfigurer implements WebMvcConfigurer {
 
-    static final String ASSET_PATH_PATTERN = "/bootui/**";
+    // Public: shared verbatim with the reactive (WebFlux) sibling
+    // ReactiveBootUiStaticResourceConfigurer in the ...autoconfigure.reactive package, so both adapters
+    // serve the exact same asset path/location.
+    public static final String ASSET_PATH_PATTERN = "/bootui/**";
 
-    static final String ASSET_LOCATION = "classpath:/META-INF/resources/bootui/";
+    public static final String ASSET_LOCATION = "classpath:/META-INF/resources/bootui/";
 
     private static final Logger log = LoggerFactory.getLogger(BootUiStaticResourceConfigurer.class);
 

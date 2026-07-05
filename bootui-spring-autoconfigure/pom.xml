@@ -43,6 +43,18 @@
             <artifactId>spring-boot-starter-web</artifactId>
             <optional>true</optional>
         </dependency>
+        <!--
+          Optional and compiled alongside spring-boot-starter-web (never both active in the same running
+          app - Spring Boot picks one WebApplicationType at runtime). Needed to compile the reactive
+          binding (BootUiReactiveAutoConfiguration and its WebFilter/WebFluxConfigurer ports) against
+          org.springframework.web.reactive.* / ServerWebExchange types; consumers that only want the
+          servlet adapter never see this on their classpath because it stays optional here too.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+            <optional>true</optional>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
@@ -123,6 +135,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

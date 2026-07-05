@@ -202,11 +202,21 @@ public class BootUiEngineConfiguration {
         // is collected live on every scan through the SpringPentestingObservationCollector adapter, so the random
         // local.server.port is read after startup; the engine owns the probe methodology (synthetic URI assembly +
         // GET/OPTIONS loopback probes) and fires them only on demand (POST /scan), never at bean construction.
+        //
+        // RequestMappingInfoHandlerMapping is an MVC-only type (spring-webmvc), genuinely absent from a
+        // WebFlux-only classpath (bootui-spring-boot-starter-reactive does not pull in spring-webmvc).
+        // The presence check must run BEFORE the .class literal below: referencing
+        // RequestMappingInfoHandlerMapping.class unconditionally would resolve that constant-pool entry
+        // as soon as this @Lazy factory method runs, throwing NoClassDefFoundError on such a classpath
+        // (confirmed against the reactive WebFlux sample app). Passing null here is safe -
+        // SpringPentestingObservationCollector treats an absent provider as an empty endpoint inventory.
+        ObjectProvider<RequestMappingInfoHandlerMapping> handlerMappingProvider = ClassUtils.isPresent(
+                        "org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping",
+                        applicationContext.getClassLoader())
+                ? applicationContext.getBeanProvider(RequestMappingInfoHandlerMapping.class)
+                : null;
         SpringPentestingObservationCollector collector = new SpringPentestingObservationCollector(
-                applicationContext,
-                applicationContext.getBeanProvider(RequestMappingInfoHandlerMapping.class),
-                environment,
-                properties);
+                applicationContext, handlerMappingProvider, environment, properties);
         return PentestingScanner.usingObservation(collector::collect, Clock.systemUTC());
     }
 
