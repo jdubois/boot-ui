@@ -79,15 +79,15 @@ public class QuarkusApplicationInfo {
     private ActivationStatus activation() {
         // The console is only wired outside production launch mode (the deployment processor gates
         // registration on LaunchMode != NORMAL), so whenever this endpoint can answer, BootUI is active.
-        // localhostOnly is reported false honestly: the Quarkus safety floor blocks cross-site writes but
-        // does not yet enforce loopback-source trust on reads (TODO(R7)). Both the warning and the
-        // localhostOnly flag are currently unrendered by the shared UI, but kept accurate.
+        // localhostOnly mirrors the Spring adapter's OverviewController: BootUiQuarkusSafetyFilter enforces
+        // the full shared LocalhostGuard policy (loopback-source trust, Host allow-list, and cross-site-write
+        // rejection) over the whole /bootui surface, bypassed only when bootui.allow-non-localhost=true.
+        boolean localhostOnly = !optBoolean(BootUiQuarkusSafetyFilter.ALLOW_NON_LOCALHOST_KEY, false);
         return new ActivationStatus(
                 true,
-                false,
+                localhostOnly,
                 "BootUI is active on Quarkus (the console is wired only outside production launch mode).",
-                List.of("Localhost-only request filtering is not yet fully enforced on Quarkus;"
-                        + " only cross-site state-changing requests are blocked."));
+                List.of());
     }
 
     private String optString(String key, String fallback) {
@@ -103,6 +103,14 @@ public class QuarkusApplicationInfo {
             return config.getOptionalValue(key, Integer.class).orElse(null);
         } catch (RuntimeException ex) {
             return null;
+        }
+    }
+
+    private boolean optBoolean(String key, boolean fallback) {
+        try {
+            return config.getOptionalValue(key, Boolean.class).orElse(fallback);
+        } catch (RuntimeException ex) {
+            return fallback;
         }
     }
 }
