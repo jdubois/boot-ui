@@ -1,0 +1,155 @@
+# syntax=docker/dockerfile:1
+#
+# Multi-stage Dockerfile for a JVM image of the **BootUI Activity Console**
+# (`bootui-activity-console`) — the standalone Spring **WebFlux** application (port 8079 by default)
+# that aggregates Live Activity entries forwarded over HTTP from any BootUI-enabled instance on
+# localhost. See docs/SPECIFICATION.md §5.14.2 and docs/FEATURES.md for the full design.
+#
+# This is the console's analogue of the root Dockerfile (the plain Spring Boot **servlet** sample-app
+# image): same three size/CVE techniques (layered-jar extraction + JarLauncher, a custom jlink runtime,
+# a distroless nonroot runtime base), same layer-caching approach, and the same glibc build JDK
+# (bootui-ui's frontend-maven-plugin downloads glibc-linked Node.js binaries). It differs where the
+# console itself differs from the sample app:
+#   - Reactive stack (Spring WebFlux + Reactor Netty + Spring Data R2DBC), not servlet + Tomcat + JDBC —
+#     so the jlink module set below is a distinct, independently-verified list (see below), not the
+#     sample app's JDBC/Tomcat-oriented superset.
+#   - No `SPRING_PROFILES_ACTIVE=dev` is needed: unlike a host application, the console is not gated by
+#     BootUiActivationCondition (it does not depend on bootui-spring-autoconfigure at all — see the
+#     Javadoc on BootUiActivityConsoleApplication) and is always active.
+#   - No Flyway/Liquibase toggles: the console has no such panels (only Live Activity is available).
+#   - No Actuator on the classpath, so there is no `/actuator/health`; probe
+#     `GET /bootui/api/panels` instead (same technique the Quarkus sample's Dockerfile-quarkus uses,
+#     which also has no Actuator).
+#   - Defaults to the same zero-config in-memory H2 database as every other sample/demo in this repo,
+#     via Spring Data R2DBC (`spring.r2dbc.url`) instead of a JDBC URL.
+#
+# Build and run:
+#   docker build -f Dockerfile-activity-console -t bootui-activity-console .
+#   docker run --rm -p 8079:8079 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-activity-console
+#   # then open http://localhost:8079/bootui (Live Activity is the only available panel)
+#
+# Point one or more BootUI-enabled Spring Boot / Quarkus applications' HTTP-forwarding sender at it:
+#   bootui.activity.forwarding.enabled=true
+#   bootui.activity.forwarding.peer-base-url=http://localhost:8079
+
+# ---------------------------------------------------------------------------
+# Build stage: compile the reactor and explode the Spring Boot jar into layers.
+# A glibc JDK (Ubuntu "noble") is used so the frontend-maven-plugin's downloaded
+# Node.js binaries (glibc-linked) run while building the bundled Vue UI.
+# ---------------------------------------------------------------------------
+FROM eclipse-temurin:25-jdk-noble AS build
+
+WORKDIR /app
+
+# Install curl so the Maven wrapper can download maven-wrapper.jar (this base image
+# ships without curl/wget, and the wrapper jar is not committed to the repository).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy the whole multi-module project (see .dockerignore for exclusions).
+COPY . .
+RUN chmod +x mvnw
+
+# Build the console and its reactor dependencies. The Maven local repository (~/.m2) and the npm
+# package cache (~/.npm) are kept in BuildKit cache mounts so they survive across rebuilds instead of
+# being re-downloaded every time (also covers the frontend-maven-plugin's Node.js/npm archive
+# downloads). These caches live in the builder, not in the image. (Requires BuildKit, the Docker default.)
+RUN --mount=type=cache,target=/root/.m2 \
+    --mount=type=cache,target=/root/.npm \
+    ./mvnw -DskipTests -pl bootui-activity-console -am clean package
+
+# Explode the repackaged Spring Boot jar into its layers (dependencies, spring-boot-loader,
+# snapshot-dependencies, application), copied separately into the runtime stage so the large,
+# rarely-changing dependency layer is reused from cache across rebuilds; the app runs exploded via the
+# JarLauncher rather than re-copying the whole fat jar.
+RUN cp bootui-activity-console/target/bootui-activity-console-*.jar app.jar && \
+    java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
+
+# ---------------------------------------------------------------------------
+# Assemble a minimal custom Java runtime with jlink, in this same glibc JDK so the produced runtime's
+# libc matches the distroless glibc runtime base below.
+# ---------------------------------------------------------------------------
+# Module set independently verified with `jdeps --print-module-deps`, analyzing the application classes
+# together with every dependency jar in the exploded layers (not carried over from the sample app's
+# Dockerfile — this is a different runtime stack):
+#   - java.sql.rowset: H2's engine (backing r2dbc-h2) still touches JDBC row/type conversion classes
+#     even when driven through R2DBC; jlink pulls in its `requires transitive java.sql` automatically.
+#   - java.desktop: Spring bean introspection (java.beans.Introspector).
+#   - java.instrument: AspectJ / Spring proxying support.
+#   - java.net.http, jdk.net: referenced by the reactive HTTP stack.
+#   - java.compiler, java.scripting, java.prefs, jdk.unsupported: routine Spring/Reactor runtime needs.
+#   - jdk.jfr, jdk.management: BootUI/Micrometer-style JVM introspection hooks in bootui-engine.
+# Plus two cheap, defensive additions absent from jdeps' static analysis (dynamic/reflective lookups it
+# cannot see), mirroring the same caveats in the root Dockerfile: jdk.charsets (non-default charset
+# decoding) and jdk.zipfs (nested-jar resource access via the zip filesystem provider).
+RUN "$JAVA_HOME/bin/jlink" \
+      --add-modules java.base,java.compiler,java.desktop,java.instrument,java.net.http,java.prefs,java.scripting,java.sql.rowset,jdk.charsets,jdk.jfr,jdk.management,jdk.net,jdk.unsupported,jdk.zipfs \
+      --strip-debug --no-man-pages --no-header-files --compress=zip-6 \
+      --output /javaruntime
+
+# An empty, non-root-owned state directory copied into the runtime image so BootUI can write its
+# runtime state (e.g. dismissed-rule/config-override files under /app/.bootui, unused by the console
+# today but kept for parity with the other images) even though the distroless base has no shell to
+# `mkdir`/`chown` at build time. uid:gid 65532 is the distroless "nonroot" user the final stage runs as.
+RUN mkdir -p /runtime-state/.bootui && chown -R 65532:65532 /runtime-state
+
+# ---------------------------------------------------------------------------
+# Runtime stage: Google's "distroless" glibc base. It ships glibc and a CA bundle but no shell, package
+# manager, curl, perl or tar, which removes the bulk of the OS-package CVEs an Alpine/Debian base
+# otherwise carries. The jlink runtime above is glibc-linked to match it, and the :nonroot tag runs as
+# an unprivileged user (uid 65532).
+# ---------------------------------------------------------------------------
+FROM gcr.io/distroless/base-debian12:nonroot
+
+# Custom Java runtime assembled by jlink above.
+ENV JAVA_HOME=/opt/java
+ENV PATH="$JAVA_HOME/bin:$PATH"
+COPY --from=build /javaruntime $JAVA_HOME
+
+WORKDIR /app
+
+# Bring in the non-root-owned state directory first so /app and /app/.bootui are owned by the runtime
+# user (uid 65532): the distroless base has no shell to chown it afterwards.
+COPY --from=build --chown=65532:65532 /runtime-state/ ./
+
+# Copy the exploded application layers, ordered least- to most-frequently changing so Docker's layer
+# cache is reused across rebuilds. COPY --chown sets ownership inline, avoiding a `RUN chown -R` layer
+# (impossible here anyway: the distroless base has no shell) that would otherwise duplicate every
+# copied file.
+COPY --from=build --chown=65532:65532 /app/extracted/dependencies/ ./
+COPY --from=build --chown=65532:65532 /app/extracted/spring-boot-loader/ ./
+COPY --from=build --chown=65532:65532 /app/extracted/snapshot-dependencies/ ./
+COPY --from=build --chown=65532:65532 /app/extracted/application/ ./
+
+USER nonroot
+
+# Unlike the servlet sample app, the console needs no active Spring profile: it is not gated by
+# BootUiActivationCondition (see BootUiActivityConsoleApplication's Javadoc) and its BootUI console is
+# always on. Spring Boot's reactive (Netty) server already binds all interfaces by default when
+# server.address is unset, exactly like the servlet sample app, so no extra env var is needed here.
+
+# JVM tuning flags for a small, predictable container footprint, passed via JAVA_TOOL_OPTIONS (the
+# distroless base has no shell, so there is no `sh -c` to word-split a JAVA_OPTS variable; the JVM reads
+# JAVA_TOOL_OPTIONS itself and handles the spaces). Heap, metaspace, code cache, direct memory and
+# thread stacks are bounded explicitly (instead of -XX:MaxRAMPercentage); G1 with string deduplication
+# and compact object headers (promoted to a product feature in JDK 25) keeps the footprint down, and
+# the JVM fails fast with a heap dump on OutOfMemoryError. --enable-native-access=ALL-UNNAMED silences a
+# benign JDK warning Reactor Netty triggers on startup (its native transport probes
+# System::loadLibrary) — cosmetic only, but the servlet sample app's Tomcat stack never triggers it, so
+# it is specific to this WebFlux/Netty image. Override the whole set at runtime with
+# -e JAVA_TOOL_OPTIONS="...".
+ENV JAVA_TOOL_OPTIONS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp --enable-native-access=ALL-UNNAMED"
+
+EXPOSE 8079
+
+# No Docker HEALTHCHECK: the distroless base has no shell, wget or curl to run a probe, and this image
+# has no Actuator on its classpath (unlike the servlet sample app). Probe the BootUI panel manifest
+# (GET /bootui/api/panels) or the SPA shell (GET /bootui/) from your orchestrator's liveness/readiness
+# checks instead — the same technique Dockerfile-quarkus uses for the same reason.
+
+# Launch the exploded application via the Spring Boot JarLauncher, in exec form so `java` is PID 1 (and
+# still receives SIGTERM from `docker stop` for Spring Boot's graceful shutdown). An absolute path is
+# used because the distroless base has no shell to resolve $PATH. JVM flags come from
+# JAVA_TOOL_OPTIONS above.
+ENTRYPOINT ["/opt/java/bin/java", "org.springframework.boot.loader.launch.JarLauncher"]

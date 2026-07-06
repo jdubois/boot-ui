@@ -247,6 +247,13 @@ change stream (`GET /bootui/api/activity/stream`) pushes a coalesced tick to the
 appended batch, exactly like the SSE stream described above, so several senders' activity appears live without
 polling. See [docs/PROPERTIES.md](PROPERTIES.md) for the full property list.
 
+A ready-to-use container image is available too: `Dockerfile-activity-console` at the repository root builds a
+distroless JVM image of the console the same way the sample apps' own Dockerfiles do (layered-jar extraction, a
+jlink-trimmed runtime, a nonroot distroless base), sized for this module's WebFlux/R2DBC stack rather than the
+servlet sample app's Tomcat/JDBC one. `docker build -f Dockerfile-activity-console -t bootui-activity-console .`
+followed by `docker run --rm -p 8079:8079 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-activity-console` starts it
+Docker-free on the same zero-config in-memory H2 default described above.
+
 Because every entry arrives already flattened into the shared wire DTO, the console's per-request profiler is
 honestly reduced compared to a host application's own: it shows every correlated entry across instances (nested by
 trace id, tagged with which instance produced it), but the richer per-type detail a host application shows alongside
