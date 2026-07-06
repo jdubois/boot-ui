@@ -76,8 +76,8 @@ runs this app with the BootUI console, **Docker-free** (in-memory H2 — no Post
 
 ```bash
 docker build -f Dockerfile-quarkus -t bootui-sample-app-quarkus .
-docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
-# then open http://localhost:8080/bootui
+docker run --rm -p 8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
+# then open http://localhost:8082/bootui
 ```
 
 This is the **only** image flavor for Quarkus — deliberately no AOT, GraalVM native, or CRaC variants
@@ -86,13 +86,14 @@ applicable* on Quarkus). Because BootUI activates only outside production launch
 app in **source-based dev mode** (`quarkus:dev`), which is why it needs a full JDK base and is larger
 than the Spring sample's distroless image. `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` lets
 the host browser reach BootUI through Docker's bridge gateway while the Host allow-list and CSRF defenses stay
-in force.
+in force. The image keeps this app's own dev port, 8082 (matching `quarkus.http.port` in
+`application.properties`), so the port is identical whether you run it from source or via Docker.
 
 The sample Flyway/Liquibase migrations are off by default for a faster boot (Hibernate still creates the demo
 tables). Re-enable them to populate the Flyway/Liquibase panels:
 
 ```bash
-docker run --rm -p 8080:8080 \
+docker run --rm -p 8082:8082 \
   -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
   -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
   bootui-sample-app-quarkus

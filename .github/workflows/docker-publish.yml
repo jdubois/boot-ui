@@ -207,6 +207,9 @@ jobs:
             health_timeout: '120'
             ready_url: /actuator/health
             ready_match: '"status":"UP"'
+            # 8080 for every "classic" Spring Boot flavor (servlet/AOT/native/CRaC) - they are all
+            # the same app under the hood, so they share one port.
+            port: '8080'
           - image: bootui-sample-app-aot
             dockerfile: Dockerfile-aot
             # JVM + Spring AOT + JDK 25 AOT cache: no special privileges; starts
@@ -217,6 +220,7 @@ jobs:
             health_timeout: '120'
             ready_url: /actuator/health
             ready_match: '"status":"UP"'
+            port: '8080'
           - image: bootui-sample-app-crac
             dockerfile: Dockerfile-crac
             # CRaC needs CRIU privileges and a checkpoint volume (see docker-compose-crac.yml).
@@ -225,6 +229,7 @@ jobs:
             health_timeout: '240'
             ready_url: /actuator/health
             ready_match: '"status":"UP"'
+            port: '8080'
           - image: bootui-sample-app-native
             dockerfile: Dockerfile-native
             # GraalVM native image: no special privileges; starts in well under a second.
@@ -232,6 +237,7 @@ jobs:
             health_timeout: '120'
             ready_url: /actuator/health
             ready_match: '"status":"UP"'
+            port: '8080'
           - image: bootui-sample-app-webflux
             dockerfile: Dockerfile-webflux
             # Spring WebFlux/Netty reactive image: no special privileges; ready within a few
@@ -241,6 +247,8 @@ jobs:
             health_timeout: '120'
             ready_url: /actuator/health
             ready_match: '"status":"UP"'
+            # 8081, matching the WebFlux sample app's own local Maven dev port (server.port=8081).
+            port: '8081'
           - image: bootui-sample-app-quarkus
             dockerfile: Dockerfile-quarkus
             # Quarkus JVM image launched in dev mode (BootUI activates only outside the
@@ -251,6 +259,8 @@ jobs:
             health_timeout: '180'
             ready_url: /bootui/api/panels
             ready_match: '"platform"'
+            # 8082, matching the Quarkus sample app's own local dev port (quarkus.http.port=8082).
+            port: '8082'
     steps:
       - name: Resolve image name and platform tag
         run: |
@@ -304,6 +314,7 @@ jobs:
           HEALTH_TIMEOUT: ${{ matrix.health_timeout }}
           READY_URL: ${{ matrix.ready_url }}
           READY_MATCH: ${{ matrix.ready_match }}
+          PORT: ${{ matrix.port }}
         run: |
           set -euo pipefail
 
@@ -311,14 +322,17 @@ jobs:
           # BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO lets BootUI trust the Docker bridge
           # gateway so probes from the runner over the published port are not rejected
           # by LocalhostOnlyFilter (which otherwise fails closed for non-loopback callers).
+          # The port is matrix-driven (port): 8080 for the classic Spring Boot images
+          # (servlet/AOT/native/CRaC), 8081 for WebFlux, 8082 for Quarkus - each image's own
+          # default port, identical to its local Maven dev run.
           started_at=$(date +%s)
           docker run -d --name bootui-smoke \
-            -p 127.0.0.1:8080:8080 \
+            -p "127.0.0.1:${PORT}:${PORT}" \
             -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
             $RUN_ARGS \
             "$IMAGE_REF"
 
-          base_url='http://127.0.0.1:8080'
+          base_url="http://127.0.0.1:${PORT}"
 
           # 1. App is up: poll the readiness URL until it responds as expected. The URL
           # and the expected substring are matrix-driven (ready_url / ready_match): the
@@ -371,6 +385,7 @@ jobs:
           IMAGE_REF: ${{ env.REGISTRY_IMAGE }}:smoke-${{ env.PLATFORM_PAIR }}
           RUN_ARGS: ${{ matrix.run_args }}
           HEALTH_TIMEOUT: ${{ matrix.health_timeout }}
+          PORT: ${{ matrix.port }}
         run: |
           set -euo pipefail
 
@@ -378,12 +393,12 @@ jobs:
           echo "Stopping the first CRaC container (keeping the checkpoint volume)..."
           docker rm -f bootui-smoke
 
-          base_url='http://127.0.0.1:8080'
+          base_url="http://127.0.0.1:${PORT}"
 
           # Start again from the same image and checkpoint volume (restore-only path).
           started_at=$(date +%s)
           docker run -d --name bootui-smoke-restore \
-            -p 127.0.0.1:8080:8080 \
+            -p "127.0.0.1:${PORT}:${PORT}" \
             -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
             $RUN_ARGS \
             "$IMAGE_REF"

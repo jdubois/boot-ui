@@ -238,10 +238,11 @@ relying on unit tests against a shared multi-stack test classpath alone.
 - Run it: see the "WebFlux (reactive) smoke suite" section of `bootui-spring-sample-app/e2e/README.md`.
 - **`Dockerfile-webflux`** (repository root) is the reactive analogue of the plain servlet `Dockerfile`: the same
   exploded-jar-layers + jlink + distroless-glibc recipe, pointed at `bootui-spring-webflux-sample-app` instead of
-  `bootui-spring-sample-app`, with the sample app's own `server.port=8081` default overridden back to `8080` in the
-  container so it is a drop-in match for every other BootUI sample image. There is deliberately no AOT/CRaC/native
-  variant for WebFlux — see the Dockerfile's own header comment. `.github/workflows/docker-publish.yml` builds,
-  smoke-tests (`/actuator/health`, `/bootui/api/panels`, `/bootui/`) and publishes it daily to Docker Hub as
+  `bootui-spring-sample-app`, keeping the sample app's own `server.port=8081` default in the container too — the same
+  port locally and in Docker, matching the one-dedicated-port-per-sample-app-family scheme (servlet/AOT/native/CRaC
+  share 8080, WebFlux is 8081, Quarkus is 8082). There is deliberately no AOT/CRaC/native variant for WebFlux — see the
+  Dockerfile's own header comment. `.github/workflows/docker-publish.yml` builds, smoke-tests (`/actuator/health`,
+  `/bootui/api/panels`, `/bootui/`) against port 8081 for this image and publishes it daily to Docker Hub as
   `jdubois/bootui-sample-app-webflux`, alongside the other five images.
 
 ## 9. Operational note: profile activation

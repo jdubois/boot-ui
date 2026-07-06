@@ -38,20 +38,22 @@
 # baked in below), so it starts Docker-free on an in-memory H2 database with BootUI enabled.
 #
 # The sample app's own default (server.port=8081, chosen so it can run alongside the servlet sample
-# app on 8080 and the Quarkus sample app on 8082 during local development) is overridden back to
-# 8080 in the container (SERVER_PORT=8080, baked in below), so this image is a drop-in match for
-# every other BootUI sample image and the Docker publishing workflow's smoke test.
+# app on 8080 and the Quarkus sample app on 8082 during local development) is kept as-is in the
+# container (SERVER_PORT=8081, baked in below): each BootUI sample-app family gets one dedicated port
+# shared by its local Maven dev run and its Docker image alike (servlet/AOT/native/CRaC=8080,
+# WebFlux=8081, Quarkus=8082), and the Docker publishing workflow's smoke test targets the matching
+# port per image.
 #
 # For a faster startup, the sample database migrations are disabled by default
 # (SPRING_FLYWAY_ENABLED=false / SPRING_LIQUIBASE_ENABLED=false, baked in below).
 #
 # Build and run:
 #   docker build -f Dockerfile-webflux -t bootui-sample-app-webflux .
-#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-webflux
-#   # then open http://localhost:8080/bootui
+#   docker run --rm -p 8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-webflux
+#   # then open http://localhost:8081/bootui
 #
 # Enable the sample database migrations (to populate the BootUI Flyway/Liquibase panels):
-#   docker run --rm -p 8080:8080 \
+#   docker run --rm -p 8081:8081 \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
 #     bootui-sample-app-webflux
@@ -164,10 +166,10 @@ USER nonroot
 ENV SPRING_PROFILES_ACTIVE=dev
 
 # The sample app's own default (application.properties) is server.port=8081, chosen so it can run
-# alongside the servlet (8080) and Quarkus (8082) sample apps locally at the same time. Standardize
-# on 8080 in the container so this image is a drop-in match for every other BootUI sample image and
-# the Docker publishing workflow's smoke test (which always targets 8080).
-ENV SERVER_PORT=8080
+# alongside the servlet (8080) and Quarkus (8082) sample apps locally at the same time. Keep 8081 in
+# the container too, so the WebFlux image uses the same port locally and in Docker; the Docker
+# publishing workflow's smoke test targets 8081 for this image specifically.
+ENV SERVER_PORT=8081
 
 # Disable the sample Flyway/Liquibase migrations by default for a faster startup. Re-enable them at
 # runtime with -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true to populate the
@@ -184,7 +186,7 @@ ENV SPRING_LIQUIBASE_ENABLED=false
 # at runtime with -e JAVA_TOOL_OPTIONS="...".
 ENV JAVA_TOOL_OPTIONS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
 
-EXPOSE 8080
+EXPOSE 8081
 
 # No Docker HEALTHCHECK: the distroless base has no shell, wget or curl to run a probe. Probe the web
 # server (or /actuator/health) from your orchestrator's liveness/readiness checks instead.
