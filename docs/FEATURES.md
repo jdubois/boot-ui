@@ -350,14 +350,15 @@ each one inspects.
 The Spring panel runs an explicit, read-only scan of the host application's running Spring application context and
 `Environment`. It takes a bounded snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s,
 `DataSource`s) and feature flags, then evaluates a curated ruleset across bean wiring, configuration hygiene, profiles and
-environment, performance and concurrency (including virtual threads), web/HTTP settings, data and persistence, and
-Actuator/management exposure.
+environment, performance and concurrency (including virtual threads), web/HTTP settings, data and persistence,
+Actuator/management exposure, and reactive (WebFlux-only) checks.
 Because it runs inside the
 already-started application, it focuses on "started but suboptimal" states rather than fatal startup conditions. It
 complements the Architecture panel, which statically analyzes compiled bytecode with ArchUnit, by inspecting the live,
 wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the context,
-intercepts live traffic, or surfaces secrets. See [SPRING-CHECKS.md](SPRING-CHECKS.md) for the full rule
-catalogue and remediation links.
+intercepts live traffic, or surfaces secrets. The ruleset detects whether the host is running the servlet (Spring MVC) or
+reactive (Spring WebFlux) stack and adjusts a handful of rules accordingly — see [SPRING-CHECKS.md](SPRING-CHECKS.md) for
+the full rule catalogue and remediation links.
 
 This is a single framework-application advisor that is **relabelled per framework**: it appears as **Spring** on the
 Spring Boot adapter and as **Quarkus** on the Quarkus adapter — the same menu slot, the same `/bootui/api/spring`

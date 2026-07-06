@@ -93,8 +93,16 @@ controllers were already framework-neutral in practice, not just in the engine u
 
 Overview · GitHub · Beans · Conditions · Configuration · Mappings · Health · Loggers · Startup Timeline · Spring Data ·
 Hibernate · Flyway · Liquibase · Database Connection Pools · Cache · Dev Services · Vulnerabilities · Scheduled Tasks ·
-HTTP Probe · Pentesting · Heap Dump · Architecture · REST API advisor · Profile Diff · Spring advisor · Live Memory ·
-JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory.
+HTTP Probe · Pentesting · Heap Dump · Architecture · REST API advisor · Profile Diff · Spring advisor[^spring-advisor-reactive] ·
+Live Memory · JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory.
+
+[^spring-advisor-reactive]: The `SpringController` wiring itself needed no adapter change, but the ruleset it runs
+    (`SpringScanner`/`SpringRules`) is reactive-aware internally: it detects a WebFlux `ReactiveWebApplicationContext`
+    the same way `PanelsController.isReactive()` does, skips a servlet-only rule that does not apply
+    (`SPRING-WEB-007`, Tomcat thread cap), also matches `WebClient` beans for the HTTP-client-timeout rule
+    (`SPRING-WEB-005`), points four rules' "Learn more" links at the reactive docs page instead of the servlet one,
+    and adds two WebFlux-only rules (`SPRING-REACTIVE-001`, `SPRING-REACTIVE-002`) that are otherwise `SKIPPED`. See
+    `docs/SPRING-CHECKS.md`.
 
 ### 6.2 Adapted with a small new binding (1 panel)
 

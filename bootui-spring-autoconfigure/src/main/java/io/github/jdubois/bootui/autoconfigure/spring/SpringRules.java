@@ -653,8 +653,9 @@ final class VirtualThreadsAvailableRule extends AbstractSpringRule {
                 SpringCategory.PERFORMANCE,
                 "INFO",
                 "The JVM supports virtual threads (Java 21+) but spring.threads.virtual.enabled is not"
-                        + " set. Blocking, request-per-thread workloads can often scale further on virtual"
-                        + " threads — an opportunity to evaluate, not a defect.",
+                        + " set. Blocking workloads — request-per-thread web handlers, and blocking @Async /"
+                        + " @Scheduled work on either the servlet or WebFlux stack — can often scale further on"
+                        + " virtual threads. An opportunity to evaluate, not a defect.",
                 "Consider spring.threads.virtual.enabled=true after verifying that blocking code paths do"
                         + " not hold synchronized monitors that would pin carrier threads.",
                 "https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html"));
@@ -666,6 +667,12 @@ final class VirtualThreadsAvailableRule extends AbstractSpringRule {
             return skipped("This JVM does not support virtual threads (requires Java 21+).");
         }
         if (!context.isVirtualThreadsEnabled()) {
+            if (context.reactive()) {
+                return violation("Virtual threads are supported but spring.threads.virtual.enabled is not true."
+                        + " On WebFlux this only benefits blocking work still offloaded to a thread pool (@Async,"
+                        + " @Scheduled, or Schedulers.boundedElastic()-backed calls) — the reactive HTTP path"
+                        + " itself already runs non-blocking on Reactor Netty's event loop and is unaffected.");
+            }
             return violation("Virtual threads are supported but spring.threads.virtual.enabled is not true.");
         }
         return pass();
@@ -910,6 +917,9 @@ final class InMemoryCacheManagerRule extends AbstractSpringRule {
 
 final class ResponseCompressionDisabledRule extends AbstractSpringRule {
 
+    private static final String REACTIVE_LEARN_MORE_URL =
+            "https://docs.spring.io/spring-boot/reference/web/reactive.html";
+
     ResponseCompressionDisabledRule() {
         super(new SpringRuleDefinition(
                 "SPRING-WEB-001",
@@ -926,10 +936,12 @@ final class ResponseCompressionDisabledRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.isPropertyTrue("server.compression.enabled")) {
-            return violation("server.compression.enabled is not true, so responses are sent uncompressed.");
-        }
-        return pass();
+        SpringRuleResultDto result = !context.isPropertyTrue("server.compression.enabled")
+                ? violation("server.compression.enabled is not true, so responses are sent uncompressed.")
+                : pass();
+        // server.compression.* is shared config, but the reference page it is documented on differs per
+        // adapter; keep the link accurate to whichever stack is actually running.
+        return context.reactive() ? result.withLearnMoreUrl(REACTIVE_LEARN_MORE_URL) : result;
     }
 }
 
@@ -969,6 +981,9 @@ final class GracefulShutdownDisabledRule extends AbstractSpringRule {
 
 final class Http2DisabledRule extends AbstractSpringRule {
 
+    private static final String REACTIVE_LEARN_MORE_URL =
+            "https://docs.spring.io/spring-boot/reference/web/reactive.html";
+
     Http2DisabledRule() {
         super(new SpringRuleDefinition(
                 "SPRING-WEB-003",
@@ -986,10 +1001,10 @@ final class Http2DisabledRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.isPropertyTrue("server.http2.enabled")) {
-            return violation("server.http2.enabled is not true; HTTP/2 multiplexing is unavailable.");
-        }
-        return pass();
+        SpringRuleResultDto result = !context.isPropertyTrue("server.http2.enabled")
+                ? violation("server.http2.enabled is not true; HTTP/2 multiplexing is unavailable.")
+                : pass();
+        return context.reactive() ? result.withLearnMoreUrl(REACTIVE_LEARN_MORE_URL) : result;
     }
 }
 
@@ -997,6 +1012,9 @@ final class ErrorDetailsExposedRule extends AbstractSpringRule {
 
     private static final List<String> ERROR_DETAIL_KEYS =
             List.of("include-stacktrace", "include-message", "include-binding-errors", "include-exception");
+
+    private static final String REACTIVE_LEARN_MORE_URL =
+            "https://docs.spring.io/spring-boot/reference/web/reactive.html";
 
     ErrorDetailsExposedRule() {
         super(new SpringRuleDefinition(
@@ -1033,7 +1051,8 @@ final class ErrorDetailsExposedRule extends AbstractSpringRule {
                 findings.add("error " + key + " is set to 'always', exposing details to every client.");
             }
         }
-        return violation(findings);
+        SpringRuleResultDto result = violation(findings);
+        return context.reactive() ? result.withLearnMoreUrl(REACTIVE_LEARN_MORE_URL) : result;
     }
 }
 
@@ -1045,9 +1064,10 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
                 "Set HTTP client timeouts",
                 SpringCategory.WEB,
                 "INFO",
-                "A RestClient or RestTemplate bean is defined but no global HTTP client timeouts are set"
-                        + " (spring.http.clients.connect-timeout / read-timeout), so a slow or unresponsive"
-                        + " dependency can block threads indefinitely.",
+                "A RestClient, WebClient, or RestTemplate bean is defined but no global HTTP client timeouts"
+                        + " are set (spring.http.clients.connect-timeout / read-timeout — the same property"
+                        + " namespace configures both imperative clients and the reactive WebClient in Spring"
+                        + " Boot 4), so a slow or unresponsive dependency can block indefinitely.",
                 "Set spring.http.clients.connect-timeout and spring.http.clients.read-timeout (or configure"
                         + " timeouts per client) so outbound calls fail fast.",
                 "https://docs.spring.io/spring-boot/reference/io/rest-client.html"));
@@ -1055,8 +1075,9 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
-        boolean clientPresent =
-                context.restClientBeanPresent() || !context.restTemplates().isEmpty();
+        boolean clientPresent = context.restClientBeanPresent()
+                || context.webClientBeanPresent()
+                || !context.restTemplates().isEmpty();
         if (!clientPresent) {
             return pass();
         }
@@ -1077,6 +1098,9 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
 
 final class ForwardHeadersStrategyUnsetRule extends AbstractSpringRule {
 
+    private static final String REACTIVE_LEARN_MORE_URL =
+            "https://docs.spring.io/spring-boot/reference/web/reactive.html";
+
     ForwardHeadersStrategyUnsetRule() {
         super(new SpringRuleDefinition(
                 "SPRING-WEB-006",
@@ -1093,10 +1117,11 @@ final class ForwardHeadersStrategyUnsetRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.isProductionProfileActive() && !context.hasProperty("server.forward-headers-strategy")) {
-            return violation("A production-like profile is active but server.forward-headers-strategy is not set.");
-        }
-        return pass();
+        SpringRuleResultDto result = context.isProductionProfileActive()
+                        && !context.hasProperty("server.forward-headers-strategy")
+                ? violation("A production-like profile is active but server.forward-headers-strategy is" + " not set.")
+                : pass();
+        return context.reactive() ? result.withLearnMoreUrl(REACTIVE_LEARN_MORE_URL) : result;
     }
 }
 
@@ -1118,6 +1143,11 @@ final class RedundantTomcatThreadsRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
+        if (context.reactive()) {
+            // WebFlux uses Reactor Netty's event-loop group, not a Tomcat servlet thread pool, so
+            // server.tomcat.threads.max has no effect on this application at all.
+            return skipped("This is a WebFlux application; server.tomcat.threads.max does not apply.");
+        }
         if (context.isVirtualThreadsEnabled() && context.hasProperty("server.tomcat.threads.max")) {
             return violation("Virtual threads are enabled but server.tomcat.threads.max is set, which can cap"
                     + " request concurrency unnecessarily.");
@@ -1414,5 +1444,83 @@ final class MutableSingletonFieldRule extends AbstractSpringRule {
         }
         return violation("Found " + fields.size() + " public mutable field(s) on singleton bean(s): "
                 + String.join(", ", fields) + ".");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reactive (WebFlux only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Modeled after the Quarkus advisor's QA-RX-001 ("reactive endpoints with a blocking JDBC datasource"),
+ * but deliberately coarser: Quarkus can key off an explicit {@code @Blocking}/{@code @Transactional}
+ * marker's absence on a reactive-returning method, a structural signal ArC exposes at the bean level.
+ * WebFlux has no equivalent per-method marker - whether a blocking call inside a reactive chain is
+ * correctly offloaded (for example with {@code Schedulers.boundedElastic()}) is determined by the method
+ * body, which this reflection-only scanner cannot see. So this rule stays app-level and INFO-severity: a
+ * prompt to double-check, not a per-endpoint finding.
+ */
+final class ReactiveHandlerWithBlockingDatasourceRule extends AbstractSpringRule {
+
+    ReactiveHandlerWithBlockingDatasourceRule() {
+        super(new SpringRuleDefinition(
+                "SPRING-REACTIVE-001",
+                "Reactive endpoints alongside a blocking JDBC datasource",
+                SpringCategory.REACTIVE,
+                "INFO",
+                "This is a WebFlux application with Mono/Flux-returning handler methods, and a blocking JDBC"
+                        + " DataSource is also configured. WebFlux runs on a small, fixed Reactor Netty event-loop"
+                        + " group; a blocking JDBC call made directly inside a reactive chain (instead of offloaded"
+                        + " to a bounded scheduler) stalls that event loop and can starve every other in-flight"
+                        + " request. This check cannot see inside method bodies, so it cannot tell whether"
+                        + " offloading is already done correctly — treat it as a prompt to verify, not a finding.",
+                "Offload blocking database calls, for example with"
+                        + " Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic()), or migrate to a"
+                        + " reactive driver such as R2DBC; verify this per endpoint.",
+                "https://docs.spring.io/spring-framework/reference/web/webflux/reactive-spring.html"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        if (!context.reactive()) {
+            return skipped("This is not a WebFlux application.");
+        }
+        if (context.reactiveHandlerMethodCount() == 0 || context.dataSources().isEmpty()) {
+            return pass();
+        }
+        return violation(context.reactiveHandlerMethodCount() + " reactive (Mono/Flux) handler method(s) found"
+                + " alongside " + context.dataSources().size() + " blocking JDBC DataSource bean(s); verify"
+                + " blocking calls are offloaded to a bounded scheduler rather than invoked directly on the"
+                + " event loop.");
+    }
+}
+
+final class CodecMaxInMemorySizeUnsetRule extends AbstractSpringRule {
+
+    CodecMaxInMemorySizeUnsetRule() {
+        super(new SpringRuleDefinition(
+                "SPRING-REACTIVE-002",
+                "Set a WebFlux codec in-memory buffer limit",
+                SpringCategory.REACTIVE,
+                "LOW",
+                "This is a WebFlux application and spring.codec.max-in-memory-size is not set, so request and"
+                        + " response body encoding/decoding falls back to the default 256KB in-memory buffer"
+                        + " limit. A request or response body larger than that throws DataBufferLimitException.",
+                "If the application sends or receives payloads larger than 256KB (large JSON bodies, file"
+                        + " uploads, multipart forms), set spring.codec.max-in-memory-size explicitly rather than"
+                        + " relying on the low default.",
+                "https://docs.spring.io/spring-boot/reference/web/reactive.html"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        if (!context.reactive()) {
+            return skipped("This is not a WebFlux application.");
+        }
+        if (!context.hasProperty("spring.codec.max-in-memory-size")) {
+            return violation("spring.codec.max-in-memory-size is not set; codecs fall back to the default"
+                    + " 256KB in-memory buffer limit.");
+        }
+        return pass();
     }
 }

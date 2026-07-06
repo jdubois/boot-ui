@@ -57,4 +57,24 @@ public record SpringRuleResultDto(
                 learnMoreUrl,
                 dismissed);
     }
+
+    /**
+     * Returns a copy pointing at a different "learn more" link. Used for the handful of rules whose
+     * underlying Spring Boot documentation page differs between the servlet and reactive (WebFlux)
+     * adapters even though the rule and its property key are shared.
+     */
+    public SpringRuleResultDto withLearnMoreUrl(String learnMoreUrl) {
+        return new SpringRuleResultDto(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed);
+    }
 }

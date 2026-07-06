@@ -11,7 +11,8 @@ enum SpringCategory {
     PERFORMANCE("Performance and concurrency"),
     WEB("Web and HTTP"),
     PERSISTENCE("Data and persistence"),
-    MANAGEMENT("Actuator and management");
+    MANAGEMENT("Actuator and management"),
+    REACTIVE("Reactive");
 
     private final String label;
 
