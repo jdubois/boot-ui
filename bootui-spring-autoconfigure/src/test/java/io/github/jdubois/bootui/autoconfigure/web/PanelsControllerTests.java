@@ -120,6 +120,8 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_PROBE) + ".available")
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.VULNERABILITIES) + ".available")
+                            .value(true))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.ACTIVITY) + ".available")
                             .value(true));
         }
     }
@@ -348,8 +350,9 @@ class PanelsControllerTests {
         // (reactive) ApplicationContext - the same shared PanelsController that BootUiReactiveAutoConfiguration
         // imports unmodified must detect it and (a) report the reactive platform discriminator and (b) mark the
         // panels that have no faithful reactive equivalent (HTTP Sessions) or are not yet ported (Spring
-        // Security advisor, MCP Server, Live Activity) as unavailable with a WebFlux-specific reason, instead
-        // of relying on incidental classpath presence.
+        // Security advisor, MCP Server) as unavailable with a WebFlux-specific reason, instead
+        // of relying on incidental classpath presence. Live Activity is ported reactively (it merges
+        // signals already captured by other reactive/shared controllers), so it stays available here too.
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             context.refresh();
             PanelsController controller =
@@ -374,9 +377,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.MCP_SERVER) + ".unavailableReason")
                             .value(startsWith("Not yet ported for Spring WebFlux")))
                     .andExpect(jsonPath(panelPath(BootUiPanels.ACTIVITY) + ".available")
-                            .value(false))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.ACTIVITY) + ".unavailableReason")
-                            .value(startsWith("Not yet ported for Spring WebFlux")));
+                            .value(true));
         }
     }
 
@@ -384,7 +385,7 @@ class PanelsControllerTests {
     void securityAdvisorStaysUnavailableUnderWebFluxEvenWithReactiveSpringSecurityConfigured() throws Exception {
         // The SECURITY advisor panel (distinct from the SPRING_SECURITY raw-config panel) is NOT in
         // BootUiReactiveAutoConfiguration's @Import list, so it must never report available:true on a
-        // reactive app - unlike SPRING_SECURITY/HTTP_SESSIONS/MCP_SERVER/ACTIVITY, its availability check
+        // reactive app - unlike SPRING_SECURITY/HTTP_SESSIONS/MCP_SERVER, its availability check
         // (securityAvailable()) has no explicit !isReactive() guard; it instead relies on
         // org.springframework.security.web.FilterChainProxy (the servlet security filter bean, extends
         // GenericFilterBean) and org.springframework.security.web.server.WebFilterChainProxy (the reactive

@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SpringSeverityCountDto;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -19,8 +20,11 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.env.Environment;
+import org.springframework.stereotype.Controller;
 import org.springframework.util.ClassUtils;
+import org.springframework.web.bind.annotation.RequestMapping;
 
 /**
  * Bounded, on-demand Spring Advisor.
@@ -54,6 +58,17 @@ final class SpringScanner {
     private static final String CACHE_MANAGER_TYPE = "org.springframework.cache.CacheManager";
     private static final String ENTITY_MANAGER_FACTORY_TYPE = "jakarta.persistence.EntityManagerFactory";
     private static final String DISPATCHER_SERVLET_TYPE = "org.springframework.web.servlet.DispatcherServlet";
+    private static final String WEB_CLIENT_TYPE = "org.springframework.web.reactive.function.client.WebClient";
+
+    // Matched by string type name (via ClassUtils.isPresent/forName), never a direct import: reactor-core
+    // is pulled in only by the optional spring-boot-starter-webflux dependency, so a servlet-only consumer
+    // never has these classes on its classpath. A direct import of reactor.core.publisher.Mono/Flux
+    // anywhere in this always-loaded scanner would risk a NoClassDefFoundError on that consumer the first
+    // time the class is verified - the same optional-dependency classloading trap documented for
+    // jakarta.persistence/Flyway/Liquibase elsewhere in BootUI.
+    private static final String MONO_TYPE = "reactor.core.publisher.Mono";
+
+    private static final String FLUX_TYPE = "reactor.core.publisher.Flux";
     private static final String ASYNC_PROCESSOR_BEAN =
             "org.springframework.context.annotation.internalAsyncAnnotationProcessor";
     private static final String CACHE_ADVISOR_BEAN = "org.springframework.cache.config.internalCacheAdvisor";
@@ -66,6 +81,9 @@ final class SpringScanner {
 
     /** Hard cap on the number of mutable-singleton-field findings collected, to keep the scan bounded. */
     private static final int MAX_MUTABLE_SINGLETON_FIELDS = 50;
+
+    /** Hard cap on the number of reactive (Mono/Flux) handler methods counted, to keep the scan bounded. */
+    private static final int MAX_REACTIVE_HANDLER_METHODS = 50;
 
     /**
      * Field-level annotations that mark a legitimate injection point rather than loose shared state.
@@ -92,8 +110,8 @@ final class SpringScanner {
     private final Supplier<SpringContext> contextSupplier;
     private final Clock clock;
 
-    SpringScanner(ConfigurableListableBeanFactory beanFactory, Environment environment, Clock clock) {
-        this(() -> discover(beanFactory, environment), clock);
+    SpringScanner(ConfigurableListableBeanFactory beanFactory, Environment environment, boolean reactive, Clock clock) {
+        this(() -> discover(beanFactory, environment, reactive), clock);
     }
 
     SpringScanner(SpringContext context, Clock clock) {
@@ -258,7 +276,8 @@ final class SpringScanner {
 
     // ── Discovery ──────────────────────────────────────────────────────────────
 
-    private static SpringContext discover(ConfigurableListableBeanFactory beanFactory, Environment environment) {
+    private static SpringContext discover(
+            ConfigurableListableBeanFactory beanFactory, Environment environment, boolean reactive) {
         ClassLoader classLoader = SpringScanner.class.getClassLoader();
         List<BeanRef> objectMappers = unionBeans(
                 beansOfType(beanFactory, OBJECT_MAPPER_TYPE, classLoader),
@@ -290,6 +309,9 @@ final class SpringScanner {
                 .isEmpty();
         boolean dispatcherServletPresent =
                 !beansOfType(beanFactory, DISPATCHER_SERVLET_TYPE, classLoader).isEmpty();
+        boolean webClientBeanPresent =
+                !beansOfType(beanFactory, WEB_CLIENT_TYPE, classLoader).isEmpty();
+        int reactiveHandlerMethodCount = reactiveHandlerMethodCount(beanFactory, classLoader);
         List<String> defaultPackageBeans = defaultPackageBeans(beanFactory);
         List<String> mutableSingletonFields = mutableSingletonFields(beanFactory);
 
@@ -313,6 +335,9 @@ final class SpringScanner {
                 .schedulingEnabled(schedulingEnabled)
                 .entityManagerFactoryPresent(entityManagerFactoryPresent)
                 .dispatcherServletPresent(dispatcherServletPresent)
+                .reactive(reactive)
+                .webClientBeanPresent(webClientBeanPresent)
+                .reactiveHandlerMethodCount(reactiveHandlerMethodCount)
                 .defaultPackageBeans(defaultPackageBeans)
                 .mutableSingletonFields(mutableSingletonFields)
                 .build();
@@ -462,6 +487,74 @@ final class SpringScanner {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Counts public {@code @Controller}/{@code @RestController} handler methods (matched by
+     * {@code @RequestMapping} or one of its shortcut meta-annotations) whose return type is
+     * {@code Mono} or {@code Flux}. Used to detect WebFlux reactive endpoints without depending on
+     * bytecode/AST analysis: a live-bean reflection scan, consistent with the rest of this scanner.
+     *
+     * <p>Returns {@code 0} immediately when neither Reactor type is on the classpath, since no method
+     * could declare that return type in the first place - this also means the (possibly expensive)
+     * per-controller reflection below never runs on a plain servlet application.</p>
+     */
+    private static int reactiveHandlerMethodCount(
+            ConfigurableListableBeanFactory beanFactory, ClassLoader classLoader) {
+        if (beanFactory == null) {
+            return 0;
+        }
+        Class<?> monoType = presentType(MONO_TYPE, classLoader);
+        Class<?> fluxType = presentType(FLUX_TYPE, classLoader);
+        if (monoType == null && fluxType == null) {
+            return 0;
+        }
+        String[] names;
+        try {
+            names = beanFactory.getBeanNamesForAnnotation(Controller.class);
+        } catch (RuntimeException | LinkageError ex) {
+            return 0;
+        }
+        int count = 0;
+        for (String name : names) {
+            if (count >= MAX_REACTIVE_HANDLER_METHODS) {
+                break;
+            }
+            try {
+                Class<?> type = beanFactory.getType(name, false);
+                if (type == null) {
+                    continue;
+                }
+                for (Method method : type.getMethods()) {
+                    if (count >= MAX_REACTIVE_HANDLER_METHODS) {
+                        break;
+                    }
+                    if (!AnnotatedElementUtils.hasAnnotation(method, RequestMapping.class)) {
+                        continue;
+                    }
+                    Class<?> returnType = method.getReturnType();
+                    if ((monoType != null && monoType.isAssignableFrom(returnType))
+                            || (fluxType != null && fluxType.isAssignableFrom(returnType))) {
+                        count++;
+                    }
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                // Ignore beans whose type/methods cannot be inspected.
+            }
+        }
+        return count;
+    }
+
+    /** Resolves a class by name, returning {@code null} rather than throwing when it isn't present. */
+    private static Class<?> presentType(String typeName, ClassLoader classLoader) {
+        if (!ClassUtils.isPresent(typeName, classLoader)) {
+            return null;
+        }
+        try {
+            return ClassUtils.forName(typeName, classLoader);
+        } catch (ClassNotFoundException | LinkageError ex) {
+            return null;
+        }
     }
 
     private static List<BeanRef> beansOfType(

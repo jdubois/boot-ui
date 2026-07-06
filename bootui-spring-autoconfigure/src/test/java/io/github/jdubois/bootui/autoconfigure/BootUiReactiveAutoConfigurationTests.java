@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.startsWith;
 
@@ -40,9 +41,11 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.webflux.actuate.web.exchanges.HttpExchangesWebFilter;
 import org.springframework.boot.webflux.autoconfigure.HttpHandlerAutoConfiguration;
@@ -89,6 +92,30 @@ class BootUiReactiveAutoConfigurationTests {
     void activatesOnEnabledProfile() {
         runner.withPropertyValues("spring.profiles.active=dev")
                 .run(context -> assertThat(context).hasSingleBean(BootUiReactiveAutoConfiguration.class));
+    }
+
+    @Test
+    void registersStartupBannerListener() {
+        // Reactive twin of BootUiAutoConfiguration's own "BootUI is available at ..." banner: proves
+        // BootUiReactiveAutoConfiguration no longer silently omits it (the bug this test guards against).
+        runner.withPropertyValues("bootui.enabled=ON")
+                .run(context -> assertThat(context).hasBean("bootUiStartupBanner"));
+    }
+
+    @Test
+    void startupBannerListenerRunsWithoutClassLoadingErrors() {
+        // Regression test: registersStartupBannerListener above only proves the bean exists - it never
+        // fires the listener, so it did not catch a real bug where the lambda threw
+        // NoClassDefFoundError: jakarta/servlet/Filter at runtime. That happened because the lambda used
+        // to call BootUiAutoConfiguration.buildStartupUrl(...) directly; merely referencing that servlet
+        // class forced the JVM to load and verify it, which resolves the jakarta.servlet.Filter-typed
+        // signatures of its other @Bean methods (e.g. FilterRegistrationBean<...>) - not present on a
+        // pure WebFlux classpath. Actually publishing the event exercises the listener body for real.
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            ApplicationReadyEvent event =
+                    new ApplicationReadyEvent(new SpringApplication(), new String[0], context, Duration.ZERO);
+            assertThatCode(() -> context.publishEvent(event)).doesNotThrowAnyException();
+        });
     }
 
     @Test
@@ -557,10 +584,11 @@ class BootUiReactiveAutoConfigurationTests {
         // unmodified PanelsController correctly self-detects a genuine reactive ApplicationContext and
         // (a) reports the "spring-boot-reactive" platform discriminator and (b) marks the panels with no
         // faithful reactive equivalent (HTTP Sessions), or not yet ported (Spring Security advisor, MCP
-        // Server, Live Activity - neither of the latter two is wired into this autoconfiguration, see its
-        // class Javadoc), as unavailable with a WebFlux-specific reason - complementing
-        // PanelsControllerTests' unit-level coverage of the same behavior with an end-to-end HTTP round
-        // trip through the real reactive autoconfiguration stack.
+        // Server - neither is wired into this autoconfiguration, see its class Javadoc), as unavailable
+        // with a WebFlux-specific reason - complementing PanelsControllerTests' unit-level coverage of the
+        // same behavior with an end-to-end HTTP round trip through the real reactive autoconfiguration
+        // stack. Live Activity IS wired into this autoconfiguration (ReactiveLiveActivityController), so it
+        // must report available here too.
         webFluxRunner()
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
@@ -588,9 +616,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.MCP_SERVER + "')].unavailableReason")
                             .value(contains(startsWith("Not yet ported for Spring WebFlux")))
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.ACTIVITY + "')].available")
-                            .isEqualTo(false)
-                            .jsonPath("$.panels[?(@.id=='" + BootUiPanels.ACTIVITY + "')].unavailableReason")
-                            .value(contains(startsWith("Not yet ported for Spring WebFlux")));
+                            .isEqualTo(true);
                 });
     }
 

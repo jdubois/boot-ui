@@ -16,11 +16,11 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies the reduced, trace-id-only per-request profile the Quarkus adapter serves at
- * {@code GET /bootui/api/activity/request/{id}}: a request with a resolvable trace id gathers every
- * SQL/exception/security signal sharing that exact trace id (never a time-window or thread heuristic, unlike
- * Spring); a request with no trace id, or one that is ambiguous (shared by another captured request), never
- * fabricates a correlation.
+ * Verifies the reduced, trace-id-only per-request profile that adapters with no thread-per-request identity
+ * (Quarkus, Spring WebFlux) serve at {@code GET /bootui/api/activity/request/{id}}: a request with a
+ * resolvable trace id gathers every SQL/exception/security signal sharing that exact trace id (never a
+ * time-window or thread heuristic, unlike Spring MVC's profiler); a request with no trace id, or one that is
+ * ambiguous (shared by another captured request), never fabricates a correlation.
  */
 class RequestProfileAssemblerTests {
 
@@ -44,7 +44,7 @@ class RequestProfileAssemblerTests {
 
         assertThat(profile.available()).isFalse();
         assertThat(profile.unavailableReason()).contains("No distributed trace id was captured");
-        assertThat(profile.unavailableReason()).contains("quarkus-opentelemetry");
+        assertThat(profile.unavailableReason()).contains("resolvable trace id");
     }
 
     @Test

@@ -34,6 +34,9 @@ record SpringContext(
         boolean schedulingEnabled,
         boolean entityManagerFactoryPresent,
         boolean dispatcherServletPresent,
+        boolean reactive,
+        boolean webClientBeanPresent,
+        int reactiveHandlerMethodCount,
         List<String> defaultPackageBeans,
         List<String> mutableSingletonFields) {
 
@@ -191,6 +194,9 @@ record SpringContext(
         private boolean schedulingEnabled;
         private boolean entityManagerFactoryPresent;
         private boolean dispatcherServletPresent;
+        private boolean reactive;
+        private boolean webClientBeanPresent;
+        private int reactiveHandlerMethodCount;
         private List<String> defaultPackageBeans = List.of();
         private List<String> mutableSingletonFields = List.of();
 
@@ -293,6 +299,26 @@ record SpringContext(
             return this;
         }
 
+        /**
+         * True when the running {@code ApplicationContext} is a {@code ReactiveWebApplicationContext}
+         * (the WebFlux adapter), set by the actual context type rather than a classpath heuristic -
+         * mirrors {@code PanelsController.isReactive()}.
+         */
+        Builder reactive(boolean value) {
+            this.reactive = value;
+            return this;
+        }
+
+        Builder webClientBeanPresent(boolean value) {
+            this.webClientBeanPresent = value;
+            return this;
+        }
+
+        Builder reactiveHandlerMethodCount(int value) {
+            this.reactiveHandlerMethodCount = value;
+            return this;
+        }
+
         Builder defaultPackageBeans(List<String> value) {
             this.defaultPackageBeans = value;
             return this;
@@ -325,6 +351,9 @@ record SpringContext(
                     schedulingEnabled,
                     entityManagerFactoryPresent,
                     dispatcherServletPresent,
+                    reactive,
+                    webClientBeanPresent,
+                    reactiveHandlerMethodCount,
                     defaultPackageBeans,
                     mutableSingletonFields);
         }

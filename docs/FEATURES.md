@@ -191,10 +191,26 @@ on Quarkus once persistence is switched on. The runtime "Use the existing dataso
 identically on Quarkus: the same engine-level `ActivitySwitchService` backs a thin JAX-RS mirror of Spring's endpoint,
 so the tip, button, and confirmation flow behave the same regardless of adapter.
 
-Live Activity is **not yet ported for Spring Boot WebFlux**: it aggregates the servlet-only
-`ServletRequestHandledEvent` signal, which has no reactive equivalent wired here yet. The panel reports unavailable
-with a reason explaining the gap; see [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the planned follow-up (a
-`WebFilter`-based capture source mirroring the Quarkus adapter's approach above).
+On Spring Boot WebFlux the panel is available too, and — like Quarkus — needed no new *capture* pipeline: HTTP
+requests, SQL trace, exceptions, and security events are each already captured reactively (see their own sections
+below), so the WebFlux port is purely a merge over those existing sources. Correlation is **trace-id only** here too,
+and for the same reason as Quarkus: Reactor Netty has no thread-per-request model to correlate by (a request isn't
+served start-to-finish on one dedicated worker thread), so the servlet adapter's thread-based/time-window
+correlation tiers do not apply. It is narrower than on Quarkus, though: the HTTP exchange capture shared with the
+servlet adapter does not stamp the active tracing span's id at capture time the way Quarkus's Vert.x filter does, so
+a request only carries a trace id when the inbound call itself propagates one (for example a `traceparent` header
+from an upstream caller), not merely because `micrometer-tracing`/OTLP is configured server-side; SQL, exception, and
+security trace ids fall back to the same SLF4J MDC value the servlet adapter already uses, whose propagation across
+Reactor's event-loop→worker-thread hop for blocking calls is best-effort rather than guaranteed. When a shared trace
+id is present on both sides, matching signals nest under the request exactly as on Quarkus; without one, every
+signal still appears in the feed, just flat/top-level rather than nested per-request. The per-request **profiler**
+drawer is available too, in the same reduced, trace-id-only form as Quarkus: it correlates by exact trace id when
+the request has one, and honestly reports itself unavailable rather than fabricating a partial profile when it does
+not. N+1 detection, its row badge, and call-site capture are computed by the same shared engine code as every other
+adapter, so a WebFlux request that resolves a trace-id correlation gets byte-identical flagging to Spring MVC and
+Quarkus. The optional durable persistence backend and the "Use the existing datasource" hot-switch described above
+work identically on WebFlux too, over the same shared engine machinery. See
+[docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full detail.
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
@@ -334,14 +350,15 @@ each one inspects.
 The Spring panel runs an explicit, read-only scan of the host application's running Spring application context and
 `Environment`. It takes a bounded snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s,
 `DataSource`s) and feature flags, then evaluates a curated ruleset across bean wiring, configuration hygiene, profiles and
-environment, performance and concurrency (including virtual threads), web/HTTP settings, data and persistence, and
-Actuator/management exposure.
+environment, performance and concurrency (including virtual threads), web/HTTP settings, data and persistence,
+Actuator/management exposure, and reactive (WebFlux-only) checks.
 Because it runs inside the
 already-started application, it focuses on "started but suboptimal" states rather than fatal startup conditions. It
 complements the Architecture panel, which statically analyzes compiled bytecode with ArchUnit, by inspecting the live,
 wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the context,
-intercepts live traffic, or surfaces secrets. See [SPRING-CHECKS.md](SPRING-CHECKS.md) for the full rule
-catalogue and remediation links.
+intercepts live traffic, or surfaces secrets. The ruleset detects whether the host is running the servlet (Spring MVC) or
+reactive (Spring WebFlux) stack and adjusts a handful of rules accordingly — see [SPRING-CHECKS.md](SPRING-CHECKS.md) for
+the full rule catalogue and remediation links.
 
 This is a single framework-application advisor that is **relabelled per framework**: it appears as **Spring** on the
 Spring Boot adapter and as **Quarkus** on the Quarkus adapter — the same menu slot, the same `/bootui/api/spring`

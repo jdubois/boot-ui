@@ -494,6 +494,23 @@ class SpringRulesTests {
                 .isEqualTo("PASS");
     }
 
+    @Test
+    void httpClientTimeoutsAlsoDetectWebClientBean() {
+        HttpClientTimeoutsUnsetRule rule = new HttpClientTimeoutsUnsetRule();
+
+        // A WebClient bean alone (no RestTemplate/RestClient) is enough to trigger the check: the same
+        // spring.http.clients.* namespace configures the reactive client too in Spring Boot 4.
+        assertThat(rule.evaluate(context(env()).webClientBeanPresent(true).build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.http.clients.connect-timeout", "2s")
+                                        .withProperty("spring.http.clients.read-timeout", "5s"))
+                                .webClientBeanPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
     // ── SPRING-WEB-006 ───────────────────────────────────────────────────────────
 
     @Test
@@ -527,6 +544,20 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void tomcatThreadCapSkippedOnReactiveApplications() {
+        RedundantTomcatThreadsRule rule = new RedundantTomcatThreadsRule();
+
+        // WebFlux has no Tomcat servlet thread pool at all, so the rule is inapplicable regardless of
+        // virtual threads / server.tomcat.threads.max.
+        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true")
+                                        .withProperty("server.tomcat.threads.max", "200"))
+                                .reactive(true)
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
     }
 
     // ── SPRING-MGMT-001 ──────────────────────────────────────────────────────────
@@ -784,5 +815,148 @@ class SpringRulesTests {
         MockEnvironment noUrl = env();
         noUrl.setActiveProfiles("prod");
         assertThat(rule.evaluate(context(noUrl).build()).status()).isEqualTo("PASS");
+    }
+
+    // ── SPRING-PERF-001: reactive-aware violation message ─────────────────────────
+
+    @Test
+    void virtualThreadsAvailableSkippedWithoutJvmSupport() {
+        VirtualThreadsAvailableRule rule = new VirtualThreadsAvailableRule();
+
+        assertThat(rule.evaluate(context(env()).virtualThreadsSupported(false).build())
+                        .status())
+                .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void virtualThreadsAvailablePassesWhenEnabled() {
+        VirtualThreadsAvailableRule rule = new VirtualThreadsAvailableRule();
+
+        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
+                                .virtualThreadsSupported(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void virtualThreadsAvailableMentionsEventLoopOnlyWhenReactive() {
+        VirtualThreadsAvailableRule rule = new VirtualThreadsAvailableRule();
+
+        SpringRuleResultDto servletResult =
+                rule.evaluate(context(env()).virtualThreadsSupported(true).build());
+        assertThat(servletResult.status()).isEqualTo("VIOLATION");
+        assertThat(servletResult.sampleViolations().get(0)).doesNotContain("WebFlux");
+
+        SpringRuleResultDto reactiveResult = rule.evaluate(
+                context(env()).virtualThreadsSupported(true).reactive(true).build());
+        assertThat(reactiveResult.status()).isEqualTo("VIOLATION");
+        assertThat(reactiveResult.sampleViolations().get(0)).contains("WebFlux");
+    }
+
+    // ── Reactive-only "learn more" links stay accurate per adapter ────────────────
+
+    @Test
+    void learnMoreUrlSwitchesToReactiveDocsOnWebFlux() {
+        String servletDocs = "https://docs.spring.io/spring-boot/reference/web/servlet.html";
+        String reactiveDocs = "https://docs.spring.io/spring-boot/reference/web/reactive.html";
+
+        assertThat(new ResponseCompressionDisabledRule()
+                        .evaluate(context(env()).build())
+                        .learnMoreUrl())
+                .isEqualTo(servletDocs);
+        assertThat(new ResponseCompressionDisabledRule()
+                        .evaluate(context(env()).reactive(true).build())
+                        .learnMoreUrl())
+                .isEqualTo(reactiveDocs);
+
+        assertThat(new Http2DisabledRule().evaluate(context(env()).build()).learnMoreUrl())
+                .isEqualTo(servletDocs);
+        assertThat(new Http2DisabledRule()
+                        .evaluate(context(env()).reactive(true).build())
+                        .learnMoreUrl())
+                .isEqualTo(reactiveDocs);
+
+        assertThat(new ErrorDetailsExposedRule()
+                        .evaluate(context(env()).build())
+                        .learnMoreUrl())
+                .isEqualTo(servletDocs);
+        assertThat(new ErrorDetailsExposedRule()
+                        .evaluate(context(env()).reactive(true).build())
+                        .learnMoreUrl())
+                .isEqualTo(reactiveDocs);
+
+        assertThat(new ForwardHeadersStrategyUnsetRule()
+                        .evaluate(context(env()).build())
+                        .learnMoreUrl())
+                .isEqualTo(servletDocs);
+        assertThat(new ForwardHeadersStrategyUnsetRule()
+                        .evaluate(context(env()).reactive(true).build())
+                        .learnMoreUrl())
+                .isEqualTo(reactiveDocs);
+    }
+
+    // ── SPRING-REACTIVE-001: reactive handlers alongside a blocking datasource ────
+
+    @Test
+    void reactiveHandlerWithBlockingDatasourceSkippedWhenNotReactive() {
+        ReactiveHandlerWithBlockingDatasourceRule rule = new ReactiveHandlerWithBlockingDatasourceRule();
+
+        assertThat(rule.evaluate(context(env())
+                                .reactiveHandlerMethodCount(3)
+                                .dataSources(List.of(new BeanRef("dataSource", false)))
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void reactiveHandlerWithBlockingDatasourceFlaggedOnlyWhenBothPresent() {
+        ReactiveHandlerWithBlockingDatasourceRule rule = new ReactiveHandlerWithBlockingDatasourceRule();
+
+        // Reactive, but no Mono/Flux handler methods discovered -> nothing to warn about.
+        assertThat(rule.evaluate(context(env())
+                                .reactive(true)
+                                .dataSources(List.of(new BeanRef("dataSource", false)))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        // Reactive handlers present, but no blocking JDBC DataSource -> nothing to warn about.
+        assertThat(rule.evaluate(context(env())
+                                .reactive(true)
+                                .reactiveHandlerMethodCount(3)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        // Both present -> flag it for manual verification.
+        assertThat(rule.evaluate(context(env())
+                                .reactive(true)
+                                .reactiveHandlerMethodCount(3)
+                                .dataSources(List.of(new BeanRef("dataSource", false)))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+    }
+
+    // ── SPRING-REACTIVE-002: codec in-memory buffer limit ─────────────────────────
+
+    @Test
+    void codecMaxInMemorySizeSkippedWhenNotReactive() {
+        CodecMaxInMemorySizeUnsetRule rule = new CodecMaxInMemorySizeUnsetRule();
+
+        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void codecMaxInMemorySizeFlaggedOnlyWhenUnsetOnWebFlux() {
+        CodecMaxInMemorySizeUnsetRule rule = new CodecMaxInMemorySizeUnsetRule();
+
+        assertThat(rule.evaluate(context(env()).reactive(true).build()).status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.codec.max-in-memory-size", "1MB"))
+                                .reactive(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
     }
 }

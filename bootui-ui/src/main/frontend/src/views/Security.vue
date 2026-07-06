@@ -5,6 +5,7 @@ import {panelProps} from '../utils/panelState.js'
 import AdvisorSummary from './components/AdvisorSummary.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
+import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
 const panels = inject('panels', ref(null))
@@ -33,7 +34,7 @@ const panel = useAdvisorPanel(props, {
       <template #actions>
         <SpinnerButton
           :loading="panel.loading"
-          :disabled="panel.loading || panel.readOnly"
+          :disabled="panel.loading || panel.readOnly || !panel.manifestAvailable"
           class="btn btn-primary"
           type="button"
           label="Run security checks"
@@ -44,7 +45,13 @@ const panel = useAdvisorPanel(props, {
     </PanelHeader>
     <div v-if="panel.actionMessage" class="alert alert-warning">{{ panel.actionMessage }}</div>
 
-    <template v-if="panel.report">
+    <UnavailableState
+      v-if="!panel.manifestAvailable"
+      icon="bi-shield-check"
+      :message="panel.manifestUnavailableReason"
+    />
+
+    <template v-else-if="panel.report">
       <AdvisorSummary
         :score="panel.score"
         :dismissed-count="panel.dismissedResults.length"

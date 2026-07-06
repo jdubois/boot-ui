@@ -15,12 +15,12 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies the trace-id correlation the Quarkus adapter relies on: when the captured signals share a
- * distributed-trace id, the assembler nests the SQL/exception/security entries under the owning REQUEST
- * entry by setting their {@code parentId} (a uniquely-matched security event additionally stamps
- * {@code securedPrincipal} on that request); when no shared trace id is present (OpenTelemetry absent) the
- * feed stays flat; and an ambiguous trace id shared by more than one request never nests a child under the
- * wrong one nor stamps a principal.
+ * Verifies the trace-id correlation both Quarkus and Spring WebFlux rely on for Live Activity: when the
+ * captured signals share a distributed-trace id, the assembler nests the SQL/exception/security entries under
+ * the owning REQUEST entry by setting their {@code parentId} (a uniquely-matched security event additionally
+ * stamps {@code securedPrincipal} on that request); when no shared trace id is present the feed stays flat;
+ * and an ambiguous trace id shared by more than one request never nests a child under the wrong one nor
+ * stamps a principal.
  */
 class LiveActivityAssemblerTests {
 

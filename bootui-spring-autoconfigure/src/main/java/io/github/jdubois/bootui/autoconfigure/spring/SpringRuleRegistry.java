@@ -52,7 +52,10 @@ final class SpringRuleRegistry {
             new ActuatorExposeAllRule(),
             new SensitiveActuatorEndpointsExposedRule(),
             new ActuatorShowValuesAlwaysRule(),
-            new DangerousActuatorEndpointsAccessibleRule());
+            new DangerousActuatorEndpointsAccessibleRule(),
+            // Reactive (WebFlux only)
+            new ReactiveHandlerWithBlockingDatasourceRule(),
+            new CodecMaxInMemorySizeUnsetRule());
 
     private SpringRuleRegistry() {}
 

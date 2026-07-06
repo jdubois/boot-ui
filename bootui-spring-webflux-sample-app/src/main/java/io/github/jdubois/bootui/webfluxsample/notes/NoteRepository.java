@@ -38,4 +38,19 @@ public class NoteRepository {
             return Optional.empty();
         }
     }
+
+    /**
+     * Counts every note after a short artificial delay, used by the "pool stress" sample action to
+     * briefly hold a JDBC connection under concurrent load so the Database Connection Pools panel has
+     * something to show.
+     */
+    public int countWithDelay(long delayMillis) {
+        try {
+            Thread.sleep(delayMillis);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        Integer count = jdbcTemplate.queryForObject("select count(*) from sample_note", Integer.class);
+        return count == null ? 0 : count;
+    }
 }

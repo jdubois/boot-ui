@@ -6,6 +6,8 @@ Because the advisor runs inside the *started* application, it focuses on "starte
 
 This advisor is complementary to the **Architecture** panel: Architecture statically analyzes compiled bytecode with ArchUnit, whereas the Spring Advisor inspects the live, wired runtime context.
 
+The same ruleset runs on both the servlet (Spring MVC) and reactive (Spring WebFlux) adapters; the advisor detects which one is running (the same reactive-context check the panel-availability code uses) and adjusts a handful of rules accordingly: SPRING-WEB-007 does not apply to WebFlux at all (no Tomcat thread pool exists to cap), SPRING-WEB-005 also treats a `WebClient` bean as an HTTP client needing timeouts, SPRING-PERF-001's virtual-threads guidance is worded for whichever stack is running, and four rules (SPRING-WEB-001, -003, -004, -006) link their "Learn more" reference at the reactive web docs instead of the servlet ones when running on WebFlux. Two additional rules, SPRING-REACTIVE-001 and SPRING-REACTIVE-002, only evaluate (are not `SKIPPED`) on a WebFlux application; see the [Reactive](#reactive-webflux-only) section.
+
 ## Availability and bounds
 
 The panel is always available (a Spring application context always exists). Beans or properties that cannot be read are skipped gracefully and reported rather than failing the panel. The Rule results panel lists only checks that found findings, ordered by severity, finding count, and rule id.
@@ -150,7 +152,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-PERF-001 - Consider enabling virtual threads
 
 - **Severity**: INFO
-- **Detects**: The JVM supports virtual threads (Java 21+) but spring.threads.virtual.enabled is not set. Blocking, request-per-thread workloads can often scale further on virtual threads - an opportunity to evaluate, not a defect.
+- **Detects**: The JVM supports virtual threads (Java 21+) but spring.threads.virtual.enabled is not set. Blocking workloads - request-per-thread web handlers, and blocking @Async/@Scheduled work on either the servlet or WebFlux stack - can often scale further on virtual threads - an opportunity to evaluate, not a defect. On a WebFlux application, the finding message clarifies that the benefit applies only to blocking work still offloaded to a thread pool (@Async, @Scheduled, or `Schedulers.boundedElastic()`), since the reactive HTTP path itself already runs non-blocking on Reactor Netty's event loop.
 - **Recommendation**: Consider spring.threads.virtual.enabled=true after verifying that blocking code paths do not hold synchronized monitors that would pin carrier threads.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
@@ -229,7 +231,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WEB-005 - Set HTTP client timeouts
 
 - **Severity**: INFO
-- **Detects**: A RestClient or RestTemplate bean is defined but one or both global HTTP client timeouts are unset (spring.http.clients.connect-timeout / read-timeout), so a slow or unresponsive dependency can block threads indefinitely.
+- **Detects**: A RestClient, WebClient, or RestTemplate bean is defined but one or both global HTTP client timeouts are unset (spring.http.clients.connect-timeout / read-timeout - the same property namespace configures both imperative clients and the reactive WebClient in Spring Boot 4), so a slow or unresponsive dependency can block indefinitely.
 - **Recommendation**: Set spring.http.clients.connect-timeout and spring.http.clients.read-timeout (or configure timeouts per client) so outbound calls fail fast.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/io/rest-client.html>
 
@@ -243,7 +245,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WEB-007 - Tomcat thread cap is redundant with virtual threads
 
 - **Severity**: LOW
-- **Detects**: Virtual threads are enabled but server.tomcat.threads.max is set explicitly. With virtual threads handling requests, a small platform-thread cap can needlessly limit concurrency, while a large one has little effect.
+- **Detects**: Virtual threads are enabled but server.tomcat.threads.max is set explicitly. With virtual threads handling requests, a small platform-thread cap can needlessly limit concurrency, while a large one has little effect. On a WebFlux application this rule is always `SKIPPED`: WebFlux runs on Reactor Netty's event-loop group, not a Tomcat servlet thread pool, so server.tomcat.threads.max has no effect there at all.
 - **Recommendation**: Remove server.tomcat.threads.max when running on virtual threads, or confirm the cap is a deliberate back-pressure limit.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
@@ -293,11 +295,29 @@ The panel is always available (a Spring application context always exists). Bean
 - **Recommendation**: Keep shutdown disabled (its default access is 'none') and never web-expose it; exclude heapdump from the web exposure list or restrict it to an authenticated, firewalled management port.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html>
 
+## Reactive (WebFlux only)
+
+Both rules in this category are `SKIPPED` unconditionally on a servlet (Spring MVC) application; they only evaluate when the advisor detects a WebFlux `ReactiveWebApplicationContext`.
+
+### SPRING-REACTIVE-001 - Reactive endpoints alongside a blocking JDBC datasource
+
+- **Severity**: INFO
+- **Detects**: This is a WebFlux application with Mono/Flux-returning handler methods, and a blocking JDBC DataSource is also configured. WebFlux runs on a small, fixed Reactor Netty event-loop group; a blocking JDBC call made directly inside a reactive chain (instead of offloaded to a bounded scheduler) stalls that event loop and can starve every other in-flight request. Modeled after the Quarkus advisor's QA-RX-001, but deliberately coarser: this reflection-only scanner cannot see inside a handler method's body, so it cannot tell whether offloading is already done correctly. It is an app-level prompt to verify, not a per-endpoint finding.
+- **Recommendation**: Offload blocking database calls, for example with `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`, or migrate to a reactive driver such as R2DBC; verify this per endpoint.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webflux/reactive-spring.html>
+
+### SPRING-REACTIVE-002 - Set a WebFlux codec in-memory buffer limit
+
+- **Severity**: LOW
+- **Detects**: This is a WebFlux application and spring.codec.max-in-memory-size is not set, so request and response body encoding/decoding falls back to the default 256KB in-memory buffer limit. A request or response body larger than that throws DataBufferLimitException.
+- **Recommendation**: If the application sends or receives payloads larger than 256KB (large JSON bodies, file uploads, multipart forms), set spring.codec.max-in-memory-size explicitly rather than relying on the low default.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/reactive.html>
+
 ---
 
 ## Rule summary
 
-The Spring Advisor ships **37 curated rules** across seven categories. By declared default severity: **0 CRITICAL**, **1 HIGH**, **19 MEDIUM**, **9 LOW**, **8 INFO**. Context-aware rules can raise SPRING-JPA-001, SPRING-MGMT-001, and SPRING-MGMT-002 to HIGH, and SPRING-MGMT-004 to CRITICAL; SPRING-CONFIG-002 can raise from LOW to MEDIUM.
+The Spring Advisor ships **39 curated rules** across eight categories. By declared default severity: **0 CRITICAL**, **1 HIGH**, **19 MEDIUM**, **10 LOW**, **9 INFO**. Context-aware rules can raise SPRING-JPA-001, SPRING-MGMT-001, and SPRING-MGMT-002 to HIGH, and SPRING-MGMT-004 to CRITICAL; SPRING-CONFIG-002 can raise from LOW to MEDIUM.
 
 | Category | Rules |
 | --- | --- |
@@ -308,3 +328,4 @@ The Spring Advisor ships **37 curated rules** across seven categories. By declar
 | Web and HTTP | SPRING-WEB-001 ... SPRING-WEB-007 |
 | Data and persistence | SPRING-JPA-001, SPRING-DATA-001 |
 | Actuator and management | SPRING-MGMT-001 ... SPRING-MGMT-004 |
+| Reactive (WebFlux only) | SPRING-REACTIVE-001, SPRING-REACTIVE-002 |

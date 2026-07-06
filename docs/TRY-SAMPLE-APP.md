@@ -5,6 +5,11 @@ JDK are required — only a Docker-compatible engine.
 
 Prerequisites: a running Docker engine (Docker Desktop, Docker Engine, Podman, etc.).
 
+Each BootUI sample-app flavor listens on one fixed port, identical whether it's run via Docker or from source with
+Maven: **8080** for the classic Spring Boot images below (plain JVM, AOT, GraalVM native, and CRaC — all the same
+servlet app, just packaged differently), **8081** for [WebFlux](#bootui-on-spring-webflux), and **8082** for
+[Quarkus](#bootui-on-quarkus).
+
 ```bash
 docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app
 ```
@@ -84,16 +89,46 @@ the warmed-up JVM in tens of milliseconds. Delete the volume (`docker volume rm 
 checkpoint. See the ["Run it with CRaC"](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md)
 section of the sample app README for details.
 
+## BootUI on Spring WebFlux
+
+BootUI also ships a reactive (Netty) adapter, and its dedicated WebFlux sample app is published as a separate image. It
+serves the **same** Vue console at `/bootui`, backed by the reactive build of the BootUI engine:
+
+```bash
+docker run --rm -p 8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-webflux
+```
+
+Then open <http://localhost:8081/bootui> from a browser on the same machine.
+
+Like the plain JVM image it is **Docker-free** (in-memory H2, disabled by default Flyway/Liquibase migrations) and
+honors `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO`. There is a **single** WebFlux flavor — no AOT, GraalVM native, or CRaC
+variant: the reactive sample app exists to exercise the BootUI reactive adapter's panel surface, not to demo every JVM
+startup technique twice.
+
+Populate the Flyway and Liquibase panels with the sample migrations (disabled by default for a faster boot):
+
+```bash
+docker run --rm -p 8081:8081 \
+  -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+  -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
+  jdubois/bootui-sample-app-webflux
+```
+
+The large majority of panels work identically to the servlet image. **HTTP Sessions** stays not applicable (WebFlux has
+no `HttpSession`), and the **Security advisor**, the raw **Spring Security** panel, and **MCP Server** are not yet
+ported to the reactive stack — each reports its reason in the sidebar and the panel's own alert banner. See
+[WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full current status.
+
 ## BootUI on Quarkus
 
 BootUI also ships as a Quarkus extension, and its Quarkus sample app is published as a separate image. It serves the
 **same** Vue console at `/bootui`, backed by the Quarkus build of the BootUI engine:
 
 ```bash
-docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-quarkus
+docker run --rm -p 8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-quarkus
 ```
 
-Then open <http://localhost:8080/bootui> from a browser on the same machine.
+Then open <http://localhost:8082/bootui> from a browser on the same machine.
 
 Like the Spring image it is **Docker-free** (in-memory H2 — no PostgreSQL Dev Service container) and honors
 `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO`. There is a **single** Quarkus flavor — no AOT, GraalVM native, or CRaC variants:
@@ -104,7 +139,7 @@ larger than the Spring images.
 Populate the Flyway and Liquibase panels with the sample migrations (disabled by default for a faster boot):
 
 ```bash
-docker run --rm -p 8080:8080 \
+docker run --rm -p 8082:8082 \
   -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
   -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
   jdubois/bootui-sample-app-quarkus

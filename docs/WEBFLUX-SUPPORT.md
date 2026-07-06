@@ -10,15 +10,15 @@ reactive analog genuinely exists, and an honest "not yet ported" / "not applicab
 ## 2. Current status
 
 The WebFlux adapter serves the large majority of the panel surface — the same 47-panel manifest the servlet adapter
-reports, minus the five panels that stay unavailable for stack reasons described below. **Every action-capable panel
+reports, minus the four panels that stay unavailable for stack reasons described below. **Every action-capable panel
 that is available behaves identically to the servlet adapter**, behind the same shared `LocalhostGuard` write floor:
 Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Heap Dump
 (capture/analyze/delete/download), Threads (download), Traces (clear), SQL Trace (toggle recording/clear), the
 advisor scans (Architecture, Spring, Hibernate, Pentesting, REST API, Memory, Vulnerabilities/OSV), and Exceptions
 triage.
 
-Only **HTTP Sessions**, the **Security advisor**, the raw **Spring Security** panel, **MCP Server**, and **Live
-Activity** stay unavailable, each with a panel-specific reason surfaced through the `/bootui/api/panels` manifest (and,
+Only **HTTP Sessions**, the **Security advisor**, the raw **Spring Security** panel, and **MCP Server** stay
+unavailable, each with a panel-specific reason surfaced through the `/bootui/api/panels` manifest (and,
 in turn, the sidebar tooltip and the panel's own alert banner — see §5). `docs/FEATURES.md` and the per-panel
 `unavailableReason` strings in `PanelsController` are the authoritative, current detail.
 
@@ -76,7 +76,7 @@ both, so exactly one of the two autoconfigurations activates.
   bean bulk-imported unmodified by both autoconfigurations — detects the running context type
   (`applicationContext instanceof ReactiveWebApplicationContext`) and reports `platform:
   "spring-boot-reactive"` in `/bootui/api/panels`, plus per-panel `available`/`unavailableReason` computed for the
-  five panels that diverge (§6). The Vue UI already reads this manifest via `inject('panels')` and renders the
+  four panels that diverge (§6). The Vue UI already reads this manifest via `inject('panels')` and renders the
   `unavailableReason` in both the sidebar tooltip and the panel's own alert banner — no `.vue` file needed to change.
 
 ## 6. Panel disposition
@@ -93,8 +93,16 @@ controllers were already framework-neutral in practice, not just in the engine u
 
 Overview · GitHub · Beans · Conditions · Configuration · Mappings · Health · Loggers · Startup Timeline · Spring Data ·
 Hibernate · Flyway · Liquibase · Database Connection Pools · Cache · Dev Services · Vulnerabilities · Scheduled Tasks ·
-HTTP Probe · Pentesting · Heap Dump · Architecture · REST API advisor · Profile Diff · Spring advisor · Live Memory ·
-JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory.
+HTTP Probe · Pentesting · Heap Dump · Architecture · REST API advisor · Profile Diff · Spring advisor[^spring-advisor-reactive] ·
+Live Memory · JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory.
+
+[^spring-advisor-reactive]: The `SpringController` wiring itself needed no adapter change, but the ruleset it runs
+    (`SpringScanner`/`SpringRules`) is reactive-aware internally: it detects a WebFlux `ReactiveWebApplicationContext`
+    the same way `PanelsController.isReactive()` does, skips a servlet-only rule that does not apply
+    (`SPRING-WEB-007`, Tomcat thread cap), also matches `WebClient` beans for the HTTP-client-timeout rule
+    (`SPRING-WEB-005`), points four rules' "Learn more" links at the reactive docs page instead of the servlet one,
+    and adds two WebFlux-only rules (`SPRING-REACTIVE-001`, `SPRING-REACTIVE-002`) that are otherwise `SKIPPED`. See
+    `docs/SPRING-CHECKS.md`.
 
 ### 6.2 Adapted with a small new binding (1 panel)
 
@@ -128,13 +136,47 @@ where `BootUiExceptionHandlerResolver` runs at `HIGHEST_PRECEDENCE` in the same 
 uses. An application-level `@ExceptionHandler` will suppress BootUI's capture on WebFlux where it would not on
 servlet. Unhandled exceptions (the common case) are captured identically on both stacks.
 
-### 6.4 Not yet ported (3 panels)
+### 6.4 Rebuilt as a merge over already-reactive signals (1 panel)
+
+Live Activity needed no new *capture* pipeline: HTTP Exchanges, SQL Trace, Exceptions, and Security Logs are already
+captured reactively by the panels in §6.2/§6.3. The servlet adapter's `LiveActivityController` additionally depends
+on two things with no reactive equivalent: a `ServletRequestHandledEvent` listener, which exists purely as an
+SSE-refresh trigger (not a data source), and a thread-based `LiveActivityCorrelator` that stitches a request to its
+downstream SQL/exception activity via serving-thread identity — meaningless on Reactor Netty, where a request is
+not served start-to-finish on one dedicated worker thread.
+
+| Panel         | Reactive source                                                                                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Live Activity | `ReactiveLiveActivityController`, merging the same `HttpExchangesController`/`SqlTraceRecorder`/`ExceptionStore`/`ReactiveSecurityLogsController` sources via the shared engine `LiveActivityAssembler`/`RequestProfileAssembler` — the same classes the Quarkus adapter validated first; refreshed over `ReactiveBootUiChangeStream`, signaled by a new lightweight `ReactiveActivitySignalFilter` `WebFilter` after each non-BootUI request completes. |
+
+`ReactiveActivitySignalFilter` takes an `ObjectProvider<ReactiveLiveActivityController>` rather than a direct
+reference: `WebFilter` beans are eagerly resolved by WebFlux at startup to build the filter chain, so a direct
+constructor dependency would force-eager the controller and defeat its place in
+`BootUiReactiveAutoConfiguration.LAZY_CONTROLLER_CLASS_NAMES`. Calling `.getIfAvailable()` per request is safe
+because `ReactiveBootUiChangeStream.signal()` is already a no-op with no subscribers, and the first `/stream`
+request naturally resolves (and thus creates) the controller bean once the panel is actually opened.
+
+**Known fidelity gap, accepted and honestly labeled (matching the Quarkus adapter's own framing):** correlation is
+trace-id-primary only — a request is only linked to "its" SQL statements/exceptions/security events when a shared
+distributed trace id is present on both sides. Reaching that state is narrower here than on Quarkus, though: the
+shared `HttpExchangesController` (identical on servlet and reactive) never stamps the active span's trace id at
+capture time — unlike Quarkus, which reads `Span.current()` unconditionally at each capture point — so a request
+only carries a trace id when the *inbound* call itself propagates one (a `traceparent`, B3, or `X-Amzn-Trace-Id`
+header), not merely because `micrometer-tracing`/OTLP is configured server-side. SQL, exception, and security
+trace ids come from the existing SLF4J MDC default in `SqlTraceRecorder`/the exception and security capture paths
+— the same source the servlet adapter already relies on — and on Reactor, MDC propagation across the event
+loop→worker-thread hop for blocking calls (for example JDBC on `boundedElastic`) depends on Reactor context
+propagation and is not guaranteed to be consistent under concurrent load, so even a request that does carry a
+trace id may not always show every one of its signals nested under it. Without a trace id, the feed still shows
+every signal, just uncorrelated/flat rather than nested per-request. The servlet adapter's thread-based
+correlation (`LiveActivityCorrelator`) is not ported — it has no reactive equivalent.
+
+### 6.5 Not yet ported (2 panels)
 
 | Panel          | Reason                                                                                                                                                                                        |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Spring Security (raw panel, `spring-security`) | *"Not yet ported for Spring WebFlux: this advisor analyzes the servlet SecurityFilterChain/HttpSecurity configuration model, which has no reactive equivalent wired here yet (a ServerHttpSecurity/SecurityWebFilterChain ruleset is planned)."* `springSecurityAvailable()` now requires `!isReactive()` in addition to the pre-existing classpath/bean checks. |
 | MCP Server              | *"Not yet ported for Spring WebFlux: the MCP tool catalog is hard-wired to the servlet panel controllers, so it cannot yet resolve the reactive panel surface."* The JSON-RPC bridge itself (`McpDispatcher`) is already framework-neutral; only `BootUiMcpTools`' tool catalog needs a reactive-aware rewrite. |
-| Live Activity           | *"Not yet ported for Spring WebFlux: Live Activity aggregates the servlet-only ServletRequestHandledEvent signal, which has no reactive equivalent wired here yet."* A reactive request-capture source (a `WebFilter` recording into the shared `ActivityStore`, mirroring the Quarkus adapter's Vert.x-filter approach) is the natural follow-up. |
 
 Note: **the Security advisor** (`security`, grouped under Advisors — distinct from the raw **Spring Security**
 configuration panel above, grouped under Security) also stays unavailable on WebFlux, but needed no dedicated
@@ -146,7 +188,7 @@ falls through to its pre-existing generic reasons ("Spring Security not on the c
 filter chains are available") rather than a WebFlux-specific one. A reactive ruleset for this advisor is a genuinely
 new advisor (comparable in scope to the from-scratch Quarkus Security ruleset), deliberately deferred to a follow-up.
 
-### 6.5 Not applicable (1 panel)
+### 6.6 Not applicable (1 panel)
 
 | Panel        | Reason                                                                                                                                                                                                     |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -168,8 +210,9 @@ just absent as a bean.
 
 A second gap of the same *class* — availability manifest disagreeing with actual wiring — was caught the same way:
 `PanelsController` unconditionally reported `mcp-server` and `activity` as `available: true` on every platform, even
-though the reactive autoconfiguration never wires their controllers. Fixed alongside the other divergent-panel
-availability checks in §6.4.
+though the reactive autoconfiguration didn't yet wire their controllers. Fixed alongside the other divergent-panel
+availability checks (§6.5 today). `activity` has since been genuinely wired reactively (§6.4) and now correctly
+reports `available: true` again — this time because a real `ReactiveLiveActivityController` backs it.
 
 Both were caught by `WebFluxApiConformanceTest`'s inherited `availablePanelsAnswerTheirPrimaryGet()` assertion (see
 §8) — direct evidence for why the conformance suite runs against a real, minimal, single-stack sample app rather than
@@ -188,10 +231,19 @@ relying on unit tests against a shared multi-stack test classpath alone.
 - **`bootui-spring-sample-app/e2e/playwright.webflux.config.js`** and `tests-webflux/webflux-smoke.spec.js` are a
   second, separate Playwright config and test directory (not a new npm project) so the default `npm test` run against
   the servlet sample app is untouched; the WebFlux suite checks the platform manifest, navbar branding, a
-  representative sample of ported panels rendering cleanly, and that `http-sessions`, `spring-security`, `mcp-server`,
-  and `activity` each show their WebFlux-specific reason in both the sidebar and the panel alert (the `security`
-  advisor's equivalent reason is covered at the unit level by `PanelsControllerTests`, not re-asserted in e2e).
+  representative sample of ported panels rendering cleanly (now including Live Activity), and that `http-sessions`,
+  `spring-security`, and `mcp-server` each show their WebFlux-specific reason in both the sidebar and the panel alert
+  (the `security` advisor's equivalent reason is covered at the unit level by `PanelsControllerTests`, not re-asserted
+  in e2e).
 - Run it: see the "WebFlux (reactive) smoke suite" section of `bootui-spring-sample-app/e2e/README.md`.
+- **`Dockerfile-webflux`** (repository root) is the reactive analogue of the plain servlet `Dockerfile`: the same
+  exploded-jar-layers + jlink + distroless-glibc recipe, pointed at `bootui-spring-webflux-sample-app` instead of
+  `bootui-spring-sample-app`, keeping the sample app's own `server.port=8081` default in the container too — the same
+  port locally and in Docker, matching the one-dedicated-port-per-sample-app-family scheme (servlet/AOT/native/CRaC
+  share 8080, WebFlux is 8081, Quarkus is 8082). There is deliberately no AOT/CRaC/native variant for WebFlux — see the
+  Dockerfile's own header comment. `.github/workflows/docker-publish.yml` builds, smoke-tests (`/actuator/health`,
+  `/bootui/api/panels`, `/bootui/`) against port 8081 for this image and publishes it daily to Docker Hub as
+  `jdubois/bootui-sample-app-webflux`, alongside the other five images.
 
 ## 9. Operational note: profile activation
 
@@ -205,7 +257,11 @@ sample app — but is easy to trip over when smoke-testing a freshly built react
 ## 10. Future work
 
 - A reactive Security advisor ruleset (`ServerHttpSecurity`/`SecurityWebFilterChain`), closing the
-  `security`/`spring-security` gap in §6.4.
+  `security`/`spring-security` gap in §6.5.
 - A reactive-aware `BootUiMcpTools` catalog so the MCP Server panel and JSON-RPC bridge work on WebFlux.
-- A `WebFilter`-based request-capture source for Live Activity, mirroring the Quarkus adapter's Vert.x-filter
-  approach, including trace-id correlation if `micrometer-tracing`/OTLP is present.
+- Deeper Live Activity correlation for requests without a trace id (today: trace-id-primary only, matching the
+  Quarkus adapter — see §6.4).
+- A more reliable trace id source for the reactive Live Activity/profiler correlation: stamping the active
+  tracing span's id directly at each capture point (HTTP exchange, SQL, exception, security), mirroring how the
+  Quarkus adapter reads `Span.current()` unconditionally instead of relying on inbound propagation headers and
+  SLF4J MDC propagation across the Reactor event-loop→worker-thread hop (see §6.4).

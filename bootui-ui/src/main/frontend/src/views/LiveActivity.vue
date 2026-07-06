@@ -29,7 +29,7 @@ const FILTERS_STORAGE_KEY = 'bootui.activity.filters'
 const PERSISTENCE_DOCS_URL = 'https://www.julien-dubois.com/boot-ui/properties#live-activity-durable-persistence'
 
 const props = defineProps(panelProps)
-const {readOnly, readOnlyReason} = usePanelState(props)
+const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const {confirm} = useConfirm()
 const {message: banner, flash, clear: clearBanner} = useFlashMessage()
 
@@ -115,7 +115,13 @@ async function loadActivity() {
   }
 }
 
-const {autoRefresh, loading, load: refreshNow} = useEventStreamRefresh('api/activity/stream', loadActivity)
+const {
+  autoRefresh,
+  loading,
+  load: refreshNow
+} = useEventStreamRefresh('api/activity/stream', loadActivity, {
+  enabled: manifestAvailable
+})
 
 // Pagination info driving the "Load older" button: once at least one older page has been fetched,
 // its pageInfo takes over from the live head's, so repeated clicks keep paging further back.
@@ -270,6 +276,7 @@ const sparkBars = computed(() => {
 })
 
 const subtitle = computed(() => {
+  if (!manifestAvailable.value) return manifestUnavailableReason.value
   const counts = report.value?.typeCounts ?? {}
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
   const base = `${formatNumber(total)} recent events · ${sources.value.length} source${sources.value.length === 1 ? '' : 's'}`
@@ -621,8 +628,10 @@ function clearFilters() {
       <button type="button" class="btn-close" aria-label="Close" @click="showDatabaseInfo = false"></button>
     </div>
 
+    <UnavailableState v-if="!manifestAvailable" icon="bi-broadcast" :message="manifestUnavailableReason" />
+
     <UnavailableState
-      v-if="report && !available"
+      v-else-if="report && !available"
       icon="bi-broadcast"
       message="No live activity sources are available yet. Enable HTTP exchange recording, SQL tracing, exception capture, or security logs to populate this stream."
     />

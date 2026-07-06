@@ -40,7 +40,7 @@ export function useAdvisorPanel(props, options) {
   const severityOrder = options.severityOrder || DEFAULT_SEVERITY_ORDER
   const countNoun = options.countNoun || 'finding'
 
-  const {readOnly, readOnlyReason} = usePanelState(props)
+  const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
   const report = ref(null)
   const error = ref(null)
   const actionMessage = ref(null)
@@ -114,6 +114,7 @@ export function useAdvisorPanel(props, options) {
   }
 
   async function loadReport() {
+    if (!manifestAvailable.value) return
     try {
       const res = await apiFetch(options.apiPath)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -127,6 +128,10 @@ export function useAdvisorPanel(props, options) {
   async function runScan() {
     if (readOnly.value) {
       showReadOnlyMessage()
+      return
+    }
+    if (!manifestAvailable.value) {
+      showUnavailableMessage()
       return
     }
     loading.value = true
@@ -149,11 +154,24 @@ export function useAdvisorPanel(props, options) {
     }, 6000)
   }
 
-  onMounted(loadReport)
+  function showUnavailableMessage() {
+    actionMessage.value = manifestUnavailableReason.value
+    setTimeout(() => {
+      actionMessage.value = null
+    }, 6000)
+  }
+
+  onMounted(() => {
+    if (manifestAvailable.value) {
+      loadReport()
+    }
+  })
 
   return reactive({
     readOnly,
     readOnlyReason,
+    manifestAvailable,
+    manifestUnavailableReason,
     report,
     error,
     actionMessage,

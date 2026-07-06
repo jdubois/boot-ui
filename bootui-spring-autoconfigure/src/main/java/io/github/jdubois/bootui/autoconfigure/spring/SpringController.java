@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
@@ -33,13 +34,29 @@ public class SpringController {
     @Autowired
     public SpringController(
             ApplicationContext applicationContext, Environment environment, DismissedRulesStore dismissedRules) {
-        this(new SpringScanner(beanFactory(applicationContext), environment, Clock.systemUTC()), dismissedRules);
+        this(
+                new SpringScanner(
+                        beanFactory(applicationContext),
+                        environment,
+                        isReactive(applicationContext),
+                        Clock.systemUTC()),
+                dismissedRules);
     }
 
     SpringController(SpringScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
         this.lastReport = scanner.initialReport();
+    }
+
+    // This same controller class is imported unmodified by both BootUiAutoConfiguration (servlet) and
+    // BootUiReactiveAutoConfiguration (WebFlux) - see PanelsController.isReactive() for the same pattern.
+    // ReactiveWebApplicationContext is the deterministic Spring Boot marker for "this is the reactive
+    // stack" (set by the actual running ApplicationContext type, not a classpath heuristic), so it
+    // correctly distinguishes the two adapters even if both spring-webmvc and spring-webflux happen to
+    // be on the classpath at once.
+    private static boolean isReactive(ApplicationContext applicationContext) {
+        return applicationContext instanceof ReactiveWebApplicationContext;
     }
 
     @GetMapping

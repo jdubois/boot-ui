@@ -48,11 +48,11 @@
 #
 # Build and run:
 #   docker build -f Dockerfile-quarkus -t bootui-sample-app-quarkus .
-#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
-#   # then open http://localhost:8080/bootui
+#   docker run --rm -p 8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
+#   # then open http://localhost:8082/bootui
 #
 # Populate the Flyway/Liquibase panels with the sample migrations (off by default for a faster boot):
-#   docker run --rm -p 8080:8080 \
+#   docker run --rm -p 8082:8082 \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
 #     bootui-sample-app-quarkus
@@ -95,9 +95,11 @@ ENV HOME=/home/bootui
 # local repository so augmentation finds it.
 RUN ./mvnw -B -ntp -DskipTests -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am clean install
 
-# Bind all interfaces so the published port is reachable from the host.
+# Bind all interfaces so the published port is reachable from the host. 8082 matches the Quarkus
+# sample app's own local dev default (quarkus.http.port=8082 in application.properties), so this image
+# uses the same port locally and in Docker, mirroring the servlet (8080) and WebFlux (8081) images.
 ENV QUARKUS_HTTP_HOST=0.0.0.0
-ENV QUARKUS_HTTP_PORT=8080
+ENV QUARKUS_HTTP_PORT=8082
 
 # Run Docker-free on in-memory H2 instead of the PostgreSQL Dev Service. db-kind is a build-time
 # setting, but dev mode re-augments at startup and reads these environment variables; the explicit URL
@@ -120,7 +122,7 @@ ENV QUARKUS_ANALYTICS_DISABLED=true
 # itself; override the whole set at runtime with -e JAVA_TOOL_OPTIONS="...".
 ENV JAVA_TOOL_OPTIONS="-Xmx512m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError"
 
-EXPOSE 8080
+EXPOSE 8082
 
 # Launch source-based Quarkus dev mode. Exec form so `java` receives SIGTERM from `docker stop` for a
 # graceful shutdown through the Maven wrapper process.
