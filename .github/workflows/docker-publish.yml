@@ -1,17 +1,19 @@
 name: Publish Docker images
 
-# Builds the five sample-app container images from the root Dockerfiles and
+# Builds the six sample-app container images from the root Dockerfiles and
 # publishes them to Docker Hub as multi-arch images (linux/amd64 + linux/arm64):
 #
 #   Dockerfile         -> <user>/bootui-sample-app          (JVM image)
 #   Dockerfile-aot     -> <user>/bootui-sample-app-aot      (JVM + Spring AOT + JDK cache image)
 #   Dockerfile-crac    -> <user>/bootui-sample-app-crac     (CRaC image)
 #   Dockerfile-native  -> <user>/bootui-sample-app-native   (GraalVM native image)
+#   Dockerfile-webflux -> <user>/bootui-sample-app-webflux  (Spring WebFlux/Netty reactive JVM image)
 #   Dockerfile-quarkus -> <user>/bootui-sample-app-quarkus  (Quarkus JVM dev-mode image, a separate sample app)
 #
 # Each Dockerfile copies the whole multi-module reactor and builds its sample app from
-# that reactor, so the build context is the repository root. (The four Spring images
-# build `bootui-spring-sample-app`; the Quarkus image builds `bootui-quarkus-sample-app`.)
+# that reactor, so the build context is the repository root. (The four servlet Spring images
+# build `bootui-spring-sample-app`; the WebFlux image builds `bootui-spring-webflux-sample-app`;
+# the Quarkus image builds `bootui-quarkus-sample-app`.)
 #
 # The images are published once a day from the main branch (scheduled events run
 # against the default branch) and can also be built on demand from the Actions tab.
@@ -31,7 +33,7 @@ name: Publish Docker images
 #      job itself needs no Docker Hub secrets.
 #
 #   2. build - build, smoke-test and publish every image on every platform (a matrix
-#      of 5 images x 2 platforms = 10 jobs). Each job builds its single-platform image
+#      of 6 images x 2 platforms = 12 jobs). Each job builds its single-platform image
 #      once and loads it into the runner's local Docker daemon (load: true) to
 #      smoke-test it: the app must become ready (the Spring images poll GET
 #      /actuator/health for status UP; the Quarkus image has no Actuator, so it polls
@@ -49,7 +51,7 @@ name: Publish Docker images
 #      fails its job, so the merge phase below never runs and no tag is ever applied.
 #
 #   3. merge - assemble the tagged multi-arch manifest list for each image (a matrix
-#      of 5 images) from the per-platform digests pushed in phase 2, applying the
+#      of 6 images) from the per-platform digests pushed in phase 2, applying the
 #      rolling `latest`, dated and short-SHA tags. Runs only if every build job
 #      succeeded.
 #
@@ -192,6 +194,7 @@ jobs:
           - bootui-sample-app-aot
           - bootui-sample-app-crac
           - bootui-sample-app-native
+          - bootui-sample-app-webflux
           - bootui-sample-app-quarkus
         platform:
           - linux/amd64
@@ -225,6 +228,15 @@ jobs:
           - image: bootui-sample-app-native
             dockerfile: Dockerfile-native
             # GraalVM native image: no special privileges; starts in well under a second.
+            run_args: ''
+            health_timeout: '120'
+            ready_url: /actuator/health
+            ready_match: '"status":"UP"'
+          - image: bootui-sample-app-webflux
+            dockerfile: Dockerfile-webflux
+            # Spring WebFlux/Netty reactive image: no special privileges; ready within a few
+            # seconds, same as the plain servlet JVM image (it still has Actuator, so the same
+            # readiness check applies).
             run_args: ''
             health_timeout: '120'
             ready_url: /actuator/health
@@ -476,6 +488,7 @@ jobs:
           - bootui-sample-app-aot
           - bootui-sample-app-crac
           - bootui-sample-app-native
+          - bootui-sample-app-webflux
           - bootui-sample-app-quarkus
     steps:
       - name: Resolve image name
@@ -552,7 +565,7 @@ jobs:
 
           cutoff=$(date -u -d "${MAX_AGE_DAYS} days ago" +%s)
 
-          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-sample-app-quarkus; do
+          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-sample-app-webflux bootui-sample-app-quarkus; do
             echo "::group::Pruning ${DOCKERHUB_USERNAME}/${repo}"
             url="https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/tags/?page_size=100"
             while [ -n "$url" ] && [ "$url" != 'null' ]; do
@@ -612,7 +625,7 @@ jobs:
           # Untagged manifests last active (pushed or pulled) before this moment are pruned.
           active_from=$(date -u -d "${MAX_AGE_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
 
-          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-sample-app-quarkus; do
+          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-sample-app-webflux bootui-sample-app-quarkus; do
             echo "::group::Sweeping untagged manifests in ${DOCKERHUB_USERNAME}/${repo}"
 
             # Collect the digests of untagged, inactive manifests older than the cutoff.
