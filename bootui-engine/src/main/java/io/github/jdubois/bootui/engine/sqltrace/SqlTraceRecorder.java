@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
+import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
@@ -103,6 +104,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile TraceIdProvider traceIdProvider = SqlTraceRecorder::mdcTraceId;
+    private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
 
     public SqlTraceRecorder(
             boolean enabled,
@@ -158,6 +160,16 @@ public final class SqlTraceRecorder implements IdleReclaimable {
      */
     public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
         this.traceIdProvider = traceIdProvider == null ? SqlTraceRecorder::mdcTraceId : traceIdProvider;
+    }
+
+    /**
+     * Installs the {@link SpanEnricher} used to stamp {@code bootui.sql.*} depth attributes on the active
+     * request span as statements are recorded. Defaults to {@link SpanEnricher#NO_OP}; each adapter installs
+     * the OpenTelemetry-backed enricher only when OpenTelemetry tracing is present. Passing {@code null}
+     * restores the no-op, so an adapter that never calls this is unaffected.
+     */
+    public void setSpanEnricher(SpanEnricher spanEnricher) {
+        this.spanEnricher = spanEnricher == null ? SpanEnricher.NO_OP : spanEnricher;
     }
 
     public int getMaxEntries() {
@@ -228,6 +240,31 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         }
         totalCaptured.incrementAndGet();
         notifyListeners();
+        enrichActiveSpan(entry.traceId());
+    }
+
+    /**
+     * Stamps SQL depth onto the active request span for the cross-service trace waterfall: increments the
+     * per-request query count and, when the request's statements now suspect an N+1 pattern (same grouping
+     * the panel shows), flags it. Gated behind {@link SpanEnricher#enabled()} so the no-op path pays nothing,
+     * and the per-trace grouping is skipped when the statement has no trace correlation.
+     */
+    private void enrichActiveSpan(String traceId) {
+        SpanEnricher enricher = spanEnricher;
+        if (!enricher.enabled()) {
+            return;
+        }
+        // Supply the N+1 suspicion lazily: the enricher evaluates it only while the span is not yet flagged,
+        // so the per-trace grouping scan is skipped once a request is already suspected (and when uncorrelated).
+        enricher.onSqlStatement(() -> traceId != null && suspectsNPlusOne(traceId));
+    }
+
+    private boolean suspectsNPlusOne(String traceId) {
+        List<SqlTraceEntryDto> forTrace = recent().stream()
+                .filter(entry -> traceId.equals(entry.traceId()))
+                .map(entry -> toDto(entry, false))
+                .toList();
+        return SqlTraceGrouping.anySuspectedNPlusOne(forTrace, nPlusOneThreshold);
     }
 
     /** Returns the retained executions, most recent first. */

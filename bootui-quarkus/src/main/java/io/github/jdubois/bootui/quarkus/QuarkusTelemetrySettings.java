@@ -55,4 +55,9 @@ public class QuarkusTelemetrySettings implements TelemetrySettings {
         return config.getOptionalValue("bootui.telemetry.max-attribute-value-bytes", Integer.class)
                 .orElse(4 * 1024);
     }
+
+    @Override
+    public boolean enrichmentEnabled() {
+        return config.getOptionalValue("bootui.telemetry.enrich", Boolean.class).orElse(Boolean.TRUE);
+    }
 }

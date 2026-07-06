@@ -40,6 +40,7 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
+import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
@@ -383,7 +384,8 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public ExceptionStore exceptionStore(Config config, QuarkusBasePackageProvider basePackages) {
+    public ExceptionStore exceptionStore(
+            Config config, QuarkusBasePackageProvider basePackages, Instance<SpanEnricher> spanEnricher) {
         ExceptionStore store = new ExceptionStore(
                 config.getOptionalValue("bootui.exceptions.max-groups", Integer.class)
                         .orElse(100),
@@ -392,6 +394,12 @@ public class BootUiEngineProducer {
                 config.getOptionalValue("bootui.exceptions.max-stack-frames", Integer.class)
                         .orElse(50));
         store.setApplicationPackages(basePackages.basePackages());
+        // When OpenTelemetry is present, install the span enricher so each captured exception stamps
+        // bootui.exception.* on the active request span; absent OpenTelemetry it is unresolvable and the
+        // store keeps the neutral no-op.
+        if (spanEnricher.isResolvable()) {
+            store.setSpanEnricher(spanEnricher.get());
+        }
         return store;
     }
 

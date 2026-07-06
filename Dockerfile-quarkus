@@ -117,6 +117,14 @@ ENV QUARKUS_LIQUIBASE_MIGRATE_AT_START=false
 ENV QUARKUS_TEST_CONTINUOUS_TESTING=disabled
 ENV QUARKUS_ANALYTICS_DISABLED=true
 
+# application.properties points the OTel exporter at the companion Spring sample app's BootUI OTLP
+# receiver (localhost:8080) so the two apps can demo a merged cross-service trace when run together from
+# source. This image is a standalone, Docker-free deployment with no Spring app anywhere nearby, so
+# disable that exporter here to avoid periodic connection-refused warnings; this app's own Traces panel
+# keeps working regardless (its in-process exporter, wired by bootui-quarkus, is independent of this
+# setting).
+ENV QUARKUS_OTEL_TRACES_EXPORTER=none
+
 # A modest, bounded footprint. Dev mode (augmentation) needs more headroom than a packaged prod jar,
 # so this is more generous than the Spring image's 200m prod heap. The JVM reads JAVA_TOOL_OPTIONS
 # itself; override the whole set at runtime with -e JAVA_TOOL_OPTIONS="...".

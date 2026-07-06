@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.exceptions;
 
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
+import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -72,6 +73,7 @@ public final class ExceptionStore {
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     private volatile List<String> applicationPackages = List.of();
+    private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
 
     public ExceptionStore(int maxGroups, int maxOccurrencesPerGroup, int maxStackFrames) {
         this(maxGroups, maxOccurrencesPerGroup, maxStackFrames, throwable -> false);
@@ -90,6 +92,16 @@ public final class ExceptionStore {
 
     public void setApplicationPackages(List<String> packages) {
         this.applicationPackages = packages == null ? List.of() : List.copyOf(packages);
+    }
+
+    /**
+     * Installs the {@link SpanEnricher} used to stamp {@code bootui.exception.*} attributes on the active
+     * request span as exceptions are captured. Defaults to {@link SpanEnricher#NO_OP}; each adapter installs
+     * the OpenTelemetry-backed enricher only when OpenTelemetry tracing is present. Passing {@code null}
+     * restores the no-op.
+     */
+    public void setSpanEnricher(SpanEnricher spanEnricher) {
+        this.spanEnricher = spanEnricher == null ? SpanEnricher.NO_OP : spanEnricher;
     }
 
     /**
@@ -196,6 +208,7 @@ public final class ExceptionStore {
             group.addOccurrence(occurrence, maxOccurrencesPerGroup);
         }
         notifyListeners();
+        spanEnricher.onException(className);
     }
 
     public List<GroupSummary> groups() {

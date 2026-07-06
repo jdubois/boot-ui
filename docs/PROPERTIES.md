@@ -346,6 +346,7 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | `bootui.telemetry.max-spans-per-trace`       | `500`     | Maximum spans retained per trace.                                                                     |
 | `bootui.telemetry.max-attribute-value-bytes` | `4096`    | Maximum attribute string length before truncation.                                                    |
 | `bootui.telemetry.exclude-self-spans`        | `true`    | Drop ingested spans whose route/path targets BootUI before they enter the local trace store.          |
+| `bootui.telemetry.enrich`                    | `true`    | Stamp BootUI `bootui.*` span attributes (service identity, SQL query count / suspected N+1, exceptions) on the active span at BootUI's capture points. Effective only while `bootui.telemetry.enabled` is on. |
 | `bootui.telemetry.max-request-bytes`         | `8388608` | Maximum accepted OTLP request body size.                                                              |
 
 ### HTTP Exchanges

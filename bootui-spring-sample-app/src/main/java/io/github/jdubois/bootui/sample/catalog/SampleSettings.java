@@ -9,6 +9,8 @@ public class SampleSettings {
 
     private int retries = 3;
 
+    private String quarkusBaseUrl = "http://localhost:8081";
+
     public String getGreeting() {
         return greeting;
     }
@@ -23,5 +25,13 @@ public class SampleSettings {
 
     public void setRetries(int retries) {
         this.retries = retries;
+    }
+
+    public String getQuarkusBaseUrl() {
+        return quarkusBaseUrl;
+    }
+
+    public void setQuarkusBaseUrl(String quarkusBaseUrl) {
+        this.quarkusBaseUrl = quarkusBaseUrl;
     }
 }

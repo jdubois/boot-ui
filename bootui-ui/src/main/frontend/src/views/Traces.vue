@@ -134,6 +134,47 @@ function spanColor(span) {
   return 'bg-secondary'
 }
 
+function attrValue(span, key) {
+  const attr = (span.attributes || []).find((a) => a.key === key)
+  return attr ? attr.value : undefined
+}
+
+// Aggregate the BootUI enrichment attributes (bootui.*) stamped on the selected trace's spans, so the
+// cross-service waterfall shows BootUI depth per service. Summaries carry no attributes, so this is computed
+// from the loaded span detail.
+const enrichment = computed(() => {
+  if (!detail.value || !detail.value.spans || detail.value.spans.length === 0) return null
+  let enriched = false
+  let sqlQueries = 0
+  let nPlusOne = false
+  let exceptions = 0
+  const services = new Set()
+  const exceptionTypes = new Set()
+  for (const span of detail.value.spans) {
+    if (attrValue(span, 'bootui.enriched') === true) enriched = true
+    const service = attrValue(span, 'bootui.service')
+    if (service) services.add(service)
+    const queries = attrValue(span, 'bootui.sql.queries')
+    if (typeof queries === 'number') sqlQueries += queries
+    if (attrValue(span, 'bootui.sql.n_plus_one') === true) nPlusOne = true
+    const exc = attrValue(span, 'bootui.exceptions')
+    if (typeof exc === 'number') exceptions += exc
+    const excType = attrValue(span, 'bootui.exception.type')
+    if (excType) exceptionTypes.add(excType)
+  }
+  if (!enriched && sqlQueries === 0 && exceptions === 0 && services.size === 0 && exceptionTypes.size === 0) {
+    return null
+  }
+  return {
+    enriched,
+    sqlQueries,
+    nPlusOne,
+    exceptions,
+    services: [...services],
+    exceptionTypes: [...exceptionTypes]
+  }
+})
+
 function shortId(id) {
   if (!id) return '—'
   return id.length > 8 ? id.substring(0, 8) : id
@@ -263,6 +304,37 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
                           <div class="text-muted small mb-2">
                             {{ waterfall.spans.length }} span{{ waterfall.spans.length === 1 ? '' : 's' }} · total
                             {{ formatDuration(waterfall.totalNanos) }}
+                          </div>
+                          <div v-if="enrichment" class="enrichment-summary mb-3">
+                            <span
+                              class="badge text-bg-success me-1"
+                              title="This trace carries BootUI enrichment attributes"
+                            >
+                              <i class="bi bi-patch-check-fill"></i> BootUI-enriched
+                            </span>
+                            <span
+                              v-for="s in enrichment.services"
+                              :key="'enrich-svc-' + s"
+                              class="badge text-bg-secondary me-1"
+                              >{{ s }}</span
+                            >
+                            <span v-if="enrichment.sqlQueries > 0" class="badge text-bg-light border me-1">
+                              <i class="bi bi-database"></i> {{ enrichment.sqlQueries }} SQL
+                            </span>
+                            <span v-if="enrichment.nPlusOne" class="badge text-bg-warning me-1">
+                              <i class="bi bi-exclamation-triangle"></i> N+1 suspected
+                            </span>
+                            <span v-if="enrichment.exceptions > 0" class="badge text-bg-danger me-1">
+                              <i class="bi bi-bug"></i> {{ enrichment.exceptions }} exception{{
+                                enrichment.exceptions === 1 ? '' : 's'
+                              }}
+                            </span>
+                            <span
+                              v-for="t in enrichment.exceptionTypes"
+                              :key="'enrich-exc-' + t"
+                              class="badge text-bg-light border me-1"
+                              ><code>{{ t }}</code></span
+                            >
                           </div>
                           <div class="waterfall">
                             <div v-for="(s, i) in waterfall.spans" :key="s.spanId + '-' + i" class="waterfall-row">

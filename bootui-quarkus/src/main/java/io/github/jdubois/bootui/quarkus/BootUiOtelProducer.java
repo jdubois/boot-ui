@@ -1,12 +1,16 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.engine.telemetry.BootUiIdentitySpanProcessor;
 import io.github.jdubois.bootui.engine.telemetry.BootUiSpanExporter;
+import io.github.jdubois.bootui.engine.telemetry.OtelSpanEnricher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
+import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.opentelemetry.sdk.trace.SpanProcessor;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
+import org.eclipse.microprofile.config.Config;
 
 /**
  * OpenTelemetry capture wiring for the Quarkus adapter: produces the in-process {@link SpanProcessor} that
@@ -38,5 +42,33 @@ public class BootUiOtelProducer {
         // Capture-side classification (BF1) now shares the same instance as every transform/display
         // consumer — produced once in BootUiTelemetryProducer — instead of building its own.
         return SimpleSpanProcessor.create(new BootUiSpanExporter(store, selfClassifier, settings));
+    }
+
+    /**
+     * Stamps BootUI identity attributes ({@code bootui.enriched}/service/instance) on every span at start,
+     * so a cross-service trace waterfall can attribute each service's depth. Quarkus OpenTelemetry
+     * auto-discovers this as a second {@link SpanProcessor} bean; it re-reads the live enrichment toggle so
+     * it stays inert when {@code bootui.telemetry.enrich=false}. Concentrated here with the other OTel-touching
+     * capture beans and excluded from discovery when OpenTelemetry is absent.
+     */
+    @Produces
+    @Singleton
+    public SpanProcessor bootUiIdentitySpanProcessor(QuarkusTelemetrySettings settings, Config config) {
+        String serviceName = config.getOptionalValue("quarkus.application.name", String.class)
+                .orElse(null);
+        String instanceId = System.getenv("HOSTNAME");
+        return new BootUiIdentitySpanProcessor(settings, serviceName, instanceId);
+    }
+
+    /**
+     * The capture-time enricher that stamps {@code bootui.sql.*}/{@code bootui.exception.*} depth on the
+     * active span. The SQL Trace recorder and exception store inject it via {@code Instance<SpanEnricher>}
+     * and install it when resolvable; absent OpenTelemetry this producer is excluded, so those capture points
+     * resolve no enricher and keep the neutral no-op (mirrors the {@code TraceIdProvider} seam).
+     */
+    @Produces
+    @Singleton
+    public SpanEnricher bootUiSpanEnricher(QuarkusTelemetrySettings settings) {
+        return new OtelSpanEnricher(settings);
     }
 }

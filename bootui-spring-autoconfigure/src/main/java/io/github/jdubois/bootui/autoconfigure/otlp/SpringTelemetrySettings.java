@@ -42,4 +42,9 @@ public final class SpringTelemetrySettings implements TelemetrySettings {
     public int maxAttributeValueBytes() {
         return properties.getTelemetry().getMaxAttributeValueBytes();
     }
+
+    @Override
+    public boolean enrichmentEnabled() {
+        return properties.getTelemetry().isEnrich();
+    }
 }

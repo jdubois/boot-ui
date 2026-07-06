@@ -31,6 +31,11 @@ Each ingredient maps to a BootUI panel, mirroring the Spring sample's demo inten
 metamodel at boot, so they are flagged without needing rows), and `ArchitectureIssuesResource` triggers
 advisor findings. Secured endpoints (`/admin`, `/api/secure`) require the `admin`/`admin` account.
 
+`GET /api/secure/products` (`SecureResource`, admin/admin, backed by a live SQL query) is also the endpoint
+the Spring sample app's "Call the Quarkus sample app" button calls over HTTP — see
+[Cross-service trace demo](../bootui-spring-sample-app/README.md#cross-service-trace-demo-with-the-quarkus-sample-app)
+in the Spring sample's README.
+
 ## Running from source
 
 Quarkus Dev Services starts a throwaway PostgreSQL container, so **Docker (or Podman) must be running**.
@@ -49,6 +54,14 @@ BootUI activates automatically under `quarkus:dev` (development launch mode). In
 
 > Run from source on **JDK 17 or 21**: Hibernate ORM's ByteBuddy enhancement cannot augment newer class
 > files, so `quarkus:dev` fails on JDK 22+. The Docker image below sidesteps this by building inside JDK 21.
+
+When run from source this way, this app's spans are also exported over OTLP/HTTP to the Spring sample app's
+BootUI (`quarkus.otel.exporter.otlp.endpoint` in `application.properties`, defaulting to
+`http://localhost:8080/bootui/api/otlp`), demonstrating the Traces panel's aggregator topology — see
+[Cross-service trace demo](../bootui-spring-sample-app/README.md#cross-service-trace-demo-with-the-quarkus-sample-app).
+This is harmless if the Spring app is not running (the export just fails quietly in the background); it is
+disabled in the Docker image below, which has no Spring app nearby.
+
 
 ## Importing into an IDE (IntelliJ IDEA)
 

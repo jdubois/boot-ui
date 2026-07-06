@@ -124,6 +124,39 @@ and AI Usage steps note where the `docker` profile adds Postgres/Redis/Ollama-ba
 
 `Ctrl-C` the Spring Boot process. With the `docker` profile, Spring Boot also stops Docker Compose.
 
+## Cross-service trace demo with the Quarkus sample app
+
+The "Sample action lab" also has a **"Call the Quarkus sample app"** button that demonstrates a real
+cross-service call: a `SampleController` endpoint here (`GET /api/sample/quarkus-secure-products`) uses a
+Spring `RestClient` to call the companion [`bootui-quarkus-sample-app`](../bootui-quarkus-sample-app)'s own
+secured, SQL-backed endpoint (`GET /api/secure/products`, admin/admin) over plain HTTP — the same endpoint
+this app's own "Secure SQL request as admin" button exercises locally.
+
+Run both apps from source, in separate terminals:
+
+```bash
+./mvnw -pl bootui-spring-sample-app spring-boot:run                                            # :8080
+JAVA_HOME=/path/to/jdk-17 ./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev                  # :8082
+```
+
+Then open this app's console at <http://localhost:8080/bootui>, click **"Call the Quarkus sample app"**, and open
+the **Traces** panel. W3C trace-context propagation is on by default on both adapters, so the single browser click
+starts one trace that crosses both JVMs; it renders as **one merged waterfall** spanning the Spring request and
+the Quarkus request it triggers — including the Quarkus-side SQL query and authentication event — with
+`bootui-sample` and `bootui-quarkus-sample` badges on the same trace (the `bootui.service` span attribute this
+PR's enrichment adds). This works because the Quarkus sample's `application.properties` exports its
+OpenTelemetry spans over OTLP/HTTP to this app's `POST /bootui/api/otlp/v1/traces` receiver by default when run
+from source — the Traces panel's "aggregator topology" (`docs/SPECIFICATION.md` §5.14.3). It has no effect on
+the Quarkus app's own Traces panel, which keeps recording its own spans in-process independently, and it is
+disabled in the published Quarkus Docker image, which has no Spring app nearby.
+
+> **Why not the Live Activity panel?** Live Activity (`docs/SPECIFICATION.md` §5.14.2) intentionally only ever
+> merges one JVM's own local HTTP Exchanges/SQL Trace/Exceptions/Security Logs buffers, reusing their existing
+> controllers/DTOs with no new instrumentation. There is no API for one BootUI instance to pull or receive
+> another instance's Live Activity stream, and BootUI never forwards that raw data off-process (a stated
+> non-goal). The Traces panel's OTLP aggregator topology above is the supported mechanism for seeing
+> cross-service activity from one BootUI instance.
+
 ## Run it with JVM AOT (faster JVM startup)
 
 The plain JVM image (Dockerfile) starts Docker-free but takes around 9–10 seconds to reach the first HTTP

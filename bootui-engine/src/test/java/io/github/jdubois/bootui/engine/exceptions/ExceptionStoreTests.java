@@ -272,4 +272,43 @@ class ExceptionStoreTests {
     private static Throwable makeException() {
         return new IllegalStateException("repeated failure");
     }
+
+    @Test
+    void notifiesTheSpanEnricherWithTheExceptionType() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        List<String> enriched = new ArrayList<>();
+        store.setSpanEnricher(new io.github.jdubois.bootui.engine.telemetry.SpanEnricher() {
+            @Override
+            public boolean enabled() {
+                return true;
+            }
+
+            @Override
+            public void onException(String exceptionType) {
+                enriched.add(exceptionType);
+            }
+        });
+
+        store.record(new IllegalStateException("boom"), "main", "GET", "/x", "Handler#x", "web");
+
+        assertThat(enriched).containsExactly("java.lang.IllegalStateException");
+    }
+
+    @Test
+    void doesNotNotifyEnricherForDuplicateThrowable() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        List<String> enriched = new ArrayList<>();
+        store.setSpanEnricher(new io.github.jdubois.bootui.engine.telemetry.SpanEnricher() {
+            @Override
+            public void onException(String exceptionType) {
+                enriched.add(exceptionType);
+            }
+        });
+        IllegalStateException ex = new IllegalStateException("boom");
+
+        store.record(ex, "main", "GET", "/x", "Handler#x", "web");
+        store.record(ex, "main", null, null, null, "log");
+
+        assertThat(enriched).containsExactly("java.lang.IllegalStateException");
+    }
 }

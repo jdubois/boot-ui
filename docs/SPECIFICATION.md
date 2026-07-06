@@ -825,6 +825,54 @@ Acceptance criteria:
   `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
   active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
 
+### 5.14.3 Traces Panel
+
+Purpose: show distributed-trace waterfalls captured locally, so a request that fans out across cooperating local
+services can be read as a single trace during development.
+
+Data sources:
+
+- The local, bounded, in-memory trace store fed by BootUI's OTLP receiver and its own in-process capture. On Spring Boot,
+  BootUI runs an embedded OTLP/HTTP receiver at `POST /bootui/api/otlp/v1/traces`; on Quarkus, spans are captured
+  in-process via `quarkus-opentelemetry` (no receiver). Retention, per-trace span caps, and self-span exclusion are
+  governed by `bootui.telemetry.*`.
+
+Aggregator topology:
+
+- BootUI supports a dev-time "one aggregator" pattern for cross-service traces: each cooperating local service exports its
+  OpenTelemetry spans (OTLP/HTTP) to a single BootUI instance's `/bootui/api/otlp/v1/traces` endpoint, which becomes the
+  aggregator. Because every service propagates W3C trace context, spans sharing a trace id are stitched into one
+  cross-service waterfall in that aggregator's Traces panel. This is a dev-only sink, bounded in memory, and never
+  forwards data off-process (see §2.3 non-goals).
+
+BootUI span enrichment:
+
+- When `bootui.telemetry.enrich` is on (default, effective only while `bootui.telemetry.enabled` is on), each service's
+  BootUI stamps a stable `bootui.*` attribute vocabulary onto its own spans, so the aggregated cross-service waterfall
+  carries genuine BootUI depth per service:
+  - Identity attributes are stamped on span start by an OpenTelemetry `SpanProcessor`: `bootui.enriched=true`, plus the
+    service name and instance id, so every enriched span is attributable to the BootUI that produced it.
+  - Depth attributes are stamped at BootUI's existing capture points on the currently-active span (an OTel
+    `SpanProcessor` cannot mutate a span in `onEnd`, which is read-only): the SQL Trace recorder increments
+    `bootui.sql.queries` per statement and sets `bootui.sql.n_plus_one` when the same grouping/threshold logic the Live
+    Activity profiler uses flags a suspected N+1; the exception store stamps `bootui.exception.type` and increments
+    `bootui.exceptions` when it captures an exception. These reuse the same active-span/trace-id plumbing Live Activity
+    already relies on, so no new correlation model is introduced.
+- The enrichment contract is framework-neutral: a `SpanEnricher` seam in `bootui-engine` (with a no-op default) is
+  implemented once by the OTel-touching adapter code, kept concentrated behind the engine's ArchUnit boundary rule. The
+  DTO shape is unchanged — `bootui.*` attributes flow through the generic span attribute list — and the Traces panel
+  surfaces a "BootUI-enriched" indicator plus the `bootui.sql.*` / `bootui.exception.*` / service attributes in the trace
+  drawer.
+
+Acceptance criteria:
+
+- The panel's reads inherit the loopback filter, Host allow-list, cross-site write defenses, and value masking from the
+  telemetry store; clearing retained traces is gated by `bootui.panels.traces.read-only`.
+- With `bootui.telemetry.enrich=false`, no `bootui.*` attributes are stamped and the enrichment indicator does not appear;
+  trace capture and the waterfall are otherwise unchanged.
+- Enrichment never forwards data off-process and adds no unbounded state: per-span running counters are held in a bounded
+  structure and the no-op enricher path (telemetry or enrichment disabled) pays nothing.
+
 ### 5.15 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.
@@ -1393,6 +1441,7 @@ Initial properties:
 | `bootui.telemetry.max-spans-per-trace`       | `500`                                   | Maximum spans retained for one trace; internally capped for UI safety.                            |
 | `bootui.telemetry.max-attribute-value-bytes` | `4096`                                  | Maximum attribute string length before truncation; internally capped for UI safety.               |
 | `bootui.telemetry.exclude-self-spans`        | `true`                                  | Drops ingested spans for BootUI's own API routes before they enter the local trace store.         |
+| `bootui.telemetry.enrich`                    | `true`                                  | Stamp BootUI `bootui.*` attributes (service identity, SQL query count / suspected N+1, exceptions) on the active span at BootUI's capture points; effective only while `bootui.telemetry.enabled` is on. |
 | `bootui.telemetry.max-request-bytes`         | `8388608`                               | Maximum OTLP payload size accepted by the local receiver.                                         |
 | `bootui.ai.token-series-minutes`             | `60`                                    | Default token-usage chart window for the AI Usage panel, capped by the API.                       |
 | `bootui.ai.max-recent-chats`                 | `100`                                   | Maximum recent chat rows surfaced by the AI Usage panel, capped by the API.                       |

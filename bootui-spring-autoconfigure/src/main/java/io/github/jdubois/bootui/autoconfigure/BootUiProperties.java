@@ -1210,6 +1210,14 @@ public class BootUiProperties {
         private boolean excludeSelfSpans = true;
 
         /**
+         * Stamp BootUI {@code bootui.*} enrichment attributes on request spans (service identity, SQL
+         * volume / N+1 suspicion, exception presence) so a cross-service trace waterfall carries BootUI
+         * depth. On by default when telemetry is enabled; set to {@code false} to leave capture on but
+         * suppress enrichment.
+         */
+        private boolean enrich = true;
+
+        /**
          * Maximum payload size (bytes) accepted by the OTLP receiver.
          */
         private int maxRequestBytes = 8 * 1024 * 1024;
@@ -1252,6 +1260,14 @@ public class BootUiProperties {
 
         public void setExcludeSelfSpans(boolean excludeSelfSpans) {
             this.excludeSelfSpans = excludeSelfSpans;
+        }
+
+        public boolean isEnrich() {
+            return enrich;
+        }
+
+        public void setEnrich(boolean enrich) {
+            this.enrich = enrich;
         }
 
         public int getMaxRequestBytes() {

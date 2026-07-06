@@ -24,6 +24,15 @@ public interface TelemetrySettings {
     int maxAttributeValueBytes();
 
     /**
+     * Whether BootUI stamps its {@code bootui.*} enrichment attributes on request spans. Defaults to
+     * {@code true} so enrichment follows telemetry being on; adapters back it with {@code bootui.telemetry.enrich}
+     * so an operator can turn enrichment off while leaving capture on.
+     */
+    default boolean enrichmentEnabled() {
+        return true;
+    }
+
+    /**
      * Fixed snapshot of telemetry settings, useful for tests and for adapters whose configuration
      * never changes at runtime.
      */

@@ -325,6 +325,15 @@
           <small>Inspect: Traces, Diagnostics, HTTP Exchanges, SQL Trace</small>
         </article>
         <article class="test-action">
+          <button class="button" id="quarkus-cross-service-button" type="button">Call the Quarkus sample app</button>
+          <p>
+            Calls <code>GET /api/sample/quarkus-secure-products</code>, which this Spring Boot app uses to call the
+            companion Quarkus sample app's own secured, SQL-backed <code>GET /api/secure/products</code>
+            (admin/admin) over HTTP.
+          </p>
+          <small>Inspect: Traces (here, for the merged waterfall), SQL Trace and Spring Security on the Quarkus app</small>
+        </article>
+        <article class="test-action">
           <button class="button" id="auth-fail-button" type="button">Fail authentication</button>
           <p>Calls <code>GET /api/secure</code> with bad credentials to produce an unauthorized response.</p>
           <small>Inspect: Spring Security, Security Logs, Pentesting</small>
@@ -377,6 +386,7 @@
   const slowButton = document.getElementById('slow-button')
   const poolStressButton = document.getElementById('pool-stress-button')
   const chainedButton = document.getElementById('chained-button')
+  const quarkusCrossServiceButton = document.getElementById('quarkus-cross-service-button')
   const authFailButton = document.getElementById('auth-fail-button')
   const sessionDataButton = document.getElementById('session-data-button')
   const sessionDataStatus = document.getElementById('session-data-status')
@@ -658,6 +668,27 @@
         `Completed a multi-hop request (${body.activeProducts} active, ${body.searchMatches} matched)`,
         'This request nests child spans across a catalog read and a live query.\n\n' +
           'Open BootUI Traces or Diagnostics to inspect the correlated timeline.'
+      )
+    })
+  )
+
+  quarkusCrossServiceButton.addEventListener('click', () =>
+    runSampleAction(quarkusCrossServiceButton, 'Calling the Quarkus sample app over HTTP...', async () => {
+      const response = await fetch('/api/sample/quarkus-secure-products', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(
+          `Cross-service request failed with HTTP ${response.status}. Is the Quarkus sample app running on ` +
+            'http://localhost:8081? (./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev)'
+        )
+      }
+      const names = (body.products || []).map(product => `- ${product.name} (${product.category})`).join('\n') || '(no rows)'
+      showSampleResult(
+        `Called the Quarkus sample app at ${body.baseUrl} and got ${body.productCount} product(s) back`,
+        `${names}\n\n` +
+          'This one browser click starts a trace that crosses both JVMs (W3C trace-context propagation). ' +
+          'Open this app\'s BootUI Traces panel to see the merged waterfall, or open the Quarkus BootUI ' +
+          '(http://localhost:8081/bootui) to see the SQL Trace and Spring Security-equivalent events it recorded.'
       )
     })
   )
