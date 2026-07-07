@@ -7,7 +7,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.10.0] - 2026-07-06
+## [1.10.0] - 2026-07-07
 
 Feature release headlined by **Spring WebFlux support**, a third first-class BootUI adapter alongside Spring MVC and
 Quarkus, and **OpenTelemetry span enrichment** that keeps cross-service traces readable when the Traces panel
@@ -24,12 +24,16 @@ loopback enforcement on the Quarkus adapter.
   by the same activation rule plus `@ConditionalOnWebApplication(REACTIVE)`. The same framework-neutral
   `LocalhostGuard`/`BootUiPanels` safety floor is ported to a `WebFilter` binding (`ReactiveLocalhostOnlyFilter`,
   `ReactivePanelAccessFilter`), and Live Activity and HTTP Exchanges get dedicated reactive capture layers reusing the
-  unchanged engine stores underneath. 43 of the 47 panels are available today, and **every action-capable panel that
-  is available behaves identically to the servlet adapter**. Only HTTP Sessions (no reactive analog), the Security
-  advisor and the raw Spring Security panel (a `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as
-  follow-up), and MCP Server stay unavailable, each with a clear reason surfaced through the panel manifest. Ships
-  with a new reference `bootui-spring-webflux-sample-app` (port 8081) and a matching `Dockerfile-webflux` image. See
-  [docs/WEBFLUX-SUPPORT.md](docs/WEBFLUX-SUPPORT.md) (#523, #526).
+  unchanged engine stores underneath, with trace-id correlation stamped at every capture point (HTTP exchange, SQL,
+  exception, security) from the active OpenTelemetry span — requiring `spring.reactor.context-propagation=auto` (now
+  a BootUI-contributed overridable default, since Reactor does not otherwise restore that span across WebFlux's
+  scheduler hops) — matching the Quarkus adapter's correlation fidelity. 43 of the 47 panels are available today, and
+  **every action-capable panel that is available behaves identically to the servlet adapter**. Only HTTP Sessions (no
+  reactive analog), the Security advisor and the raw Spring Security panel (a
+  `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as follow-up), and MCP Server stay unavailable,
+  each with a clear reason surfaced through the panel manifest. Ships with a new reference
+  `bootui-spring-webflux-sample-app` (port 8081) and a matching `Dockerfile-webflux` image. See
+  [docs/WEBFLUX-SUPPORT.md](docs/WEBFLUX-SUPPORT.md) (#523, #526, #536).
 - **OpenTelemetry span enrichment**, so cross-service traces stay readable once BootUI aggregates spans from more
   than one instance (for example a Spring app calling a Quarkus app). A new `BootUiIdentitySpanProcessor` stamps
   `bootui.service`/`bootui.instance` identity attributes on every span at start, and an `OtelSpanEnricher` adds
@@ -98,6 +102,9 @@ loopback enforcement on the Quarkus adapter.
   app (servlet, AOT, native, CRaC), 8081 for WebFlux, 8082 for Quarkus — so all three can run side by side, locally
   or in Docker, without a port clash.
 - **Sample-app integration tests now run Docker-free on H2** instead of requiring a PostgreSQL Testcontainer (#506).
+- **Bumped dependencies:** Quarkus platform to 3.37.1 (#530), the PostgreSQL JDBC driver to 42.7.13 (#533), and the
+  frontend toolchain — Vite to 8.1.3, Vitest to 4.1.10, vue-tsc to 3.3.6, and Prettier to 3.9.4 (#528, #529, #531,
+  #532).
 - **Follow-up Spring Security advisor audit pass**, cross-validated by 5 independent AI models (Claude Opus 4.8,
   GPT-5.5, Gemini 3.1 Pro, GPT-5.3-Codex, Claude Sonnet 5) re-auditing the ruleset shortly after #519, catching two
   remaining false-positive/stale-doc gaps that audit had not covered: `SEC-OAUTH-001` fired a false HIGH violation
