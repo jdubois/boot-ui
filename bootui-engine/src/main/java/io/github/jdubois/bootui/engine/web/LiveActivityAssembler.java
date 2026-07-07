@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.web;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityKpiDto;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
@@ -59,6 +60,7 @@ public final class LiveActivityAssembler {
     private static final String TYPE_SQL = "SQL";
     private static final String TYPE_EXCEPTION = "EXCEPTION";
     private static final String TYPE_SECURITY = "SECURITY";
+    private static final String TYPE_MAIL = "MAIL";
 
     private static final String SEVERITY_OK = "OK";
     private static final String SEVERITY_SLOW = "SLOW";
@@ -92,10 +94,47 @@ public final class LiveActivityAssembler {
             boolean securityAvailable,
             String healthStatus,
             int limit) {
+        return report(
+                requests,
+                sqlEntries,
+                sqlAvailable,
+                sqlUnavailableWarning,
+                exceptionGroups,
+                securityEvents,
+                securityAvailable,
+                healthStatus,
+                limit,
+                null,
+                false);
+    }
+
+    /**
+     * Builds the report by merging the captured signals, additionally including captured outgoing emails
+     * (see {@code EmailCaptureService}) as {@code MAIL} entries. Email entries are not correlated to a
+     * request: BootUI's mail capture happens at the mail-sender boundary, not the HTTP boundary, so there is
+     * no reliable shared trace id to nest them under.
+     *
+     * @param emailMessages already-masked captured emails (newest-first), or {@code null}; ignored unless
+     *     {@code emailAvailable}
+     * @param emailAvailable whether a mail sender is present and the Email Viewer panel is feeding
+     */
+    public LiveActivityReport report(
+            HttpExchangesReport requests,
+            List<SqlTraceEntryDto> sqlEntries,
+            boolean sqlAvailable,
+            String sqlUnavailableWarning,
+            List<ExceptionGroupDto> exceptionGroups,
+            List<SecurityLogEventDto> securityEvents,
+            boolean securityAvailable,
+            String healthStatus,
+            int limit,
+            List<EmailMessageDto> emailMessages,
+            boolean emailAvailable) {
 
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
         List<ExceptionGroupDto> exceptions = exceptionGroups == null ? List.of() : exceptionGroups;
+        List<EmailMessageDto> emails = !emailAvailable || emailMessages == null ? List.of() : emailMessages;
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
 
         List<ActivityEntryDto> entries = new ArrayList<>();
@@ -191,6 +230,10 @@ public final class LiveActivityAssembler {
             entries.add(toSecurityEntry(event, traceIndex.parentRequestId(event.traceId())));
         }
 
+        for (EmailMessageDto message : emails) {
+            entries.add(toEmailEntry(message));
+        }
+
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
         if (limit > 0 && entries.size() > limit) {
             entries = entries.subList(0, limit);
@@ -209,6 +252,9 @@ public final class LiveActivityAssembler {
         }
         if (securityAvailable) {
             sources.add("security");
+        }
+        if (emailAvailable) {
+            sources.add("email");
         }
 
         List<String> warnings = new ArrayList<>();
@@ -315,6 +361,32 @@ public final class LiveActivityAssembler {
                 null,
                 false,
                 parentId,
+                null,
+                false);
+    }
+
+    private ActivityEntryDto toEmailEntry(EmailMessageDto message) {
+        String to = message.to().isEmpty() ? "" : String.join(", ", message.to());
+        String subject = message.subject() == null ? "(no subject)" : message.subject();
+        String detail = to.isBlank() ? null : "to " + to;
+        if (!message.sent()) {
+            detail = (detail == null ? "" : detail + " · ") + "dev-trap: not sent";
+        }
+        return new ActivityEntryDto(
+                message.id(),
+                TYPE_MAIL,
+                message.timestamp(),
+                message.sent() ? SEVERITY_OK : SEVERITY_WARN,
+                subject,
+                detail,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
                 null,
                 false);
     }

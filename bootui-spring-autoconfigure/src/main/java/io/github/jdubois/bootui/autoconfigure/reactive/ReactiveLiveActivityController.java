@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiEngineConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
@@ -12,6 +13,8 @@ import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
+import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HealthNodeDto;
@@ -98,6 +101,7 @@ public class ReactiveLiveActivityController {
     private final ObjectProvider<ReactiveSecurityLogsController> securityLogs;
     private final ObjectProvider<TracesController> traces;
     private final ObjectProvider<HealthController> health;
+    private final ObjectProvider<EmailController> email;
     private final BootUiProperties properties;
     private final BootUiExposure exposure;
     private final ExceptionsService exceptionsService;
@@ -116,6 +120,7 @@ public class ReactiveLiveActivityController {
             ObjectProvider<ReactiveSecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             ObjectProvider<HealthController> health,
+            ObjectProvider<EmailController> email,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             BootUiProperties properties,
@@ -127,6 +132,7 @@ public class ReactiveLiveActivityController {
         this.securityLogs = securityLogs;
         this.traces = traces;
         this.health = health;
+        this.email = email;
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.properties = properties;
@@ -283,6 +289,8 @@ public class ReactiveLiveActivityController {
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS);
         String healthStatus = currentHealthStatus();
+        EmailsReport emailReport = emailReport();
+        boolean emailAvailable = emailReport != null && emailReport.available();
 
         LiveActivityReport report = assembler.report(
                 requests,
@@ -293,7 +301,9 @@ public class ReactiveLiveActivityController {
                 securityEvents(securityAvailable),
                 securityAvailable,
                 healthStatus,
-                limit);
+                limit,
+                emailAvailable ? emailReport.messages() : List.<EmailMessageDto>of(),
+                emailAvailable);
 
         // Adapter-side post-processing over the shared assembler's output, mirroring the Quarkus adapter
         // exactly: a REQUEST entry is profileable here iff its exchange carries a resolvable trace id,
@@ -320,6 +330,14 @@ public class ReactiveLiveActivityController {
             return HttpExchangesReport.unavailable("HTTP exchange repository not available");
         }
         return controller.exchanges(null, null, null, null, null);
+    }
+
+    private EmailsReport emailReport() {
+        if (!properties.isPanelEnabled(BootUiPanels.EMAIL)) {
+            return null;
+        }
+        EmailController controller = email.getIfAvailable();
+        return controller == null ? null : controller.list();
     }
 
     private SqlSnapshot sqlSnapshot() {

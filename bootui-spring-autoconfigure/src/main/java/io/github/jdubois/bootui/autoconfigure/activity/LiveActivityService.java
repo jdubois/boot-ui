@@ -2,12 +2,15 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityKpiDto;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
+import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.core.dto.HealthNodeDto;
@@ -48,6 +51,7 @@ public class LiveActivityService {
     static final String TYPE_SQL = "SQL";
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
+    static final String TYPE_MAIL = "MAIL";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -59,6 +63,7 @@ public class LiveActivityService {
     private final ObjectProvider<ExceptionsController> exceptions;
     private final ObjectProvider<SecurityLogsController> securityLogs;
     private final ObjectProvider<HealthController> health;
+    private final ObjectProvider<EmailController> email;
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
     private final BootUiProperties properties;
@@ -69,6 +74,7 @@ public class LiveActivityService {
             ObjectProvider<ExceptionsController> exceptions,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<HealthController> health,
+            ObjectProvider<EmailController> email,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             BootUiProperties properties) {
@@ -77,6 +83,7 @@ public class LiveActivityService {
         this.exceptions = exceptions;
         this.securityLogs = securityLogs;
         this.health = health;
+        this.email = email;
         this.requestCorrelations = requestCorrelations;
         this.securityCorrelations = securityCorrelations;
         this.properties = properties;
@@ -99,6 +106,7 @@ public class LiveActivityService {
         SqlTraceReport sql = loadSql(sources);
         ExceptionsReport exceptionsReport = loadExceptions(sources);
         SecurityLogsReport security = loadSecurity(sources);
+        EmailsReport emails = loadEmail(sources);
 
         List<RequestAnchor> anchors = buildAnchors(requests);
         Map<String, RequestAnchor> anchorsById = new HashMap<>();
@@ -142,6 +150,11 @@ public class LiveActivityService {
                     securedByRequest.putIfAbsent(parentId, principal);
                 }
                 all.add(toSecurityEntry(event, parentId));
+            }
+        }
+        if (emails != null) {
+            for (EmailMessageDto message : emails.messages()) {
+                all.add(toEmailEntry(message));
             }
         }
         if (requests != null) {
@@ -251,6 +264,22 @@ public class LiveActivityService {
             return null;
         }
         sources.add("Security Logs");
+        return report;
+    }
+
+    private EmailsReport loadEmail(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.EMAIL)) {
+            return null;
+        }
+        EmailController controller = email.getIfAvailable();
+        if (controller == null) {
+            return null;
+        }
+        EmailsReport report = controller.list();
+        if (!report.available()) {
+            return null;
+        }
+        sources.add("Email");
         return report;
     }
 
@@ -369,6 +398,32 @@ public class LiveActivityService {
                 null,
                 false,
                 parentId,
+                null,
+                false);
+    }
+
+    private ActivityEntryDto toEmailEntry(EmailMessageDto message) {
+        String to = message.to().isEmpty() ? "" : String.join(", ", message.to());
+        String subject = message.subject() == null ? "(no subject)" : message.subject();
+        String detail = to.isBlank() ? null : "to " + to;
+        if (!message.sent()) {
+            detail = (detail == null ? "" : detail + " · ") + "dev-trap: not sent";
+        }
+        return new ActivityEntryDto(
+                message.id(),
+                TYPE_MAIL,
+                message.timestamp(),
+                message.sent() ? SEVERITY_OK : SEVERITY_WARN,
+                subject,
+                detail,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
                 null,
                 false);
     }

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 import io.github.jdubois.bootui.autoconfigure.BootUiEngineConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
@@ -90,6 +91,7 @@ public class LiveActivityController {
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             ObjectProvider<HealthController> health,
+            ObjectProvider<EmailController> email,
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
             ObjectProvider<ExceptionStore> exceptionStore,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
@@ -104,6 +106,7 @@ public class LiveActivityController {
                 exceptions,
                 securityLogs,
                 health,
+                email,
                 requestCorrelations,
                 securityCorrelations,
                 properties);

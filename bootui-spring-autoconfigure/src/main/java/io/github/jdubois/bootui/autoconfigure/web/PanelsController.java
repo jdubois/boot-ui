@@ -185,6 +185,7 @@ public class PanelsController {
             case BootUiPanels.DATABASE_CONNECTION_POOLS -> availability(hikariAvailable(), hikariUnavailableReason());
             case BootUiPanels.FLYWAY -> availability(flywayAvailable(), flywayUnavailableReason());
             case BootUiPanels.LIQUIBASE -> availability(liquibaseAvailable(), liquibaseUnavailableReason());
+            case BootUiPanels.EMAIL -> availability(emailAvailable(), "No JavaMailSender bean is available");
             case BootUiPanels.SECURITY -> availability(securityAvailable(), securityUnavailableReason());
             case BootUiPanels.AI -> availability(aiAvailable(), aiUnavailableReason());
             case BootUiPanels.COPILOT ->
@@ -351,6 +352,11 @@ public class PanelsController {
             return "Liquibase is not on the classpath";
         }
         return "No Liquibase beans are available";
+    }
+
+    private boolean emailAvailable() {
+        return classPresent("org.springframework.mail.javamail.JavaMailSender")
+                && beanPresent("org.springframework.mail.javamail.JavaMailSender");
     }
 
     private boolean beanPresent(String className) {

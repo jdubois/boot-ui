@@ -31,6 +31,8 @@ import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
+import io.github.jdubois.bootui.engine.email.EmailStore;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
@@ -335,6 +337,15 @@ public class BootUiEngineConfiguration {
         SpringConfigProvider provider = new SpringConfigProvider(
                 environment, new ConfigMetadataCatalog(BootUiEngineConfiguration.class.getClassLoader()));
         return new ConfigService(provider, exposure);
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    EmailCaptureService bootUiEmailCaptureService(BootUiProperties properties, BootUiExposure exposure) {
+        BootUiProperties.Email emailProperties = properties.getEmail();
+        return new EmailCaptureService(
+                new EmailStore(emailProperties.getMaxEntries()), exposure, emailProperties.isDevTrap());
     }
 
     @Bean

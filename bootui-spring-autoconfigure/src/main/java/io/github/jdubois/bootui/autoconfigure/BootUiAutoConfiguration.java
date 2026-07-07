@@ -16,6 +16,8 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityFilter;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityTracker;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
+import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpController;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpTools;
@@ -149,6 +151,7 @@ import tools.jackson.databind.ObjectMapper;
     GraalVmController.class,
     CracController.class,
     LiveActivityController.class,
+    EmailController.class,
     SqlTraceController.class,
     ThreadDumpController.class,
     MemoryController.class,
@@ -577,6 +580,23 @@ public class BootUiAutoConfiguration {
     static SqlTraceDataSourceBeanPostProcessor bootUiSqlTraceDataSourceBeanPostProcessor(
             org.springframework.beans.factory.ObjectProvider<SqlTraceRecorder> recorderProvider) {
         return new SqlTraceDataSourceBeanPostProcessor(recorderProvider);
+    }
+
+    /**
+     * Wraps every {@link org.springframework.mail.javamail.JavaMailSender} bean so outgoing email is
+     * captured for the Email Viewer panel. Guarded by {@code @ConditionalOnClass} (rather than being
+     * unconditional like the SQL-trace post-processor above) because {@code JavaMailSender} comes from
+     * the optional {@code spring-boot-starter-mail} dependency, which a host application may not have
+     * on its classpath.
+     */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+            name = "org.springframework.mail.javamail.JavaMailSender")
+    static BootUiMailSenderBeanPostProcessor bootUiMailSenderBeanPostProcessor(
+            org.springframework.beans.factory.ObjectProvider<
+                            io.github.jdubois.bootui.engine.email.EmailCaptureService>
+                    captureServiceProvider) {
+        return new BootUiMailSenderBeanPostProcessor(captureServiceProvider);
     }
 
     @Bean

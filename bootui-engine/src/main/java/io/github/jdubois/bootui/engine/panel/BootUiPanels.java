@@ -60,6 +60,7 @@ public final class BootUiPanels {
     public static final String SQL_TRACE = "sql-trace";
     public static final String MCP_SERVER = "mcp-server";
     public static final String ACTIVITY = "activity";
+    public static final String EMAIL = "email";
 
     private static final List<Panel> PANELS = List.of(
             // Overview registers no API prefix on purpose: GET /bootui/api/overview is the shell's
@@ -113,7 +114,8 @@ public final class BootUiPanels {
             new Panel(CRAC, "CRaC", true, "/crac"),
             new Panel(SQL_TRACE, "SQL Trace", true, "/sql-trace"),
             new Panel(MCP_SERVER, "MCP Server", true, "/mcp-server"),
-            new Panel(ACTIVITY, "Live Activity", true, "/activity"));
+            new Panel(ACTIVITY, "Live Activity", true, "/activity"),
+            new Panel(EMAIL, "Email", true, "/email"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));
