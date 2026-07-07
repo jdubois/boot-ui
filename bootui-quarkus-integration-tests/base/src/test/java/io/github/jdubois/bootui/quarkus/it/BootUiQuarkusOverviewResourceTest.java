@@ -68,9 +68,9 @@ class BootUiQuarkusOverviewResourceTest {
         assertThat(activation.path("reason").asText())
                 .as("activation reason is populated")
                 .isNotBlank();
-        assertThat(activation.path("localhostOnly").asBoolean(true))
-                .as("Quarkus honestly reports localhost-only filtering is not yet fully enforced")
-                .isFalse();
+        assertThat(activation.path("localhostOnly").asBoolean(false))
+                .as("BootUiQuarkusSafetyFilter enforces loopback-source trust unless allow-non-localhost is set")
+                .isTrue();
     }
 
     @Test

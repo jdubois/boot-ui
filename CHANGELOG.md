@@ -7,8 +7,42 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-07
+
+Feature release headlined by **Spring WebFlux support**, a third first-class BootUI adapter alongside Spring MVC and
+Quarkus, and **OpenTelemetry span enrichment** that keeps cross-service traces readable when the Traces panel
+aggregates spans from multiple BootUI-instrumented instances. The rest of the release is a second, deeper round of
+the multi-model advisor audit that started in 1.9.0 — this pass covers the remaining eight rule sets (on top of the
+Security and Hibernate audits below), fixing real bugs and growing most of them. Also corrects a stale claim about
+loopback enforcement on the Quarkus adapter.
+
 ### Added
 
+- **Spring WebFlux (reactive) support** — BootUI now runs on Netty/`DispatcherHandler` Spring Boot 4 applications, not
+  just servlet ones. A new drop-in `bootui-spring-boot-starter-reactive` starter and `BootUiReactiveAutoConfiguration`
+  serve the same shared engine, the same Vue UI, and the same `/bootui/api/**` contract as the servlet adapter, gated
+  by the same activation rule plus `@ConditionalOnWebApplication(REACTIVE)`. The same framework-neutral
+  `LocalhostGuard`/`BootUiPanels` safety floor is ported to a `WebFilter` binding (`ReactiveLocalhostOnlyFilter`,
+  `ReactivePanelAccessFilter`), and Live Activity and HTTP Exchanges get dedicated reactive capture layers reusing the
+  unchanged engine stores underneath, with trace-id correlation stamped at every capture point (HTTP exchange, SQL,
+  exception, security) from the active OpenTelemetry span — requiring `spring.reactor.context-propagation=auto` (now
+  a BootUI-contributed overridable default, since Reactor does not otherwise restore that span across WebFlux's
+  scheduler hops) — matching the Quarkus adapter's correlation fidelity. 43 of the 47 panels are available today, and
+  **every action-capable panel that is available behaves identically to the servlet adapter**. Only HTTP Sessions (no
+  reactive analog), the Security advisor and the raw Spring Security panel (a
+  `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as follow-up), and MCP Server stay unavailable,
+  each with a clear reason surfaced through the panel manifest. Ships with a new reference
+  `bootui-spring-webflux-sample-app` (port 8081) and a matching `Dockerfile-webflux` image. See
+  [docs/WEBFLUX-SUPPORT.md](docs/WEBFLUX-SUPPORT.md) (#523, #526, #536).
+- **OpenTelemetry span enrichment**, so cross-service traces stay readable once BootUI aggregates spans from more
+  than one instance (for example a Spring app calling a Quarkus app). A new `BootUiIdentitySpanProcessor` stamps
+  `bootui.service`/`bootui.instance` identity attributes on every span at start, and an `OtelSpanEnricher` adds
+  `bootui.sql.queries`/`bootui.exception` depth attributes to the active span from the existing SQL Trace and
+  Exceptions capture hooks — both behind a framework-neutral `SpanEnricher` engine seam (a no-op default) and a new
+  `bootui.telemetry.enrich` toggle, wired on both Spring and Quarkus. The Traces panel's request drawer now surfaces
+  the enrichment with an indicator, and the Spring sample app gained a demo button that calls the Quarkus sample app
+  so the resulting merged, cross-service trace can be seen live. See [docs/SPECIFICATION.md](docs/SPECIFICATION.md)
+  §5.14.3 (#525).
 - **Two new Spring Security advisor rules**, from the same follow-up audit described under Changed below:
   `SEC-AUTH-009` (Spring Boot's auto-generated default user/password must not be relied on in production — the
   fully-default case where no `UserDetailsService`/`AuthenticationProvider` bean and no `spring.security.user.*`
@@ -28,6 +62,49 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Extended the multi-model advisor audit** (5 independent AI models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro,
+  GPT-5.3-Codex, Claude Sonnet 5 — each re-verified against primary sources before implementation) to the remaining
+  eight rule sets, fixing real bugs and adding coverage:
+  - **Architecture** (38 → 39 rules): removed a rule that double-counted violations two other rules already caught,
+    fixed CDI/`@Inject` logger and `System.exit` false positives, extended the test-framework allowlist to Quarkus,
+    and added checks for unmanaged `new Thread(...)` construction and message-less assertions (#509).
+  - **Memory** (32 → 35 rules): corrected stale G1/thread-stack/Serial-GC rationale and thresholds against current
+    OpenJDK ergonomics and cgroup documentation, and added 3 new leak-detection checks — a GC pause latency outlier,
+    buffer-pool growth-without-release, and old-generation trending-upward rule (#510).
+  - **REST API** (47 → 51 rules): recognizes Mutiny `Uni`/`Multi` and JAX-RS `ExceptionMapper`s at parity with
+    Spring's reactive/exception handling, fixes several PATCH/catch-all/pagination false positives, and adds
+    `Idempotency-Key`, `@Deprecated`+OpenAPI, and `Retry-After` checks (#512).
+  - **Pentesting** (70 → 78 rules): fixed a false positive where BootUI's own Actuator convenience defaults were
+    flagged as a misconfiguration, stopped a false "PASS" on Quarkus for checks that can only ever run against Spring
+    metadata (now correctly reported `NOT_APPLICABLE`), and added 6 new header/cookie hardening checks (#513).
+  - **Vulnerabilities** (no static rule catalogue): corrected OSV package-level severity precedence, added full
+    `next_page_token` pagination (previously silently truncated), added FIRST.org EPSS exploit-probability
+    enrichment, and an explicit `fixAvailable` signal (#514).
+  - **Spring Application advisor** (37 rules, unchanged): corrected a stale `RemovedOrRenamedPropertyRule` claim,
+    expanded its legacy-property table from 5 to 41 verified entries, and fixed an async-executor rule that almost
+    never fired against Spring Boot's real default configuration (#515).
+  - **GraalVM** (21 → 23 rules): fixed 11 stale documentation links and a fat-jar/uber-jar blind spot in the
+    dependency scanner, and added checks for `Unsafe.allocateInstance` and dynamic/model MBeans (#516).
+  - **CRaC** (11 → 14 rules, Spring-only): fixed a self-defeating gap where a resource's own
+    `beforeCheckpoint`/`afterRestore` callbacks re-triggered the very leak they were meant to fix, broadened the
+    random/secret scans to instance fields (not just static ones), and added scheduling, HTTP-client, and
+    CRaC-runtime-inventory checks (#518).
+  - **Spring Security** (52 → 57 rules, before the follow-up pass below): removed a rule for a class deleted in
+    Spring Security 6, fixed four Actuator-exposure rules to honor `.exclude`, a CSP wildcard/omission bug, and
+    Spring Security 7's `PathPatternRequestMatcher` format change, and added 6 new rules including matcher-shadowing
+    detection (#519).
+- **Collapsed duplicate self-traffic classification logic** on both adapters: capture (span export, OTLP receiver)
+  and transform (Traces, Metrics, Cache, and other monitoring panels) each built their own
+  `SelfTelemetryClassifier`, and capture always hardcoded the default `/bootui` path while transform correctly read
+  the operator-configured `bootui.path` — so customizing that property made the two silently disagree on what counts
+  as BootUI's own traffic. Both now share one instance per adapter (#508).
+- **Each sample app, and its Docker image, now runs on its own dedicated port** — 8080 for the classic Spring Boot
+  app (servlet, AOT, native, CRaC), 8081 for WebFlux, 8082 for Quarkus — so all three can run side by side, locally
+  or in Docker, without a port clash.
+- **Sample-app integration tests now run Docker-free on H2** instead of requiring a PostgreSQL Testcontainer (#506).
+- **Bumped dependencies:** Quarkus platform to 3.37.1 (#530), the PostgreSQL JDBC driver to 42.7.13 (#533), and the
+  frontend toolchain — Vite to 8.1.3, Vitest to 4.1.10, vue-tsc to 3.3.6, and Prettier to 3.9.4 (#528, #529, #531,
+  #532).
 - **Follow-up Spring Security advisor audit pass**, cross-validated by 5 independent AI models (Claude Opus 4.8,
   GPT-5.5, Gemini 3.1 Pro, GPT-5.3-Codex, Claude Sonnet 5) re-auditing the ruleset shortly after #519, catching two
   remaining false-positive/stale-doc gaps that audit had not covered: `SEC-OAUTH-001` fired a false HIGH violation
@@ -94,6 +171,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Corrected a stale, overly pessimistic claim in the Quarkus adapter's `GET /bootui/api/overview` endpoint.**
+  `activation.localhostOnly` was hardcoded to `false`, with a warning claiming loopback-source trust was "not yet
+  fully enforced" on Quarkus reads. This was inaccurate: `BootUiQuarkusSafetyFilter` has enforced the full shared
+  `LocalhostGuard` policy — loopback-source trust, the `Host` allow-list, and cross-site-write rejection — over the
+  *whole* `/bootui` surface, including plain reads, since Quarkus support first shipped; only writes ever needed the
+  extra CSRF-style check. The field now mirrors the Spring adapter's semantics (`true` unless
+  `bootui.allow-non-localhost=true`) and the misleading warning was removed.
 - **Quarkus Security advisor: removed two dead-property rules, repurposed a third, and fixed several logic bugs**,
   found via a 5-model research synthesis independently re-verified against live Quarkus/SmallRye 3.33 source (grew from
   43 to 45 rules). `QS-AUTH-011` (JDBC bcrypt work-factor) and `QS-CORS-004` (unanchored CORS regex) were retired
