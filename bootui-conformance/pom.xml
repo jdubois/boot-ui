@@ -35,9 +35,13 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>
         </dependency>
+        <!-- The Spring Boot BOM manages this at 2.21.4, vulnerable to GHSA-5jmj-h7xm-6q6v (case-insensitive
+             deserialization bypasses per-property @JsonIgnoreProperties, fixed upstream in 2.21.5). Pin it
+             explicitly until the BOM catches up. -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+            <version>2.21.5</version>
         </dependency>
         <dependency>
             <groupId>org.assertj</groupId>
