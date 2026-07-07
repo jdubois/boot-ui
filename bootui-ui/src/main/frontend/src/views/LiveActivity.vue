@@ -23,7 +23,7 @@ import {
   nestEntries
 } from '../utils/activityStream.js'
 
-const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY']
+const TYPES = ['REQUEST', 'SQL', 'REST', 'EXCEPTION', 'SECURITY']
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
 const FILTERS_STORAGE_KEY = 'bootui.activity.filters'
 const PERSISTENCE_DOCS_URL = 'https://www.julien-dubois.com/boot-ui/properties#live-activity-durable-persistence'
@@ -304,6 +304,7 @@ function typeIcon(type) {
     {
       REQUEST: 'bi-arrow-left-right',
       SQL: 'bi-database',
+      REST: 'bi-globe2',
       EXCEPTION: 'bi-exclamation-octagon',
       SECURITY: 'bi-shield-lock'
     }[type] || 'bi-dot'

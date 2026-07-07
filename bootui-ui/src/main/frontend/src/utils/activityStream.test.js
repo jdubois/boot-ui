@@ -153,6 +153,18 @@ describe('deepLink', () => {
     })
   })
 
+  it('links a REST entry to REST Client Trace filtered by path', () => {
+    expect(deepLink({type: 'REST', path: '/api/orders', summary: 'GET /api/orders → 200'})).toEqual({
+      path: '/rest-client-trace',
+      query: {q: '/api/orders'},
+      label: 'Open in REST Client Trace'
+    })
+  })
+
+  it('returns null for a REST entry without a path', () => {
+    expect(deepLink({type: 'REST', summary: 'GET → 200'})).toBeNull()
+  })
+
   it('returns null for security entries and unknown types', () => {
     expect(deepLink({type: 'SECURITY', summary: 'AUTHENTICATION_FAILURE'})).toBeNull()
     expect(deepLink(null)).toBeNull()

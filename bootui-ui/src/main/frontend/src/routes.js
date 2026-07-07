@@ -9,6 +9,7 @@ const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vue')
 const SqlTrace = () => import('./views/SqlTrace.vue')
+const RestClientTrace = () => import('./views/RestClientTrace.vue')
 const Data = () => import('./views/Data.vue')
 const Hibernate = () => import('./views/Hibernate.vue')
 const Flyway = () => import('./views/Flyway.vue')
@@ -687,6 +688,27 @@ export const routes = [
       title: 'HTTP Probe',
       shortcut: 'hp',
       keywords: ['curl', 'request', 'api test', 'send request', 'http client', 'ping']
+    }
+  },
+  {
+    path: '/rest-client-trace',
+    name: 'rest-client-trace',
+    component: RestClientTrace,
+    meta: {
+      group: groups.diagnostics,
+      icon: 'bi-globe2',
+      title: 'REST Client Trace',
+      shortcut: 'rc',
+      keywords: [
+        'restclient',
+        'resttemplate',
+        'webclient',
+        'outbound',
+        'outbound calls',
+        'http client',
+        'downstream',
+        'chatty calls'
+      ]
     }
   },
   {
