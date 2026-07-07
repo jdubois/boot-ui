@@ -277,6 +277,7 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveSqlTraceController.class.getName(),
             ReactiveSecurityLogsController.class.getName(),
             ReactiveLiveActivityController.class.getName(),
+            EmailController.class.getName(),
             ReactiveCopilotController.class.getName(),
             ReactiveClaudeCodeController.class.getName());
 

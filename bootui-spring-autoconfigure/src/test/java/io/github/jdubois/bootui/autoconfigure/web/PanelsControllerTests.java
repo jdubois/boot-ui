@@ -70,7 +70,8 @@ class PanelsControllerTests {
             BootUiPanels.CRAC,
             BootUiPanels.SQL_TRACE,
             BootUiPanels.MCP_SERVER,
-            BootUiPanels.ACTIVITY);
+            BootUiPanels.ACTIVITY,
+            BootUiPanels.EMAIL);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {

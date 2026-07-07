@@ -185,6 +185,7 @@ public class BootUiAutoConfiguration {
             GraalVmController.class.getName(),
             CracController.class.getName(),
             LiveActivityController.class.getName(),
+            EmailController.class.getName(),
             SqlTraceController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),

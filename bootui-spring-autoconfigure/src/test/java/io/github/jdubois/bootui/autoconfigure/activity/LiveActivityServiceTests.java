@@ -377,6 +377,7 @@ class LiveActivityServiceTests {
                 provider(exceptions),
                 provider(security),
                 provider(health),
+                provider(null),
                 provider(requestCorrelations),
                 provider(securityCorrelations),
                 properties);

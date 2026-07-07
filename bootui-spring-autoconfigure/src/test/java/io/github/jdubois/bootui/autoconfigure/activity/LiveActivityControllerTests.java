@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
@@ -331,6 +332,7 @@ class LiveActivityControllerTests {
                 empty(ExceptionsController.class),
                 empty(SecurityLogsController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 empty(RequestCorrelationRegistry.class),
                 empty(SecurityEventCorrelationRegistry.class),
                 properties);
@@ -433,6 +435,7 @@ class LiveActivityControllerTests {
                 empty(SecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 recorder,
                 exceptionStore,
                 empty(RequestCorrelationRegistry.class),

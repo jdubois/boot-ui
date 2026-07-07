@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
@@ -272,6 +273,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -317,6 +319,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -341,6 +344,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -365,6 +369,7 @@ class ReactiveLiveActivityControllerTests {
                 provider(securityLogs),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -388,6 +393,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 provider(health),
+                empty(EmailController.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -412,6 +418,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -443,6 +450,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -473,6 +481,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -593,6 +602,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 activityStore,
                 persistenceSettings,
                 properties,

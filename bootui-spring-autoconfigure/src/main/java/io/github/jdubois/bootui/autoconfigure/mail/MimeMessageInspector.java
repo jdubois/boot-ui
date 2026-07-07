@@ -38,6 +38,16 @@ final class MimeMessageInspector {
             List<CapturedAttachment> attachments) {}
 
     static Parsed parse(MimeMessage message) {
+        // A freshly built MimeMessage/MimeBodyPart only exposes an accurate Content-Type via
+        // getContentType()/isMimeType() once its headers have been derived from the underlying
+        // DataHandler, which normally only happens as a side effect of Transport.send() (or an explicit
+        // saveChanges() call). Since we capture before the real send, force that derivation now so the
+        // walk below sees correct MIME types; this is idempotent and harmless to call again later.
+        try {
+            message.saveChanges();
+        } catch (Exception ex) {
+            log.debug("BootUI could not normalize a captured email's headers before parsing", ex);
+        }
         String from = addressesToString(safeAddresses(message::getFrom));
         List<String> to = addressListToString(safeAddresses(() -> message.getRecipients(Message.RecipientType.TO)));
         List<String> cc = addressListToString(safeAddresses(() -> message.getRecipients(Message.RecipientType.CC)));
@@ -54,7 +64,11 @@ final class MimeMessageInspector {
     }
 
     private static void walk(Part part, Bodies bodies) throws Exception {
-        if (part.isMimeType("multipart/*")) {
+        // A message's top-level Content-Type header is only guaranteed accurate after
+        // MimeMessage.saveChanges() has run, which callers may not have done yet at capture time
+        // (it normally happens later, inside the real send). So don't rely on isMimeType("multipart/*")
+        // alone; fall back to inspecting the actual content object.
+        if (part.isMimeType("multipart/*") || part.getContent() instanceof Multipart) {
             Object content = part.getContent();
             if (content instanceof Multipart multipart) {
                 for (int i = 0; i < multipart.getCount(); i++) {
