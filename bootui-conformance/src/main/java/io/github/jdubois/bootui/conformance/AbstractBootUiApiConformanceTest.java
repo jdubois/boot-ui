@@ -74,6 +74,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             "devtools",
             "github",
             "mcp-server",
+            "email",
             "activity");
 
     /** Base URL of the booted app under test, e.g. {@code http://localhost:54321} (no trailing slash). */
