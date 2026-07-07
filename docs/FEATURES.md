@@ -256,6 +256,29 @@ explicit `POST /bootui/api/github/refresh` action does (gated by `bootui.github.
 
 ![BootUI GitHub panel](./images/bootui-github.webp)
 
+### Constellation
+
+The Constellation panel sits in the Overview group and gives you a single, live picture of the local BootUI instances
+you're running alongside this one — an API gateway, a couple of domain services, a BFF — without introducing any
+persistent server, database, or orchestration. It stays entirely inside BootUI's local-only philosophy: nothing crosses
+a network boundary, and nothing is stored between page loads.
+
+Peers are named explicitly via `bootui.constellation.peers` (a list of loopback URLs, e.g.
+`http://localhost:8081,http://localhost:8082`) and the panel is off by default — set `bootui.constellation.enabled=true`
+to turn it on. There is no automatic port scanning: the developer names their own local services. Each poll fetches
+every configured peer's own already-existing `GET /bootui/api/overview` and `GET /bootui/api/panels` endpoints
+concurrently, bounded by a per-peer request timeout (`bootui.constellation.request-timeout`, default 2 seconds) — no new
+wire contract is introduced, and BootUI never calls anything beyond `localhost`/`127.0.0.1`/`::1`.
+
+Each peer renders as a card showing its reachability, application name, framework platform (Spring Boot or Quarkus,
+from the same `platform` discriminator the panel manifest already carries), framework version, Java version, and active
+profiles. A peer that is unreachable, isn't a BootUI instance, or runs an older BootUI version missing a field still
+renders as a node — reachability and an error message, never a broken page — matching BootUI's "never surprise the
+user" design principle.
+
+Constellation is currently available on the Spring adapter only; Quarkus support is tracked for a future release (see
+[docs/QUARKUS-SUPPORT.md](QUARKUS-SUPPORT.md)).
+
 ## Advisors
 
 BootUI's advisors run explicit, on-demand rule-based scans and surface severity-ranked findings, feeding the weighted

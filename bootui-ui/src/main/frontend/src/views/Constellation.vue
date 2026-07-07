@@ -76,10 +76,7 @@ function peerHostLabel(url) {
 
       <div class="row g-3">
         <div v-for="peer in peers" :key="peer.url" class="col-md-6 col-xl-4">
-          <div
-            class="card h-100 shadow-sm"
-            :class="peer.reachable ? 'border-success-subtle' : 'border-danger-subtle'"
-          >
+          <div class="card h-100 shadow-sm" :class="peer.reachable ? 'border-success-subtle' : 'border-danger-subtle'">
             <div class="card-body">
               <div class="d-flex align-items-center justify-content-between mb-2">
                 <span class="badge" :class="peer.reachable ? 'text-bg-success' : 'text-bg-danger'">

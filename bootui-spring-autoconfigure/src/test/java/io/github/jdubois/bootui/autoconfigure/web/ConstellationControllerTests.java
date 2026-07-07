@@ -17,7 +17,8 @@ class ConstellationControllerTests {
 
     @Test
     void constellationIsDisabledByDefault() throws Exception {
-        MockMvc mvc = standaloneSetup(new ConstellationController(new BootUiProperties())).build();
+        MockMvc mvc = standaloneSetup(new ConstellationController(new BootUiProperties()))
+                .build();
 
         mvc.perform(get("/bootui/api/constellation"))
                 .andExpect(status().isOk())
@@ -44,8 +45,8 @@ class ConstellationControllerTests {
         ConstellationService service = ConstellationService.using(
                 List.of("http://localhost:8081"),
                 Duration.ofSeconds(1),
-                (url, timeout) ->
-                        new PeerSnapshot(url, true, "orders-service", "spring-boot", "4.1.0", "17", List.of("dev"), null));
+                (url, timeout) -> new PeerSnapshot(
+                        url, true, "orders-service", "spring-boot", "4.1.0", "17", List.of("dev"), null));
 
         MockMvc mvc = standaloneSetup(new ConstellationController(service)).build();
 

@@ -215,6 +215,35 @@ Acceptance criteria:
   endpoints produce stable unavailable states instead of raw errors.
 - Tokens, authorization headers, response bodies, and subprocess stderr are never exposed to the browser.
 
+### 5.1.2 Constellation
+
+Purpose: give a live, local, zero-infrastructure picture of the other BootUI instances running alongside this one (an
+API gateway, domain services, a BFF), directly under the Overview panel.
+
+Data sources:
+
+- Configured peer BootUI base URLs (`bootui.constellation.peers`), restricted to loopback hosts
+  (`localhost`/`127.0.0.1`/`::1`).
+- Each peer's own already-existing `GET /bootui/api/overview` and `GET /bootui/api/panels` endpoints — no new wire
+  contract.
+
+Features:
+
+- Show one node per configured peer with reachability, application name, framework platform (Spring Boot/Quarkus),
+  framework version, Java version, and active profiles.
+- Poll every peer concurrently, bounded by a per-peer request timeout.
+- Degrade gracefully: an unreachable peer, a non-BootUI service, or an older BootUI instance missing a field renders
+  as an unknown/greyed node with an error message, never a broken page.
+
+Acceptance criteria:
+
+- Off by default (`bootui.constellation.enabled=false`); no peer is ever contacted unless explicitly enabled with at
+  least one configured peer.
+- Every outbound call is same-machine loopback traffic; non-loopback peer URLs are rejected before any request is made.
+- No persistent state, database, or message bus is introduced; each `GET /bootui/api/constellation` call is a fresh,
+  best-effort read.
+- Available on the Spring adapter; Quarkus support is tracked separately (see `docs/QUARKUS-SUPPORT.md`).
+
 ### 5.2 Beans Explorer
 
 Purpose: answer "Which beans exist, and where did they come from?"
@@ -1301,6 +1330,7 @@ Initial endpoints:
 | `/bootui/api/panels`                         | GET    | Panel availability, enabled state, and read-only state                                 |
 | `/bootui/api/github`                         | GET    | Local GitHub origin metadata and the latest cached dashboard snapshot                  |
 | `/bootui/api/github/refresh`                 | POST   | Explicit bounded GitHub API refresh for project metrics and quotas                     |
+| `/bootui/api/constellation`                  | GET    | Poll configured loopback peers for identity, platform, and reachability                |
 | `/bootui/api/beans`                          | GET    | Searchable bean summary                                                                |
 | `/bootui/api/conditions`                     | GET    | Auto-configuration conditions                                                          |
 | `/bootui/api/config`                         | GET    | Effective configuration values                                                         |

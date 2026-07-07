@@ -24,9 +24,7 @@ class ConstellationHttpPeerClientTests {
     @Test
     void fetchReadsIdentityFromOverviewAndPlatformFromPanels() throws Exception {
         server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        json(
-                "/bootui/api/overview",
-                """
+        json("/bootui/api/overview", """
                 {"applicationName":"orders-service","frameworkName":"Spring Boot","frameworkVersion":"4.1.0",
                  "javaVersion":"17","activeProfiles":["dev"]}
                 """);
@@ -50,9 +48,7 @@ class ConstellationHttpPeerClientTests {
     @Test
     void fetchDegradesGracefullyWhenPanelsEndpointIsMissingOrOlder() throws Exception {
         server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        json(
-                "/bootui/api/overview",
-                """
+        json("/bootui/api/overview", """
                 {"applicationName":"legacy-service","frameworkName":"Spring Boot","frameworkVersion":"3.9.0",
                  "javaVersion":"17","activeProfiles":[]}
                 """);

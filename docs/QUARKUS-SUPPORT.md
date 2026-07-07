@@ -478,6 +478,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | AI Usage            | as-is       | Port    | TelemetryStore (OTLP)            | —                                           |
 | Traces              | as-is       | Port    | OTLP receiver + TelemetryStore   | —                                           |
 | GitHub              | as-is       | Port    | GitHub `HttpClient` service      | —                                           |
+| Constellation       | not yet     | Port    | Constellation aggregator (`ConstellationService`, `PeerClient` SPI) | not yet ported: needs a Quarkus `PeerClient` (JAX-RS client) implementation |
 | Copilot             | as-is       | Port    | CLI log reader                   | —                                           |
 | Claude Code         | as-is       | Port    | CLI log reader                   | —                                           |
 | MCP Server          | as-is       | Port    | BootUI MCP server                | —                                           |

@@ -59,7 +59,8 @@ final class ConstellationHttpPeerClient implements PeerClient {
                 Thread.currentThread().interrupt();
             }
             return PeerSnapshot.unreachable(
-                    peerUrl, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                    peerUrl,
+                    e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
         }
     }
 
@@ -116,7 +117,9 @@ final class ConstellationHttpPeerClient implements PeerClient {
     private boolean isLoopbackUrl(String url) {
         try {
             String host = URI.create(url).getHost();
-            return "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "[::1]".equals(host)
+            return "localhost".equalsIgnoreCase(host)
+                    || "127.0.0.1".equals(host)
+                    || "[::1]".equals(host)
                     || "::1".equals(host);
         } catch (RuntimeException e) {
             return false;

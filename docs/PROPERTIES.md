@@ -187,6 +187,16 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | `bootui.github.max-api-calls`          | `17`             | Maximum GitHub API requests issued by one refresh.                                   |
 | `bootui.github.allowed-api-hosts`      | `api.github.com` | Allowed GitHub API hosts. Add a GitHub Enterprise host to enable enterprise remotes. |
 
+### Constellation
+
+| Property                                 | Default | Description                                                                            |
+| ----------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
+| `bootui.panels.constellation.enabled`     | `true`  | Show the Constellation panel (still requires `bootui.constellation.enabled` below).    |
+| `bootui.panels.constellation.read-only`   | `false` | Reserved for parity with other panels; Constellation has no write actions.            |
+| `bootui.constellation.enabled`            | `false` | Turn on peer polling. Off by default so no outbound calls happen unless opted in.      |
+| `bootui.constellation.peers`              | (empty) | Comma-separated list of loopback peer BootUI base URLs, e.g. `http://localhost:8081`. |
+| `bootui.constellation.request-timeout`    | `2s`    | Timeout for each peer's `/bootui/api/overview` and `/bootui/api/panels` request.       |
+
 ### Configuration
 
 | Property                         | Default                                 | Description                                                            |

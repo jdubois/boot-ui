@@ -255,8 +255,10 @@ class PanelsControllerTests {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath(panelPath(BootUiPanels.CONSTELLATION) + ".available")
                             .value(false))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.CONSTELLATION) + ".unavailableReason")
-                            .value("Constellation view is disabled. Set bootui.constellation.enabled=true to enable it."));
+                    .andExpect(
+                            jsonPath(panelPath(BootUiPanels.CONSTELLATION) + ".unavailableReason")
+                                    .value(
+                                            "Constellation view is disabled. Set bootui.constellation.enabled=true to enable it."));
         }
     }
 
@@ -272,8 +274,8 @@ class PanelsControllerTests {
 
             mvc.perform(get("/bootui/api/panels"))
                     .andExpect(status().isOk())
-                    .andExpect(
-                            jsonPath(panelPath(BootUiPanels.CONSTELLATION) + ".available").value(true));
+                    .andExpect(jsonPath(panelPath(BootUiPanels.CONSTELLATION) + ".available")
+                            .value(true));
         }
     }
 

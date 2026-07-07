@@ -34,8 +34,9 @@ public final class ConstellationService {
         this.peerUrls = List.copyOf(peerUrls);
         this.requestTimeout = requestTimeout;
         this.peerClient = peerClient;
-        this.executor = this.peerUrls.isEmpty() ? null : Executors.newFixedThreadPool(
-                Math.min(this.peerUrls.size(), 8), daemonThreadFactory());
+        this.executor = this.peerUrls.isEmpty()
+                ? null
+                : Executors.newFixedThreadPool(Math.min(this.peerUrls.size(), 8), daemonThreadFactory());
     }
 
     public static ConstellationService using(List<String> peerUrls, Duration requestTimeout, PeerClient peerClient) {
@@ -54,8 +55,7 @@ public final class ConstellationService {
         List<CompletableFuture<PeerNodeDto>> futures = peerUrls.stream()
                 .map(url -> CompletableFuture.supplyAsync(() -> toDto(safeFetch(url)), executor))
                 .toList();
-        List<PeerNodeDto> peers =
-                futures.stream().map(CompletableFuture::join).toList();
+        List<PeerNodeDto> peers = futures.stream().map(CompletableFuture::join).toList();
         return new ConstellationReport(true, peers);
     }
 
@@ -64,7 +64,8 @@ public final class ConstellationService {
             PeerSnapshot snapshot = peerClient.fetch(url, requestTimeout);
             return snapshot != null ? snapshot : PeerSnapshot.unreachable(url, "No response from peer");
         } catch (RuntimeException e) {
-            return PeerSnapshot.unreachable(url, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            return PeerSnapshot.unreachable(
+                    url, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
         }
     }
 

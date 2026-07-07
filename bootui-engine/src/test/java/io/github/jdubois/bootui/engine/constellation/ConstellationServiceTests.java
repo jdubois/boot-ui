@@ -13,10 +13,9 @@ class ConstellationServiceTests {
 
     @Test
     void reportIsDisabledWithNoPeersConfigured() {
-        ConstellationService service =
-                ConstellationService.using(List.of(), Duration.ofSeconds(1), (url, timeout) -> {
-                    throw new AssertionError("should not be called with no configured peers");
-                });
+        ConstellationService service = ConstellationService.using(List.of(), Duration.ofSeconds(1), (url, timeout) -> {
+            throw new AssertionError("should not be called with no configured peers");
+        });
 
         ConstellationReport report = service.report();
 
@@ -28,12 +27,9 @@ class ConstellationServiceTests {
     void reportMapsEachConfiguredPeerConcurrently() {
         AtomicInteger calls = new AtomicInteger();
         ConstellationService service = ConstellationService.using(
-                List.of("http://localhost:8081", "http://localhost:8082"),
-                Duration.ofSeconds(1),
-                (url, timeout) -> {
+                List.of("http://localhost:8081", "http://localhost:8082"), Duration.ofSeconds(1), (url, timeout) -> {
                     calls.incrementAndGet();
-                    return new PeerSnapshot(
-                            url, true, "peer-app", "spring-boot", "4.1.0", "17", List.of("dev"), null);
+                    return new PeerSnapshot(url, true, "peer-app", "spring-boot", "4.1.0", "17", List.of("dev"), null);
                 });
 
         ConstellationReport report = service.report();
@@ -53,10 +49,8 @@ class ConstellationServiceTests {
 
     @Test
     void reportDegradesAnUnreachablePeerInsteadOfFailingTheWholeReport() {
-        ConstellationService service = ConstellationService.using(
-                List.of("http://localhost:9999"),
-                Duration.ofSeconds(1),
-                (url, timeout) -> {
+        ConstellationService service =
+                ConstellationService.using(List.of("http://localhost:9999"), Duration.ofSeconds(1), (url, timeout) -> {
                     throw new RuntimeException("connection refused");
                 });
 

@@ -169,8 +169,7 @@ public class PanelsController {
     private Availability scannerAvailability(String id) {
         return switch (id) {
             case BootUiPanels.GITHUB -> availability(githubAvailable(), githubUnavailableReason());
-            case BootUiPanels.CONSTELLATION ->
-                availability(constellationAvailable(), constellationUnavailableReason());
+            case BootUiPanels.CONSTELLATION -> availability(constellationAvailable(), constellationUnavailableReason());
             case BootUiPanels.HEAP_DUMP ->
                 availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
             case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
