@@ -1238,6 +1238,24 @@ server is up). As a state-changing action it is gated by the same localhost-only
 
 ![BootUI HTTP Probe panel](./images/bootui-http-probe.webp)
 
+### Email
+
+The Email panel is BootUI's mail-watcher equivalent of Laravel Telescope: it intercepts the application's
+`JavaMailSender` so every outgoing `send(...)` call is recorded into a bounded ring buffer *before* delegating to the
+real sender — pass-through by default, so application behaviour is unchanged. Captured messages list newest-first with
+sender, recipients, subject, and attachment count; opening a message shows the parsed `from`/`to`/`cc`/`bcc`, an HTML
+preview rendered in a sandboxed iframe (scripts and same-origin access are both disabled), the plain-text alternative,
+and attachment metadata (name/type/size, never contents). Each message can be downloaded as a `.eml` file, and the whole
+buffer can be cleared.
+
+Recipients, subjects, and bodies are sensitive, so they are masked by default and only revealed under
+`bootui.expose-values=FULL`, exactly like every other BootUI panel. An optional, explicitly opt-in **dev-trap** mode
+(`bootui.email.dev-trap=true`) records messages without actually sending them, similar to MailDev/GreenMail; it is off
+by default so BootUI never silently swallows application mail. The panel is available only when a `JavaMailSender` bean
+is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear unavailable reason.
+
+![BootUI Email panel](./images/bootui-email.webp)
+
 ## Developer tools
 
 ### MCP Server

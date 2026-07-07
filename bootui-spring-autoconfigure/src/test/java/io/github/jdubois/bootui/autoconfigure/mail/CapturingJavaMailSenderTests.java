@@ -64,8 +64,7 @@ class CapturingJavaMailSenderTests {
     @Test
     void maskedByDefaultOnRead() throws Exception {
         JavaMailSenderImpl delegate = mock(JavaMailSenderImpl.class);
-        EmailCaptureService captureService =
-                new EmailCaptureService(new EmailStore(10), maskedExposure(), false);
+        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), maskedExposure(), false);
         CapturingJavaMailSender sender = new CapturingJavaMailSender(delegate, captureService);
 
         SimpleMailMessage simple = new SimpleMailMessage();

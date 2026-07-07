@@ -52,20 +52,21 @@ Each new panel must:
 
 ## 2. Scope of this workstream
 
-Two open features remain, grouped by priority. The §3.1 correlation item has shipped as the **Live Activity** panel; the
-graph item remains in scope, and the capture-heavy e-mail viewer lands after the read-only items because it needs stricter
-masking, bounding, sandboxing, and opt-in behaviour.
+One open feature remains. The §3.1 correlation item has shipped as the **Live Activity** panel; the §3.3 e-mail viewer
+has now shipped too; the bean/dependency graph visualization is the last item in this workstream.
 
 | Priority | Feature                               | Group         | Primary data source                                | Mutation?         | Origin           |
 | -------- | ------------------------------------- | ------------- | -------------------------------------------------- | ----------------- | ---------------- |
 | Done     | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
 | 1        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 | No                | Existing roadmap |
-| 2        | E-mail Viewer                         | Diagnostics   | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
+| Done     | E-mail Viewer                         | Diagnostics   | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
 
 The Trace ↔ Log ↔ Request correlation work in §3.1 has shipped as the **Live Activity** panel, building on the
-already-shipped HTTP Exchanges panel and the existing Traces and Log Tail panels. The E-mail Viewer is the only remaining
-capture-oriented feature in this workstream, so it must keep pass-through application behaviour by default and make any
-dev-trap mode explicitly opt-in.
+already-shipped HTTP Exchanges panel and the existing Traces and Log Tail panels. The E-mail Viewer (§3.3) has shipped as
+the **Email** panel (Diagnostics group): a `JavaMailSender` `BeanPostProcessor` captures every outgoing message
+pass-through by default, with an explicitly opt-in `bootui.email.dev-trap` mode, masked recipients/subject/body, a
+sandboxed HTML preview, and a per-message `.eml` download. The bean/dependency graph visualization (§3.2) is the only
+remaining item in this workstream.
 
 ## 3. Feature specifications
 
@@ -118,7 +119,10 @@ Design constraints:
   performance within the project's large-app budget.
 - Avoid heavy graph libraries where a lightweight approach is sufficient, in line with the bundle-size risk in §5.
 
-### 3.3 E-mail Viewer — Diagnostics
+### 3.3 E-mail Viewer — Diagnostics ✅ Completed
+
+**Status: completed.** Shipped as the **Email** panel (see `docs/FEATURES.md` → *Email*). The original scope and
+design constraints below are retained for reference.
 
 Laravel Telescope's mail watcher is a beloved feature with no built-in Spring equivalent. Captured outgoing mail (HTML
 preview plus raw source) is a high-value dev-loop aid.

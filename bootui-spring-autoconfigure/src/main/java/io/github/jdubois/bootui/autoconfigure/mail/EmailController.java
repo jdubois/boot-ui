@@ -137,7 +137,10 @@ public class EmailController {
 
     private static void appendAddressHeader(StringBuilder builder, String name, List<String> addresses) {
         if (addresses != null && !addresses.isEmpty()) {
-            builder.append(name).append(": ").append(String.join(", ", addresses)).append("\r\n");
+            builder.append(name)
+                    .append(": ")
+                    .append(String.join(", ", addresses))
+                    .append("\r\n");
         }
     }
 

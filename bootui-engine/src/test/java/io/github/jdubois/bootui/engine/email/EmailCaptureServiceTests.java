@@ -14,7 +14,8 @@ class EmailCaptureServiceTests {
 
     @Test
     void masksSensitiveFieldsByDefault() {
-        EmailCaptureService service = new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false);
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false);
         service.capture(email());
 
         EmailsReport report = service.list();
@@ -63,7 +64,8 @@ class EmailCaptureServiceTests {
 
     @Test
     void getReturnsMaskedMessageById() {
-        EmailCaptureService service = new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false);
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false);
         service.capture(email());
         String id = service.list().messages().get(0).id();
 

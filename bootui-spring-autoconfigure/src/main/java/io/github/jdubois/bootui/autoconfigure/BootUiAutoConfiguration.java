@@ -594,8 +594,7 @@ public class BootUiAutoConfiguration {
     @org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
             name = "org.springframework.mail.javamail.JavaMailSender")
     static BootUiMailSenderBeanPostProcessor bootUiMailSenderBeanPostProcessor(
-            org.springframework.beans.factory.ObjectProvider<
-                            io.github.jdubois.bootui.engine.email.EmailCaptureService>
+            org.springframework.beans.factory.ObjectProvider<io.github.jdubois.bootui.engine.email.EmailCaptureService>
                     captureServiceProvider) {
         return new BootUiMailSenderBeanPostProcessor(captureServiceProvider);
     }

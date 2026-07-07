@@ -364,6 +364,15 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | `bootui.panels.http-probe.enabled`   | `true`  | Show the HTTP Probe panel.                     |
 | `bootui.panels.http-probe.read-only` | `false` | Disable sending probe requests through BootUI. |
 
+### Email
+
+| Property                        | Default | Description                                                                                                          |
+| -------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.email.enabled`     | `true`  | Show the Email Viewer panel when a `JavaMailSender` bean is present.                                                  |
+| `bootui.panels.email.read-only`   | `false` | Disable the clear action while keeping captured messages visible.                                                     |
+| `bootui.email.max-entries`        | `100`   | Maximum number of captured messages retained; the oldest is evicted once full.                                        |
+| `bootui.email.dev-trap`           | `false` | When `true`, captured messages are recorded but never actually handed to the real mail transport. Off by default so BootUI never silently swallows application mail. |
+
 ### Exceptions
 
 | Property                                    | Default | Description                                                                                                |
