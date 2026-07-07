@@ -27,6 +27,9 @@ import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceExchangeFilter;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceInterceptor;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
@@ -38,6 +41,7 @@ import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.nio.file.Paths;
@@ -63,9 +67,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.restclient.RestClientCustomizer;
+import org.springframework.boot.restclient.RestTemplateCustomizer;
 import org.springframework.boot.servlet.actuate.web.exchanges.HttpExchangesFilter;
 import org.springframework.boot.servlet.filter.OrderedFilter;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
@@ -76,6 +83,9 @@ import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.DisconnectedClientHelper;
 import tools.jackson.databind.ObjectMapper;
 
@@ -150,6 +160,9 @@ import tools.jackson.databind.ObjectMapper;
     CracController.class,
     LiveActivityController.class,
     SqlTraceController.class,
+    RestClientTraceController.class,
+    BootUiAutoConfiguration.RestClientCustomizerConfiguration.class,
+    BootUiAutoConfiguration.WebClientCustomizerConfiguration.class,
     ThreadDumpController.class,
     MemoryController.class,
     DismissedRulesController.class,
@@ -183,6 +196,7 @@ public class BootUiAutoConfiguration {
             CracController.class.getName(),
             LiveActivityController.class.getName(),
             SqlTraceController.class.getName(),
+            RestClientTraceController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),
             HttpExchangesController.class.getName(),
@@ -307,6 +321,72 @@ public class BootUiAutoConfiguration {
         @ConditionalOnMissingBean(AuditEventRepository.class)
         AuditEventRepository bootUiAuditEventRepository() {
             return new InMemoryAuditEventRepository();
+        }
+    }
+
+    /**
+     * Registers Spring Boot's {@link RestClientCustomizer} and {@link RestTemplateCustomizer} hooks so
+     * every {@code RestClient}/{@code RestTemplate} built through Spring Boot's auto-configured builders
+     * carries a {@link RestClientTraceInterceptor}. Both customizer types live in the optional {@code
+     * spring-boot-restclient} module, so this configuration (and the interceptor it wires) is skipped
+     * entirely when that module is not on the classpath. The interceptor is attached from inside the
+     * {@code customize(...)} callback - invoked once per builder construction - rather than unconditionally
+     * in the {@code @Bean} factory method, and only when the recorder is enabled, so a disabled panel (or
+     * {@code bootui.rest-client-trace.enabled=false}) adds no interceptor at all.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.boot.restclient.RestClientCustomizer",
+                "org.springframework.boot.restclient.RestTemplateCustomizer"
+            })
+    static class RestClientCustomizerConfiguration {
+
+        @Bean
+        RestClientCustomizer bootUiRestClientCustomizer(RestClientTraceRecorder recorder) {
+            return (RestClient.Builder builder) -> {
+                if (recorder.isEnabled()) {
+                    recorder.registerClientCustomization("RestClient");
+                    builder.requestInterceptor(new RestClientTraceInterceptor(recorder, "RestClient"));
+                }
+            };
+        }
+
+        @Bean
+        RestTemplateCustomizer bootUiRestTemplateCustomizer(RestClientTraceRecorder recorder) {
+            return (RestTemplate restTemplate) -> {
+                if (recorder.isEnabled()) {
+                    recorder.registerClientCustomization("RestTemplate");
+                    restTemplate.getInterceptors().add(new RestClientTraceInterceptor(recorder, "RestTemplate"));
+                }
+            };
+        }
+    }
+
+    /**
+     * Registers Spring Boot's {@link WebClientCustomizer} hook so every {@code WebClient} built through
+     * Spring Boot's auto-configured builder carries a {@link RestClientTraceExchangeFilter}. {@code
+     * WebClientCustomizer} lives in the optional {@code spring-boot-webclient} module (the reactive stack),
+     * so this configuration is skipped entirely when that module - or {@code WebClient} itself - is not on
+     * the classpath. As above, the filter is attached inside the {@code customize(...)} callback and only
+     * when the recorder is enabled.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.web.reactive.function.client.WebClient",
+                "org.springframework.boot.webclient.WebClientCustomizer"
+            })
+    static class WebClientCustomizerConfiguration {
+
+        @Bean
+        WebClientCustomizer bootUiWebClientCustomizer(RestClientTraceRecorder recorder) {
+            return (WebClient.Builder builder) -> {
+                if (recorder.isEnabled()) {
+                    recorder.registerClientCustomization("WebClient");
+                    builder.filter(new RestClientTraceExchangeFilter(recorder));
+                }
+            };
         }
     }
 
@@ -577,6 +657,42 @@ public class BootUiAutoConfiguration {
     static SqlTraceDataSourceBeanPostProcessor bootUiSqlTraceDataSourceBeanPostProcessor(
             org.springframework.beans.factory.ObjectProvider<SqlTraceRecorder> recorderProvider) {
         return new SqlTraceDataSourceBeanPostProcessor(recorderProvider);
+    }
+
+    @Bean
+    public RestClientTraceRecorder bootUiRestClientTraceRecorder(BootUiProperties properties) {
+        BootUiProperties.RestClientTrace restClientTrace = properties.getRestClientTrace();
+        boolean enabled = restClientTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.REST_CLIENT_TRACE);
+        return new RestClientTraceRecorder(
+                enabled,
+                restClientTrace.isRecording(),
+                restClientTrace.isCaptureHeaders(),
+                restClientTrace.isCaptureCallSite(),
+                restClientTrace.getMaxEntries(),
+                restClientTrace.getSlowCallThresholdMillis(),
+                restClientTrace.getMaxUriLength(),
+                restClientTrace.getMaxHeaderValueLength(),
+                restClientTrace.getChattyCallThreshold());
+    }
+
+    /**
+     * Bridges the framework-neutral {@link RestClientTraceRecorder} (implements {@code
+     * spi.IdleReclaimable}) to BootUI's Spring idle-reclaim mechanism so {@link ConsoleActivityTracker}
+     * keeps suspending and resuming outbound HTTP call capture while the console is idle.
+     */
+    @Bean
+    public IdleReclaimable bootUiRestClientTraceRecorderIdleReclaimable(RestClientTraceRecorder recorder) {
+        return new IdleReclaimable() {
+            @Override
+            public void suspendForIdle() {
+                recorder.suspendForIdle();
+            }
+
+            @Override
+            public void resumeFromIdle() {
+                recorder.resumeFromIdle();
+            }
+        };
     }
 
     @Bean

@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.AiFrameworkDetector;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -177,6 +178,10 @@ public class PanelsController {
             case BootUiPanels.CRAC -> availability(cracAvailable(), cracUnavailableReason());
             case BootUiPanels.SQL_TRACE ->
                 availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
+            case BootUiPanels.REST_CLIENT_TRACE ->
+                availability(
+                        beanPresent(RestClientTraceRecorder.class),
+                        "REST Client Trace is only available on the Spring MVC (servlet) adapter");
             case BootUiPanels.THREADS ->
                 availability(
                         java.lang.management.ManagementFactory.getThreadMXBean() != null,

@@ -132,6 +132,10 @@ public class BootUiProperties {
      */
     private SqlTrace sqlTrace = new SqlTrace();
     /**
+     * REST Client Trace panel settings.
+     */
+    private RestClientTrace restClientTrace = new RestClientTrace();
+    /**
      * HTTP Sessions panel settings.
      */
     private HttpSessions httpSessions = new HttpSessions();
@@ -395,6 +399,14 @@ public class BootUiProperties {
 
     public void setSqlTrace(SqlTrace sqlTrace) {
         this.sqlTrace = sqlTrace == null ? new SqlTrace() : sqlTrace;
+    }
+
+    public RestClientTrace getRestClientTrace() {
+        return restClientTrace;
+    }
+
+    public void setRestClientTrace(RestClientTrace restClientTrace) {
+        this.restClientTrace = restClientTrace == null ? new RestClientTrace() : restClientTrace;
     }
 
     public HttpSessions getHttpSessions() {
@@ -1052,6 +1064,141 @@ public class BootUiProperties {
 
         public void setNPlusOneThreshold(int nPlusOneThreshold) {
             this.nPlusOneThreshold = nPlusOneThreshold;
+        }
+    }
+
+    public static class RestClientTrace {
+
+        /**
+         * Whether BootUI instruments Spring's {@code RestClient}, {@code RestTemplate}, and
+         * {@code WebClient} beans to capture outbound HTTP calls. When {@code false}, no
+         * customizer is registered.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Whether new calls are recorded into the in-memory buffer. Recording can be paused
+         * and resumed at runtime from the panel without removing the client instrumentation;
+         * this sets the initial state.
+         */
+        private boolean recording = true;
+
+        /**
+         * Whether request headers are captured alongside each call. Off by default because
+         * header values may contain sensitive data; when enabled, values are still masked by
+         * header name (e.g. {@code Authorization}) before being stored.
+         */
+        private boolean captureHeaders = false;
+
+        /**
+         * Whether each captured call records the first application stack frame that triggered
+         * it (e.g. {@code OrderClient.findAll(OrderClient.java:42)}), shown per call and
+         * aggregated per group so a flagged chatty group shows exactly where in the code to go
+         * fix it. On by default: unlike headers, a call site names only the application's own
+         * code (class/method/line), never a value, so it carries no sensitive-data risk — this
+         * toggle is purely about the small per-call stack-walk cost, not privacy.
+         */
+        private boolean captureCallSite = true;
+
+        /**
+         * Maximum number of outbound calls retained in the in-memory ring buffer.
+         */
+        private int maxEntries = 200;
+
+        /**
+         * Calls taking at least this many milliseconds are flagged as slow. Set to {@code 0} to
+         * disable slow-call flagging. Defaults higher than SQL Trace's threshold since outbound
+         * HTTP calls are typically slower than a single SQL execution.
+         */
+        private long slowCallThresholdMillis = 1000;
+
+        /**
+         * Maximum retained length of the request URI and path; longer values are truncated.
+         */
+        private int maxUriLength = 2000;
+
+        /**
+         * Maximum retained length of a single captured header value.
+         */
+        private int maxHeaderValueLength = 200;
+
+        /**
+         * Number of calls to the same method/host/path (with numeric and UUID path segments
+         * normalized) within the buffer before the group is flagged as a likely chatty
+         * (repeated-call) access pattern. Minimum {@code 2}.
+         */
+        private int chattyCallThreshold = 5;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isRecording() {
+            return recording;
+        }
+
+        public void setRecording(boolean recording) {
+            this.recording = recording;
+        }
+
+        public boolean isCaptureHeaders() {
+            return captureHeaders;
+        }
+
+        public void setCaptureHeaders(boolean captureHeaders) {
+            this.captureHeaders = captureHeaders;
+        }
+
+        public boolean isCaptureCallSite() {
+            return captureCallSite;
+        }
+
+        public void setCaptureCallSite(boolean captureCallSite) {
+            this.captureCallSite = captureCallSite;
+        }
+
+        public int getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public long getSlowCallThresholdMillis() {
+            return slowCallThresholdMillis;
+        }
+
+        public void setSlowCallThresholdMillis(long slowCallThresholdMillis) {
+            this.slowCallThresholdMillis = slowCallThresholdMillis;
+        }
+
+        public int getMaxUriLength() {
+            return maxUriLength;
+        }
+
+        public void setMaxUriLength(int maxUriLength) {
+            this.maxUriLength = maxUriLength;
+        }
+
+        public int getMaxHeaderValueLength() {
+            return maxHeaderValueLength;
+        }
+
+        public void setMaxHeaderValueLength(int maxHeaderValueLength) {
+            this.maxHeaderValueLength = maxHeaderValueLength;
+        }
+
+        public int getChattyCallThreshold() {
+            return chattyCallThreshold;
+        }
+
+        public void setChattyCallThreshold(int chattyCallThreshold) {
+            this.chattyCallThreshold = chattyCallThreshold;
         }
     }
 

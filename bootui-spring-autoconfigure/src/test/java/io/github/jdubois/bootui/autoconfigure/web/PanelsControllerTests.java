@@ -69,6 +69,7 @@ class PanelsControllerTests {
             BootUiPanels.SPRING,
             BootUiPanels.CRAC,
             BootUiPanels.SQL_TRACE,
+            BootUiPanels.REST_CLIENT_TRACE,
             BootUiPanels.MCP_SERVER,
             BootUiPanels.ACTIVITY);
 

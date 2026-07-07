@@ -187,6 +187,12 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultRestClientTraceCaptureHeadersIsFalse() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getRestClientTrace().isCaptureHeaders()).isFalse();
+    }
+
+    @Test
     void defaultClaudeCodeRawRevealIsFalse() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getClaudeCode().isAllowRawReveal()).isFalse();
@@ -288,6 +294,16 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getSqlTrace().isCaptureCallSite()).isFalse();
+    }
+
+    @Test
+    void bindsRestClientTraceCaptureHeadersToTrue() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.rest-client-trace.capture-headers", "true");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getRestClientTrace().isCaptureHeaders()).isTrue();
     }
 
     @Test
