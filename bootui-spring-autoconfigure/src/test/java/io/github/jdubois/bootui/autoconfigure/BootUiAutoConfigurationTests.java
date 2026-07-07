@@ -86,6 +86,7 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(DevToolsController.class)
                         .hasSingleBean(OverviewController.class)
                         .hasSingleBean(GitHubController.class)
+                        .hasSingleBean(ConstellationController.class)
                         .hasSingleBean(DevServicesController.class)
                         .hasSingleBean(VulnerabilitiesController.class)
                         .hasSingleBean(PentestingController.class)
@@ -247,6 +248,7 @@ class BootUiAutoConfigurationTests {
                             VulnerabilitiesController.class,
                             DevToolsController.class,
                             GitHubController.class,
+                            ConstellationController.class,
                             GraalVmController.class,
                             CracController.class,
                             LiveActivityController.class,

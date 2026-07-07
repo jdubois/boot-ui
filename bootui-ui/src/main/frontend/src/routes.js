@@ -44,6 +44,7 @@ const Ai = () => import('./views/Ai.vue')
 const Copilot = () => import('./views/Copilot.vue')
 const McpServer = () => import('./views/McpServer.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
+const Constellation = () => import('./views/Constellation.vue')
 
 export const groups = {
   overview: 'overview',
@@ -94,6 +95,18 @@ export const routes = [
       title: 'GitHub',
       shortcut: 'gh',
       keywords: ['repo', 'repository', 'git', 'source', 'remote']
+    }
+  },
+  {
+    path: '/constellation',
+    name: 'constellation',
+    component: Constellation,
+    meta: {
+      group: groups.overview,
+      icon: 'bi-share-fill',
+      title: 'Constellation',
+      shortcut: 'cn',
+      keywords: ['peers', 'mesh', 'topology', 'services', 'graph', 'multi-app']
     }
   },
   {

@@ -101,6 +101,7 @@ import tools.jackson.databind.ObjectMapper;
 @Import({
     OverviewController.class,
     GitHubController.class,
+    ConstellationController.class,
     PanelsController.class,
     BeansController.class,
     ConditionsController.class,
@@ -179,6 +180,7 @@ public class BootUiAutoConfiguration {
             VulnerabilitiesController.class.getName(),
             DevToolsController.class.getName(),
             GitHubController.class.getName(),
+            ConstellationController.class.getName(),
             GraalVmController.class.getName(),
             CracController.class.getName(),
             LiveActivityController.class.getName(),

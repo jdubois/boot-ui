@@ -169,6 +169,8 @@ public class PanelsController {
     private Availability scannerAvailability(String id) {
         return switch (id) {
             case BootUiPanels.GITHUB -> availability(githubAvailable(), githubUnavailableReason());
+            case BootUiPanels.CONSTELLATION ->
+                availability(constellationAvailable(), constellationUnavailableReason());
             case BootUiPanels.HEAP_DUMP ->
                 availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
             case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
@@ -257,6 +259,18 @@ public class PanelsController {
         return GitHubRepositoryDetector.unavailableReason(
                 Path.of(System.getProperty("user.dir", ".")),
                 Arrays.asList(properties.getGithub().getAllowedApiHosts()));
+    }
+
+    private boolean constellationAvailable() {
+        return properties.getConstellation().isEnabled()
+                && !properties.getConstellation().getPeers().isEmpty();
+    }
+
+    private String constellationUnavailableReason() {
+        if (!properties.getConstellation().isEnabled()) {
+            return "Constellation view is disabled. Set bootui.constellation.enabled=true to enable it.";
+        }
+        return "No peers configured. Add bootui.constellation.peers to enable Constellation view.";
     }
 
     private boolean aiAvailable() {

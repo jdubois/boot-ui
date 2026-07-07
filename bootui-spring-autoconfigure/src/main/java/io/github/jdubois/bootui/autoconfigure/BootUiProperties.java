@@ -4,7 +4,9 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -119,6 +121,10 @@ public class BootUiProperties {
      * GitHub panel settings.
      */
     private GitHub github = new GitHub();
+    /**
+     * Constellation panel settings.
+     */
+    private Constellation constellation = new Constellation();
     /**
      * HTTP Exchanges panel settings.
      */
@@ -371,6 +377,14 @@ public class BootUiProperties {
 
     public void setGithub(GitHub github) {
         this.github = github == null ? new GitHub() : github;
+    }
+
+    public Constellation getConstellation() {
+        return constellation;
+    }
+
+    public void setConstellation(Constellation constellation) {
+        this.constellation = constellation == null ? new Constellation() : constellation;
     }
 
     public HttpExchanges getHttpExchanges() {
@@ -883,6 +897,58 @@ public class BootUiProperties {
 
         public void setAllowedApiHosts(String[] allowedApiHosts) {
             this.allowedApiHosts = allowedApiHosts == null ? new String[] {"api.github.com"} : allowedApiHosts;
+        }
+    }
+
+    /**
+     * Constellation panel settings: a zero-infrastructure map of the local multi-service peer topology.
+     * Off by default (fail closed / opt-in) - the developer must explicitly name the sibling local
+     * BootUI instances to poll. Every peer is read over loopback-only HTTP calls to its own already-existing
+     * {@code /bootui/api/overview} and {@code /bootui/api/panels} endpoints; no data is ever pushed to a
+     * peer and no central server or persistent state is introduced.
+     */
+    public static class Constellation {
+
+        /**
+         * Enable the Constellation panel. Disabled by default even if peers are configured, so the
+         * panel never silently starts calling other local processes.
+         */
+        private boolean enabled = false;
+
+        /**
+         * Base URLs of sibling local BootUI instances to poll, e.g. {@code http://localhost:8081}. Empty
+         * by default; the panel stays unavailable until at least one peer is configured.
+         */
+        private List<String> peers = new ArrayList<>();
+
+        /**
+         * Timeout applied to each peer identity request. Kept short so one unreachable peer cannot stall
+         * the whole Constellation report.
+         */
+        private Duration requestTimeout = Duration.ofSeconds(2);
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public List<String> getPeers() {
+            return peers;
+        }
+
+        public void setPeers(List<String> peers) {
+            this.peers = peers == null ? new ArrayList<>() : peers;
+        }
+
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout == null ? Duration.ofSeconds(2) : requestTimeout;
         }
     }
 

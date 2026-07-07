@@ -9,6 +9,7 @@ describe('routes', () => {
       'Overview',
       'Live Activity',
       'GitHub',
+      'Constellation',
       'Architecture',
       'REST API',
       'Spring',
@@ -90,6 +91,7 @@ describe('routes', () => {
     ])
 
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
+      groups.overview,
       groups.overview,
       groups.overview,
       groups.overview,

@@ -55,6 +55,7 @@ public final class BootUiPanels {
     public static final String COPILOT = "copilot";
     public static final String CLAUDE_CODE = "claude-code";
     public static final String GITHUB = "github";
+    public static final String CONSTELLATION = "constellation";
     public static final String SPRING = "spring";
     public static final String CRAC = "crac";
     public static final String SQL_TRACE = "sql-trace";
@@ -113,7 +114,8 @@ public final class BootUiPanels {
             new Panel(CRAC, "CRaC", true, "/crac"),
             new Panel(SQL_TRACE, "SQL Trace", true, "/sql-trace"),
             new Panel(MCP_SERVER, "MCP Server", true, "/mcp-server"),
-            new Panel(ACTIVITY, "Live Activity", true, "/activity"));
+            new Panel(ACTIVITY, "Live Activity", true, "/activity"),
+            new Panel(CONSTELLATION, "Constellation", false, "/constellation"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

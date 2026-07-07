@@ -70,7 +70,8 @@ class PanelsControllerTests {
             BootUiPanels.CRAC,
             BootUiPanels.SQL_TRACE,
             BootUiPanels.MCP_SERVER,
-            BootUiPanels.ACTIVITY);
+            BootUiPanels.ACTIVITY,
+            BootUiPanels.CONSTELLATION);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {
@@ -239,6 +240,40 @@ class PanelsControllerTests {
                             jsonPath(panelPath(BootUiPanels.AI) + ".available").value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.AI) + ".unavailableReason")
                             .value("Spring AI or LangChain4j is not on the classpath"));
+        }
+    }
+
+    @Test
+    void panelsMarksConstellationUnavailableWhenDisabledOrNoPeersConfigured() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.CONSTELLATION) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.CONSTELLATION) + ".unavailableReason")
+                            .value("Constellation view is disabled. Set bootui.constellation.enabled=true to enable it."));
+        }
+    }
+
+    @Test
+    void panelsMarksConstellationAvailableWhenEnabledWithPeers() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.refresh();
+            BootUiProperties properties = new BootUiProperties();
+            properties.getConstellation().setEnabled(true);
+            properties.getConstellation().setPeers(List.of("http://localhost:8081"));
+            MockMvc mvc = standaloneSetup(new PanelsController(context, context.getEnvironment(), properties))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(
+                            jsonPath(panelPath(BootUiPanels.CONSTELLATION) + ".available").value(true));
         }
     }
 
