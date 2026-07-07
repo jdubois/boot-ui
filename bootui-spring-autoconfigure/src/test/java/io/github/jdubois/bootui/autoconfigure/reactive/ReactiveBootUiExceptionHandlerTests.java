@@ -56,4 +56,56 @@ class ReactiveBootUiExceptionHandlerTests {
         ReactiveBootUiExceptionHandler handler = new ReactiveBootUiExceptionHandler(new ExceptionStore(1, 1, 1));
         assertThat(handler.getOrder()).isEqualTo(Ordered.HIGHEST_PRECEDENCE);
     }
+
+    @Test
+    void stampsTraceIdFromProviderWhenInstalled() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        ReactiveBootUiExceptionHandler handler = new ReactiveBootUiExceptionHandler(store);
+        handler.setTraceIdProvider(() -> "trace-abc-123");
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/bootui/api/beans"));
+
+        StepVerifier.create(handler.handle(exchange, new RuntimeException("boom")))
+                .expectError(RuntimeException.class)
+                .verify();
+
+        ExceptionStore.GroupDetail detail = store.find(store.groups().get(0).fingerprint());
+        ExceptionStore.Occurrence occurrence =
+                detail.occurrences().get(detail.occurrences().size() - 1);
+        assertThat(occurrence.traceId()).isEqualTo("trace-abc-123");
+    }
+
+    @Test
+    void leavesTraceIdNullWhenNoProviderIsInstalled() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        ReactiveBootUiExceptionHandler handler = new ReactiveBootUiExceptionHandler(store);
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/bootui/api/beans"));
+
+        StepVerifier.create(handler.handle(exchange, new RuntimeException("boom")))
+                .expectError(RuntimeException.class)
+                .verify();
+
+        ExceptionStore.GroupDetail detail = store.find(store.groups().get(0).fingerprint());
+        ExceptionStore.Occurrence occurrence =
+                detail.occurrences().get(detail.occurrences().size() - 1);
+        assertThat(occurrence.traceId()).isNull();
+    }
+
+    @Test
+    void leavesTraceIdNullWhenProviderThrows() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        ReactiveBootUiExceptionHandler handler = new ReactiveBootUiExceptionHandler(store);
+        handler.setTraceIdProvider(() -> {
+            throw new IllegalStateException("no active span");
+        });
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/bootui/api/beans"));
+
+        StepVerifier.create(handler.handle(exchange, new RuntimeException("boom")))
+                .expectError(RuntimeException.class)
+                .verify();
+
+        ExceptionStore.GroupDetail detail = store.find(store.groups().get(0).fingerprint());
+        ExceptionStore.Occurrence occurrence =
+                detail.occurrences().get(detail.occurrences().size() - 1);
+        assertThat(occurrence.traceId()).isNull();
+    }
 }

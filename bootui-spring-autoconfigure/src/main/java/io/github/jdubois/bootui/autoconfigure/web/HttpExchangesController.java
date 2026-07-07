@@ -38,6 +38,8 @@ public class HttpExchangesController {
 
     private final HttpExchangesService service = new HttpExchangesService();
 
+    private HttpExchangeTraceRegistry traceRegistry;
+
     public HttpExchangesController(ObjectProvider<HttpExchangeRepository> repository, BootUiProperties properties) {
         this(repository, properties, BootUiSelfDataFilter.defaults(), new BootUiExposure(properties));
     }
@@ -52,6 +54,17 @@ public class HttpExchangesController {
         this.properties = properties;
         this.selfDataFilter = selfDataFilter;
         this.exposure = exposure;
+    }
+
+    /**
+     * Installed only by {@code BootUiReactiveAutoConfiguration} once OpenTelemetry is present, so the
+     * reactive adapter can stamp a real trace id despite Actuator's {@link HttpExchange} model carrying
+     * none natively; left {@code null} on the servlet adapter, where {@link #capturedTraceId} simply
+     * returns {@code null} and {@link HttpExchangesService#resolveTraceId} falls back to its existing
+     * header-derived extraction unchanged. See {@link HttpExchangeTraceRegistry}.
+     */
+    public void setTraceRegistry(HttpExchangeTraceRegistry traceRegistry) {
+        this.traceRegistry = traceRegistry;
     }
 
     @GetMapping
@@ -82,17 +95,34 @@ public class HttpExchangesController {
     private CapturedHttpExchange toCaptured(HttpExchange exchange) {
         HttpExchange.Request request = exchange.getRequest();
         HttpExchange.Response response = exchange.getResponse();
+        Long durationMs =
+                exchange.getTimeTaken() == null ? null : exchange.getTimeTaken().toMillis();
         return new CapturedHttpExchange(
                 exchange.getTimestamp(),
                 request == null ? null : request.getMethod(),
                 request == null ? null : request.getUri(),
                 response == null ? 0 : response.getStatus(),
-                exchange.getTimeTaken() == null ? null : exchange.getTimeTaken().toMillis(),
+                durationMs,
                 request == null ? null : request.getRemoteAddress(),
                 exchange.getPrincipal() == null ? null : exchange.getPrincipal().getName(),
                 exchange.getSession() == null ? null : exchange.getSession().getId(),
                 request == null ? null : request.getHeaders(),
                 response == null ? null : response.getHeaders(),
-                null);
+                capturedTraceId(exchange, request, durationMs));
+    }
+
+    /**
+     * Looks up the trace id {@link HttpExchangeTraceRegistry} captured for this exchange (method + path +
+     * overlapping time window, see {@link HttpExchangeTraceRegistry#match}); returns {@code null} when no
+     * registry is installed (the servlet adapter, or OpenTelemetry absent on the reactive one) so callers
+     * fall back to header-derived extraction unchanged.
+     */
+    private String capturedTraceId(HttpExchange exchange, HttpExchange.Request request, Long durationMs) {
+        if (traceRegistry == null || request == null || exchange.getTimestamp() == null) {
+            return null;
+        }
+        long start = exchange.getTimestamp().toEpochMilli();
+        long end = durationMs == null ? start : start + durationMs;
+        return traceRegistry.match(request.getMethod(), request.getUri().getPath(), start, end);
     }
 }

@@ -20,10 +20,13 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResou
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveClaudeCodeController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveCopilotController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveHttpExchangeTraceFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLogTailController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveOtelTraceIdProvider;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactivePanelAccessFilter;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityEventTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
@@ -35,6 +38,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Set;
@@ -42,6 +46,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aot.AotDetector;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
@@ -219,7 +224,8 @@ import org.springframework.web.util.DisconnectedClientHelper;
     ReactiveClaudeCodeController.class,
     ReactiveBootUiIndexController.class,
     BootUiEngineConfiguration.class,
-    BootUiOpenTelemetryConfiguration.class
+    BootUiOpenTelemetryConfiguration.class,
+    BootUiReactiveAutoConfiguration.ReactiveOpenTelemetryCorrelationConfiguration.class
 })
 public class BootUiReactiveAutoConfiguration {
 
@@ -639,6 +645,84 @@ public class BootUiReactiveAutoConfiguration {
                 HttpExchangeRepository repository, HttpExchangesProperties properties) {
             return new HttpExchangesWebFilter(
                     repository, properties.getRecording().getInclude());
+        }
+    }
+
+    /**
+     * Reactive sibling of the trace-id correlation Quarkus's adapter supplies natively (see
+     * {@code QuarkusOtelTraceIdProvider}): installs an OpenTelemetry-backed {@link TraceIdProvider} onto
+     * the SQL Trace recorder, the reactive exception handler, the {@link HttpExchangesController} (via the
+     * side-buffer {@link HttpExchangeTraceRegistry}), and the {@link ReactiveSecurityLogsController} (via
+     * {@link ReactiveSecurityEventTraceRegistry}), so {@link ReactiveLiveActivityController} - which
+     * already feeds all four signal sources to the shared engine {@code LiveActivityAssembler} - can
+     * actually nest a request's SQL/exception/security signals under it.
+     *
+     * <p>WebFlux has no thread-per-request invariant for {@code SqlTraceRecorder}'s default MDC-based
+     * {@link TraceIdProvider} to rely on (Reactor Netty's event-loop / {@code boundedElastic} scheduler
+     * hops break thread-local propagation), so it must instead read the active OpenTelemetry span, whose
+     * context survives those hops - exactly like the Quarkus adapter, and for the same reason. Gated on
+     * the OpenTelemetry SDK being present, exactly like {@link BootUiOpenTelemetryConfiguration} and
+     * Quarkus's own {@code Capability.OPENTELEMETRY_TRACER} gate - deliberately <em>not</em> also gated on
+     * {@code bootui.telemetry.enabled} (that property governs BootUI's own span capture for the
+     * Traces/AI Usage panels, a separate concern from reading the id of a span the application's own
+     * tracing already started). When OpenTelemetry is absent, every capture point keeps its existing
+     * behavior unchanged (MDC-based for SQL, header-derived for HTTP exchanges, none for
+     * exceptions/security events).</p>
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "io.opentelemetry.sdk.trace.export.SpanExporter")
+    static class ReactiveOpenTelemetryCorrelationConfiguration {
+
+        @Bean
+        ReactiveOtelTraceIdProvider bootUiReactiveOtelTraceIdProvider() {
+            return new ReactiveOtelTraceIdProvider();
+        }
+
+        @Bean
+        HttpExchangeTraceRegistry bootUiHttpExchangeTraceRegistry(BootUiProperties properties) {
+            return new HttpExchangeTraceRegistry(properties.getHttpExchanges().getMaxExchanges());
+        }
+
+        @Bean
+        ReactiveSecurityEventTraceRegistry bootUiReactiveSecurityEventTraceRegistry(BootUiProperties properties) {
+            return new ReactiveSecurityEventTraceRegistry(
+                    properties.getSecurityLogs().getMaxLogs());
+        }
+
+        @Bean
+        ReactiveHttpExchangeTraceFilter bootUiReactiveHttpExchangeTraceFilter(
+                BootUiProperties properties,
+                HttpExchangeTraceRegistry registry,
+                ReactiveOtelTraceIdProvider traceIdProvider) {
+            return new ReactiveHttpExchangeTraceFilter(properties, registry, traceIdProvider);
+        }
+
+        /**
+         * Installs the OpenTelemetry-backed provider/registries onto the already-constructed capture
+         * points once all singletons exist, mirroring
+         * {@link BootUiOpenTelemetryConfiguration#bootUiSpanEnricherInstaller}. Each target bean is
+         * optional (its owning panel may be disabled), so every installation step is a no-op
+         * {@link ObjectProvider#ifAvailable} rather than a hard dependency.
+         */
+        @Bean
+        SmartInitializingSingleton bootUiReactiveTraceCorrelationInstaller(
+                ReactiveOtelTraceIdProvider traceIdProvider,
+                HttpExchangeTraceRegistry httpExchangeTraceRegistry,
+                ReactiveSecurityEventTraceRegistry securityEventTraceRegistry,
+                ObjectProvider<SqlTraceRecorder> sqlTraceRecorders,
+                ObjectProvider<HttpExchangesController> httpExchangesControllers,
+                ObjectProvider<ReactiveBootUiExceptionHandler> exceptionHandlers,
+                ObjectProvider<ReactiveSecurityLogsController> securityLogsControllers) {
+            return () -> {
+                sqlTraceRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
+                httpExchangesControllers.ifAvailable(
+                        controller -> controller.setTraceRegistry(httpExchangeTraceRegistry));
+                exceptionHandlers.ifAvailable(handler -> handler.setTraceIdProvider(traceIdProvider));
+                securityLogsControllers.ifAvailable(controller -> {
+                    controller.setTraceIdProvider(traceIdProvider);
+                    controller.setTraceRegistry(securityEventTraceRegistry);
+                });
+            };
         }
     }
 }

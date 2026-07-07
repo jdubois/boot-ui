@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import org.springframework.core.Ordered;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.reactive.HandlerMapping;
@@ -37,8 +38,20 @@ public class ReactiveBootUiExceptionHandler implements WebExceptionHandler, Orde
 
     private final ExceptionStore store;
 
+    private TraceIdProvider traceIdProvider;
+
     public ReactiveBootUiExceptionHandler(ExceptionStore store) {
         this.store = store;
+    }
+
+    /**
+     * Installed only by {@code BootUiReactiveAutoConfiguration} once OpenTelemetry is present, so the
+     * exception is nested under its owning request in the Live Activity feed exactly like the Quarkus
+     * adapter; left {@code null} otherwise, in which case {@link #currentTraceId()} returns {@code null}
+     * and {@code store.record} falls back to its existing six-argument, no-trace-id overload.
+     */
+    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
+        this.traceIdProvider = traceIdProvider;
     }
 
     @Override
@@ -52,11 +65,28 @@ public class ReactiveBootUiExceptionHandler implements WebExceptionHandler, Orde
                             : null,
                     exchange.getRequest().getURI().getRawPath(),
                     describeHandler(exchange.getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE)),
-                    "web");
+                    "web",
+                    currentTraceId());
         } catch (RuntimeException ignored) {
             // Diagnostics capture must never interfere with the application's error handling.
         }
         return Mono.error(ex);
+    }
+
+    /**
+     * The trace id active for the request currently unwinding this exception, or {@code null} when no
+     * provider is installed or it fails to resolve one - fully guarded so a misbehaving tracer never
+     * disrupts the application's own error handling.
+     */
+    private String currentTraceId() {
+        if (traceIdProvider == null) {
+            return null;
+        }
+        try {
+            return traceIdProvider.currentTraceId();
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private static String describeHandler(Object handler) {

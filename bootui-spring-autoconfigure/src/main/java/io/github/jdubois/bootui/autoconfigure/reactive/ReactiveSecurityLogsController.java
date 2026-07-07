@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -55,6 +56,10 @@ public class ReactiveSecurityLogsController implements ApplicationListener<Audit
 
     private final ReactiveBootUiChangeStream changeStream = new ReactiveBootUiChangeStream("security-logs");
 
+    private TraceIdProvider traceIdProvider;
+
+    private ReactiveSecurityEventTraceRegistry traceRegistry;
+
     @Autowired
     public ReactiveSecurityLogsController(
             ObjectProvider<AuditEventRepository> auditEventRepositoryProvider,
@@ -68,6 +73,23 @@ public class ReactiveSecurityLogsController implements ApplicationListener<Audit
     ReactiveSecurityLogsController(
             ObjectProvider<AuditEventRepository> auditEventRepositoryProvider, BootUiProperties properties) {
         this(auditEventRepositoryProvider, properties, new BootUiExposure(properties));
+    }
+
+    /**
+     * Installed only by {@code BootUiReactiveAutoConfiguration} once OpenTelemetry is present, so
+     * {@link #onApplicationEvent} can capture the trace id active when Spring Security publishes each
+     * audit event; left {@code null} otherwise, in which case {@link #recordTraceId} no-ops.
+     */
+    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
+        this.traceIdProvider = traceIdProvider;
+    }
+
+    /**
+     * Installed alongside {@link #setTraceIdProvider}; left {@code null} otherwise, in which case
+     * {@link #toCaptured} always renders a {@code null} trace id, exactly like today.
+     */
+    public void setTraceRegistry(ReactiveSecurityEventTraceRegistry traceRegistry) {
+        this.traceRegistry = traceRegistry;
     }
 
     @GetMapping
@@ -85,7 +107,7 @@ public class ReactiveSecurityLogsController implements ApplicationListener<Audit
 
         List<CapturedSecurityEvent> events =
                 repository.find(blankToNull(principal), parseAfter(after), blankToNull(type)).stream()
-                        .map(ReactiveSecurityLogsController::toCaptured)
+                        .map(this::toCaptured)
                         .toList();
         return securityLogsService.report(
                 events,
@@ -99,11 +121,22 @@ public class ReactiveSecurityLogsController implements ApplicationListener<Audit
                 limit);
     }
 
-    private static CapturedSecurityEvent toCaptured(AuditEvent event) {
-        // Spring's Live Activity correlation is thread-based (see LiveActivityService), not trace-id-based,
-        // so there is no trace id to stamp here; only the Quarkus adapter populates it.
+    private CapturedSecurityEvent toCaptured(AuditEvent event) {
         return new CapturedSecurityEvent(
-                event.getTimestamp(), event.getPrincipal(), event.getType(), event.getData(), null);
+                event.getTimestamp(), event.getPrincipal(), event.getType(), event.getData(), capturedTraceId(event));
+    }
+
+    /**
+     * Looks up the trace id {@link ReactiveSecurityEventTraceRegistry} captured for this event (type +
+     * principal + timestamp window, see {@link ReactiveSecurityEventTraceRegistry#match}); returns
+     * {@code null} when no registry is installed, exactly like before this correlation existed.
+     */
+    private String capturedTraceId(AuditEvent event) {
+        if (traceRegistry == null) {
+            return null;
+        }
+        return traceRegistry.match(
+                event.getType(), event.getPrincipal(), event.getTimestamp().toEpochMilli());
     }
 
     /**
@@ -118,7 +151,31 @@ public class ReactiveSecurityLogsController implements ApplicationListener<Audit
 
     @Override
     public void onApplicationEvent(AuditApplicationEvent event) {
+        recordTraceId(event.getAuditEvent());
         changeStream.signal();
+    }
+
+    /**
+     * Captures the trace id active when Spring Security published this audit event, keyed by
+     * type/principal/timestamp so {@link #toCaptured} can look it up later - the same
+     * {@link TraceIdProvider} signal {@code ReactiveHttpExchangeTraceFilter}/{@code SqlTraceRecorder}
+     * capture from. Fully guarded so a missing registry/provider, or a misbehaving tracer, never disrupts
+     * Spring Security's own event publication.
+     */
+    private void recordTraceId(AuditEvent event) {
+        if (traceIdProvider == null || traceRegistry == null || event == null || event.getTimestamp() == null) {
+            return;
+        }
+        try {
+            String traceId = traceIdProvider.currentTraceId();
+            if (traceId == null || traceId.isBlank()) {
+                return;
+            }
+            traceRegistry.record(new ReactiveSecurityEventTraceRegistry.SecurityEventTrace(
+                    event.getTimestamp().toEpochMilli(), event.getType(), event.getPrincipal(), traceId));
+        } catch (RuntimeException ignored) {
+            // Diagnostics capture must never interfere with Spring Security's own event publication.
+        }
     }
 
     /**

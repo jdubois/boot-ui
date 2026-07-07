@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.env.DefaultPropertiesPropertySource;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.MapPropertySource;
@@ -173,5 +174,54 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
         DefaultPropertiesPropertySource.moveToEnd(env);
 
         assertThat(env.getProperty("management.endpoints.web.exposure.include")).isEqualTo("*");
+    }
+
+    @Test
+    void contributesReactorContextPropagationForReactiveAppsWithOpenTelemetry() {
+        MockEnvironment env = new MockEnvironment().withProperty("bootui.enabled", "ON");
+
+        processor.postProcessEnvironment(env, applicationWithWebType(WebApplicationType.REACTIVE));
+
+        assertThat(env.getProperty(BootUiActuatorDefaultsEnvironmentPostProcessor.REACTOR_CONTEXT_PROPAGATION_PROPERTY))
+                .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.REACTOR_CONTEXT_PROPAGATION_VALUE);
+    }
+
+    @Test
+    void doesNotContributeReactorContextPropagationForServletApps() {
+        MockEnvironment env = new MockEnvironment().withProperty("bootui.enabled", "ON");
+
+        processor.postProcessEnvironment(env, applicationWithWebType(WebApplicationType.SERVLET));
+
+        assertThat(env.getProperty(BootUiActuatorDefaultsEnvironmentPostProcessor.REACTOR_CONTEXT_PROPAGATION_PROPERTY))
+                .isNull();
+    }
+
+    @Test
+    void keepsHostConfiguredReactorContextPropagation() {
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty(
+                        BootUiActuatorDefaultsEnvironmentPostProcessor.REACTOR_CONTEXT_PROPAGATION_PROPERTY, "limited");
+
+        processor.postProcessEnvironment(env, applicationWithWebType(WebApplicationType.REACTIVE));
+
+        assertThat(env.getProperty(BootUiActuatorDefaultsEnvironmentPostProcessor.REACTOR_CONTEXT_PROPAGATION_PROPERTY))
+                .isEqualTo("limited");
+    }
+
+    @Test
+    void isBootUiActuatorDefaultRecognizesReactorContextPropagation() {
+        assertThat(BootUiActuatorDefaultsEnvironmentPostProcessor.isBootUiActuatorDefault(
+                        BootUiActuatorDefaultsEnvironmentPostProcessor.REACTOR_CONTEXT_PROPAGATION_PROPERTY, "auto"))
+                .isTrue();
+        assertThat(BootUiActuatorDefaultsEnvironmentPostProcessor.isBootUiActuatorDefault(
+                        BootUiActuatorDefaultsEnvironmentPostProcessor.REACTOR_CONTEXT_PROPAGATION_PROPERTY, "limited"))
+                .isFalse();
+    }
+
+    private static SpringApplication applicationWithWebType(WebApplicationType type) {
+        SpringApplication application = new SpringApplication();
+        application.setWebApplicationType(type);
+        return application;
     }
 }

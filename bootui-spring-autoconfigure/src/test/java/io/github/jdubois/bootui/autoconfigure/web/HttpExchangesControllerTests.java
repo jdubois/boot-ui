@@ -176,6 +176,63 @@ class HttpExchangesControllerTests {
         assertHeader(dto.requestHeaders(), "Authorization", true);
     }
 
+    @Test
+    void stampsTraceIdFromRegistryWhenInstalled() {
+        HttpExchange appExchange = exchange("GET", "http://localhost/api/notes", 200);
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repositoryWith(appExchange)), new BootUiProperties());
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
+        long start = START.toEpochMilli();
+        registry.record(new HttpExchangeTraceRegistry.HttpExchangeTrace(
+                start, start + 37, "GET", "/api/notes", "trace-registry-abc"));
+        controller.setTraceRegistry(registry);
+
+        HttpExchangeDto dto =
+                controller.exchanges(null, null, null, null, null).exchanges().get(0);
+
+        assertThat(dto.traceId()).isEqualTo("trace-registry-abc");
+    }
+
+    @Test
+    void registryTraceIdTakesPrecedenceOverHeaderDerivedTraceId() {
+        HttpExchange appExchange = exchange(
+                "GET",
+                "http://localhost/api/notes",
+                200,
+                Map.of("traceparent", List.of("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00")),
+                Map.of());
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repositoryWith(appExchange)), new BootUiProperties());
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
+        long start = START.toEpochMilli();
+        registry.record(new HttpExchangeTraceRegistry.HttpExchangeTrace(
+                start, start + 37, "GET", "/api/notes", "trace-registry-wins"));
+        controller.setTraceRegistry(registry);
+
+        HttpExchangeDto dto =
+                controller.exchanges(null, null, null, null, null).exchanges().get(0);
+
+        assertThat(dto.traceId()).isEqualTo("trace-registry-wins");
+    }
+
+    @Test
+    void fallsBackToHeaderDerivedTraceIdWhenRegistryHasNoMatch() {
+        HttpExchange appExchange = exchange(
+                "GET",
+                "http://localhost/api/notes",
+                200,
+                Map.of("traceparent", List.of("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00")),
+                Map.of());
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repositoryWith(appExchange)), new BootUiProperties());
+        controller.setTraceRegistry(new HttpExchangeTraceRegistry(10));
+
+        HttpExchangeDto dto =
+                controller.exchanges(null, null, null, null, null).exchanges().get(0);
+
+        assertThat(dto.traceId()).isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
+    }
+
     private static void assertHeader(List<HttpHeaderDto> headers, String name, boolean masked, String... values) {
         HttpHeaderDto header = headers.stream()
                 .filter(candidate -> candidate.name().equals(name))
