@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
+import io.github.jdubois.bootui.engine.constellation.ConstellationService;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
@@ -55,6 +56,7 @@ import io.github.jdubois.bootui.quarkus.quarkusapp.QuarkusAppSnapshotProviderImp
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.security.QuarkusSecuritySnapshotProviderImpl;
 import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
+import io.github.jdubois.bootui.quarkus.web.QuarkusConstellationPeerClient;
 import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.spi.CacheProvider;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
@@ -611,6 +613,43 @@ public class BootUiEngineProducer {
         String[] hosts = config.getOptionalValue("bootui.github.allowed-api-hosts", String[].class)
                 .orElse(new String[] {"api.github.com"});
         return Arrays.asList(hosts);
+    }
+
+    /**
+     * The Constellation panel's aggregator over a Jackson-2 {@link QuarkusConstellationPeerClient}. The shared
+     * engine {@link ConstellationService} is framework- and JSON-library-free; this factory mirrors the Spring
+     * adapter's {@code ConstellationController} composition root, reading the same {@code bootui.constellation.*}
+     * keys (with the same defaults) from MicroProfile {@link Config}. No peer is ever contacted unless
+     * {@code bootui.constellation.enabled=true} - mirroring Spring's fail-closed, opt-in stance - so the peer
+     * list is forced empty when disabled, exactly like the Spring factory forces {@code effectivePeers} to
+     * {@code List.of()}.
+     */
+    @Produces
+    @Singleton
+    public ConstellationService constellationService(Config config) {
+        boolean enabled = config.getOptionalValue("bootui.constellation.enabled", Boolean.class)
+                .orElse(Boolean.FALSE);
+        List<String> effectivePeers = enabled ? constellationPeers(config) : List.of();
+        Duration requestTimeout = config.getOptionalValue("bootui.constellation.request-timeout", Duration.class)
+                .orElse(Duration.ofSeconds(2));
+        return ConstellationService.using(effectivePeers, requestTimeout, new QuarkusConstellationPeerClient());
+    }
+
+    /**
+     * Reads {@code bootui.constellation.peers} (comma-separated loopback base URLs) from MicroProfile
+     * {@link Config}, trimming each entry and dropping blanks. Returns an empty list when unset, matching the
+     * Spring adapter's default empty {@code BootUiProperties.Constellation.peers}.
+     */
+    static List<String> constellationPeers(Config config) {
+        String raw = config.getOptionalValue("bootui.constellation.peers", String.class)
+                .orElse("");
+        if (raw.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(peer -> !peer.isEmpty())
+                .toList();
     }
 
     /**

@@ -170,14 +170,18 @@ extension of the mechanism `App.vue` already uses, so the same UI build renders 
 > panel-specific not-applicable reason. The per-panel `**Implemented**` markers below and `docs/FEATURES.md` carry the
 > authoritative, current per-platform detail.
 
-### 5.1 Ported as-is — framework-agnostic or same library (17)
+### 5.1 Ported as-is — framework-agnostic or same library (18)
 
 Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
 
 `Memory` · `Live Memory` · `JVM Tuning` · `Heap Dump` · `Threads` (pure JVM MXBeans) · `Metrics` (Micrometer — same API)
 · `Hibernate` advisor (Hibernate ORM + `jakarta.persistence`; rules port directly) · `Vulnerabilities` (classpath Maven
 metadata + OSV) · `Pentesting` · `HTTP Probe` (local HTTP probing) · `AI Usage` · `Traces` (OTLP — a standard;
-Quarkus/LangChain4j export it) · `GitHub` (`HttpClient`) · `Copilot` · `Claude Code` (read `~/.copilot` / `~/.claude`) ·
+Quarkus/LangChain4j export it) · `GitHub` (`HttpClient`) · `Constellation` (**Implemented** — the shared engine
+`ConstellationService` fans the configured `bootui.constellation.peers` out via a `QuarkusConstellationPeerClient`
+(JDK `HttpClient` + Jackson 2, the Jackson-2 analogue of the Spring adapter's `ConstellationHttpPeerClient`); dynamic
+availability mirrors `GitHub` — the panel lights up only when `bootui.constellation.enabled=true` and at least one peer
+is configured) · `Copilot` · `Claude Code` (read `~/.copilot` / `~/.claude`) ·
 `MCP Server` (**Implemented** — full JSON-RPC bridge: the shared engine `McpDispatcher` owns method routing/gating/tool
 lookup, a thin Jackson-2 `QuarkusMcpEnvelope` codec + `QuarkusMcpTools` catalog + working enable toggle sit behind the
 `LocalhostGuard` write floor) · `Dev Services` (**Implemented** — a Quarkus-native concept; build-time
@@ -478,7 +482,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | AI Usage            | as-is       | Port    | TelemetryStore (OTLP)            | —                                           |
 | Traces              | as-is       | Port    | OTLP receiver + TelemetryStore   | —                                           |
 | GitHub              | as-is       | Port    | GitHub `HttpClient` service      | —                                           |
-| Constellation       | not yet     | Port    | Constellation aggregator (`ConstellationService`, `PeerClient` SPI) | not yet ported: needs a Quarkus `PeerClient` (JAX-RS client) implementation |
+| Constellation       | **done**    | Port    | Constellation aggregator (`ConstellationService`, `PeerClient` SPI) | `QuarkusConstellationPeerClient` (JDK `HttpClient` + Jackson 2); dynamic availability like GitHub |
 | Copilot             | as-is       | Port    | CLI log reader                   | —                                           |
 | Claude Code         | as-is       | Port    | CLI log reader                   | —                                           |
 | MCP Server          | as-is       | Port    | BootUI MCP server                | —                                           |

@@ -345,6 +345,8 @@ public class QuarkusPanelAvailability {
     private final boolean restApiPresent;
     private final boolean copilotPanelAvailable;
     private final boolean claudeCodePanelAvailable;
+    private final boolean constellationEnabled;
+    private final boolean constellationPeersConfigured;
     private final QuarkusPanelAccessConfig accessConfig;
 
     @Inject
@@ -376,6 +378,10 @@ public class QuarkusPanelAvailability {
         QuarkusClaudeCodeProperties claude = new QuarkusClaudeCodeProperties(config);
         this.copilotPanelAvailable = agentDirectoryPresent(copilot);
         this.claudeCodePanelAvailable = agentDirectoryPresent(claude);
+        this.constellationEnabled = config.getOptionalValue("bootui.constellation.enabled", Boolean.class)
+                .orElse(false);
+        this.constellationPeersConfigured =
+                !BootUiEngineProducer.constellationPeers(config).isEmpty();
         this.accessConfig = new QuarkusPanelAccessConfig(config);
     }
 
@@ -446,7 +452,8 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.REST_API.equals(panelId) && restApiPresent)
                 || (BootUiPanels.COPILOT.equals(panelId) && copilotPanelAvailable)
                 || (BootUiPanels.CLAUDE_CODE.equals(panelId) && claudeCodePanelAvailable)
-                || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable());
+                || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable())
+                || (BootUiPanels.CONSTELLATION.equals(panelId) && constellationAvailable());
     }
 
     private String unavailableReason(String panelId) {
@@ -481,6 +488,9 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();
+        }
+        if (BootUiPanels.CONSTELLATION.equals(panelId)) {
+            return constellationUnavailableReason();
         }
         if (BootUiPanels.REST_API.equals(panelId)) {
             return "Not available: no JAX-RS resources were found under the application base packages. Add a"
@@ -519,5 +529,23 @@ public class QuarkusPanelAvailability {
 
     private static Path githubWorkingDirectory() {
         return Path.of(System.getProperty("user.dir", "."));
+    }
+
+    /**
+     * Constellation panel availability is <em>dynamic</em>, mirroring the Spring adapter's
+     * {@code PanelsController.constellationAvailable()}: the panel is available only when the panel is
+     * explicitly enabled ({@code bootui.constellation.enabled=true}) <em>and</em> at least one peer is
+     * configured ({@code bootui.constellation.peers}), so BootUI never silently starts polling other local
+     * processes.
+     */
+    private boolean constellationAvailable() {
+        return constellationEnabled && constellationPeersConfigured;
+    }
+
+    private String constellationUnavailableReason() {
+        if (!constellationEnabled) {
+            return "Constellation view is disabled. Set bootui.constellation.enabled=true to enable it.";
+        }
+        return "No peers configured. Add bootui.constellation.peers to enable Constellation view.";
     }
 }

@@ -276,8 +276,9 @@ profiles. A peer that is unreachable, isn't a BootUI instance, or runs an older 
 renders as a node — reachability and an error message, never a broken page — matching BootUI's "never surprise the
 user" design principle.
 
-Constellation is currently available on the Spring adapter only; Quarkus support is tracked for a future release (see
-[docs/QUARKUS-SUPPORT.md](QUARKUS-SUPPORT.md)).
+Constellation is available on both the Spring and Quarkus adapters (see [docs/QUARKUS-SUPPORT.md](QUARKUS-SUPPORT.md)):
+the Quarkus adapter feeds the same shared engine `ConstellationService` a Jackson 2 peer client, so a mixed constellation
+of Spring Boot and Quarkus peers renders identically either way.
 
 ## Advisors
 

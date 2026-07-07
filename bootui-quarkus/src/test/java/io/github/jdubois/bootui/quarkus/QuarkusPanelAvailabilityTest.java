@@ -235,6 +235,33 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void constellationIsUnavailableByDefault() {
+        // Default: disabled and no peers configured, mirroring Spring's fail-closed, opt-in default.
+        PanelDto constellation = manifestById().get(BootUiPanels.CONSTELLATION);
+        assertThat(constellation.available()).isFalse();
+        assertThat(constellation.unavailableReason()).isNotNull().containsIgnoringCase("disabled");
+    }
+
+    @Test
+    void constellationIsUnavailableWhenEnabledButNoPeersAreConfigured() {
+        StubConfig enabledNoPeers = new StubConfig(Map.of("bootui.constellation.enabled", "true"));
+        PanelDto constellation = manifestById(enabledNoPeers).get(BootUiPanels.CONSTELLATION);
+        assertThat(constellation.available()).isFalse();
+        assertThat(constellation.unavailableReason()).isNotNull().containsIgnoringCase("No peers configured");
+    }
+
+    @Test
+    void constellationIsAvailableWhenEnabledWithAtLeastOnePeer() {
+        StubConfig enabledWithPeers = new StubConfig(
+                Map.of("bootui.constellation.enabled", "true", "bootui.constellation.peers", "http://localhost:8081"));
+        PanelDto constellation = manifestById(enabledWithPeers).get(BootUiPanels.CONSTELLATION);
+        assertThat(constellation.available())
+                .as("Constellation is lit up when enabled with at least one peer")
+                .isTrue();
+        assertThat(constellation.unavailableReason()).isNull();
+    }
+
+    @Test
     void connectionPoolsIsAvailableWhenTheBuildTimeFlagIsSet() {
         StubConfig withDatasource =
                 new StubConfig(Map.of(QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY, "true"));
