@@ -12,6 +12,7 @@ import org.springframework.mail.MailException;
 import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessagePreparator;
 
 /**
@@ -25,8 +26,19 @@ import org.springframework.mail.javamail.MimeMessagePreparator;
  * {@code SqlTraceDataSourceBeanPostProcessor}: no reflective proxy class needs to be registered for
  * native-image reachability. Capture never blocks the real send: if parsing a message for display fails,
  * the failure is logged and the message is still handed to the real sender unmodified.</p>
+ *
+ * <p>This wrapper deliberately <strong>extends</strong> {@link JavaMailSenderImpl} rather than only
+ * implementing the {@link JavaMailSender} interface. Spring Boot's mail health contributor
+ * ({@code MailHealthContributorAutoConfiguration}) resolves beans by the concrete
+ * {@code JavaMailSenderImpl} type and asserts at least one exists; if BootUI replaced the
+ * {@code JavaMailSenderImpl} bean with an interface-only wrapper, that lookup would return empty and
+ * crash application startup whenever {@code spring-boot-starter-mail} and Actuator health coexist (which
+ * is always, since BootUI ships Actuator). By subclassing and copying the delegate's configuration, the
+ * wrapper stays discoverable as a {@code JavaMailSenderImpl} and its inherited
+ * {@link JavaMailSenderImpl#testConnection()}/host/port reflect the real sender, so the mail health
+ * indicator keeps probing the real server.</p>
  */
-final class CapturingJavaMailSender implements JavaMailSender {
+final class CapturingJavaMailSender extends JavaMailSenderImpl {
 
     private static final Logger log = LoggerFactory.getLogger(CapturingJavaMailSender.class);
 
@@ -36,6 +48,41 @@ final class CapturingJavaMailSender implements JavaMailSender {
     CapturingJavaMailSender(JavaMailSender delegate, EmailCaptureService captureService) {
         this.delegate = delegate;
         this.captureService = captureService;
+        if (delegate instanceof JavaMailSenderImpl impl) {
+            copyConfiguration(impl);
+        }
+    }
+
+    /**
+     * Copies the delegate {@link JavaMailSenderImpl}'s connection configuration onto this wrapper so that
+     * consumers resolving beans by the concrete {@code JavaMailSenderImpl} type (notably Spring Boot's
+     * mail health contributor) see a fully-configured sender. Sends are still routed through the original
+     * {@code delegate}; the copied configuration only backs the inherited
+     * {@link JavaMailSenderImpl#testConnection()} and host/port accessors.
+     */
+    private void copyConfiguration(JavaMailSenderImpl source) {
+        if (source.getHost() != null) {
+            setHost(source.getHost());
+        }
+        setPort(source.getPort());
+        if (source.getProtocol() != null) {
+            setProtocol(source.getProtocol());
+        }
+        if (source.getUsername() != null) {
+            setUsername(source.getUsername());
+        }
+        if (source.getPassword() != null) {
+            setPassword(source.getPassword());
+        }
+        if (source.getDefaultEncoding() != null) {
+            setDefaultEncoding(source.getDefaultEncoding());
+        }
+        if (source.getDefaultFileTypeMap() != null) {
+            setDefaultFileTypeMap(source.getDefaultFileTypeMap());
+        }
+        if (source.getJavaMailProperties() != null) {
+            setJavaMailProperties(source.getJavaMailProperties());
+        }
     }
 
     @Override

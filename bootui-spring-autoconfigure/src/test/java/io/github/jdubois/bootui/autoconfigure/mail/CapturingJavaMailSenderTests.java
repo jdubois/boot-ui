@@ -1,10 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
@@ -56,7 +57,7 @@ class CapturingJavaMailSenderTests {
 
         sender.send(simple);
 
-        verifyNoInteractions(delegate);
+        verify(delegate, never()).send(any(SimpleMailMessage.class));
         assertThat(captureService.list().messages()).hasSize(1);
         assertThat(captureService.list().messages().get(0).sent()).isFalse();
     }
