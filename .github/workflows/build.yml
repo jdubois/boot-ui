@@ -176,8 +176,10 @@ jobs:
         working-directory: bootui-quarkus-sample-app/e2e
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
-      # ubuntu-latest ships with Docker, which Quarkus Dev Services needs to start the throwaway
-      # PostgreSQL container the sample app boots against.
+      # The sample app now defaults to an in-memory H2 database (like the Spring sample's `dev`
+      # profile), so this suite runs Docker-free: no Dev Services PostgreSQL container is started and
+      # the Dev Services spec skips itself. (ubuntu-latest still ships with Docker, so the opt-in
+      # `docker` profile -- -Dquarkus.profile=docker -- would start the throwaway PostgreSQL container.)
       - name: Run Quarkus Playwright end-to-end tests
         working-directory: bootui-quarkus-sample-app/e2e
         run: npm test

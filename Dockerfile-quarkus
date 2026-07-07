@@ -37,14 +37,12 @@
 #
 # Docker-free, like the Spring image
 # ----------------------------------
-# The sample is wired for PostgreSQL (Quarkus Dev Services start a throwaway container in dev/test).
-# That would need Docker-in-Docker here, so the image instead points the datasource at an in-memory
-# H2 database via environment variables (QUARKUS_DATASOURCE_DB_KIND=h2 + an explicit JDBC URL, which
-# also disables datasource Dev Services). Hibernate ORM (drop-and-create) builds the schema. This is
-# the Quarkus analogue of the Spring image's Docker-free "dev" profile on H2.
-#
-# Because dev mode runs build-time augmentation at container start, the H2 selection must be an
-# ENVIRONMENT VARIABLE (read during augmentation), not a value baked into the build.
+# The sample app now defaults to an in-memory H2 database in dev mode (see the Datasource section of
+# bootui-quarkus-sample-app/src/main/resources/application.properties) — the Quarkus analogue of the
+# Spring image's Docker-free "dev" profile on H2. So this image inherits a Docker-free datasource with
+# no override at all: Hibernate ORM (drop-and-create) builds the schema and datasource Dev Services
+# stay off. (The full PostgreSQL-via-Dev-Services experience is the opt-in "docker" profile, which
+# would need Docker-in-Docker and is deliberately not used here.)
 #
 # Build and run:
 #   docker build -f Dockerfile-quarkus -t bootui-sample-app-quarkus .
@@ -101,12 +99,9 @@ RUN ./mvnw -B -ntp -DskipTests -pl bootui-quarkus-deployment,bootui-quarkus-samp
 ENV QUARKUS_HTTP_HOST=0.0.0.0
 ENV QUARKUS_HTTP_PORT=8082
 
-# Run Docker-free on in-memory H2 instead of the PostgreSQL Dev Service. db-kind is a build-time
-# setting, but dev mode re-augments at startup and reads these environment variables; the explicit URL
-# also disables datasource Dev Services so no container is required. Hibernate ORM builds the schema.
-ENV QUARKUS_DATASOURCE_DB_KIND=h2
-ENV QUARKUS_DATASOURCE_USERNAME=sa
-ENV QUARKUS_DATASOURCE_JDBC_URL="jdbc:h2:mem:bootui;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false"
+# The sample app defaults to an in-memory H2 database in dev mode (see its application.properties), so
+# this image needs no datasource override to run Docker-free: db-kind=h2 and the explicit H2 URL come
+# from the app's "dev" profile, datasource Dev Services stay off, and Hibernate ORM builds the schema.
 
 # The Flyway/Liquibase migrations are off by default for a faster boot (Hibernate still creates the
 # sample tables). Re-enable them at runtime to populate the Flyway/Liquibase panels (see header).

@@ -397,7 +397,7 @@ counterpart; ingredients for dropped/replaced panels are swapped or omitted.
 | Flyway **and** Liquibase (both, same changelogs)                                   | Flyway, Liquibase                      | `quarkus-flyway` + `quarkus-liquibase` (reuse the migrations/changelogs) |
 | `spring-boot-starter-cache` + Redis                                                | Spring Cache → **Quarkus Cache**       | `quarkus-cache`                                                          |
 | `spring-boot-starter-security` + `SecurityConfiguration` + `AdminController`       | Security Logs, **Quarkus advisor**     | `quarkus-security` + basic/OIDC, protected resource                      |
-| `compose.yaml` (Postgres, Redis) + `spring-boot-docker-compose`                    | Dev Services                           | Quarkus **Dev Services** (zero-config Postgres/Redis containers)         |
+| `compose.yaml` (Postgres, Redis) + `spring-boot-docker-compose`                    | Dev Services                           | Quarkus **Dev Services** (Postgres) — opt-in `docker` profile; defaults to Docker-free in-memory H2 |
 | `spring-boot-starter-actuator`                                                     | Health, Metrics, Loggers               | `quarkus-smallrye-health`, `quarkus-micrometer`                          |
 | `crac`, `NativeHintsConfiguration`                                                 | CRaC, GraalVM                          | omitted (panels dropped on Quarkus)                                      |
 
@@ -411,6 +411,11 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
   app defaults to 8082, not 8080, so it can run alongside the Spring servlet sample app (8080) and the Spring WebFlux
   sample app (8081) for the cross-service trace demo — see `bootui-spring-sample-app/README.md`). Quarkus live reload
   replaces DevTools for the inner loop. (`-am` builds the upstream `bootui-quarkus` extension first.)
+- **Database:** like the Spring sample app's `dev` profile, the Quarkus sample defaults to a Docker-free
+  in-memory H2 database, so a bare `quarkus:dev` and the Playwright e2e suite need no Docker (the Dev Services
+  panel/spec is absent and skips itself). Activate the `docker` profile
+  (`quarkus:dev -Dquarkus.profile=docker`) for the full experience — a throwaway PostgreSQL container via Dev
+  Services, which also lights up the Dev Services panel.
 - **e2e:** a `bootui-quarkus-sample-app/e2e/` Playwright project mirrors `bootui-spring-sample-app/e2e/`, with one spec per
   supported panel plus `quarkus-advisor.spec.js` / `cache.spec.js`; drop specs only for the panels genuinely not shipped
   on Quarkus (`conditions`, `startup`, `spring-security`, `data`, `http-sessions`, `graalvm`, `crac`, `devtools`) covered

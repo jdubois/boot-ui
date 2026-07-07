@@ -11,16 +11,18 @@ import {defineConfig, devices} from '@playwright/test'
  *
  * By default Playwright boots the sample app for you via `./mvnw quarkus:dev` (requires a prior
  * `./mvnw install` so the `bootui-quarkus` extension is in the local Maven repository, plus a
- * supported JDK — the sample is wired into the reactor only on JDK 17/21). Quarkus Dev Services
- * starts a throwaway PostgreSQL container, so **Docker (or Podman) must be running**. If you already
- * have the app running on port 8082 it is reused automatically.
+ * supported JDK — the sample is wired into the reactor only on JDK 17/21). The sample runs
+ * **Docker-free by default** (an in-memory H2 database, like the Spring sample's `dev` profile), so
+ * this suite needs no Docker or Podman; the Dev Services test skips itself when the panel is absent.
+ * If you already have the app running on port 8082 it is reused automatically.
  */
 const PORT = Number(process.env.BOOTUI_SAMPLE_PORT || 8082)
 const BASE_URL = process.env.BOOTUI_BASE_URL || `http://localhost:${PORT}`
 
-// Quarkus dev mode has to augment the application and let Dev Services pull/start the PostgreSQL
-// container, which on a cold CI runner is much slower than a Spring Boot start, so allow the
-// web-server startup timeout to be raised from the environment.
+// Quarkus dev mode has to augment the application from source, which on a cold CI runner is much
+// slower than a Spring Boot start, so allow the web-server startup timeout to be raised from the
+// environment. (Under the opt-in `docker` profile, Dev Services also pulls/starts a PostgreSQL
+// container, which is slower still.)
 const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 300_000)
 
 export default defineConfig({

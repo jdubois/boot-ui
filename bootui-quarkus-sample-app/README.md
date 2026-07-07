@@ -13,7 +13,7 @@ Each ingredient maps to a BootUI panel, mirroring the Spring sample's demo inten
 | ----------------------------------------------- | ---------------------------------------- |
 | `quarkus-rest` (+ Jackson)                      | REST API advisor, Mappings, demo endpoints |
 | `quarkus-hibernate-orm-panache`                 | Hibernate advisor, Database, SQL Trace   |
-| `quarkus-jdbc-postgresql` + Dev Services        | Database Connection Pools, Dev Services   |
+| `quarkus-jdbc-h2` (default) / `quarkus-jdbc-postgresql` (`docker` profile) | Database Connection Pools, Dev Services |
 | `quarkus-flyway` / `quarkus-liquibase`          | Flyway, Liquibase                        |
 | `quarkus-cache`                                 | Cache                                    |
 | `quarkus-scheduler`                             | Scheduled Tasks                          |
@@ -38,8 +38,9 @@ in the Spring sample's README.
 
 ## Running from source
 
-Quarkus Dev Services starts a throwaway PostgreSQL container, so **Docker (or Podman) must be running**.
-Install the extension (and its dependencies) once, then launch the sample in dev mode:
+The sample runs **Docker-free by default**: an in-memory H2 database, exactly like the Spring sample app's
+`dev` profile — no Docker or Podman needed. Install the extension (and its dependencies) once, then launch
+the sample in dev mode:
 
 ```bash
 ./mvnw -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am -DskipTests install
@@ -48,6 +49,14 @@ Install the extension (and its dependencies) once, then launch the sample in dev
 
 Then open the console at <http://localhost:8082/bootui/> and the landing page at <http://localhost:8082/>.
 Ollama is optional: the chat endpoint returns a clear "AI unavailable" response when it is not reachable.
+
+For the full Dockerized experience — a throwaway PostgreSQL container started by Quarkus Dev Services, which
+also lights up the **Dev Services** panel — activate the `docker` profile (Docker or Podman must be running),
+mirroring the Spring sample's `dev`/`docker` split:
+
+```bash
+./mvnw -f bootui-quarkus-sample-app/pom.xml quarkus:dev -Dquarkus.profile=docker
+```
 
 BootUI activates automatically under `quarkus:dev` (development launch mode). In a packaged production run
 (`java -jar`, NORMAL launch mode) the console stays dark by design — there is no runtime flag to force it on.

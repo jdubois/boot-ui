@@ -16,8 +16,9 @@ Quarkus backend can prove is what these tests cover:
   sidebar, and that Spring-only panels are collected in the "Disabled / unavailable" group.
 - **`quarkus-advisor.spec.js`** — the Spring advisor is replaced by a framework-aware **Quarkus** advisor
   (same shared view, `platform`-driven copy): heading, "Run Quarkus checks", Quarkus idiom rules.
-- **`dev-services.spec.js`** — the Dev Services panel renders the build-time Dev Services snapshot (the
-  throwaway PostgreSQL container) and explains that live logs/restart are managed by Quarkus, not BootUI.
+- **`dev-services.spec.js`** — when the panel is available (the opt-in `docker` profile), it renders the
+  build-time Dev Services snapshot (the throwaway PostgreSQL container) and explains that live logs/restart
+  are managed by Quarkus, not BootUI; on the Docker-free H2 default the spec skips itself.
 - **`cache.spec.js`** — the renamed **Cache** panel lists the Quarkus caches and clears one.
 - **`not-applicable.spec.js`** — Spring-only panels (DevTools, Conditions, HTTP Sessions, …) degrade
   honestly with a "Not applicable on Quarkus" explanation instead of breaking.
@@ -50,9 +51,9 @@ rendering already covered by Spring's e2e suite — performs the action end to e
   clears the retained buffer.
 - **`exceptions.spec.js`** — captures a real thrown exception, asserts its message is secret-masked, then
   clears the buffer.
-- **`flyway.spec.js`** — re-runs Migrate against the real Postgres database (idempotent "already up to
+- **`flyway.spec.js`** — re-runs Migrate against the sample's database (idempotent "already up to
   date") and confirms the Clean action's configuration without invoking the destructive action.
-- **`liquibase.spec.js`** — re-runs Update against the real Postgres database (idempotent "already up to
+- **`liquibase.spec.js`** — re-runs Update against the sample's database (idempotent "already up to
   date").
 - **`mcp-server.spec.js`** — toggles the MCP server bridge on and back off, asserting the live status
   updates.
@@ -65,7 +66,10 @@ rendering already covered by Spring's e2e suite — performs the action end to e
 
 1. **A supported JDK (17 or 21).** The Quarkus sample is wired into the Maven reactor only on JDK 17/21
    (see the root `pom.xml` `quarkus-sample-app` profile); on newer JDKs it is skipped and cannot be built.
-2. **Docker or Podman running.** Quarkus Dev Services starts a throwaway PostgreSQL container at boot.
+2. **No Docker required.** The sample defaults to an in-memory H2 database (like the Spring sample's `dev`
+   profile), so this suite runs Docker-free and the Dev Services spec skips itself. Docker or Podman is
+   only needed for the opt-in `docker` profile (`-Dquarkus.profile=docker`), which swaps in a throwaway
+   PostgreSQL container via Dev Services.
 3. **The BootUI artifacts installed locally**, so `quarkus:dev` can resolve the `bootui-quarkus`
    extension:
 
@@ -98,5 +102,5 @@ reused.
 ## CI
 
 The `quarkus-e2e` job in [`.github/workflows/build.yml`](../../.github/workflows/build.yml) runs this
-suite on JDK 17 (Docker is available on the GitHub-hosted runner), after building the extension and the
-sample app.
+suite on JDK 17, after building the extension and the sample app. It runs Docker-free on the H2 default
+(the Dev Services spec skips itself).

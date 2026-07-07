@@ -26,9 +26,10 @@ const e2eDir = path.resolve(testDir, '..')
 const sampleAppDir = path.resolve(e2eDir, '..')
 const repoRoot = path.resolve(sampleAppDir, '..')
 const mvnw = path.join(repoRoot, process.platform === 'win32' ? 'mvnw.cmd' : 'mvnw')
-// Quarkus dev-mode has to augment the app and let Dev Services pull/start a throwaway PostgreSQL
-// (and Ollama) container, which is much slower than a Spring Boot start on a cold CI runner -
-// mirrors playwright.config.js's own WEBSERVER_TIMEOUT default.
+// Quarkus dev-mode has to augment the app from source, which is much slower than a Spring Boot
+// start on a cold CI runner - mirrors playwright.config.js's own WEBSERVER_TIMEOUT default. (The
+// sample defaults to Docker-free H2 and points Ollama at an explicit base-url, so no Dev Services
+// container is pulled here; the opt-in `docker` profile would add a throwaway PostgreSQL container.)
 const startupTimeoutMs = 300_000
 
 test.describe.configure({mode: 'serial'})
