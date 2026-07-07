@@ -5,10 +5,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.env.DefaultPropertiesPropertySource;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MutablePropertySources;
+import org.springframework.util.ClassUtils;
 
 /**
  * Contributes the Actuator endpoint exposure defaults BootUI needs for its
@@ -48,6 +50,18 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
             "logging.level.io.opentelemetry", TRACING_LOG_LEVEL,
             "logging.level.io.micrometer.tracing", TRACING_LOG_LEVEL);
 
+    public static final String REACTOR_CONTEXT_PROPAGATION_PROPERTY = "spring.reactor.context-propagation";
+
+    public static final String REACTOR_CONTEXT_PROPAGATION_VALUE = "auto";
+
+    /**
+     * The OpenTelemetry SDK class {@code ReactiveOpenTelemetryCorrelationConfiguration} itself gates on,
+     * checked by name here too (rather than importing it, which would pull an optional dependency into
+     * this always-loaded {@code EnvironmentPostProcessor}) so this default is contributed exactly when
+     * that WebFlux-only trace-id wiring will actually be active.
+     */
+    private static final String OTEL_SPAN_EXPORTER_CLASS = "io.opentelemetry.sdk.trace.export.SpanExporter";
+
     private static final Map<String, Object> ACTUATOR_DEFAULTS = Map.of(
             "management.endpoints.web.exposure.include",
             REQUIRED_ENDPOINTS,
@@ -70,6 +84,9 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
         if (telemetryEnabled(environment) && tracesPanelEnabled(environment)) {
             defaults.put(TRACING_SAMPLING_PROBABILITY_PROPERTY, TRACING_SAMPLING_PROBABILITY);
             defaults.putAll(TRACING_LOG_LEVEL_DEFAULTS);
+        }
+        if (reactiveOpenTelemetryCorrelationActive(application)) {
+            defaults.put(REACTOR_CONTEXT_PROPAGATION_PROPERTY, REACTOR_CONTEXT_PROPAGATION_VALUE);
         }
 
         // Only contribute defaults the host has not already configured through any property source,
@@ -94,6 +111,24 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
         return environment.getProperty("bootui.panels.traces.enabled", Boolean.class, true);
     }
 
+    /**
+     * WebFlux has no thread-per-request invariant: a single reactive chain hops between the Netty
+     * event loop, {@code boundedElastic} (blocking JDBC calls), and {@code parallel} schedulers.
+     * BootUI's reactive Live Activity/SQL-trace/exception/security-log correlation stamps each capture
+     * point with {@code Span.current()}'s trace id (see {@code ReactiveOtelTraceIdProvider}), which only
+     * resolves correctly across those thread hops when Reactor's automatic context propagation is on
+     * ({@code Hooks.enableAutomaticContextPropagation()}). Spring Boot 4.1 only enables that when
+     * {@value #REACTOR_CONTEXT_PROPAGATION_PROPERTY} is {@code auto}; its own default is {@code limited},
+     * which leaves the OpenTelemetry trace context ThreadLocal empty on every thread but the one the
+     * request happened to start on. Scoped to reactive applications with the OpenTelemetry SDK on the
+     * classpath, since that is exactly when {@code ReactiveOpenTelemetryCorrelationConfiguration} wires
+     * the trace-id-stamping beans this default exists to support.
+     */
+    private boolean reactiveOpenTelemetryCorrelationActive(SpringApplication application) {
+        return application.getWebApplicationType() == WebApplicationType.REACTIVE
+                && ClassUtils.isPresent(OTEL_SPAN_EXPORTER_CLASS, application.getClassLoader());
+    }
+
     public static boolean isBootUiActuatorDefault(String key, String value) {
         if (key == null || value == null) {
             return false;
@@ -105,6 +140,7 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
             case TRACING_SAMPLING_PROBABILITY_PROPERTY -> TRACING_SAMPLING_PROBABILITY.equals(normalized);
             case "logging.level.io.opentelemetry", "logging.level.io.micrometer.tracing" ->
                 TRACING_LOG_LEVEL.equalsIgnoreCase(normalized);
+            case REACTOR_CONTEXT_PROPAGATION_PROPERTY -> REACTOR_CONTEXT_PROPAGATION_VALUE.equalsIgnoreCase(normalized);
             default -> false;
         };
     }

@@ -156,20 +156,41 @@ constructor dependency would force-eager the controller and defeat its place in
 because `ReactiveBootUiChangeStream.signal()` is already a no-op with no subscribers, and the first `/stream`
 request naturally resolves (and thus creates) the controller bean once the panel is actually opened.
 
-**Known fidelity gap, accepted and honestly labeled (matching the Quarkus adapter's own framing):** correlation is
-trace-id-primary only — a request is only linked to "its" SQL statements/exceptions/security events when a shared
-distributed trace id is present on both sides. Reaching that state is narrower here than on Quarkus, though: the
-shared `HttpExchangesController` (identical on servlet and reactive) never stamps the active span's trace id at
-capture time — unlike Quarkus, which reads `Span.current()` unconditionally at each capture point — so a request
-only carries a trace id when the *inbound* call itself propagates one (a `traceparent`, B3, or `X-Amzn-Trace-Id`
-header), not merely because `micrometer-tracing`/OTLP is configured server-side. SQL, exception, and security
-trace ids come from the existing SLF4J MDC default in `SqlTraceRecorder`/the exception and security capture paths
-— the same source the servlet adapter already relies on — and on Reactor, MDC propagation across the event
-loop→worker-thread hop for blocking calls (for example JDBC on `boundedElastic`) depends on Reactor context
-propagation and is not guaranteed to be consistent under concurrent load, so even a request that does carry a
-trace id may not always show every one of its signals nested under it. Without a trace id, the feed still shows
-every signal, just uncorrelated/flat rather than nested per-request. The servlet adapter's thread-based
-correlation (`LiveActivityCorrelator`) is not ported — it has no reactive equivalent.
+**Trace-id correlation, now stamped identically to Quarkus:** a reactive-only `ReactiveOtelTraceIdProvider` reads
+`Span.current()` unconditionally at every capture point — HTTP exchange (via a new `ReactiveHttpExchangeTraceFilter`
+feeding a side-buffer `HttpExchangeTraceRegistry`, since Actuator's `HttpExchange` model has no trace-id field to
+populate directly), SQL (`SqlTraceRecorder.setTraceIdProvider`), exceptions (`ReactiveBootUiExceptionHandler
+.setTraceIdProvider`), and security events (`ReactiveSecurityLogsController.setTraceIdProvider` +
+`ReactiveSecurityEventTraceRegistry`) — replacing the earlier inbound-header/SLF4J-MDC-only reliance. All four are
+wired by `BootUiReactiveAutoConfiguration.ReactiveOpenTelemetryCorrelationConfiguration`, gated only on the
+OpenTelemetry SDK being present (matching Quarkus's own `Capability.OPENTELEMETRY_TRACER` gate) — deliberately
+*not* also gated on `bootui.telemetry.enabled`, which governs BootUI's own span export for the Traces/AI Usage
+panels, a separate concern from reading the id of a span the application's own tracing already started.
+
+**This alone is not sufficient — a second, non-obvious requirement makes it actually work.** WebFlux has no
+thread-per-request invariant: a single request's reactive chain hops between the Netty event loop, `boundedElastic`
+(blocking JDBC), and `parallel` schedulers. `Span.current()` only resolves correctly across those hops when
+Reactor's *automatic context propagation* is enabled (`Hooks.enableAutomaticContextPropagation()`); Spring Boot 4.1
+only calls that when `spring.reactor.context-propagation=auto`, and its own default is `limited`. Without `auto`,
+the trace-stamping code above is wired correctly but reads an empty/invalid span everywhere except by coincidence
+on the exact thread the request started on. `BootUiActuatorDefaultsEnvironmentPostProcessor` now contributes
+`spring.reactor.context-propagation=auto` as an overridable default (the same "library default, host always wins"
+pattern already used for `management.tracing.sampling.probability`) whenever the application is reactive and the
+OpenTelemetry SDK is present — see §7 for how this was found.
+
+**Known, accepted residual limitations:**
+
+- Correlation is still trace-id-primary, exactly like Quarkus: a request with no active tracing span at all (for
+  example, OpenTelemetry entirely absent from the classpath) still shows every signal flat/uncorrelated rather than
+  nested, since there is no id to key on. This is not a WebFlux-specific gap — the same is true of the Quarkus
+  adapter today.
+- `HttpExchangeTraceRegistry#match` (and its servlet-side sibling `RequestCorrelationRegistry`) deliberately requires
+  a *unique* method+path+time-window candidate: two genuinely concurrent identical requests (for example, the same
+  endpoint hit twice within roughly the same tens of milliseconds, with no other distinguishing signal available)
+  correlate to *neither* rather than risk attributing one request's trace id to the other. Both requests still show
+  up in the feed; they simply render without a nested SQL/exception child until a less ambiguous signal is added.
+- The servlet adapter's thread-based correlation (`LiveActivityCorrelator`) is not ported — it has no reactive
+  equivalent.
 
 ### 6.5 Not yet ported (2 panels)
 
@@ -218,6 +239,22 @@ Both were caught by `WebFluxApiConformanceTest`'s inherited `availablePanelsAnsw
 §8) — direct evidence for why the conformance suite runs against a real, minimal, single-stack sample app rather than
 relying on unit tests against a shared multi-stack test classpath alone.
 
+A third gap surfaced only through genuine end-to-end testing against the running sample app — unit tests call
+capture points directly on a single thread, so they never exercise a real Reactor scheduler hop and could not have
+caught this. Stamping `Span.current()` at each capture point (§6.4) is necessary but not sufficient: Spring Boot
+4.1's `spring-boot-reactor` module only calls `Hooks.enableAutomaticContextPropagation()` when
+`spring.reactor.context-propagation=auto`, and its own default is `limited`. Under the default, Reactor does not
+restore OpenTelemetry's ThreadLocal-based span context across the scheduler hops a WebFlux request constantly
+makes (Netty event loop → `boundedElastic`/`loomBoundedElastic` for blocking JDBC → `parallel`), so `Span.current()`
+returned a valid span only by coincidence, on whichever thread a request happened to still be on — every new
+trace-stamping capture point read `null`/an invalid span in practice despite being wired correctly. Fixed by having
+`BootUiActuatorDefaultsEnvironmentPostProcessor` contribute `spring.reactor.context-propagation=auto` as an
+overridable default whenever the application is reactive and the OpenTelemetry SDK is present. Confirmed by hitting
+the running sample app directly (`/api/notes`, `/api/sample/boom`) and checking `/bootui/api/http-exchanges`,
+`/bootui/api/sql-trace`, `/bootui/api/exceptions`, and `/bootui/api/activity` for populated, correctly-nested
+(`parentId`) trace ids — none of which a unit test asserts, since they all call the affected classes' methods
+directly rather than through a real multi-scheduler Reactor pipeline.
+
 ## 8. Sample app & end-to-end testing
 
 - **`bootui-spring-webflux-sample-app`** is a minimal WebFlux app (Netty, `spring-boot-starter-webflux`, deliberately
@@ -259,9 +296,6 @@ sample app — but is easy to trip over when smoke-testing a freshly built react
 - A reactive Security advisor ruleset (`ServerHttpSecurity`/`SecurityWebFilterChain`), closing the
   `security`/`spring-security` gap in §6.5.
 - A reactive-aware `BootUiMcpTools` catalog so the MCP Server panel and JSON-RPC bridge work on WebFlux.
-- Deeper Live Activity correlation for requests without a trace id (today: trace-id-primary only, matching the
-  Quarkus adapter — see §6.4).
-- A more reliable trace id source for the reactive Live Activity/profiler correlation: stamping the active
-  tracing span's id directly at each capture point (HTTP exchange, SQL, exception, security), mirroring how the
-  Quarkus adapter reads `Span.current()` unconditionally instead of relying on inbound propagation headers and
-  SLF4J MDC propagation across the Reactor event-loop→worker-thread hop (see §6.4).
+- Deeper Live Activity correlation for requests with no active tracing span at all (today: trace-id-primary only,
+  now matching the Quarkus adapter exactly since `Span.current()` is stamped unconditionally at every capture
+  point — see §6.4).
