@@ -45,8 +45,8 @@ public class EmailResource {
         this.service = service;
         this.emailPresent = config.getOptionalValue(QuarkusPanelAvailability.EMAIL_PRESENT_KEY, Boolean.class)
                 .orElse(false);
-        this.maxEntries =
-                config.getOptionalValue("bootui.email.max-entries", Integer.class).orElse(100);
+        this.maxEntries = config.getOptionalValue("bootui.email.max-entries", Integer.class)
+                .orElse(100);
     }
 
     @GET

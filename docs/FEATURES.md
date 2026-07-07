@@ -1254,6 +1254,18 @@ Recipients, subjects, and bodies are sensitive, so they are masked by default an
 by default so BootUI never silently swallows application mail. The panel is available only when a `JavaMailSender` bean
 is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear unavailable reason.
 
+On Quarkus the panel is identical, running over the same shared engine `EmailCaptureService` and the same
+`/bootui/api/email` contract (list/detail/`.eml`/clear, with the `.eml` bytes produced by the shared engine renderer so
+they match Spring's). Because Quarkus's blocking/reactive/Mutiny `Mailer` beans all funnel through one internal mailer
+that fires a CDI `SentMail` event after every successful send, a single `@Observes SentMail` observer captures every
+send style — the Quarkus analogue of Spring's `CapturingJavaMailSender` decorator. The panel is available when
+`quarkus-mailer` is on the classpath (and dark in production); otherwise it reports a clear unavailable reason. One
+behaviour differs by necessity: because the event fires *after* the send, BootUI cannot trap a message the way Spring's
+dev-trap does, so on Quarkus the recorded-but-not-sent distinction reflects the framework's own mock-mail mode
+(`quarkus.mailer.mock=true`, the default in dev and test) rather than a BootUI trap — the panel labels such messages
+**mock** instead of **dev-trap**. Attachment sizes are shown as unknown on Quarkus, since the sent-attachment API
+exposes none.
+
 ![BootUI Email panel](./images/bootui-email.webp)
 
 ## Developer tools

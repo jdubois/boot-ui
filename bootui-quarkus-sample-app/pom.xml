@@ -128,6 +128,14 @@
             <artifactId>quarkus-scheduler</artifactId>
         </dependency>
 
+        <!-- Mailer: drives the Email panel. The sample runs the mailer in mock mode (see application.properties),
+             so BootUI captures each outgoing message for the panel but nothing is ever handed to a real SMTP
+             transport — no mail server (and no Docker) is required. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-mailer</artifactId>
+        </dependency>
+
         <!-- Security: drives Security Logs + the Quarkus advisor. Simple file-based users for the demo. -->
         <dependency>
             <groupId>io.quarkus</groupId>

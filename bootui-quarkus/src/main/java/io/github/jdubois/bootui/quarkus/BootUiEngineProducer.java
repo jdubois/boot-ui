@@ -212,8 +212,8 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public EmailCaptureService emailCaptureService(QuarkusExposurePolicy exposure, Config config) {
-        int maxEntries =
-                config.getOptionalValue("bootui.email.max-entries", Integer.class).orElse(100);
+        int maxEntries = config.getOptionalValue("bootui.email.max-entries", Integer.class)
+                .orElse(100);
         boolean mock = config.getOptionalValue("quarkus.mailer.mock", Boolean.class)
                 .orElseGet(() -> LaunchMode.current().isDevOrTest());
         return new EmailCaptureService(new EmailStore(maxEntries), exposure, mock);
