@@ -4,11 +4,8 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
+import io.github.jdubois.bootui.engine.email.EmailEmlRenderer;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.http.HttpHeaders;
@@ -39,8 +36,6 @@ import org.springframework.web.server.ResponseStatusException;
 @ConditionalOnClass(name = "org.springframework.mail.javamail.JavaMailSender")
 @RequestMapping("/bootui/api/email")
 public class EmailController {
-
-    private static final DateTimeFormatter EML_DATE_FORMAT = DateTimeFormatter.RFC_1123_DATE_TIME;
 
     private final ObjectProvider<EmailCaptureService> captureServiceProvider;
     private final ObjectProvider<JavaMailSender> mailSenderProvider;
@@ -74,7 +69,7 @@ public class EmailController {
     @GetMapping("/{id}/eml")
     public ResponseEntity<byte[]> download(@PathVariable String id) {
         EmailMessageDto message = findOrThrow(id);
-        byte[] bytes = renderEml(message).getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = EmailEmlRenderer.render(message).getBytes(StandardCharsets.UTF_8);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("message/rfc822"))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"email-" + id + ".eml\"")
@@ -104,47 +99,5 @@ public class EmailController {
             return null;
         }
         return captureServiceProvider.getIfAvailable();
-    }
-
-    private static String renderEml(EmailMessageDto message) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("From: ").append(nullToEmpty(message.from())).append("\r\n");
-        appendAddressHeader(builder, "To", message.to());
-        appendAddressHeader(builder, "Cc", message.cc());
-        appendAddressHeader(builder, "Bcc", message.bcc());
-        builder.append("Subject: ").append(nullToEmpty(message.subject())).append("\r\n");
-        builder.append("Date: ")
-                .append(EML_DATE_FORMAT.format(
-                        Instant.ofEpochMilli(message.timestamp()).atZone(ZoneOffset.UTC)))
-                .append("\r\n");
-        boolean hasHtml = message.htmlBody() != null;
-        builder.append("Content-Type: ")
-                .append(hasHtml ? "text/html; charset=UTF-8" : "text/plain; charset=UTF-8")
-                .append("\r\n\r\n");
-        builder.append(hasHtml ? message.htmlBody() : nullToEmpty(message.textBody()));
-        if (!message.attachments().isEmpty()) {
-            builder.append("\r\n\r\n--- Attachments (metadata only, content not captured) ---\r\n");
-            message.attachments()
-                    .forEach(attachment -> builder.append(attachment.filename())
-                            .append(" (")
-                            .append(attachment.contentType())
-                            .append(", ")
-                            .append(attachment.sizeBytes())
-                            .append(" bytes)\r\n"));
-        }
-        return builder.toString();
-    }
-
-    private static void appendAddressHeader(StringBuilder builder, String name, List<String> addresses) {
-        if (addresses != null && !addresses.isEmpty()) {
-            builder.append(name)
-                    .append(": ")
-                    .append(String.join(", ", addresses))
-                    .append("\r\n");
-        }
-    }
-
-    private static String nullToEmpty(String value) {
-        return value == null ? "" : value;
     }
 }

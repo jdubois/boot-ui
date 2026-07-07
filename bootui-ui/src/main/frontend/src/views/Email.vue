@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch, getJson} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, inject, ref} from 'vue'
 import {formatBytes} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -15,6 +15,8 @@ import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const panels = inject('panels', ref(null))
+const isQuarkus = computed(() => (panels.value?.platform || 'spring-boot') === 'quarkus')
 const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
@@ -146,13 +148,19 @@ function downloadUrl(id) {
 
         <div v-if="report.devTrapEnabled" class="alert alert-info small">
           <i class="bi bi-sign-stop-fill me-1"></i>
-          Dev-trap mode is enabled (<code>bootui.email.dev-trap=true</code>): captured messages are recorded but not
-          handed to the real mail transport.
+          <template v-if="isQuarkus">
+            Mock mail mode is enabled (<code>quarkus.mailer.mock=true</code>): captured messages are recorded but not
+            handed to a real mail transport.
+          </template>
+          <template v-else>
+            Dev-trap mode is enabled (<code>bootui.email.dev-trap=true</code>): captured messages are recorded but not
+            handed to the real mail transport.
+          </template>
         </div>
 
         <div v-if="report.total === 0" class="alert alert-secondary">
-          No outgoing emails captured yet. Send an email through the application's <code>JavaMailSender</code> and
-          refresh this panel.
+          No outgoing emails captured yet. Send an email through the application's
+          <code>{{ isQuarkus ? 'Mailer' : 'JavaMailSender' }}</code> and refresh this panel.
         </div>
 
         <template v-else>
@@ -192,8 +200,13 @@ function downloadUrl(id) {
                     </td>
                     <td>
                       <span v-if="m.sent" class="badge text-bg-success">sent</span>
-                      <span v-else class="badge text-bg-warning" title="Recorded by dev-trap mode, not sent"
-                        >dev-trap</span
+                      <span
+                        v-else
+                        class="badge text-bg-warning"
+                        :title="
+                          isQuarkus ? 'Recorded in mock mail mode, not sent' : 'Recorded by dev-trap mode, not sent'
+                        "
+                        >{{ isQuarkus ? 'mock' : 'dev-trap' }}</span
                       >
                     </td>
                     <td class="text-end text-nowrap">

@@ -12,6 +12,8 @@ import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
+import io.github.jdubois.bootui.engine.email.EmailStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
@@ -63,6 +65,7 @@ import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LiquibaseProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.quarkus.runtime.LaunchMode;
 import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.AmbiguousResolutionException;
@@ -188,6 +191,32 @@ public class BootUiEngineProducer {
         int capacity = config.getOptionalValue("bootui.security-logs.max-logs", Integer.class)
                 .orElse(500);
         return new SecurityEventBuffer(capacity);
+    }
+
+    /**
+     * The framework-neutral Email Viewer capture service, always produced (like the engine
+     * {@code CacheService}) so {@code GET /bootui/api/email} never fails even when {@code quarkus-mailer} is
+     * absent; the resource then reports the panel unavailable via {@link QuarkusPanelAvailability#EMAIL_PRESENT_KEY}.
+     * When {@code quarkus-mailer} <em>is</em> present, {@code QuarkusEmailCapture} (registered by the
+     * deployment {@code registerEmail} build step) observes {@code io.quarkus.mailer.SentMail} and feeds this
+     * service's {@link EmailStore}. Capacity bounds memory ({@code bootui.email.max-entries}, default 100,
+     * matching the Spring panel cap).
+     *
+     * <p>Unlike Spring's {@code bootui.email.dev-trap} (which intercepts <em>before</em> the send and can block
+     * it), Quarkus fires {@code SentMail} <em>after</em> the send, so BootUI cannot trap the message. Instead the
+     * service's dev-trap flag is mapped to the effective {@code quarkus.mailer.mock} value (which defaults to
+     * {@code true} in dev/test — the only launch modes where the console is wired): mock mode records the message
+     * without handing it to a real transport, so {@code sent=false} is the honest report, exactly matching what
+     * the engine's {@code sent=!devTrapEnabled} already computes.</p>
+     */
+    @Produces
+    @Singleton
+    public EmailCaptureService emailCaptureService(QuarkusExposurePolicy exposure, Config config) {
+        int maxEntries =
+                config.getOptionalValue("bootui.email.max-entries", Integer.class).orElse(100);
+        boolean mock = config.getOptionalValue("quarkus.mailer.mock", Boolean.class)
+                .orElseGet(() -> LaunchMode.current().isDevOrTest());
+        return new EmailCaptureService(new EmailStore(maxEntries), exposure, mock);
     }
 
     /**

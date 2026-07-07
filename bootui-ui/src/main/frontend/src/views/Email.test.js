@@ -1,10 +1,15 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {ref} from 'vue'
 
 import Email from './Email.vue'
 
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
+}
+
+function quarkusPanels() {
+  return {global: {provide: {panels: ref({platform: 'quarkus'})}}}
 }
 
 function unavailableReport() {
@@ -132,5 +137,51 @@ describe('Email panel', () => {
     const downloadLink = wrapper.find('a[download]')
     expect(downloadLink.exists()).toBe(true)
     expect(downloadLink.attributes('href')).toBe('api/email/msg-1/eml')
+  })
+
+  it('uses Quarkus wording for the empty state on the Quarkus platform', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(emptyReport())))
+    wrapper = mount(Email, quarkusPanels())
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No outgoing emails captured yet')
+    expect(wrapper.text()).toContain('Mailer')
+    expect(wrapper.text()).not.toContain('JavaMailSender')
+  })
+
+  it('shows a mock-mail banner and mock badge on the Quarkus platform', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          reportWithMessages({
+            devTrapEnabled: true,
+            messages: [
+              {
+                id: 'msg-1',
+                timestamp: 1700000000000,
+                from: 'noreply@example.com',
+                to: ['customer@example.com'],
+                cc: [],
+                bcc: [],
+                subject: 'Order shipped',
+                textBody: 'body',
+                htmlBody: null,
+                attachments: [],
+                sent: false
+              }
+            ]
+          })
+        )
+      )
+    )
+    wrapper = mount(Email, quarkusPanels())
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Mock mail mode is enabled')
+    expect(wrapper.text()).toContain('quarkus.mailer.mock=true')
+    expect(wrapper.text()).not.toContain('bootui.email.dev-trap')
+    expect(wrapper.text()).toContain('mock')
+    expect(wrapper.text()).not.toContain('dev-trap')
   })
 })
