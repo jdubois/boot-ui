@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
@@ -14,6 +15,8 @@ import io.github.jdubois.bootui.core.dto.HealthNodeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
@@ -46,6 +49,7 @@ public class LiveActivityService {
 
     static final String TYPE_REQUEST = "REQUEST";
     static final String TYPE_SQL = "SQL";
+    static final String TYPE_REST = "REST";
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
 
@@ -56,6 +60,7 @@ public class LiveActivityService {
 
     private final ObjectProvider<HttpExchangesController> httpExchanges;
     private final ObjectProvider<SqlTraceController> sqlTrace;
+    private final ObjectProvider<RestClientTraceController> restClientTrace;
     private final ObjectProvider<ExceptionsController> exceptions;
     private final ObjectProvider<SecurityLogsController> securityLogs;
     private final ObjectProvider<HealthController> health;
@@ -66,6 +71,7 @@ public class LiveActivityService {
     public LiveActivityService(
             ObjectProvider<HttpExchangesController> httpExchanges,
             ObjectProvider<SqlTraceController> sqlTrace,
+            ObjectProvider<RestClientTraceController> restClientTrace,
             ObjectProvider<ExceptionsController> exceptions,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<HealthController> health,
@@ -74,6 +80,7 @@ public class LiveActivityService {
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
+        this.restClientTrace = restClientTrace;
         this.exceptions = exceptions;
         this.securityLogs = securityLogs;
         this.health = health;
@@ -97,6 +104,7 @@ public class LiveActivityService {
 
         HttpExchangesReport requests = loadRequests(sources, warnings);
         SqlTraceReport sql = loadSql(sources);
+        RestClientTraceReport rest = loadRestClientTrace(sources);
         ExceptionsReport exceptionsReport = loadExceptions(sources);
         SecurityLogsReport security = loadSecurity(sources);
 
@@ -124,6 +132,15 @@ public class LiveActivityService {
                             .computeIfAbsent(parentId, id -> new ArrayList<>())
                             .add(entry);
                 }
+            }
+        }
+        // REST client calls correlate to their parent request the same way SQL statements do (trace-id
+        // first, then serving thread within the request window); unlike SQL there is no per-request
+        // N+1-style flag on the REQUEST entry in v1, so no index by parent id is needed here — each
+        // "chatty call" group is only surfaced inside the REST Client Trace panel itself.
+        if (rest != null) {
+            for (RestClientTraceEntryDto entry : rest.entries()) {
+                all.add(toRestEntry(entry, matchRestParent(entry, anchors)));
             }
         }
         if (exceptionsReport != null) {
@@ -219,6 +236,22 @@ public class LiveActivityService {
             return null;
         }
         sources.add("SQL Trace");
+        return report;
+    }
+
+    private RestClientTraceReport loadRestClientTrace(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.REST_CLIENT_TRACE)) {
+            return null;
+        }
+        RestClientTraceController controller = restClientTrace.getIfAvailable();
+        if (controller == null) {
+            return null;
+        }
+        RestClientTraceReport report = controller.trace();
+        if (!report.available()) {
+            return null;
+        }
+        sources.add("REST Client Trace");
         return report;
     }
 
@@ -322,6 +355,43 @@ public class LiveActivityService {
                 false);
     }
 
+    private ActivityEntryDto toRestEntry(RestClientTraceEntryDto entry, String parentId) {
+        String severity;
+        if (!entry.success()) {
+            severity = SEVERITY_ERROR;
+        } else if (entry.status() != null && entry.status() >= 500) {
+            severity = SEVERITY_ERROR;
+        } else if (entry.status() != null && entry.status() >= 400) {
+            severity = SEVERITY_WARN;
+        } else if (entry.slow()) {
+            severity = SEVERITY_SLOW;
+        } else {
+            severity = SEVERITY_OK;
+        }
+        String host = entry.host() == null ? "" : entry.host();
+        String path = entry.path() == null ? "" : entry.path();
+        String outcome = entry.success() ? String.valueOf(entry.status()) : "failed";
+        String summary = (entry.method() == null ? "" : entry.method() + " ") + host + path + " → " + outcome;
+        String detail = entry.success() ? entry.clientType() : entry.errorMessage();
+        return new ActivityEntryDto(
+                "rest-" + entry.id(),
+                TYPE_REST,
+                entry.timestamp(),
+                severity,
+                summary.trim(),
+                detail,
+                entry.durationMillis(),
+                entry.traceId(),
+                entry.method(),
+                entry.path(),
+                entry.status(),
+                entry.thread(),
+                false,
+                parentId,
+                null,
+                false);
+    }
+
     private ActivityEntryDto toExceptionEntry(ExceptionGroupDto group, String parentId) {
         String message = group.message() == null ? "" : ": " + group.message();
         String summary = group.exceptionClassName() + message;
@@ -410,6 +480,30 @@ public class LiveActivityService {
      * request, so the entry stays top-level rather than being mis-attributed.
      */
     private static String matchSqlParent(SqlTraceEntryDto entry, List<RequestAnchor> anchors) {
+        String traceId = entry.traceId();
+        if (traceId != null && !traceId.isBlank()) {
+            String byTrace = uniqueByTrace(anchors, traceId);
+            if (byTrace != null) {
+                return byTrace;
+            }
+        }
+        String thread = entry.thread();
+        if (thread == null) {
+            return null;
+        }
+        String found = null;
+        for (RequestAnchor anchor : anchors) {
+            if (thread.equals(anchor.thread()) && covers(anchor, entry.timestamp())) {
+                if (found != null) {
+                    return null;
+                }
+                found = anchor.id();
+            }
+        }
+        return found;
+    }
+
+    private static String matchRestParent(RestClientTraceEntryDto entry, List<RequestAnchor> anchors) {
         String traceId = entry.traceId();
         if (traceId != null && !traceId.isBlank()) {
             String byTrace = uniqueByTrace(anchors, traceId);

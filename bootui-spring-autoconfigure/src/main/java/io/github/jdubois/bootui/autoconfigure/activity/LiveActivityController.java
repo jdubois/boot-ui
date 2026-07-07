@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 import io.github.jdubois.bootui.autoconfigure.BootUiEngineConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
@@ -24,6 +25,7 @@ import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -55,9 +57,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * <p>Because the merged feed is genuinely event-driven, the panel refreshes over Server-Sent Events
  * instead of fixed-interval polling: {@link #stream()} pushes a tiny coalesced {@code update} tick
  * whenever any underlying source changes, and the browser re-fetches {@link #activity} so all
- * masking, filtering and bounds still apply. The four sources are wired in as signals — SQL trace and
- * exceptions through their in-process subscribe hooks, security and HTTP requests through Spring
- * application events — and a single {@link BootUiChangeStream} coalesces a burst into one push.
+ * masking, filtering and bounds still apply. The five sources are wired in as signals — SQL trace, REST
+ * client trace and exceptions through their in-process subscribe hooks, security and HTTP requests
+ * through Spring application events — and a single {@link BootUiChangeStream} coalesces a burst into
+ * one push.
  *
  * <p>This controller also always owns the capture side: whenever the injected {@link
  * #persistenceSettings} has persistence enabled (from startup configuration, or later via the "Use the
@@ -86,11 +89,13 @@ public class LiveActivityController {
     public LiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
             ObjectProvider<SqlTraceController> sqlTrace,
+            ObjectProvider<RestClientTraceController> restClientTrace,
             ObjectProvider<ExceptionsController> exceptions,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             ObjectProvider<HealthController> health,
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
+            ObjectProvider<RestClientTraceRecorder> restClientTraceRecorder,
             ObjectProvider<ExceptionStore> exceptionStore,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
@@ -101,6 +106,7 @@ public class LiveActivityController {
         this.service = new LiveActivityService(
                 httpExchanges,
                 sqlTrace,
+                restClientTrace,
                 exceptions,
                 securityLogs,
                 health,
@@ -122,6 +128,10 @@ public class LiveActivityController {
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
         if (recorder != null) {
             unsubscribers.add(recorder.subscribe(changeStream::signal));
+        }
+        RestClientTraceRecorder restRecorder = restClientTraceRecorder.getIfAvailable();
+        if (restRecorder != null) {
+            unsubscribers.add(restRecorder.subscribe(changeStream::signal));
         }
         ExceptionStore store = exceptionStore.getIfAvailable();
         if (store != null) {
