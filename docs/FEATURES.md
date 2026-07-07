@@ -61,11 +61,11 @@ the current per-panel list), and the shell chrome is populated by the same `GET 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
 application just did, plus a per-request profiler for drilling into any single request. It does not add any new
 instrumentation — instead it reuses BootUI's existing in-memory signal buffers by calling the same controllers that back
-the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is already masked, self-filtered, and
-bounded exactly as those panels are.
+the HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, and Security Logs panels, so every value is already
+masked, self-filtered, and bounded exactly as those panels are.
 
-The stream merges four signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
-(`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a color-coded severity
+The stream merges five signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), outbound REST client
+calls (`REST`), exceptions (`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
 latency badge so you can see at a glance *how* slow a request was. A request whose correlated SQL contains a suspected
@@ -82,10 +82,10 @@ launchpads: the slowest-endpoint card opens **HTTP Exchanges** pre-filtered to t
 active-exceptions, health, and heap-usage cards jump to the **Exceptions**, **Health**, and **Heap Dump** panels
 respectively. Because the merged feed is genuinely event-driven, it refreshes over **Server-Sent Events** instead of
 fixed-interval polling: the browser subscribes to
-`/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
-exception, or security event), and the feed can be paused and resumed so a row you are inspecting does not scroll away.
+`/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement, REST
+client call, exception, or security event), and the feed can be paused and resumed so a row you are inspecting does not scroll away.
 When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
-SQL statements, exceptions, and security events that BootUI can pin precisely to a request — by trace id, by the
+SQL statements, REST client calls, exceptions, and security events that BootUI can pin precisely to a request — by trace id, by the
 request's serving thread, or by request method and path — are folded into a collapsible group beneath that request row
 (expanded by default), so one click reveals exactly what a single request did, in order. Requests that triggered a
 security event are flagged as **authenticated** — a lock icon plus a gray pill naming the caller's principal — so a
@@ -96,7 +96,11 @@ signal.
 
 Every row is also a launchpad: clicking anywhere on a request row opens its profiler, and each row carries a deep link
 that jumps to the dedicated panel with the originating record pre-filtered — requests open in **HTTP Exchanges**, SQL in
-**SQL Trace**, and exceptions in **Exceptions**. The per-request profiler drawer is a Symfony-style view that correlates
+**SQL Trace**, REST client calls in **REST Client Trace**, and exceptions in **Exceptions**. REST client calls nest
+under their correlated request in the stream using the same trace-id-first, serving-thread-second join described below
+for SQL, but — unlike SQL, exceptions, and security events — are not yet part of the per-request profiler drawer's
+correlated timeline or **Copy profile** export; that correlation, and the N+1-style "chatty" badge, stay scoped to the
+REST Client Trace panel itself for now. The per-request profiler drawer is a Symfony-style view that correlates
 that single request's signals using a tiered join that degrades gracefully and never fabricates data: the distributed
 trace is matched by trace id, exceptions are matched by request method, path, and time window — and, when the
 request's serving thread is uniquely known, further disambiguated by that thread so a concurrent identical request
@@ -158,8 +162,10 @@ disk, so a later restart reverts to the in-memory default unless `bootui.activit
 in configuration. If no `DataSource` is present, the button instead links straight to the setup documentation for
 configuring one (a dedicated one, just for Live Activity, or reusing an existing one).
 
-On Quarkus the panel merges all four signals: HTTP requests (from the same Vert.x-fed ring buffer as HTTP Exchanges),
-SQL trace, exceptions, and security events, alongside JVM heap KPIs. SQL trace contributes only when a JDBC datasource is
+On Quarkus the panel merges the same four signals it did before REST Client Trace existed: HTTP requests (from the same
+Vert.x-fed ring buffer as HTTP Exchanges), SQL trace, exceptions, and security events, alongside JVM heap KPIs — REST
+Client Trace itself is Spring-servlet-only today (see its own section above), so Quarkus has no outbound-call signal to
+merge yet. SQL trace contributes only when a JDBC datasource is
 configured (the recorder is gated on Agroal); when none is present those entries drop out and the report carries a clear
 note. Signal-to-request correlation works by **trace id**: Spring's thread-per-request anchor is unportable on the Vert.x
 event loop (a thread does not map to a single request), so when `quarkus-opentelemetry` is present the adapter stamps the
@@ -193,7 +199,9 @@ so the tip, button, and confirmation flow behave the same regardless of adapter.
 
 On Spring Boot WebFlux the panel is available too, and — like Quarkus — needed no new *capture* pipeline: HTTP
 requests, SQL trace, exceptions, and security events are each already captured reactively (see their own sections
-below), so the WebFlux port is purely a merge over those existing sources. Correlation is **trace-id only** here too,
+below), so the WebFlux port is purely a merge over those existing sources; REST Client Trace is not part of that merge
+either, for the same reason as Quarkus — it is wired only into the servlet autoconfiguration, so a WebFlux
+application's own `WebClient` calls are not yet captured at all, let alone surfaced here. Correlation is **trace-id only** here too,
 and for the same reason as Quarkus: Reactor Netty has no thread-per-request model to correlate by (a request isn't
 served start-to-finish on one dedicated worker thread), so the servlet adapter's thread-based/time-window
 correlation tiers do not apply. It is narrower than on Quarkus, though: the HTTP exchange capture shared with the
@@ -1237,6 +1245,68 @@ launch mode (and a random `=0` port still resolves, because Quarkus rewrites the
 server is up). As a state-changing action it is gated by the same localhost-only safety floor as every other write.
 
 ![BootUI HTTP Probe panel](./images/bootui-http-probe.webp)
+
+### REST Client Trace
+
+The REST Client Trace panel shows outbound HTTP calls your application recently made through Spring's own REST clients,
+captured without a third-party HTTP proxy library. When BootUI is active it customizes every auto-configured `RestClient`
+and `RestTemplate` with a shared `ClientHttpRequestInterceptor` (one instance per client type, so the recorded client
+label — `RestClient` or `RestTemplate` — is always correct) and every auto-configured `WebClient` with an
+`ExchangeFilterFunction`, recording each call's method, host, path, query string, response status, wall-clock duration,
+success/failure, the client type, a trace id when one is active, the executing thread, and the call site in your own
+application code that issued it (when call-site capture is enabled — see below). A capture failure never disrupts the
+outbound call itself: both instrumentation points always let the request through and only best-effort record around it.
+
+Calls are retained in a bounded in-memory ring buffer (most recent first) alongside aggregate stats: retained count,
+average and slowest duration, a configurable slow-call count, and — unlike SQL Trace's single failure counter — two
+distinct failure counts, because an outbound HTTP call can fail two different ways: **Failed** counts transport-level
+failures (the call never got a response — connection refused, timeout, DNS failure), while **Error responses** counts
+calls that completed with a `4xx`/`5xx` status. A per-method breakdown badges GET/POST/PUT/DELETE/other call counts, and
+an "Instrumented clients" row lists which client types (`RestClient`, `RestTemplate`, `WebClient`) are actually wired in
+the running application. The panel also groups calls by method, host, and normalized path — numeric and UUID path
+segments collapse to `{id}`, so calls to `/orders/1`, `/orders/2`, … group under `/orders/{id}` — into a "Most frequent
+calls" table, flagging a group at or above `bootui.rest-client-trace.chatty-call-threshold` calls as a **chatty**
+(repeated-call) pattern; unlike SQL's N+1 rule, which only flags repeated `SELECT`s, a chatty pattern is flagged for
+calls of *any* HTTP method, since looping a `POST`/`PUT` once per item is just as real and costly an anti-pattern as
+looping a `GET`. A flagged group also lists the distinct call site(s) that issued it, most-recently-seen first and
+bounded to a handful of entries. Each individual call row expands to reveal the full URI, captured request headers,
+client type, trace id, executing thread, call site, and error message, and can be filtered by HTTP method, a slow-only
+toggle, or free text across URI, host, method, client, and thread. Local-only **Pause/Resume** and **Clear** actions let
+you stop recording without removing the client instrumentation, or empty the buffer.
+
+The panel is read-mostly and privacy-conscious. The URI is always captured, including query parameter values — but,
+unlike SQL Trace's bound parameters, which are withheld wholesale unless capture is explicitly turned on, each query
+parameter and header value is masked **by name** (the same `SecretMasker` rules the Config and HTTP Exchanges panels
+use) rather than suppressed outright, so a runtime change to `bootui.expose-values`/`bootui.mask-secrets` is reflected
+immediately for both already-captured and new calls. Request headers are the one part **not** captured by default,
+since a header (for example `Authorization`) is far more likely to carry a raw secret than a query parameter; setting
+`bootui.rest-client-trace.capture-headers=true` records them, still subject to the same by-name masking. Call-site
+capture is a separate concern, exactly as in SQL Trace: a call site names only your own application's code (class,
+method, line), never a value, so it is **not** privacy-gated — `bootui.rest-client-trace.capture-call-site` defaults to
+`true` and only trades a small, defensively-bounded stack walk per call for the ability to see where it came from. The
+recorder itself is registered unconditionally whenever the panel is enabled, so the panel is never reported unavailable
+just because an application has no outbound HTTP traffic — it shows an empty buffer instead; only the customizer that
+wires a given client type fails open, skipping itself entirely when that client's Spring Boot module (for example
+`spring-boot-webclient`) is not on the classpath, so an app without `WebClient` simply never gets a `WebClient`
+customizer rather than failing startup. Tracing, the initial recording state, header capture, call-site capture, buffer
+size, the slow-call and chatty-call thresholds, and URI/header truncation limits are all configurable under
+`bootui.rest-client-trace.*`.
+
+Because the trace buffer is genuinely event-driven, the panel refreshes over **Server-Sent Events** instead of
+fixed-interval polling: the browser subscribes to `/bootui/api/rest-client-trace/stream` and the server pushes a small
+coalesced notification the moment a call is captured, the buffer is cleared, or recording is paused/resumed. The push
+carries no data — masking and truncation rules still apply through the regular endpoint — and bursts of calls are folded
+into a single refresh so high-volume workloads do not flood the UI.
+
+Recent calls also surface in **Live Activity**, nested under the request that made them using the same trace-id-first,
+serving-thread-second correlation SQL statements use, and carry a deep link back to this panel. The "chatty" grouping
+above is not (yet) surfaced as a row-level badge in the merged stream the way SQL's N+1 suspicion is — it is visible only
+in this panel's own "Most frequent calls" table.
+
+**REST Client Trace is currently available on the Spring MVC (servlet) adapter only.** It is not yet ported to Spring
+WebFlux or Quarkus — even a WebFlux application's own `WebClient` calls are not captured, since the whole panel's
+customizer/controller wiring only activates for a servlet web application — so both report the panel unavailable for
+now, unlike SQL Trace, HTTP Exchanges, and HTTP Probe, which already have parity across all three.
 
 ## Developer tools
 
