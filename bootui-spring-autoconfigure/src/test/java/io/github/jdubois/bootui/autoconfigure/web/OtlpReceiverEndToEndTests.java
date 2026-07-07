@@ -157,7 +157,7 @@ class OtlpReceiverEndToEndTests {
         tinyMvc.perform(post("/bootui/api/otlp/v1/traces")
                         .contentType("application/x-protobuf")
                         .content(new byte[256]))
-                .andExpect(status().isPayloadTooLarge());
+                .andExpect(status().isContentTooLarge());
     }
 
     @Test

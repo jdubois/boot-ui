@@ -111,7 +111,7 @@ public final class HttpReachabilityMetadataRepository implements ReachabilityMet
 
     private String text(JsonNode node, String field) {
         JsonNode value = node.get(field);
-        return value == null || value.isNull() ? null : value.asText();
+        return value == null || value.isNull() ? null : value.asString();
     }
 
     private List<String> stringList(JsonNode node) {
@@ -121,7 +121,7 @@ public final class HttpReachabilityMetadataRepository implements ReachabilityMet
         List<String> values = new ArrayList<>();
         for (JsonNode value : node) {
             if (value != null && !value.isNull()) {
-                values.add(value.asText());
+                values.add(value.asString());
             }
         }
         return List.copyOf(values);

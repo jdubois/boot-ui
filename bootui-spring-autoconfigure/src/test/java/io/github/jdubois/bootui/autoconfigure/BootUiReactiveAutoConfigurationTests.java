@@ -2,8 +2,6 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.startsWith;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
@@ -40,6 +38,8 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
+import java.util.List;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
@@ -606,15 +606,15 @@ class BootUiReactiveAutoConfigurationTests {
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.HTTP_SESSIONS + "')].available")
                             .isEqualTo(false)
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.HTTP_SESSIONS + "')].unavailableReason")
-                            .value(contains(startsWith("Not applicable on Spring WebFlux")))
+                            .<List<String>>value(singleReasonStartingWith("Not applicable on Spring WebFlux"))
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.SPRING_SECURITY + "')].available")
                             .isEqualTo(false)
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.SPRING_SECURITY + "')].unavailableReason")
-                            .value(contains(startsWith("Not yet ported for Spring WebFlux")))
+                            .<List<String>>value(singleReasonStartingWith("Not yet ported for Spring WebFlux"))
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.MCP_SERVER + "')].available")
                             .isEqualTo(false)
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.MCP_SERVER + "')].unavailableReason")
-                            .value(contains(startsWith("Not yet ported for Spring WebFlux")))
+                            .<List<String>>value(singleReasonStartingWith("Not yet ported for Spring WebFlux"))
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.ACTIVITY + "')].available")
                             .isEqualTo(true);
                 });
@@ -626,5 +626,17 @@ class BootUiReactiveAutoConfigurationTests {
                         HttpHandlerAutoConfiguration.class,
                         WebFluxAutoConfiguration.class,
                         BootUiReactiveAutoConfiguration.class));
+    }
+
+    /**
+     * Replaces the deprecated-for-removal {@code JsonPathAssertions.value(Matcher)} overload: asserts the
+     * JsonPath filter projection matched exactly one panel and its {@code unavailableReason} starts with
+     * {@code prefix}.
+     */
+    private static Consumer<List<String>> singleReasonStartingWith(String prefix) {
+        return values -> {
+            assertThat(values).hasSize(1);
+            assertThat(values.get(0)).startsWith(prefix);
+        };
     }
 }

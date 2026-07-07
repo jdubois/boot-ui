@@ -114,7 +114,7 @@ class CracControllerTests {
     void installDockerfileReturnsUnprocessableWhenRunningFromJar() throws Exception {
         mvc(jarSourceTree())
                 .perform(post("/bootui/api/crac/dockerfile/install"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.status").value("UNAVAILABLE"));
     }
 

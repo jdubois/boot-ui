@@ -46,6 +46,12 @@ scripts:
       -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
       -Dspring-boot.run.arguments=--server.port=$COPILOT_PORT
 
+  # Manual escape hatch: frees port 8080 if a stray sample-app process (e.g.
+  # started outside the app, or left running after a crashed session) is still
+  # bound to it and blocking a new launch.
+  - name: kill 8080
+    command: lsof -ti :8080 | xargs kill -9
+
   # Vite dev server for the Vue UI (hot-module reload) at
   # http://localhost:5173/bootui/ (Vite auto-picks the next free port if 5173 is
   # taken). It proxies /bootui/api to the sample app on $COPILOT_PORT, so run

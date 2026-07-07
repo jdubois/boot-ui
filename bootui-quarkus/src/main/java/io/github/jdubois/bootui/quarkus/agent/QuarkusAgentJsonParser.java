@@ -7,7 +7,6 @@ import io.github.jdubois.bootui.spi.agent.AgentJsonParser;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -104,9 +103,7 @@ public class QuarkusAgentJsonParser implements AgentJsonParser {
         @Override
         public List<Map.Entry<String, AgentJson>> properties() {
             List<Map.Entry<String, AgentJson>> entries = new ArrayList<>();
-            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
-            while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> e = fields.next();
+            for (Map.Entry<String, JsonNode> e : node.properties()) {
                 entries.add(Map.entry(e.getKey(), (AgentJson) new JacksonAgentJson(e.getValue())));
             }
             return entries;

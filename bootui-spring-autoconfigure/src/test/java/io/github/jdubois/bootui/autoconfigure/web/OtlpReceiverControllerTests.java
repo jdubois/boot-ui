@@ -181,7 +181,7 @@ class OtlpReceiverControllerTests {
         mvc.perform(post("/bootui/api/otlp/v1/traces")
                         .contentType("application/x-protobuf")
                         .content(new byte[64]))
-                .andExpect(status().isPayloadTooLarge());
+                .andExpect(status().isContentTooLarge());
 
         assertThat(store.retainedTraceCount()).isZero();
     }

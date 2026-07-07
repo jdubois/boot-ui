@@ -94,7 +94,7 @@ class GraalVmControllerTests {
 
         ResponseEntity<GraalVmInstallResultDto> response = controller.install();
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
         assertThat(response.getBody().status()).isEqualTo("UNAVAILABLE");
     }
 
@@ -155,7 +155,7 @@ class GraalVmControllerTests {
 
         ResponseEntity<GraalVmInstallResultDto> response = controller.installDockerfile();
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
         assertThat(response.getBody().status()).isEqualTo("UNAVAILABLE");
     }
 
@@ -204,7 +204,7 @@ class GraalVmControllerTests {
 
         ResponseEntity<GraalVmInstallAllResultDto> response = controller.installAll();
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
         assertThat(response.getBody().installed()).isFalse();
         assertThat(response.getBody().status()).isEqualTo("UNAVAILABLE");
     }

@@ -154,7 +154,7 @@ public class GraalVmController {
         return switch (status) {
             case "WRITTEN" -> HttpStatus.OK;
             case "EXISTS" -> HttpStatus.CONFLICT;
-            case "UNAVAILABLE" -> HttpStatus.UNPROCESSABLE_ENTITY;
+            case "UNAVAILABLE" -> HttpStatus.UNPROCESSABLE_CONTENT;
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }
