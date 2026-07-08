@@ -410,8 +410,9 @@ public class LiveActivityService {
             }
             detail.append(message.errorMessage());
         }
-        Long durationMs =
-                message.direction() == KafkaActivityRecorder.Direction.CONSUME ? message.durationMillis() : null;
+        // durationMillis is already null for PRODUCE (ProducerListener carries no send-start timestamp,
+        // see KafkaProducerCaptureBeanPostProcessor); passed through as-is here.
+        Long durationMs = message.durationMillis();
         return new ActivityEntryDto(
                 "kafka-" + message.id(),
                 TYPE_MESSAGING,

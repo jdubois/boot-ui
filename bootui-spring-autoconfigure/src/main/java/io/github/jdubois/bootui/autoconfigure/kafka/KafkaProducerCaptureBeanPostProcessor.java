@@ -81,7 +81,7 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
                     producerRecord.topic(),
                     recordMetadata == null ? producerRecord.partition() : recordMetadata.partition(),
                     keyOf(producerRecord),
-                    0L,
+                    null, // ProducerListener carries no send-start timestamp, so duration is never known here
                     true,
                     null);
             if (delegate != null) {
@@ -96,7 +96,7 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
                     producerRecord.topic(),
                     producerRecord.partition(),
                     keyOf(producerRecord),
-                    0L,
+                    null, // see onSuccess: no send-start timestamp is available to compute a duration
                     false,
                     exception == null ? null : exception.getMessage());
             if (delegate != null) {

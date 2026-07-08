@@ -44,7 +44,7 @@ public final class KafkaActivityRecorder {
             Integer partition,
             Long offset,
             String key,
-            long durationMillis,
+            Long durationMillis,
             boolean success,
             String errorMessage,
             String groupId,
@@ -80,9 +80,14 @@ public final class KafkaActivityRecorder {
         return maxEntries;
     }
 
-    /** Records a completed (successful or failed) producer send. */
+    /**
+     * Records a completed (successful or failed) producer send. {@code durationMillis} is {@code
+     * null} when unknown — {@code ProducerListener} carries no send-start timestamp, so producer sends
+     * currently always pass {@code null} here; the parameter stays explicit so a future timing source
+     * (e.g. an interceptor with a start marker) can populate it without an API change.
+     */
     public void recordProduce(
-            String topic, Integer partition, String key, long durationMillis, boolean success, String errorMessage) {
+            String topic, Integer partition, String key, Long durationMillis, boolean success, String errorMessage) {
         record(Direction.PRODUCE, topic, partition, null, key, durationMillis, success, errorMessage, null, null);
     }
 
@@ -92,7 +97,7 @@ public final class KafkaActivityRecorder {
             Integer partition,
             Long offset,
             String key,
-            long durationMillis,
+            Long durationMillis,
             boolean success,
             String errorMessage,
             String groupId,
@@ -116,7 +121,7 @@ public final class KafkaActivityRecorder {
             Integer partition,
             Long offset,
             String key,
-            long durationMillis,
+            Long durationMillis,
             boolean success,
             String errorMessage,
             String groupId,
@@ -132,14 +137,16 @@ public final class KafkaActivityRecorder {
                 partition,
                 offset,
                 captureKey ? truncate(key) : null,
-                Math.max(0, durationMillis),
+                durationMillis == null ? null : Math.max(0, durationMillis),
                 success,
                 errorMessage,
                 groupId,
                 listenerId);
         synchronized (lock) {
             buffer.addLast(entry);
-            while (buffer.size() > maxEntries) {
+            // At most one entry is ever added per record() call and maxEntries is fixed at construction,
+            // so the buffer can only ever be one over capacity here.
+            if (buffer.size() > maxEntries) {
                 buffer.removeFirst();
             }
         }

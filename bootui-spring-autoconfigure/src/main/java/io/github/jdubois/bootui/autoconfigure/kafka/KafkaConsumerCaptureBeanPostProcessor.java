@@ -117,7 +117,11 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
                 boolean success,
                 String errorMessage) {
             Long start = startNanos.get();
-            long durationMillis = start == null ? 0L : (System.nanoTime() - start) / 1_000_000L;
+            // start is only null if success()/failure() fires without a matching intercept() call, which
+            // spring-kafka never does in practice (both are always invoked on the same thread for the
+            // same record); 0 is used rather than null in that defensive case since it is not a real,
+            // reachable "unknown duration" state worth modelling explicitly.
+            Long durationMillis = start == null ? 0L : (System.nanoTime() - start) / 1_000_000L;
             Object key = record.key();
             String groupId = groupIdOf(consumer);
             recorder.recordConsume(

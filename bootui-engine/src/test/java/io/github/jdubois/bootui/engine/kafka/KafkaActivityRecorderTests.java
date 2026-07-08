@@ -14,8 +14,8 @@ class KafkaActivityRecorderTests {
     void recordsProduceAndConsumeNewestFirst() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
 
-        recorder.recordProduce("orders", 0, "order-1", 5, true, null);
-        recorder.recordConsume("orders", 0, 42L, "order-1", 3, true, null, "orders-group", "ordersListener");
+        recorder.recordProduce("orders", 0, "order-1", 5L, true, null);
+        recorder.recordConsume("orders", 0, 42L, "order-1", 3L, true, null, "orders-group", "ordersListener");
 
         List<CapturedMessage> recent = recorder.recent();
         assertThat(recent).hasSize(2);
@@ -30,7 +30,7 @@ class KafkaActivityRecorderTests {
     @Test
     void disabledRecorderDropsMessages() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 10, 200);
-        recorder.recordProduce("orders", 0, "order-1", 5, true, null);
+        recorder.recordProduce("orders", 0, "order-1", 5L, true, null);
         assertThat(recorder.recent()).isEmpty();
         assertThat(recorder.totalCaptured()).isZero();
     }
@@ -38,9 +38,9 @@ class KafkaActivityRecorderTests {
     @Test
     void evictsOldestWhenBufferIsFull() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 2, 200);
-        recorder.recordProduce("orders", 0, "k1", 1, true, null);
-        recorder.recordProduce("orders", 0, "k2", 1, true, null);
-        recorder.recordProduce("orders", 0, "k3", 1, true, null);
+        recorder.recordProduce("orders", 0, "k1", 1L, true, null);
+        recorder.recordProduce("orders", 0, "k2", 1L, true, null);
+        recorder.recordProduce("orders", 0, "k3", 1L, true, null);
 
         List<CapturedMessage> recent = recorder.recent();
         assertThat(recent).hasSize(2);
@@ -52,21 +52,21 @@ class KafkaActivityRecorderTests {
     @Test
     void truncatesOversizedKeys() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 8);
-        recorder.recordProduce("orders", 0, "abcdefghij", 1, true, null);
+        recorder.recordProduce("orders", 0, "abcdefghij", 1L, true, null);
         assertThat(recorder.recent().get(0).key()).isEqualTo("abcdefgh…");
     }
 
     @Test
     void keyCaptureCanBeDisabled() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, false, 10, 200);
-        recorder.recordProduce("orders", 0, "order-1", 1, true, null);
+        recorder.recordProduce("orders", 0, "order-1", 1L, true, null);
         assertThat(recorder.recent().get(0).key()).isNull();
     }
 
     @Test
     void recordsFailureWithErrorMessage() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
-        recorder.recordProduce("orders", null, "order-1", 2, false, "boom");
+        recorder.recordProduce("orders", null, "order-1", 2L, false, "boom");
         CapturedMessage entry = recorder.recent().get(0);
         assertThat(entry.success()).isFalse();
         assertThat(entry.errorMessage()).isEqualTo("boom");
@@ -78,7 +78,7 @@ class KafkaActivityRecorderTests {
         AtomicInteger notifications = new AtomicInteger();
         recorder.subscribe(notifications::incrementAndGet);
 
-        recorder.recordProduce("orders", 0, "order-1", 1, true, null);
+        recorder.recordProduce("orders", 0, "order-1", 1L, true, null);
         assertThat(notifications.get()).isEqualTo(1);
 
         recorder.clear();
@@ -93,7 +93,7 @@ class KafkaActivityRecorderTests {
         Runnable unsubscribe = recorder.subscribe(notifications::incrementAndGet);
         unsubscribe.run();
 
-        recorder.recordProduce("orders", 0, "order-1", 1, true, null);
+        recorder.recordProduce("orders", 0, "order-1", 1L, true, null);
         assertThat(notifications.get()).isZero();
     }
 }
