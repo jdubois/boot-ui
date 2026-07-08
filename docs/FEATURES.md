@@ -131,18 +131,20 @@ confirmation-gated and blocked like any other action when the app or panel is re
 sources can be turned off through their existing `bootui.panels.*` toggles (a disabled source simply drops out of the
 stream).
 
-When `spring-kafka` is on the classpath, BootUI transparently wraps every application-owned `KafkaTemplate` (a
-`ProducerListener`) and `@KafkaListener` container factory (a `RecordInterceptor`) — composing with, never replacing,
-any listener/interceptor the application already configured, exactly like `HttpExchangesController`'s repository
-wrapper — and feeds every send/delivery outcome into the stream as a `MESSAGING` entry: topic, partition, offset (for
-consumed records), a truncated key, direction (`→`/`←` for produce/consume), success/failure, and — for consumed
-records — the consumer group id, the `@KafkaListener` bean name, and processing duration (a producer send's duration
-is not exposed by `ProducerListener`, so it is not tracked). **The message value/payload is never captured** — only
-metadata — since a Kafka payload is an arbitrary, potentially large and sensitive application object with no generic
-masking strategy. Kafka entries are top-level in the feed today (not yet nested under a correlated request). Capture is
-on by default whenever `spring-kafka` is present and the panel is enabled, and can be tuned or disabled entirely via
-`bootui.kafka.enabled`, `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length` — see
-`docs/PROPERTIES.md`.
+When Kafka support is present, BootUI captures producer/consumer activity into the stream as `MESSAGING` entries. On
+Spring, it wraps every application-owned `KafkaTemplate` (a `ProducerListener`) and `@KafkaListener` container factory
+(a `RecordInterceptor`) — composing with, never replacing, any listener/interceptor the application already configured,
+exactly like `HttpExchangesController`'s repository wrapper. On Quarkus, it hooks SmallRye Reactive Messaging's Kafka
+interceptors. Each entry records topic, partition, offset (for consumed records), a truncated key, direction (`→`/`←`
+for produce/consume), success/failure, and — for consumed records — the consumer group id, a listener identifier, and
+processing duration (a producer send's duration is not exposed by either framework's callback, so it is not tracked).
+That listener identifier is intentionally framework-specific: on Spring it is currently the **listener container
+factory bean name** (the per-`@KafkaListener` id is not exposed at the factory-wide interception point), while on
+Quarkus it is the channel name. **The message value/payload is never captured** — only metadata — since a Kafka payload
+is an arbitrary, potentially large and sensitive application object with no generic masking strategy. Kafka entries are
+top-level in the feed today (not yet nested under a correlated request). Capture is on by default whenever the relevant
+Kafka integration is present and the panel is enabled, and can be tuned or disabled entirely via `bootui.kafka.enabled`,
+`bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length` — see `docs/PROPERTIES.md`.
 
 By default the stream is in-memory only, so history is lost on a restart and the feed can only show as far back as the
 small buffers behind it reach. Setting `bootui.activity.persistence.enabled=true` additionally buffers

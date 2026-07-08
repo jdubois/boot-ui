@@ -313,11 +313,12 @@ drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-
 
 #### Live Activity Kafka capture
 
-When `spring-kafka` is on the classpath, BootUI wraps application-owned `KafkaTemplate` and `@KafkaListener` container
-factory beans (composing with, not replacing, any listener/interceptor the application already configured) and feeds
-produce/consume outcomes into the Live Activity stream as `MESSAGING` entries. Only metadata is captured — topic,
-partition, offset, a truncated key, timing, success/failure, consumer group id, and listener id — the message
-value/payload is never captured. Spring-only today; see [SPECIFICATION.md §5.14.2](./SPECIFICATION.md).
+When Kafka support is present, BootUI captures producer/consumer outcomes into the Live Activity stream as `MESSAGING`
+entries. Spring does this by wrapping application-owned `KafkaTemplate` and `@KafkaListener` container factory beans;
+Quarkus does it through SmallRye Reactive Messaging Kafka interceptors. Only metadata is captured — topic, partition,
+offset, a truncated key, timing, success/failure, consumer group id, and listener id — the message value/payload is
+never captured. On Spring, that listener-id field currently carries the listener container factory bean name (not the
+resolved per-`@KafkaListener` id); on Quarkus it carries the channel name. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md).
 
 | Property                             | Default | Description                                                                                                    |
 | ------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |

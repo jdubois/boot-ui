@@ -208,6 +208,7 @@ class LiveActivityResourceTests {
             assertThat(entry.detail()).isEqualTo("key=key-2 offset=42");
         });
         assertThat(report.typeCounts()).containsEntry("MESSAGING", 2);
+        assertThat(report.sources()).contains("Kafka");
     }
 
     @Test
@@ -218,6 +219,7 @@ class LiveActivityResourceTests {
 
         assertThat(report.entries()).noneMatch(entry -> "MESSAGING".equals(entry.type()));
         assertThat(report.typeCounts()).doesNotContainKey("MESSAGING");
+        assertThat(report.sources()).contains("Kafka");
     }
 
     @Test
@@ -247,7 +249,7 @@ class LiveActivityResourceTests {
         LiveActivityReport report = resource.mergedReport(2);
 
         assertThat(report.entries()).hasSize(2);
-        assertThat(report.typeCounts()).containsEntry("MESSAGING", 2);
+        assertThat(report.typeCounts()).containsEntry("MESSAGING", 3);
     }
 
     @Test
@@ -261,6 +263,7 @@ class LiveActivityResourceTests {
 
         assertThat(report.entries()).noneMatch(entry -> "MESSAGING".equals(entry.type()));
         assertThat(report.typeCounts()).doesNotContainKey("MESSAGING");
+        assertThat(report.sources()).doesNotContain("Kafka");
     }
 
     @Test

@@ -729,17 +729,20 @@ Features:
   with the identical threshold/logic the per-request profiler uses below, so a request whose correlated SQL looks like
   an N+1 access pattern can be badged directly in the list without opening its profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
   100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are.
-- Kafka producer/consumer capture (Spring only, `spring-kafka` on the classpath): `KafkaProducerCaptureBeanPostProcessor`
-  and `KafkaConsumerCaptureBeanPostProcessor` wrap application-owned `KafkaTemplate` and `@KafkaListener` container
-  factory beans — composing with, never replacing, any `ProducerListener`/`RecordInterceptor` the application already
-  configured, mirroring the HTTP Exchanges repository-wrapper precedent — and feed every send/delivery outcome into the
-  framework-neutral `KafkaActivityRecorder` (bounded ring buffer in `bootui-engine`) as a `MESSAGING` entry: topic,
-  partition, offset (consume only), a truncated key, direction, success/failure, and — for consumed records — consumer
-  group id, listener id, and processing duration. Only metadata is captured; the message value/payload is never
-  captured or masked, since it is an arbitrary application payload with no generic masking strategy. Kafka entries are
-  top-level (no request-parent correlation yet). Controlled by `bootui.kafka.enabled`, `bootui.kafka.capture-key`,
-  `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length`. Quarkus is out of scope for this iteration (SmallRye
-  Reactive Messaging requires a materially different capture design).
+- Kafka producer/consumer capture: framework-specific capture hooks feed a shared, framework-neutral
+  `KafkaActivityRecorder` (bounded ring buffer in `bootui-engine`), and Live Activity renders those records as
+  `MESSAGING` entries. On Spring, `KafkaProducerCaptureBeanPostProcessor` and
+  `KafkaConsumerCaptureBeanPostProcessor` wrap application-owned `KafkaTemplate` and `@KafkaListener` container factory
+  beans — composing with, never replacing, any `ProducerListener`/`RecordInterceptor` the application already
+  configured, mirroring the HTTP Exchanges repository-wrapper precedent. On Quarkus, SmallRye Reactive Messaging Kafka
+  interceptors capture the same metadata. Each entry carries topic, partition, offset (consume only), a truncated key,
+  direction, success/failure, and — for consumed records — consumer group id, listener id, and processing duration.
+  Only metadata is captured; the message value/payload is never captured or masked, since it is an arbitrary
+  application payload with no generic masking strategy. Kafka entries are top-level (no request-parent correlation yet).
+  The listener-id field is intentionally honest about framework limits: on Spring it currently carries the listener
+  container factory bean name (the resolved per-`@KafkaListener` id is not exposed at the factory-wide interception
+  point), while on Quarkus it carries the channel name. Controlled by `bootui.kafka.enabled`,
+  `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length`.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, health status, and heap usage.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,

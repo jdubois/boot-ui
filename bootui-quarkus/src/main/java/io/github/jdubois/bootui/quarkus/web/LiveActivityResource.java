@@ -24,9 +24,7 @@ import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
-import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
-import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
@@ -57,10 +55,7 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 
@@ -114,8 +109,8 @@ import javax.sql.DataSource;
  * {@link #request} can correlate on; every other entry, and every request without one, stays
  * non-profileable. Spring's controller/correlator computes its own {@code profileable} semantics
  * independently and is unaffected by this adapter-only step. Read-only (the profile drill-down only reads
- * already-captured signals), plus the SSE change-notification stream {@code /stream} that ticks whenever a
- * new HTTP exchange is captured so the shared Vue panel's auto-refresh toggle works identically to Spring.
+ * already-captured signals), plus the SSE change-notification stream {@code /stream} that ticks whenever
+ * any merged source changes so the shared Vue panel's auto-refresh toggle works identically to Spring.
  */
 @Path("/bootui/api/activity")
 public class LiveActivityResource {
@@ -268,13 +263,14 @@ public class LiveActivityResource {
      * before persistence-aware pagination, extracted so {@code QuarkusActivityCapture}'s capture poller
      * can reuse it as its feed {@link java.util.function.Supplier} without duplicating the
      * signal-gathering/masking/profileable-stamping logic. Reusing this method (rather than re-reading
-     * the four signal sources independently) means the poller sees the exact same self-filtered, masked
+     * the five signal sources independently) means the poller sees the exact same self-filtered, masked
      * view the panel itself renders.
      */
     public LiveActivityReport mergedReport(int limit) {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
+        boolean kafkaAvailable = kafkaRecorder.isEnabled();
 
         LiveActivityReport report = assembler.report(
                 requests,
@@ -285,7 +281,9 @@ public class LiveActivityResource {
                 securityEvents(securityAvailable),
                 securityAvailable,
                 null,
-                limit);
+                limit,
+                kafkaAvailable ? kafkaRecorder.recent() : List.of(),
+                kafkaAvailable);
 
         // Adapter-side post-processing over the shared assembler's output — not a change to the engine's
         // own `profileable` default (which stays `false` for every entry it builds, unaffected by this
@@ -300,30 +298,6 @@ public class LiveActivityResource {
             entries.add(profileable ? withProfileable(entry) : entry);
         }
 
-        // Fifth signal, merged adapter-side (the assembler owns only requests/sql/exceptions/security and
-        // its public signature must stay stable for the already-complete Spring implementation): captured
-        // Kafka messages become top-level MESSAGING entries — no request-parent correlation — mapped through
-        // the shared `KafkaActivityEntries.toEntry` so they are byte-for-byte identical to the Spring
-        // adapter's. Recompute the merge exactly as Spring's `LiveActivityService.report` does: append,
-        // re-sort by timestamp descending, re-apply the limit cap, then rebuild `typeCounts` over the final
-        // capped list. When Kafka capture is absent (no `quarkus-messaging-kafka`) the recorder is empty, so
-        // this is a no-op and the report is unchanged.
-        List<CapturedMessage> kafkaMessages = kafkaRecorder.recent();
-        if (!kafkaMessages.isEmpty()) {
-            for (CapturedMessage message : kafkaMessages) {
-                entries.add(KafkaActivityEntries.toEntry(message));
-            }
-            entries.sort(Comparator.comparingLong(ActivityEntryDto::timestamp).reversed());
-            if (limit > 0 && entries.size() > limit) {
-                entries = new ArrayList<>(entries.subList(0, limit));
-            }
-            Map<String, Integer> typeCounts = new LinkedHashMap<>();
-            for (ActivityEntryDto entry : entries) {
-                typeCounts.merge(entry.type(), 1, Integer::sum);
-            }
-            return new LiveActivityReport(
-                    report.available(), entries, typeCounts, report.kpis(), report.sources(), report.warnings());
-        }
         return new LiveActivityReport(
                 report.available(), entries, report.typeCounts(), report.kpis(), report.sources(), report.warnings());
     }
@@ -363,7 +337,8 @@ public class LiveActivityResource {
     @Path("/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
     public Multi<OutboundSseEvent> stream(@Context Sse sse) {
-        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, buffer::subscribe);
+        return SseStreams.updates(
+                sse, openStreams, MAX_CONCURRENT_STREAMS, combineSources(buffer::subscribe, kafkaRecorder::subscribe));
     }
 
     private HttpExchangesReport requestsReport() {
@@ -446,6 +421,18 @@ public class LiveActivityResource {
                 entry.parentId(),
                 entry.securedPrincipal(),
                 entry.sqlNPlusOneSuspected());
+    }
+
+    private static SseStreams.ChangeSource combineSources(
+            SseStreams.ChangeSource first, SseStreams.ChangeSource second) {
+        return onChange -> {
+            Runnable unsubscribeFirst = first.subscribe(onChange);
+            Runnable unsubscribeSecond = second.subscribe(onChange);
+            return () -> {
+                unsubscribeFirst.run();
+                unsubscribeSecond.run();
+            };
+        };
     }
 
     /** SQL trace snapshot for one request cycle: entries plus whether the source is present and feeding. */

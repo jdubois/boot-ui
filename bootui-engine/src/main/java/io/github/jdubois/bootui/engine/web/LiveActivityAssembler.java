@@ -8,6 +8,8 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -23,9 +25,9 @@ import java.util.Map;
 /**
  * Framework-neutral assembly of the Live Activity merged stream + KPI summary from already-masked source
  * reports. The Spring adapter has its own richer, controller-fed service (with per-request signal
- * correlation and thread attribution); the Quarkus adapter feeds this assembler the four signal sources it
- * captures — HTTP requests, SQL trace, exceptions, and security/audit events — which are merged into one
- * reverse-chronological feed with JVM heap and per-type KPIs.
+ * correlation and thread attribution); the WebFlux and Quarkus adapters feed this assembler the signal
+ * sources they capture — HTTP requests, SQL trace, exceptions, security/audit events, and optionally
+ * Kafka messaging — which are merged into one reverse-chronological feed with JVM heap and per-type KPIs.
  *
  * <p>Inputs are already masked and self-filtered by their owning engine services before they reach this
  * shape, so the assembler only normalizes, severities, merges, correlates and caps.</p>
@@ -92,11 +94,38 @@ public final class LiveActivityAssembler {
             boolean securityAvailable,
             String healthStatus,
             int limit) {
+        return report(
+                requests,
+                sqlEntries,
+                sqlAvailable,
+                sqlUnavailableWarning,
+                exceptionGroups,
+                securityEvents,
+                securityAvailable,
+                healthStatus,
+                limit,
+                List.of(),
+                false);
+    }
+
+    public LiveActivityReport report(
+            HttpExchangesReport requests,
+            List<SqlTraceEntryDto> sqlEntries,
+            boolean sqlAvailable,
+            String sqlUnavailableWarning,
+            List<ExceptionGroupDto> exceptionGroups,
+            List<SecurityLogEventDto> securityEvents,
+            boolean securityAvailable,
+            String healthStatus,
+            int limit,
+            List<CapturedMessage> kafkaMessages,
+            boolean kafkaAvailable) {
 
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
         List<ExceptionGroupDto> exceptions = exceptionGroups == null ? List.of() : exceptionGroups;
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
+        List<CapturedMessage> kafka = !kafkaAvailable || kafkaMessages == null ? List.of() : kafkaMessages;
 
         List<ActivityEntryDto> entries = new ArrayList<>();
 
@@ -191,14 +220,19 @@ public final class LiveActivityAssembler {
             entries.add(toSecurityEntry(event, traceIndex.parentRequestId(event.traceId())));
         }
 
-        entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
-        if (limit > 0 && entries.size() > limit) {
-            entries = entries.subList(0, limit);
+        for (CapturedMessage message : kafka) {
+            entries.add(KafkaActivityEntries.toEntry(message));
         }
+
+        entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
 
         Map<String, Integer> typeCounts = new LinkedHashMap<>();
         for (ActivityEntryDto entry : entries) {
             typeCounts.merge(entry.type(), 1, Integer::sum);
+        }
+
+        if (limit > 0 && entries.size() > limit) {
+            entries = entries.subList(0, limit);
         }
 
         List<String> sources = new ArrayList<>();
@@ -209,6 +243,9 @@ public final class LiveActivityAssembler {
         }
         if (securityAvailable) {
             sources.add("security");
+        }
+        if (kafkaAvailable) {
+            sources.add("Kafka");
         }
 
         List<String> warnings = new ArrayList<>();

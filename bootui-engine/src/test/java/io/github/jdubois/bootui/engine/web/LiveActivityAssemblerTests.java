@@ -10,6 +10,8 @@ import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -219,6 +221,27 @@ class LiveActivityAssemblerTests {
                 assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
 
         assertThat(entry(report, "sql-1").sqlNPlusOneSuspected()).isFalse();
+    }
+
+    @Test
+    void mergesKafkaBeforeLimitingAndCountsItPreLimit() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", "trace-a", 2_000L));
+        List<CapturedMessage> kafka = List.of(
+                new CapturedMessage(
+                        1L, 3_000L, Direction.PRODUCE, "orders", 0, null, "k1", null, true, null, null, null),
+                new CapturedMessage(
+                        2L, 500L, Direction.CONSUME, "orders", 1, 42L, "k2", 5L, true, null, "group-a", "listener"));
+
+        LiveActivityReport report =
+                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 2, kafka, true);
+
+        assertThat(report.entries()).extracting(ActivityEntryDto::id).containsExactly("kafka-1", "sql-10");
+        assertThat(report.typeCounts())
+                .containsEntry("MESSAGING", 2)
+                .containsEntry("SQL", 1)
+                .containsEntry("REQUEST", 1);
+        assertThat(report.sources()).contains("Kafka");
     }
 
     private static ActivityEntryDto entry(LiveActivityReport report, String id) {

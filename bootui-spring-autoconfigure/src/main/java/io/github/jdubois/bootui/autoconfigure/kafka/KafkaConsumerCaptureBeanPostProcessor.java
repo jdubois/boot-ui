@@ -20,9 +20,10 @@ import org.springframework.kafka.listener.RecordInterceptor;
  *
  * <p>The factory has no public getter for its current {@code recordInterceptor} (only {@code
  * setRecordInterceptor}), so it is read via {@link DirectFieldAccessor} and composed rather than
- * replaced, exactly like the producer-side post-processor. Reading the field is best-effort: if it
- * fails, the capturing interceptor is still installed so deliveries are never silently left
- * uncaptured, and the application's own interceptor is never dropped.</p>
+ * replaced, exactly like the producer-side post-processor. Reading that private field is best-effort:
+ * if reflection fails for one factory, BootUI leaves <em>that factory</em> unwrapped (so its deliveries
+ * are not captured) but still lets the application start and all other factories be processed
+ * normally.</p>
  */
 public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProcessor {
 
@@ -76,6 +77,9 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
                 RecordInterceptor<Object, Object> delegate, KafkaActivityRecorder recorder, String listenerId) {
             this.delegate = delegate;
             this.recorder = recorder;
+            // At this factory-wide interception point Spring Kafka does not expose the resolved per-listener
+            // @KafkaListener id, so the best available stable identifier is the listener container factory
+            // bean name that installed this interceptor.
             this.listenerId = listenerId;
         }
 
