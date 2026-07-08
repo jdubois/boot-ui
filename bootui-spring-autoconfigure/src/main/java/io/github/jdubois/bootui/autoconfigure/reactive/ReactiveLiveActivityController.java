@@ -34,6 +34,7 @@ import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
 import io.github.jdubois.bootui.engine.web.RequestProfileAssembler;
@@ -67,14 +68,15 @@ import reactor.core.publisher.Flux;
  * trace id (see {@code TraceIdProvider}), and a request with no trace id simply renders flat/unprofileable
  * rather than guessing.
  *
- * <p>All four signal sources are read directly from the already-reactive, already-masked/self-filtered
+ * <p>All five signal sources are read directly from the already-reactive, already-masked/self-filtered
  * beans this adapter wires for their own panels — {@link HttpExchangesController} (HTTP requests, shared
  * with the servlet adapter since it depends only on the stack-agnostic Actuator
  * {@code HttpExchangeRepository}), {@link SqlTraceRecorder} (SQL trace), {@link ExceptionStore} (exceptions),
- * and {@code ReactiveSecurityLogsController} (security/audit events) — so this controller adds no new
- * capture instrumentation of its own, only the merge. Because those beans are reached directly (bypassing
- * the HTTP layer, and with it {@code ReactivePanelAccessFilter}'s per-panel enablement check), every
- * signal read here re-checks {@code properties.isPanelEnabled(...)} itself first, exactly mirroring
+ * {@code ReactiveSecurityLogsController} (security/audit events), and {@link ScheduledTaskRunStore}
+ * ({@code @Scheduled} executions) — so this controller adds no new capture instrumentation of its own,
+ * only the merge. Because those beans are reached directly (bypassing the HTTP layer, and with it
+ * {@code ReactivePanelAccessFilter}'s per-panel enablement check), every signal read here re-checks
+ * {@code properties.isPanelEnabled(...)} itself first, exactly mirroring
  * {@code LiveActivityService}/{@code LiveActivityCorrelator}.
  *
  * <p>The optional JDBC persistence backend and the "Use the existing datasource" hot-switch are identical
@@ -85,7 +87,8 @@ import reactor.core.publisher.Flux;
  * <p>The merged feed refreshes over Server-Sent Events, like every other reactive panel: since there is no
  * WebFlux equivalent of the servlet {@code ServletRequestHandledEvent} used to trigger a tick,
  * {@link ReactiveActivitySignalFilter} calls {@link #signalRequestHandled()} after every non-BootUI request
- * completes, and the SQL trace recorder / exception store subscriptions signal directly, same as servlet.
+ * completes, and the SQL trace recorder / exception store / scheduled-task-store subscriptions signal
+ * directly, same as servlet.
  */
 @RestController
 @RequestMapping("/bootui/api/activity")
@@ -95,6 +98,7 @@ public class ReactiveLiveActivityController {
     private final ObjectProvider<SqlTraceRecorder> sqlTraceRecorder;
     private final ObjectProvider<DataSource> dataSourceProvider;
     private final ObjectProvider<ExceptionStore> exceptionStoreProvider;
+    private final ObjectProvider<ScheduledTaskRunStore> scheduledTaskActivity;
     private final ObjectProvider<ReactiveSecurityLogsController> securityLogs;
     private final ObjectProvider<TracesController> traces;
     private final ObjectProvider<HealthController> health;
@@ -113,6 +117,7 @@ public class ReactiveLiveActivityController {
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
             ObjectProvider<DataSource> dataSourceProvider,
             ObjectProvider<ExceptionStore> exceptionStoreProvider,
+            ObjectProvider<ScheduledTaskRunStore> scheduledTaskActivity,
             ObjectProvider<ReactiveSecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             ObjectProvider<HealthController> health,
@@ -124,6 +129,7 @@ public class ReactiveLiveActivityController {
         this.sqlTraceRecorder = sqlTraceRecorder;
         this.dataSourceProvider = dataSourceProvider;
         this.exceptionStoreProvider = exceptionStoreProvider;
+        this.scheduledTaskActivity = scheduledTaskActivity;
         this.securityLogs = securityLogs;
         this.traces = traces;
         this.health = health;
@@ -140,6 +146,10 @@ public class ReactiveLiveActivityController {
         ExceptionStore store = exceptionStoreProvider.getIfAvailable();
         if (store != null) {
             unsubscribers.add(store.subscribe(changeStream::signal));
+        }
+        ScheduledTaskRunStore scheduledStore = scheduledTaskActivity.getIfAvailable();
+        if (scheduledStore != null) {
+            unsubscribers.add(scheduledStore.subscribe(changeStream::signal));
         }
         if (persistenceSettings.enabled()) {
             // Capture side of the persistence option: poll the same merged feed the panel itself reads,
@@ -282,6 +292,7 @@ public class ReactiveLiveActivityController {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS);
+        List<ScheduledTaskRunStore.Run> scheduledRuns = scheduledTaskRuns();
         String healthStatus = currentHealthStatus();
 
         LiveActivityReport report = assembler.report(
@@ -292,6 +303,7 @@ public class ReactiveLiveActivityController {
                 exceptionGroups(),
                 securityEvents(securityAvailable),
                 securityAvailable,
+                scheduledRuns,
                 healthStatus,
                 limit);
 
@@ -347,6 +359,18 @@ public class ReactiveLiveActivityController {
         }
         ExceptionStore store = exceptionStoreProvider.getIfAvailable();
         return store == null ? List.of() : exceptionsService.report(store).groups();
+    }
+
+    /**
+     * Captured {@code @Scheduled} task executions, or {@code null} when the Scheduled Tasks panel is
+     * disabled or the recorder bean is absent on this application.
+     */
+    private List<ScheduledTaskRunStore.Run> scheduledTaskRuns() {
+        if (!properties.isPanelEnabled(BootUiPanels.SCHEDULED)) {
+            return null;
+        }
+        ScheduledTaskRunStore store = scheduledTaskActivity.getIfAvailable();
+        return store == null ? null : store.runs();
     }
 
     private List<SecurityLogEventDto> securityEvents(boolean securityAvailable) {

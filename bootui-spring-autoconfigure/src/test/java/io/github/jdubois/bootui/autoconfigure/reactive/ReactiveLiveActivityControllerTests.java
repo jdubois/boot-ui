@@ -28,6 +28,7 @@ import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import java.time.Instant;
@@ -269,6 +270,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(SqlTraceRecorder.class),
                 empty(DataSource.class),
                 provider(exceptionStore),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
@@ -296,6 +298,34 @@ class ReactiveLiveActivityControllerTests {
     }
 
     @Test
+    void mergedReportIncludesScheduledTaskEntriesWhenStoreIsPresent() {
+        ScheduledTaskRunStore scheduledTaskStore = new ScheduledTaskRunStore(10);
+        scheduledTaskStore.record("com.example.Job#run", 1_000L, 25L, true, null, null, "worker-1");
+        BootUiProperties properties = new BootUiProperties();
+
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                provider(scheduledTaskStore),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        LiveActivityReport report = controller.mergedReport(0);
+
+        assertThat(report.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.type()).isEqualTo("SCHEDULED_TASK"));
+        assertThat(report.sources()).contains("scheduled-tasks");
+    }
+
+    @Test
     void mergedReportOmitsRequestsWhenHttpExchangesPanelIsDisabled() {
         HttpExchangesController httpExchanges = mock(HttpExchangesController.class);
         when(httpExchanges.exchanges(null, null, null, null, null))
@@ -314,6 +344,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(SqlTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
@@ -338,6 +369,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(SqlTraceRecorder.class),
                 empty(DataSource.class),
                 provider(exceptionStore),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
@@ -362,6 +394,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(SqlTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 provider(securityLogs),
                 empty(TracesController.class),
                 empty(HealthController.class),
@@ -385,6 +418,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(SqlTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 provider(health),
@@ -409,6 +443,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(SqlTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
@@ -440,6 +475,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(SqlTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
@@ -470,6 +506,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(SqlTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
@@ -590,6 +627,7 @@ class ReactiveLiveActivityControllerTests {
                 recorder,
                 dataSourceProvider,
                 exceptionStore,
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),

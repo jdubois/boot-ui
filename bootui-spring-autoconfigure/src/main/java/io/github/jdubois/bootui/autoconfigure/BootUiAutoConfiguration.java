@@ -29,8 +29,6 @@ import io.github.jdubois.bootui.autoconfigure.pentesting.*;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
-import io.github.jdubois.bootui.autoconfigure.scheduled.BootUiSchedulingConfigurer;
-import io.github.jdubois.bootui.autoconfigure.scheduled.ScheduledTaskRunObservationHandler;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
@@ -40,7 +38,6 @@ import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
-import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.nio.file.Paths;
@@ -348,35 +345,6 @@ public class BootUiAutoConfiguration {
             BootUiExceptionLogAppender bootUiExceptionLogAppender(ExceptionStore store) {
                 return BootUiExceptionLogAppender.install(store);
             }
-        }
-    }
-
-    /**
-     * Captures {@code @Scheduled} task <em>executions</em> (as opposed to the static definitions the
-     * {@code ScheduledController} panel already lists) into a {@link ScheduledTaskRunStore}, feeding the
-     * {@code SCHEDULED_TASK} entries in the Live Activity merged stream. Gated on the same
-     * {@code ScheduledTaskHolder} classpath marker as {@code ScheduledController} — the scheduling
-     * infrastructure is this feature's whole reason to exist — so it stays entirely absent when
-     * scheduling is not in use.
-     */
-    @Configuration(proxyBeanMethods = false)
-    @ConditionalOnClass(name = "org.springframework.scheduling.config.ScheduledTaskHolder")
-    static class ScheduledTaskActivityConfiguration {
-
-        @Bean
-        ScheduledTaskRunStore bootUiScheduledTaskRunStore(BootUiProperties properties) {
-            return new ScheduledTaskRunStore(properties.getActivity().getMaxScheduledTaskRuns());
-        }
-
-        @Bean
-        ScheduledTaskRunObservationHandler bootUiScheduledTaskRunObservationHandler(
-                ScheduledTaskRunStore store, BootUiSelfDataFilter selfDataFilter) {
-            return new ScheduledTaskRunObservationHandler(store, selfDataFilter);
-        }
-
-        @Bean
-        BootUiSchedulingConfigurer bootUiSchedulingConfigurer(ScheduledTaskRunObservationHandler handler) {
-            return new BootUiSchedulingConfigurer(handler);
         }
     }
 

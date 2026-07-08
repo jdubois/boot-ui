@@ -309,6 +309,22 @@ class LiveActivityAssemblerTests {
         assertThat(report.kpis().scheduledTaskFailureCount()).isZero();
     }
 
+    @Test
+    void typeCountsReflectTheFullFeedEvenWhenTheLimitTruncatesVisibleEntries() {
+        HttpExchangesReport requests = requests(
+                request("req-1", "/orders/1", "trace-a", 4_000L),
+                request("req-2", "/orders/2", "trace-b", 3_000L),
+                request("req-3", "/orders/3", "trace-c", 2_000L));
+        List<ScheduledTaskRunStore.Run> scheduled = List.of(
+                new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 10L, true, null, null, "worker-1"));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions(), List.of(), false, scheduled, "UP", 2);
+
+        assertThat(report.entries()).hasSize(2);
+        assertThat(report.typeCounts()).containsEntry("REQUEST", 3).containsEntry("SCHEDULED_TASK", 1);
+    }
+
     private static ActivityEntryDto entry(LiveActivityReport report, String id) {
         return report.entries().stream()
                 .filter(e -> e.id().equals(id))

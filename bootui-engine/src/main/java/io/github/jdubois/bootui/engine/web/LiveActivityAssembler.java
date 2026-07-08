@@ -266,13 +266,14 @@ public final class LiveActivityAssembler {
         }
 
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
-        if (limit > 0 && entries.size() > limit) {
-            entries = entries.subList(0, limit);
-        }
 
         Map<String, Integer> typeCounts = new LinkedHashMap<>();
         for (ActivityEntryDto entry : entries) {
             typeCounts.merge(entry.type(), 1, Integer::sum);
+        }
+
+        if (limit > 0 && entries.size() > limit) {
+            entries = entries.subList(0, limit);
         }
 
         List<String> sources = new ArrayList<>();
