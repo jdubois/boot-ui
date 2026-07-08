@@ -52,20 +52,25 @@ Each new panel must:
 
 ## 2. Scope of this workstream
 
-Two open features remain, grouped by priority. The §3.1 correlation item has shipped as the **Live Activity** panel; the
-graph item remains in scope, and the capture-heavy e-mail viewer lands after the read-only items because it needs stricter
-masking, bounding, sandboxing, and opt-in behaviour.
+Several open features remain, grouped by priority. The §3.1 correlation item has shipped as the **Live Activity** panel;
+the graph item remains in scope, and the capture-heavy e-mail viewer lands after the read-only items because it needs
+stricter masking, bounding, sandboxing, and opt-in behaviour. The Live Activity panel itself keeps growing: a REST call
+capture branch and the ideas in §3.4 are the panel's next steps.
 
 | Priority | Feature                               | Group         | Primary data source                                | Mutation?         | Origin           |
 | -------- | ------------------------------------- | ------------- | -------------------------------------------------- | ----------------- | ---------------- |
 | Done     | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
 | 1        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 | No                | Existing roadmap |
 | 2        | E-mail Viewer                         | Diagnostics   | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
+| 3        | Live Activity — REST call capture     | Diagnostics   | Intercepted `RestClient`/`RestTemplate`/`WebClient` | No (capture only) | In progress (branch) |
+| 4        | Live Activity — new event types       | Diagnostics   | New/expanded capture sources (see §3.4)            | No (capture only) | New addition     |
 
 The Trace ↔ Log ↔ Request correlation work in §3.1 has shipped as the **Live Activity** panel, building on the
-already-shipped HTTP Exchanges panel and the existing Traces and Log Tail panels. The E-mail Viewer is the only remaining
-capture-oriented feature in this workstream, so it must keep pass-through application behaviour by default and make any
-dev-trap mode explicitly opt-in.
+already-shipped HTTP Exchanges panel and the existing Traces and Log Tail panels. Two Live Activity extensions are
+already underway outside this document (an E-mail Viewer-backed `MAIL` event type, tracked as §3.3, and an outbound
+`RestClient`/`RestTemplate`/`WebClient` capture branch that is not yet a PR); §3.4 captures further ideas for what
+should come next in the panel, on top of those two. Each capture-oriented feature must keep pass-through application
+behaviour by default and make any dev-trap mode explicitly opt-in.
 
 ## 3. Feature specifications
 
@@ -140,6 +145,74 @@ Design constraints:
   rendered sandboxed to prevent script execution.
 - Fixed-size buffer; no persistence to disk beyond on-demand `.eml` download.
 
+### 3.4 Live Activity — future event types and correlation — Diagnostics
+
+Live Activity currently merges four entry types — `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` — from BootUI's existing
+in-memory buffers (see `docs/SPECIFICATION.md` §5.14.2). Two extensions are already underway outside this plan: the
+E-mail Viewer (§3.3) adds a `MAIL` event, and a separate branch (not yet a PR) adds an outbound
+`RestClient`/`RestTemplate`/`WebClient` capture. This section captures what should come next in the panel, prioritized by
+value versus new-instrumentation cost, drawn from the same comparable-dashboard benchmarks (Laravel Telescope, Symfony
+Web Profiler, .NET Aspire) already guiding this workstream.
+
+Scope — new event types, roughly in priority order:
+
+- **Scheduled Task runs.** The existing Scheduled Tasks panel only shows static `@Scheduled` definitions; capturing each
+  *execution* (start/success/failure, duration, exception if any) as a `SCHEDULED_TASK` entry reuses that panel's
+  existing discovery and closes an obvious "did my job run, and how long did it take" gap. No request parent (background
+  thread), but nests a correlated exception the same way `REQUEST` does today.
+- **Cache operations.** The Cache panel shows topology and aggregate hit/miss counters only; a lightweight, sampled
+  `CACHE` event (hit/miss/put/evict, cache name, key hash — never the raw key/value) explains *why* those counters moved
+  and correlates naturally as a `REQUEST` child, mirroring how `SQL` nests today.
+- **Messaging (Kafka/RabbitMQ/JMS) publish and consume.** The highest-value new-instrumentation candidate after mail and
+  REST calls: async messaging is exactly where a Telescope/Aspire-style console helps most, since message flow is
+  otherwise invisible outside the debugger. Unlike the other items above, this is a materially bigger investment: Kafka,
+  RabbitMQ, and JMS are three unrelated client APIs (no single "messaging" abstraction to intercept once), so scope this
+  as **Kafka-first**, with RabbitMQ/JMS as later, separately-scoped follow-ups rather than one bundled feature. Each
+  needs its own bounded capture buffer, wired only when the relevant client bean/class (`KafkaTemplate`,
+  `RabbitTemplate`, JMS `ConnectionFactory`) is present, following the same optional-dependency/fail-closed pattern as
+  Hibernate/Cache/Flyway/Liquibase — the interceptor must live in the adapter behind a `@ConditionalOnClass` gate (Spring)
+  or a capability-gated `ExcludedTypeBuildItem` (Quarkus), never statically imported by the framework-neutral engine.
+  Interception itself is more invasive than any existing capture source: it means wrapping the app's own messaging beans
+  (a `BeanPostProcessor`, mirroring the existing HTTP Exchanges repository wrapper) or registering interceptor/advice
+  hooks, so pass-through-by-default and fail-open wrapping are non-negotiable design constraints, and message bodies
+  need their own bounding/masking design (arbitrary, potentially large application payloads, unlike a SQL statement or
+  HTTP header). On Quarkus, the natural interception point is different in kind, not just in wiring: Quarkus applications
+  typically use SmallRye Reactive Messaging (`@Incoming`/`@Outgoing` channels) rather than Spring's imperative
+  `spring-kafka`/`spring-rabbit` templates, so a shared `MessagingProvider`-style SPI would need materially different
+  per-adapter implementations — closer to the Beans panel's `BeanProvider` split (CDI vs. Spring bean introspection) than
+  the thinner Cache/Flyway provider seams. The panel-registration plumbing itself (a `@Produces` bean + auto-discovered
+  `@Path` resource) follows the existing GitHub-panel template with no deployment build-step change, but the capture
+  mechanism is effectively a second engine-service design per adapter, not a thin shared seam.
+
+Scope — enhancements on top of the existing/in-flight event types, generally cheaper than a new source and some of
+higher value:
+
+- **Nest the REST call capture as a `REQUEST` child**, the same way `SQL`/`EXCEPTION`/`SECURITY` nest today, once that
+  branch lands, so a request that fans out to outbound calls shows the whole causal chain in one profiler view. This is
+  likely the single highest-value change once REST call capture ships, since correlation — not just another list — is
+  the panel's core value proposition.
+- **Nest `MAIL` entries under their triggering `REQUEST`** the same way, once the E-mail Viewer lands, using the same
+  trace-id/serving-thread tiered join the profiler already uses.
+- **Extend the KPI strip** with metrics for each new source as it lands: outbound-call error rate/p95, cache hit ratio,
+  scheduled-task failure count.
+- **Verify persistence and filtering stay generic over `type`** as new event types are added — `JdbcActivityStore`,
+  `BufferedActivityStore`, and the client-side type filter chips should pick up new types automatically, but this should
+  be confirmed with tests as each lands.
+- **Add deep links** from `REQUEST` entries into the Cache and Scheduled Tasks panels, matching the existing deep links
+  into HTTP Exchanges, SQL Trace, Exceptions, Health, and Heap Dump.
+
+Design constraints:
+
+- Every new source stays **read-only** and **fails closed** when its backing bean/class is absent, consistent with
+  §3.1/§3.3 and the cross-cutting rules in §4.
+- Sensitive payloads (cache keys/values, message bodies) are masked by default and follow the same value-exposure model
+  as the rest of the panel; cache keys are hashed rather than shown raw even under full exposure.
+- New capture buffers are bounded and self-filtering (BootUI's own traffic must not appear in its own feed), consistent
+  with the existing `bootui.monitoring.exclude-self` behaviour.
+- Recommended sequencing: land Mail (§3.3) and REST call capture with `REQUEST`-nesting from day one; then Scheduled
+  Task runs and Cache operations (cheapest, reuse existing panel discovery); treat Messaging as the next major
+  new-instrumentation investment.
+
 ## 4. Cross-cutting work for every new panel
 
 For each feature above, the following must move together, consistent with the existing panel-registration process:
@@ -167,6 +240,8 @@ For each feature above, the following must move together, consistent with the ex
 | Optional Actuator endpoints, libraries, beans, or servers missing | all        | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.      |
 | Bean/dependency graph or correlation bloating the bundle          | 3.1, 3.2   | Medium | Bounded rendering, lightweight visualization, and lazy-loaded panels.                                     |
 | Silently swallowing application mail                              | 3.3        | Medium | Pass-through by default; "dev trap" mode strictly opt-in.                                                 |
+| Over-broad or noisy new Live Activity event types (e.g. cache operations) | 3.4 | Medium | Explicit opt-in wiring by bean/class presence, bounded buffers, masked payloads/hashed cache keys. |
+| Messaging capture's added optional-dependency surface (Kafka/RabbitMQ/JMS clients), invasive interception of app-owned messaging beans, and a per-adapter capture design (SmallRye Reactive Messaging on Quarkus vs. imperative templates on Spring) | 3.4 | High | Scope Kafka-first with Rabbit/JMS as separate follow-ups; classpath/capability gating identical to Hibernate/Cache/Flyway/Liquibase; pass-through-by-default, fail-open wrapping; bounded/masked message-body capture. |
 | Scope creep beyond this merged feature set                        | all        | High   | Treat this list as the maximum near-term surface; move further ideas to a later plan.                     |
 
 ## 6. Validation checklist
