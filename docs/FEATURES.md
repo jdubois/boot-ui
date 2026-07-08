@@ -80,7 +80,7 @@ by type, severity, a free-text needle (path, status, SQL, or exception class), a
 chosen filters are persisted in the browser so they survive a reload. A small **requests-over-time** sparkline above the
 table makes spikes and error bursts (drawn in red) visible at a glance. A KPI strip across the top summarises requests per
 minute, error rate, p50/p95 latency, SQL rate, the slowest recent endpoint, active exception count, health status,
-heap usage, and (Spring only) scheduled-task failure count, computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`). Several KPI cards are themselves
+heap usage, and scheduled-task failure count, computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`). Several KPI cards are themselves
 launchpads: the slowest-endpoint card opens **HTTP Exchanges** pre-filtered to that endpoint, while the
 active-exceptions, health, heap-usage, and scheduled-failures cards jump to the **Exceptions**, **Health**, **Heap Dump**, and
 **Scheduled Tasks** panels

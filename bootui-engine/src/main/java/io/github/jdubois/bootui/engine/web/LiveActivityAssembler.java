@@ -68,7 +68,7 @@ public final class LiveActivityAssembler {
     private static final String SEVERITY_ERROR = "ERROR";
 
     /**
-     * Builds the report by merging the captured signals. Equivalent to calling the overload below with an
+     * Builds the report by merging the captured signals. Delegates to the overload below with an
      * empty {@code scheduledRuns} list — i.e. no {@code SCHEDULED_TASK} entries — for adapters/tests that do
      * not capture scheduled-task executions.
      *

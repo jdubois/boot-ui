@@ -747,7 +747,7 @@ Features:
   duration meets the same slow-request threshold, otherwise `OK`, and clicking it deep-links into the Scheduled Tasks
   panel prefilled with its runnable name.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
-  exception count, SQL/min, slowest query, health status, heap usage, and (Spring only) a scheduled-task failure count
+  exception count, SQL/min, slowest query, health status, heap usage, and a scheduled-task failure count
   linking into the Scheduled Tasks panel.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
   nesting of correlated children under their request (expanded by default; any active filter or free-text search

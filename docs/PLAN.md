@@ -229,7 +229,7 @@ Design constraints:
 - New capture buffers are bounded and self-filtering (BootUI's own traffic must not appear in its own feed), consistent
   with the existing `bootui.monitoring.exclude-self` behaviour.
 - Recommended sequencing: land Mail (§3.3) and REST call capture with `REQUEST`-nesting from day one; Scheduled Task
-  runs is now implemented (Spring only); Cache operations next (cheapest, reuses existing panel discovery); treat
+  runs is now implemented on both adapters; Cache operations next (cheapest, reuses existing panel discovery); treat
   Messaging as the next major new-instrumentation investment.
 
 ## 4. Cross-cutting work for every new panel
