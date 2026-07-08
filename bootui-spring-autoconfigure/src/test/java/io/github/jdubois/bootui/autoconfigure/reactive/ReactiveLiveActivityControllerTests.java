@@ -28,10 +28,12 @@ import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
@@ -78,6 +80,7 @@ class ReactiveLiveActivityControllerTests {
 
         ReactiveLiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(ExceptionStore.class),
                 store,
                 settings,
@@ -107,6 +110,7 @@ class ReactiveLiveActivityControllerTests {
     void activityReportsADataSourceAsAvailableWhenOneIsPresentEvenWithPersistenceOff() {
         ReactiveLiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(ExceptionStore.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -128,6 +132,7 @@ class ReactiveLiveActivityControllerTests {
 
         ReactiveLiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(ExceptionStore.class),
                 store,
                 settings,
@@ -162,6 +167,7 @@ class ReactiveLiveActivityControllerTests {
     void useExistingDatasourceReturns404WhenNoDataSourceIsAvailable() {
         ReactiveLiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(ExceptionStore.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -179,6 +185,7 @@ class ReactiveLiveActivityControllerTests {
     void useExistingDatasourceReturns400WhenNotConfirmed() {
         ReactiveLiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(ExceptionStore.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -197,6 +204,7 @@ class ReactiveLiveActivityControllerTests {
         when(store.persistent()).thenReturn(true);
         ReactiveLiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(ExceptionStore.class),
                 store,
                 enabledSettings("instance-reactive-c", Duration.ofSeconds(5)),
@@ -218,6 +226,7 @@ class ReactiveLiveActivityControllerTests {
         DataSource dataSource = newDataSource();
         ReactiveLiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(ExceptionStore.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -267,6 +276,7 @@ class ReactiveLiveActivityControllerTests {
         ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
                 provider(httpExchanges),
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 provider(exceptionStore),
                 empty(ReactiveSecurityLogsController.class),
@@ -312,6 +322,7 @@ class ReactiveLiveActivityControllerTests {
         ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
                 provider(httpExchanges),
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
                 empty(ReactiveSecurityLogsController.class),
@@ -336,6 +347,7 @@ class ReactiveLiveActivityControllerTests {
         ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
                 empty(HttpExchangesController.class),
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 provider(exceptionStore),
                 empty(ReactiveSecurityLogsController.class),
@@ -360,6 +372,7 @@ class ReactiveLiveActivityControllerTests {
         ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
                 empty(HttpExchangesController.class),
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
                 provider(securityLogs),
@@ -376,6 +389,57 @@ class ReactiveLiveActivityControllerTests {
     }
 
     @Test
+    void mergedReportMergesRestClientTraceEntriesWhenAvailable() {
+        HttpExchangesController httpExchanges = mock(HttpExchangesController.class);
+        HttpExchangeDto tracedExchange = exchange("req-1", "GET", "/api/products", 200, "trace-abc");
+        when(httpExchanges.exchanges(null, null, null, null, null))
+                .thenReturn(new HttpExchangesReport(
+                        1, 1, 0, List.of(tracedExchange), new PageMetadata(0, 0, 0, 0, 0, false), null));
+        RestClientTraceRecorder recorder =
+                new RestClientTraceRecorder(true, true, false, false, 10, 1_000, 2_000, 200, 5);
+        recorder.setTraceIdProvider(() -> "trace-abc");
+        recorder.record(
+                "GET",
+                "https://api.example.com/orders",
+                "api.example.com",
+                "/orders",
+                200,
+                12,
+                true,
+                null,
+                "WebClient",
+                Map.of(),
+                "reactor-http-nio-1");
+
+        BootUiProperties properties = new BootUiProperties();
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                provider(httpExchanges),
+                empty(SqlTraceRecorder.class),
+                provider(recorder),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        LiveActivityReport report = controller.mergedReport(0);
+
+        assertThat(report.sources()).contains("rest-client");
+        assertThat(report.entries())
+                .filteredOn(entry -> "rest-1".equals(entry.id()))
+                .singleElement()
+                .satisfies(entry -> {
+                    assertThat(entry.type()).isEqualTo("REST_CLIENT");
+                    assertThat(entry.parentId()).isEqualTo("req-1");
+                    assertThat(entry.summary()).isEqualTo("GET api.example.com/orders → 200");
+                });
+    }
+
+    @Test
     void mergedReportSkipsHealthStatusWhenHealthPanelIsDisabled() {
         HealthController health = mock(HealthController.class);
         BootUiProperties properties = new BootUiProperties();
@@ -383,6 +447,7 @@ class ReactiveLiveActivityControllerTests {
         ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
                 empty(HttpExchangesController.class),
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
                 empty(ReactiveSecurityLogsController.class),
@@ -407,6 +472,7 @@ class ReactiveLiveActivityControllerTests {
         ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
                 provider(httpExchanges),
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
                 empty(ReactiveSecurityLogsController.class),
@@ -438,6 +504,7 @@ class ReactiveLiveActivityControllerTests {
         ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
                 provider(httpExchanges),
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
                 empty(ReactiveSecurityLogsController.class),
@@ -468,6 +535,7 @@ class ReactiveLiveActivityControllerTests {
         ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
                 provider(httpExchanges),
                 empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
                 empty(ReactiveSecurityLogsController.class),
@@ -562,15 +630,21 @@ class ReactiveLiveActivityControllerTests {
     }
 
     private static ReactiveLiveActivityController controller(BootUiProperties properties) {
-        return controllerWith(empty(SqlTraceRecorder.class), empty(ExceptionStore.class), properties);
+        return controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(ExceptionStore.class),
+                properties);
     }
 
     private static ReactiveLiveActivityController controllerWith(
             ObjectProvider<SqlTraceRecorder> recorder,
+            ObjectProvider<RestClientTraceRecorder> restClientTraceRecorder,
             ObjectProvider<ExceptionStore> exceptionStore,
             BootUiProperties properties) {
         return controllerWith(
                 recorder,
+                restClientTraceRecorder,
                 exceptionStore,
                 defaultActivityStore(),
                 disabledSettings(),
@@ -580,6 +654,7 @@ class ReactiveLiveActivityControllerTests {
 
     private static ReactiveLiveActivityController controllerWith(
             ObjectProvider<SqlTraceRecorder> recorder,
+            ObjectProvider<RestClientTraceRecorder> restClientTraceRecorder,
             ObjectProvider<ExceptionStore> exceptionStore,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
@@ -588,6 +663,7 @@ class ReactiveLiveActivityControllerTests {
         return new ReactiveLiveActivityController(
                 empty(HttpExchangesController.class),
                 recorder,
+                restClientTraceRecorder,
                 dataSourceProvider,
                 exceptionStore,
                 empty(ReactiveSecurityLogsController.class),

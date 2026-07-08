@@ -152,7 +152,7 @@ export function deepLink(entry) {
       const needle = sqlNeedle(entry.summary)
       return needle ? {path: '/sql-trace', query: {q: needle}, label: 'Open in SQL Trace'} : null
     }
-    case 'REST':
+    case 'REST_CLIENT':
       return entry.path
         ? {path: '/rest-client-trace', query: {q: entry.path}, label: 'Open in REST Client Trace'}
         : null

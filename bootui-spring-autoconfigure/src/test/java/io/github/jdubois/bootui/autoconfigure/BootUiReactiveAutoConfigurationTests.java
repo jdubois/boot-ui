@@ -36,6 +36,7 @@ import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import java.util.List;
@@ -46,7 +47,9 @@ import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.boot.restclient.RestClientCustomizer;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
+import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.boot.webflux.actuate.web.exchanges.HttpExchangesWebFilter;
 import org.springframework.boot.webflux.autoconfigure.HttpHandlerAutoConfiguration;
 import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
@@ -86,6 +89,15 @@ class BootUiReactiveAutoConfigurationTests {
                         .hasSingleBean(ReactiveBootUiIndexController.class)
                         .hasSingleBean(OverviewController.class)
                         .hasSingleBean(BootUiActivation.class));
+    }
+
+    @Test
+    void registersSharedRestClientTraceBeansOnReactiveAdapter() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .run(context -> assertThat(context)
+                        .hasSingleBean(RestClientTraceRecorder.class)
+                        .hasSingleBean(RestClientCustomizer.class)
+                        .hasSingleBean(WebClientCustomizer.class));
     }
 
     @Test

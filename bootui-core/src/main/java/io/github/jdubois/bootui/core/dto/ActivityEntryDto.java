@@ -10,7 +10,7 @@ package io.github.jdubois.bootui.core.dto;
  *
  * @param id stable identifier for the entry; for {@code REQUEST} entries this is the HTTP exchange
  *     id, which the per-request profiler endpoint accepts as {@code /activity/request/{id}}
- * @param type coarse activity type: {@code REQUEST}, {@code SQL}, {@code REST}, {@code EXCEPTION}, or
+ * @param type coarse activity type: {@code REQUEST}, {@code SQL}, {@code REST_CLIENT}, {@code EXCEPTION}, or
  *     {@code SECURITY}
  * @param timestamp epoch milliseconds when the activity occurred
  * @param severity {@code OK}, {@code SLOW}, {@code WARN}, or {@code ERROR}

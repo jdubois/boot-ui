@@ -49,7 +49,7 @@ public class LiveActivityService {
 
     static final String TYPE_REQUEST = "REQUEST";
     static final String TYPE_SQL = "SQL";
-    static final String TYPE_REST = "REST";
+    static final String TYPE_REST_CLIENT = "REST_CLIENT";
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
 
@@ -375,7 +375,7 @@ public class LiveActivityService {
         String detail = entry.success() ? entry.clientType() : entry.errorMessage();
         return new ActivityEntryDto(
                 "rest-" + entry.id(),
-                TYPE_REST,
+                TYPE_REST_CLIENT,
                 entry.timestamp(),
                 severity,
                 summary.trim(),

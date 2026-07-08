@@ -716,7 +716,7 @@ Data sources:
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `REST`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
+- Merged stream of `REQUEST`, `SQL`, `REST_CLIENT`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
   severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request

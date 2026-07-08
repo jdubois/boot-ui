@@ -275,6 +275,8 @@ public class LiveActivityResource {
                 exceptionsService.report(exceptionStore).groups(),
                 securityEvents(securityAvailable),
                 securityAvailable,
+                List.of(),
+                false,
                 null,
                 limit);
 

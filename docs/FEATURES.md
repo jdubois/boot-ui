@@ -65,7 +65,7 @@ the HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, and Security Logs 
 masked, self-filtered, and bounded exactly as those panels are.
 
 The stream merges five signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), outbound REST client
-calls (`REST`), exceptions (`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a color-coded severity
+calls (`REST_CLIENT`), exceptions (`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
 latency badge so you can see at a glance *how* slow a request was. A request whose correlated SQL contains a suspected
@@ -197,27 +197,28 @@ on Quarkus once persistence is switched on. The runtime "Use the existing dataso
 identically on Quarkus: the same engine-level `ActivitySwitchService` backs a thin JAX-RS mirror of Spring's endpoint,
 so the tip, button, and confirmation flow behave the same regardless of adapter.
 
-On Spring Boot WebFlux the panel is available too, and — like Quarkus — needed no new *capture* pipeline: HTTP
-requests, SQL trace, exceptions, and security events are each already captured reactively (see their own sections
-below), so the WebFlux port is purely a merge over those existing sources; REST Client Trace is not part of that merge
-either, for the same reason as Quarkus — it is wired only into the servlet autoconfiguration, so a WebFlux
-application's own `WebClient` calls are not yet captured at all, let alone surfaced here. Correlation is **trace-id only** here too,
-and for the same reason as Quarkus: Reactor Netty has no thread-per-request model to correlate by (a request isn't
-served start-to-finish on one dedicated worker thread), so the servlet adapter's thread-based/time-window
-correlation tiers do not apply. It is narrower than on Quarkus, though: the HTTP exchange capture shared with the
-servlet adapter does not stamp the active tracing span's id at capture time the way Quarkus's Vert.x filter does, so
-a request only carries a trace id when the inbound call itself propagates one (for example a `traceparent` header
-from an upstream caller), not merely because `micrometer-tracing`/OTLP is configured server-side; SQL, exception, and
-security trace ids fall back to the same SLF4J MDC value the servlet adapter already uses, whose propagation across
-Reactor's event-loop→worker-thread hop for blocking calls is best-effort rather than guaranteed. When a shared trace
-id is present on both sides, matching signals nest under the request exactly as on Quarkus; without one, every
-signal still appears in the feed, just flat/top-level rather than nested per-request. The per-request **profiler**
-drawer is available too, in the same reduced, trace-id-only form as Quarkus: it correlates by exact trace id when
-the request has one, and honestly reports itself unavailable rather than fabricating a partial profile when it does
-not. N+1 detection, its row badge, and call-site capture are computed by the same shared engine code as every other
-adapter, so a WebFlux request that resolves a trace-id correlation gets byte-identical flagging to Spring MVC and
-Quarkus. The optional durable persistence backend and the "Use the existing datasource" hot-switch described above
-work identically on WebFlux too, over the same shared engine machinery. See
+On Spring Boot WebFlux the panel is available too. HTTP requests, SQL trace, exceptions, and security events were
+already captured reactively; this fix adds the missing outbound REST/WebClient capture by relocating the shared
+`RestClientTraceRecorder` + Spring Boot client customizers into the common engine wiring that both servlet and
+reactive auto-configurations import, so a WebFlux application's own `WebClient` calls are now captured and merged here
+as well. Correlation is **trace-id only** for those REST entries — the same shared-engine rule SQL/exceptions/security
+already use on WebFlux and Quarkus — because Reactor Netty has no thread-per-request model to correlate by (a request
+isn't served start-to-finish on one dedicated worker thread), so the servlet adapter's thread-based/time-window
+correlation tiers do not apply. It is still narrower than on Quarkus in one respect: the HTTP exchange capture shared
+with the servlet adapter does not stamp the active tracing span's id at capture time the way Quarkus's Vert.x filter
+does, so a request only carries a trace id when the inbound call itself propagates one (for example a `traceparent`
+header from an upstream caller), not merely because `micrometer-tracing`/OTLP is configured server-side; SQL,
+exception, security, and now REST-client trace ids fall back to the same SLF4J MDC value the servlet adapter already
+uses, whose propagation across Reactor's event-loop→worker-thread hop for blocking calls is best-effort rather than
+guaranteed. When a shared trace id is present on both sides, matching signals nest under the request exactly as on
+Quarkus; without one, every signal still appears in the feed, just flat/top-level rather than nested per-request. The
+per-request **profiler** drawer is available too, in the same reduced, trace-id-only form as Quarkus: it correlates by
+exact trace id when the request has one, and honestly reports itself unavailable rather than fabricating a partial
+profile when it does not. N+1 detection, its row badge, and call-site capture are computed by the same shared engine
+code as every other adapter, so a WebFlux request that resolves a trace-id correlation gets byte-identical flagging to
+Spring MVC and Quarkus. The optional durable persistence backend and the "Use the existing datasource" hot-switch
+described above work identically on WebFlux too, over the same shared engine machinery. The dedicated REST Client
+Trace panel itself is still not available on WebFlux — only its capture and Live Activity merge are. See
 [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full detail.
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
@@ -1303,10 +1304,13 @@ serving-thread-second correlation SQL statements use, and carry a deep link back
 above is not (yet) surfaced as a row-level badge in the merged stream the way SQL's N+1 suspicion is — it is visible only
 in this panel's own "Most frequent calls" table.
 
-**REST Client Trace is currently available on the Spring MVC (servlet) adapter only.** It is not yet ported to Spring
-WebFlux or Quarkus — even a WebFlux application's own `WebClient` calls are not captured, since the whole panel's
-customizer/controller wiring only activates for a servlet web application — so both report the panel unavailable for
-now, unlike SQL Trace, HTTP Exchanges, and HTTP Probe, which already have parity across all three.
+**REST Client Trace's dedicated panel is currently available on the Spring MVC (servlet) adapter only.** Its own
+push-updating `/stream` endpoint is built on the servlet-specific `SseEmitter`, so BootUI does not yet expose that full
+panel (with its pause/resume controls, retained-call table, and "Most frequent calls" grouping) on Spring WebFlux or
+Quarkus. However, the underlying outbound-call capture is now shared by both Spring adapters: a WebFlux application's
+own `WebClient` calls are captured and merged into **Live Activity** with the same trace-id-only correlation model that
+WebFlux already uses there for SQL/exceptions/security. Quarkus still has no outbound REST client capture pipeline of
+any kind yet, so both the dedicated panel and Live Activity REST entries remain unavailable on that adapter for now.
 
 ## Developer tools
 

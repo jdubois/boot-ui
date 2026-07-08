@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
@@ -34,6 +35,7 @@ import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
 import io.github.jdubois.bootui.engine.web.RequestProfileAssembler;
@@ -67,12 +69,13 @@ import reactor.core.publisher.Flux;
  * trace id (see {@code TraceIdProvider}), and a request with no trace id simply renders flat/unprofileable
  * rather than guessing.
  *
- * <p>All four signal sources are read directly from the already-reactive, already-masked/self-filtered
- * beans this adapter wires for their own panels — {@link HttpExchangesController} (HTTP requests, shared
- * with the servlet adapter since it depends only on the stack-agnostic Actuator
- * {@code HttpExchangeRepository}), {@link SqlTraceRecorder} (SQL trace), {@link ExceptionStore} (exceptions),
- * and {@code ReactiveSecurityLogsController} (security/audit events) — so this controller adds no new
- * capture instrumentation of its own, only the merge. Because those beans are reached directly (bypassing
+ * <p>The merged feed reads five already-reactive, already-masked/self-filtered signal sources directly
+ * from the beans this adapter wires for their own panels — {@link HttpExchangesController} (HTTP
+ * requests, shared with the servlet adapter since it depends only on the stack-agnostic Actuator
+ * {@code HttpExchangeRepository}), {@link SqlTraceRecorder} (SQL trace), {@link RestClientTraceRecorder}
+ * (outbound REST/WebClient calls), {@link ExceptionStore} (exceptions), and
+ * {@code ReactiveSecurityLogsController} (security/audit events) — so this controller adds no new capture
+ * instrumentation of its own, only the merge. Because those beans are reached directly (bypassing
  * the HTTP layer, and with it {@code ReactivePanelAccessFilter}'s per-panel enablement check), every
  * signal read here re-checks {@code properties.isPanelEnabled(...)} itself first, exactly mirroring
  * {@code LiveActivityService}/{@code LiveActivityCorrelator}.
@@ -93,6 +96,7 @@ public class ReactiveLiveActivityController {
 
     private final ObjectProvider<HttpExchangesController> httpExchanges;
     private final ObjectProvider<SqlTraceRecorder> sqlTraceRecorder;
+    private final ObjectProvider<RestClientTraceRecorder> restClientTrace;
     private final ObjectProvider<DataSource> dataSourceProvider;
     private final ObjectProvider<ExceptionStore> exceptionStoreProvider;
     private final ObjectProvider<ReactiveSecurityLogsController> securityLogs;
@@ -111,6 +115,7 @@ public class ReactiveLiveActivityController {
     public ReactiveLiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
+            ObjectProvider<RestClientTraceRecorder> restClientTrace,
             ObjectProvider<DataSource> dataSourceProvider,
             ObjectProvider<ExceptionStore> exceptionStoreProvider,
             ObjectProvider<ReactiveSecurityLogsController> securityLogs,
@@ -122,6 +127,7 @@ public class ReactiveLiveActivityController {
             BootUiExposure exposure) {
         this.httpExchanges = httpExchanges;
         this.sqlTraceRecorder = sqlTraceRecorder;
+        this.restClientTrace = restClientTrace;
         this.dataSourceProvider = dataSourceProvider;
         this.exceptionStoreProvider = exceptionStoreProvider;
         this.securityLogs = securityLogs;
@@ -136,6 +142,10 @@ public class ReactiveLiveActivityController {
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
         if (recorder != null) {
             unsubscribers.add(recorder.subscribe(changeStream::signal));
+        }
+        RestClientTraceRecorder restClientTraceRecorder = restClientTrace.getIfAvailable();
+        if (restClientTraceRecorder != null) {
+            unsubscribers.add(restClientTraceRecorder.subscribe(changeStream::signal));
         }
         ExceptionStore store = exceptionStoreProvider.getIfAvailable();
         if (store != null) {
@@ -282,6 +292,8 @@ public class ReactiveLiveActivityController {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS);
+        List<RestClientTraceEntryDto> restEntries = restClientTraceEntries();
+        boolean restAvailable = restEntries != null;
         String healthStatus = currentHealthStatus();
 
         LiveActivityReport report = assembler.report(
@@ -292,6 +304,8 @@ public class ReactiveLiveActivityController {
                 exceptionGroups(),
                 securityEvents(securityAvailable),
                 securityAvailable,
+                restEntries,
+                restAvailable,
                 healthStatus,
                 limit);
 
@@ -347,6 +361,17 @@ public class ReactiveLiveActivityController {
         }
         ExceptionStore store = exceptionStoreProvider.getIfAvailable();
         return store == null ? List.of() : exceptionsService.report(store).groups();
+    }
+
+    private List<RestClientTraceEntryDto> restClientTraceEntries() {
+        if (!properties.isPanelEnabled(BootUiPanels.REST_CLIENT_TRACE)) {
+            return null;
+        }
+        RestClientTraceRecorder recorder = restClientTrace.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return null;
+        }
+        return recorder.report(exposure.maskSecrets(), exposure.valueExposure()).entries();
     }
 
     private List<SecurityLogEventDto> securityEvents(boolean securityAvailable) {
