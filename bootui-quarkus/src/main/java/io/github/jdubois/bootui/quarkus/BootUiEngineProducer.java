@@ -36,6 +36,7 @@ import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
@@ -188,6 +189,25 @@ public class BootUiEngineProducer {
         int capacity = config.getOptionalValue("bootui.security-logs.max-logs", Integer.class)
                 .orElse(500);
         return new SecurityEventBuffer(capacity);
+    }
+
+    /**
+     * The Quarkus-only scheduled-task-run ring buffer fed by {@code QuarkusScheduledTaskRunRecorder}
+     * (the CDI {@code SuccessfulExecution}/{@code FailedExecution} observer — see {@code docs/PLAN.md}
+     * §3.4). Always produced, mirroring the always-produced pattern the other optional-dependency
+     * buffers use: when {@code quarkus-scheduler} is absent (or the capability-gated observer is
+     * excluded), nothing ever calls {@link ScheduledTaskRunStore#record}, so the Live Activity panel
+     * simply renders no {@code SCHEDULED_TASK} entries. Capacity bounds memory
+     * ({@code bootui.activity.max-scheduled-task-runs}, default 200, matching the Spring adapter's
+     * {@code BootUiProperties.Activity.getMaxScheduledTaskRuns()} default) so the same config key works
+     * identically on both adapters.
+     */
+    @Produces
+    @Singleton
+    public ScheduledTaskRunStore scheduledTaskRunStore(Config config) {
+        int maxRuns = config.getOptionalValue("bootui.activity.max-scheduled-task-runs", Integer.class)
+                .orElse(200);
+        return new ScheduledTaskRunStore(maxRuns);
     }
 
     /**

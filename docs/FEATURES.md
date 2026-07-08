@@ -62,12 +62,13 @@ The Live Activity panel is the diagnostics "home base": a single reverse-chronol
 application just did, plus a per-request profiler for drilling into any single request. It does not add any new
 instrumentation — instead it reuses BootUI's existing in-memory signal buffers by calling the same controllers that back
 the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is already masked, self-filtered, and
-bounded exactly as those panels are. On Spring, it also captures each `@Scheduled` method *execution* (start, success,
-failure, duration) by tapping Spring Framework's own scheduling observability hook — no extra proxying — feeding a
-bounded in-memory buffer the same way the other sources do (not yet available on Quarkus).
+bounded exactly as those panels are. It also captures each `@Scheduled` method *execution* (start, success,
+failure, duration) on both adapters: Spring taps its own scheduling observability hook (no extra proxying), Quarkus
+observes the CDI `SuccessfulExecution`/`FailedExecution` events its scheduler always fires — feeding a bounded
+in-memory buffer the same way the other sources do.
 
 The stream merges signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
-(`EXCEPTION`), security events (`SECURITY`), and (Spring only) scheduled-task runs (`SCHEDULED_TASK`). Each row carries a timestamp, a type icon, a color-coded severity
+(`EXCEPTION`), security events (`SECURITY`), and scheduled-task runs (`SCHEDULED_TASK`). Each row carries a timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
 latency badge so you can see at a glance *how* slow a request was. A request whose correlated SQL contains a suspected

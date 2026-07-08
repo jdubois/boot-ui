@@ -228,11 +228,17 @@ class LiveActivityAssemblerTests {
         List<ScheduledTaskRunStore.Run> scheduled = List.of(
                 new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 5L, true, null, null, "worker-1"),
                 new ScheduledTaskRunStore.Run(
-                        2L, "com.example.Job#fail", 2_000L, 5L, false, "java.lang.RuntimeException", "boom",
+                        2L,
+                        "com.example.Job#fail",
+                        2_000L,
+                        5L,
+                        false,
+                        "java.lang.RuntimeException",
+                        "boom",
                         "worker-1"));
 
-        LiveActivityReport report = assembler.report(
-                requests, List.of(), false, null, exceptions(), List.of(), false, scheduled, "UP", 0);
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions(), List.of(), false, scheduled, "UP", 0);
 
         ActivityEntryDto ok = entry(report, "sched-1");
         assertThat(ok.type()).isEqualTo("SCHEDULED_TASK");

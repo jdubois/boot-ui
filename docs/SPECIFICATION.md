@@ -713,18 +713,22 @@ Data sources:
 - Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
-- Scheduled-task-run capture (Spring only): a bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`, fed
-  by a Spring-specific `ObservationHandler`/`SchedulingConfigurer` pair that taps Spring Framework's own
+- Scheduled-task-run capture (both adapters): a bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`.
+  On Spring, a Spring-specific `ObservationHandler`/`SchedulingConfigurer` pair taps Spring Framework's own
   `ScheduledTaskObservationContext` instrumentation (present since Spring Framework 6.1) — no AOP proxying or bean
-  wrapping. Only `@Scheduled` *method* tasks are observed this way, so a manually registered `Runnable`/`Trigger` task
-  (via `SchedulingConfigurer`) does not produce a `SCHEDULED_TASK` entry, consistent with how the static Scheduled Tasks
-  panel lists it with only a generic runnable name. Gated on the Scheduled Tasks panel's own `bootui.panels.scheduled`
-  enablement, capped by `bootui.activity.max-scheduled-task-runs` (default 200), and self-filtered the same way the
-  static task list is. Not yet implemented on Quarkus (see Design constraints below).
+  wrapping. On Quarkus, `QuarkusScheduledTaskRunRecorder` observes the ordinary CDI `SuccessfulExecution`/
+  `FailedExecution` events the scheduler always fires after every execution (the single-instance `JobInstrumenter` SPI
+  is unusable since `quarkus-opentelemetry` already claims it); the trigger's `getFireTime()` stands in for a start
+  timestamp since these events only fire on completion. Only `@Scheduled` *method* tasks are observed this way, so a
+  manually registered `Runnable`/`Trigger` task does not produce a `SCHEDULED_TASK` entry, consistent with how the
+  static Scheduled Tasks panel lists it with only a generic runnable name. Capped by
+  `bootui.activity.max-scheduled-task-runs` (default 200, shared config key on both adapters), and self-filtered the
+  same way the static task list is; on Quarkus the observer is additionally gated on the `SCHEDULER` capability (see
+  Design constraints below).
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and (Spring only) `SCHEDULED_TASK` entries normalized to a
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and `SCHEDULED_TASK` entries normalized to a
   common shape (timestamp, type, severity, one-line summary, optional duration and correlation id), sorted newest-first
   and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
@@ -838,10 +842,11 @@ Acceptance criteria:
 - The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
   `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
   active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
-- `SCHEDULED_TASK` capture is Spring-only today: Quarkus's scheduler (`io.quarkus.scheduler.Scheduler`) has no built-in
-  per-execution observability hook equivalent to Spring's `ScheduledTaskObservationContext`, so the Quarkus adapter does
-  not yet populate this entry type or the scheduled-task failure KPI (it always reports zero); this is tracked as a
-  follow-up, not a design decision to keep it Spring-only permanently.
+- `SCHEDULED_TASK` capture is implemented on both adapters. Quarkus's scheduler
+  (`io.quarkus.scheduler.Scheduler`) has no per-execution observability hook analogous to Spring's
+  `ScheduledTaskObservationContext`; instead `QuarkusScheduledTaskRunRecorder` observes the CDI
+  `SuccessfulExecution`/`FailedExecution` events the scheduler always fires, gated on the `SCHEDULER` capability
+  (`quarkus-scheduler` is a `provided`-scope, R2-excluded dependency, mirroring `QuarkusSecurityEventCapture`).
 
 ### 5.14.3 Traces Panel
 

@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -123,6 +124,7 @@ public class LiveActivityResource {
     private final ExceptionStore exceptionStore;
     private final ExceptionsService exceptionsService;
     private final SecurityEventBuffer securityBuffer;
+    private final ScheduledTaskRunStore scheduledTaskRunStore;
     private final QuarkusPanelAvailability panelAvailability;
     private final TracesService tracesService;
     private final SwitchableActivityStore activityStore;
@@ -143,6 +145,7 @@ public class LiveActivityResource {
             ExceptionStore exceptionStore,
             ExceptionsService exceptionsService,
             SecurityEventBuffer securityBuffer,
+            ScheduledTaskRunStore scheduledTaskRunStore,
             QuarkusPanelAvailability panelAvailability,
             TracesService tracesService,
             SwitchableActivityStore activityStore,
@@ -154,6 +157,7 @@ public class LiveActivityResource {
         this.exceptionStore = exceptionStore;
         this.exceptionsService = exceptionsService;
         this.securityBuffer = securityBuffer;
+        this.scheduledTaskRunStore = scheduledTaskRunStore;
         this.panelAvailability = panelAvailability;
         this.tracesService = tracesService;
         this.activityStore = activityStore;
@@ -275,6 +279,7 @@ public class LiveActivityResource {
                 exceptionsService.report(exceptionStore).groups(),
                 securityEvents(securityAvailable),
                 securityAvailable,
+                scheduledTaskRunStore.runs(),
                 null,
                 limit);
 

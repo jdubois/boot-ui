@@ -147,8 +147,8 @@ Design constraints:
 
 ### 3.4 Live Activity — future event types and correlation — Diagnostics
 
-Live Activity currently merges five entry types — `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and (Spring-only)
-`SCHEDULED_TASK` — from BootUI's existing
+Live Activity currently merges five entry types — `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and `SCHEDULED_TASK` —
+from BootUI's existing
 in-memory buffers (see `docs/SPECIFICATION.md` §5.14.2). Two extensions are already underway outside this plan: the
 E-mail Viewer (§3.3) adds a `MAIL` event, and a separate branch (not yet a PR) adds an outbound
 `RestClient`/`RestTemplate`/`WebClient` capture. This section captures what should come next in the panel, prioritized by
@@ -157,18 +157,28 @@ Web Profiler, .NET Aspire) already guiding this workstream.
 
 Scope — new event types, roughly in priority order:
 
-- **Scheduled Task runs — implemented (Spring only).** Each `@Scheduled` method *execution* (start/success/failure,
+- **Scheduled Task runs — implemented on both adapters.** Each `@Scheduled` method *execution* (start/success/failure,
   duration, exception if any) is captured as a `SCHEDULED_TASK` entry, reusing the existing Scheduled Tasks panel's
   discovery/naming so a captured run and its static definition share the same identifier. On Spring, the framework's own
   Micrometer instrumentation (`ScheduledTaskObservationContext`, present since Spring Framework 6.1) is tapped via a
   `SchedulingConfigurer` bean that installs an `ObservationHandler` — no AOP proxying or bean wrapping needed — feeding a
-  bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`. No request parent (background thread), but a
-  correlated exception is surfaced as `detail` the same way `REQUEST` failures are today. The KPI strip's "Scheduled
-  failures" tile and the `REQUEST`/`SQL`/`EXCEPTION` deep-link pattern (into `/scheduled`, prefilling its filter with the
-  runnable name) both ship with it. **Quarkus capture is not yet implemented** — the Quarkus scheduler
-  (`io.quarkus.scheduler.Scheduler`) has no equivalent built-in per-execution observability hook, so this remains a
-  follow-up; the shared `ActivityKpiDto`/`LiveActivityAssembler` wiring accepts a zero count from Quarkus in the
-  meantime.
+  bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`. **On Quarkus**, the scheduler
+  (`io.quarkus.scheduler.Scheduler`) exposes only one CDI-bean-limited `JobInstrumenter` SPI, already claimed by
+  `quarkus-opentelemetry` when scheduler tracing is enabled, so registering a second one would create ambiguous CDI
+  resolution and break the app's own tracing. Instead, `QuarkusScheduledTaskRunRecorder` observes the ordinary CDI
+  `io.quarkus.scheduler.SuccessfulExecution`/`FailedExecution` events that `BaseScheduler` always fires after every
+  execution regardless of how many other observers exist — the same, documented mechanism Quarkus's own Dev UI scheduler
+  page uses — and feeds the same `ScheduledTaskRunStore`. Since these events fire only on completion, the trigger's
+  `getFireTime()` is used as a proxy for the run's start timestamp (a small margin of error from invoker-chain overhead,
+  acceptable for a duration display, not precise profiling); the method identifier comes from
+  `Trigger.getMethodDescription()` (`declaringClassName#methodName`, matching the static panel's own identifier), so a
+  programmatically registered job (no method description) is not captured, matching the Spring adapter's method-only
+  scope. The observer is gated on the `SCHEDULER` capability (R2: `quarkus-scheduler` is `provided`-scope, excluded from
+  bean discovery when the capability or a non-production launch mode is absent), matching the existing
+  `QuarkusSecurityEventCapture` pattern. No request parent (background thread), but a correlated exception is surfaced as
+  `detail` the same way `REQUEST` failures are today. The KPI strip's "Scheduled failures" tile and the
+  `REQUEST`/`SQL`/`EXCEPTION` deep-link pattern (into `/scheduled`, prefilling its filter with the runnable name) both
+  ship on both adapters.
 - **Cache operations.** The Cache panel shows topology and aggregate hit/miss counters only; a lightweight, sampled
   `CACHE` event (hit/miss/put/evict, cache name, key hash — never the raw key/value) explains *why* those counters moved
   and correlates naturally as a `REQUEST` child, mirroring how `SQL` nests today.
