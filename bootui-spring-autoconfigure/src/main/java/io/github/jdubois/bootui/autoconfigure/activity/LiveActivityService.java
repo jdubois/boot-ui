@@ -111,6 +111,7 @@ public class LiveActivityService {
         for (RequestAnchor anchor : anchors) {
             anchorsById.put(anchor.id(), anchor);
         }
+        List<ScheduledTaskAnchor> scheduledAnchors = buildScheduledTaskAnchors(scheduledRuns);
         SecurityEventCorrelationRegistry securityRegistry =
                 securityCorrelations == null ? null : securityCorrelations.getIfAvailable();
 
@@ -134,7 +135,15 @@ public class LiveActivityService {
         }
         if (exceptionsReport != null) {
             for (ExceptionGroupDto group : exceptionsReport.groups()) {
-                all.add(toExceptionEntry(group, matchExceptionParent(group, anchors)));
+                String parentId = matchExceptionParent(group, anchors);
+                if (parentId == null) {
+                    // No owning HTTP request: fall back to attributing the exception to the background
+                    // @Scheduled execution that produced it (thread + time-window join, the same tiered
+                    // strategy matchSqlParent uses for its second tier), so a scheduled task's failure gets
+                    // the exact same nested-EXCEPTION-entry treatment a request's failure already does.
+                    parentId = matchScheduledTaskParent(group, scheduledAnchors);
+                }
+                all.add(toExceptionEntry(group, parentId));
             }
         }
         Map<String, String> securedByRequest = new HashMap<>();
@@ -405,10 +414,14 @@ public class LiveActivityService {
     }
 
     /**
-     * Maps a captured {@code @Scheduled} execution to a {@code SCHEDULED_TASK} entry. There is no
-     * request to nest it under (it runs on a background thread), so {@code parentId} is always
-     * {@code null}; a run that threw is flagged {@code ERROR}, one slower than the shared request-slow
-     * threshold is flagged {@code SLOW}, otherwise {@code OK}.
+     * Maps a captured {@code @Scheduled} execution to a {@code SCHEDULED_TASK} entry. There is no request
+     * to nest this entry itself under (it runs on a background thread), so its own {@code parentId} is
+     * always {@code null}; a run that threw is flagged {@code ERROR}, one slower than the shared
+     * request-slow threshold is flagged {@code SLOW}, otherwise {@code OK}. A failure is always summarized
+     * inline via {@code detail} (the run recorder observes the exception directly), and — when that same
+     * failure is independently captured into the shared exception log buffer — it additionally nests as a
+     * full {@code EXCEPTION} child entry under this one, exactly like a request's failure does today; see
+     * {@link #matchScheduledTaskParent(ExceptionGroupDto, List)}.
      */
     private ActivityEntryDto toScheduledTaskEntry(ScheduledTaskRunStore.Run run) {
         String severity;
@@ -529,6 +542,32 @@ public class LiveActivityService {
     }
 
     /**
+     * Resolves the {@code @Scheduled} execution an exception group belongs to when no HTTP request already
+     * claimed it: an exact serving-thread + time-window join against the run's execution window, mirroring
+     * {@code matchSqlParent}'s second tier (there is no method/path to join on for a background job, and no
+     * trace id either, since scheduled executions are not distributed-trace participants). Returns
+     * {@code null} when no run's window uniquely covers the exception, so the entry stays top-level rather
+     * than being mis-attributed.
+     */
+    private static String matchScheduledTaskParent(ExceptionGroupDto group, List<ScheduledTaskAnchor> anchors) {
+        String thread = group.lastThread();
+        if (thread == null || anchors.isEmpty()) {
+            return null;
+        }
+        long ts = group.lastSeen();
+        String found = null;
+        for (ScheduledTaskAnchor anchor : anchors) {
+            if (thread.equals(anchor.thread()) && covers(anchor.start(), anchor.end(), ts)) {
+                if (found != null) {
+                    return null;
+                }
+                found = anchor.id();
+            }
+        }
+        return found;
+    }
+
+    /**
      * Resolves the request that a security audit event belongs to using the serving-thread classifier:
      * the event is attributed to a request only when it was emitted on that request's serving thread.
      */
@@ -569,8 +608,16 @@ public class LiveActivityService {
     }
 
     private static boolean covers(RequestAnchor anchor, long timestamp) {
-        return timestamp >= anchor.start() - ActivitySql.WINDOW_SLACK_MS
-                && timestamp <= anchor.end() + ActivitySql.WINDOW_SLACK_MS;
+        return covers(anchor.start(), anchor.end(), timestamp);
+    }
+
+    /**
+     * Whether {@code timestamp} falls within {@code [start, end]}, widened by the shared window-slack
+     * tolerance on both ends. Shared by {@link RequestAnchor} and {@link ScheduledTaskAnchor} matching so
+     * both anchor kinds use the exact same tolerance.
+     */
+    private static boolean covers(long start, long end, long timestamp) {
+        return timestamp >= start - ActivitySql.WINDOW_SLACK_MS && timestamp <= end + ActivitySql.WINDOW_SLACK_MS;
     }
 
     /**
@@ -579,6 +626,27 @@ public class LiveActivityService {
      */
     private record RequestAnchor(
             String id, long start, long end, String thread, String traceId, String method, String path) {}
+
+    /**
+     * Builds one {@link ScheduledTaskAnchor} per captured {@code @Scheduled} execution, so a correlated
+     * exception can be attached to the run that produced it the same way {@link #buildAnchors} lets SQL/
+     * exception/security entries attach to their owning request.
+     */
+    private static List<ScheduledTaskAnchor> buildScheduledTaskAnchors(List<ScheduledTaskRunStore.Run> runs) {
+        List<ScheduledTaskAnchor> anchors = new ArrayList<>(runs.size());
+        for (ScheduledTaskRunStore.Run run : runs) {
+            long start = run.startTimestamp();
+            anchors.add(
+                    new ScheduledTaskAnchor("sched-" + run.sequence(), start, start + run.durationMs(), run.thread()));
+        }
+        return anchors;
+    }
+
+    /**
+     * A captured {@code @Scheduled} execution reduced to what is needed to attach a correlated exception to
+     * it: its {@code SCHEDULED_TASK} entry id, its execution window, and the thread it ran on.
+     */
+    private record ScheduledTaskAnchor(String id, long start, long end, String thread) {}
 
     private ActivityKpiDto computeKpis(
             HttpExchangesReport requests,

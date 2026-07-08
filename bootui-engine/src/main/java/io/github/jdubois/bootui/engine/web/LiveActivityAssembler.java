@@ -56,6 +56,13 @@ public final class LiveActivityAssembler {
     /** Maximum characters of a SQL statement shown inline in a stream summary. */
     private static final int MAX_SQL_SUMMARY = 160;
 
+    /**
+     * Window-slack tolerance (in both directions) when joining an exception to an owning
+     * {@code @Scheduled} execution by serving thread + time window. Matches the Spring adapter's
+     * {@code ActivitySql.WINDOW_SLACK_MS}.
+     */
+    private static final long SCHEDULED_TASK_WINDOW_SLACK_MS = 50L;
+
     private static final String TYPE_REQUEST = "REQUEST";
     private static final String TYPE_SQL = "SQL";
     private static final String TYPE_EXCEPTION = "EXCEPTION";
@@ -160,6 +167,10 @@ public final class LiveActivityAssembler {
         // than one request so an ambiguous (reused) trace never nests a child under the wrong request.
         TraceCorrelationIndex traceIndex = TraceCorrelationIndex.of(exchanges);
 
+        // One anchor per captured scheduled-task execution, used as the exception-correlation fallback
+        // tier below when no HTTP request claims the exception (see matchScheduledTaskParent).
+        List<ScheduledTaskAnchor> scheduledTaskAnchors = buildScheduledTaskAnchors(scheduled);
+
         // Correlate security events to their owning request BEFORE building REQUEST entries (an immutable
         // record can't be patched after construction), so a uniquely-matched event's principal can be
         // stamped onto the request as `securedPrincipal`. Newest-first iteration + putIfAbsent means the
@@ -235,7 +246,15 @@ public final class LiveActivityAssembler {
         }
 
         for (ExceptionGroupDto g : exceptions) {
-            entries.add(toExceptionEntry(g, traceIndex.parentRequestId(g.lastTraceId())));
+            String parentId = traceIndex.parentRequestId(g.lastTraceId());
+            if (parentId == null) {
+                // No owning HTTP request: fall back to attributing the exception to the background
+                // @Scheduled execution that produced it (serving-thread + time-window join — the same
+                // strategy the Spring adapter's matchScheduledTaskParent uses; there is no distributed
+                // trace id to join on for a background job, unlike the REQUEST case above).
+                parentId = matchScheduledTaskParent(g, scheduledTaskAnchors);
+            }
+            entries.add(toExceptionEntry(g, parentId));
         }
 
         for (SecurityLogEventDto event : security) {
@@ -380,10 +399,13 @@ public final class LiveActivityAssembler {
 
     /**
      * Build a {@code SCHEDULED_TASK} entry for a captured {@code @Scheduled} execution, mirroring Spring's
-     * {@code LiveActivityService.toScheduledTaskEntry}: there is no request to nest it under (it runs on a
-     * background thread), so {@code parentId} is always {@code null}; a run that threw is flagged
-     * {@code ERROR}, one slower than the shared request-slow threshold is flagged {@code SLOW}, otherwise
-     * {@code OK}.
+     * {@code LiveActivityService.toScheduledTaskEntry}: there is no request to nest this entry itself under
+     * (it runs on a background thread), so its own {@code parentId} is always {@code null}; a run that
+     * threw is flagged {@code ERROR}, one slower than the shared request-slow threshold is flagged
+     * {@code SLOW}, otherwise {@code OK}. A failure is always summarized inline via {@code detail} (the run
+     * recorder observes the exception directly), and — when that same failure is independently captured
+     * into the shared exception log buffer — it additionally nests as a full {@code EXCEPTION} child entry
+     * under this one, exactly like a request's failure does today; see {@link #matchScheduledTaskParent}.
      */
     private ActivityEntryDto toScheduledTaskEntry(ScheduledTaskRunStore.Run run) {
         String severity;
@@ -416,6 +438,57 @@ public final class LiveActivityAssembler {
 
     private static String messageSuffix(String message) {
         return message == null || message.isBlank() ? "" : ": " + message;
+    }
+
+    /**
+     * Resolves the {@code @Scheduled} execution an exception group belongs to when no HTTP request already
+     * claimed it (by trace id): an exact serving-thread + time-window join against the run's execution
+     * window, mirroring the Spring adapter's {@code LiveActivityService.matchScheduledTaskParent} (there is
+     * no method/path to join on for a background job, and no trace id either, since scheduled executions
+     * are not distributed-trace participants). Returns {@code null} when no run's window uniquely covers
+     * the exception, so the entry stays top-level rather than being mis-attributed.
+     */
+    private static String matchScheduledTaskParent(ExceptionGroupDto group, List<ScheduledTaskAnchor> anchors) {
+        String thread = group.lastThread();
+        if (thread == null || anchors.isEmpty()) {
+            return null;
+        }
+        long ts = group.lastSeen();
+        String found = null;
+        for (ScheduledTaskAnchor anchor : anchors) {
+            if (thread.equals(anchor.thread()) && anchor.covers(ts)) {
+                if (found != null) {
+                    return null;
+                }
+                found = anchor.id();
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Builds one {@link ScheduledTaskAnchor} per captured {@code @Scheduled} execution, so a correlated
+     * exception can be attached to the run that produced it via {@link #matchScheduledTaskParent}.
+     */
+    private static List<ScheduledTaskAnchor> buildScheduledTaskAnchors(List<ScheduledTaskRunStore.Run> runs) {
+        List<ScheduledTaskAnchor> anchors = new ArrayList<>(runs.size());
+        for (ScheduledTaskRunStore.Run run : runs) {
+            long start = run.startTimestamp();
+            anchors.add(
+                    new ScheduledTaskAnchor("sched-" + run.sequence(), start, start + run.durationMs(), run.thread()));
+        }
+        return anchors;
+    }
+
+    /**
+     * A captured {@code @Scheduled} execution reduced to what is needed to attach a correlated exception to
+     * it: its {@code SCHEDULED_TASK} entry id, its execution window, and the thread it ran on.
+     */
+    private record ScheduledTaskAnchor(String id, long start, long end, String thread) {
+        boolean covers(long timestamp) {
+            return timestamp >= start - SCHEDULED_TASK_WINDOW_SLACK_MS
+                    && timestamp <= end + SCHEDULED_TASK_WINDOW_SLACK_MS;
+        }
     }
 
     private static String blankToNull(String value) {

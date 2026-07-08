@@ -175,8 +175,12 @@ Scope — new event types, roughly in priority order:
   programmatically registered job (no method description) is not captured, matching the Spring adapter's method-only
   scope. The observer is gated on the `SCHEDULER` capability (R2: `quarkus-scheduler` is `provided`-scope, excluded from
   bean discovery when the capability or a non-production launch mode is absent), matching the existing
-  `QuarkusSecurityEventCapture` pattern. No request parent (background thread), but a correlated exception is surfaced as
-  `detail` the same way `REQUEST` failures are today. The KPI strip's "Scheduled failures" tile and the
+  `QuarkusSecurityEventCapture` pattern. No request parent (background thread); a correlated exception is both
+  summarized inline via `detail` (the run recorder observes the failure directly) and — when that same failure is
+  independently captured into the shared exception log buffer — nested as a full `EXCEPTION` child entry the same way
+  `REQUEST` does today, via a serving-thread + time-window join against the run's execution window (the same tiered
+  strategy the SQL/exception profiler already uses, minus the trace-id tier: a background job is not a distributed-trace
+  participant). The KPI strip's "Scheduled failures" tile and the
   `REQUEST`/`SQL`/`EXCEPTION` deep-link pattern (into `/scheduled`, prefilling its filter with the runnable name) both
   ship on both adapters.
 - **Cache operations.** The Cache panel shows topology and aggregate hit/miss counters only; a lightweight, sampled

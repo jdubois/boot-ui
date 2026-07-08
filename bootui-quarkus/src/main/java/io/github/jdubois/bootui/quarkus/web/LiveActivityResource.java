@@ -334,7 +334,28 @@ public class LiveActivityResource {
     @Path("/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
     public Multi<OutboundSseEvent> stream(@Context Sse sse) {
-        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, buffer::subscribe);
+        return SseStreams.updates(
+                sse,
+                openStreams,
+                MAX_CONCURRENT_STREAMS,
+                combined(buffer::subscribe, scheduledTaskRunStore::subscribe));
+    }
+
+    /**
+     * Combines two {@link SseStreams.ChangeSource}s into one that notifies {@code onChange} when either
+     * fires, so the merged Live Activity stream ticks on a new HTTP exchange <em>or</em> a new captured
+     * {@code @Scheduled} execution — mirroring the Spring adapter, whose single {@code BootUiChangeStream}
+     * already fans in every signal source (including {@link ScheduledTaskRunStore}) to the same effect.
+     */
+    private static SseStreams.ChangeSource combined(SseStreams.ChangeSource first, SseStreams.ChangeSource second) {
+        return onChange -> {
+            Runnable unsubscribeFirst = first.subscribe(onChange);
+            Runnable unsubscribeSecond = second.subscribe(onChange);
+            return () -> {
+                unsubscribeFirst.run();
+                unsubscribeSecond.run();
+            };
+        };
     }
 
     private HttpExchangesReport requestsReport() {

@@ -21,7 +21,9 @@ import org.junit.jupiter.api.Test;
  * the owning REQUEST entry by setting their {@code parentId} (a uniquely-matched security event additionally
  * stamps {@code securedPrincipal} on that request); when no shared trace id is present the feed stays flat;
  * and an ambiguous trace id shared by more than one request never nests a child under the wrong one nor
- * stamps a principal.
+ * stamps a principal. Also verifies the {@code SCHEDULED_TASK} fallback tier: an exception with no matching
+ * request trace id nests under a captured {@code @Scheduled} execution instead, via a serving-thread +
+ * time-window join, but only when the request/trace-id tier does not already claim it.
  */
 class LiveActivityAssemblerTests {
 
@@ -223,6 +225,48 @@ class LiveActivityAssemblerTests {
     }
 
     @Test
+    void nestsExceptionUnderScheduledTaskByThreadAndWindowWhenNoRequestClaimsIt() {
+        HttpExchangesReport requests = requests();
+        List<ScheduledTaskRunStore.Run> scheduled = List.of(
+                new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 30L, false, null, null, "worker-9"));
+        List<ExceptionGroupDto> exceptions = List.of(scheduledException("e1", "worker-9", 1_010L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions, List.of(), false, scheduled, "UP", 0);
+
+        assertThat(entry(report, "exc-e1").parentId()).isEqualTo("sched-1");
+    }
+
+    @Test
+    void leavesExceptionTopLevelWhenScheduledTaskThreadDoesNotMatch() {
+        HttpExchangesReport requests = requests();
+        List<ScheduledTaskRunStore.Run> scheduled = List.of(
+                new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 30L, false, null, null, "worker-9"));
+        List<ExceptionGroupDto> exceptions = List.of(scheduledException("e1", "other-worker", 1_010L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions, List.of(), false, scheduled, "UP", 0);
+
+        assertThat(entry(report, "exc-e1").parentId()).isNull();
+    }
+
+    @Test
+    void prefersRequestTraceIdOverScheduledTaskThreadWhenBothCouldMatch() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<ScheduledTaskRunStore.Run> scheduled = List.of(
+                new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 30L, false, null, null, "worker-1"));
+        // Shares both a matching trace id (via the request) and a matching thread/window (via the
+        // scheduled run) — the request/trace-id tier must win, exactly like the Spring adapter's
+        // matchExceptionParent-before-matchScheduledTaskParent ordering.
+        List<ExceptionGroupDto> exceptions = List.of(exception("e1", "trace-a", 1_010L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions, List.of(), false, scheduled, "UP", 0);
+
+        assertThat(entry(report, "exc-e1").parentId()).isEqualTo("req-1");
+    }
+
+    @Test
     void rendersScheduledTaskRunsAsFlatEntriesAndCountsFailuresInKpis() {
         HttpExchangesReport requests = requests();
         List<ScheduledTaskRunStore.Run> scheduled = List.of(
@@ -362,6 +406,32 @@ class LiveActivityAssemblerTests {
                 "Handler#x",
                 "web",
                 lastTraceId,
+                "OPEN",
+                0);
+    }
+
+    /**
+     * An exception group with no trace id and no correlated HTTP method/path (matching the shape a
+     * background {@code @Scheduled} failure's captured exception actually has), so the trace-id tier
+     * always yields {@code null} and {@code matchScheduledTaskParent} is the only tier that can attach it
+     * to a parent.
+     */
+    private static ExceptionGroupDto scheduledException(String id, String thread, long lastSeen) {
+        return new ExceptionGroupDto(
+                id,
+                "java.lang.RuntimeException",
+                "boom",
+                1,
+                lastSeen,
+                lastSeen,
+                "Foo.java:1",
+                true,
+                thread,
+                null,
+                null,
+                null,
+                null,
+                null,
                 "OPEN",
                 0);
     }

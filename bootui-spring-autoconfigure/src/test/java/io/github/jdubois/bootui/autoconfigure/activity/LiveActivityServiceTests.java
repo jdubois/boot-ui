@@ -265,6 +265,48 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void nestsExceptionUnderScheduledTaskByThreadAndWindow() {
+        LiveActivityService service = service(
+                null,
+                null,
+                exceptions(scheduledExceptionGroup(
+                        "e1",
+                        "java.lang.RuntimeException",
+                        BASE.plusMillis(1010).toEpochMilli(),
+                        "scheduler-1")),
+                null,
+                null,
+                null,
+                null,
+                scheduledStore(
+                        scheduledRun("MyJob#run", BASE.plusMillis(1000).toEpochMilli(), 30L, false, "scheduler-1")),
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "exc-e1")).isEqualTo("sched-1");
+    }
+
+    @Test
+    void leavesExceptionTopLevelWhenScheduledTaskThreadDoesNotMatch() {
+        LiveActivityService service = service(
+                null,
+                null,
+                exceptions(scheduledExceptionGroup(
+                        "e1",
+                        "java.lang.RuntimeException",
+                        BASE.plusMillis(1010).toEpochMilli(),
+                        "other-thread")),
+                null,
+                null,
+                null,
+                null,
+                scheduledStore(
+                        scheduledRun("MyJob#run", BASE.plusMillis(1000).toEpochMilli(), 30L, false, "scheduler-1")),
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "exc-e1")).isNull();
+    }
+
+    @Test
     void leavesUncorrelatedSignalsTopLevel() {
         LiveActivityService service = service(
                 requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
@@ -532,5 +574,62 @@ class LiveActivityServiceTests {
                 null,
                 "OPEN",
                 0);
+    }
+
+    /**
+     * An exception group with no correlated HTTP request (no method/path, matching the shape a
+     * background {@code @Scheduled} failure's captured exception actually has), so {@code
+     * matchExceptionParent} always yields {@code null} and {@code matchScheduledTaskParent} is the only
+     * tier that can attach it to a parent.
+     */
+    private static ExceptionGroupDto scheduledExceptionGroup(
+            String id, String className, long lastSeen, String thread) {
+        return new ExceptionGroupDto(
+                id,
+                className,
+                "boom",
+                1,
+                lastSeen,
+                lastSeen,
+                "Foo.java:1",
+                true,
+                thread,
+                null,
+                null,
+                "h",
+                "s",
+                null,
+                "OPEN",
+                0);
+    }
+
+    private static io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledStore(
+            io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run... runs) {
+        io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore store =
+                new io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore(100);
+        for (io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run run : runs) {
+            store.record(
+                    run.runnable(),
+                    run.startTimestamp(),
+                    run.durationMs(),
+                    run.success(),
+                    run.exceptionClassName(),
+                    run.message(),
+                    run.thread());
+        }
+        return store;
+    }
+
+    private static io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run scheduledRun(
+            String runnable, long startTimestamp, long durationMs, boolean success, String thread) {
+        return new io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run(
+                0,
+                runnable,
+                startTimestamp,
+                durationMs,
+                success,
+                success ? null : "java.lang.RuntimeException",
+                success ? null : "boom",
+                thread);
     }
 }
