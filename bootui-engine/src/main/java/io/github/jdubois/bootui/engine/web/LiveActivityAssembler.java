@@ -8,6 +8,8 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
+import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.lang.management.ManagementFactory;
@@ -24,9 +26,9 @@ import java.util.Map;
 /**
  * Framework-neutral assembly of the Live Activity merged stream + KPI summary from already-masked source
  * reports. The Spring adapter has its own richer, controller-fed service (with per-request signal
- * correlation and thread attribution); the Quarkus adapter feeds this assembler the four signal sources it
- * captures — HTTP requests, SQL trace, exceptions, and security/audit events — which are merged into one
- * reverse-chronological feed with JVM heap and per-type KPIs.
+ * correlation and thread attribution); the Quarkus adapter feeds this assembler the signal sources it
+ * captures — HTTP requests, SQL trace, exceptions, security/audit events, and captured {@code @Scheduled}
+ * task executions — which are merged into one reverse-chronological feed with JVM heap and per-type KPIs.
  *
  * <p>Inputs are already masked and self-filtered by their owning engine services before they reach this
  * shape, so the assembler only normalizes, severities, merges, correlates and caps.</p>
@@ -48,6 +50,27 @@ import java.util.Map;
  * {@link RequestProfileAssembler} uses to serve the reduced, trace-id-only per-request profile drill-down at
  * {@code GET /bootui/api/activity/request/{id}} on Quarkus (Spring's fuller, thread/time-window-heuristic
  * profiler stays out of scope for that port).</p>
+ *
+ * <p><strong>Cache access (the {@code CACHE} entry type / {@code cacheHitRatioPercent} KPI) is
+ * trace-id-correlated too</strong>, same as SQL/exceptions/security: the Spring WebFlux adapter feeds
+ * {@link CacheActivityEvent}s captured by the shared engine {@code CacheActivityRecorder} (fed in turn by
+ * decorating {@code CacheManager}/{@code Cache} beans — the same recorder the Spring servlet adapter's own
+ * richer {@code LiveActivityService} uses). Quarkus has no comparable capture seam yet (see
+ * {@code docs/PLAN.md} §3.4): {@code quarkus-cache}'s build-time-woven {@code @CacheResult}/
+ * {@code @CacheInvalidate} interceptors cast their resolved {@code Cache} to an internal, non-public type,
+ * so a Spring-style decorator over the public {@code Cache} interface is not a viable interception seam
+ * there. The Quarkus adapter therefore always passes {@code cacheAvailable=false}, and
+ * {@code cacheHitRatioPercent} renders {@code null} on that adapter, exactly as before.</p>
+ *
+ * <p><strong>Scheduled-task executions ({@code SCHEDULED_TASK} entries) do not correlate on trace id at
+ * all</strong>, unlike every other signal above: a background {@code @Scheduled} job runs on its own thread
+ * outside any HTTP request or distributed trace, so it never has a request to nest under (its own
+ * {@code parentId} is always {@code null}). Instead, the relationship runs the other way — a captured
+ * exception that no HTTP request claims by trace id falls back to a serving-thread + time-window join
+ * against the {@code @Scheduled} execution that produced it ({@link #matchScheduledTaskParent}, mirroring
+ * the Spring adapter's {@code LiveActivityService.matchScheduledTaskParent}), nesting as that run's
+ * {@code EXCEPTION} child. {@code scheduledTaskFailureCount} counts failed runs currently retained
+ * regardless of correlation.</p>
  */
 public final class LiveActivityAssembler {
 
@@ -67,6 +90,7 @@ public final class LiveActivityAssembler {
     private static final String TYPE_SQL = "SQL";
     private static final String TYPE_EXCEPTION = "EXCEPTION";
     private static final String TYPE_SECURITY = "SECURITY";
+    private static final String TYPE_CACHE = "CACHE";
     private static final String TYPE_SCHEDULED_TASK = "SCHEDULED_TASK";
 
     private static final String SEVERITY_OK = "OK";
@@ -75,9 +99,7 @@ public final class LiveActivityAssembler {
     private static final String SEVERITY_ERROR = "ERROR";
 
     /**
-     * Builds the report by merging the captured signals. Delegates to the overload below with an
-     * empty {@code scheduledRuns} list — i.e. no {@code SCHEDULED_TASK} entries — for adapters/tests that do
-     * not capture scheduled-task executions.
+     * Builds the report by merging the captured signals.
      *
      * @param requests already-masked HTTP exchanges (newest-first), or {@code null}
      * @param sqlEntries already-masked SQL trace executions (newest-first), or {@code null}; ignored unless
@@ -90,6 +112,15 @@ public final class LiveActivityAssembler {
      *     unless {@code securityAvailable}
      * @param securityAvailable whether the security-event source is present and feeding (Quarkus's security
      *     capability is present and {@code quarkus.security.events.enabled=true})
+     * @param cacheEvents captured cache accesses (hit/miss/put/evict/clear, newest-first), or {@code null};
+     *     ignored unless {@code cacheAvailable}
+     * @param cacheAvailable whether the cache-access source is present and feeding (Spring WebFlux with
+     *     {@code bootui.cache.activity-capture-enabled}; always {@code false} on Quarkus today)
+     * @param scheduledRuns captured {@code @Scheduled} task executions (newest-first), or {@code null}.
+     *     There is no request to nest a scheduled-task entry under (it runs on a background thread, not the
+     *     event loop), so its {@code parentId} is always {@code null}; a correlated exception falls back to
+     *     attaching to the scheduled-task run that produced it (see {@link #matchScheduledTaskParent}) when
+     *     no HTTP request claims it.
      * @param healthStatus current health status, or {@code null}
      * @param limit maximum merged entries to return, or {@code 0}/negative for no cap
      */
@@ -101,51 +132,8 @@ public final class LiveActivityAssembler {
             List<ExceptionGroupDto> exceptionGroups,
             List<SecurityLogEventDto> securityEvents,
             boolean securityAvailable,
-            String healthStatus,
-            int limit) {
-        return report(
-                requests,
-                sqlEntries,
-                sqlAvailable,
-                sqlUnavailableWarning,
-                exceptionGroups,
-                securityEvents,
-                securityAvailable,
-                List.of(),
-                healthStatus,
-                limit);
-    }
-
-    /**
-     * Builds the report by merging the captured signals, including captured {@code @Scheduled} task
-     * executions (see {@link ScheduledTaskRunStore}) as {@code SCHEDULED_TASK} entries — the Quarkus
-     * analogue of Spring's {@code LiveActivityService.toScheduledTaskEntry}. There is no request to nest a
-     * scheduled-task entry under (it runs on a background thread, not the event loop), so its
-     * {@code parentId} is always {@code null}.
-     *
-     * @param requests already-masked HTTP exchanges (newest-first), or {@code null}
-     * @param sqlEntries already-masked SQL trace executions (newest-first), or {@code null}; ignored unless
-     *     {@code sqlAvailable}
-     * @param sqlAvailable whether the SQL trace source is present and feeding (a datasource is configured)
-     * @param sqlUnavailableWarning adapter-supplied explanation surfaced when {@code !sqlAvailable} (e.g. no
-     *     datasource configured vs tracing intentionally disabled), or {@code null}/blank to surface none
-     * @param exceptionGroups captured exception groups (newest-first), or {@code null}
-     * @param securityEvents already-masked security/audit events (newest-first), or {@code null}; ignored
-     *     unless {@code securityAvailable}
-     * @param securityAvailable whether the security-event source is present and feeding (Quarkus's security
-     *     capability is present and {@code quarkus.security.events.enabled=true})
-     * @param scheduledRuns captured {@code @Scheduled} task executions (newest-first), or {@code null}
-     * @param healthStatus current health status, or {@code null}
-     * @param limit maximum merged entries to return, or {@code 0}/negative for no cap
-     */
-    public LiveActivityReport report(
-            HttpExchangesReport requests,
-            List<SqlTraceEntryDto> sqlEntries,
-            boolean sqlAvailable,
-            String sqlUnavailableWarning,
-            List<ExceptionGroupDto> exceptionGroups,
-            List<SecurityLogEventDto> securityEvents,
-            boolean securityAvailable,
+            List<CacheActivityEvent> cacheEvents,
+            boolean cacheAvailable,
             List<ScheduledTaskRunStore.Run> scheduledRuns,
             String healthStatus,
             int limit) {
@@ -153,6 +141,7 @@ public final class LiveActivityAssembler {
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
         List<ExceptionGroupDto> exceptions = exceptionGroups == null ? List.of() : exceptionGroups;
+        List<CacheActivityEvent> cache = !cacheAvailable || cacheEvents == null ? List.of() : cacheEvents;
         List<ScheduledTaskRunStore.Run> scheduled = scheduledRuns == null ? List.of() : scheduledRuns;
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
 
@@ -261,6 +250,10 @@ public final class LiveActivityAssembler {
             entries.add(toSecurityEntry(event, traceIndex.parentRequestId(event.traceId())));
         }
 
+        for (CacheActivityEvent event : cache) {
+            entries.add(toCacheEntry(event, traceIndex.parentRequestId(event.traceId())));
+        }
+
         for (ScheduledTaskRunStore.Run run : scheduled) {
             entries.add(toScheduledTaskEntry(run));
         }
@@ -285,6 +278,9 @@ public final class LiveActivityAssembler {
         if (securityAvailable) {
             sources.add("security");
         }
+        if (cacheAvailable) {
+            sources.add("cache");
+        }
         if (!scheduled.isEmpty()) {
             sources.add("scheduled-tasks");
         }
@@ -293,6 +289,23 @@ public final class LiveActivityAssembler {
         if (!sqlAvailable && sqlUnavailableWarning != null && !sqlUnavailableWarning.isBlank()) {
             warnings.add(sqlUnavailableWarning);
         }
+
+        Double cacheHitRatioPercent = null;
+        if (cacheAvailable && !cache.isEmpty()) {
+            long hits = cache.stream()
+                    .filter(e -> e.operation() == CacheActivityOperation.HIT)
+                    .count();
+            long misses = cache.stream()
+                    .filter(e -> e.operation() == CacheActivityOperation.MISS)
+                    .count();
+            long reads = hits + misses;
+            if (reads > 0) {
+                cacheHitRatioPercent = round(100.0 * hits / reads);
+            }
+        }
+
+        int scheduledTaskFailureCount =
+                (int) scheduled.stream().filter(run -> !run.success()).count();
 
         ActivityKpiDto kpis = new ActivityKpiDto(
                 0d,
@@ -307,8 +320,39 @@ public final class LiveActivityAssembler {
                 healthStatus,
                 heapUsed(),
                 heapMax(),
-                (int) scheduled.stream().filter(run -> !run.success()).count());
+                cacheHitRatioPercent,
+                scheduledTaskFailureCount);
         return new LiveActivityReport(true, entries, typeCounts, kpis, sources, warnings);
+    }
+
+    /**
+     * Build a {@code CACHE} entry for a captured cache access. Mirrors the Spring servlet
+     * {@code LiveActivityService.toCacheEntry} mapping: a {@code MISS} is a {@code WARN} (worth a glance),
+     * every other operation ({@code HIT}/{@code PUT}/{@code EVICT}/{@code CLEAR}) is {@code OK}. Only a
+     * short key hash is ever surfaced as {@code detail} (never the raw key), and a whole-cache
+     * {@code CLEAR} carries no key at all.
+     */
+    private ActivityEntryDto toCacheEntry(CacheActivityEvent event, String parentId) {
+        String severity = event.operation() == CacheActivityOperation.MISS ? SEVERITY_WARN : SEVERITY_OK;
+        String summary = event.operation().name() + " " + event.cacheName();
+        String detail = event.keyHash() == null ? null : "key " + event.keyHash();
+        return new ActivityEntryDto(
+                "cache-" + event.seq(),
+                TYPE_CACHE,
+                event.timestampMillis(),
+                severity,
+                summary,
+                detail,
+                null,
+                event.traceId(),
+                null,
+                null,
+                null,
+                event.thread(),
+                false,
+                parentId,
+                null,
+                false);
     }
 
     private ActivityEntryDto toSqlEntry(SqlTraceEntryDto entry, String parentId) {
@@ -547,6 +591,10 @@ public final class LiveActivityAssembler {
             return "";
         }
         return value.length() <= MAX_SQL_SUMMARY ? value : value.substring(0, MAX_SQL_SUMMARY) + "…";
+    }
+
+    private static double round(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
     private Long percentile(List<Long> values, int p) {

@@ -34,6 +34,7 @@ import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -712,7 +713,8 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<SqlTraceRecorder> sqlTraceRecorders,
                 ObjectProvider<HttpExchangesController> httpExchangesControllers,
                 ObjectProvider<ReactiveBootUiExceptionHandler> exceptionHandlers,
-                ObjectProvider<ReactiveSecurityLogsController> securityLogsControllers) {
+                ObjectProvider<ReactiveSecurityLogsController> securityLogsControllers,
+                ObjectProvider<CacheActivityRecorder> cacheActivityRecorders) {
             return () -> {
                 sqlTraceRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
                 httpExchangesControllers.ifAvailable(
@@ -722,6 +724,7 @@ public class BootUiReactiveAutoConfiguration {
                     controller.setTraceIdProvider(traceIdProvider);
                     controller.setTraceRegistry(securityEventTraceRegistry);
                 });
+                cacheActivityRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
             };
         }
     }

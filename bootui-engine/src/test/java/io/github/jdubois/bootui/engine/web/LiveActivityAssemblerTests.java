@@ -10,6 +10,8 @@ import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
+import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import java.time.Instant;
 import java.util.List;
@@ -35,7 +37,8 @@ class LiveActivityAssemblerTests {
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", "trace-a", 1_010L));
         List<ExceptionGroupDto> exceptions = List.of(exception("g-1", "trace-a", 1_020L));
 
-        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions, List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, sql, true, null, exceptions, List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         ActivityEntryDto request = entry(report, "req-1");
         ActivityEntryDto sqlEntry = entry(report, "sql-10");
@@ -55,7 +58,8 @@ class LiveActivityAssemblerTests {
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", null, 1_010L));
         List<ExceptionGroupDto> exceptions = List.of(exception("g-1", null, 1_020L));
 
-        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions, List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, sql, true, null, exceptions, List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
         assertThat(entry(report, "exc-g-1").parentId()).isNull();
@@ -67,7 +71,8 @@ class LiveActivityAssemblerTests {
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", "trace-orphan", 1_010L));
         List<ExceptionGroupDto> exceptions = List.of(exception("g-1", "trace-orphan", 1_020L));
 
-        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions, List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, sql, true, null, exceptions, List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
         assertThat(entry(report, "exc-g-1").parentId()).isNull();
@@ -79,8 +84,8 @@ class LiveActivityAssemblerTests {
                 request("req-1", "/orders", "trace-a", 1_000L), request("req-2", "/orders", "trace-a", 2_000L));
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", "trace-a", 1_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, sql, true, null, exceptions(), List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
     }
@@ -92,8 +97,8 @@ class LiveActivityAssemblerTests {
         List<SqlTraceEntryDto> sql =
                 List.of(sql(10, "select 1", "trace-a", 1_010L), sql(11, "select 2", "trace-b", 2_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, sql, true, null, exceptions(), List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         assertThat(entry(report, "sql-10").parentId()).isEqualTo("req-1");
         assertThat(entry(report, "sql-11").parentId()).isEqualTo("req-2");
@@ -104,8 +109,8 @@ class LiveActivityAssemblerTests {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
         List<SecurityLogEventDto> security = List.of(security("alice", "AUTHENTICATION_SUCCESS", "trace-a", 1_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), security, true, List.of(), false, List.of(), "UP", 0);
 
         ActivityEntryDto securityEntry = securityEntry(report);
         assertThat(securityEntry.type()).isEqualTo("SECURITY");
@@ -122,8 +127,8 @@ class LiveActivityAssemblerTests {
         HttpExchangesReport requests = requests(request("req-1", "/login", "trace-a", 1_000L));
         List<SecurityLogEventDto> security = List.of(security("bob", "AUTHENTICATION_FAILURE", "trace-a", 1_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), security, true, List.of(), false, List.of(), "UP", 0);
 
         assertThat(securityEntry(report).severity()).isEqualTo("WARN");
     }
@@ -134,8 +139,8 @@ class LiveActivityAssemblerTests {
                 requests(request("req-1", "/orders", "trace-a", 1_000L), request("req-2", "/items", "trace-a", 2_000L));
         List<SecurityLogEventDto> security = List.of(security("alice", "AUTHENTICATION_SUCCESS", "trace-a", 1_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), security, true, List.of(), false, List.of(), "UP", 0);
 
         assertThat(securityEntry(report).parentId()).isNull();
         assertThat(entry(report, "req-1").securedPrincipal()).isNull();
@@ -147,8 +152,8 @@ class LiveActivityAssemblerTests {
         HttpExchangesReport requests = requests(request("req-1", "/orders", null, 1_000L));
         List<SecurityLogEventDto> security = List.of(security("alice", "AUTHENTICATION_SUCCESS", null, 1_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), security, true, List.of(), false, List.of(), "UP", 0);
 
         ActivityEntryDto securityEntry = securityEntry(report);
         assertThat(securityEntry.parentId()).isNull();
@@ -161,8 +166,8 @@ class LiveActivityAssemblerTests {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", "bob", 1_000L));
         List<SecurityLogEventDto> security = List.of(security("alice", "AUTHENTICATION_SUCCESS", "trace-a", 1_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), security, true, List.of(), false, List.of(), "UP", 0);
 
         assertThat(entry(report, "req-1").securedPrincipal()).isEqualTo("bob");
     }
@@ -171,10 +176,66 @@ class LiveActivityAssemblerTests {
     void omitsSecuritySourceWhenUnavailable() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions(), List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         assertThat(report.sources()).doesNotContain("security");
+    }
+
+    @Test
+    void nestsCacheEntryUnderRequestSharingTraceIdAndComputesHitRatio() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<CacheActivityEvent> cache = List.of(
+                cache(1, CacheActivityOperation.HIT, "trace-a", 1_010L),
+                cache(2, CacheActivityOperation.MISS, "trace-a", 1_020L),
+                cache(3, CacheActivityOperation.HIT, "trace-a", 1_030L));
+
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, cache, true, List.of(), "UP", 0);
+
+        ActivityEntryDto hit = entry(report, "cache-1");
+        assertThat(hit.type()).isEqualTo("CACHE");
+        assertThat(hit.severity()).isEqualTo("OK");
+        assertThat(hit.parentId()).isEqualTo("req-1");
+        assertThat(hit.correlationId()).isEqualTo("trace-a");
+
+        ActivityEntryDto miss = entry(report, "cache-2");
+        assertThat(miss.severity()).isEqualTo("WARN");
+
+        assertThat(report.sources()).contains("cache");
+        assertThat(report.kpis().cacheHitRatioPercent()).isEqualTo(66.67);
+    }
+
+    @Test
+    void leavesCacheHitRatioNullWhenCacheUnavailable() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<CacheActivityEvent> cache = List.of(cache(1, CacheActivityOperation.HIT, "trace-a", 1_010L));
+
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, cache, false, List.of(), "UP", 0);
+
+        assertThat(report.kpis().cacheHitRatioPercent()).isNull();
+        assertThat(report.sources()).doesNotContain("cache");
+        assertThat(report.entries().stream().noneMatch(e -> "CACHE".equals(e.type())))
+                .isTrue();
+    }
+
+    @Test
+    void typeCountsReflectTheFullFeedEvenWhenTheLimitTruncatesVisibleCacheEntries() {
+        HttpExchangesReport requests = requests(
+                request("req-1", "/orders", "trace-a", 1_000L),
+                request("req-2", "/orders", "trace-b", 1_001L),
+                request("req-3", "/orders", "trace-c", 1_002L));
+        List<CacheActivityEvent> cache = List.of(cache(1, CacheActivityOperation.HIT, null, 1_003L));
+
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, cache, true, List.of(), "UP", 2);
+
+        // Only 2 entries are returned (limit=2), but the counts must reflect all 4 captured entries so the
+        // dashboard's per-type totals never understate what was actually captured.
+        assertThat(report.entries()).hasSize(2);
+        assertThat(report.typeCounts().get("REQUEST")).isEqualTo(3);
+        assertThat(report.typeCounts().get("CACHE")).isEqualTo(1);
     }
 
     @Test
@@ -187,8 +248,8 @@ class LiveActivityAssemblerTests {
                 sql(4, "select * from item where order_id = ?", "trace-a", 1_004L),
                 sql(5, "select * from item where order_id = ?", "trace-a", 1_005L));
 
-        LiveActivityReport report =
-                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, sql, true, null, exceptions(), List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         assertThat(entry(report, "req-1").sqlNPlusOneSuspected()).isTrue();
     }
@@ -202,8 +263,8 @@ class LiveActivityAssemblerTests {
                 sql(3, "select * from item where order_id = ?", "trace-a", 1_003L),
                 sql(4, "select * from item where order_id = ?", "trace-a", 1_004L));
 
-        LiveActivityReport report =
-                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, sql, true, null, exceptions(), List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         assertThat(entry(report, "req-1").sqlNPlusOneSuspected()).isFalse();
     }
@@ -218,8 +279,8 @@ class LiveActivityAssemblerTests {
                 sql(4, "select * from item where order_id = ?", "trace-a", 1_004L),
                 sql(5, "select * from item where order_id = ?", "trace-a", 1_005L));
 
-        LiveActivityReport report =
-                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, sql, true, null, exceptions(), List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         assertThat(entry(report, "sql-1").sqlNPlusOneSuspected()).isFalse();
     }
@@ -231,8 +292,8 @@ class LiveActivityAssemblerTests {
                 new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 30L, false, null, null, "worker-9"));
         List<ExceptionGroupDto> exceptions = List.of(scheduledException("e1", "worker-9", 1_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions, List.of(), false, scheduled, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions, List.of(), false, List.of(), false, scheduled, "UP", 0);
 
         assertThat(entry(report, "exc-e1").parentId()).isEqualTo("sched-1");
     }
@@ -244,8 +305,8 @@ class LiveActivityAssemblerTests {
                 new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 30L, false, null, null, "worker-9"));
         List<ExceptionGroupDto> exceptions = List.of(scheduledException("e1", "other-worker", 1_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions, List.of(), false, scheduled, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions, List.of(), false, List.of(), false, scheduled, "UP", 0);
 
         assertThat(entry(report, "exc-e1").parentId()).isNull();
     }
@@ -260,8 +321,8 @@ class LiveActivityAssemblerTests {
         // matchExceptionParent-before-matchScheduledTaskParent ordering.
         List<ExceptionGroupDto> exceptions = List.of(exception("e1", "trace-a", 1_010L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions, List.of(), false, scheduled, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions, List.of(), false, List.of(), false, scheduled, "UP", 0);
 
         assertThat(entry(report, "exc-e1").parentId()).isEqualTo("req-1");
     }
@@ -281,8 +342,8 @@ class LiveActivityAssemblerTests {
                         "boom",
                         "worker-1"));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions(), List.of(), false, scheduled, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, List.of(), false, scheduled, "UP", 0);
 
         ActivityEntryDto ok = entry(report, "sched-1");
         assertThat(ok.type()).isEqualTo("SCHEDULED_TASK");
@@ -302,15 +363,15 @@ class LiveActivityAssemblerTests {
     void omitsScheduledTasksSourceWhenNoRunsAreCaptured() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions(), List.of(), false, "UP", 0);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, List.of(), false, List.of(), "UP", 0);
 
         assertThat(report.sources()).doesNotContain("scheduled-tasks");
         assertThat(report.kpis().scheduledTaskFailureCount()).isZero();
     }
 
     @Test
-    void typeCountsReflectTheFullFeedEvenWhenTheLimitTruncatesVisibleEntries() {
+    void typeCountsReflectTheFullFeedEvenWhenTheLimitTruncatesVisibleScheduledTaskEntries() {
         HttpExchangesReport requests = requests(
                 request("req-1", "/orders/1", "trace-a", 4_000L),
                 request("req-2", "/orders/2", "trace-b", 3_000L),
@@ -318,8 +379,8 @@ class LiveActivityAssemblerTests {
         List<ScheduledTaskRunStore.Run> scheduled = List.of(
                 new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 10L, true, null, null, "worker-1"));
 
-        LiveActivityReport report =
-                assembler.report(requests, List.of(), false, null, exceptions(), List.of(), false, scheduled, "UP", 2);
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, List.of(), false, scheduled, "UP", 2);
 
         assertThat(report.entries()).hasSize(2);
         assertThat(report.typeCounts()).containsEntry("REQUEST", 3).containsEntry("SCHEDULED_TASK", 1);
@@ -376,6 +437,12 @@ class LiveActivityAssemblerTests {
     private static SecurityLogEventDto security(String principal, String type, String traceId, long epochMillis) {
         return new SecurityLogEventDto(
                 Instant.ofEpochMilli(epochMillis).toString(), principal, type, List.of(), traceId);
+    }
+
+    private static CacheActivityEvent cache(
+            long seq, CacheActivityOperation operation, String traceId, long epochMillis) {
+        return new CacheActivityEvent(
+                seq, epochMillis, "cacheManager", "orders", operation, "hash" + seq, traceId, "worker-1");
     }
 
     private static SqlTraceEntryDto sql(long id, String sql, String traceId, long epochMillis) {

@@ -26,6 +26,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
@@ -274,6 +275,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(CacheActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -312,6 +314,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(CacheActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -348,6 +351,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(CacheActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -373,6 +377,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(CacheActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -398,6 +403,7 @@ class ReactiveLiveActivityControllerTests {
                 provider(securityLogs),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(CacheActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -422,6 +428,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 provider(health),
+                empty(CacheActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -447,6 +454,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(CacheActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -479,6 +487,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
+                empty(CacheActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -510,6 +519,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
+                empty(CacheActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -631,6 +641,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(CacheActivityRecorder.class),
                 activityStore,
                 persistenceSettings,
                 properties,

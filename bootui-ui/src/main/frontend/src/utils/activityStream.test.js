@@ -166,6 +166,13 @@ describe('deepLink', () => {
     expect(deepLink({type: 'SCHEDULED_TASK'})).toBeNull()
   })
 
+  it('links a cache entry to the Cache panel', () => {
+    expect(deepLink({type: 'CACHE', summary: 'MISS orders'})).toEqual({
+      path: '/cache',
+      label: 'Open in Cache'
+    })
+  })
+
   it('returns null for security entries and unknown types', () => {
     expect(deepLink({type: 'SECURITY', summary: 'AUTHENTICATION_FAILURE'})).toBeNull()
     expect(deepLink(null)).toBeNull()

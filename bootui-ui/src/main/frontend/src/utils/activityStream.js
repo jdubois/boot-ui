@@ -141,7 +141,7 @@ export function bucketEntries(entries, bucketCount = 24) {
  * there is no useful needle to filter by.
  *
  * @param {object} entry a merged activity entry
- * @returns {{path: string, query: object, label: string}|null}
+ * @returns {{path: string, query?: object, label: string}|null}
  */
 export function deepLink(entry) {
   if (!entry) return null
@@ -160,6 +160,8 @@ export function deepLink(entry) {
       const needle = (entry.summary || '').trim()
       return needle ? {path: '/scheduled', query: {q: needle}, label: 'Open in Scheduled Tasks'} : null
     }
+    case 'CACHE':
+      return {path: '/cache', label: 'Open in Cache'}
     default:
       return null
   }

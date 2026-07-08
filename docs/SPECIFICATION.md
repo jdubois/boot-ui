@@ -725,18 +725,34 @@ Data sources:
   `bootui.activity.max-scheduled-task-runs` (default 200, shared config key on both adapters), and self-filtered the
   same way the static task list is; on Quarkus the observer is additionally gated on the `SCHEDULER` capability (see
   Design constraints below).
+- On the Spring servlet and WebFlux adapters, a `CacheActivityRecorder` (framework-neutral, `bootui-engine`) is fed by
+  `CacheActivityCacheManagerBeanPostProcessor`, which decorates every `CacheManager` bean so both annotation-driven
+  (`@Cacheable`/`@CachePut`/`@CacheEvict`) and direct programmatic cache access are captured transparently, pass-through
+  by default and fail-open. Both beans are wired once in the shared `BootUiEngineConfiguration` so servlet and WebFlux
+  behave identically. Gated by `bootui.cache.activity-capture-enabled` (default `true`) and the Cache panel's own
+  `bootui.panels.cache.enabled`; bounded by `bootui.cache.activity-max-events` (default 500). Cache keys are never
+  captured raw — only a short SHA-256 hash (`CacheActivityRecorder.hashKey`) — so no application data leaves the process
+  even under full value exposure. Correlation to the owning request is trace-id-based on both adapters; the servlet
+  adapter additionally falls back to serving-thread tiering (like `SQL`), while WebFlux relies solely on the
+  OpenTelemetry-backed trace id provider already used for its other capture points. Quarkus does not capture cache
+  accesses (`quarkus-cache`'s built-in interceptors cast the resolved cache to an internal, non-public `AbstractCache`
+  type, leaving no comparable runtime interception seam for a Spring-style decorator), so the `CACHE` event type and the
+  `cacheHitRatioPercent` KPI are Spring-only for now; see `docs/QUARKUS-SUPPORT.md`.
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and `SCHEDULED_TASK` entries normalized to a
-  common shape (timestamp, type, severity, one-line summary, optional duration and correlation id), sorted newest-first
-  and capped by
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, (Spring only) `CACHE`, and `SCHEDULED_TASK` entries
+  normalized to a common shape (timestamp, type, severity, one-line summary, optional duration and correlation id),
+  sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
-  method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
-  that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected) and entries without a
-  precise request correlation have a null `parentId` — a `SCHEDULED_TASK` entry always has a null `parentId` since it
-  runs on a background thread with no originating request. A `REQUEST` entry that was correlated to a Spring Security audit
+  method/path), so the client can nest correlated SQL, exceptions, security events, and cache accesses chronologically
+  under the request that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected)
+  and entries without a precise request correlation have a null `parentId` — a `SCHEDULED_TASK` entry always has a
+  null `parentId` since it runs on a background thread with no originating request. A `CACHE` entry's summary is
+  `"<HIT|MISS|PUT|EVICT|CLEAR> <cacheName>"`, its detail is `"key <hash>"` when a key was involved (omitted for
+  whole-cache `CLEAR`), and a `MISS` is flagged `WARN` severity (all other operations `OK`). A `REQUEST` entry that was
+  correlated to a Spring Security audit
   event also carries a `securedPrincipal` (the caller's principal; null when the request had no
   correlated security event naming a principal), so the client can flag it as authenticated with a
   lock icon and a principal tag without opening the profiler. It also carries a `sqlNPlusOneSuspected` boolean, computed
@@ -747,8 +763,9 @@ Features:
   duration meets the same slow-request threshold, otherwise `OK`, and clicking it deep-links into the Scheduled Tasks
   panel prefilled with its runnable name.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
-  exception count, SQL/min, slowest query, health status, heap usage, and a scheduled-task failure count
-  linking into the Scheduled Tasks panel.
+  exception count, SQL/min, slowest query, health status, heap usage, (Spring only, `null` on Quarkus) cache hit
+  ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel — and a
+  scheduled-task failure count linking into the Scheduled Tasks panel.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
   nesting of correlated children under their request (expanded by default; any active filter or free-text search
   flattens the feed so the query spans every signal), and a

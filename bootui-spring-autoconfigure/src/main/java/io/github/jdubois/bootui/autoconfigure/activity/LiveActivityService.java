@@ -18,6 +18,9 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
+import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
+import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
@@ -49,6 +52,7 @@ public class LiveActivityService {
     static final String TYPE_SQL = "SQL";
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
+    static final String TYPE_CACHE = "CACHE";
     static final String TYPE_SCHEDULED_TASK = "SCHEDULED_TASK";
 
     static final String SEVERITY_OK = "OK";
@@ -63,6 +67,7 @@ public class LiveActivityService {
     private final ObjectProvider<HealthController> health;
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
+    private final ObjectProvider<CacheActivityRecorder> cacheActivity;
     private final ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns;
     private final BootUiProperties properties;
 
@@ -74,6 +79,7 @@ public class LiveActivityService {
             ObjectProvider<HealthController> health,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
+            ObjectProvider<CacheActivityRecorder> cacheActivity,
             ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
@@ -83,6 +89,7 @@ public class LiveActivityService {
         this.health = health;
         this.requestCorrelations = requestCorrelations;
         this.securityCorrelations = securityCorrelations;
+        this.cacheActivity = cacheActivity;
         this.scheduledTaskRuns = scheduledTaskRuns;
         this.properties = properties;
     }
@@ -104,6 +111,7 @@ public class LiveActivityService {
         SqlTraceReport sql = loadSql(sources);
         ExceptionsReport exceptionsReport = loadExceptions(sources);
         SecurityLogsReport security = loadSecurity(sources);
+        List<CacheActivityEvent> cache = loadCache(sources);
         List<ScheduledTaskRunStore.Run> scheduledRuns = loadScheduledTaskRuns(sources);
 
         List<RequestAnchor> anchors = buildAnchors(requests);
@@ -159,6 +167,11 @@ public class LiveActivityService {
                 all.add(toSecurityEntry(event, parentId));
             }
         }
+        if (cache != null) {
+            for (CacheActivityEvent event : cache) {
+                all.add(toCacheEntry(event, matchCacheParent(event, anchors)));
+            }
+        }
         if (requests != null) {
             int nPlusOneThreshold = properties.getActivity().getNPlusOneThreshold();
             for (HttpExchangeDto exchange : requests.exchanges()) {
@@ -202,7 +215,7 @@ public class LiveActivityService {
             }
         }
 
-        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport, scheduledRuns);
+        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport, cache, scheduledRuns);
         boolean available = !sources.isEmpty();
         return new LiveActivityReport(available, visible, typeCounts, kpis, sources, warnings);
     }
@@ -270,6 +283,22 @@ public class LiveActivityService {
         }
         sources.add("Security Logs");
         return report;
+    }
+
+    private List<CacheActivityEvent> loadCache(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.CACHE) || cacheActivity == null) {
+            return null;
+        }
+        CacheActivityRecorder recorder = cacheActivity.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return null;
+        }
+        List<CacheActivityEvent> events = recorder.recentEvents();
+        if (events.isEmpty()) {
+            return null;
+        }
+        sources.add("Cache");
+        return events;
     }
 
     /**
@@ -413,6 +442,29 @@ public class LiveActivityService {
                 false);
     }
 
+    private ActivityEntryDto toCacheEntry(CacheActivityEvent event, String parentId) {
+        String severity = event.operation() == CacheActivityOperation.MISS ? SEVERITY_WARN : SEVERITY_OK;
+        String summary = event.operation().name() + " " + event.cacheName();
+        String detail = event.keyHash() == null ? null : "key " + event.keyHash();
+        return new ActivityEntryDto(
+                "cache-" + event.seq(),
+                TYPE_CACHE,
+                event.timestampMillis(),
+                severity,
+                summary,
+                detail,
+                null,
+                event.traceId(),
+                null,
+                null,
+                null,
+                event.thread(),
+                false,
+                parentId,
+                null,
+                false);
+    }
+
     /**
      * Maps a captured {@code @Scheduled} execution to a {@code SCHEDULED_TASK} entry. There is no request
      * to nest this entry itself under (it runs on a background thread), so its own {@code parentId} is
@@ -493,20 +545,32 @@ public class LiveActivityService {
      * request, so the entry stays top-level rather than being mis-attributed.
      */
     private static String matchSqlParent(SqlTraceEntryDto entry, List<RequestAnchor> anchors) {
-        String traceId = entry.traceId();
+        return matchByTraceThenThread(entry.traceId(), entry.thread(), entry.timestamp(), anchors);
+    }
+
+    /**
+     * Resolves the request that a cache access belongs to using the same trace-id-then-serving-thread
+     * tiering {@link #matchSqlParent} uses for SQL, since cache accesses are captured on the same
+     * application thread as the request that triggered them.
+     */
+    private static String matchCacheParent(CacheActivityEvent event, List<RequestAnchor> anchors) {
+        return matchByTraceThenThread(event.traceId(), event.thread(), event.timestampMillis(), anchors);
+    }
+
+    private static String matchByTraceThenThread(
+            String traceId, String thread, long timestamp, List<RequestAnchor> anchors) {
         if (traceId != null && !traceId.isBlank()) {
             String byTrace = uniqueByTrace(anchors, traceId);
             if (byTrace != null) {
                 return byTrace;
             }
         }
-        String thread = entry.thread();
         if (thread == null) {
             return null;
         }
         String found = null;
         for (RequestAnchor anchor : anchors) {
-            if (thread.equals(anchor.thread()) && covers(anchor, entry.timestamp())) {
+            if (thread.equals(anchor.thread()) && covers(anchor, timestamp)) {
                 if (found != null) {
                     return null;
                 }
@@ -652,6 +716,7 @@ public class LiveActivityService {
             HttpExchangesReport requests,
             SqlTraceReport sql,
             ExceptionsReport exceptions,
+            List<CacheActivityEvent> cache,
             List<ScheduledTaskRunStore.Run> scheduledRuns) {
         double requestsPerMinute = 0;
         double errorRate = 0;
@@ -699,6 +764,23 @@ public class LiveActivityService {
         int activeExceptions = exceptions == null ? 0 : exceptions.groups().size();
         String healthStatus = currentHealthStatus();
 
+        Double cacheHitRatioPercent = null;
+        if (cache != null && !cache.isEmpty()) {
+            long hits = cache.stream()
+                    .filter(e -> e.operation() == CacheActivityOperation.HIT)
+                    .count();
+            long misses = cache.stream()
+                    .filter(e -> e.operation() == CacheActivityOperation.MISS)
+                    .count();
+            long reads = hits + misses;
+            if (reads > 0) {
+                cacheHitRatioPercent = round(100.0 * hits / reads);
+            }
+        }
+
+        int scheduledTaskFailureCount =
+                (int) scheduledRuns.stream().filter(run -> !run.success()).count();
+
         Long heapUsed = null;
         Long heapMax = null;
         try {
@@ -708,9 +790,6 @@ public class LiveActivityService {
         } catch (RuntimeException ignored) {
             // Heap metrics are best-effort.
         }
-
-        int scheduledTaskFailureCount =
-                (int) scheduledRuns.stream().filter(run -> !run.success()).count();
 
         return new ActivityKpiDto(
                 round(requestsPerMinute),
@@ -725,6 +804,7 @@ public class LiveActivityService {
                 healthStatus,
                 heapUsed,
                 heapMax,
+                cacheHitRatioPercent,
                 scheduledTaskFailureCount);
     }
 

@@ -31,6 +31,8 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
@@ -102,6 +104,7 @@ public class ReactiveLiveActivityController {
     private final ObjectProvider<ReactiveSecurityLogsController> securityLogs;
     private final ObjectProvider<TracesController> traces;
     private final ObjectProvider<HealthController> health;
+    private final ObjectProvider<CacheActivityRecorder> cacheActivity;
     private final BootUiProperties properties;
     private final BootUiExposure exposure;
     private final ExceptionsService exceptionsService;
@@ -121,6 +124,7 @@ public class ReactiveLiveActivityController {
             ObjectProvider<ReactiveSecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             ObjectProvider<HealthController> health,
+            ObjectProvider<CacheActivityRecorder> cacheActivity,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             BootUiProperties properties,
@@ -133,6 +137,7 @@ public class ReactiveLiveActivityController {
         this.securityLogs = securityLogs;
         this.traces = traces;
         this.health = health;
+        this.cacheActivity = cacheActivity;
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.properties = properties;
@@ -150,6 +155,10 @@ public class ReactiveLiveActivityController {
         ScheduledTaskRunStore scheduledStore = scheduledTaskActivity.getIfAvailable();
         if (scheduledStore != null) {
             unsubscribers.add(scheduledStore.subscribe(changeStream::signal));
+        }
+        CacheActivityRecorder cacheRecorder = cacheActivity.getIfAvailable();
+        if (cacheRecorder != null) {
+            unsubscribers.add(cacheRecorder.subscribe(changeStream::signal));
         }
         if (persistenceSettings.enabled()) {
             // Capture side of the persistence option: poll the same merged feed the panel itself reads,
@@ -294,6 +303,8 @@ public class ReactiveLiveActivityController {
         boolean securityAvailable = properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS);
         List<ScheduledTaskRunStore.Run> scheduledRuns = scheduledTaskRuns();
         String healthStatus = currentHealthStatus();
+        List<CacheActivityEvent> cacheEvents = cacheEvents();
+        boolean cacheAvailable = cacheEvents != null;
 
         LiveActivityReport report = assembler.report(
                 requests,
@@ -303,6 +314,8 @@ public class ReactiveLiveActivityController {
                 exceptionGroups(),
                 securityEvents(securityAvailable),
                 securityAvailable,
+                cacheEvents,
+                cacheAvailable,
                 scheduledRuns,
                 healthStatus,
                 limit);
@@ -383,6 +396,24 @@ public class ReactiveLiveActivityController {
         }
         SecurityLogsReport report = controller.logs(null, null, null, null, null);
         return report.auditEventsPresent() ? report.events() : List.of();
+    }
+
+    /**
+     * Recent cache accesses feeding the assembler's {@code CACHE} entries / {@code cacheHitRatioPercent}
+     * KPI, or {@code null} when the source isn't feeding (Cache panel disabled, capture disabled via
+     * {@code bootui.cache.activity-capture-enabled}, or no {@code CacheManager} bean present) — same
+     * present-vs-absent distinction {@link #sqlSnapshot} and {@link #securityEvents} make, so the assembler
+     * can tell "no cache access yet" from "no cache source at all".
+     */
+    private List<CacheActivityEvent> cacheEvents() {
+        if (!properties.isPanelEnabled(BootUiPanels.CACHE)) {
+            return null;
+        }
+        CacheActivityRecorder recorder = cacheActivity.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return null;
+        }
+        return recorder.recentEvents();
     }
 
     /**

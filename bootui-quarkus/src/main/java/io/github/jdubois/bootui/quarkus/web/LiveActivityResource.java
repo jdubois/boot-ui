@@ -279,6 +279,10 @@ public class LiveActivityResource {
                 exceptionsService.report(exceptionStore).groups(),
                 securityEvents(securityAvailable),
                 securityAvailable,
+                // No Quarkus cache-access capture seam exists yet (see LiveActivityAssembler's class
+                // Javadoc); cacheHitRatioPercent stays null, exactly as before this parameter was added.
+                null,
+                false,
                 scheduledTaskRunStore.runs(),
                 null,
                 limit);
