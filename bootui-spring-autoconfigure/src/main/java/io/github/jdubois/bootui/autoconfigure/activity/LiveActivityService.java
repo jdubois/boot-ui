@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.web.SecurityActivityIds;
 import java.lang.management.ManagementFactory;
@@ -48,6 +49,7 @@ public class LiveActivityService {
     static final String TYPE_SQL = "SQL";
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
+    static final String TYPE_SCHEDULED_TASK = "SCHEDULED_TASK";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -61,6 +63,7 @@ public class LiveActivityService {
     private final ObjectProvider<HealthController> health;
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
+    private final ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns;
     private final BootUiProperties properties;
 
     public LiveActivityService(
@@ -71,6 +74,7 @@ public class LiveActivityService {
             ObjectProvider<HealthController> health,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
+            ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
@@ -79,6 +83,7 @@ public class LiveActivityService {
         this.health = health;
         this.requestCorrelations = requestCorrelations;
         this.securityCorrelations = securityCorrelations;
+        this.scheduledTaskRuns = scheduledTaskRuns;
         this.properties = properties;
     }
 
@@ -99,6 +104,7 @@ public class LiveActivityService {
         SqlTraceReport sql = loadSql(sources);
         ExceptionsReport exceptionsReport = loadExceptions(sources);
         SecurityLogsReport security = loadSecurity(sources);
+        List<ScheduledTaskRunStore.Run> scheduledRuns = loadScheduledTaskRuns(sources);
 
         List<RequestAnchor> anchors = buildAnchors(requests);
         Map<String, RequestAnchor> anchorsById = new HashMap<>();
@@ -157,6 +163,9 @@ public class LiveActivityService {
                         sqlNPlusOneSuspected));
             }
         }
+        for (ScheduledTaskRunStore.Run run : scheduledRuns) {
+            all.add(toScheduledTaskEntry(run));
+        }
 
         all.sort(Comparator.comparingLong(ActivityEntryDto::timestamp).reversed());
 
@@ -184,7 +193,7 @@ public class LiveActivityService {
             }
         }
 
-        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport);
+        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport, scheduledRuns);
         boolean available = !sources.isEmpty();
         return new LiveActivityReport(available, visible, typeCounts, kpis, sources, warnings);
     }
@@ -252,6 +261,28 @@ public class LiveActivityService {
         }
         sources.add("Security Logs");
         return report;
+    }
+
+    /**
+     * Reads the currently retained {@code @Scheduled} task executions, newest-first, capped to this
+     * report's effective limit. Absent (no scheduling infrastructure, or the Scheduled Tasks panel
+     * disabled) yields an empty list rather than {@code null} since callers iterate it directly.
+     */
+    private List<ScheduledTaskRunStore.Run> loadScheduledTaskRuns(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.SCHEDULED)) {
+            return List.of();
+        }
+        ScheduledTaskRunStore store = scheduledTaskRuns == null ? null : scheduledTaskRuns.getIfAvailable();
+        if (store == null) {
+            return List.of();
+        }
+        List<ScheduledTaskRunStore.Run> runs = store.runs();
+        if (runs.isEmpty()) {
+            return runs;
+        }
+        sources.add("Scheduled Tasks");
+        int cap = effectiveLimit(0);
+        return runs.size() > cap ? runs.subList(0, cap) : runs;
     }
 
     private ActivityEntryDto toRequestEntry(
@@ -371,6 +402,45 @@ public class LiveActivityService {
                 parentId,
                 null,
                 false);
+    }
+
+    /**
+     * Maps a captured {@code @Scheduled} execution to a {@code SCHEDULED_TASK} entry. There is no
+     * request to nest it under (it runs on a background thread), so {@code parentId} is always
+     * {@code null}; a run that threw is flagged {@code ERROR}, one slower than the shared request-slow
+     * threshold is flagged {@code SLOW}, otherwise {@code OK}.
+     */
+    private ActivityEntryDto toScheduledTaskEntry(ScheduledTaskRunStore.Run run) {
+        String severity;
+        if (!run.success()) {
+            severity = SEVERITY_ERROR;
+        } else if (run.durationMs() >= requestSlowThresholdMs()) {
+            severity = SEVERITY_SLOW;
+        } else {
+            severity = SEVERITY_OK;
+        }
+        String detail = run.success() ? null : run.exceptionClassName() + messageSuffix(run.message());
+        return new ActivityEntryDto(
+                "sched-" + run.sequence(),
+                TYPE_SCHEDULED_TASK,
+                run.startTimestamp(),
+                severity,
+                run.runnable(),
+                detail,
+                run.durationMs(),
+                null,
+                null,
+                null,
+                null,
+                run.thread(),
+                false,
+                null,
+                null,
+                false);
+    }
+
+    private static String messageSuffix(String message) {
+        return message == null || message.isBlank() ? "" : ": " + message;
     }
 
     /**
@@ -510,7 +580,11 @@ public class LiveActivityService {
     private record RequestAnchor(
             String id, long start, long end, String thread, String traceId, String method, String path) {}
 
-    private ActivityKpiDto computeKpis(HttpExchangesReport requests, SqlTraceReport sql, ExceptionsReport exceptions) {
+    private ActivityKpiDto computeKpis(
+            HttpExchangesReport requests,
+            SqlTraceReport sql,
+            ExceptionsReport exceptions,
+            List<ScheduledTaskRunStore.Run> scheduledRuns) {
         double requestsPerMinute = 0;
         double errorRate = 0;
         Long p50 = null;
@@ -567,6 +641,9 @@ public class LiveActivityService {
             // Heap metrics are best-effort.
         }
 
+        int scheduledTaskFailureCount =
+                (int) scheduledRuns.stream().filter(run -> !run.success()).count();
+
         return new ActivityKpiDto(
                 round(requestsPerMinute),
                 round(errorRate),
@@ -579,7 +656,8 @@ public class LiveActivityService {
                 slowestQueryMs,
                 healthStatus,
                 heapUsed,
-                heapMax);
+                heapMax,
+                scheduledTaskFailureCount);
     }
 
     private String currentHealthStatus() {

@@ -23,7 +23,7 @@ import {
   nestEntries
 } from '../utils/activityStream.js'
 
-const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY']
+const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY', 'SCHEDULED_TASK']
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
 const FILTERS_STORAGE_KEY = 'bootui.activity.filters'
 const PERSISTENCE_DOCS_URL = 'https://www.julien-dubois.com/boot-ui/properties#live-activity-durable-persistence'
@@ -305,7 +305,8 @@ function typeIcon(type) {
       REQUEST: 'bi-arrow-left-right',
       SQL: 'bi-database',
       EXCEPTION: 'bi-exclamation-octagon',
-      SECURITY: 'bi-shield-lock'
+      SECURITY: 'bi-shield-lock',
+      SCHEDULED_TASK: 'bi-clock-history'
     }[type] || 'bi-dot'
   )
 }
@@ -735,6 +736,21 @@ function clearFilters() {
                 <i class="bi bi-box-arrow-up-right ms-1"></i>
               </div>
               <div class="fs-5">{{ formatBytes(kpis.heapUsedBytes) }}</div>
+            </div>
+          </router-link>
+        </div>
+        <div class="col-6 col-lg-3">
+          <router-link
+            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            :to="{path: '/scheduled'}"
+            title="Open the Scheduled Tasks panel"
+          >
+            <div class="card-body py-2">
+              <div class="text-muted small">
+                Scheduled failures
+                <i class="bi bi-box-arrow-up-right ms-1"></i>
+              </div>
+              <div class="fs-5">{{ formatNumber(kpis.scheduledTaskFailureCount ?? 0) }}</div>
             </div>
           </router-link>
         </div>

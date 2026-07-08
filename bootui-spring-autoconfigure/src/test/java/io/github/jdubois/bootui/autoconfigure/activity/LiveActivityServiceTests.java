@@ -165,6 +165,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 null,
+                null,
                 new BootUiProperties());
 
         assertThat(parentOf(service.report(null, null, 0, 0), "sql-1")).isEqualTo("r1");
@@ -203,6 +204,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 securityCorrelations,
+                null,
                 new BootUiProperties());
 
         assertThat(parentOfSecurityEntry(service.report(null, null, 0, 0))).isEqualTo("r1");
@@ -227,6 +229,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 securityCorrelations,
+                null,
                 new BootUiProperties());
 
         LiveActivityReport report = service.report(null, null, 0, 0);
@@ -251,6 +254,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 securityCorrelations,
+                null,
                 new BootUiProperties());
 
         // The event correlates to the request (so it still nests), but a blank principal must not flag
@@ -359,7 +363,7 @@ class LiveActivityServiceTests {
             SecurityLogsController security,
             HealthController health,
             BootUiProperties properties) {
-        return service(requests, sql, exceptions, security, health, null, null, properties);
+        return service(requests, sql, exceptions, security, health, null, null, null, properties);
     }
 
     private LiveActivityService service(
@@ -370,6 +374,7 @@ class LiveActivityServiceTests {
             HealthController health,
             RequestCorrelationRegistry requestCorrelations,
             SecurityEventCorrelationRegistry securityCorrelations,
+            io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledTaskRuns,
             BootUiProperties properties) {
         return new LiveActivityService(
                 provider(requests),
@@ -379,6 +384,7 @@ class LiveActivityServiceTests {
                 provider(health),
                 provider(requestCorrelations),
                 provider(securityCorrelations),
+                provider(scheduledTaskRuns),
                 properties);
     }
 

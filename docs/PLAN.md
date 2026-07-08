@@ -147,7 +147,8 @@ Design constraints:
 
 ### 3.4 Live Activity — future event types and correlation — Diagnostics
 
-Live Activity currently merges four entry types — `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` — from BootUI's existing
+Live Activity currently merges five entry types — `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and (Spring-only)
+`SCHEDULED_TASK` — from BootUI's existing
 in-memory buffers (see `docs/SPECIFICATION.md` §5.14.2). Two extensions are already underway outside this plan: the
 E-mail Viewer (§3.3) adds a `MAIL` event, and a separate branch (not yet a PR) adds an outbound
 `RestClient`/`RestTemplate`/`WebClient` capture. This section captures what should come next in the panel, prioritized by
@@ -156,10 +157,18 @@ Web Profiler, .NET Aspire) already guiding this workstream.
 
 Scope — new event types, roughly in priority order:
 
-- **Scheduled Task runs.** The existing Scheduled Tasks panel only shows static `@Scheduled` definitions; capturing each
-  *execution* (start/success/failure, duration, exception if any) as a `SCHEDULED_TASK` entry reuses that panel's
-  existing discovery and closes an obvious "did my job run, and how long did it take" gap. No request parent (background
-  thread), but nests a correlated exception the same way `REQUEST` does today.
+- **Scheduled Task runs — implemented (Spring only).** Each `@Scheduled` method *execution* (start/success/failure,
+  duration, exception if any) is captured as a `SCHEDULED_TASK` entry, reusing the existing Scheduled Tasks panel's
+  discovery/naming so a captured run and its static definition share the same identifier. On Spring, the framework's own
+  Micrometer instrumentation (`ScheduledTaskObservationContext`, present since Spring Framework 6.1) is tapped via a
+  `SchedulingConfigurer` bean that installs an `ObservationHandler` — no AOP proxying or bean wrapping needed — feeding a
+  bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`. No request parent (background thread), but a
+  correlated exception is surfaced as `detail` the same way `REQUEST` failures are today. The KPI strip's "Scheduled
+  failures" tile and the `REQUEST`/`SQL`/`EXCEPTION` deep-link pattern (into `/scheduled`, prefilling its filter with the
+  runnable name) both ship with it. **Quarkus capture is not yet implemented** — the Quarkus scheduler
+  (`io.quarkus.scheduler.Scheduler`) has no equivalent built-in per-execution observability hook, so this remains a
+  follow-up; the shared `ActivityKpiDto`/`LiveActivityAssembler` wiring accepts a zero count from Quarkus in the
+  meantime.
 - **Cache operations.** The Cache panel shows topology and aggregate hit/miss counters only; a lightweight, sampled
   `CACHE` event (hit/miss/put/evict, cache name, key hash — never the raw key/value) explains *why* those counters moved
   and correlates naturally as a `REQUEST` child, mirroring how `SQL` nests today.
@@ -193,13 +202,13 @@ higher value:
   the panel's core value proposition.
 - **Nest `MAIL` entries under their triggering `REQUEST`** the same way, once the E-mail Viewer lands, using the same
   trace-id/serving-thread tiered join the profiler already uses.
-- **Extend the KPI strip** with metrics for each new source as it lands: outbound-call error rate/p95, cache hit ratio,
-  scheduled-task failure count.
+- **Extend the KPI strip** with metrics for each new source as it lands: outbound-call error rate/p95, cache hit ratio.
+  The scheduled-task failure count KPI already ships with Scheduled Task runs above.
 - **Verify persistence and filtering stay generic over `type`** as new event types are added — `JdbcActivityStore`,
   `BufferedActivityStore`, and the client-side type filter chips should pick up new types automatically, but this should
   be confirmed with tests as each lands.
-- **Add deep links** from `REQUEST` entries into the Cache and Scheduled Tasks panels, matching the existing deep links
-  into HTTP Exchanges, SQL Trace, Exceptions, Health, and Heap Dump.
+- **Add deep links** from `REQUEST` entries into the Cache panel, matching the existing deep links into HTTP Exchanges,
+  SQL Trace, Exceptions, Health, Heap Dump, and (now) Scheduled Tasks.
 
 Design constraints:
 
@@ -209,9 +218,9 @@ Design constraints:
   as the rest of the panel; cache keys are hashed rather than shown raw even under full exposure.
 - New capture buffers are bounded and self-filtering (BootUI's own traffic must not appear in its own feed), consistent
   with the existing `bootui.monitoring.exclude-self` behaviour.
-- Recommended sequencing: land Mail (§3.3) and REST call capture with `REQUEST`-nesting from day one; then Scheduled
-  Task runs and Cache operations (cheapest, reuse existing panel discovery); treat Messaging as the next major
-  new-instrumentation investment.
+- Recommended sequencing: land Mail (§3.3) and REST call capture with `REQUEST`-nesting from day one; Scheduled Task
+  runs is now implemented (Spring only); Cache operations next (cheapest, reuses existing panel discovery); treat
+  Messaging as the next major new-instrumentation investment.
 
 ## 4. Cross-cutting work for every new panel
 

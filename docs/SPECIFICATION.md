@@ -713,24 +713,38 @@ Data sources:
 - Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
+- Scheduled-task-run capture (Spring only): a bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`, fed
+  by a Spring-specific `ObservationHandler`/`SchedulingConfigurer` pair that taps Spring Framework's own
+  `ScheduledTaskObservationContext` instrumentation (present since Spring Framework 6.1) — no AOP proxying or bean
+  wrapping. Only `@Scheduled` *method* tasks are observed this way, so a manually registered `Runnable`/`Trigger` task
+  (via `SchedulingConfigurer`) does not produce a `SCHEDULED_TASK` entry, consistent with how the static Scheduled Tasks
+  panel lists it with only a generic runnable name. Gated on the Scheduled Tasks panel's own `bootui.panels.scheduled`
+  enablement, capped by `bootui.activity.max-scheduled-task-runs` (default 200), and self-filtered the same way the
+  static task list is. Not yet implemented on Quarkus (see Design constraints below).
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
-  severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and (Spring only) `SCHEDULED_TASK` entries normalized to a
+  common shape (timestamp, type, severity, one-line summary, optional duration and correlation id), sorted newest-first
+  and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
   method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
   that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected) and entries without a
-  precise request correlation have a null `parentId`. A `REQUEST` entry that was correlated to a Spring Security audit
+  precise request correlation have a null `parentId` — a `SCHEDULED_TASK` entry always has a null `parentId` since it
+  runs on a background thread with no originating request. A `REQUEST` entry that was correlated to a Spring Security audit
   event also carries a `securedPrincipal` (the caller's principal; null when the request had no
   correlated security event naming a principal), so the client can flag it as authenticated with a
   lock icon and a principal tag without opening the profiler. It also carries a `sqlNPlusOneSuspected` boolean, computed
   with the identical threshold/logic the per-request profiler uses below, so a request whose correlated SQL looks like
   an N+1 access pattern can be badged directly in the list without opening its profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
-  100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are.
+  100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are. A `SCHEDULED_TASK` entry is severity
+  `ERROR` on a thrown exception (with the exception class name and message surfaced as `detail`), `SLOW` when its
+  duration meets the same slow-request threshold, otherwise `OK`, and clicking it deep-links into the Scheduled Tasks
+  panel prefilled with its runnable name.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
-  exception count, SQL/min, slowest query, health status, and heap usage.
+  exception count, SQL/min, slowest query, health status, heap usage, and (Spring only) a scheduled-task failure count
+  linking into the Scheduled Tasks panel.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
   nesting of correlated children under their request (expanded by default; any active filter or free-text search
   flattens the feed so the query spans every signal), and a
@@ -824,6 +838,10 @@ Acceptance criteria:
 - The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
   `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
   active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
+- `SCHEDULED_TASK` capture is Spring-only today: Quarkus's scheduler (`io.quarkus.scheduler.Scheduler`) has no built-in
+  per-execution observability hook equivalent to Spring's `ScheduledTaskObservationContext`, so the Quarkus adapter does
+  not yet populate this entry type or the scheduled-task failure KPI (it always reports zero); this is tracked as a
+  follow-up, not a design decision to keep it Spring-only permanently.
 
 ### 5.14.3 Traces Panel
 
