@@ -63,11 +63,12 @@ class BootUiEngineProducerKafkaConfigTest {
         KafkaActivityRecorder recorder =
                 new BootUiEngineProducer().kafkaActivityRecorder(config(Map.of("bootui.kafka.max-key-length", "8")));
 
-        // The key is truncated to max-key-length (plus an ellipsis), which only an applied override can show.
+        // The key is hashed (SHA-256) then truncated to max-key-length hex chars, which only an applied
+        // override can show; "2125b2c3" is hashKey("0123456789ABCDEF", 8).
         recorder.recordProduce("orders", 0, "0123456789ABCDEF", null, true, null);
 
         assertThat(recorder.recent())
                 .singleElement()
-                .satisfies(message -> assertThat(message.key()).isEqualTo("01234567…"));
+                .satisfies(message -> assertThat(message.key()).isEqualTo("2125b2c3"));
     }
 }

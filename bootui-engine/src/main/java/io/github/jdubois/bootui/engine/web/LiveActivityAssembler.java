@@ -245,7 +245,7 @@ public final class LiveActivityAssembler {
             sources.add("security");
         }
         if (kafkaAvailable) {
-            sources.add("Kafka");
+            sources.add("kafka");
         }
 
         List<String> warnings = new ArrayList<>();

@@ -264,7 +264,7 @@ class LiveActivityAssemblerTests {
                 .containsEntry("MESSAGING", 2)
                 .containsEntry("SQL", 1)
                 .containsEntry("REQUEST", 1);
-        assertThat(report.sources()).contains("Kafka");
+        assertThat(report.sources()).contains("kafka");
     }
 
     @Test

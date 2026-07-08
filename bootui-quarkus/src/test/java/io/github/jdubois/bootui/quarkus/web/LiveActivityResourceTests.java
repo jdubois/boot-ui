@@ -198,17 +198,19 @@ class LiveActivityResourceTests {
             assertThat(entry.id()).startsWith("kafka-");
             assertThat(entry.correlationId()).isNull();
         });
+        // Keys are hashed (SHA-256, truncated to 16 hex chars) before capture: these are
+        // hashKey("key-1")/hashKey("key-2").
         assertThat(messaging).anySatisfy(entry -> {
             assertThat(entry.summary()).isEqualTo("→ orders [2]");
-            assertThat(entry.detail()).isEqualTo("key=key-1");
+            assertThat(entry.detail()).isEqualTo("key=be2974546978e373");
             assertThat(entry.severity()).isEqualTo("OK");
         });
         assertThat(messaging).anySatisfy(entry -> {
             assertThat(entry.summary()).isEqualTo("← orders [3]");
-            assertThat(entry.detail()).isEqualTo("key=key-2 offset=42");
+            assertThat(entry.detail()).isEqualTo("key=7c36b0a9dedde119 offset=42");
         });
         assertThat(report.typeCounts()).containsEntry("MESSAGING", 2);
-        assertThat(report.sources()).contains("Kafka");
+        assertThat(report.sources()).contains("kafka");
     }
 
     @Test
@@ -219,7 +221,7 @@ class LiveActivityResourceTests {
 
         assertThat(report.entries()).noneMatch(entry -> "MESSAGING".equals(entry.type()));
         assertThat(report.typeCounts()).doesNotContainKey("MESSAGING");
-        assertThat(report.sources()).contains("Kafka");
+        assertThat(report.sources()).contains("kafka");
     }
 
     @Test
@@ -263,7 +265,7 @@ class LiveActivityResourceTests {
 
         assertThat(report.entries()).noneMatch(entry -> "MESSAGING".equals(entry.type()));
         assertThat(report.typeCounts()).doesNotContainKey("MESSAGING");
-        assertThat(report.sources()).doesNotContain("Kafka");
+        assertThat(report.sources()).doesNotContain("kafka");
     }
 
     @Test

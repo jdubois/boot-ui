@@ -41,7 +41,8 @@ class QuarkusKafkaCaptureTests {
         assertThat(message.direction()).isEqualTo(Direction.PRODUCE);
         assertThat(message.topic()).isEqualTo("orders");
         assertThat(message.partition()).isEqualTo(2);
-        assertThat(message.key()).isEqualTo("key-1");
+        // Keys are hashed (SHA-256, truncated to 16 hex chars) before capture; this is hashKey("key-1").
+        assertThat(message.key()).isEqualTo("be2974546978e373");
         assertThat(message.offset()).isNull();
         assertThat(message.durationMillis()).isNull();
         assertThat(message.success()).isTrue();
@@ -132,7 +133,8 @@ class QuarkusKafkaCaptureTests {
         assertThat(message.topic()).isEqualTo("orders");
         assertThat(message.partition()).isEqualTo(3);
         assertThat(message.offset()).isEqualTo(42L);
-        assertThat(message.key()).isEqualTo("key-2");
+        // Keys are hashed (SHA-256, truncated to 16 hex chars) before capture; this is hashKey("key-2").
+        assertThat(message.key()).isEqualTo("7c36b0a9dedde119");
         assertThat(message.durationMillis()).isNotNull().isGreaterThanOrEqualTo(0L);
         assertThat(message.success()).isTrue();
         assertThat(message.errorMessage()).isNull();
