@@ -551,12 +551,42 @@ public class BootUiProperties {
          */
         private boolean clearEnabled = true;
 
+        /**
+         * Whether BootUI wraps {@code CacheManager} beans to capture hit/miss/put/evict/clear accesses
+         * into the Live Activity panel's {@code CACHE} event type. Cache keys are always hashed, never
+         * recorded raw, regardless of value exposure. When {@code false}, no {@code CacheManager} is
+         * wrapped and cache accesses never appear in Live Activity.
+         */
+        private boolean activityCaptureEnabled = true;
+
+        /**
+         * Maximum number of recent cache accesses retained in the in-memory ring buffer feeding Live
+         * Activity.
+         */
+        private int activityMaxEvents = 500;
+
         public boolean isClearEnabled() {
             return clearEnabled;
         }
 
         public void setClearEnabled(boolean clearEnabled) {
             this.clearEnabled = clearEnabled;
+        }
+
+        public boolean isActivityCaptureEnabled() {
+            return activityCaptureEnabled;
+        }
+
+        public void setActivityCaptureEnabled(boolean activityCaptureEnabled) {
+            this.activityCaptureEnabled = activityCaptureEnabled;
+        }
+
+        public int getActivityMaxEvents() {
+            return activityMaxEvents;
+        }
+
+        public void setActivityMaxEvents(int activityMaxEvents) {
+            this.activityMaxEvents = activityMaxEvents;
         }
     }
 

@@ -110,6 +110,29 @@ describe('LiveActivity', () => {
     vi.unstubAllGlobals()
   })
 
+  it('renders the cache hit ratio KPI tile when cache events are captured', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(activityReport({kpis: {...activityReport().kpis, cacheHitRatioPercent: 75}}), requestProfile())
+    )
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Cache hit ratio')
+    expect(wrapper.text()).toContain('75%')
+  })
+
+  it('renders a dash for the cache hit ratio KPI tile when no cache events have been captured', async () => {
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Cache hit ratio')
+    expect(wrapper.text()).toContain('—')
+  })
+
   it('renders a list-level N+1 badge for a request with a suspected N+1 pattern', async () => {
     vi.stubGlobal(
       'fetch',

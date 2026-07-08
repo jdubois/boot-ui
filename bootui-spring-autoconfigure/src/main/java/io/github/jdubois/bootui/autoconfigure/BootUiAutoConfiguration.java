@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationFilter;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry;
 import io.github.jdubois.bootui.autoconfigure.activity.SecurityEventCorrelationRegistry;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
+import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityCacheManagerBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
@@ -36,6 +37,7 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPos
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -577,6 +579,21 @@ public class BootUiAutoConfiguration {
     static SqlTraceDataSourceBeanPostProcessor bootUiSqlTraceDataSourceBeanPostProcessor(
             org.springframework.beans.factory.ObjectProvider<SqlTraceRecorder> recorderProvider) {
         return new SqlTraceDataSourceBeanPostProcessor(recorderProvider);
+    }
+
+    @Bean
+    public CacheActivityRecorder bootUiCacheActivityRecorder(BootUiProperties properties) {
+        BootUiProperties.Cache cache = properties.getCache();
+        return new CacheActivityRecorder(
+                cache.isActivityCaptureEnabled() && properties.isPanelEnabled(BootUiPanels.CACHE),
+                cache.getActivityMaxEvents());
+    }
+
+    @Bean
+    static CacheActivityCacheManagerBeanPostProcessor bootUiCacheActivityCacheManagerBeanPostProcessor(
+            org.springframework.beans.factory.ObjectProvider<CacheActivityRecorder> recorderProvider,
+            org.springframework.beans.factory.ObjectProvider<BootUiSelfDataFilter> selfDataFilterProvider) {
+        return new CacheActivityCacheManagerBeanPostProcessor(recorderProvider, selfDataFilterProvider);
     }
 
     @Bean

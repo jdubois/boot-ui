@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.ArrayList;
@@ -94,6 +95,7 @@ public class LiveActivityController {
             ObjectProvider<ExceptionStore> exceptionStore,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
+            ObjectProvider<CacheActivityRecorder> cacheActivity,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             ObjectProvider<DataSource> dataSourceProvider,
@@ -106,6 +108,7 @@ public class LiveActivityController {
                 health,
                 requestCorrelations,
                 securityCorrelations,
+                cacheActivity,
                 properties);
         this.correlator = new LiveActivityCorrelator(
                 httpExchanges,
@@ -126,6 +129,10 @@ public class LiveActivityController {
         ExceptionStore store = exceptionStore.getIfAvailable();
         if (store != null) {
             unsubscribers.add(store.subscribe(changeStream::signal));
+        }
+        CacheActivityRecorder cache = cacheActivity.getIfAvailable();
+        if (cache != null) {
+            unsubscribers.add(cache.subscribe(changeStream::signal));
         }
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;

@@ -228,7 +228,10 @@ public final class LiveActivityAssembler {
                 slowestQuery,
                 healthStatus,
                 heapUsed(),
-                heapMax());
+                heapMax(),
+                // Cache hit ratio is Spring-only today (LiveActivityService computes it from
+                // CacheActivityRecorder); no Quarkus cache-access capture exists yet.
+                null);
         return new LiveActivityReport(true, entries, typeCounts, kpis, sources, warnings);
     }
 

@@ -18,6 +18,9 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
+import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
+import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.web.SecurityActivityIds;
@@ -48,6 +51,7 @@ public class LiveActivityService {
     static final String TYPE_SQL = "SQL";
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
+    static final String TYPE_CACHE = "CACHE";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -61,6 +65,7 @@ public class LiveActivityService {
     private final ObjectProvider<HealthController> health;
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
+    private final ObjectProvider<CacheActivityRecorder> cacheActivity;
     private final BootUiProperties properties;
 
     public LiveActivityService(
@@ -72,6 +77,28 @@ public class LiveActivityService {
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             BootUiProperties properties) {
+        this(
+                httpExchanges,
+                sqlTrace,
+                exceptions,
+                securityLogs,
+                health,
+                requestCorrelations,
+                securityCorrelations,
+                null,
+                properties);
+    }
+
+    public LiveActivityService(
+            ObjectProvider<HttpExchangesController> httpExchanges,
+            ObjectProvider<SqlTraceController> sqlTrace,
+            ObjectProvider<ExceptionsController> exceptions,
+            ObjectProvider<SecurityLogsController> securityLogs,
+            ObjectProvider<HealthController> health,
+            ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
+            ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
+            ObjectProvider<CacheActivityRecorder> cacheActivity,
+            BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
         this.exceptions = exceptions;
@@ -79,6 +106,7 @@ public class LiveActivityService {
         this.health = health;
         this.requestCorrelations = requestCorrelations;
         this.securityCorrelations = securityCorrelations;
+        this.cacheActivity = cacheActivity;
         this.properties = properties;
     }
 
@@ -99,6 +127,7 @@ public class LiveActivityService {
         SqlTraceReport sql = loadSql(sources);
         ExceptionsReport exceptionsReport = loadExceptions(sources);
         SecurityLogsReport security = loadSecurity(sources);
+        List<CacheActivityEvent> cache = loadCache(sources);
 
         List<RequestAnchor> anchors = buildAnchors(requests);
         Map<String, RequestAnchor> anchorsById = new HashMap<>();
@@ -144,6 +173,11 @@ public class LiveActivityService {
                 all.add(toSecurityEntry(event, parentId));
             }
         }
+        if (cache != null) {
+            for (CacheActivityEvent event : cache) {
+                all.add(toCacheEntry(event, matchCacheParent(event, anchors)));
+            }
+        }
         if (requests != null) {
             int nPlusOneThreshold = properties.getActivity().getNPlusOneThreshold();
             for (HttpExchangeDto exchange : requests.exchanges()) {
@@ -184,7 +218,7 @@ public class LiveActivityService {
             }
         }
 
-        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport);
+        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport, cache);
         boolean available = !sources.isEmpty();
         return new LiveActivityReport(available, visible, typeCounts, kpis, sources, warnings);
     }
@@ -252,6 +286,22 @@ public class LiveActivityService {
         }
         sources.add("Security Logs");
         return report;
+    }
+
+    private List<CacheActivityEvent> loadCache(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.CACHE) || cacheActivity == null) {
+            return null;
+        }
+        CacheActivityRecorder recorder = cacheActivity.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return null;
+        }
+        List<CacheActivityEvent> events = recorder.recentEvents();
+        if (events.isEmpty()) {
+            return null;
+        }
+        sources.add("Cache");
+        return events;
     }
 
     private ActivityEntryDto toRequestEntry(
@@ -373,6 +423,29 @@ public class LiveActivityService {
                 false);
     }
 
+    private ActivityEntryDto toCacheEntry(CacheActivityEvent event, String parentId) {
+        String severity = event.operation() == CacheActivityOperation.MISS ? SEVERITY_WARN : SEVERITY_OK;
+        String summary = event.operation().name() + " " + event.cacheName();
+        String detail = event.keyHash() == null ? null : "key " + event.keyHash();
+        return new ActivityEntryDto(
+                "cache-" + event.seq(),
+                TYPE_CACHE,
+                event.timestampMillis(),
+                severity,
+                summary,
+                detail,
+                null,
+                event.traceId(),
+                null,
+                null,
+                null,
+                event.thread(),
+                false,
+                parentId,
+                null,
+                false);
+    }
+
     /**
      * Builds one {@link RequestAnchor} per recent HTTP request, resolving its serving thread and precise
      * window from {@link RequestCorrelationRegistry} when available. Used to attach correlated SQL,
@@ -410,20 +483,32 @@ public class LiveActivityService {
      * request, so the entry stays top-level rather than being mis-attributed.
      */
     private static String matchSqlParent(SqlTraceEntryDto entry, List<RequestAnchor> anchors) {
-        String traceId = entry.traceId();
+        return matchByTraceThenThread(entry.traceId(), entry.thread(), entry.timestamp(), anchors);
+    }
+
+    /**
+     * Resolves the request that a cache access belongs to using the same trace-id-then-serving-thread
+     * tiering {@link #matchSqlParent} uses for SQL, since cache accesses are captured on the same
+     * application thread as the request that triggered them.
+     */
+    private static String matchCacheParent(CacheActivityEvent event, List<RequestAnchor> anchors) {
+        return matchByTraceThenThread(event.traceId(), event.thread(), event.timestampMillis(), anchors);
+    }
+
+    private static String matchByTraceThenThread(
+            String traceId, String thread, long timestamp, List<RequestAnchor> anchors) {
         if (traceId != null && !traceId.isBlank()) {
             String byTrace = uniqueByTrace(anchors, traceId);
             if (byTrace != null) {
                 return byTrace;
             }
         }
-        String thread = entry.thread();
         if (thread == null) {
             return null;
         }
         String found = null;
         for (RequestAnchor anchor : anchors) {
-            if (thread.equals(anchor.thread()) && covers(anchor, entry.timestamp())) {
+            if (thread.equals(anchor.thread()) && covers(anchor, timestamp)) {
                 if (found != null) {
                     return null;
                 }
@@ -510,7 +595,11 @@ public class LiveActivityService {
     private record RequestAnchor(
             String id, long start, long end, String thread, String traceId, String method, String path) {}
 
-    private ActivityKpiDto computeKpis(HttpExchangesReport requests, SqlTraceReport sql, ExceptionsReport exceptions) {
+    private ActivityKpiDto computeKpis(
+            HttpExchangesReport requests,
+            SqlTraceReport sql,
+            ExceptionsReport exceptions,
+            List<CacheActivityEvent> cache) {
         double requestsPerMinute = 0;
         double errorRate = 0;
         Long p50 = null;
@@ -557,6 +646,20 @@ public class LiveActivityService {
         int activeExceptions = exceptions == null ? 0 : exceptions.groups().size();
         String healthStatus = currentHealthStatus();
 
+        Double cacheHitRatioPercent = null;
+        if (cache != null && !cache.isEmpty()) {
+            long hits = cache.stream()
+                    .filter(e -> e.operation() == CacheActivityOperation.HIT)
+                    .count();
+            long misses = cache.stream()
+                    .filter(e -> e.operation() == CacheActivityOperation.MISS)
+                    .count();
+            long reads = hits + misses;
+            if (reads > 0) {
+                cacheHitRatioPercent = round(100.0 * hits / reads);
+            }
+        }
+
         Long heapUsed = null;
         Long heapMax = null;
         try {
@@ -579,7 +682,8 @@ public class LiveActivityService {
                 slowestQueryMs,
                 healthStatus,
                 heapUsed,
-                heapMax);
+                heapMax,
+                cacheHitRatioPercent);
     }
 
     private String currentHealthStatus() {

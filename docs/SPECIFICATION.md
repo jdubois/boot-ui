@@ -713,16 +713,28 @@ Data sources:
 - Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
+- On the Spring adapter only, a `CacheActivityRecorder` (framework-neutral, `bootui-engine`) is fed by
+  `CacheActivityCacheManagerBeanPostProcessor`, which decorates every `CacheManager` bean so both annotation-driven
+  (`@Cacheable`/`@CachePut`/`@CacheEvict`) and direct programmatic cache access are captured transparently, pass-through
+  by default and fail-open. Gated by `bootui.cache.activity-capture-enabled` (default `true`) and the Cache panel's own
+  `bootui.panels.cache.enabled`; bounded by `bootui.cache.activity-max-events` (default 500). Cache keys are never
+  captured raw — only a short SHA-256 hash (`CacheActivityRecorder.hashKey`) — so no application data leaves the process
+  even under full value exposure. Quarkus does not yet capture cache accesses (`quarkus-cache`'s build-time-woven
+  annotations give no comparable runtime interception seam), so the `CACHE` event type and the `cacheHitRatioPercent` KPI
+  are Spring-only for now; see `docs/QUARKUS-SUPPORT.md`.
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
-  severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
-  `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
-  `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
-  method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
-  that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected) and entries without a
-  precise request correlation have a null `parentId`. A `REQUEST` entry that was correlated to a Spring Security audit
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and (Spring only) `CACHE` entries normalized to a common
+  shape (timestamp, type, severity, one-line summary, optional duration and correlation id), sorted newest-first and
+  capped by `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an
+  optional `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or
+  request method/path), so the client can nest correlated SQL, exceptions, security events, and cache accesses
+  chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the sparkline
+  are unaffected) and entries without a precise request correlation have a null `parentId`. A `CACHE` entry's summary is
+  `"<HIT|MISS|PUT|EVICT|CLEAR> <cacheName>"`, its detail is `"key <hash>"` when a key was involved (omitted for
+  whole-cache `CLEAR`), and a `MISS` is flagged `WARN` severity (all other operations `OK`). A `REQUEST` entry that was
+  correlated to a Spring Security audit
   event also carries a `securedPrincipal` (the caller's principal; null when the request had no
   correlated security event naming a principal), so the client can flag it as authenticated with a
   lock icon and a principal tag without opening the profiler. It also carries a `sqlNPlusOneSuspected` boolean, computed
@@ -730,7 +742,8 @@ Features:
   an N+1 access pattern can be badged directly in the list without opening its profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
   100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
-  exception count, SQL/min, slowest query, health status, and heap usage.
+  exception count, SQL/min, slowest query, health status, heap usage, and (Spring only, `null` on Quarkus) cache hit
+  ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
   nesting of correlated children under their request (expanded by default; any active filter or free-text search
   flattens the feed so the query spans every signal), and a
