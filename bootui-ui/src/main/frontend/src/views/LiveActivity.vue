@@ -23,7 +23,7 @@ import {
   nestEntries
 } from '../utils/activityStream.js'
 
-const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY', 'CACHE', 'SCHEDULED_TASK']
+const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY', 'CACHE', 'SCHEDULED_TASK', 'MESSAGING']
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
 const FILTERS_STORAGE_KEY = 'bootui.activity.filters'
 const PERSISTENCE_DOCS_URL = 'https://www.julien-dubois.com/boot-ui/properties#live-activity-durable-persistence'
@@ -307,7 +307,8 @@ function typeIcon(type) {
       EXCEPTION: 'bi-exclamation-octagon',
       SECURITY: 'bi-shield-lock',
       CACHE: 'bi-lightning-charge',
-      SCHEDULED_TASK: 'bi-clock-history'
+      SCHEDULED_TASK: 'bi-clock-history',
+      MESSAGING: 'bi-diagram-3'
     }[type] || 'bi-dot'
   )
 }

@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.ArrayList;
@@ -98,6 +99,7 @@ public class LiveActivityController {
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             ObjectProvider<CacheActivityRecorder> cacheActivity,
             ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
+            ObjectProvider<KafkaActivityRecorder> kafkaActivityRecorder,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             ObjectProvider<DataSource> dataSourceProvider,
@@ -112,6 +114,7 @@ public class LiveActivityController {
                 securityCorrelations,
                 cacheActivity,
                 scheduledTaskRuns,
+                kafkaActivityRecorder,
                 properties);
         this.correlator = new LiveActivityCorrelator(
                 httpExchanges,
@@ -140,6 +143,10 @@ public class LiveActivityController {
         ScheduledTaskRunStore scheduledStore = scheduledTaskRuns.getIfAvailable();
         if (scheduledStore != null) {
             unsubscribers.add(scheduledStore.subscribe(changeStream::signal));
+        }
+        KafkaActivityRecorder kafkaRecorder = kafkaActivityRecorder.getIfAvailable();
+        if (kafkaRecorder != null) {
+            unsubscribers.add(kafkaRecorder.subscribe(changeStream::signal));
         }
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;

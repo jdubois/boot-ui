@@ -59,20 +59,20 @@ the current per-panel list), and the shell chrome is populated by the same `GET 
 ### Live Activity
 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
-The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
 application just did, plus a per-request profiler for drilling into any single request. It adds no new instrumentation
-for four of its six signals — instead it reuses BootUI's existing in-memory signal buffers by calling the same
+for four of its seven signals — instead it reuses BootUI's existing in-memory signal buffers by calling the same
 controllers that back the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is already
 masked, self-filtered, and bounded exactly as those panels are. The fifth signal, cache accesses, is captured by a
 small dedicated recorder (Spring servlet and WebFlux adapters only — see below) that only ever stores a hashed cache key, never a raw key or
 value. The sixth signal, scheduled-task runs, captures each `@Scheduled` method *execution* (start, success,
 failure, duration) on both adapters: Spring taps its own scheduling observability hook (no extra proxying), Quarkus
 observes the CDI `SuccessfulExecution`/`FailedExecution` events its scheduler always fires — feeding a bounded
-in-memory buffer the same way the other sources do.
+in-memory buffer the same way the other sources do. The seventh signal, Kafka producer/consumer activity, is described
+below.
 
-The stream merges six signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
+The stream merges seven signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
 (`EXCEPTION`), security events (`SECURITY`), — on the Spring servlet and WebFlux adapters — cache accesses (`CACHE`),
-and scheduled-task runs (`SCHEDULED_TASK`). Each row carries a
+scheduled-task runs (`SCHEDULED_TASK`), and Kafka producer/consumer activity (`MESSAGING`). Each row carries a
 timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
@@ -96,7 +96,7 @@ active-exceptions, health, heap-usage, cache-hit-ratio, and scheduled-failures c
 respectively. Because the merged feed is genuinely event-driven, it refreshes over **Server-Sent Events** instead of
 fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
-exception, security event, cache access, or scheduled-task run), and the feed can be paused and resumed so a row you are inspecting does not
+exception, security event, cache access, scheduled-task run, or Kafka message), and the feed can be paused and resumed so a row you are inspecting does not
 scroll away.
 When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
 SQL statements, exceptions, security events, and cache accesses that BootUI can pin precisely to a request — by trace id,
@@ -143,6 +143,21 @@ confirmation-gated and blocked like any other action when the app or panel is re
 `bootui.activity.max-entries`, the slow-request threshold is `bootui.activity.request-slow-threshold-ms`, and individual
 sources can be turned off through their existing `bootui.panels.*` toggles (a disabled source simply drops out of the
 stream).
+
+When Kafka support is present, BootUI captures producer/consumer activity into the stream as `MESSAGING` entries. On
+Spring, it wraps every application-owned `KafkaTemplate` (a `ProducerListener`) and `@KafkaListener` container factory
+(a `RecordInterceptor`) — composing with, never replacing, any listener/interceptor the application already configured,
+exactly like `HttpExchangesController`'s repository wrapper. On Quarkus, it hooks SmallRye Reactive Messaging's Kafka
+interceptors. Each entry records topic, partition, offset (for consumed records), a truncated key, direction (`→`/`←`
+for produce/consume), success/failure, and — for consumed records — the consumer group id, a listener identifier, and
+processing duration (a producer send's duration is not exposed by either framework's callback, so it is not tracked).
+That listener identifier is intentionally framework-specific: on Spring it is currently the **listener container
+factory bean name** (the per-`@KafkaListener` id is not exposed at the factory-wide interception point), while on
+Quarkus it is the channel name. **The message value/payload is never captured** — only metadata — since a Kafka payload
+is an arbitrary, potentially large and sensitive application object with no generic masking strategy. Kafka entries are
+top-level in the feed today (not yet nested under a correlated request). Capture is on by default whenever the relevant
+Kafka integration is present and the panel is enabled, and can be tuned or disabled entirely via `bootui.kafka.enabled`,
+`bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length` — see `docs/PROPERTIES.md`.
 
 By default the stream is in-memory only, so history is lost on a restart and the feed can only show as far back as the
 small buffers behind it reach. Setting `bootui.activity.persistence.enabled=true` additionally buffers

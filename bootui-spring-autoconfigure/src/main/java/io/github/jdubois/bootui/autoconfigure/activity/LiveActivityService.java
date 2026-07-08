@@ -21,6 +21,9 @@ import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
@@ -69,6 +72,7 @@ public class LiveActivityService {
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
     private final ObjectProvider<CacheActivityRecorder> cacheActivity;
     private final ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns;
+    private final ObjectProvider<KafkaActivityRecorder> kafka;
     private final BootUiProperties properties;
 
     public LiveActivityService(
@@ -81,6 +85,7 @@ public class LiveActivityService {
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             ObjectProvider<CacheActivityRecorder> cacheActivity,
             ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
+            ObjectProvider<KafkaActivityRecorder> kafka,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
@@ -91,6 +96,7 @@ public class LiveActivityService {
         this.securityCorrelations = securityCorrelations;
         this.cacheActivity = cacheActivity;
         this.scheduledTaskRuns = scheduledTaskRuns;
+        this.kafka = kafka;
         this.properties = properties;
     }
 
@@ -113,6 +119,7 @@ public class LiveActivityService {
         SecurityLogsReport security = loadSecurity(sources);
         List<CacheActivityEvent> cache = loadCache(sources);
         List<ScheduledTaskRunStore.Run> scheduledRuns = loadScheduledTaskRuns(sources);
+        List<CapturedMessage> kafkaMessages = loadKafka(sources);
 
         List<RequestAnchor> anchors = buildAnchors(requests);
         Map<String, RequestAnchor> anchorsById = new HashMap<>();
@@ -171,6 +178,9 @@ public class LiveActivityService {
             for (CacheActivityEvent event : cache) {
                 all.add(toCacheEntry(event, matchCacheParent(event, anchors)));
             }
+        }
+        for (CapturedMessage message : kafkaMessages) {
+            all.add(toKafkaEntry(message));
         }
         if (requests != null) {
             int nPlusOneThreshold = properties.getActivity().getNPlusOneThreshold();
@@ -323,6 +333,28 @@ public class LiveActivityService {
         return runs.size() > cap ? runs.subList(0, cap) : runs;
     }
 
+    /**
+     * Loads recently captured Kafka messages from {@link KafkaActivityRecorder} directly (unlike the
+     * other sources, there is no dedicated controller/panel: Kafka capture only feeds this stream, see
+     * {@code docs/PLAN.md} §3.4). Gated on the {@code ACTIVITY} panel like the other sources, plus the
+     * recorder's own {@code bootui.kafka.enabled} toggle (folded into {@link
+     * KafkaActivityRecorder#isEnabled()} at construction).
+     */
+    private List<CapturedMessage> loadKafka(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.ACTIVITY)) {
+            return List.of();
+        }
+        KafkaActivityRecorder recorder = kafka == null ? null : kafka.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return List.of();
+        }
+        List<CapturedMessage> messages = recorder.recent();
+        if (!messages.isEmpty()) {
+            sources.add("Kafka");
+        }
+        return messages;
+    }
+
     private ActivityEntryDto toRequestEntry(
             HttpExchangeDto exchange, String servingThread, String securedPrincipal, boolean sqlNPlusOneSuspected) {
         long timestamp =
@@ -415,6 +447,19 @@ public class LiveActivityService {
                 parentId,
                 null,
                 false);
+    }
+
+    /**
+     * Maps a captured Kafka message to a flat {@code MESSAGING} entry, delegating to the shared,
+     * framework-neutral {@link KafkaActivityEntries#toEntry(CapturedMessage)} so the Quarkus adapter
+     * renders every Kafka entry byte-for-byte identically. Unlike {@code SQL}/{@code EXCEPTION}/{@code
+     * SECURITY}, no request-parent correlation is attempted yet (BootUI has no trace id on the
+     * producer/consumer thread today), so every entry is top-level; see {@code docs/PLAN.md} §3.4 for
+     * the nesting this can grow into once messaging spans carry a correlation id. Duration is only known
+     * for consumed messages (the producer callback carries no send-start timestamp).
+     */
+    private ActivityEntryDto toKafkaEntry(CapturedMessage message) {
+        return KafkaActivityEntries.toEntry(message);
     }
 
     private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, String parentId) {

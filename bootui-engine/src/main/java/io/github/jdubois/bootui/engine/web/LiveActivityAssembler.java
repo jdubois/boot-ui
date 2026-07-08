@@ -10,6 +10,8 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.lang.management.ManagementFactory;
@@ -26,9 +28,10 @@ import java.util.Map;
 /**
  * Framework-neutral assembly of the Live Activity merged stream + KPI summary from already-masked source
  * reports. The Spring adapter has its own richer, controller-fed service (with per-request signal
- * correlation and thread attribution); the Quarkus adapter feeds this assembler the signal sources it
- * captures — HTTP requests, SQL trace, exceptions, security/audit events, and captured {@code @Scheduled}
- * task executions — which are merged into one reverse-chronological feed with JVM heap and per-type KPIs.
+ * correlation and thread attribution); the WebFlux and Quarkus adapters feed this assembler the signal
+ * sources they capture — HTTP requests, SQL trace, exceptions, security/audit events, cache accesses,
+ * captured {@code @Scheduled} task executions, and optionally Kafka messaging — which are merged into
+ * one reverse-chronological feed with JVM heap and per-type KPIs.
  *
  * <p>Inputs are already masked and self-filtered by their owning engine services before they reach this
  * shape, so the assembler only normalizes, severities, merges, correlates and caps.</p>
@@ -71,6 +74,12 @@ import java.util.Map;
  * the Spring adapter's {@code LiveActivityService.matchScheduledTaskParent}), nesting as that run's
  * {@code EXCEPTION} child. {@code scheduledTaskFailureCount} counts failed runs currently retained
  * regardless of correlation.</p>
+ *
+ * <p><strong>Kafka produce/consume outcomes (the {@code MESSAGING} entry type) render top-level, with no
+ * request-parent correlation attempted</strong>, unlike SQL/exceptions/security/cache above: BootUI has no
+ * trace id available on the producer/consumer thread today, so every {@link KafkaActivityEntries#toEntry}
+ * mapping is flat by design (see {@code docs/PLAN.md} §3.4 for the nesting this can grow into once
+ * messaging spans carry a correlation id).</p>
  */
 public final class LiveActivityAssembler {
 
@@ -123,6 +132,11 @@ public final class LiveActivityAssembler {
      *     no HTTP request claims it.
      * @param healthStatus current health status, or {@code null}
      * @param limit maximum merged entries to return, or {@code 0}/negative for no cap
+     * @param kafkaMessages captured Kafka produce/consume outcomes (newest-first), or {@code null}; ignored
+     *     unless {@code kafkaAvailable}. Rendered top-level (no request-parent correlation), since there is
+     *     no trace id available on the producer/consumer thread today — see {@code docs/PLAN.md} §3.4.
+     * @param kafkaAvailable whether the Kafka capture source is present and feeding ({@code KafkaTemplate}/
+     *     {@code @KafkaListener} beans on Spring, SmallRye Reactive Messaging channels on Quarkus)
      */
     public LiveActivityReport report(
             HttpExchangesReport requests,
@@ -136,7 +150,9 @@ public final class LiveActivityAssembler {
             boolean cacheAvailable,
             List<ScheduledTaskRunStore.Run> scheduledRuns,
             String healthStatus,
-            int limit) {
+            int limit,
+            List<CapturedMessage> kafkaMessages,
+            boolean kafkaAvailable) {
 
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
@@ -144,6 +160,7 @@ public final class LiveActivityAssembler {
         List<CacheActivityEvent> cache = !cacheAvailable || cacheEvents == null ? List.of() : cacheEvents;
         List<ScheduledTaskRunStore.Run> scheduled = scheduledRuns == null ? List.of() : scheduledRuns;
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
+        List<CapturedMessage> kafka = !kafkaAvailable || kafkaMessages == null ? List.of() : kafkaMessages;
 
         List<ActivityEntryDto> entries = new ArrayList<>();
 
@@ -258,6 +275,10 @@ public final class LiveActivityAssembler {
             entries.add(toScheduledTaskEntry(run));
         }
 
+        for (CapturedMessage message : kafka) {
+            entries.add(KafkaActivityEntries.toEntry(message));
+        }
+
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
 
         Map<String, Integer> typeCounts = new LinkedHashMap<>();
@@ -283,6 +304,9 @@ public final class LiveActivityAssembler {
         }
         if (!scheduled.isEmpty()) {
             sources.add("scheduled-tasks");
+        }
+        if (kafkaAvailable) {
+            sources.add("kafka");
         }
 
         List<String> warnings = new ArrayList<>();

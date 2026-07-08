@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
@@ -109,8 +110,8 @@ import javax.sql.DataSource;
  * {@link #request} can correlate on; every other entry, and every request without one, stays
  * non-profileable. Spring's controller/correlator computes its own {@code profileable} semantics
  * independently and is unaffected by this adapter-only step. Read-only (the profile drill-down only reads
- * already-captured signals), plus the SSE change-notification stream {@code /stream} that ticks whenever a
- * new HTTP exchange is captured so the shared Vue panel's auto-refresh toggle works identically to Spring.
+ * already-captured signals), plus the SSE change-notification stream {@code /stream} that ticks whenever
+ * any merged source changes so the shared Vue panel's auto-refresh toggle works identically to Spring.
  */
 @Path("/bootui/api/activity")
 public class LiveActivityResource {
@@ -130,6 +131,7 @@ public class LiveActivityResource {
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
     private final Instance<DataSource> dataSources;
+    private final KafkaActivityRecorder kafkaRecorder;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
     private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
@@ -150,7 +152,8 @@ public class LiveActivityResource {
             TracesService tracesService,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
-            Instance<DataSource> dataSources) {
+            Instance<DataSource> dataSources,
+            KafkaActivityRecorder kafkaRecorder) {
         this.buffer = buffer;
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
@@ -163,6 +166,7 @@ public class LiveActivityResource {
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.dataSources = dataSources;
+        this.kafkaRecorder = kafkaRecorder;
     }
 
     /**
@@ -263,13 +267,14 @@ public class LiveActivityResource {
      * before persistence-aware pagination, extracted so {@code QuarkusActivityCapture}'s capture poller
      * can reuse it as its feed {@link java.util.function.Supplier} without duplicating the
      * signal-gathering/masking/profileable-stamping logic. Reusing this method (rather than re-reading
-     * the four signal sources independently) means the poller sees the exact same self-filtered, masked
+     * the five signal sources independently) means the poller sees the exact same self-filtered, masked
      * view the panel itself renders.
      */
     public LiveActivityReport mergedReport(int limit) {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
+        boolean kafkaAvailable = kafkaRecorder.isEnabled();
 
         LiveActivityReport report = assembler.report(
                 requests,
@@ -285,7 +290,9 @@ public class LiveActivityResource {
                 false,
                 scheduledTaskRunStore.runs(),
                 null,
-                limit);
+                limit,
+                kafkaAvailable ? kafkaRecorder.recent() : List.of(),
+                kafkaAvailable);
 
         // Adapter-side post-processing over the shared assembler's output — not a change to the engine's
         // own `profileable` default (which stays `false` for every entry it builds, unaffected by this
@@ -299,6 +306,7 @@ public class LiveActivityResource {
                     && !entry.correlationId().isBlank();
             entries.add(profileable ? withProfileable(entry) : entry);
         }
+
         return new LiveActivityReport(
                 report.available(), entries, report.typeCounts(), report.kpis(), report.sources(), report.warnings());
     }
@@ -342,14 +350,16 @@ public class LiveActivityResource {
                 sse,
                 openStreams,
                 MAX_CONCURRENT_STREAMS,
-                combined(buffer::subscribe, scheduledTaskRunStore::subscribe));
+                combined(combined(buffer::subscribe, scheduledTaskRunStore::subscribe), kafkaRecorder::subscribe));
     }
 
     /**
      * Combines two {@link SseStreams.ChangeSource}s into one that notifies {@code onChange} when either
-     * fires, so the merged Live Activity stream ticks on a new HTTP exchange <em>or</em> a new captured
-     * {@code @Scheduled} execution — mirroring the Spring adapter, whose single {@code BootUiChangeStream}
-     * already fans in every signal source (including {@link ScheduledTaskRunStore}) to the same effect.
+     * fires, so the merged Live Activity stream ticks on a new HTTP exchange, a new captured
+     * {@code @Scheduled} execution, <em>or</em> a new captured Kafka message (nested at the call site to
+     * fan in all three) — mirroring the Spring adapter, whose single {@code BootUiChangeStream} already
+     * fans in every signal source (including {@link ScheduledTaskRunStore} and the Kafka recorder) to the
+     * same effect.
      */
     private static SseStreams.ChangeSource combined(SseStreams.ChangeSource first, SseStreams.ChangeSource second) {
         return onChange -> {

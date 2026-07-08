@@ -741,8 +741,8 @@ Data sources:
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, (Spring only) `CACHE`, and `SCHEDULED_TASK` entries
-  normalized to a common shape (timestamp, type, severity, one-line summary, optional duration and correlation id),
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, (Spring only) `CACHE`, `SCHEDULED_TASK`, and `MESSAGING`
+  entries normalized to a common shape (timestamp, type, severity, one-line summary, optional duration and correlation id),
   sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
@@ -762,6 +762,20 @@ Features:
   `ERROR` on a thrown exception (with the exception class name and message surfaced as `detail`), `SLOW` when its
   duration meets the same slow-request threshold, otherwise `OK`, and clicking it deep-links into the Scheduled Tasks
   panel prefilled with its runnable name.
+- Kafka producer/consumer capture: framework-specific capture hooks feed a shared, framework-neutral
+  `KafkaActivityRecorder` (bounded ring buffer in `bootui-engine`), and Live Activity renders those records as
+  `MESSAGING` entries. On Spring, `KafkaProducerCaptureBeanPostProcessor` and
+  `KafkaConsumerCaptureBeanPostProcessor` wrap application-owned `KafkaTemplate` and `@KafkaListener` container factory
+  beans — composing with, never replacing, any `ProducerListener`/`RecordInterceptor` the application already
+  configured, mirroring the HTTP Exchanges repository-wrapper precedent. On Quarkus, SmallRye Reactive Messaging Kafka
+  interceptors capture the same metadata. Each entry carries topic, partition, offset (consume only), a truncated key,
+  direction, success/failure, and — for consumed records — consumer group id, listener id, and processing duration.
+  Only metadata is captured; the message value/payload is never captured or masked, since it is an arbitrary
+  application payload with no generic masking strategy. Kafka entries are top-level (no request-parent correlation yet).
+  The listener-id field is intentionally honest about framework limits: on Spring it currently carries the listener
+  container factory bean name (the resolved per-`@KafkaListener` id is not exposed at the factory-wide interception
+  point), while on Quarkus it carries the channel name. Controlled by `bootui.kafka.enabled`,
+  `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length`.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, health status, heap usage, (Spring only, `null` on Quarkus) cache hit
   ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel — and a

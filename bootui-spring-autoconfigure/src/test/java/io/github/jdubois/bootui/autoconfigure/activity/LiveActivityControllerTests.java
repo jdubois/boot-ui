@@ -335,6 +335,7 @@ class LiveActivityControllerTests {
                 empty(SecurityEventCorrelationRegistry.class),
                 empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
+                empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
                 properties);
         return service.report(type, severity, since, limit);
     }
@@ -441,6 +442,7 @@ class LiveActivityControllerTests {
                 empty(SecurityEventCorrelationRegistry.class),
                 empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
+                empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
                 activityStore,
                 persistenceSettings,
                 dataSourceProvider,

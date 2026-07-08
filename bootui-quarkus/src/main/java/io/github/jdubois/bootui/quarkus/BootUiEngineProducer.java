@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
@@ -702,6 +703,36 @@ public class BootUiEngineProducer {
         CacheProvider provider = cacheProviders.isUnsatisfied() ? null : cacheProviders.get();
         MeterSelfFilter meterFilter = new MeterSelfFilter(selfClassifier);
         return new CacheService(provider, () -> resolveRegistry(registries), meterFilter::shouldIncludeMeter);
+    }
+
+    /**
+     * The Live Activity Kafka capture buffer. Produced <em>unconditionally</em> because
+     * {@link KafkaActivityRecorder} holds no Kafka-client or messaging type of its own (only JDK types):
+     * the {@code io.smallrye.reactive.messaging}-importing capture beans ({@code QuarkusKafkaProducerCapture}
+     * / {@code QuarkusKafkaConsumerCapture}) that feed it live behind the {@code KAFKA} capability gate (R2),
+     * and {@code LiveActivityResource} reads it directly. When {@code quarkus-messaging-kafka} is absent the
+     * capture beans are not wired, so nothing is ever recorded and the recorder simply stays empty —
+     * Live Activity renders no {@code MESSAGING} entries, exactly as on Spring without {@code spring-kafka}.
+     *
+     * <p>The {@code bootui.kafka.*} keys and their defaults (enabled/capture-key {@code true},
+     * max-entries/max-key-length {@code 200}) are kept unified with the Spring adapter's
+     * {@code BootUiProperties.Kafka}, so the same values size and gate capture identically on both
+     * frameworks. Per-panel gating of the Live Activity panel itself is handled by
+     * {@code QuarkusPanelAccessFilter} on the read path (as for every other Quarkus source), so the
+     * recorder gates only on {@code bootui.kafka.enabled}.</p>
+     */
+    @Produces
+    @Singleton
+    public KafkaActivityRecorder kafkaActivityRecorder(Config config) {
+        boolean enabled =
+                config.getOptionalValue("bootui.kafka.enabled", Boolean.class).orElse(true);
+        boolean captureKey = config.getOptionalValue("bootui.kafka.capture-key", Boolean.class)
+                .orElse(true);
+        int maxEntries = config.getOptionalValue("bootui.kafka.max-entries", Integer.class)
+                .orElse(200);
+        int maxKeyLength = config.getOptionalValue("bootui.kafka.max-key-length", Integer.class)
+                .orElse(200);
+        return new KafkaActivityRecorder(enabled, captureKey, maxEntries, maxKeyLength);
     }
 
     /**
