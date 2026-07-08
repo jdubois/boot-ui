@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
+import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityCacheManagerBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.cache.SpringCacheProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider;
@@ -13,11 +14,15 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRe
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
+import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.liquibase.SpringLiquibaseProvider;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mappings.SpringMappingProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
+import io.github.jdubois.bootui.autoconfigure.scheduled.BootUiSchedulingConfigurer;
+import io.github.jdubois.bootui.autoconfigure.scheduled.ScheduledTaskRunObservationHandler;
 import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvider;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigMetadataCatalog;
@@ -27,6 +32,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
@@ -40,14 +46,17 @@ import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.mappings.MappingsService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
@@ -501,6 +510,22 @@ public class BootUiEngineConfiguration {
     static class ScheduledTasksBackendConfiguration {
 
         @Bean
+        ScheduledTaskRunStore bootUiScheduledTaskRunStore(BootUiProperties properties) {
+            return new ScheduledTaskRunStore(properties.getActivity().getMaxScheduledTaskRuns());
+        }
+
+        @Bean
+        ScheduledTaskRunObservationHandler bootUiScheduledTaskRunObservationHandler(
+                ScheduledTaskRunStore store, BootUiSelfDataFilter selfDataFilter) {
+            return new ScheduledTaskRunObservationHandler(store, selfDataFilter);
+        }
+
+        @Bean
+        BootUiSchedulingConfigurer bootUiSchedulingConfigurer(ScheduledTaskRunObservationHandler handler) {
+            return new BootUiSchedulingConfigurer(handler);
+        }
+
+        @Bean
         @Lazy
         @ConditionalOnMissingBean
         SpringScheduledTaskProvider bootUiSpringScheduledTaskProvider(
@@ -545,6 +570,65 @@ public class BootUiEngineConfiguration {
                                 : meterRegistries.orderedStream().findFirst().orElse(null);
                     },
                     selfDataFilter::shouldIncludeMeter);
+        }
+
+        /**
+         * Framework-neutral cache-access recorder feeding the Live Activity panel's {@code CACHE} event
+         * type. Declared here (rather than per-adapter) so both the servlet {@code BootUiAutoConfiguration}
+         * and {@code BootUiReactiveAutoConfiguration} — which both {@code @Import} this class — share the
+         * exact same bean and decoration, since {@code CacheManager}/{@code Cache} are the same abstraction
+         * under either web stack (see {@code LiveActivityAssembler}'s class Javadoc for why Quarkus has no
+         * equivalent).
+         */
+        @Bean
+        CacheActivityRecorder bootUiCacheActivityRecorder(BootUiProperties properties) {
+            BootUiProperties.Cache cache = properties.getCache();
+            return new CacheActivityRecorder(
+                    cache.isActivityCaptureEnabled() && properties.isPanelEnabled(BootUiPanels.CACHE),
+                    cache.getActivityMaxEvents());
+        }
+
+        @Bean
+        static CacheActivityCacheManagerBeanPostProcessor bootUiCacheActivityCacheManagerBeanPostProcessor(
+                ObjectProvider<CacheActivityRecorder> recorderProvider,
+                ObjectProvider<BootUiSelfDataFilter> selfDataFilterProvider) {
+            return new CacheActivityCacheManagerBeanPostProcessor(recorderProvider, selfDataFilterProvider);
+        }
+    }
+
+    /**
+     * The Live Activity Kafka capture backend is framework-neutral (a bounded in-memory recorder plus two
+     * Spring-specific post-processors) and is needed by both servlet and reactive stacks, so it is wired
+     * here in the shared engine configuration rather than under the servlet-only auto-configuration. The
+     * recorder itself stays ungated exactly as before; the two {@code BeanPostProcessor}s keep their
+     * method-level {@code @ConditionalOnClass(KafkaTemplate)} guards so a Spring-Kafka-absent application
+     * never links those types.
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class KafkaBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        KafkaActivityRecorder bootUiKafkaActivityRecorder(BootUiProperties properties) {
+            BootUiProperties.Kafka kafka = properties.getKafka();
+            boolean enabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.ACTIVITY);
+            return new KafkaActivityRecorder(
+                    enabled, kafka.isCaptureKey(), kafka.getMaxEntries(), kafka.getMaxKeyLength());
+        }
+
+        @Bean
+        @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
+        static KafkaProducerCaptureBeanPostProcessor bootUiKafkaProducerCaptureBeanPostProcessor(
+                ObjectProvider<KafkaActivityRecorder> recorderProvider) {
+            return new KafkaProducerCaptureBeanPostProcessor(recorderProvider);
+        }
+
+        @Bean
+        @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
+        static KafkaConsumerCaptureBeanPostProcessor bootUiKafkaConsumerCaptureBeanPostProcessor(
+                ObjectProvider<KafkaActivityRecorder> recorderProvider) {
+            return new KafkaConsumerCaptureBeanPostProcessor(recorderProvider);
         }
     }
 

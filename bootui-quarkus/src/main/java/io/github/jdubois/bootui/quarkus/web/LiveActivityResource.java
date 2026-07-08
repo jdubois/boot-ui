@@ -27,7 +27,9 @@ import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -63,12 +65,16 @@ import javax.sql.DataSource;
 
 /**
  * JAX-RS resource for the Live Activity panel ({@code GET /bootui/api/activity}). The Quarkus analogue of
- * the Spring adapter's {@code LiveActivityController}: it merges the five signals captured on this platform
- * — HTTP exchanges (via the shared {@link HttpExchangeBuffer}), SQL trace (via the shared
- * {@link SqlTraceRecorder}), exceptions (via the shared {@link ExceptionStore}), and security/audit events
- * (via the shared {@link SecurityEventBuffer}) — plus JVM heap into the neutral {@link LiveActivityReport}.
- * SQL trace contributes only when a datasource is configured (the recorder is gated on Agroal); security
- * events contribute only when Quarkus's security capability is present and
+ * the Spring adapter's {@code LiveActivityController}: it merges the signals captured on this platform —
+ * HTTP exchanges (via the shared {@link HttpExchangeBuffer}), SQL trace (via the shared
+ * {@link SqlTraceRecorder}), exceptions (via the shared {@link ExceptionStore}), security/audit events
+ * (via the shared {@link SecurityEventBuffer}), scheduled-task runs (via the shared
+ * {@link ScheduledTaskRunStore}), Kafka messages (via the shared {@link KafkaActivityRecorder}), and
+ * captured email (via the shared {@link EmailCaptureService}) — plus JVM heap into the neutral
+ * {@link LiveActivityReport}. Cache activity has no capture seam on Quarkus yet (see
+ * {@link LiveActivityAssembler}'s class Javadoc), so its slot is always empty/unavailable here. SQL trace
+ * contributes only when a datasource is configured (the recorder is gated on Agroal); security events
+ * contribute only when Quarkus's security capability is present and
  * {@code quarkus.security.events.enabled=true} (the same gate {@code SecurityLogsResource} uses, reused here
  * via {@link QuarkusPanelAvailability}); when either is absent the assembler surfaces a warning (SQL) or
  * simply omits the source (security) and its entries are omitted. Signal-to-request correlation is
@@ -111,8 +117,9 @@ import javax.sql.DataSource;
  * {@link #request} can correlate on; every other entry, and every request without one, stays
  * non-profileable. Spring's controller/correlator computes its own {@code profileable} semantics
  * independently and is unaffected by this adapter-only step. Read-only (the profile drill-down only reads
- * already-captured signals), plus the SSE change-notification stream {@code /stream} that ticks whenever a
- * new HTTP exchange or captured email is recorded so the shared Vue panel's auto-refresh toggle works identically to Spring.
+ * already-captured signals), plus the SSE change-notification stream {@code /stream} that ticks whenever
+ * any merged source changes (a new HTTP exchange, a captured {@code @Scheduled} execution, a Kafka message,
+ * or a captured email) so the shared Vue panel's auto-refresh toggle works identically to Spring.
  */
 @Path("/bootui/api/activity")
 public class LiveActivityResource {
@@ -127,11 +134,13 @@ public class LiveActivityResource {
     private final ExceptionsService exceptionsService;
     private final Instance<EmailCaptureService> emailCaptureService;
     private final SecurityEventBuffer securityBuffer;
+    private final ScheduledTaskRunStore scheduledTaskRunStore;
     private final QuarkusPanelAvailability panelAvailability;
     private final TracesService tracesService;
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
     private final Instance<DataSource> dataSources;
+    private final KafkaActivityRecorder kafkaRecorder;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
     private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
@@ -148,11 +157,13 @@ public class LiveActivityResource {
             ExceptionsService exceptionsService,
             Instance<EmailCaptureService> emailCaptureService,
             SecurityEventBuffer securityBuffer,
+            ScheduledTaskRunStore scheduledTaskRunStore,
             QuarkusPanelAvailability panelAvailability,
             TracesService tracesService,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
-            Instance<DataSource> dataSources) {
+            Instance<DataSource> dataSources,
+            KafkaActivityRecorder kafkaRecorder) {
         this.buffer = buffer;
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
@@ -160,11 +171,13 @@ public class LiveActivityResource {
         this.exceptionsService = exceptionsService;
         this.emailCaptureService = emailCaptureService;
         this.securityBuffer = securityBuffer;
+        this.scheduledTaskRunStore = scheduledTaskRunStore;
         this.panelAvailability = panelAvailability;
         this.tracesService = tracesService;
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.dataSources = dataSources;
+        this.kafkaRecorder = kafkaRecorder;
     }
 
     /**
@@ -265,13 +278,14 @@ public class LiveActivityResource {
      * before persistence-aware pagination, extracted so {@code QuarkusActivityCapture}'s capture poller
      * can reuse it as its feed {@link java.util.function.Supplier} without duplicating the
      * signal-gathering/masking/profileable-stamping logic. Reusing this method (rather than re-reading
-     * the four signal sources independently) means the poller sees the exact same self-filtered, masked
+     * the five signal sources independently) means the poller sees the exact same self-filtered, masked
      * view the panel itself renders.
      */
     public LiveActivityReport mergedReport(int limit) {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
+        boolean kafkaAvailable = kafkaRecorder.isEnabled();
         EmailsReport emailReport = emailReport();
         boolean emailAvailable = emailReport != null;
 
@@ -283,8 +297,15 @@ public class LiveActivityResource {
                 exceptionsService.report(exceptionStore).groups(),
                 securityEvents(securityAvailable),
                 securityAvailable,
+                // No Quarkus cache-access capture seam exists yet (see LiveActivityAssembler's class
+                // Javadoc); cacheHitRatioPercent stays null, exactly as before this parameter was added.
+                null,
+                false,
+                scheduledTaskRunStore.runs(),
                 null,
                 limit,
+                kafkaAvailable ? kafkaRecorder.recent() : List.of(),
+                kafkaAvailable,
                 emailAvailable ? emailReport.messages() : List.<EmailMessageDto>of(),
                 emailAvailable);
 
@@ -300,6 +321,7 @@ public class LiveActivityResource {
                     && !entry.correlationId().isBlank();
             entries.add(profileable ? withProfileable(entry) : entry);
         }
+
         return new LiveActivityReport(
                 report.available(), entries, report.typeCounts(), report.kpis(), report.sources(), report.warnings());
     }
@@ -339,14 +361,34 @@ public class LiveActivityResource {
     @Path("/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
     public Multi<OutboundSseEvent> stream(@Context Sse sse) {
-        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, onChange -> {
-            Runnable unsubscribeRequests = buffer.subscribe(onChange);
-            Runnable unsubscribeEmails = emailChangeSource().subscribe(onChange);
+        return SseStreams.updates(
+                sse,
+                openStreams,
+                MAX_CONCURRENT_STREAMS,
+                combined(
+                        combined(
+                                combined(buffer::subscribe, scheduledTaskRunStore::subscribe),
+                                kafkaRecorder::subscribe),
+                        emailChangeSource()));
+    }
+
+    /**
+     * Combines two {@link SseStreams.ChangeSource}s into one that notifies {@code onChange} when either
+     * fires, so the merged Live Activity stream ticks on a new HTTP exchange, a new captured
+     * {@code @Scheduled} execution, a new captured Kafka message, <em>or</em> a new captured email (nested
+     * at the call site to fan in all four) — mirroring the Spring adapter, whose single
+     * {@code BootUiChangeStream} already fans in every signal source (including
+     * {@link ScheduledTaskRunStore}, the Kafka recorder, and captured email) to the same effect.
+     */
+    private static SseStreams.ChangeSource combined(SseStreams.ChangeSource first, SseStreams.ChangeSource second) {
+        return onChange -> {
+            Runnable unsubscribeFirst = first.subscribe(onChange);
+            Runnable unsubscribeSecond = second.subscribe(onChange);
             return () -> {
-                unsubscribeRequests.run();
-                unsubscribeEmails.run();
+                unsubscribeFirst.run();
+                unsubscribeSecond.run();
             };
-        });
+        };
     }
 
     private HttpExchangesReport requestsReport() {

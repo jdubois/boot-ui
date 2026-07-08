@@ -24,7 +24,11 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -56,9 +60,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * <p>Because the merged feed is genuinely event-driven, the panel refreshes over Server-Sent Events
  * instead of fixed-interval polling: {@link #stream()} pushes a tiny coalesced {@code update} tick
  * whenever any underlying source changes, and the browser re-fetches {@link #activity} so all
- * masking, filtering and bounds still apply. The four sources are wired in as signals — SQL trace and
- * exceptions through their in-process subscribe hooks, security and HTTP requests through Spring
- * application events — and a single {@link BootUiChangeStream} coalesces a burst into one push.
+ * masking, filtering and bounds still apply. SQL trace, exceptions, cache accesses, scheduled-task
+ * runs, Kafka messages, and captured emails are wired in as signals through their in-process subscribe
+ * hooks; security and HTTP requests are wired through Spring application events — a single
+ * {@link BootUiChangeStream} coalesces a burst into one push.
  *
  * <p>This controller also always owns the capture side: whenever the injected {@link
  * #persistenceSettings} has persistence enabled (from startup configuration, or later via the "Use the
@@ -96,6 +101,10 @@ public class LiveActivityController {
             ObjectProvider<ExceptionStore> exceptionStore,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
+            ObjectProvider<CacheActivityRecorder> cacheActivity,
+            ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
+            ObjectProvider<KafkaActivityRecorder> kafkaActivityRecorder,
+            ObjectProvider<EmailCaptureService> emailCaptureService,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             ObjectProvider<DataSource> dataSourceProvider,
@@ -109,6 +118,9 @@ public class LiveActivityController {
                 email,
                 requestCorrelations,
                 securityCorrelations,
+                cacheActivity,
+                scheduledTaskRuns,
+                kafkaActivityRecorder,
                 properties);
         this.correlator = new LiveActivityCorrelator(
                 httpExchanges,
@@ -129,6 +141,22 @@ public class LiveActivityController {
         ExceptionStore store = exceptionStore.getIfAvailable();
         if (store != null) {
             unsubscribers.add(store.subscribe(changeStream::signal));
+        }
+        CacheActivityRecorder cache = cacheActivity.getIfAvailable();
+        if (cache != null) {
+            unsubscribers.add(cache.subscribe(changeStream::signal));
+        }
+        ScheduledTaskRunStore scheduledStore = scheduledTaskRuns.getIfAvailable();
+        if (scheduledStore != null) {
+            unsubscribers.add(scheduledStore.subscribe(changeStream::signal));
+        }
+        KafkaActivityRecorder kafkaRecorder = kafkaActivityRecorder.getIfAvailable();
+        if (kafkaRecorder != null) {
+            unsubscribers.add(kafkaRecorder.subscribe(changeStream::signal));
+        }
+        EmailCaptureService emailCapture = emailCaptureService.getIfAvailable();
+        if (emailCapture != null) {
+            unsubscribers.add(emailCapture.subscribe(changeStream::signal));
         }
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;

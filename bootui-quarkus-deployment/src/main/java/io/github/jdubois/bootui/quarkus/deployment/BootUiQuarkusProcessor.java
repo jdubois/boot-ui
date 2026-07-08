@@ -178,6 +178,19 @@ class BootUiQuarkusProcessor {
     private static final String SECURITY_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.web.QuarkusSecurityEventCapture";
 
+    // Referenced by class name only: QuarkusKafkaProducerCapture / QuarkusKafkaConsumerCapture implement
+    // SmallRye Reactive Messaging's io.smallrye.reactive.messaging.OutgoingInterceptor / IncomingInterceptor
+    // and read io.smallrye.reactive.messaging.kafka.api metadata, so the deployment classloader must never load
+    // them while augmenting an application without quarkus-messaging-kafka (loading them would link the messaging
+    // API that must stay absent — R2). The KAFKA capability gate registers them only when present.
+    private static final String KAFKA_PRODUCER_CAPTURE_CLASS =
+            "io.github.jdubois.bootui.quarkus.kafka.QuarkusKafkaProducerCapture";
+    private static final String KAFKA_CONSUMER_CAPTURE_CLASS =
+            "io.github.jdubois.bootui.quarkus.kafka.QuarkusKafkaConsumerCapture";
+
+    private static final String SCHEDULED_TASK_RUN_RECORDER_CLASS =
+            "io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskRunRecorder";
+
     // Referenced by class name only: QuarkusEmailCapture observes io.quarkus.mailer.SentMail, so the deployment
     // classloader must never load it while augmenting an application without quarkus-mailer (loading it would link
     // the mailer API that must stay absent — R2). There is no MAILER capability, so registerEmail gates on
@@ -1332,6 +1345,52 @@ class BootUiQuarkusProcessor {
     }
 
     /**
+     * Capability-gated registration of the Live Activity Kafka capture interceptors (R2), mirroring
+     * {@link #registerCacheAdvisor} exactly.
+     *
+     * <p>{@code QuarkusKafkaProducerCapture} and {@code QuarkusKafkaConsumerCapture} are
+     * {@code @ApplicationScoped} beans implementing SmallRye Reactive Messaging's {@code OutgoingInterceptor}
+     * / {@code IncomingInterceptor} SPI (which SmallRye discovers as CDI beans and applies to every channel),
+     * and they read {@code io.smallrye.reactive.messaging.kafka.api} record metadata. Because the extension
+     * runtime jar is Jandex-indexed, Arc would discover these {@code @ApplicationScoped} interceptors
+     * <em>unconditionally</em> — and loading them in an application without {@code quarkus-messaging-kafka}
+     * would link the SmallRye messaging API that must stay absent (R2). A CDI scope on the class is therefore
+     * exactly what makes it discoverable and dangerous, so the interceptors must be actively
+     * {@linkplain ExcludedTypeBuildItem excluded} from discovery when the {@code KAFKA} capability is absent
+     * (a Kafka connector implies reactive messaging, so gating on {@code KAFKA} alone is sufficient). When it
+     * is present, both are registered and pinned unremovable (SmallRye resolves them via {@code Instance}
+     * lookups Arc's usage analysis cannot see).</p>
+     *
+     * <p>No panel-availability key is needed: Live Activity is always available and Kafka is only an
+     * additional <em>source</em> within it. The always-produced {@code KafkaActivityRecorder} (see
+     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) simply stays empty when no capture
+     * interceptor is wired, so {@code LiveActivityResource} renders no {@code MESSAGING} entries until
+     * {@code quarkus-messaging-kafka} is added — exactly as on Spring without {@code spring-kafka}.</p>
+     */
+    @BuildStep
+    void registerKafkaCapture(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.KAFKA);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(KAFKA_PRODUCER_CAPTURE_CLASS)
+                    .addBeanClass(KAFKA_CONSUMER_CAPTURE_CLASS)
+                    .setUnremovable()
+                    .build());
+        } else {
+            // No quarkus-messaging-kafka (or production): keep the SmallRye-messaging-importing interceptors out
+            // of bean discovery so Arc never loads them and links the messaging API. The recorder still wires via
+            // the always-produced KafkaActivityRecorder and stays empty, so Live Activity renders no MESSAGING
+            // entries.
+            excludedTypes.produce(new ExcludedTypeBuildItem(KAFKA_PRODUCER_CAPTURE_CLASS));
+            excludedTypes.produce(new ExcludedTypeBuildItem(KAFKA_CONSUMER_CAPTURE_CLASS));
+        }
+    }
+
+    /**
      * Capability-gated registration of the Security Logs capture observer (R2). {@code QuarkusSecurityEventCapture}
      * observes {@code io.quarkus.security.spi.runtime.SecurityEvent}, so it must be excluded from bean discovery
      * when no security extension is present; the {@code SecurityEventBuffer} and {@code SecurityLogsResource} are
@@ -1358,6 +1417,36 @@ class BootUiQuarkusProcessor {
                     QuarkusPanelAvailability.SECURITY_LOGS_PRESENT_KEY, "true"));
         } else {
             excludedTypes.produce(new ExcludedTypeBuildItem(SECURITY_CAPTURE_CLASS));
+        }
+    }
+
+    /**
+     * Capability-gated registration of the Live Activity scheduled-task-run capture observer (R2).
+     * {@code QuarkusScheduledTaskRunRecorder} observes {@code io.quarkus.scheduler.SuccessfulExecution}/
+     * {@code FailedExecution}, so it must be excluded from bean discovery when no scheduler extension is
+     * present; the always-produced engine {@code ScheduledTaskRunStore} (see
+     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) is neutral (no scheduler imports), so
+     * it wires unconditionally and the Live Activity panel simply renders no {@code SCHEDULED_TASK}
+     * entries when the observer is absent. Mirrors {@link #registerSecurityLogs} exactly; unlike
+     * {@link #registerScheduledTasks} (the static-definitions capture, which needs no exclusion at all
+     * since it imports no {@code io.quarkus.scheduler.*} type), this observer is the first runtime
+     * importer of that API in the module.
+     */
+    @BuildStep
+    void registerScheduledTaskRunCapture(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        boolean present =
+                launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SCHEDULER);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(SCHEDULED_TASK_RUN_RECORDER_CLASS)
+                    .setUnremovable()
+                    .build());
+        } else {
+            excludedTypes.produce(new ExcludedTypeBuildItem(SCHEDULED_TASK_RUN_RECORDER_CLASS));
         }
     }
 

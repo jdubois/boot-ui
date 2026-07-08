@@ -52,21 +52,28 @@ Each new panel must:
 
 ## 2. Scope of this workstream
 
-One open feature remains. The §3.1 correlation item has shipped as the **Live Activity** panel; the §3.3 e-mail viewer
-has now shipped too; the bean/dependency graph visualization is the last item in this workstream.
+Two open features remain. The §3.1 correlation item has shipped as the **Live Activity** panel; the §3.3 e-mail viewer
+has shipped too, both as a standalone panel and — as of this workstream — as a `MAIL` entry type feeding the Live
+Activity stream. The bean/dependency graph visualization (§3.2) and the Live Activity REST call capture branch (§3.4)
+are the two remaining items in this workstream.
 
 | Priority | Feature                               | Group         | Primary data source                                | Mutation?         | Origin           |
 | -------- | ------------------------------------- | ------------- | -------------------------------------------------- | ----------------- | ---------------- |
 | Done     | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
 | 1        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 | No                | Existing roadmap |
 | Done     | E-mail Viewer                         | Diagnostics   | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
+| 2        | Live Activity — REST call capture     | Diagnostics   | Intercepted `RestClient`/`RestTemplate`/`WebClient` | No (capture only) | In progress (open PR) |
+| Done     | Live Activity — new event types       | Diagnostics   | Cache, scheduled-task, Kafka, and mail capture sources (see §3.4) | No (capture only) | Cache, Scheduled Tasks, Kafka, and Mail all shipped |
 
 The Trace ↔ Log ↔ Request correlation work in §3.1 has shipped as the **Live Activity** panel, building on the
 already-shipped HTTP Exchanges panel and the existing Traces and Log Tail panels. The E-mail Viewer (§3.3) has shipped as
 the **Email** panel (Diagnostics group): a `JavaMailSender` `BeanPostProcessor` captures every outgoing message
 pass-through by default, with an explicitly opt-in `bootui.email.dev-trap` mode, masked recipients/subject/body, a
-sandboxed HTML preview, and a per-message `.eml` download. The bean/dependency graph visualization (§3.2) is the only
-remaining item in this workstream.
+sandboxed HTML preview, and a per-message `.eml` download. Four of the §3.4 Live Activity event-type extensions have now
+shipped — Scheduled Task runs, Cache operations, Kafka messaging, and an E-mail Viewer-backed `MAIL` event type — leaving
+only the outbound `RestClient`/`RestTemplate`/`WebClient` capture branch (tracked separately above) and the bean/
+dependency graph visualization (§3.2) as the remaining items in this workstream. Each capture-oriented feature keeps
+pass-through application behaviour by default and makes any dev-trap mode explicitly opt-in.
 
 ## 3. Feature specifications
 
@@ -144,6 +151,136 @@ Design constraints:
   rendered sandboxed to prevent script execution.
 - Fixed-size buffer; no persistence to disk beyond on-demand `.eml` download.
 
+### 3.4 Live Activity — future event types and correlation — Diagnostics
+
+Live Activity currently merges eight entry types — `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED_TASK`,
+`MESSAGING`, and `MAIL` — from BootUI's existing in-memory buffers (see `docs/SPECIFICATION.md` §5.14.2). One extension
+remains underway outside this plan: a separate, already-open pull request adds an outbound
+`RestClient`/`RestTemplate`/`WebClient` capture. This section captures what should come next in the panel, prioritized by
+value versus new-instrumentation cost, drawn from the same comparable-dashboard benchmarks (Laravel Telescope, Symfony
+Web Profiler, .NET Aspire) already guiding this workstream.
+
+Scope — new event types, roughly in priority order:
+
+- **Scheduled Task runs — implemented on both adapters.** Each `@Scheduled` method *execution* (start/success/failure,
+  duration, exception if any) is captured as a `SCHEDULED_TASK` entry, reusing the existing Scheduled Tasks panel's
+  discovery/naming so a captured run and its static definition share the same identifier. On Spring, the framework's own
+  Micrometer instrumentation (`ScheduledTaskObservationContext`, present since Spring Framework 6.1) is tapped via a
+  `SchedulingConfigurer` bean that installs an `ObservationHandler` — no AOP proxying or bean wrapping needed — feeding a
+  bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`. **On Quarkus**, the scheduler
+  (`io.quarkus.scheduler.Scheduler`) exposes only one CDI-bean-limited `JobInstrumenter` SPI, already claimed by
+  `quarkus-opentelemetry` when scheduler tracing is enabled, so registering a second one would create ambiguous CDI
+  resolution and break the app's own tracing. Instead, `QuarkusScheduledTaskRunRecorder` observes the ordinary CDI
+  `io.quarkus.scheduler.SuccessfulExecution`/`FailedExecution` events that `BaseScheduler` always fires after every
+  execution regardless of how many other observers exist — the same, documented mechanism Quarkus's own Dev UI scheduler
+  page uses — and feeds the same `ScheduledTaskRunStore`. Since these events fire only on completion, the trigger's
+  `getFireTime()` is used as a proxy for the run's start timestamp (a small margin of error from invoker-chain overhead,
+  acceptable for a duration display, not precise profiling); the method identifier comes from
+  `Trigger.getMethodDescription()` (`declaringClassName#methodName`, matching the static panel's own identifier), so a
+  programmatically registered job (no method description) is not captured, matching the Spring adapter's method-only
+  scope. The observer is gated on the `SCHEDULER` capability (R2: `quarkus-scheduler` is `provided`-scope, excluded from
+  bean discovery when the capability or a non-production launch mode is absent), matching the existing
+  `QuarkusSecurityEventCapture` pattern. No request parent (background thread); a correlated exception is both
+  summarized inline via `detail` (the run recorder observes the failure directly) and — when that same failure is
+  independently captured into the shared exception log buffer — nested as a full `EXCEPTION` child entry the same way
+  `REQUEST` does today, via a serving-thread + time-window join against the run's execution window (the same tiered
+  strategy the SQL/exception profiler already uses, minus the trace-id tier: a background job is not a distributed-trace
+  participant). The KPI strip's "Scheduled failures" tile and the
+  `REQUEST`/`SQL`/`EXCEPTION` deep-link pattern (into `/scheduled`, prefilling its filter with the runnable name) both
+  ship on both adapters.
+- **Cache operations. ✅ Shipped (Spring servlet and WebFlux adapters).** The Cache panel showed topology and aggregate
+  hit/miss counters only; a lightweight, bounded `CACHE` event (hit/miss/put/evict/clear, cache name, key hash — never
+  the raw key/value) now explains *why* those counters moved and nests as a `REQUEST` child, mirroring how `SQL` nests
+  today. Captured by decorating `CacheManager`/`Cache` beans (`CacheActivityCacheManagerBeanPostProcessor`), so both
+  annotation-driven (`@Cacheable`/`@CachePut`/`@CacheEvict`) and programmatic `CacheManager` access are covered; the
+  capture beans now live in the shared `BootUiEngineConfiguration` so both the servlet and WebFlux adapters wire them
+  identically. Correlation is trace-id-based: the servlet adapter also falls back to serving-thread tiering like `SQL`,
+  while WebFlux (which has no thread-per-request invariant) correlates purely via the OpenTelemetry-backed trace id
+  provider already used for its SQL/exception/security capture. Feeds a new `cacheHitRatioPercent` KPI tile deep-linked
+  to `/cache` on both adapters. Quarkus is out of scope for now — `quarkus-cache`'s built-in interceptors cast the
+  resolved cache to an internal, non-public `AbstractCache` type, so a Spring-style decorator implementing only the
+  public `Cache` interface would fail with a `ClassCastException`; there is no comparable runtime interception seam, so
+  the Quarkus adapter continues to report `cacheHitRatioPercent: null` (see `docs/QUARKUS-SUPPORT.md`).
+- **Messaging (Kafka/RabbitMQ/JMS) publish and consume — Kafka shipped (both adapters).** The highest-value new-instrumentation
+  candidate after mail and
+  REST calls: async messaging is exactly where a Telescope/Aspire-style console helps most, since message flow is
+  otherwise invisible outside the debugger. As scoped below, this landed **Kafka-first**: a `KafkaActivityRecorder`
+  (framework-neutral, `bootui-engine`) is fed by `KafkaProducerCaptureBeanPostProcessor` /
+  `KafkaConsumerCaptureBeanPostProcessor` (`bootui-spring-autoconfigure`, `@ConditionalOnClass(KafkaTemplate)`), which
+  wrap application-owned `KafkaTemplate`/`@KafkaListener` container factory beans — composing with, not replacing, any
+  existing `ProducerListener`/`RecordInterceptor` — and surface every send/delivery outcome as a `MESSAGING` entry
+  (topic, partition, offset, truncated key, direction, success/failure, consumer group id, listener id, duration).
+  Message values/payloads are never captured (out of scope by design, sidestepping the payload-masking problem
+  entirely). Controlled by `bootui.kafka.*` (see `docs/PROPERTIES.md`). RabbitMQ/JMS remain later, separately-scoped
+  follow-ups. The **Quarkus port (SmallRye Reactive Messaging) has now shipped**, reusing the same
+  `KafkaActivityRecorder` and the same `bootui.kafka.*` keys/defaults: because Quarkus applications use SmallRye's
+  `@Incoming`/`@Outgoing` channel model rather than `spring-kafka`'s imperative templates, the capture point is
+  SmallRye's `OutgoingInterceptor`/`IncomingInterceptor` SPI, implemented by two `@ApplicationScoped` interceptors
+  (`QuarkusKafkaProducerCapture`/`QuarkusKafkaConsumerCapture`, `bootui-quarkus`) that read Kafka record metadata into
+  the shared recorder. They are the sole importers of the SmallRye messaging types, capability-gated on `Capability.KAFKA`
+  via an `ExcludedTypeBuildItem` exactly like Hibernate/Cache/Flyway/Liquibase (production-dark), a no-op for non-Kafka
+  (in-memory/RabbitMQ/JMS) channels, pass-through/fail-open, and set the lowest interceptor precedence so an
+  application's own channel interceptor always wins. `LiveActivityResource` merges the captured `MESSAGING` entries into
+  the feed adapter-side (top-level, no request correlation) via the shared `KafkaActivityEntries` mapping, so both
+  adapters render byte-identical entries. Unlike the other items above,
+  this was a materially bigger investment: Kafka,
+  RabbitMQ, and JMS are three unrelated client APIs (no single "messaging" abstraction to intercept once), so scope this
+  as **Kafka-first**, with RabbitMQ/JMS as later, separately-scoped follow-ups rather than one bundled feature. Each
+  needs its own bounded capture buffer, wired only when the relevant client bean/class (`KafkaTemplate`,
+  `RabbitTemplate`, JMS `ConnectionFactory`) is present, following the same optional-dependency/fail-closed pattern as
+  Hibernate/Cache/Flyway/Liquibase — the interceptor must live in the adapter behind a `@ConditionalOnClass` gate (Spring)
+  or a capability-gated `ExcludedTypeBuildItem` (Quarkus), never statically imported by the framework-neutral engine.
+  Interception itself is more invasive than any existing capture source: it means wrapping the app's own messaging beans
+  (a `BeanPostProcessor`, mirroring the existing HTTP Exchanges repository wrapper) or registering interceptor/advice
+  hooks, so pass-through-by-default and fail-open wrapping are non-negotiable design constraints, and message bodies
+  need their own bounding/masking design (arbitrary, potentially large application payloads, unlike a SQL statement or
+  HTTP header). On Quarkus, the interception point was different in kind, not just in wiring: Quarkus applications
+  typically use SmallRye Reactive Messaging (`@Incoming`/`@Outgoing` channels) rather than Spring's imperative
+  `spring-kafka`/`spring-rabbit` templates, so the Quarkus capture is a per-adapter interceptor pair rather than the
+  thinner Cache/Flyway provider seams — closer to the Beans panel's `BeanProvider` split (CDI vs. Spring bean
+  introspection) in spirit, though the shared, framework-neutral `KafkaActivityRecorder` and `KafkaActivityEntries`
+  mapping keep the engine seam intact. The panel-registration plumbing itself (an unconditional recorder `@Produces` bean
+  plus the capability-gated interceptor beans) follows the existing optional-dependency template with a single
+  `registerKafkaCapture` deployment build-step, and needs no new panel/route (Live Activity gains a source, not a panel).
+- **Captured email — ✅ Shipped (both adapters).** The standalone Email panel (§3.3) already captured every outgoing
+  message via the shared, framework-neutral `EmailCaptureService`; this item only adds a `MAIL` entry to the merged Live
+  Activity feed, so — like Cache and Scheduled Task runs — it needed no new capture instrumentation, just a read of an
+  existing buffer. Unlike Kafka `MESSAGING` entries (always top-level, no correlation attempted, since a message has no
+  single owning request), `MAIL` nests as a `REQUEST` child whenever the captured message's trace id matches an
+  in-flight request — the same `parentRequestId` join `SQL`/`EXCEPTION`/`SECURITY`/`CACHE` already use — so an email
+  sent from inside a request handler shows up in that request's profiler drawer. `EmailCaptureService.subscribe(...)`
+  feeds the same `BootUiChangeStream`/`ReactiveBootUiChangeStream` coalesced SSE tick the other five in-process sources
+  already use, so a newly captured message refreshes the live feed the same way a new cache access or scheduled-task
+  run does, on both the servlet and WebFlux adapters. On Quarkus, `LiveActivityResource` reads the same
+  `EmailCaptureService` directly (not through the Email panel's own resource) and feeds its merged SSE stream
+  identically, mirroring the Spring wiring exactly.
+
+Scope — enhancements on top of the existing/in-flight event types, generally cheaper than a new source and some of
+higher value:
+
+- **Nest the REST call capture as a `REQUEST` child**, the same way `SQL`/`EXCEPTION`/`SECURITY`/`CACHE`/`MAIL` nest
+  today, once that branch lands, so a request that fans out to outbound calls shows the whole causal chain in one
+  profiler view. This is likely the single highest-value change once REST call capture ships, since correlation — not
+  just another list — is the panel's core value proposition.
+- **Extend the KPI strip** with metrics for each new source as it lands: outbound-call error rate/p95. (Cache hit ratio
+  and scheduled-task failure count have already shipped, above.)
+- **Verify persistence and filtering stay generic over `type`** as new event types are added — `JdbcActivityStore`,
+  `BufferedActivityStore`, and the client-side type filter chips should pick up new types automatically, but this should
+  be confirmed with tests as each lands.
+- **Add deep links** from `REQUEST` entries into the Cache and Scheduled Tasks panels. Both now ship, joining the
+  existing deep links into HTTP Exchanges, SQL Trace, Exceptions, Health, and Heap Dump.
+
+Design constraints:
+
+- Every new source stays **read-only** and **fails closed** when its backing bean/class is absent, consistent with
+  §3.1/§3.3 and the cross-cutting rules in §4.
+- Sensitive payloads (cache keys/values, message bodies) are masked by default and follow the same value-exposure model
+  as the rest of the panel; cache keys are hashed rather than shown raw even under full exposure.
+- New capture buffers are bounded and self-filtering (BootUI's own traffic must not appear in its own feed), consistent
+  with the existing `bootui.monitoring.exclude-self` behaviour.
+- Recommended sequencing: land Mail (§3.3) and REST call capture with `REQUEST`-nesting from day one; Scheduled Task
+  runs and Cache operations have both now shipped; treat Messaging as the next major new-instrumentation investment.
+
 ## 4. Cross-cutting work for every new panel
 
 For each feature above, the following must move together, consistent with the existing panel-registration process:
@@ -171,6 +308,8 @@ For each feature above, the following must move together, consistent with the ex
 | Optional Actuator endpoints, libraries, beans, or servers missing | all        | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.      |
 | Bean/dependency graph or correlation bloating the bundle          | 3.1, 3.2   | Medium | Bounded rendering, lightweight visualization, and lazy-loaded panels.                                     |
 | Silently swallowing application mail                              | 3.3        | Medium | Pass-through by default; "dev trap" mode strictly opt-in.                                                 |
+| Over-broad or noisy new Live Activity event types (e.g. cache operations) | 3.4 | Medium | Explicit opt-in wiring by bean/class presence, bounded buffers, masked payloads/hashed cache keys. |
+| Messaging capture's added optional-dependency surface (Kafka/RabbitMQ/JMS clients), invasive interception of app-owned messaging beans, and a per-adapter capture design (SmallRye Reactive Messaging on Quarkus vs. imperative templates on Spring) | 3.4 | High | Kafka shipped on **both adapters** with classpath/capability gating identical to Hibernate/Cache/Flyway/Liquibase, pass-through-by-default fail-open wrapping, and no message-value/payload capture at all (metadata-only, sidestepping body masking); Spring wraps `KafkaTemplate`/listener beans while Quarkus uses SmallRye's `OutgoingInterceptor`/`IncomingInterceptor` SPI feeding the same `KafkaActivityRecorder`. Rabbit/JMS remain separate follow-ups. |
 | Scope creep beyond this merged feature set                        | all        | High   | Treat this list as the maximum near-term surface; move further ideas to a later plan.                     |
 
 ## 6. Validation checklist
