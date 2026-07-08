@@ -710,17 +710,17 @@ reverse-chronological activity stream, plus a Symfony-style per-request profiler
 
 Data sources:
 
-- Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
+- Reuses the existing HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
+- Merged stream of `REQUEST`, `SQL`, `REST`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
   severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
-  method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
+  method/path), so the client can nest correlated SQL, REST, exceptions, and security events chronologically under the request
   that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected) and entries without a
   precise request correlation have a null `parentId`. A `REQUEST` entry that was correlated to a Spring Security audit
   event also carries a `securedPrincipal` (the caller's principal; null when the request had no
@@ -730,7 +730,7 @@ Features:
   an N+1 access pattern can be badged directly in the list without opening its profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
   100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
-  exception count, SQL/min, slowest query, health status, and heap usage.
+  exception count, SQL/min, slowest query, outbound-call error rate/p95 latency, health status, and heap usage.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
   nesting of correlated children under their request (expanded by default; any active filter or free-text search
   flattens the feed so the query spans every signal), and a
@@ -1384,6 +1384,10 @@ Initial endpoints:
 | `/bootui/api/mcp-server`                     | GET    | MCP Server panel status (enabled state, configured mode, transport, advertised tools)  |
 | `/bootui/api/mcp-server/toggle`              | POST   | Enable/disable the MCP server at runtime, overriding `bootui.mcp.enabled`               |
 | `/bootui/api/mcp`                            | GET/POST | Local-only MCP JSON-RPC 2.0 endpoint and status (served only while the server is enabled) |
+| `/bootui/api/rest-client-trace`              | GET    | Latest REST Client Trace report and retained outbound HTTP calls                        |
+| `/bootui/api/rest-client-trace/clear`        | POST   | Clear the retained REST client call buffer                                              |
+| `/bootui/api/rest-client-trace/recording`    | POST   | Pause/resume REST client call capture at runtime                                        |
+| `/bootui/api/rest-client-trace/stream`       | GET    | REST Client Trace change notifications over Server-Sent Events (re-fetch trigger)       |
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |

@@ -228,7 +228,9 @@ public final class LiveActivityAssembler {
                 slowestQuery,
                 healthStatus,
                 heapUsed(),
-                heapMax());
+                heapMax(),
+                null,
+                null);
         return new LiveActivityReport(true, entries, typeCounts, kpis, sources, warnings);
     }
 

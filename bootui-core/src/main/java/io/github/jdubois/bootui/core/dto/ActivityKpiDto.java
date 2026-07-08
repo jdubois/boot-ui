@@ -19,6 +19,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param healthStatus current Actuator health status, or {@code null}
  * @param heapUsedBytes current JVM heap usage in bytes, or {@code null}
  * @param heapMaxBytes maximum JVM heap size in bytes, or {@code null}
+ * @param restCallErrorRatePercent percentage of recent outbound REST calls that failed or returned a 4xx/5xx status, or {@code null}
+ * @param restCallP95LatencyMs 95th-percentile outbound REST call latency in milliseconds, or {@code null}
  */
 public record ActivityKpiDto(
         double requestsPerMinute,
@@ -32,4 +34,6 @@ public record ActivityKpiDto(
         Long slowestQueryMs,
         String healthStatus,
         Long heapUsedBytes,
-        Long heapMaxBytes) {}
+        Long heapMaxBytes,
+        Double restCallErrorRatePercent,
+        Long restCallP95LatencyMs) {}

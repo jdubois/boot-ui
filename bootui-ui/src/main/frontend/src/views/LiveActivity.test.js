@@ -46,7 +46,9 @@ function activityReport(overrides = {}) {
       slowestEndpointMs: null,
       activeExceptionCount: 0,
       healthStatus: 'UP',
-      heapUsedBytes: 104857600
+      heapUsedBytes: 104857600,
+      restCallErrorRatePercent: 12.5,
+      restCallP95LatencyMs: 240
     },
     sources: ['http', 'sql'],
     warnings: [],
@@ -172,6 +174,16 @@ describe('LiveActivity', () => {
     const report = writeText.mock.calls[0][0]
     expect(report).toContain('[N+1]')
     expect(report).toContain('at com.example.TodoRepository.findById(TodoRepository.java:42)')
+  })
+
+  it('renders the outbound REST KPI tile', async () => {
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Outbound errors / p95')
+    expect(wrapper.text()).toContain('12.5% / 240 ms')
   })
 
   it('shows a tip with the current in-memory event count when persistence is not active', async () => {

@@ -1085,8 +1085,9 @@ public class BootUiProperties {
 
         /**
          * Whether request headers are captured alongside each call. Off by default because
-         * header values may contain sensitive data; when enabled, values are still masked by
-         * header name (e.g. {@code Authorization}) before being stored.
+         * header values may contain sensitive data; when enabled, values are captured as-is
+         * (subject to truncation) and then masked by header name (e.g. {@code Authorization})
+         * at read/report time according to the live exposure policy.
          */
         private boolean captureHeaders = false;
 

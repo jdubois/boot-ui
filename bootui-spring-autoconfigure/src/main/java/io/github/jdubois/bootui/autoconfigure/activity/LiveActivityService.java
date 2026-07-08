@@ -201,7 +201,7 @@ public class LiveActivityService {
             }
         }
 
-        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport);
+        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport, rest);
         boolean available = !sources.isEmpty();
         return new LiveActivityReport(available, visible, typeCounts, kpis, sources, warnings);
     }
@@ -604,7 +604,8 @@ public class LiveActivityService {
     private record RequestAnchor(
             String id, long start, long end, String thread, String traceId, String method, String path) {}
 
-    private ActivityKpiDto computeKpis(HttpExchangesReport requests, SqlTraceReport sql, ExceptionsReport exceptions) {
+    private ActivityKpiDto computeKpis(
+            HttpExchangesReport requests, SqlTraceReport sql, ExceptionsReport exceptions, RestClientTraceReport rest) {
         double requestsPerMinute = 0;
         double errorRate = 0;
         Long p50 = null;
@@ -648,6 +649,21 @@ public class LiveActivityService {
                     .orElse(0L);
         }
 
+        Double restCallErrorRate = null;
+        Long restCallP95 = null;
+        if (rest != null && !rest.entries().isEmpty()) {
+            List<RestClientTraceEntryDto> list = rest.entries();
+            long errors = list.stream()
+                    .filter(entry -> !entry.success() || (entry.status() != null && entry.status() >= 400))
+                    .count();
+            restCallErrorRate = 100.0 * errors / list.size();
+            List<Long> durations = list.stream()
+                    .map(RestClientTraceEntryDto::durationMillis)
+                    .sorted()
+                    .toList();
+            restCallP95 = percentile(durations, 95);
+        }
+
         int activeExceptions = exceptions == null ? 0 : exceptions.groups().size();
         String healthStatus = currentHealthStatus();
 
@@ -673,7 +689,9 @@ public class LiveActivityService {
                 slowestQueryMs,
                 healthStatus,
                 heapUsed,
-                heapMax);
+                heapMax,
+                restCallErrorRate == null ? null : round(restCallErrorRate),
+                restCallP95);
     }
 
     private String currentHealthStatus() {

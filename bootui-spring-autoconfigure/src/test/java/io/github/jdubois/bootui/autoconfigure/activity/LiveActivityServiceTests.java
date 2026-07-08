@@ -146,6 +146,51 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void computesRestKpisFromCapturedCalls() {
+        LiveActivityService service = service(
+                null,
+                null,
+                rest(
+                        restEntry(1, BASE.plusMillis(10).toEpochMilli(), "GET", "api", "/ok", 200, 10L, true, null),
+                        restEntry(2, BASE.plusMillis(20).toEpochMilli(), "GET", "api", "/warn", 404, 20L, true, null),
+                        restEntry(3, BASE.plusMillis(30).toEpochMilli(), "GET", "api", "/error", 500, 30L, true, null),
+                        restEntry(
+                                4,
+                                BASE.plusMillis(40).toEpochMilli(),
+                                "GET",
+                                "api",
+                                "/down",
+                                null,
+                                40L,
+                                false,
+                                "Connection refused")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        var kpis = service.report(null, null, 0, 0).kpis();
+
+        assertThat(kpis.restCallErrorRatePercent()).isEqualTo(75.0);
+        assertThat(kpis.restCallP95LatencyMs()).isEqualTo(40L);
+    }
+
+    @Test
+    void leavesRestKpisNullWhenRestTraceUnavailableOrEmpty() {
+        var emptyKpis = service(null, null, rest(), null, null, null, new BootUiProperties())
+                .report(null, null, 0, 0)
+                .kpis();
+        assertThat(emptyKpis.restCallErrorRatePercent()).isNull();
+        assertThat(emptyKpis.restCallP95LatencyMs()).isNull();
+
+        var unavailableKpis = service(null, null, unavailableRest(), null, null, null, new BootUiProperties())
+                .report(null, null, 0, 0)
+                .kpis();
+        assertThat(unavailableKpis.restCallErrorRatePercent()).isNull();
+        assertThat(unavailableKpis.restCallP95LatencyMs()).isNull();
+    }
+
+    @Test
     void nestsSqlUnderRequestByTraceId() {
         LiveActivityService service = service(
                 requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
@@ -650,6 +695,12 @@ class LiveActivityServiceTests {
                 List.of(),
                 List.of());
         when(controller.trace()).thenReturn(report);
+        return controller;
+    }
+
+    private static RestClientTraceController unavailableRest() {
+        RestClientTraceController controller = mock(RestClientTraceController.class);
+        when(controller.trace()).thenReturn(RestClientTraceReport.unavailable("REST client tracing is not configured"));
         return controller;
     }
 

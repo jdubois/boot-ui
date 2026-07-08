@@ -634,7 +634,7 @@ function clearFilters() {
     <UnavailableState
       v-else-if="report && !available"
       icon="bi-broadcast"
-      message="No live activity sources are available yet. Enable HTTP exchange recording, SQL tracing, exception capture, or security logs to populate this stream."
+      message="No live activity sources are available yet. Enable HTTP exchange recording, SQL tracing, REST client tracing, exception capture, or security logs to populate this stream."
     />
 
     <template v-else-if="report">
@@ -670,6 +670,23 @@ function clearFilters() {
               <div class="fs-5">{{ formatNumber(kpis.sqlPerMinute) }}</div>
             </div>
           </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <router-link
+            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            :to="{path: '/rest-client-trace'}"
+            title="Open the REST Client Trace panel"
+          >
+            <div class="card-body py-2">
+              <div class="text-muted small">
+                Outbound errors / p95
+                <i class="bi bi-box-arrow-up-right ms-1"></i>
+              </div>
+              <div class="fs-5">
+                {{ kpis.restCallErrorRatePercent ?? '—' }}% / {{ kpis.restCallP95LatencyMs ?? '—' }} ms
+              </div>
+            </div>
+          </router-link>
         </div>
         <div class="col-6 col-lg-3">
           <component
