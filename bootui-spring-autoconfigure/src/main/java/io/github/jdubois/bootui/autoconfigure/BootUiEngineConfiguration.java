@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
+import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityCacheManagerBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.cache.SpringCacheProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider;
@@ -27,6 +28,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
@@ -44,6 +46,7 @@ import io.github.jdubois.bootui.engine.mappings.MappingsService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
@@ -534,6 +537,29 @@ public class BootUiEngineConfiguration {
                                 : meterRegistries.orderedStream().findFirst().orElse(null);
                     },
                     selfDataFilter::shouldIncludeMeter);
+        }
+
+        /**
+         * Framework-neutral cache-access recorder feeding the Live Activity panel's {@code CACHE} event
+         * type. Declared here (rather than per-adapter) so both the servlet {@code BootUiAutoConfiguration}
+         * and {@code BootUiReactiveAutoConfiguration} — which both {@code @Import} this class — share the
+         * exact same bean and decoration, since {@code CacheManager}/{@code Cache} are the same abstraction
+         * under either web stack (see {@code LiveActivityAssembler}'s class Javadoc for why Quarkus has no
+         * equivalent).
+         */
+        @Bean
+        CacheActivityRecorder bootUiCacheActivityRecorder(BootUiProperties properties) {
+            BootUiProperties.Cache cache = properties.getCache();
+            return new CacheActivityRecorder(
+                    cache.isActivityCaptureEnabled() && properties.isPanelEnabled(BootUiPanels.CACHE),
+                    cache.getActivityMaxEvents());
+        }
+
+        @Bean
+        static CacheActivityCacheManagerBeanPostProcessor bootUiCacheActivityCacheManagerBeanPostProcessor(
+                ObjectProvider<CacheActivityRecorder> recorderProvider,
+                ObjectProvider<BootUiSelfDataFilter> selfDataFilterProvider) {
+            return new CacheActivityCacheManagerBeanPostProcessor(recorderProvider, selfDataFilterProvider);
         }
     }
 

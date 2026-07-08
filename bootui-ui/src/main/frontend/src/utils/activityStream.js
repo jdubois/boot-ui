@@ -141,7 +141,7 @@ export function bucketEntries(entries, bucketCount = 24) {
  * there is no useful needle to filter by.
  *
  * @param {object} entry a merged activity entry
- * @returns {{path: string, query: object, label: string}|null}
+ * @returns {{path: string, query?: object, label: string}|null}
  */
 export function deepLink(entry) {
   if (!entry) return null
@@ -156,6 +156,8 @@ export function deepLink(entry) {
       const needle = exceptionNeedle(entry.summary)
       return needle ? {path: '/exceptions', query: {q: needle}, label: 'Open in Exceptions'} : null
     }
+    case 'CACHE':
+      return {path: '/cache', label: 'Open in Cache'}
     default:
       return null
   }

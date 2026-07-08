@@ -147,8 +147,8 @@ Design constraints:
 
 ### 3.4 Live Activity — future event types and correlation — Diagnostics
 
-Live Activity currently merges four entry types — `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` — from BootUI's existing
-in-memory buffers (see `docs/SPECIFICATION.md` §5.14.2). Two extensions are already underway outside this plan: the
+Live Activity currently merges five entry types — `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and `CACHE` — from BootUI's
+existing in-memory buffers (see `docs/SPECIFICATION.md` §5.14.2). Two extensions are already underway outside this plan: the
 E-mail Viewer (§3.3) adds a `MAIL` event, and a separate branch (not yet a PR) adds an outbound
 `RestClient`/`RestTemplate`/`WebClient` capture. This section captures what should come next in the panel, prioritized by
 value versus new-instrumentation cost, drawn from the same comparable-dashboard benchmarks (Laravel Telescope, Symfony
@@ -160,9 +160,19 @@ Scope — new event types, roughly in priority order:
   *execution* (start/success/failure, duration, exception if any) as a `SCHEDULED_TASK` entry reuses that panel's
   existing discovery and closes an obvious "did my job run, and how long did it take" gap. No request parent (background
   thread), but nests a correlated exception the same way `REQUEST` does today.
-- **Cache operations.** The Cache panel shows topology and aggregate hit/miss counters only; a lightweight, sampled
-  `CACHE` event (hit/miss/put/evict, cache name, key hash — never the raw key/value) explains *why* those counters moved
-  and correlates naturally as a `REQUEST` child, mirroring how `SQL` nests today.
+- **Cache operations. ✅ Shipped (Spring servlet and WebFlux adapters).** The Cache panel showed topology and aggregate
+  hit/miss counters only; a lightweight, bounded `CACHE` event (hit/miss/put/evict/clear, cache name, key hash — never
+  the raw key/value) now explains *why* those counters moved and nests as a `REQUEST` child, mirroring how `SQL` nests
+  today. Captured by decorating `CacheManager`/`Cache` beans (`CacheActivityCacheManagerBeanPostProcessor`), so both
+  annotation-driven (`@Cacheable`/`@CachePut`/`@CacheEvict`) and programmatic `CacheManager` access are covered; the
+  capture beans now live in the shared `BootUiEngineConfiguration` so both the servlet and WebFlux adapters wire them
+  identically. Correlation is trace-id-based: the servlet adapter also falls back to serving-thread tiering like `SQL`,
+  while WebFlux (which has no thread-per-request invariant) correlates purely via the OpenTelemetry-backed trace id
+  provider already used for its SQL/exception/security capture. Feeds a new `cacheHitRatioPercent` KPI tile deep-linked
+  to `/cache` on both adapters. Quarkus is out of scope for now — `quarkus-cache`'s built-in interceptors cast the
+  resolved cache to an internal, non-public `AbstractCache` type, so a Spring-style decorator implementing only the
+  public `Cache` interface would fail with a `ClassCastException`; there is no comparable runtime interception seam, so
+  the Quarkus adapter continues to report `cacheHitRatioPercent: null` (see `docs/QUARKUS-SUPPORT.md`).
 - **Messaging (Kafka/RabbitMQ/JMS) publish and consume.** The highest-value new-instrumentation candidate after mail and
   REST calls: async messaging is exactly where a Telescope/Aspire-style console helps most, since message flow is
   otherwise invisible outside the debugger. Unlike the other items above, this is a materially bigger investment: Kafka,
@@ -187,19 +197,19 @@ Scope — new event types, roughly in priority order:
 Scope — enhancements on top of the existing/in-flight event types, generally cheaper than a new source and some of
 higher value:
 
-- **Nest the REST call capture as a `REQUEST` child**, the same way `SQL`/`EXCEPTION`/`SECURITY` nest today, once that
-  branch lands, so a request that fans out to outbound calls shows the whole causal chain in one profiler view. This is
-  likely the single highest-value change once REST call capture ships, since correlation — not just another list — is
-  the panel's core value proposition.
+- **Nest the REST call capture as a `REQUEST` child**, the same way `SQL`/`EXCEPTION`/`SECURITY`/`CACHE` nest today,
+  once that branch lands, so a request that fans out to outbound calls shows the whole causal chain in one profiler
+  view. This is likely the single highest-value change once REST call capture ships, since correlation — not just
+  another list — is the panel's core value proposition.
 - **Nest `MAIL` entries under their triggering `REQUEST`** the same way, once the E-mail Viewer lands, using the same
   trace-id/serving-thread tiered join the profiler already uses.
-- **Extend the KPI strip** with metrics for each new source as it lands: outbound-call error rate/p95, cache hit ratio,
-  scheduled-task failure count.
+- **Extend the KPI strip** with metrics for each new source as it lands: outbound-call error rate/p95, scheduled-task
+  failure count. (Cache hit ratio has already shipped, above.)
 - **Verify persistence and filtering stay generic over `type`** as new event types are added — `JdbcActivityStore`,
   `BufferedActivityStore`, and the client-side type filter chips should pick up new types automatically, but this should
   be confirmed with tests as each lands.
-- **Add deep links** from `REQUEST` entries into the Cache and Scheduled Tasks panels, matching the existing deep links
-  into HTTP Exchanges, SQL Trace, Exceptions, Health, and Heap Dump.
+- **Add deep links** from `REQUEST` entries into the Scheduled Tasks panel, matching the existing deep links into HTTP
+  Exchanges, SQL Trace, Exceptions, Health, Heap Dump, and Cache.
 
 Design constraints:
 
@@ -209,9 +219,8 @@ Design constraints:
   as the rest of the panel; cache keys are hashed rather than shown raw even under full exposure.
 - New capture buffers are bounded and self-filtering (BootUI's own traffic must not appear in its own feed), consistent
   with the existing `bootui.monitoring.exclude-self` behaviour.
-- Recommended sequencing: land Mail (§3.3) and REST call capture with `REQUEST`-nesting from day one; then Scheduled
-  Task runs and Cache operations (cheapest, reuse existing panel discovery); treat Messaging as the next major
-  new-instrumentation investment.
+- Recommended sequencing: land Mail (§3.3) and REST call capture with `REQUEST`-nesting from day one; Cache operations
+  has now shipped; treat Messaging as the next major new-instrumentation investment.
 
 ## 4. Cross-cutting work for every new panel
 

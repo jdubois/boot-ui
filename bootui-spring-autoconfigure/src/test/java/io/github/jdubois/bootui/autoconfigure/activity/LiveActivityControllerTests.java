@@ -437,6 +437,7 @@ class LiveActivityControllerTests {
                 exceptionStore,
                 empty(RequestCorrelationRegistry.class),
                 empty(SecurityEventCorrelationRegistry.class),
+                empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
                 activityStore,
                 persistenceSettings,
                 dataSourceProvider,

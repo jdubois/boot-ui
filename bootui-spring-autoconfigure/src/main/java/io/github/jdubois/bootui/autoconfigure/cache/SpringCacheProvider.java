@@ -137,8 +137,10 @@ public class SpringCacheProvider implements CacheProvider {
                     nativeCache == null ? null : nativeCache.getClass().getName(),
                     estimateSize(nativeCache)));
         }
-        return new CacheManagerSnapshot(
-                entry.name(), entry.manager().getClass().getName(), isNoOp(entry.manager()), caches);
+        // Unwrap a CacheActivityCacheManager (installed only when activity capture is enabled) so the
+        // reported type/no-op status describes the real CacheManager, not the recording decorator.
+        CacheManager realManager = CacheActivityAware.unwrap(entry.manager());
+        return new CacheManagerSnapshot(entry.name(), realManager.getClass().getName(), isNoOp(realManager), caches);
     }
 
     private List<CacheManagerEntry> discoverManagers(ListableBeanFactory factory) {
@@ -147,7 +149,11 @@ public class SpringCacheProvider implements CacheProvider {
         List<CacheManagerEntry> managers = new ArrayList<>(beanNames.length);
         for (String beanName : beanNames) {
             CacheManager manager = factory.getBean(beanName, CacheManager.class);
-            if (!selfDataFilter.shouldIncludeCacheOperation(beanName, manager.getClass())) {
+            // Self-filtering must inspect the real backing type, not the activity-capture decorator
+            // (whose class lives under io.github.jdubois.bootui and would otherwise be mistaken for
+            // BootUI's own cache manager and filtered out entirely).
+            if (!selfDataFilter.shouldIncludeCacheOperation(
+                    beanName, CacheActivityAware.unwrap(manager).getClass())) {
                 continue;
             }
             managers.add(new CacheManagerEntry(beanName, manager));
