@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -94,6 +95,7 @@ public class LiveActivityController {
             ObjectProvider<ExceptionStore> exceptionStore,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
+            ObjectProvider<KafkaActivityRecorder> kafkaActivityRecorder,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             ObjectProvider<DataSource> dataSourceProvider,
@@ -106,6 +108,7 @@ public class LiveActivityController {
                 health,
                 requestCorrelations,
                 securityCorrelations,
+                kafkaActivityRecorder,
                 properties);
         this.correlator = new LiveActivityCorrelator(
                 httpExchanges,
@@ -126,6 +129,10 @@ public class LiveActivityController {
         ExceptionStore store = exceptionStore.getIfAvailable();
         if (store != null) {
             unsubscribers.add(store.subscribe(changeStream::signal));
+        }
+        KafkaActivityRecorder kafkaRecorder = kafkaActivityRecorder.getIfAvailable();
+        if (kafkaRecorder != null) {
+            unsubscribers.add(kafkaRecorder.subscribe(changeStream::signal));
         }
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;

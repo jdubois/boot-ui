@@ -18,6 +18,8 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.web.SecurityActivityIds;
@@ -48,6 +50,7 @@ public class LiveActivityService {
     static final String TYPE_SQL = "SQL";
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
+    static final String TYPE_MESSAGING = "MESSAGING";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -61,6 +64,7 @@ public class LiveActivityService {
     private final ObjectProvider<HealthController> health;
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
+    private final ObjectProvider<KafkaActivityRecorder> kafka;
     private final BootUiProperties properties;
 
     public LiveActivityService(
@@ -71,6 +75,7 @@ public class LiveActivityService {
             ObjectProvider<HealthController> health,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
+            ObjectProvider<KafkaActivityRecorder> kafka,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
@@ -79,6 +84,7 @@ public class LiveActivityService {
         this.health = health;
         this.requestCorrelations = requestCorrelations;
         this.securityCorrelations = securityCorrelations;
+        this.kafka = kafka;
         this.properties = properties;
     }
 
@@ -99,6 +105,7 @@ public class LiveActivityService {
         SqlTraceReport sql = loadSql(sources);
         ExceptionsReport exceptionsReport = loadExceptions(sources);
         SecurityLogsReport security = loadSecurity(sources);
+        List<CapturedMessage> kafkaMessages = loadKafka(sources);
 
         List<RequestAnchor> anchors = buildAnchors(requests);
         Map<String, RequestAnchor> anchorsById = new HashMap<>();
@@ -143,6 +150,9 @@ public class LiveActivityService {
                 }
                 all.add(toSecurityEntry(event, parentId));
             }
+        }
+        for (CapturedMessage message : kafkaMessages) {
+            all.add(toKafkaEntry(message));
         }
         if (requests != null) {
             int nPlusOneThreshold = properties.getActivity().getNPlusOneThreshold();
@@ -254,6 +264,28 @@ public class LiveActivityService {
         return report;
     }
 
+    /**
+     * Loads recently captured Kafka messages from {@link KafkaActivityRecorder} directly (unlike the
+     * other sources, there is no dedicated controller/panel: Kafka capture only feeds this stream, see
+     * {@code docs/PLAN.md} §3.4). Gated on the {@code ACTIVITY} panel like the other sources, plus the
+     * recorder's own {@code bootui.kafka.enabled} toggle (folded into {@link
+     * KafkaActivityRecorder#isEnabled()} at construction).
+     */
+    private List<CapturedMessage> loadKafka(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.ACTIVITY)) {
+            return List.of();
+        }
+        KafkaActivityRecorder recorder = kafka == null ? null : kafka.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return List.of();
+        }
+        List<CapturedMessage> messages = recorder.recent();
+        if (!messages.isEmpty()) {
+            sources.add("Kafka");
+        }
+        return messages;
+    }
+
     private ActivityEntryDto toRequestEntry(
             HttpExchangeDto exchange, String servingThread, String securedPrincipal, boolean sqlNPlusOneSuspected) {
         long timestamp =
@@ -344,6 +376,57 @@ public class LiveActivityService {
                 group.lastThread(),
                 false,
                 parentId,
+                null,
+                false);
+    }
+
+    /**
+     * Maps a captured Kafka message to a flat {@code MESSAGING} entry. Unlike {@code SQL}/{@code
+     * EXCEPTION}/{@code SECURITY}, no request-parent correlation is attempted yet (BootUI has no trace
+     * id on the producer/consumer thread today), so every entry is top-level; see {@code docs/PLAN.md}
+     * §3.4 for the nesting this can grow into once messaging spans carry a correlation id. Duration is
+     * only known for consumed messages (the producer callback carries no send-start timestamp).
+     */
+    private ActivityEntryDto toKafkaEntry(CapturedMessage message) {
+        String severity = message.success() ? SEVERITY_OK : SEVERITY_ERROR;
+        String arrow = message.direction() == KafkaActivityRecorder.Direction.PRODUCE ? "→" : "←";
+        String summary = arrow + " " + message.topic();
+        if (message.partition() != null) {
+            summary += " [" + message.partition() + "]";
+        }
+        StringBuilder detail = new StringBuilder();
+        if (message.key() != null) {
+            detail.append("key=").append(message.key());
+        }
+        if (message.offset() != null) {
+            if (detail.length() > 0) {
+                detail.append(' ');
+            }
+            detail.append("offset=").append(message.offset());
+        }
+        if (!message.success() && message.errorMessage() != null) {
+            if (detail.length() > 0) {
+                detail.append(' ');
+            }
+            detail.append(message.errorMessage());
+        }
+        Long durationMs =
+                message.direction() == KafkaActivityRecorder.Direction.CONSUME ? message.durationMillis() : null;
+        return new ActivityEntryDto(
+                "kafka-" + message.id(),
+                TYPE_MESSAGING,
+                message.timestamp(),
+                severity,
+                summary,
+                detail.length() > 0 ? detail.toString() : null,
+                durationMs,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
                 null,
                 false);
     }
