@@ -63,11 +63,11 @@ application just did, plus a per-request profiler for drilling into any single r
 for four of its five signals — instead it reuses BootUI's existing in-memory signal buffers by calling the same
 controllers that back the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is already
 masked, self-filtered, and bounded exactly as those panels are. The fifth signal, cache accesses, is captured by a
-small dedicated recorder (Spring adapter only — see below) that only ever stores a hashed cache key, never a raw key or
+small dedicated recorder (Spring servlet and WebFlux adapters only — see below) that only ever stores a hashed cache key, never a raw key or
 value.
 
 The stream merges five signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
-(`EXCEPTION`), security events (`SECURITY`), and — on the Spring adapter — cache accesses (`CACHE`). Each row carries a
+(`EXCEPTION`), security events (`SECURITY`), and — on the Spring servlet and WebFlux adapters — cache accesses (`CACHE`). Each row carries a
 timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
@@ -83,7 +83,7 @@ by type, severity, a free-text needle (path, status, SQL, or exception class), a
 chosen filters are persisted in the browser so they survive a reload. A small **requests-over-time** sparkline above the
 table makes spikes and error bursts (drawn in red) visible at a glance. A KPI strip across the top summarises requests per
 minute, error rate, p50/p95 latency, SQL rate, the slowest recent endpoint, active exception count, health status, heap
-usage, and (Spring only) the cache hit ratio, computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`).
+usage, and (Spring servlet/WebFlux only) the cache hit ratio, computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`).
 Several KPI cards are themselves
 launchpads: the slowest-endpoint card opens **HTTP Exchanges** pre-filtered to that endpoint, while the
 active-exceptions, health, heap-usage, and cache-hit-ratio cards jump to the **Exceptions**, **Health**, **Heap Dump**,

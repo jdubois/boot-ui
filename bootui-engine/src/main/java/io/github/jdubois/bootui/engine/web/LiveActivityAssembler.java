@@ -8,6 +8,8 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
+import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -47,6 +49,17 @@ import java.util.Map;
  * {@link RequestProfileAssembler} uses to serve the reduced, trace-id-only per-request profile drill-down at
  * {@code GET /bootui/api/activity/request/{id}} on Quarkus (Spring's fuller, thread/time-window-heuristic
  * profiler stays out of scope for that port).</p>
+ *
+ * <p><strong>Cache access (the {@code CACHE} entry type / {@code cacheHitRatioPercent} KPI) is
+ * trace-id-correlated too</strong>, same as SQL/exceptions/security: the Spring WebFlux adapter feeds
+ * {@link CacheActivityEvent}s captured by the shared engine {@code CacheActivityRecorder} (fed in turn by
+ * decorating {@code CacheManager}/{@code Cache} beans — the same recorder the Spring servlet adapter's own
+ * richer {@code LiveActivityService} uses). Quarkus has no comparable capture seam yet (see
+ * {@code docs/PLAN.md} §3.4): {@code quarkus-cache}'s build-time-woven {@code @CacheResult}/
+ * {@code @CacheInvalidate} interceptors cast their resolved {@code Cache} to an internal, non-public type,
+ * so a Spring-style decorator over the public {@code Cache} interface is not a viable interception seam
+ * there. The Quarkus adapter therefore always passes {@code cacheAvailable=false}, and
+ * {@code cacheHitRatioPercent} renders {@code null} on that adapter, exactly as before.</p>
  */
 public final class LiveActivityAssembler {
 
@@ -59,6 +72,7 @@ public final class LiveActivityAssembler {
     private static final String TYPE_SQL = "SQL";
     private static final String TYPE_EXCEPTION = "EXCEPTION";
     private static final String TYPE_SECURITY = "SECURITY";
+    private static final String TYPE_CACHE = "CACHE";
 
     private static final String SEVERITY_OK = "OK";
     private static final String SEVERITY_SLOW = "SLOW";
@@ -79,6 +93,10 @@ public final class LiveActivityAssembler {
      *     unless {@code securityAvailable}
      * @param securityAvailable whether the security-event source is present and feeding (Quarkus's security
      *     capability is present and {@code quarkus.security.events.enabled=true})
+     * @param cacheEvents captured cache accesses (hit/miss/put/evict/clear, newest-first), or {@code null};
+     *     ignored unless {@code cacheAvailable}
+     * @param cacheAvailable whether the cache-access source is present and feeding (Spring WebFlux with
+     *     {@code bootui.cache.activity-capture-enabled}; always {@code false} on Quarkus today)
      * @param healthStatus current health status, or {@code null}
      * @param limit maximum merged entries to return, or {@code 0}/negative for no cap
      */
@@ -90,12 +108,15 @@ public final class LiveActivityAssembler {
             List<ExceptionGroupDto> exceptionGroups,
             List<SecurityLogEventDto> securityEvents,
             boolean securityAvailable,
+            List<CacheActivityEvent> cacheEvents,
+            boolean cacheAvailable,
             String healthStatus,
             int limit) {
 
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
         List<ExceptionGroupDto> exceptions = exceptionGroups == null ? List.of() : exceptionGroups;
+        List<CacheActivityEvent> cache = !cacheAvailable || cacheEvents == null ? List.of() : cacheEvents;
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
 
         List<ActivityEntryDto> entries = new ArrayList<>();
@@ -191,6 +212,10 @@ public final class LiveActivityAssembler {
             entries.add(toSecurityEntry(event, traceIndex.parentRequestId(event.traceId())));
         }
 
+        for (CacheActivityEvent event : cache) {
+            entries.add(toCacheEntry(event, traceIndex.parentRequestId(event.traceId())));
+        }
+
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
         if (limit > 0 && entries.size() > limit) {
             entries = entries.subList(0, limit);
@@ -210,10 +235,27 @@ public final class LiveActivityAssembler {
         if (securityAvailable) {
             sources.add("security");
         }
+        if (cacheAvailable) {
+            sources.add("cache");
+        }
 
         List<String> warnings = new ArrayList<>();
         if (!sqlAvailable && sqlUnavailableWarning != null && !sqlUnavailableWarning.isBlank()) {
             warnings.add(sqlUnavailableWarning);
+        }
+
+        Double cacheHitRatioPercent = null;
+        if (cacheAvailable && !cache.isEmpty()) {
+            long hits = cache.stream()
+                    .filter(e -> e.operation() == CacheActivityOperation.HIT)
+                    .count();
+            long misses = cache.stream()
+                    .filter(e -> e.operation() == CacheActivityOperation.MISS)
+                    .count();
+            long reads = hits + misses;
+            if (reads > 0) {
+                cacheHitRatioPercent = round(100.0 * hits / reads);
+            }
         }
 
         ActivityKpiDto kpis = new ActivityKpiDto(
@@ -229,10 +271,38 @@ public final class LiveActivityAssembler {
                 healthStatus,
                 heapUsed(),
                 heapMax(),
-                // Cache hit ratio is Spring-only today (LiveActivityService computes it from
-                // CacheActivityRecorder); no Quarkus cache-access capture exists yet.
-                null);
+                cacheHitRatioPercent);
         return new LiveActivityReport(true, entries, typeCounts, kpis, sources, warnings);
+    }
+
+    /**
+     * Build a {@code CACHE} entry for a captured cache access. Mirrors the Spring servlet
+     * {@code LiveActivityService.toCacheEntry} mapping: a {@code MISS} is a {@code WARN} (worth a glance),
+     * every other operation ({@code HIT}/{@code PUT}/{@code EVICT}/{@code CLEAR}) is {@code OK}. Only a
+     * short key hash is ever surfaced as {@code detail} (never the raw key), and a whole-cache
+     * {@code CLEAR} carries no key at all.
+     */
+    private ActivityEntryDto toCacheEntry(CacheActivityEvent event, String parentId) {
+        String severity = event.operation() == CacheActivityOperation.MISS ? SEVERITY_WARN : SEVERITY_OK;
+        String summary = event.operation().name() + " " + event.cacheName();
+        String detail = event.keyHash() == null ? null : "key " + event.keyHash();
+        return new ActivityEntryDto(
+                "cache-" + event.seq(),
+                TYPE_CACHE,
+                event.timestampMillis(),
+                severity,
+                summary,
+                detail,
+                null,
+                event.traceId(),
+                null,
+                null,
+                null,
+                event.thread(),
+                false,
+                parentId,
+                null,
+                false);
     }
 
     private ActivityEntryDto toSqlEntry(SqlTraceEntryDto entry, String parentId) {
@@ -377,6 +447,10 @@ public final class LiveActivityAssembler {
             return "";
         }
         return value.length() <= MAX_SQL_SUMMARY ? value : value.substring(0, MAX_SQL_SUMMARY) + "…";
+    }
+
+    private static double round(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
     private Long percentile(List<Long> values, int p) {

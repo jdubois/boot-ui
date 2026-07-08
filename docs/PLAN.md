@@ -160,15 +160,19 @@ Scope — new event types, roughly in priority order:
   *execution* (start/success/failure, duration, exception if any) as a `SCHEDULED_TASK` entry reuses that panel's
   existing discovery and closes an obvious "did my job run, and how long did it take" gap. No request parent (background
   thread), but nests a correlated exception the same way `REQUEST` does today.
-- **Cache operations. ✅ Shipped (Spring adapter only).** The Cache panel showed topology and aggregate hit/miss counters
-  only; a lightweight, sampled `CACHE` event (hit/miss/put/evict/clear, cache name, key hash — never the raw key/value)
-  now explains *why* those counters moved and nests as a `REQUEST` child, mirroring how `SQL` nests today. Captured by
-  decorating `CacheManager`/`Cache` beans (`CacheActivityCacheManagerBeanPostProcessor`), so both annotation-driven
-  (`@Cacheable`/`@CachePut`/`@CacheEvict`) and programmatic `CacheManager` access are covered; correlates via the same
-  trace-id-then-serving-thread tiering `SQL` uses; feeds a new `cacheHitRatioPercent` KPI tile deep-linked to `/cache`.
-  Quarkus is out of scope for now — `quarkus-cache`'s build-time-woven annotations give no comparable runtime
-  interception seam, so the Quarkus adapter continues to report `cacheHitRatioPercent: null` (see
-  `docs/QUARKUS-SUPPORT.md`).
+- **Cache operations. ✅ Shipped (Spring servlet and WebFlux adapters).** The Cache panel showed topology and aggregate
+  hit/miss counters only; a lightweight, sampled `CACHE` event (hit/miss/put/evict/clear, cache name, key hash — never
+  the raw key/value) now explains *why* those counters moved and nests as a `REQUEST` child, mirroring how `SQL` nests
+  today. Captured by decorating `CacheManager`/`Cache` beans (`CacheActivityCacheManagerBeanPostProcessor`), so both
+  annotation-driven (`@Cacheable`/`@CachePut`/`@CacheEvict`) and programmatic `CacheManager` access are covered; the
+  capture beans now live in the shared `BootUiEngineConfiguration` so both the servlet and WebFlux adapters wire them
+  identically. Correlation is trace-id-based: the servlet adapter also falls back to serving-thread tiering like `SQL`,
+  while WebFlux (which has no thread-per-request invariant) correlates purely via the OpenTelemetry-backed trace id
+  provider already used for its SQL/exception/security capture. Feeds a new `cacheHitRatioPercent` KPI tile deep-linked
+  to `/cache` on both adapters. Quarkus is out of scope for now — `quarkus-cache`'s built-in interceptors cast the
+  resolved cache to an internal, non-public `AbstractCache` type, so a Spring-style decorator implementing only the
+  public `Cache` interface would fail with a `ClassCastException`; there is no comparable runtime interception seam, so
+  the Quarkus adapter continues to report `cacheHitRatioPercent: null` (see `docs/QUARKUS-SUPPORT.md`).
 - **Messaging (Kafka/RabbitMQ/JMS) publish and consume.** The highest-value new-instrumentation candidate after mail and
   REST calls: async messaging is exactly where a Telescope/Aspire-style console helps most, since message flow is
   otherwise invisible outside the debugger. Unlike the other items above, this is a materially bigger investment: Kafka,

@@ -713,15 +713,19 @@ Data sources:
 - Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
-- On the Spring adapter only, a `CacheActivityRecorder` (framework-neutral, `bootui-engine`) is fed by
+- On the Spring servlet and WebFlux adapters, a `CacheActivityRecorder` (framework-neutral, `bootui-engine`) is fed by
   `CacheActivityCacheManagerBeanPostProcessor`, which decorates every `CacheManager` bean so both annotation-driven
   (`@Cacheable`/`@CachePut`/`@CacheEvict`) and direct programmatic cache access are captured transparently, pass-through
-  by default and fail-open. Gated by `bootui.cache.activity-capture-enabled` (default `true`) and the Cache panel's own
+  by default and fail-open. Both beans are wired once in the shared `BootUiEngineConfiguration` so servlet and WebFlux
+  behave identically. Gated by `bootui.cache.activity-capture-enabled` (default `true`) and the Cache panel's own
   `bootui.panels.cache.enabled`; bounded by `bootui.cache.activity-max-events` (default 500). Cache keys are never
   captured raw — only a short SHA-256 hash (`CacheActivityRecorder.hashKey`) — so no application data leaves the process
-  even under full value exposure. Quarkus does not yet capture cache accesses (`quarkus-cache`'s build-time-woven
-  annotations give no comparable runtime interception seam), so the `CACHE` event type and the `cacheHitRatioPercent` KPI
-  are Spring-only for now; see `docs/QUARKUS-SUPPORT.md`.
+  even under full value exposure. Correlation to the owning request is trace-id-based on both adapters; the servlet
+  adapter additionally falls back to serving-thread tiering (like `SQL`), while WebFlux relies solely on the
+  OpenTelemetry-backed trace id provider already used for its other capture points. Quarkus does not capture cache
+  accesses (`quarkus-cache`'s built-in interceptors cast the resolved cache to an internal, non-public `AbstractCache`
+  type, leaving no comparable runtime interception seam for a Spring-style decorator), so the `CACHE` event type and the
+  `cacheHitRatioPercent` KPI are Spring-only for now; see `docs/QUARKUS-SUPPORT.md`.
 
 Features:
 
