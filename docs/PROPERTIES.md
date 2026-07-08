@@ -49,8 +49,9 @@ equivalents).
 | `bootui.dev-services.restart-enabled` / `.log-tail-bytes`                    | Spring only                | Quarkus Dev Services are build-time; the panel has no log-tail or restart controls.                                                      |
 | `bootui.graalvm.*`                                                           | Spring only                | The GraalVM panel is not applicable on Quarkus.                                                                                          |
 | `bootui.http-sessions.max-sessions`                                          | Spring only                | The HTTP Sessions panel is not applicable on Quarkus.                                                                                    |
-| `bootui.activity.max-entries`, `bootui.activity.n-plus-one-threshold`, `bootui.activity.request-slow-threshold-ms` | Spring only | Stream cap, N+1 detection threshold, and slow-request threshold apply only to Spring's richer tiered-correlation profiler; Quarkus's reduced trace-id-only profiler has no equivalent config. The optional durable-persistence backend (`bootui.activity.persistence.*`) is **shared** — see below. |
+| `bootui.activity.max-entries`, `bootui.activity.n-plus-one-threshold`, `bootui.activity.request-slow-threshold-ms` | Spring only | Stream cap, N+1 detection threshold, and slow-request threshold apply only to Spring's richer tiered-correlation profiler; Quarkus's reduced trace-id-only profiler has no equivalent config. `bootui.activity.max-scheduled-task-runs` is shared by both adapters (see below). The optional durable-persistence backend (`bootui.activity.persistence.*`) is **shared** — see below. |
 | `bootui.telemetry.max-request-bytes`                                         | Spring only                | Sizes the embedded OTLP receiver, which Quarkus does not run (it captures spans in-process).                                             |
+| `bootui.cache.activity-capture-enabled`, `bootui.cache.activity-max-events`  | Spring only                | Feeds the Live Activity `CACHE` events and cache hit ratio KPI, captured by decorating Spring `CacheManager` beans; Quarkus has no comparable runtime interception seam for `quarkus-cache`'s build-time-woven annotations. |
 | `bootui.internal.*`                                                          | **Quarkus only, internal** | Build-time facts (base packages, dependency inventory, capability-present flags) emitted by build steps. Not a user setting — never set by hand. |
 
 ### Keys with a shared name but platform-specific behavior
@@ -67,7 +68,8 @@ default — on both adapters. This includes the safety keys (`bootui.allow-non-l
 `bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
 `bootui.sql-trace.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
-`bootui.exceptions.*`, `bootui.security-logs.*`, `bootui.cache.*`, `bootui.mcp.*`, `bootui.ai.*`,
+`bootui.exceptions.*`, `bootui.security-logs.*`, `bootui.cache.*` (except `.activity-capture-enabled` and
+`.activity-max-events`, Spring only — see above), `bootui.mcp.*`, `bootui.ai.*`,
 `bootui.copilot.*`, and `bootui.claude-code.*` families. It also includes the per-panel access keys —
 `bootui.panels.<id>.enabled` / `.read-only` and the global `bootui.read-only` — which are enforced on
 Quarkus by `QuarkusPanelAccessFilter` at full behavioral parity with Spring's `PanelAccessFilter` (same
@@ -246,11 +248,13 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 
 ### Cache
 
-| Property                               | Default | Description                                                                                       |
-| -------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
-| `bootui.panels.cache.enabled`          | `true`  | Show cache managers, caches, metrics, and cache annotations.                                      |
-| `bootui.panels.cache.read-only`        | `false` | Disable cache clear actions.                                                                      |
-| `bootui.cache.clear-enabled`           | `true`  | Additional action gate for cache clearing. Both this and the read-only state must allow clearing. |
+| Property                                 | Default | Description                                                                                                        |
+| ----------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------ |
+| `bootui.panels.cache.enabled`            | `true`  | Show cache managers, caches, metrics, and cache annotations.                                                        |
+| `bootui.panels.cache.read-only`          | `false` | Disable cache clear actions.                                                                                        |
+| `bootui.cache.clear-enabled`             | `true`  | Additional action gate for cache clearing. Both this and the read-only state must allow clearing.                   |
+| `bootui.cache.activity-capture-enabled` | `true`  | Spring only. Feed cache hits/misses/puts/evictions/clears into the Live Activity stream and its cache hit ratio KPI. |
+| `bootui.cache.activity-max-events`      | `500`   | Spring only. Bounded ring-buffer size for captured cache-activity events.                                           |
 
 ### Hibernate
 
@@ -310,6 +314,7 @@ drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-
 | `bootui.activity.max-entries`                 | `200`   | Maximum number of merged stream entries returned per page after merging and sorting all sources.                 |
 | `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds above which a request is flagged as slow in the stream and KPI strip.                   |
 | `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request is flagged with a potential N+1 pattern, both as a list-level badge and in its profile drawer. |
+| `bootui.activity.max-scheduled-task-runs`     | `200`   | Maximum number of captured `@Scheduled` method executions retained for `SCHEDULED_TASK` stream entries. Shared by both adapters: Spring feeds it from Micrometer's `ScheduledTaskObservationContext`, Quarkus from the CDI `SuccessfulExecution`/`FailedExecution` events (see `docs/PLAN.md` §3.4). |
 
 #### Live Activity Kafka capture
 

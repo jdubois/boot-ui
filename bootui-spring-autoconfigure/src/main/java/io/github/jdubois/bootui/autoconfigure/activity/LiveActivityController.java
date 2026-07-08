@@ -23,8 +23,10 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -95,6 +97,8 @@ public class LiveActivityController {
             ObjectProvider<ExceptionStore> exceptionStore,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
+            ObjectProvider<CacheActivityRecorder> cacheActivity,
+            ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
             ObjectProvider<KafkaActivityRecorder> kafkaActivityRecorder,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
@@ -108,6 +112,8 @@ public class LiveActivityController {
                 health,
                 requestCorrelations,
                 securityCorrelations,
+                cacheActivity,
+                scheduledTaskRuns,
                 kafkaActivityRecorder,
                 properties);
         this.correlator = new LiveActivityCorrelator(
@@ -129,6 +135,14 @@ public class LiveActivityController {
         ExceptionStore store = exceptionStore.getIfAvailable();
         if (store != null) {
             unsubscribers.add(store.subscribe(changeStream::signal));
+        }
+        CacheActivityRecorder cache = cacheActivity.getIfAvailable();
+        if (cache != null) {
+            unsubscribers.add(cache.subscribe(changeStream::signal));
+        }
+        ScheduledTaskRunStore scheduledStore = scheduledTaskRuns.getIfAvailable();
+        if (scheduledStore != null) {
+            unsubscribers.add(scheduledStore.subscribe(changeStream::signal));
         }
         KafkaActivityRecorder kafkaRecorder = kafkaActivityRecorder.getIfAvailable();
         if (kafkaRecorder != null) {

@@ -187,6 +187,9 @@ class BootUiQuarkusProcessor {
     private static final String KAFKA_CONSUMER_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.kafka.QuarkusKafkaConsumerCapture";
 
+    private static final String SCHEDULED_TASK_RUN_RECORDER_CLASS =
+            "io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskRunRecorder";
+
     // Referenced by class name only: BootUiSqlTraceProducer @Produces an Alternative DataSource that wraps the
     // default Agroal pool, and imports io.agroal.*; the deployment classloader must never load it without a JDBC
     // datasource extension on the classpath. Gated identically to AGROAL_PRODUCER_CLASS (AGROAL, dev/test).
@@ -1404,6 +1407,36 @@ class BootUiQuarkusProcessor {
                     QuarkusPanelAvailability.SECURITY_LOGS_PRESENT_KEY, "true"));
         } else {
             excludedTypes.produce(new ExcludedTypeBuildItem(SECURITY_CAPTURE_CLASS));
+        }
+    }
+
+    /**
+     * Capability-gated registration of the Live Activity scheduled-task-run capture observer (R2).
+     * {@code QuarkusScheduledTaskRunRecorder} observes {@code io.quarkus.scheduler.SuccessfulExecution}/
+     * {@code FailedExecution}, so it must be excluded from bean discovery when no scheduler extension is
+     * present; the always-produced engine {@code ScheduledTaskRunStore} (see
+     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) is neutral (no scheduler imports), so
+     * it wires unconditionally and the Live Activity panel simply renders no {@code SCHEDULED_TASK}
+     * entries when the observer is absent. Mirrors {@link #registerSecurityLogs} exactly; unlike
+     * {@link #registerScheduledTasks} (the static-definitions capture, which needs no exclusion at all
+     * since it imports no {@code io.quarkus.scheduler.*} type), this observer is the first runtime
+     * importer of that API in the module.
+     */
+    @BuildStep
+    void registerScheduledTaskRunCapture(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        boolean present =
+                launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SCHEDULER);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(SCHEDULED_TASK_RUN_RECORDER_CLASS)
+                    .setUnremovable()
+                    .build());
+        } else {
+            excludedTypes.produce(new ExcludedTypeBuildItem(SCHEDULED_TASK_RUN_RECORDER_CLASS));
         }
     }
 

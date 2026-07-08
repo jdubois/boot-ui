@@ -187,6 +187,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 null,
+                null,
                 new BootUiProperties());
 
         assertThat(parentOf(service.report(null, null, 0, 0), "sql-1")).isEqualTo("r1");
@@ -225,6 +226,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 securityCorrelations,
+                null,
                 new BootUiProperties());
 
         assertThat(parentOfSecurityEntry(service.report(null, null, 0, 0))).isEqualTo("r1");
@@ -249,6 +251,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 securityCorrelations,
+                null,
                 new BootUiProperties());
 
         LiveActivityReport report = service.report(null, null, 0, 0);
@@ -273,6 +276,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 securityCorrelations,
+                null,
                 new BootUiProperties());
 
         // The event correlates to the request (so it still nests), but a blank principal must not flag
@@ -280,6 +284,48 @@ class LiveActivityServiceTests {
         LiveActivityReport report = service.report(null, null, 0, 0);
         assertThat(parentOfSecurityEntry(report)).isEqualTo("r1");
         assertThat(securedPrincipalOf(report, "r1")).isNull();
+    }
+
+    @Test
+    void nestsExceptionUnderScheduledTaskByThreadAndWindow() {
+        LiveActivityService service = service(
+                null,
+                null,
+                exceptions(scheduledExceptionGroup(
+                        "e1",
+                        "java.lang.RuntimeException",
+                        BASE.plusMillis(1010).toEpochMilli(),
+                        "scheduler-1")),
+                null,
+                null,
+                null,
+                null,
+                scheduledStore(
+                        scheduledRun("MyJob#run", BASE.plusMillis(1000).toEpochMilli(), 30L, false, "scheduler-1")),
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "exc-e1")).isEqualTo("sched-1");
+    }
+
+    @Test
+    void leavesExceptionTopLevelWhenScheduledTaskThreadDoesNotMatch() {
+        LiveActivityService service = service(
+                null,
+                null,
+                exceptions(scheduledExceptionGroup(
+                        "e1",
+                        "java.lang.RuntimeException",
+                        BASE.plusMillis(1010).toEpochMilli(),
+                        "other-thread")),
+                null,
+                null,
+                null,
+                null,
+                scheduledStore(
+                        scheduledRun("MyJob#run", BASE.plusMillis(1000).toEpochMilli(), 30L, false, "scheduler-1")),
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "exc-e1")).isNull();
     }
 
     @Test
@@ -336,6 +382,122 @@ class LiveActivityServiceTests {
                 .isFalse();
     }
 
+    @Test
+    void mergesCacheEventsIntoTheStream() {
+        io.github.jdubois.bootui.engine.cache.CacheActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
+        recorder.recordHit("cacheManager", "orders", "42");
+        recorder.recordMiss("cacheManager", "orders", "43");
+        LiveActivityService service = serviceWithCache(null, null, null, null, null, recorder, new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(report.available()).isTrue();
+        assertThat(report.sources()).contains("Cache");
+        assertThat(report.typeCounts()).containsEntry("CACHE", 2);
+        assertThat(report.entries())
+                .filteredOn(e -> e.type().equals("CACHE"))
+                .extracting(e -> e.severity() + ":" + e.summary())
+                .containsExactlyInAnyOrder("OK:HIT orders", "WARN:MISS orders");
+    }
+
+    @Test
+    void cacheEntryDetailCarriesOnlyTheHashedKeyNeverTheRawKey() {
+        io.github.jdubois.bootui.engine.cache.CacheActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
+        recorder.recordHit("cacheManager", "orders", "super-secret-key");
+        LiveActivityService service = serviceWithCache(null, null, null, null, null, recorder, new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        String detail = report.entries().stream()
+                .filter(e -> e.type().equals("CACHE"))
+                .findFirst()
+                .orElseThrow()
+                .detail();
+        assertThat(detail).doesNotContain("super-secret-key").startsWith("key ");
+    }
+
+    @Test
+    void clearCacheEventHasNoKeyDetail() {
+        io.github.jdubois.bootui.engine.cache.CacheActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
+        recorder.recordClear("cacheManager", "orders");
+        LiveActivityService service = serviceWithCache(null, null, null, null, null, recorder, new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(report.entries().get(0).detail()).isNull();
+    }
+
+    @Test
+    void nestsCacheEventUnderRequestByTraceId() {
+        io.github.jdubois.bootui.engine.cache.CacheActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
+        recorder.setTraceIdProvider(() -> "trace-r1");
+        recorder.recordHit("cacheManager", "orders", "42");
+        LiveActivityService service = serviceWithCache(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                null,
+                null,
+                null,
+                recorder,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+        String cacheEntryId = report.entries().stream()
+                .filter(e -> e.type().equals("CACHE"))
+                .findFirst()
+                .orElseThrow()
+                .id();
+        assertThat(parentOf(report, cacheEntryId)).isEqualTo("r1");
+    }
+
+    @Test
+    void computesCacheHitRatioKpiFromCapturedEvents() {
+        io.github.jdubois.bootui.engine.cache.CacheActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
+        recorder.recordHit("cacheManager", "orders", "1");
+        recorder.recordHit("cacheManager", "orders", "2");
+        recorder.recordHit("cacheManager", "orders", "3");
+        recorder.recordMiss("cacheManager", "orders", "4");
+        LiveActivityService service = serviceWithCache(null, null, null, null, null, recorder, new BootUiProperties());
+
+        assertThat(service.report(null, null, 0, 0).kpis().cacheHitRatioPercent())
+                .isEqualTo(75.0);
+    }
+
+    @Test
+    void cacheHitRatioKpiIsNullWhenNoCacheEventsCaptured() {
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        assertThat(service.report(null, null, 0, 0).kpis().cacheHitRatioPercent())
+                .isNull();
+    }
+
+    @Test
+    void cacheEventsAreOmittedWhenCachePanelIsDisabled() {
+        io.github.jdubois.bootui.engine.cache.CacheActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
+        recorder.recordHit("cacheManager", "orders", "1");
+        BootUiProperties properties = new BootUiProperties();
+        properties
+                .panel(io.github.jdubois.bootui.engine.panel.BootUiPanels.CACHE)
+                .setEnabled(false);
+        LiveActivityService service = serviceWithCache(null, null, null, null, null, recorder, properties);
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+        assertThat(report.entries()).noneMatch(e -> e.type().equals("CACHE"));
+        assertThat(report.sources()).doesNotContain("Cache");
+    }
+
     // --- helpers ---
 
     private static String parentOf(LiveActivityReport report, String entryId) {
@@ -381,7 +543,7 @@ class LiveActivityServiceTests {
             SecurityLogsController security,
             HealthController health,
             BootUiProperties properties) {
-        return service(requests, sql, exceptions, security, health, null, null, properties);
+        return service(requests, sql, exceptions, security, health, null, null, null, properties);
     }
 
     private LiveActivityService service(
@@ -392,6 +554,7 @@ class LiveActivityServiceTests {
             HealthController health,
             RequestCorrelationRegistry requestCorrelations,
             SecurityEventCorrelationRegistry securityCorrelations,
+            io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledTaskRuns,
             BootUiProperties properties) {
         return new LiveActivityService(
                 provider(requests),
@@ -401,6 +564,8 @@ class LiveActivityServiceTests {
                 provider(health),
                 provider(requestCorrelations),
                 provider(securityCorrelations),
+                provider(null),
+                provider(scheduledTaskRuns),
                 provider(null),
                 properties);
     }
@@ -415,7 +580,31 @@ class LiveActivityServiceTests {
                 provider(null),
                 provider(null),
                 provider(null),
+                provider(null),
+                provider(null),
                 provider(recorder),
+                properties);
+    }
+
+    private LiveActivityService serviceWithCache(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            io.github.jdubois.bootui.engine.cache.CacheActivityRecorder cacheActivity,
+            BootUiProperties properties) {
+        return new LiveActivityService(
+                provider(requests),
+                provider(sql),
+                provider(exceptions),
+                provider(security),
+                provider(health),
+                provider(null),
+                provider(null),
+                provider(cacheActivity),
+                provider(null),
+                provider(null),
                 properties);
     }
 
@@ -563,5 +752,62 @@ class LiveActivityServiceTests {
                 null,
                 "OPEN",
                 0);
+    }
+
+    /**
+     * An exception group with no correlated HTTP request (no method/path, matching the shape a
+     * background {@code @Scheduled} failure's captured exception actually has), so {@code
+     * matchExceptionParent} always yields {@code null} and {@code matchScheduledTaskParent} is the only
+     * tier that can attach it to a parent.
+     */
+    private static ExceptionGroupDto scheduledExceptionGroup(
+            String id, String className, long lastSeen, String thread) {
+        return new ExceptionGroupDto(
+                id,
+                className,
+                "boom",
+                1,
+                lastSeen,
+                lastSeen,
+                "Foo.java:1",
+                true,
+                thread,
+                null,
+                null,
+                "h",
+                "s",
+                null,
+                "OPEN",
+                0);
+    }
+
+    private static io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledStore(
+            io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run... runs) {
+        io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore store =
+                new io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore(100);
+        for (io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run run : runs) {
+            store.record(
+                    run.runnable(),
+                    run.startTimestamp(),
+                    run.durationMs(),
+                    run.success(),
+                    run.exceptionClassName(),
+                    run.message(),
+                    run.thread());
+        }
+        return store;
+    }
+
+    private static io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run scheduledRun(
+            String runnable, long startTimestamp, long durationMs, boolean success, String thread) {
+        return new io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run(
+                0,
+                runnable,
+                startTimestamp,
+                durationMs,
+                success,
+                success ? null : "java.lang.RuntimeException",
+                success ? null : "boom",
+                thread);
     }
 }

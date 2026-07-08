@@ -210,6 +210,22 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus Scheduler, compile-only (provided): needed solely to compile the Live Activity
+             scheduled-task-run capture observer (QuarkusScheduledTaskRunRecorder), which observes
+             io.quarkus.scheduler.SuccessfulExecution / FailedExecution CDI events (fired by BaseScheduler
+             after every @Scheduled invocation) into the shared engine ScheduledTaskRunStore. This is a
+             separate runtime import from the existing build-time-only Scheduled Tasks panel
+             (QuarkusScheduledTaskProvider), which deliberately avoids importing io.quarkus.scheduler.* at
+             runtime. provided scope is NOT transitive, so an application that does not add quarkus-scheduler
+             never gets these types, and the capability-gated build step excludes the observer that would
+             reference them (R2). When an app DOES add quarkus-scheduler, the API is supplied (at the same
+             quarkus-bom-managed version) and the observer is registered. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Unit-test deps (quarkus-bom managed). The runtime module carries a small same-package unit test for
              QuarkusHealthProvider.map(), which needs SmallRye's jakarta.json API + the Parsson implementation —
              both already on the test classpath via the provided smallrye-health dependency above. Keeping the

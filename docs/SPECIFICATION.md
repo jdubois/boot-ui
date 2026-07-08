@@ -713,22 +713,55 @@ Data sources:
 - Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
+- Scheduled-task-run capture (both adapters): a bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`.
+  On Spring, a Spring-specific `ObservationHandler`/`SchedulingConfigurer` pair taps Spring Framework's own
+  `ScheduledTaskObservationContext` instrumentation (present since Spring Framework 6.1) — no AOP proxying or bean
+  wrapping. On Quarkus, `QuarkusScheduledTaskRunRecorder` observes the ordinary CDI `SuccessfulExecution`/
+  `FailedExecution` events the scheduler always fires after every execution (the single-instance `JobInstrumenter` SPI
+  is unusable since `quarkus-opentelemetry` already claims it); the trigger's `getFireTime()` stands in for a start
+  timestamp since these events only fire on completion. Only `@Scheduled` *method* tasks are observed this way, so a
+  manually registered `Runnable`/`Trigger` task does not produce a `SCHEDULED_TASK` entry, consistent with how the
+  static Scheduled Tasks panel lists it with only a generic runnable name. Capped by
+  `bootui.activity.max-scheduled-task-runs` (default 200, shared config key on both adapters), and self-filtered the
+  same way the static task list is; on Quarkus the observer is additionally gated on the `SCHEDULER` capability (see
+  Design constraints below).
+- On the Spring servlet and WebFlux adapters, a `CacheActivityRecorder` (framework-neutral, `bootui-engine`) is fed by
+  `CacheActivityCacheManagerBeanPostProcessor`, which decorates every `CacheManager` bean so both annotation-driven
+  (`@Cacheable`/`@CachePut`/`@CacheEvict`) and direct programmatic cache access are captured transparently, pass-through
+  by default and fail-open. Both beans are wired once in the shared `BootUiEngineConfiguration` so servlet and WebFlux
+  behave identically. Gated by `bootui.cache.activity-capture-enabled` (default `true`) and the Cache panel's own
+  `bootui.panels.cache.enabled`; bounded by `bootui.cache.activity-max-events` (default 500). Cache keys are never
+  captured raw — only a short SHA-256 hash (`CacheActivityRecorder.hashKey`) — so no application data leaves the process
+  even under full value exposure. Correlation to the owning request is trace-id-based on both adapters; the servlet
+  adapter additionally falls back to serving-thread tiering (like `SQL`), while WebFlux relies solely on the
+  OpenTelemetry-backed trace id provider already used for its other capture points. Quarkus does not capture cache
+  accesses (`quarkus-cache`'s built-in interceptors cast the resolved cache to an internal, non-public `AbstractCache`
+  type, leaving no comparable runtime interception seam for a Spring-style decorator), so the `CACHE` event type and the
+  `cacheHitRatioPercent` KPI are Spring-only for now; see `docs/QUARKUS-SUPPORT.md`.
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and `MESSAGING` entries normalized to a common shape
-  (timestamp, type, severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, (Spring only) `CACHE`, `SCHEDULED_TASK`, and `MESSAGING`
+  entries normalized to a common shape (timestamp, type, severity, one-line summary, optional duration and correlation id),
+  sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
-  method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
-  that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected) and entries without a
-  precise request correlation have a null `parentId`. A `REQUEST` entry that was correlated to a Spring Security audit
+  method/path), so the client can nest correlated SQL, exceptions, security events, and cache accesses chronologically
+  under the request that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected)
+  and entries without a precise request correlation have a null `parentId` — a `SCHEDULED_TASK` entry always has a
+  null `parentId` since it runs on a background thread with no originating request. A `CACHE` entry's summary is
+  `"<HIT|MISS|PUT|EVICT|CLEAR> <cacheName>"`, its detail is `"key <hash>"` when a key was involved (omitted for
+  whole-cache `CLEAR`), and a `MISS` is flagged `WARN` severity (all other operations `OK`). A `REQUEST` entry that was
+  correlated to a Spring Security audit
   event also carries a `securedPrincipal` (the caller's principal; null when the request had no
   correlated security event naming a principal), so the client can flag it as authenticated with a
   lock icon and a principal tag without opening the profiler. It also carries a `sqlNPlusOneSuspected` boolean, computed
   with the identical threshold/logic the per-request profiler uses below, so a request whose correlated SQL looks like
   an N+1 access pattern can be badged directly in the list without opening its profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
-  100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are.
+  100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are. A `SCHEDULED_TASK` entry is severity
+  `ERROR` on a thrown exception (with the exception class name and message surfaced as `detail`), `SLOW` when its
+  duration meets the same slow-request threshold, otherwise `OK`, and clicking it deep-links into the Scheduled Tasks
+  panel prefilled with its runnable name.
 - Kafka producer/consumer capture: framework-specific capture hooks feed a shared, framework-neutral
   `KafkaActivityRecorder` (bounded ring buffer in `bootui-engine`), and Live Activity renders those records as
   `MESSAGING` entries. On Spring, `KafkaProducerCaptureBeanPostProcessor` and
@@ -744,7 +777,9 @@ Features:
   point), while on Quarkus it carries the channel name. Controlled by `bootui.kafka.enabled`,
   `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length`.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
-  exception count, SQL/min, slowest query, health status, and heap usage.
+  exception count, SQL/min, slowest query, health status, heap usage, (Spring only, `null` on Quarkus) cache hit
+  ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel — and a
+  scheduled-task failure count linking into the Scheduled Tasks panel.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
   nesting of correlated children under their request (expanded by default; any active filter or free-text search
   flattens the feed so the query spans every signal), and a
@@ -838,6 +873,11 @@ Acceptance criteria:
 - The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
   `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
   active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
+- `SCHEDULED_TASK` capture is implemented on both adapters. Quarkus's scheduler
+  (`io.quarkus.scheduler.Scheduler`) has no per-execution observability hook analogous to Spring's
+  `ScheduledTaskObservationContext`; instead `QuarkusScheduledTaskRunRecorder` observes the CDI
+  `SuccessfulExecution`/`FailedExecution` events the scheduler always fires, gated on the `SCHEDULER` capability
+  (`quarkus-scheduler` is a `provided`-scope, R2-excluded dependency, mirroring `QuarkusSecurityEventCapture`).
 
 ### 5.14.3 Traces Panel
 

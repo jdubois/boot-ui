@@ -26,6 +26,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -124,6 +125,7 @@ public class LiveActivityResource {
     private final ExceptionStore exceptionStore;
     private final ExceptionsService exceptionsService;
     private final SecurityEventBuffer securityBuffer;
+    private final ScheduledTaskRunStore scheduledTaskRunStore;
     private final QuarkusPanelAvailability panelAvailability;
     private final TracesService tracesService;
     private final SwitchableActivityStore activityStore;
@@ -145,6 +147,7 @@ public class LiveActivityResource {
             ExceptionStore exceptionStore,
             ExceptionsService exceptionsService,
             SecurityEventBuffer securityBuffer,
+            ScheduledTaskRunStore scheduledTaskRunStore,
             QuarkusPanelAvailability panelAvailability,
             TracesService tracesService,
             SwitchableActivityStore activityStore,
@@ -157,6 +160,7 @@ public class LiveActivityResource {
         this.exceptionStore = exceptionStore;
         this.exceptionsService = exceptionsService;
         this.securityBuffer = securityBuffer;
+        this.scheduledTaskRunStore = scheduledTaskRunStore;
         this.panelAvailability = panelAvailability;
         this.tracesService = tracesService;
         this.activityStore = activityStore;
@@ -280,6 +284,11 @@ public class LiveActivityResource {
                 exceptionsService.report(exceptionStore).groups(),
                 securityEvents(securityAvailable),
                 securityAvailable,
+                // No Quarkus cache-access capture seam exists yet (see LiveActivityAssembler's class
+                // Javadoc); cacheHitRatioPercent stays null, exactly as before this parameter was added.
+                null,
+                false,
+                scheduledTaskRunStore.runs(),
                 null,
                 limit,
                 kafkaAvailable ? kafkaRecorder.recent() : List.of(),
@@ -338,7 +347,29 @@ public class LiveActivityResource {
     @Produces(MediaType.SERVER_SENT_EVENTS)
     public Multi<OutboundSseEvent> stream(@Context Sse sse) {
         return SseStreams.updates(
-                sse, openStreams, MAX_CONCURRENT_STREAMS, combineSources(buffer::subscribe, kafkaRecorder::subscribe));
+                sse,
+                openStreams,
+                MAX_CONCURRENT_STREAMS,
+                combined(combined(buffer::subscribe, scheduledTaskRunStore::subscribe), kafkaRecorder::subscribe));
+    }
+
+    /**
+     * Combines two {@link SseStreams.ChangeSource}s into one that notifies {@code onChange} when either
+     * fires, so the merged Live Activity stream ticks on a new HTTP exchange, a new captured
+     * {@code @Scheduled} execution, <em>or</em> a new captured Kafka message (nested at the call site to
+     * fan in all three) — mirroring the Spring adapter, whose single {@code BootUiChangeStream} already
+     * fans in every signal source (including {@link ScheduledTaskRunStore} and the Kafka recorder) to the
+     * same effect.
+     */
+    private static SseStreams.ChangeSource combined(SseStreams.ChangeSource first, SseStreams.ChangeSource second) {
+        return onChange -> {
+            Runnable unsubscribeFirst = first.subscribe(onChange);
+            Runnable unsubscribeSecond = second.subscribe(onChange);
+            return () -> {
+                unsubscribeFirst.run();
+                unsubscribeSecond.run();
+            };
+        };
     }
 
     private HttpExchangesReport requestsReport() {
@@ -421,18 +452,6 @@ public class LiveActivityResource {
                 entry.parentId(),
                 entry.securedPrincipal(),
                 entry.sqlNPlusOneSuspected());
-    }
-
-    private static SseStreams.ChangeSource combineSources(
-            SseStreams.ChangeSource first, SseStreams.ChangeSource second) {
-        return onChange -> {
-            Runnable unsubscribeFirst = first.subscribe(onChange);
-            Runnable unsubscribeSecond = second.subscribe(onChange);
-            return () -> {
-                unsubscribeFirst.run();
-                unsubscribeSecond.run();
-            };
-        };
     }
 
     /** SQL trace snapshot for one request cycle: entries plus whether the source is present and feeding. */
