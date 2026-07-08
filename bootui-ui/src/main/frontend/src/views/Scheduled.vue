@@ -1,6 +1,7 @@
 <script setup>
 import {getJson} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, onMounted, ref} from 'vue'
+import {useRoute} from 'vue-router'
 import {describeLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -22,6 +23,14 @@ async function fetchReport() {
 }
 
 const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport)
+
+const route = useRoute()
+onMounted(() => {
+  const prefill = route?.query?.q
+  if (typeof prefill === 'string' && prefill) {
+    filter.value = prefill
+  }
+})
 
 const filtered = computed(() => {
   if (!report.value) return []

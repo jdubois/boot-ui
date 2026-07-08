@@ -19,6 +19,8 @@ import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mappings.SpringMappingProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
+import io.github.jdubois.bootui.autoconfigure.scheduled.BootUiSchedulingConfigurer;
+import io.github.jdubois.bootui.autoconfigure.scheduled.ScheduledTaskRunObservationHandler;
 import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvider;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigMetadataCatalog;
@@ -49,6 +51,7 @@ import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
@@ -491,6 +494,22 @@ public class BootUiEngineConfiguration {
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.scheduling.config.ScheduledTaskHolder")
     static class ScheduledTasksBackendConfiguration {
+
+        @Bean
+        ScheduledTaskRunStore bootUiScheduledTaskRunStore(BootUiProperties properties) {
+            return new ScheduledTaskRunStore(properties.getActivity().getMaxScheduledTaskRuns());
+        }
+
+        @Bean
+        ScheduledTaskRunObservationHandler bootUiScheduledTaskRunObservationHandler(
+                ScheduledTaskRunStore store, BootUiSelfDataFilter selfDataFilter) {
+            return new ScheduledTaskRunObservationHandler(store, selfDataFilter);
+        }
+
+        @Bean
+        BootUiSchedulingConfigurer bootUiSchedulingConfigurer(ScheduledTaskRunObservationHandler handler) {
+            return new BootUiSchedulingConfigurer(handler);
+        }
 
         @Bean
         @Lazy

@@ -1612,6 +1612,12 @@ public class BootUiProperties {
          */
         private ActivityPersistence persistence = new ActivityPersistence();
 
+        /**
+         * Maximum number of recent {@code @Scheduled} task executions retained for the
+         * {@code SCHEDULED_TASK} entries in the activity stream.
+         */
+        private int maxScheduledTaskRuns = 200;
+
         public int getMaxEntries() {
             return maxEntries;
         }
@@ -1642,6 +1648,14 @@ public class BootUiProperties {
 
         public void setPersistence(ActivityPersistence persistence) {
             this.persistence = persistence == null ? new ActivityPersistence() : persistence;
+        }
+
+        public int getMaxScheduledTaskRuns() {
+            return maxScheduledTaskRuns;
+        }
+
+        public void setMaxScheduledTaskRuns(int maxScheduledTaskRuns) {
+            this.maxScheduledTaskRuns = maxScheduledTaskRuns;
         }
     }
 

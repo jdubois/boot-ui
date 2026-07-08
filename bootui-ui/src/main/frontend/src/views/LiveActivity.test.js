@@ -156,6 +156,61 @@ describe('LiveActivity', () => {
     expect(row.text()).not.toContain('N+1')
   })
 
+  it('renders a scheduled-task-run entry with its own icon and links the KPI card to the Scheduled Tasks panel', async () => {
+    const scheduledEntry = {
+      id: 'sched-1',
+      type: 'SCHEDULED_TASK',
+      timestamp: 1700000000000,
+      severity: 'ERROR',
+      summary: 'com.example.jobs.NightlyJob.run',
+      detail: 'java.lang.IllegalStateException: boom',
+      durationMs: 45,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'scheduling-1',
+      profileable: false,
+      parentId: null,
+      securedPrincipal: null,
+      sqlNPlusOneSuspected: false
+    }
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport({
+          kpis: {
+            requestsPerMinute: 12,
+            errorRatePercent: 0,
+            p50LatencyMs: 40,
+            p95LatencyMs: 120,
+            sqlPerMinute: 6,
+            slowestEndpoint: null,
+            slowestEndpointMs: null,
+            activeExceptionCount: 0,
+            healthStatus: 'UP',
+            heapUsedBytes: 104857600,
+            scheduledTaskFailureCount: 3
+          },
+          typeCounts: {REQUEST: 0, SQL: 0, EXCEPTION: 0, SECURITY: 0, SCHEDULED_TASK: 1},
+          entries: [scheduledEntry]
+        }),
+        requestProfile()
+      )
+    )
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    const row = wrapper.get('tbody tr')
+    expect(row.text()).toContain('SCHEDULED_TASK')
+    expect(row.find('i.bi-clock-history').exists()).toBe(true)
+
+    const scheduledLink = wrapper.findAll('router-link').find((a) => a.text().includes('Scheduled failures'))
+    expect(scheduledLink).toBeTruthy()
+    expect(scheduledLink.text()).toContain('3')
+  })
+
   it('shows call sites for a flagged SQL group in the request profile drawer', async () => {
     vi.stubGlobal(
       'fetch',

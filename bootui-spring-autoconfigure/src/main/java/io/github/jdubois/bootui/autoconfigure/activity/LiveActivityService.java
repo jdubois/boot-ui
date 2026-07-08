@@ -22,6 +22,7 @@ import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.web.SecurityActivityIds;
 import java.lang.management.ManagementFactory;
@@ -52,6 +53,7 @@ public class LiveActivityService {
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
     static final String TYPE_CACHE = "CACHE";
+    static final String TYPE_SCHEDULED_TASK = "SCHEDULED_TASK";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -66,6 +68,7 @@ public class LiveActivityService {
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
     private final ObjectProvider<CacheActivityRecorder> cacheActivity;
+    private final ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns;
     private final BootUiProperties properties;
 
     public LiveActivityService(
@@ -76,28 +79,8 @@ public class LiveActivityService {
             ObjectProvider<HealthController> health,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
-            BootUiProperties properties) {
-        this(
-                httpExchanges,
-                sqlTrace,
-                exceptions,
-                securityLogs,
-                health,
-                requestCorrelations,
-                securityCorrelations,
-                null,
-                properties);
-    }
-
-    public LiveActivityService(
-            ObjectProvider<HttpExchangesController> httpExchanges,
-            ObjectProvider<SqlTraceController> sqlTrace,
-            ObjectProvider<ExceptionsController> exceptions,
-            ObjectProvider<SecurityLogsController> securityLogs,
-            ObjectProvider<HealthController> health,
-            ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
-            ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             ObjectProvider<CacheActivityRecorder> cacheActivity,
+            ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
@@ -107,6 +90,7 @@ public class LiveActivityService {
         this.requestCorrelations = requestCorrelations;
         this.securityCorrelations = securityCorrelations;
         this.cacheActivity = cacheActivity;
+        this.scheduledTaskRuns = scheduledTaskRuns;
         this.properties = properties;
     }
 
@@ -128,12 +112,14 @@ public class LiveActivityService {
         ExceptionsReport exceptionsReport = loadExceptions(sources);
         SecurityLogsReport security = loadSecurity(sources);
         List<CacheActivityEvent> cache = loadCache(sources);
+        List<ScheduledTaskRunStore.Run> scheduledRuns = loadScheduledTaskRuns(sources);
 
         List<RequestAnchor> anchors = buildAnchors(requests);
         Map<String, RequestAnchor> anchorsById = new HashMap<>();
         for (RequestAnchor anchor : anchors) {
             anchorsById.put(anchor.id(), anchor);
         }
+        List<ScheduledTaskAnchor> scheduledAnchors = buildScheduledTaskAnchors(scheduledRuns);
         SecurityEventCorrelationRegistry securityRegistry =
                 securityCorrelations == null ? null : securityCorrelations.getIfAvailable();
 
@@ -157,7 +143,15 @@ public class LiveActivityService {
         }
         if (exceptionsReport != null) {
             for (ExceptionGroupDto group : exceptionsReport.groups()) {
-                all.add(toExceptionEntry(group, matchExceptionParent(group, anchors)));
+                String parentId = matchExceptionParent(group, anchors);
+                if (parentId == null) {
+                    // No owning HTTP request: fall back to attributing the exception to the background
+                    // @Scheduled execution that produced it (thread + time-window join, the same tiered
+                    // strategy matchSqlParent uses for its second tier), so a scheduled task's failure gets
+                    // the exact same nested-EXCEPTION-entry treatment a request's failure already does.
+                    parentId = matchScheduledTaskParent(group, scheduledAnchors);
+                }
+                all.add(toExceptionEntry(group, parentId));
             }
         }
         Map<String, String> securedByRequest = new HashMap<>();
@@ -191,6 +185,9 @@ public class LiveActivityService {
                         sqlNPlusOneSuspected));
             }
         }
+        for (ScheduledTaskRunStore.Run run : scheduledRuns) {
+            all.add(toScheduledTaskEntry(run));
+        }
 
         all.sort(Comparator.comparingLong(ActivityEntryDto::timestamp).reversed());
 
@@ -218,7 +215,7 @@ public class LiveActivityService {
             }
         }
 
-        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport, cache);
+        ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport, cache, scheduledRuns);
         boolean available = !sources.isEmpty();
         return new LiveActivityReport(available, visible, typeCounts, kpis, sources, warnings);
     }
@@ -302,6 +299,28 @@ public class LiveActivityService {
         }
         sources.add("Cache");
         return events;
+    }
+
+    /**
+     * Reads the currently retained {@code @Scheduled} task executions, newest-first, capped to this
+     * report's effective limit. Absent (no scheduling infrastructure, or the Scheduled Tasks panel
+     * disabled) yields an empty list rather than {@code null} since callers iterate it directly.
+     */
+    private List<ScheduledTaskRunStore.Run> loadScheduledTaskRuns(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.SCHEDULED)) {
+            return List.of();
+        }
+        ScheduledTaskRunStore store = scheduledTaskRuns == null ? null : scheduledTaskRuns.getIfAvailable();
+        if (store == null) {
+            return List.of();
+        }
+        List<ScheduledTaskRunStore.Run> runs = store.runs();
+        if (runs.isEmpty()) {
+            return runs;
+        }
+        sources.add("Scheduled Tasks");
+        int cap = effectiveLimit(0);
+        return runs.size() > cap ? runs.subList(0, cap) : runs;
     }
 
     private ActivityEntryDto toRequestEntry(
@@ -447,6 +466,49 @@ public class LiveActivityService {
     }
 
     /**
+     * Maps a captured {@code @Scheduled} execution to a {@code SCHEDULED_TASK} entry. There is no request
+     * to nest this entry itself under (it runs on a background thread), so its own {@code parentId} is
+     * always {@code null}; a run that threw is flagged {@code ERROR}, one slower than the shared
+     * request-slow threshold is flagged {@code SLOW}, otherwise {@code OK}. A failure is always summarized
+     * inline via {@code detail} (the run recorder observes the exception directly), and — when that same
+     * failure is independently captured into the shared exception log buffer — it additionally nests as a
+     * full {@code EXCEPTION} child entry under this one, exactly like a request's failure does today; see
+     * {@link #matchScheduledTaskParent(ExceptionGroupDto, List)}.
+     */
+    private ActivityEntryDto toScheduledTaskEntry(ScheduledTaskRunStore.Run run) {
+        String severity;
+        if (!run.success()) {
+            severity = SEVERITY_ERROR;
+        } else if (run.durationMs() >= requestSlowThresholdMs()) {
+            severity = SEVERITY_SLOW;
+        } else {
+            severity = SEVERITY_OK;
+        }
+        String detail = run.success() ? null : run.exceptionClassName() + messageSuffix(run.message());
+        return new ActivityEntryDto(
+                "sched-" + run.sequence(),
+                TYPE_SCHEDULED_TASK,
+                run.startTimestamp(),
+                severity,
+                run.runnable(),
+                detail,
+                run.durationMs(),
+                null,
+                null,
+                null,
+                null,
+                run.thread(),
+                false,
+                null,
+                null,
+                false);
+    }
+
+    private static String messageSuffix(String message) {
+        return message == null || message.isBlank() ? "" : ": " + message;
+    }
+
+    /**
      * Builds one {@link RequestAnchor} per recent HTTP request, resolving its serving thread and precise
      * window from {@link RequestCorrelationRegistry} when available. Used to attach correlated SQL,
      * exception, and security entries to the request that caused them.
@@ -544,6 +606,32 @@ public class LiveActivityService {
     }
 
     /**
+     * Resolves the {@code @Scheduled} execution an exception group belongs to when no HTTP request already
+     * claimed it: an exact serving-thread + time-window join against the run's execution window, mirroring
+     * {@code matchSqlParent}'s second tier (there is no method/path to join on for a background job, and no
+     * trace id either, since scheduled executions are not distributed-trace participants). Returns
+     * {@code null} when no run's window uniquely covers the exception, so the entry stays top-level rather
+     * than being mis-attributed.
+     */
+    private static String matchScheduledTaskParent(ExceptionGroupDto group, List<ScheduledTaskAnchor> anchors) {
+        String thread = group.lastThread();
+        if (thread == null || anchors.isEmpty()) {
+            return null;
+        }
+        long ts = group.lastSeen();
+        String found = null;
+        for (ScheduledTaskAnchor anchor : anchors) {
+            if (thread.equals(anchor.thread()) && covers(anchor.start(), anchor.end(), ts)) {
+                if (found != null) {
+                    return null;
+                }
+                found = anchor.id();
+            }
+        }
+        return found;
+    }
+
+    /**
      * Resolves the request that a security audit event belongs to using the serving-thread classifier:
      * the event is attributed to a request only when it was emitted on that request's serving thread.
      */
@@ -584,8 +672,16 @@ public class LiveActivityService {
     }
 
     private static boolean covers(RequestAnchor anchor, long timestamp) {
-        return timestamp >= anchor.start() - ActivitySql.WINDOW_SLACK_MS
-                && timestamp <= anchor.end() + ActivitySql.WINDOW_SLACK_MS;
+        return covers(anchor.start(), anchor.end(), timestamp);
+    }
+
+    /**
+     * Whether {@code timestamp} falls within {@code [start, end]}, widened by the shared window-slack
+     * tolerance on both ends. Shared by {@link RequestAnchor} and {@link ScheduledTaskAnchor} matching so
+     * both anchor kinds use the exact same tolerance.
+     */
+    private static boolean covers(long start, long end, long timestamp) {
+        return timestamp >= start - ActivitySql.WINDOW_SLACK_MS && timestamp <= end + ActivitySql.WINDOW_SLACK_MS;
     }
 
     /**
@@ -595,11 +691,33 @@ public class LiveActivityService {
     private record RequestAnchor(
             String id, long start, long end, String thread, String traceId, String method, String path) {}
 
+    /**
+     * Builds one {@link ScheduledTaskAnchor} per captured {@code @Scheduled} execution, so a correlated
+     * exception can be attached to the run that produced it the same way {@link #buildAnchors} lets SQL/
+     * exception/security entries attach to their owning request.
+     */
+    private static List<ScheduledTaskAnchor> buildScheduledTaskAnchors(List<ScheduledTaskRunStore.Run> runs) {
+        List<ScheduledTaskAnchor> anchors = new ArrayList<>(runs.size());
+        for (ScheduledTaskRunStore.Run run : runs) {
+            long start = run.startTimestamp();
+            anchors.add(
+                    new ScheduledTaskAnchor("sched-" + run.sequence(), start, start + run.durationMs(), run.thread()));
+        }
+        return anchors;
+    }
+
+    /**
+     * A captured {@code @Scheduled} execution reduced to what is needed to attach a correlated exception to
+     * it: its {@code SCHEDULED_TASK} entry id, its execution window, and the thread it ran on.
+     */
+    private record ScheduledTaskAnchor(String id, long start, long end, String thread) {}
+
     private ActivityKpiDto computeKpis(
             HttpExchangesReport requests,
             SqlTraceReport sql,
             ExceptionsReport exceptions,
-            List<CacheActivityEvent> cache) {
+            List<CacheActivityEvent> cache,
+            List<ScheduledTaskRunStore.Run> scheduledRuns) {
         double requestsPerMinute = 0;
         double errorRate = 0;
         Long p50 = null;
@@ -660,6 +778,9 @@ public class LiveActivityService {
             }
         }
 
+        int scheduledTaskFailureCount =
+                (int) scheduledRuns.stream().filter(run -> !run.success()).count();
+
         Long heapUsed = null;
         Long heapMax = null;
         try {
@@ -683,7 +804,8 @@ public class LiveActivityService {
                 healthStatus,
                 heapUsed,
                 heapMax,
-                cacheHitRatioPercent);
+                cacheHitRatioPercent,
+                scheduledTaskFailureCount);
     }
 
     private String currentHealthStatus() {

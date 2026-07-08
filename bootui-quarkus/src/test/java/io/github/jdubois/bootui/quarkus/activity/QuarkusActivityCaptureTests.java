@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
@@ -99,6 +100,7 @@ class QuarkusActivityCaptureTests {
                 new ExceptionStore(10, 10, 10),
                 new ExceptionsService(new QuarkusExposurePolicy(config)),
                 new SecurityEventBuffer(10),
+                new ScheduledTaskRunStore(10),
                 new QuarkusPanelAvailability(config),
                 null,
                 new SwitchableActivityStore(new InMemoryActivityStore(10)),

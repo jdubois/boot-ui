@@ -59,15 +59,20 @@ the current per-panel list), and the shell chrome is populated by the same `GET 
 ### Live Activity
 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
+The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
 application just did, plus a per-request profiler for drilling into any single request. It adds no new instrumentation
-for four of its five signals — instead it reuses BootUI's existing in-memory signal buffers by calling the same
+for four of its six signals — instead it reuses BootUI's existing in-memory signal buffers by calling the same
 controllers that back the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is already
 masked, self-filtered, and bounded exactly as those panels are. The fifth signal, cache accesses, is captured by a
 small dedicated recorder (Spring servlet and WebFlux adapters only — see below) that only ever stores a hashed cache key, never a raw key or
-value.
+value. The sixth signal, scheduled-task runs, captures each `@Scheduled` method *execution* (start, success,
+failure, duration) on both adapters: Spring taps its own scheduling observability hook (no extra proxying), Quarkus
+observes the CDI `SuccessfulExecution`/`FailedExecution` events its scheduler always fires — feeding a bounded
+in-memory buffer the same way the other sources do.
 
-The stream merges five signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
-(`EXCEPTION`), security events (`SECURITY`), and — on the Spring servlet and WebFlux adapters — cache accesses (`CACHE`). Each row carries a
+The stream merges six signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
+(`EXCEPTION`), security events (`SECURITY`), — on the Spring servlet and WebFlux adapters — cache accesses (`CACHE`),
+and scheduled-task runs (`SCHEDULED_TASK`). Each row carries a
 timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
@@ -83,15 +88,15 @@ by type, severity, a free-text needle (path, status, SQL, or exception class), a
 chosen filters are persisted in the browser so they survive a reload. A small **requests-over-time** sparkline above the
 table makes spikes and error bursts (drawn in red) visible at a glance. A KPI strip across the top summarises requests per
 minute, error rate, p50/p95 latency, SQL rate, the slowest recent endpoint, active exception count, health status, heap
-usage, and (Spring servlet/WebFlux only) the cache hit ratio, computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`).
+usage, (Spring servlet/WebFlux only) the cache hit ratio, and scheduled-task failure count, computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`).
 Several KPI cards are themselves
 launchpads: the slowest-endpoint card opens **HTTP Exchanges** pre-filtered to that endpoint, while the
-active-exceptions, health, heap-usage, and cache-hit-ratio cards jump to the **Exceptions**, **Health**, **Heap Dump**,
-and **Cache** panels
+active-exceptions, health, heap-usage, cache-hit-ratio, and scheduled-failures cards jump to the **Exceptions**, **Health**, **Heap Dump**,
+**Cache**, and **Scheduled Tasks** panels
 respectively. Because the merged feed is genuinely event-driven, it refreshes over **Server-Sent Events** instead of
 fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
-exception, security event, or cache access), and the feed can be paused and resumed so a row you are inspecting does not
+exception, security event, cache access, or scheduled-task run), and the feed can be paused and resumed so a row you are inspecting does not
 scroll away.
 When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
 SQL statements, exceptions, security events, and cache accesses that BootUI can pin precisely to a request — by trace id,
@@ -106,7 +111,7 @@ signal.
 
 Every row is also a launchpad: clicking anywhere on a request row opens its profiler, and each row carries a deep link
 that jumps to the dedicated panel with the originating record pre-filtered — requests open in **HTTP Exchanges**, SQL in
-**SQL Trace**, exceptions in **Exceptions**, and cache accesses in **Cache**. The per-request profiler drawer is a Symfony-style view that correlates
+**SQL Trace**, exceptions in **Exceptions**, cache accesses in **Cache**, and scheduled-task runs in **Scheduled Tasks**. The per-request profiler drawer is a Symfony-style view that correlates
 that single request's signals using a tiered join that degrades gracefully and never fabricates data: the distributed
 trace is matched by trace id, exceptions are matched by request method, path, and time window — and, when the
 request's serving thread is uniquely known, further disambiguated by that thread so a concurrent identical request
@@ -1275,8 +1280,8 @@ groups:
   runs and returns the report DTO.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`. `get_live_activity` returns the correlated feed
-  the [Live Activity panel](#live-activity) shows (HTTP requests, SQL statements, exceptions, security events, and —
-  Spring only — cache accesses, grouped by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or
+  the [Live Activity panel](#live-activity) shows (HTTP requests, SQL statements, exceptions, security events,
+  scheduled-task runs, and — Spring only — cache accesses, grouped by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or
   `get_live_activity`) and returns that exception group's full stack trace, causes, and individual occurrences.
 - **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`.
 

@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
@@ -326,6 +327,7 @@ class LiveActivityResourceTests {
                 new ExceptionStore(10, 10, 10),
                 new ExceptionsService(new QuarkusExposurePolicy(config)),
                 new SecurityEventBuffer(10),
+                new ScheduledTaskRunStore(10),
                 new QuarkusPanelAvailability(config),
                 null, // TracesService: unused by activity()/mergedReport(), only by the request() drill-down
                 activityStore,

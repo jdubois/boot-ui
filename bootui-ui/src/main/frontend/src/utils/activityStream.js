@@ -156,6 +156,10 @@ export function deepLink(entry) {
       const needle = exceptionNeedle(entry.summary)
       return needle ? {path: '/exceptions', query: {q: needle}, label: 'Open in Exceptions'} : null
     }
+    case 'SCHEDULED_TASK': {
+      const needle = (entry.summary || '').trim()
+      return needle ? {path: '/scheduled', query: {q: needle}, label: 'Open in Scheduled Tasks'} : null
+    }
     case 'CACHE':
       return {path: '/cache', label: 'Open in Cache'}
     default:

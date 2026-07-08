@@ -21,6 +21,7 @@ package io.github.jdubois.bootui.core.dto;
  * @param heapMaxBytes maximum JVM heap size in bytes, or {@code null}
  * @param cacheHitRatioPercent percentage of recent cache reads that were hits, or {@code null} when no
  *     cache accesses have been captured
+ * @param scheduledTaskFailureCount number of failed scheduled-task executions currently retained
  */
 public record ActivityKpiDto(
         double requestsPerMinute,
@@ -35,4 +36,5 @@ public record ActivityKpiDto(
         String healthStatus,
         Long heapUsedBytes,
         Long heapMaxBytes,
-        Double cacheHitRatioPercent) {}
+        Double cacheHitRatioPercent,
+        int scheduledTaskFailureCount) {}

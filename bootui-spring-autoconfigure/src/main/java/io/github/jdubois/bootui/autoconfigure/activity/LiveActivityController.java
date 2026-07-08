@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -96,6 +97,7 @@ public class LiveActivityController {
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             ObjectProvider<CacheActivityRecorder> cacheActivity,
+            ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             ObjectProvider<DataSource> dataSourceProvider,
@@ -109,6 +111,7 @@ public class LiveActivityController {
                 requestCorrelations,
                 securityCorrelations,
                 cacheActivity,
+                scheduledTaskRuns,
                 properties);
         this.correlator = new LiveActivityCorrelator(
                 httpExchanges,
@@ -133,6 +136,10 @@ public class LiveActivityController {
         CacheActivityRecorder cache = cacheActivity.getIfAvailable();
         if (cache != null) {
             unsubscribers.add(cache.subscribe(changeStream::signal));
+        }
+        ScheduledTaskRunStore scheduledStore = scheduledTaskRuns.getIfAvailable();
+        if (scheduledStore != null) {
+            unsubscribers.add(scheduledStore.subscribe(changeStream::signal));
         }
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;

@@ -165,6 +165,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 null,
+                null,
                 new BootUiProperties());
 
         assertThat(parentOf(service.report(null, null, 0, 0), "sql-1")).isEqualTo("r1");
@@ -203,6 +204,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 securityCorrelations,
+                null,
                 new BootUiProperties());
 
         assertThat(parentOfSecurityEntry(service.report(null, null, 0, 0))).isEqualTo("r1");
@@ -227,6 +229,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 securityCorrelations,
+                null,
                 new BootUiProperties());
 
         LiveActivityReport report = service.report(null, null, 0, 0);
@@ -251,6 +254,7 @@ class LiveActivityServiceTests {
                 null,
                 requestCorrelations,
                 securityCorrelations,
+                null,
                 new BootUiProperties());
 
         // The event correlates to the request (so it still nests), but a blank principal must not flag
@@ -258,6 +262,48 @@ class LiveActivityServiceTests {
         LiveActivityReport report = service.report(null, null, 0, 0);
         assertThat(parentOfSecurityEntry(report)).isEqualTo("r1");
         assertThat(securedPrincipalOf(report, "r1")).isNull();
+    }
+
+    @Test
+    void nestsExceptionUnderScheduledTaskByThreadAndWindow() {
+        LiveActivityService service = service(
+                null,
+                null,
+                exceptions(scheduledExceptionGroup(
+                        "e1",
+                        "java.lang.RuntimeException",
+                        BASE.plusMillis(1010).toEpochMilli(),
+                        "scheduler-1")),
+                null,
+                null,
+                null,
+                null,
+                scheduledStore(
+                        scheduledRun("MyJob#run", BASE.plusMillis(1000).toEpochMilli(), 30L, false, "scheduler-1")),
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "exc-e1")).isEqualTo("sched-1");
+    }
+
+    @Test
+    void leavesExceptionTopLevelWhenScheduledTaskThreadDoesNotMatch() {
+        LiveActivityService service = service(
+                null,
+                null,
+                exceptions(scheduledExceptionGroup(
+                        "e1",
+                        "java.lang.RuntimeException",
+                        BASE.plusMillis(1010).toEpochMilli(),
+                        "other-thread")),
+                null,
+                null,
+                null,
+                null,
+                scheduledStore(
+                        scheduledRun("MyJob#run", BASE.plusMillis(1000).toEpochMilli(), 30L, false, "scheduler-1")),
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "exc-e1")).isNull();
     }
 
     @Test
@@ -475,7 +521,7 @@ class LiveActivityServiceTests {
             SecurityLogsController security,
             HealthController health,
             BootUiProperties properties) {
-        return service(requests, sql, exceptions, security, health, null, null, properties);
+        return service(requests, sql, exceptions, security, health, null, null, null, properties);
     }
 
     private LiveActivityService service(
@@ -486,6 +532,7 @@ class LiveActivityServiceTests {
             HealthController health,
             RequestCorrelationRegistry requestCorrelations,
             SecurityEventCorrelationRegistry securityCorrelations,
+            io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledTaskRuns,
             BootUiProperties properties) {
         return new LiveActivityService(
                 provider(requests),
@@ -495,6 +542,8 @@ class LiveActivityServiceTests {
                 provider(health),
                 provider(requestCorrelations),
                 provider(securityCorrelations),
+                provider(null),
+                provider(scheduledTaskRuns),
                 properties);
     }
 
@@ -515,6 +564,7 @@ class LiveActivityServiceTests {
                 provider(null),
                 provider(null),
                 provider(cacheActivity),
+                provider(null),
                 properties);
     }
 
@@ -662,5 +712,62 @@ class LiveActivityServiceTests {
                 null,
                 "OPEN",
                 0);
+    }
+
+    /**
+     * An exception group with no correlated HTTP request (no method/path, matching the shape a
+     * background {@code @Scheduled} failure's captured exception actually has), so {@code
+     * matchExceptionParent} always yields {@code null} and {@code matchScheduledTaskParent} is the only
+     * tier that can attach it to a parent.
+     */
+    private static ExceptionGroupDto scheduledExceptionGroup(
+            String id, String className, long lastSeen, String thread) {
+        return new ExceptionGroupDto(
+                id,
+                className,
+                "boom",
+                1,
+                lastSeen,
+                lastSeen,
+                "Foo.java:1",
+                true,
+                thread,
+                null,
+                null,
+                "h",
+                "s",
+                null,
+                "OPEN",
+                0);
+    }
+
+    private static io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledStore(
+            io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run... runs) {
+        io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore store =
+                new io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore(100);
+        for (io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run run : runs) {
+            store.record(
+                    run.runnable(),
+                    run.startTimestamp(),
+                    run.durationMs(),
+                    run.success(),
+                    run.exceptionClassName(),
+                    run.message(),
+                    run.thread());
+        }
+        return store;
+    }
+
+    private static io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run scheduledRun(
+            String runnable, long startTimestamp, long durationMs, boolean success, String thread) {
+        return new io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run(
+                0,
+                runnable,
+                startTimestamp,
+                durationMs,
+                success,
+                success ? null : "java.lang.RuntimeException",
+                success ? null : "boom",
+                thread);
     }
 }

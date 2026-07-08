@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -123,6 +124,7 @@ public class LiveActivityResource {
     private final ExceptionStore exceptionStore;
     private final ExceptionsService exceptionsService;
     private final SecurityEventBuffer securityBuffer;
+    private final ScheduledTaskRunStore scheduledTaskRunStore;
     private final QuarkusPanelAvailability panelAvailability;
     private final TracesService tracesService;
     private final SwitchableActivityStore activityStore;
@@ -143,6 +145,7 @@ public class LiveActivityResource {
             ExceptionStore exceptionStore,
             ExceptionsService exceptionsService,
             SecurityEventBuffer securityBuffer,
+            ScheduledTaskRunStore scheduledTaskRunStore,
             QuarkusPanelAvailability panelAvailability,
             TracesService tracesService,
             SwitchableActivityStore activityStore,
@@ -154,6 +157,7 @@ public class LiveActivityResource {
         this.exceptionStore = exceptionStore;
         this.exceptionsService = exceptionsService;
         this.securityBuffer = securityBuffer;
+        this.scheduledTaskRunStore = scheduledTaskRunStore;
         this.panelAvailability = panelAvailability;
         this.tracesService = tracesService;
         this.activityStore = activityStore;
@@ -279,6 +283,7 @@ public class LiveActivityResource {
                 // Javadoc); cacheHitRatioPercent stays null, exactly as before this parameter was added.
                 null,
                 false,
+                scheduledTaskRunStore.runs(),
                 null,
                 limit);
 
@@ -333,7 +338,28 @@ public class LiveActivityResource {
     @Path("/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
     public Multi<OutboundSseEvent> stream(@Context Sse sse) {
-        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, buffer::subscribe);
+        return SseStreams.updates(
+                sse,
+                openStreams,
+                MAX_CONCURRENT_STREAMS,
+                combined(buffer::subscribe, scheduledTaskRunStore::subscribe));
+    }
+
+    /**
+     * Combines two {@link SseStreams.ChangeSource}s into one that notifies {@code onChange} when either
+     * fires, so the merged Live Activity stream ticks on a new HTTP exchange <em>or</em> a new captured
+     * {@code @Scheduled} execution — mirroring the Spring adapter, whose single {@code BootUiChangeStream}
+     * already fans in every signal source (including {@link ScheduledTaskRunStore}) to the same effect.
+     */
+    private static SseStreams.ChangeSource combined(SseStreams.ChangeSource first, SseStreams.ChangeSource second) {
+        return onChange -> {
+            Runnable unsubscribeFirst = first.subscribe(onChange);
+            Runnable unsubscribeSecond = second.subscribe(onChange);
+            return () -> {
+                unsubscribeFirst.run();
+                unsubscribeSecond.run();
+            };
+        };
     }
 
     private HttpExchangesReport requestsReport() {
