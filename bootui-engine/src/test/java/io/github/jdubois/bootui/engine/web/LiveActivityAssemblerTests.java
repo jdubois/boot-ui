@@ -218,6 +218,24 @@ class LiveActivityAssemblerTests {
     }
 
     @Test
+    void typeCountsReflectTheFullFeedEvenWhenTheLimitTruncatesVisibleEntries() {
+        HttpExchangesReport requests = requests(
+                request("req-1", "/orders", "trace-a", 1_000L),
+                request("req-2", "/orders", "trace-b", 1_001L),
+                request("req-3", "/orders", "trace-c", 1_002L));
+        List<CacheActivityEvent> cache = List.of(cache(1, CacheActivityOperation.HIT, null, 1_003L));
+
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, cache, true, "UP", 2);
+
+        // Only 2 entries are returned (limit=2), but the counts must reflect all 4 captured entries so the
+        // dashboard's per-type totals never understate what was actually captured.
+        assertThat(report.entries()).hasSize(2);
+        assertThat(report.typeCounts().get("REQUEST")).isEqualTo(3);
+        assertThat(report.typeCounts().get("CACHE")).isEqualTo(1);
+    }
+
+    @Test
     void flagsRequestAsSqlNPlusOneSuspectedWhenItsCorrelatedSqlHitsTheThreshold() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
         List<SqlTraceEntryDto> sql = List.of(
