@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
 import java.time.Instant;
@@ -229,9 +230,31 @@ class LiveActivityAssemblerTests {
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", "trace-a", 2_000L));
         List<CapturedMessage> kafka = List.of(
                 new CapturedMessage(
-                        1L, 3_000L, Direction.PRODUCE, "orders", 0, null, "k1", null, true, null, null, null),
+                        1L,
+                        3_000L,
+                        Direction.PRODUCE,
+                        "orders",
+                        0,
+                        null,
+                        hashedKey("k1"),
+                        null,
+                        true,
+                        null,
+                        null,
+                        null),
                 new CapturedMessage(
-                        2L, 500L, Direction.CONSUME, "orders", 1, 42L, "k2", 5L, true, null, "group-a", "listener"));
+                        2L,
+                        500L,
+                        Direction.CONSUME,
+                        "orders",
+                        1,
+                        42L,
+                        hashedKey("k2"),
+                        5L,
+                        true,
+                        null,
+                        "group-a",
+                        "listener"));
 
         LiveActivityReport report =
                 assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 2, kafka, true);
@@ -244,11 +267,30 @@ class LiveActivityAssemblerTests {
         assertThat(report.sources()).contains("Kafka");
     }
 
+    @Test
+    void renderedKafkaEntryNeverExposesTheRawKey() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        recorder.recordProduce("orders", 0, "super-secret-key", null, true, null);
+
+        LiveActivityReport report = assembler.report(
+                requests(), List.of(), false, null, exceptions(), List.of(), false, "UP", 0, recorder.recent(), true);
+
+        assertThat(entry(report, "kafka-1").detail())
+                .contains(hashedKey("super-secret-key"))
+                .doesNotContain("super-secret-key");
+    }
+
     private static ActivityEntryDto entry(LiveActivityReport report, String id) {
         return report.entries().stream()
                 .filter(e -> e.id().equals(id))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("no entry with id " + id));
+    }
+
+    private static String hashedKey(String key) {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
+        recorder.recordProduce("orders", 0, key, 0L, true, null);
+        return recorder.recent().get(0).key();
     }
 
     /**

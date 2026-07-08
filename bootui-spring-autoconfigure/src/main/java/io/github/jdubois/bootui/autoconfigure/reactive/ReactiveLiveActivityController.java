@@ -33,6 +33,8 @@ import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
@@ -67,14 +69,15 @@ import reactor.core.publisher.Flux;
  * trace id (see {@code TraceIdProvider}), and a request with no trace id simply renders flat/unprofileable
  * rather than guessing.
  *
- * <p>All four signal sources are read directly from the already-reactive, already-masked/self-filtered
+ * <p>All five signal sources are read directly from the already-reactive, already-masked/self-filtered
  * beans this adapter wires for their own panels — {@link HttpExchangesController} (HTTP requests, shared
  * with the servlet adapter since it depends only on the stack-agnostic Actuator
  * {@code HttpExchangeRepository}), {@link SqlTraceRecorder} (SQL trace), {@link ExceptionStore} (exceptions),
- * and {@code ReactiveSecurityLogsController} (security/audit events) — so this controller adds no new
- * capture instrumentation of its own, only the merge. Because those beans are reached directly (bypassing
- * the HTTP layer, and with it {@code ReactivePanelAccessFilter}'s per-panel enablement check), every
- * signal read here re-checks {@code properties.isPanelEnabled(...)} itself first, exactly mirroring
+ * {@code ReactiveSecurityLogsController} (security/audit events), and {@link KafkaActivityRecorder}
+ * (captured producer/consumer metadata) — so this controller adds no new capture instrumentation of its
+ * own, only the merge. Because those beans are reached directly (bypassing the HTTP layer, and with it
+ * {@code ReactivePanelAccessFilter}'s per-panel enablement check), every signal read here re-checks
+ * {@code properties.isPanelEnabled(...)} itself first, exactly mirroring
  * {@code LiveActivityService}/{@code LiveActivityCorrelator}.
  *
  * <p>The optional JDBC persistence backend and the "Use the existing datasource" hot-switch are identical
@@ -85,7 +88,8 @@ import reactor.core.publisher.Flux;
  * <p>The merged feed refreshes over Server-Sent Events, like every other reactive panel: since there is no
  * WebFlux equivalent of the servlet {@code ServletRequestHandledEvent} used to trigger a tick,
  * {@link ReactiveActivitySignalFilter} calls {@link #signalRequestHandled()} after every non-BootUI request
- * completes, and the SQL trace recorder / exception store subscriptions signal directly, same as servlet.
+ * completes, and the SQL trace recorder / exception store / Kafka recorder subscriptions signal directly,
+ * same as servlet.
  */
 @RestController
 @RequestMapping("/bootui/api/activity")
@@ -98,6 +102,7 @@ public class ReactiveLiveActivityController {
     private final ObjectProvider<ReactiveSecurityLogsController> securityLogs;
     private final ObjectProvider<TracesController> traces;
     private final ObjectProvider<HealthController> health;
+    private final ObjectProvider<KafkaActivityRecorder> kafkaActivity;
     private final BootUiProperties properties;
     private final BootUiExposure exposure;
     private final ExceptionsService exceptionsService;
@@ -116,6 +121,7 @@ public class ReactiveLiveActivityController {
             ObjectProvider<ReactiveSecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             ObjectProvider<HealthController> health,
+            ObjectProvider<KafkaActivityRecorder> kafkaActivity,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             BootUiProperties properties,
@@ -127,6 +133,7 @@ public class ReactiveLiveActivityController {
         this.securityLogs = securityLogs;
         this.traces = traces;
         this.health = health;
+        this.kafkaActivity = kafkaActivity;
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.properties = properties;
@@ -140,6 +147,10 @@ public class ReactiveLiveActivityController {
         ExceptionStore store = exceptionStoreProvider.getIfAvailable();
         if (store != null) {
             unsubscribers.add(store.subscribe(changeStream::signal));
+        }
+        KafkaActivityRecorder kafkaRecorder = kafkaActivity.getIfAvailable();
+        if (kafkaRecorder != null) {
+            unsubscribers.add(kafkaRecorder.subscribe(changeStream::signal));
         }
         if (persistenceSettings.enabled()) {
             // Capture side of the persistence option: poll the same merged feed the panel itself reads,
@@ -283,6 +294,8 @@ public class ReactiveLiveActivityController {
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS);
         String healthStatus = currentHealthStatus();
+        List<CapturedMessage> kafkaMessages = kafkaMessages();
+        boolean kafkaAvailable = kafkaMessages != null;
 
         LiveActivityReport report = assembler.report(
                 requests,
@@ -293,7 +306,9 @@ public class ReactiveLiveActivityController {
                 securityEvents(securityAvailable),
                 securityAvailable,
                 healthStatus,
-                limit);
+                limit,
+                kafkaMessages,
+                kafkaAvailable);
 
         // Adapter-side post-processing over the shared assembler's output, mirroring the Quarkus adapter
         // exactly: a REQUEST entry is profileable here iff its exchange carries a resolvable trace id,
@@ -359,6 +374,24 @@ public class ReactiveLiveActivityController {
         }
         SecurityLogsReport report = controller.logs(null, null, null, null, null);
         return report.auditEventsPresent() ? report.events() : List.of();
+    }
+
+    /**
+     * Recent Kafka messages feeding the assembler's {@code MESSAGING} entries, or {@code null} when the
+     * source is not feeding (Live Activity panel disabled, Kafka capture disabled via
+     * {@code bootui.kafka.enabled}, or no recorder bean present) — same present-vs-absent distinction
+     * {@link #sqlSnapshot()} and {@link #securityEvents(boolean)} make, so the assembler can tell "no
+     * Kafka message yet" from "no Kafka source at all".
+     */
+    private List<CapturedMessage> kafkaMessages() {
+        if (!properties.isPanelEnabled(BootUiPanels.ACTIVITY)) {
+            return null;
+        }
+        KafkaActivityRecorder recorder = kafkaActivity.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return null;
+        }
+        return recorder.recent();
     }
 
     /**

@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
@@ -272,6 +273,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -317,6 +319,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -341,6 +344,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -365,6 +369,7 @@ class ReactiveLiveActivityControllerTests {
                 provider(securityLogs),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -373,6 +378,33 @@ class ReactiveLiveActivityControllerTests {
         // logs() must never even be called once the panel is disabled.
         controller.mergedReport(0);
         org.mockito.Mockito.verifyNoInteractions(securityLogs);
+    }
+
+    @Test
+    void mergedReportIncludesKafkaMessagesWhenRecorderPresent() {
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 50);
+        kafka.recordProduce("orders", 0, "order-1", 1L, true, null);
+
+        BootUiProperties properties = new BootUiProperties();
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                provider(kafka),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        assertThat(controller.mergedReport(0).entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.type()).isEqualTo("MESSAGING");
+            assertThat(entry.detail()).contains(hashedKey("order-1"));
+            assertThat(entry.detail()).doesNotContain("order-1");
+        });
     }
 
     @Test
@@ -388,6 +420,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 provider(health),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -412,6 +445,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -443,6 +477,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -473,6 +508,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -593,6 +629,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(KafkaActivityRecorder.class),
                 activityStore,
                 persistenceSettings,
                 properties,
@@ -611,5 +648,11 @@ class ReactiveLiveActivityControllerTests {
         ObjectProvider<T> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(value);
         return provider;
+    }
+
+    private static String hashedKey(String key) {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
+        recorder.recordProduce("orders", 0, key, 0L, true, null);
+        return recorder.recent().get(0).key();
     }
 }

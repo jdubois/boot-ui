@@ -16,8 +16,6 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityFilter;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityTracker;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
-import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
-import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpController;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpTools;
@@ -39,7 +37,6 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
-import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
@@ -580,27 +577,6 @@ public class BootUiAutoConfiguration {
     static SqlTraceDataSourceBeanPostProcessor bootUiSqlTraceDataSourceBeanPostProcessor(
             org.springframework.beans.factory.ObjectProvider<SqlTraceRecorder> recorderProvider) {
         return new SqlTraceDataSourceBeanPostProcessor(recorderProvider);
-    }
-
-    @Bean
-    public KafkaActivityRecorder bootUiKafkaActivityRecorder(BootUiProperties properties) {
-        BootUiProperties.Kafka kafka = properties.getKafka();
-        boolean enabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.ACTIVITY);
-        return new KafkaActivityRecorder(enabled, kafka.isCaptureKey(), kafka.getMaxEntries(), kafka.getMaxKeyLength());
-    }
-
-    @Bean
-    @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
-    static KafkaProducerCaptureBeanPostProcessor bootUiKafkaProducerCaptureBeanPostProcessor(
-            org.springframework.beans.factory.ObjectProvider<KafkaActivityRecorder> recorderProvider) {
-        return new KafkaProducerCaptureBeanPostProcessor(recorderProvider);
-    }
-
-    @Bean
-    @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
-    static KafkaConsumerCaptureBeanPostProcessor bootUiKafkaConsumerCaptureBeanPostProcessor(
-            org.springframework.beans.factory.ObjectProvider<KafkaActivityRecorder> recorderProvider) {
-        return new KafkaConsumerCaptureBeanPostProcessor(recorderProvider);
     }
 
     @Bean

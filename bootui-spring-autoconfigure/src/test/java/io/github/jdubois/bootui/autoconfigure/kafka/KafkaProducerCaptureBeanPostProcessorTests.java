@@ -67,7 +67,7 @@ class KafkaProducerCaptureBeanPostProcessorTests {
         CapturedMessage message = recorder.recent().get(0);
         assertThat(message.direction()).isEqualTo(Direction.PRODUCE);
         assertThat(message.topic()).isEqualTo("orders");
-        assertThat(message.key()).isEqualTo("k1");
+        assertThat(message.key()).isEqualTo(hashedKey("k1"));
         assertThat(message.success()).isTrue();
         verify(existing).onSuccess(record, metadata);
     }
@@ -110,6 +110,12 @@ class KafkaProducerCaptureBeanPostProcessorTests {
 
     private static RecordMetadata metadataFor(ProducerRecord<Object, Object> record) {
         return new RecordMetadata(new TopicPartition(record.topic(), 0), 0L, 0, 0L, 0, 0);
+    }
+
+    private static String hashedKey(String key) {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
+        recorder.recordProduce("orders", 0, key, 0L, true, null);
+        return recorder.recent().get(0).key();
     }
 
     private static <T> ObjectProvider<T> provider(T value) {

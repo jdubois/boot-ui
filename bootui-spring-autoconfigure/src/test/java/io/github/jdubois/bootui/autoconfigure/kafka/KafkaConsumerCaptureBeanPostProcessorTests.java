@@ -70,7 +70,7 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
         assertThat(message.direction()).isEqualTo(Direction.CONSUME);
         assertThat(message.topic()).isEqualTo("orders");
         assertThat(message.offset()).isEqualTo(5L);
-        assertThat(message.key()).isEqualTo("k1");
+        assertThat(message.key()).isEqualTo(hashedKey("k1"));
         assertThat(message.groupId()).isEqualTo("group-a");
         assertThat(message.listenerId()).isEqualTo("myListenerFactory");
         assertThat(message.success()).isTrue();
@@ -127,5 +127,11 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
         ObjectProvider<T> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(value);
         return provider;
+    }
+
+    private static String hashedKey(String key) {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
+        recorder.recordConsume("orders", 0, 0L, key, 0L, true, null, null, null);
+        return recorder.recent().get(0).key();
     }
 }

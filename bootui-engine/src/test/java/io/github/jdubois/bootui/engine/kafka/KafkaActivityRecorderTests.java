@@ -23,6 +23,7 @@ class KafkaActivityRecorderTests {
         assertThat(recent.get(0).groupId()).isEqualTo("orders-group");
         assertThat(recent.get(0).listenerId()).isEqualTo("ordersListener");
         assertThat(recent.get(0).offset()).isEqualTo(42L);
+        assertThat(recent.get(0).key()).isEqualTo(KafkaActivityRecorder.hashKey("order-1"));
         assertThat(recent.get(1).direction()).isEqualTo(Direction.PRODUCE);
         assertThat(recorder.totalCaptured()).isEqualTo(2);
     }
@@ -44,16 +45,18 @@ class KafkaActivityRecorderTests {
 
         List<CapturedMessage> recent = recorder.recent();
         assertThat(recent).hasSize(2);
-        assertThat(recent.get(0).key()).isEqualTo("k3");
-        assertThat(recent.get(1).key()).isEqualTo("k2");
+        assertThat(recent.get(0).key()).isEqualTo(KafkaActivityRecorder.hashKey("k3"));
+        assertThat(recent.get(1).key()).isEqualTo(KafkaActivityRecorder.hashKey("k2"));
         assertThat(recorder.totalCaptured()).isEqualTo(3);
     }
 
     @Test
-    void truncatesOversizedKeys() {
+    void hashesKeysInsteadOfCapturingThemRaw() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 8);
         recorder.recordProduce("orders", 0, "abcdefghij", 1L, true, null);
-        assertThat(recorder.recent().get(0).key()).isEqualTo("abcdefgh…");
+        assertThat(recorder.recent().get(0).key())
+                .isEqualTo(KafkaActivityRecorder.hashKey("abcdefghij", 8))
+                .doesNotContain("abcdefghij");
     }
 
     @Test
@@ -95,5 +98,12 @@ class KafkaActivityRecorderTests {
 
         recorder.recordProduce("orders", 0, "order-1", 1L, true, null);
         assertThat(notifications.get()).isZero();
+    }
+
+    @Test
+    void hashKeyIsStableAndDeterministic() {
+        assertThat(KafkaActivityRecorder.hashKey("42")).isEqualTo(KafkaActivityRecorder.hashKey("42"));
+        assertThat(KafkaActivityRecorder.hashKey("42")).isNotEqualTo(KafkaActivityRecorder.hashKey("43"));
+        assertThat(KafkaActivityRecorder.hashKey("42")).hasSize(16);
     }
 }

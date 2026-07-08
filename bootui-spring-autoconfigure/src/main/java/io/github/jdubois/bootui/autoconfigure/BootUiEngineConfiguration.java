@@ -13,6 +13,8 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRe
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
+import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.liquibase.SpringLiquibaseProvider;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mappings.SpringMappingProvider;
@@ -38,12 +40,14 @@ import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.mappings.MappingsService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
@@ -534,6 +538,42 @@ public class BootUiEngineConfiguration {
                                 : meterRegistries.orderedStream().findFirst().orElse(null);
                     },
                     selfDataFilter::shouldIncludeMeter);
+        }
+    }
+
+    /**
+     * The Live Activity Kafka capture backend is framework-neutral (a bounded in-memory recorder plus two
+     * Spring-specific post-processors) and is needed by both servlet and reactive stacks, so it is wired
+     * here in the shared engine configuration rather than under the servlet-only auto-configuration. The
+     * recorder itself stays ungated exactly as before; the two {@code BeanPostProcessor}s keep their
+     * method-level {@code @ConditionalOnClass(KafkaTemplate)} guards so a Spring-Kafka-absent application
+     * never links those types.
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class KafkaBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        KafkaActivityRecorder bootUiKafkaActivityRecorder(BootUiProperties properties) {
+            BootUiProperties.Kafka kafka = properties.getKafka();
+            boolean enabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.ACTIVITY);
+            return new KafkaActivityRecorder(
+                    enabled, kafka.isCaptureKey(), kafka.getMaxEntries(), kafka.getMaxKeyLength());
+        }
+
+        @Bean
+        @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
+        static KafkaProducerCaptureBeanPostProcessor bootUiKafkaProducerCaptureBeanPostProcessor(
+                ObjectProvider<KafkaActivityRecorder> recorderProvider) {
+            return new KafkaProducerCaptureBeanPostProcessor(recorderProvider);
+        }
+
+        @Bean
+        @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
+        static KafkaConsumerCaptureBeanPostProcessor bootUiKafkaConsumerCaptureBeanPostProcessor(
+                ObjectProvider<KafkaActivityRecorder> recorderProvider) {
+            return new KafkaConsumerCaptureBeanPostProcessor(recorderProvider);
         }
     }
 

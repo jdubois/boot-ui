@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.engine.kafka;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,9 +23,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p><strong>Only message metadata is captured, never the message value/payload.</strong> A Kafka
  * record's value is an arbitrary, potentially large and sensitive application payload with no generic
- * masking strategy (unlike a SQL statement or a config value), so it is out of scope entirely; only the
- * key is retained, and only when {@code captureKey} is enabled, truncated to {@code maxKeyLength}. This
- * keeps the feature safe by construction rather than by best-effort redaction.</p>
+ * masking strategy (unlike a SQL statement or a config value), so it is out of scope entirely; only a
+ * short, stable hash of the key is retained, and only when {@code captureKey} is enabled. This keeps the
+ * feature safe by construction rather than by best-effort redaction.</p>
  *
  * <p>Thread-safe, capped at {@code maxEntries}, and evicts the oldest message once full so it never
  * grows unbounded.</p>
@@ -136,7 +139,7 @@ public final class KafkaActivityRecorder {
                 topic,
                 partition,
                 offset,
-                captureKey ? truncate(key) : null,
+                captureKey ? hashKey(key, maxKeyLength) : null,
                 durationMillis == null ? null : Math.max(0, durationMillis),
                 success,
                 errorMessage,
@@ -194,10 +197,26 @@ public final class KafkaActivityRecorder {
         }
     }
 
-    private String truncate(String value) {
+    static String hashKey(String value) {
+        return hashKey(value, 16);
+    }
+
+    static String hashKey(String value, int maxLength) {
         if (value == null) {
             return null;
         }
-        return value.length() <= maxKeyLength ? value : value.substring(0, maxKeyLength) + "…";
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            int length = Math.max(8, Math.min(hex.length(), maxLength));
+            return hex.substring(0, Math.min(length, 16));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is required but unavailable", ex);
+        }
     }
 }
