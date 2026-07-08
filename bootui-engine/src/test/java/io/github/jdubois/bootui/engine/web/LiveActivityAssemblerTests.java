@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -219,6 +220,43 @@ class LiveActivityAssemblerTests {
                 assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
 
         assertThat(entry(report, "sql-1").sqlNPlusOneSuspected()).isFalse();
+    }
+
+    @Test
+    void rendersScheduledTaskRunsAsFlatEntriesAndCountsFailuresInKpis() {
+        HttpExchangesReport requests = requests();
+        List<ScheduledTaskRunStore.Run> scheduled = List.of(
+                new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 5L, true, null, null, "worker-1"),
+                new ScheduledTaskRunStore.Run(
+                        2L, "com.example.Job#fail", 2_000L, 5L, false, "java.lang.RuntimeException", "boom",
+                        "worker-1"));
+
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, scheduled, "UP", 0);
+
+        ActivityEntryDto ok = entry(report, "sched-1");
+        assertThat(ok.type()).isEqualTo("SCHEDULED_TASK");
+        assertThat(ok.severity()).isEqualTo("OK");
+        assertThat(ok.summary()).isEqualTo("com.example.Job#run");
+        assertThat(ok.parentId()).isNull();
+
+        ActivityEntryDto failed = entry(report, "sched-2");
+        assertThat(failed.severity()).isEqualTo("ERROR");
+        assertThat(failed.detail()).isEqualTo("java.lang.RuntimeException: boom");
+
+        assertThat(report.kpis().scheduledTaskFailureCount()).isEqualTo(1);
+        assertThat(report.sources()).contains("scheduled-tasks");
+    }
+
+    @Test
+    void omitsScheduledTasksSourceWhenNoRunsAreCaptured() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions(), List.of(), false, "UP", 0);
+
+        assertThat(report.sources()).doesNotContain("scheduled-tasks");
+        assertThat(report.kpis().scheduledTaskFailureCount()).isZero();
     }
 
     private static ActivityEntryDto entry(LiveActivityReport report, String id) {

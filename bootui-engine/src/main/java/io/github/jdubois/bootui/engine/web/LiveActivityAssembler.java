@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -59,6 +60,7 @@ public final class LiveActivityAssembler {
     private static final String TYPE_SQL = "SQL";
     private static final String TYPE_EXCEPTION = "EXCEPTION";
     private static final String TYPE_SECURITY = "SECURITY";
+    private static final String TYPE_SCHEDULED_TASK = "SCHEDULED_TASK";
 
     private static final String SEVERITY_OK = "OK";
     private static final String SEVERITY_SLOW = "SLOW";
@@ -66,7 +68,9 @@ public final class LiveActivityAssembler {
     private static final String SEVERITY_ERROR = "ERROR";
 
     /**
-     * Builds the report by merging the captured signals.
+     * Builds the report by merging the captured signals. Equivalent to calling the overload below with an
+     * empty {@code scheduledRuns} list — i.e. no {@code SCHEDULED_TASK} entries — for adapters/tests that do
+     * not capture scheduled-task executions.
      *
      * @param requests already-masked HTTP exchanges (newest-first), or {@code null}
      * @param sqlEntries already-masked SQL trace executions (newest-first), or {@code null}; ignored unless
@@ -92,10 +96,57 @@ public final class LiveActivityAssembler {
             boolean securityAvailable,
             String healthStatus,
             int limit) {
+        return report(
+                requests,
+                sqlEntries,
+                sqlAvailable,
+                sqlUnavailableWarning,
+                exceptionGroups,
+                securityEvents,
+                securityAvailable,
+                List.of(),
+                healthStatus,
+                limit);
+    }
+
+    /**
+     * Builds the report by merging the captured signals, including captured {@code @Scheduled} task
+     * executions (see {@link ScheduledTaskRunStore}) as {@code SCHEDULED_TASK} entries — the Quarkus
+     * analogue of Spring's {@code LiveActivityService.toScheduledTaskEntry}. There is no request to nest a
+     * scheduled-task entry under (it runs on a background thread, not the event loop), so its
+     * {@code parentId} is always {@code null}.
+     *
+     * @param requests already-masked HTTP exchanges (newest-first), or {@code null}
+     * @param sqlEntries already-masked SQL trace executions (newest-first), or {@code null}; ignored unless
+     *     {@code sqlAvailable}
+     * @param sqlAvailable whether the SQL trace source is present and feeding (a datasource is configured)
+     * @param sqlUnavailableWarning adapter-supplied explanation surfaced when {@code !sqlAvailable} (e.g. no
+     *     datasource configured vs tracing intentionally disabled), or {@code null}/blank to surface none
+     * @param exceptionGroups captured exception groups (newest-first), or {@code null}
+     * @param securityEvents already-masked security/audit events (newest-first), or {@code null}; ignored
+     *     unless {@code securityAvailable}
+     * @param securityAvailable whether the security-event source is present and feeding (Quarkus's security
+     *     capability is present and {@code quarkus.security.events.enabled=true})
+     * @param scheduledRuns captured {@code @Scheduled} task executions (newest-first), or {@code null}
+     * @param healthStatus current health status, or {@code null}
+     * @param limit maximum merged entries to return, or {@code 0}/negative for no cap
+     */
+    public LiveActivityReport report(
+            HttpExchangesReport requests,
+            List<SqlTraceEntryDto> sqlEntries,
+            boolean sqlAvailable,
+            String sqlUnavailableWarning,
+            List<ExceptionGroupDto> exceptionGroups,
+            List<SecurityLogEventDto> securityEvents,
+            boolean securityAvailable,
+            List<ScheduledTaskRunStore.Run> scheduledRuns,
+            String healthStatus,
+            int limit) {
 
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
         List<ExceptionGroupDto> exceptions = exceptionGroups == null ? List.of() : exceptionGroups;
+        List<ScheduledTaskRunStore.Run> scheduled = scheduledRuns == null ? List.of() : scheduledRuns;
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
 
         List<ActivityEntryDto> entries = new ArrayList<>();
@@ -191,6 +242,10 @@ public final class LiveActivityAssembler {
             entries.add(toSecurityEntry(event, traceIndex.parentRequestId(event.traceId())));
         }
 
+        for (ScheduledTaskRunStore.Run run : scheduled) {
+            entries.add(toScheduledTaskEntry(run));
+        }
+
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
         if (limit > 0 && entries.size() > limit) {
             entries = entries.subList(0, limit);
@@ -209,6 +264,9 @@ public final class LiveActivityAssembler {
         }
         if (securityAvailable) {
             sources.add("security");
+        }
+        if (!scheduled.isEmpty()) {
+            sources.add("scheduled-tasks");
         }
 
         List<String> warnings = new ArrayList<>();
@@ -229,7 +287,7 @@ public final class LiveActivityAssembler {
                 healthStatus,
                 heapUsed(),
                 heapMax(),
-                0);
+                (int) scheduled.stream().filter(run -> !run.success()).count());
         return new LiveActivityReport(true, entries, typeCounts, kpis, sources, warnings);
     }
 
@@ -318,6 +376,46 @@ public final class LiveActivityAssembler {
                 parentId,
                 null,
                 false);
+    }
+
+    /**
+     * Build a {@code SCHEDULED_TASK} entry for a captured {@code @Scheduled} execution, mirroring Spring's
+     * {@code LiveActivityService.toScheduledTaskEntry}: there is no request to nest it under (it runs on a
+     * background thread), so {@code parentId} is always {@code null}; a run that threw is flagged
+     * {@code ERROR}, one slower than the shared request-slow threshold is flagged {@code SLOW}, otherwise
+     * {@code OK}.
+     */
+    private ActivityEntryDto toScheduledTaskEntry(ScheduledTaskRunStore.Run run) {
+        String severity;
+        if (!run.success()) {
+            severity = SEVERITY_ERROR;
+        } else if (run.durationMs() >= SLOW_MS) {
+            severity = SEVERITY_SLOW;
+        } else {
+            severity = SEVERITY_OK;
+        }
+        String detail = run.success() ? null : run.exceptionClassName() + messageSuffix(run.message());
+        return new ActivityEntryDto(
+                "sched-" + run.sequence(),
+                TYPE_SCHEDULED_TASK,
+                run.startTimestamp(),
+                severity,
+                run.runnable(),
+                detail,
+                run.durationMs(),
+                null,
+                null,
+                null,
+                null,
+                run.thread(),
+                false,
+                null,
+                null,
+                false);
+    }
+
+    private static String messageSuffix(String message) {
+        return message == null || message.isBlank() ? "" : ": " + message;
     }
 
     private static String blankToNull(String value) {
