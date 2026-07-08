@@ -16,6 +16,8 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityFilter;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityTracker;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
+import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpController;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpTools;
@@ -27,8 +29,6 @@ import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
-import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
-import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
@@ -607,7 +607,6 @@ public class BootUiAutoConfiguration {
     public OtlpSpanDecoder bootUiOtlpSpanDecoder(BootUiProperties properties) {
         return new OtlpSpanDecoder(properties.getTelemetry());
     }
-
 
     @Bean(destroyMethod = "stop")
     @Lazy

@@ -333,6 +333,7 @@ class LiveActivityControllerTests {
                 empty(HealthController.class),
                 empty(RequestCorrelationRegistry.class),
                 empty(SecurityEventCorrelationRegistry.class),
+                empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
                 properties);
         return service.report(type, severity, since, limit);
     }
@@ -437,6 +438,7 @@ class LiveActivityControllerTests {
                 exceptionStore,
                 empty(RequestCorrelationRegistry.class),
                 empty(SecurityEventCorrelationRegistry.class),
+                empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
                 activityStore,
                 persistenceSettings,
                 dataSourceProvider,

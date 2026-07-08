@@ -31,6 +31,28 @@ class LiveActivityServiceTests {
     private static final Instant BASE = Instant.parse("2026-06-14T10:00:00Z");
 
     @Test
+    void mergesKafkaCapturedMessagesAsMessagingEntries() {
+        io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 10, 50);
+        recorder.recordProduce("orders", 0, "order-1", 0L, true, null);
+        recorder.recordConsume("orders", 0, 5L, "order-1", 12L, true, null, "group-a", "myListener");
+        recorder.recordConsume("orders", 0, 6L, "order-2", 3L, false, "boom", "group-a", "myListener");
+
+        LiveActivityService service = serviceWithKafka(recorder, new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(report.typeCounts()).containsEntry("MESSAGING", 3);
+        assertThat(report.entries())
+                .filteredOn(e -> e.type().equals("MESSAGING"))
+                .extracting("summary", "severity")
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("→ orders [0]", "OK"),
+                        org.assertj.core.groups.Tuple.tuple("← orders [0]", "OK"),
+                        org.assertj.core.groups.Tuple.tuple("← orders [0]", "ERROR"));
+    }
+
+    @Test
     void mergesAndSortsSourcesNewestFirst() {
         LiveActivityService service = service(
                 requests(
@@ -379,6 +401,21 @@ class LiveActivityServiceTests {
                 provider(health),
                 provider(requestCorrelations),
                 provider(securityCorrelations),
+                provider(null),
+                properties);
+    }
+
+    private LiveActivityService serviceWithKafka(
+            io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder, BootUiProperties properties) {
+        return new LiveActivityService(
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(recorder),
                 properties);
     }
 

@@ -46,9 +46,8 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
         }
         try {
             @SuppressWarnings("unchecked")
-            ProducerListener<Object, Object> existing =
-                    (ProducerListener<Object, Object>) new DirectFieldAccessor(template).getPropertyValue(
-                            "producerListener");
+            ProducerListener<Object, Object> existing = (ProducerListener<Object, Object>)
+                    new DirectFieldAccessor(template).getPropertyValue("producerListener");
             @SuppressWarnings("unchecked")
             KafkaTemplate<Object, Object> untyped = (KafkaTemplate<Object, Object>) template;
             untyped.setProducerListener(new CapturingProducerListener(existing, recorder));

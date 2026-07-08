@@ -311,6 +311,21 @@ drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-
 | `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds above which a request is flagged as slow in the stream and KPI strip.                   |
 | `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request is flagged with a potential N+1 pattern, both as a list-level badge and in its profile drawer. |
 
+#### Live Activity Kafka capture
+
+When `spring-kafka` is on the classpath, BootUI wraps application-owned `KafkaTemplate` and `@KafkaListener` container
+factory beans (composing with, not replacing, any listener/interceptor the application already configured) and feeds
+produce/consume outcomes into the Live Activity stream as `MESSAGING` entries. Only metadata is captured — topic,
+partition, offset, a truncated key, timing, success/failure, consumer group id, and listener id — the message
+value/payload is never captured. Spring-only today; see [SPECIFICATION.md §5.14.2](./SPECIFICATION.md).
+
+| Property                             | Default | Description                                                                                                    |
+| ------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| `bootui.kafka.enabled`               | `true`  | Capture Kafka producer/consumer activity into the Live Activity stream when `spring-kafka` is present.         |
+| `bootui.kafka.capture-key`           | `true`  | Capture the (truncated) record key alongside each entry. Disable if keys may carry sensitive data.             |
+| `bootui.kafka.max-entries`           | `200`   | Maximum number of captured Kafka messages retained in the in-memory ring buffer.                               |
+| `bootui.kafka.max-key-length`        | `200`   | Maximum retained length of a captured key (minimum `8`); longer keys are truncated.                            |
+
 #### Live Activity durable persistence
 
 Off by default: the merged stream stays in-memory-only, exactly as above. Setting

@@ -64,8 +64,9 @@ instrumentation — instead it reuses BootUI's existing in-memory signal buffers
 the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is already masked, self-filtered, and
 bounded exactly as those panels are.
 
-The stream merges four signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
-(`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a color-coded severity
+The stream merges five signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
+(`EXCEPTION`), security events (`SECURITY`), and Kafka producer/consumer activity (`MESSAGING`). Each row carries a
+timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
 latency badge so you can see at a glance *how* slow a request was. A request whose correlated SQL contains a suspected
@@ -83,7 +84,8 @@ active-exceptions, health, and heap-usage cards jump to the **Exceptions**, **He
 respectively. Because the merged feed is genuinely event-driven, it refreshes over **Server-Sent Events** instead of
 fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
-exception, or security event), and the feed can be paused and resumed so a row you are inspecting does not scroll away.
+exception, security event, or Kafka message), and the feed can be paused and resumed so a row you are inspecting does
+not scroll away.
 When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
 SQL statements, exceptions, and security events that BootUI can pin precisely to a request — by trace id, by the
 request's serving thread, or by request method and path — are folded into a collapsible group beneath that request row
@@ -128,6 +130,19 @@ confirmation-gated and blocked like any other action when the app or panel is re
 `bootui.activity.max-entries`, the slow-request threshold is `bootui.activity.request-slow-threshold-ms`, and individual
 sources can be turned off through their existing `bootui.panels.*` toggles (a disabled source simply drops out of the
 stream).
+
+When `spring-kafka` is on the classpath, BootUI transparently wraps every application-owned `KafkaTemplate` (a
+`ProducerListener`) and `@KafkaListener` container factory (a `RecordInterceptor`) — composing with, never replacing,
+any listener/interceptor the application already configured, exactly like `HttpExchangesController`'s repository
+wrapper — and feeds every send/delivery outcome into the stream as a `MESSAGING` entry: topic, partition, offset (for
+consumed records), a truncated key, direction (`→`/`←` for produce/consume), success/failure, and — for consumed
+records — the consumer group id, the `@KafkaListener` bean name, and processing duration (a producer send's duration
+is not exposed by `ProducerListener`, so it is not tracked). **The message value/payload is never captured** — only
+metadata — since a Kafka payload is an arbitrary, potentially large and sensitive application object with no generic
+masking strategy. Kafka entries are top-level in the feed today (not yet nested under a correlated request). Capture is
+on by default whenever `spring-kafka` is present and the panel is enabled, and can be tuned or disabled entirely via
+`bootui.kafka.enabled`, `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length` — see
+`docs/PROPERTIES.md`.
 
 By default the stream is in-memory only, so history is lost on a restart and the feed can only show as far back as the
 small buffers behind it reach. Setting `bootui.activity.persistence.enabled=true` additionally buffers

@@ -95,7 +95,8 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
         }
 
         @Override
-        public void failure(ConsumerRecord<Object, Object> record, Exception exception, Consumer<Object, Object> consumer) {
+        public void failure(
+                ConsumerRecord<Object, Object> record, Exception exception, Consumer<Object, Object> consumer) {
             recordOutcome(record, consumer, false, exception == null ? null : exception.getMessage());
             if (delegate != null) {
                 delegate.failure(record, exception, consumer);
@@ -111,7 +112,10 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
         }
 
         private void recordOutcome(
-                ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer, boolean success, String errorMessage) {
+                ConsumerRecord<Object, Object> record,
+                Consumer<Object, Object> consumer,
+                boolean success,
+                String errorMessage) {
             Long start = startNanos.get();
             long durationMillis = start == null ? 0L : (System.nanoTime() - start) / 1_000_000L;
             Object key = record.key();

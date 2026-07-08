@@ -716,8 +716,8 @@ Data sources:
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
-  severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and `MESSAGING` entries normalized to a common shape
+  (timestamp, type, severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
   method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
@@ -729,6 +729,17 @@ Features:
   with the identical threshold/logic the per-request profiler uses below, so a request whose correlated SQL looks like
   an N+1 access pattern can be badged directly in the list without opening its profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
   100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are.
+- Kafka producer/consumer capture (Spring only, `spring-kafka` on the classpath): `KafkaProducerCaptureBeanPostProcessor`
+  and `KafkaConsumerCaptureBeanPostProcessor` wrap application-owned `KafkaTemplate` and `@KafkaListener` container
+  factory beans — composing with, never replacing, any `ProducerListener`/`RecordInterceptor` the application already
+  configured, mirroring the HTTP Exchanges repository-wrapper precedent — and feed every send/delivery outcome into the
+  framework-neutral `KafkaActivityRecorder` (bounded ring buffer in `bootui-engine`) as a `MESSAGING` entry: topic,
+  partition, offset (consume only), a truncated key, direction, success/failure, and — for consumed records — consumer
+  group id, listener id, and processing duration. Only metadata is captured; the message value/payload is never
+  captured or masked, since it is an arbitrary application payload with no generic masking strategy. Kafka entries are
+  top-level (no request-parent correlation yet). Controlled by `bootui.kafka.enabled`, `bootui.kafka.capture-key`,
+  `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length`. Quarkus is out of scope for this iteration (SmallRye
+  Reactive Messaging requires a materially different capture design).
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, health status, and heap usage.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
