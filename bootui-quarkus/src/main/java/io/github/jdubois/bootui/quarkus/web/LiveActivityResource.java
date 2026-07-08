@@ -24,6 +24,9 @@ import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
@@ -54,7 +57,10 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 
@@ -128,6 +134,7 @@ public class LiveActivityResource {
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
     private final Instance<DataSource> dataSources;
+    private final KafkaActivityRecorder kafkaRecorder;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
     private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
@@ -147,7 +154,8 @@ public class LiveActivityResource {
             TracesService tracesService,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
-            Instance<DataSource> dataSources) {
+            Instance<DataSource> dataSources,
+            KafkaActivityRecorder kafkaRecorder) {
         this.buffer = buffer;
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
@@ -159,6 +167,7 @@ public class LiveActivityResource {
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.dataSources = dataSources;
+        this.kafkaRecorder = kafkaRecorder;
     }
 
     /**
@@ -289,6 +298,31 @@ public class LiveActivityResource {
                     && entry.correlationId() != null
                     && !entry.correlationId().isBlank();
             entries.add(profileable ? withProfileable(entry) : entry);
+        }
+
+        // Fifth signal, merged adapter-side (the assembler owns only requests/sql/exceptions/security and
+        // its public signature must stay stable for the already-complete Spring implementation): captured
+        // Kafka messages become top-level MESSAGING entries — no request-parent correlation — mapped through
+        // the shared `KafkaActivityEntries.toEntry` so they are byte-for-byte identical to the Spring
+        // adapter's. Recompute the merge exactly as Spring's `LiveActivityService.report` does: append,
+        // re-sort by timestamp descending, re-apply the limit cap, then rebuild `typeCounts` over the final
+        // capped list. When Kafka capture is absent (no `quarkus-messaging-kafka`) the recorder is empty, so
+        // this is a no-op and the report is unchanged.
+        List<CapturedMessage> kafkaMessages = kafkaRecorder.recent();
+        if (!kafkaMessages.isEmpty()) {
+            for (CapturedMessage message : kafkaMessages) {
+                entries.add(KafkaActivityEntries.toEntry(message));
+            }
+            entries.sort(Comparator.comparingLong(ActivityEntryDto::timestamp).reversed());
+            if (limit > 0 && entries.size() > limit) {
+                entries = new ArrayList<>(entries.subList(0, limit));
+            }
+            Map<String, Integer> typeCounts = new LinkedHashMap<>();
+            for (ActivityEntryDto entry : entries) {
+                typeCounts.merge(entry.type(), 1, Integer::sum);
+            }
+            return new LiveActivityReport(
+                    report.available(), entries, typeCounts, report.kpis(), report.sources(), report.warnings());
         }
         return new LiveActivityReport(
                 report.available(), entries, report.typeCounts(), report.kpis(), report.sources(), report.warnings());

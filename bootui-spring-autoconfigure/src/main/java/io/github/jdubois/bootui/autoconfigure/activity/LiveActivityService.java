@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
@@ -50,7 +51,6 @@ public class LiveActivityService {
     static final String TYPE_SQL = "SQL";
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
-    static final String TYPE_MESSAGING = "MESSAGING";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -381,55 +381,16 @@ public class LiveActivityService {
     }
 
     /**
-     * Maps a captured Kafka message to a flat {@code MESSAGING} entry. Unlike {@code SQL}/{@code
-     * EXCEPTION}/{@code SECURITY}, no request-parent correlation is attempted yet (BootUI has no trace
-     * id on the producer/consumer thread today), so every entry is top-level; see {@code docs/PLAN.md}
-     * §3.4 for the nesting this can grow into once messaging spans carry a correlation id. Duration is
-     * only known for consumed messages (the producer callback carries no send-start timestamp).
+     * Maps a captured Kafka message to a flat {@code MESSAGING} entry, delegating to the shared,
+     * framework-neutral {@link KafkaActivityEntries#toEntry(CapturedMessage)} so the Quarkus adapter
+     * renders every Kafka entry byte-for-byte identically. Unlike {@code SQL}/{@code EXCEPTION}/{@code
+     * SECURITY}, no request-parent correlation is attempted yet (BootUI has no trace id on the
+     * producer/consumer thread today), so every entry is top-level; see {@code docs/PLAN.md} §3.4 for
+     * the nesting this can grow into once messaging spans carry a correlation id. Duration is only known
+     * for consumed messages (the producer callback carries no send-start timestamp).
      */
     private ActivityEntryDto toKafkaEntry(CapturedMessage message) {
-        String severity = message.success() ? SEVERITY_OK : SEVERITY_ERROR;
-        String arrow = message.direction() == KafkaActivityRecorder.Direction.PRODUCE ? "→" : "←";
-        String summary = arrow + " " + message.topic();
-        if (message.partition() != null) {
-            summary += " [" + message.partition() + "]";
-        }
-        StringBuilder detail = new StringBuilder();
-        if (message.key() != null) {
-            detail.append("key=").append(message.key());
-        }
-        if (message.offset() != null) {
-            if (detail.length() > 0) {
-                detail.append(' ');
-            }
-            detail.append("offset=").append(message.offset());
-        }
-        if (!message.success() && message.errorMessage() != null) {
-            if (detail.length() > 0) {
-                detail.append(' ');
-            }
-            detail.append(message.errorMessage());
-        }
-        // durationMillis is already null for PRODUCE (ProducerListener carries no send-start timestamp,
-        // see KafkaProducerCaptureBeanPostProcessor); passed through as-is here.
-        Long durationMs = message.durationMillis();
-        return new ActivityEntryDto(
-                "kafka-" + message.id(),
-                TYPE_MESSAGING,
-                message.timestamp(),
-                severity,
-                summary,
-                detail.length() > 0 ? detail.toString() : null,
-                durationMs,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                null,
-                null,
-                false);
+        return KafkaActivityEntries.toEntry(message);
     }
 
     private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, String parentId) {

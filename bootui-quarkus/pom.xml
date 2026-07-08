@@ -195,6 +195,21 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus Messaging Kafka extension, compile-only (provided): needed solely to compile the optional
+             Live Activity Kafka capture interceptors (QuarkusKafkaProducerCapture / QuarkusKafkaConsumerCapture),
+             which implement SmallRye Reactive Messaging's OutgoingInterceptor / IncomingInterceptor SPI and read
+             io.smallrye.reactive.messaging.kafka.api Kafka record metadata into the shared KafkaActivityRecorder.
+             provided scope is NOT transitive, so an application that depends on this extension but does not add
+             quarkus-messaging-kafka never gets io.smallrye.reactive.messaging on its classpath, and the
+             capability-gated build step (registerKafkaCapture) excludes the interceptors that would reference them
+             (R2). When an app DOES add quarkus-messaging-kafka, the API is supplied (at the same quarkus-bom-managed
+             version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-messaging-kafka</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Unit-test deps (quarkus-bom managed). The runtime module carries a small same-package unit test for
              QuarkusHealthProvider.map(), which needs SmallRye's jakarta.json API + the Parsson implementation —
              both already on the test classpath via the provided smallrye-health dependency above. Keeping the

@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
@@ -181,6 +182,88 @@ class LiveActivityResourceTests {
     }
 
     @Test
+    void mergedReportMergesCapturedKafkaMessagesAsMessagingEntries() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
+        recorder.recordProduce("orders", 2, "key-1", null, true, null);
+        recorder.recordConsume("orders", 3, 42L, "key-2", 5L, true, null, null, "orders-in");
+        LiveActivityResource resource = resourceWithKafka(recorder);
+
+        LiveActivityReport report = resource.mergedReport(0);
+
+        List<ActivityEntryDto> messaging = report.entries().stream()
+                .filter(entry -> "MESSAGING".equals(entry.type()))
+                .toList();
+        assertThat(messaging).hasSize(2);
+        assertThat(messaging).allSatisfy(entry -> {
+            assertThat(entry.id()).startsWith("kafka-");
+            assertThat(entry.correlationId()).isNull();
+        });
+        assertThat(messaging).anySatisfy(entry -> {
+            assertThat(entry.summary()).isEqualTo("→ orders [2]");
+            assertThat(entry.detail()).isEqualTo("key=key-1");
+            assertThat(entry.severity()).isEqualTo("OK");
+        });
+        assertThat(messaging).anySatisfy(entry -> {
+            assertThat(entry.summary()).isEqualTo("← orders [3]");
+            assertThat(entry.detail()).isEqualTo("key=key-2 offset=42");
+        });
+        assertThat(report.typeCounts()).containsEntry("MESSAGING", 2);
+    }
+
+    @Test
+    void mergedReportHasNoMessagingEntriesWhenNoKafkaCaptured() {
+        LiveActivityResource resource = resourceWithKafka(new KafkaActivityRecorder(true, true, 200, 200));
+
+        LiveActivityReport report = resource.mergedReport(0);
+
+        assertThat(report.entries()).noneMatch(entry -> "MESSAGING".equals(entry.type()));
+        assertThat(report.typeCounts()).doesNotContainKey("MESSAGING");
+    }
+
+    @Test
+    void mergedReportSortsKafkaEntriesNewestFirst() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
+        recorder.recordProduce("orders", 2, "key-1", null, true, null);
+        recorder.recordConsume("orders", 3, 42L, "key-2", 5L, true, null, null, "orders-in");
+        LiveActivityResource resource = resourceWithKafka(recorder);
+
+        LiveActivityReport report = resource.mergedReport(0);
+
+        // The most-recently captured message (the consume) sorts first.
+        assertThat(report.entries()).first().satisfies(entry -> {
+            assertThat(entry.type()).isEqualTo("MESSAGING");
+            assertThat(entry.summary()).startsWith("←");
+        });
+    }
+
+    @Test
+    void mergedReportAppliesLimitAcrossMergedKafkaEntries() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
+        recorder.recordProduce("orders", 0, "a", null, true, null);
+        recorder.recordProduce("orders", 1, "b", null, true, null);
+        recorder.recordProduce("orders", 2, "c", null, true, null);
+        LiveActivityResource resource = resourceWithKafka(recorder);
+
+        LiveActivityReport report = resource.mergedReport(2);
+
+        assertThat(report.entries()).hasSize(2);
+        assertThat(report.typeCounts()).containsEntry("MESSAGING", 2);
+    }
+
+    @Test
+    void mergedReportHasNoMessagingEntriesWhenRecorderDisabled() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 200, 200);
+        // recordProduce is a no-op while disabled, so nothing is ever captured.
+        recorder.recordProduce("orders", 0, "a", null, true, null);
+        LiveActivityResource resource = resourceWithKafka(recorder);
+
+        LiveActivityReport report = resource.mergedReport(0);
+
+        assertThat(report.entries()).noneMatch(entry -> "MESSAGING".equals(entry.type()));
+        assertThat(report.typeCounts()).doesNotContainKey("MESSAGING");
+    }
+
+    @Test
     void useExistingDatasourceReturns404WhenNoDataSourceIsAvailable() {
         LiveActivityResource resource =
                 resourceWith(new SwitchableActivityStore(new InMemoryActivityStore(10)), disabledSettings());
@@ -314,10 +397,26 @@ class LiveActivityResourceTests {
         return resourceWith(activityStore, settings, unsatisfiedDataSource());
     }
 
+    private static LiveActivityResource resourceWithKafka(KafkaActivityRecorder kafkaRecorder) {
+        return resourceWith(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                kafkaRecorder);
+    }
+
     private static LiveActivityResource resourceWith(
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings settings,
             Instance<DataSource> dataSources) {
+        return resourceWith(activityStore, settings, dataSources, new KafkaActivityRecorder(true, true, 200, 200));
+    }
+
+    private static LiveActivityResource resourceWith(
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings settings,
+            Instance<DataSource> dataSources,
+            KafkaActivityRecorder kafkaRecorder) {
         Config config = config(Map.of());
         return new LiveActivityResource(
                 new HttpExchangeBuffer(50),
@@ -330,7 +429,8 @@ class LiveActivityResourceTests {
                 null, // TracesService: unused by activity()/mergedReport(), only by the request() drill-down
                 activityStore,
                 settings,
-                dataSources);
+                dataSources,
+                kafkaRecorder);
     }
 
     private static SmallRyeConfig config(Map<String, String> properties) {
