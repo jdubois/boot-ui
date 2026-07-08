@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
@@ -98,6 +99,7 @@ class QuarkusActivityCaptureTests {
                 new UnsatisfiedInstance<>(),
                 new ExceptionStore(10, 10, 10),
                 new ExceptionsService(new QuarkusExposurePolicy(config)),
+                new UnsatisfiedInstance<EmailCaptureService>(),
                 new SecurityEventBuffer(10),
                 new QuarkusPanelAvailability(config),
                 null,

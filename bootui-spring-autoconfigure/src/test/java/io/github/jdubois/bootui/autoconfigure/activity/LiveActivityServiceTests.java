@@ -6,10 +6,13 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
+import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
@@ -187,6 +190,39 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void nestsMailUnderRequestByTraceId() {
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                null,
+                null,
+                null,
+                email(email("email-1", BASE.plusMillis(1010).toEpochMilli(), "trace-r1", "mail-thread")),
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "email-1")).isEqualTo("r1");
+    }
+
+    @Test
+    void leavesMailTopLevelWhenTraceIdAndThreadDoNotCorrelate() {
+        RequestCorrelationRegistry requestCorrelations = new RequestCorrelationRegistry(10);
+        requestCorrelations.record(new RequestCorrelationRegistry.RequestCorrelation(
+                BASE.plusMillis(1000).toEpochMilli(), BASE.plusMillis(1030).toEpochMilli(), "worker-9", "GET", "/a"));
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                null,
+                null,
+                null,
+                email(email("email-1", BASE.plusMillis(2000).toEpochMilli(), "trace-orphan", "mail-thread")),
+                requestCorrelations,
+                null,
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "email-1")).isNull();
+    }
+
+    @Test
     void nestsSecurityUnderRequestByServingThread() {
         long ts = BASE.plusMillis(1015).toEpochMilli();
         SecurityEventCorrelationRegistry securityCorrelations = new SecurityEventCorrelationRegistry(10);
@@ -359,7 +395,18 @@ class LiveActivityServiceTests {
             SecurityLogsController security,
             HealthController health,
             BootUiProperties properties) {
-        return service(requests, sql, exceptions, security, health, null, null, properties);
+        return service(requests, sql, exceptions, security, health, null, null, null, properties);
+    }
+
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            EmailController email,
+            BootUiProperties properties) {
+        return service(requests, sql, exceptions, security, health, email, null, null, properties);
     }
 
     private LiveActivityService service(
@@ -371,13 +418,35 @@ class LiveActivityServiceTests {
             RequestCorrelationRegistry requestCorrelations,
             SecurityEventCorrelationRegistry securityCorrelations,
             BootUiProperties properties) {
+        return service(
+                requests,
+                sql,
+                exceptions,
+                security,
+                health,
+                null,
+                requestCorrelations,
+                securityCorrelations,
+                properties);
+    }
+
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            EmailController email,
+            RequestCorrelationRegistry requestCorrelations,
+            SecurityEventCorrelationRegistry securityCorrelations,
+            BootUiProperties properties) {
         return new LiveActivityService(
                 provider(requests),
                 provider(sql),
                 provider(exceptions),
                 provider(security),
                 provider(health),
-                provider(null),
+                provider(email),
                 provider(requestCorrelations),
                 provider(securityCorrelations),
                 properties);
@@ -504,9 +573,33 @@ class LiveActivityServiceTests {
         return controller;
     }
 
+    private static EmailController email(EmailMessageDto... messages) {
+        EmailController controller = mock(EmailController.class);
+        EmailsReport report = new EmailsReport(true, null, false, 100, messages.length, List.of(messages));
+        when(controller.list()).thenReturn(report);
+        return controller;
+    }
+
     private static SecurityLogEventDto securityEvent(String type, String principal, long timestampMillis) {
         return new SecurityLogEventDto(
                 Instant.ofEpochMilli(timestampMillis).toString(), principal, type, List.of(), null);
+    }
+
+    private static EmailMessageDto email(String id, long timestamp, String traceId, String thread) {
+        return new EmailMessageDto(
+                id,
+                timestamp,
+                "noreply@example.com",
+                List.of("user@example.com"),
+                List.of(),
+                List.of(),
+                "Welcome",
+                "Hello",
+                null,
+                List.of(),
+                true,
+                traceId,
+                thread);
     }
 
     private static ExceptionGroupDto group(String id, String className, long lastSeen) {

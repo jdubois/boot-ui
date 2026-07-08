@@ -25,6 +25,9 @@ import java.util.List;
  * @param attachments metadata for each attachment (never masked)
  * @param sent whether the message was actually handed to the real mail transport, or {@code false}
  *     when dev-trap mode intercepted it instead
+ * @param traceId distributed trace id active when the message was captured, or {@code null} when none was
+ *     available
+ * @param thread thread name that captured the message
  */
 public record EmailMessageDto(
         String id,
@@ -37,7 +40,9 @@ public record EmailMessageDto(
         String textBody,
         String htmlBody,
         List<EmailAttachmentDto> attachments,
-        boolean sent) {
+        boolean sent,
+        String traceId,
+        String thread) {
 
     public EmailMessageDto {
         to = to == null ? List.of() : List.copyOf(to);

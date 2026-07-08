@@ -64,6 +64,7 @@ import io.github.jdubois.bootui.spi.FlywayProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LiquibaseProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.quarkus.runtime.LaunchMode;
 import io.smallrye.config.SmallRyeConfig;
@@ -211,12 +212,17 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public EmailCaptureService emailCaptureService(QuarkusExposurePolicy exposure, Config config) {
+    public EmailCaptureService emailCaptureService(
+            QuarkusExposurePolicy exposure, Config config, Instance<TraceIdProvider> traceIdProvider) {
         int maxEntries = config.getOptionalValue("bootui.email.max-entries", Integer.class)
                 .orElse(100);
         boolean mock = config.getOptionalValue("quarkus.mailer.mock", Boolean.class)
                 .orElseGet(() -> LaunchMode.current().isDevOrTest());
-        return new EmailCaptureService(new EmailStore(maxEntries), exposure, mock);
+        EmailCaptureService service = new EmailCaptureService(new EmailStore(maxEntries), exposure, mock);
+        if (traceIdProvider.isResolvable()) {
+            service.setTraceIdProvider(traceIdProvider.get());
+        }
+        return service;
     }
 
     /**

@@ -61,11 +61,11 @@ the current per-panel list), and the shell chrome is populated by the same `GET 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
 application just did, plus a per-request profiler for drilling into any single request. It does not add any new
 instrumentation — instead it reuses BootUI's existing in-memory signal buffers by calling the same controllers that back
-the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is already masked, self-filtered, and
+the HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Email panels, so every value is already masked, self-filtered, and
 bounded exactly as those panels are.
 
-The stream merges four signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
-(`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a color-coded severity
+The stream merges five signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
+(`EXCEPTION`), security events (`SECURITY`), and captured emails (`MAIL`). Each row carries a timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
 latency badge so you can see at a glance *how* slow a request was. A request whose correlated SQL contains a suspected
@@ -85,7 +85,7 @@ fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
 exception, or security event), and the feed can be paused and resumed so a row you are inspecting does not scroll away.
 When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
-SQL statements, exceptions, and security events that BootUI can pin precisely to a request — by trace id, by the
+SQL statements, exceptions, security events, and emails that BootUI can pin precisely to a request — by trace id, by the
 request's serving thread, or by request method and path — are folded into a collapsible group beneath that request row
 (expanded by default), so one click reveals exactly what a single request did, in order. Requests that triggered a
 security event are flagged as **authenticated** — a lock icon plus a gray pill naming the caller's principal — so a

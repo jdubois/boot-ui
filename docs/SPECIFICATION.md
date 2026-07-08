@@ -710,17 +710,17 @@ reverse-chronological activity stream, plus a Symfony-style per-request profiler
 
 Data sources:
 
-- Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
+- Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, and `MAIL` entries normalized to a common shape (timestamp, type,
   severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
-  method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
+  method/path), so the client can nest correlated SQL, exceptions, security events, and emails chronologically under the request
   that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected) and entries without a
   precise request correlation have a null `parentId`. A `REQUEST` entry that was correlated to a Spring Security audit
   event also carries a `securedPrincipal` (the caller's principal; null when the request had no

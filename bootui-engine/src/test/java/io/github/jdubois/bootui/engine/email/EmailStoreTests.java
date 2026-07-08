@@ -59,6 +59,17 @@ class EmailStoreTests {
         assertThat(entry.sent()).isFalse();
     }
 
+    @Test
+    void stampsTraceIdAndThreadAtCaptureTime() {
+        EmailStore store = new EmailStore(10);
+        store.setTraceIdProvider(() -> "trace-1");
+
+        EmailStore.Entry entry = store.capture(email("traceable"), true);
+
+        assertThat(entry.traceId()).isEqualTo("trace-1");
+        assertThat(entry.thread()).isEqualTo(Thread.currentThread().getName());
+    }
+
     private static CapturedEmail email(String subject) {
         return CapturedEmail.builder()
                 .from("noreply@example.com")

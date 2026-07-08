@@ -298,7 +298,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 
 ### Live Activity
 
-The Live Activity panel reuses the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs sources, so disabling any of
+The Live Activity panel reuses the HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Email sources, so disabling any of
 those panels through their own `bootui.panels.*` toggles also removes them from the stream. The panel itself is
 read-only. A request whose correlated SQL trips `bootui.activity.n-plus-one-threshold` is flagged with a red **N+1**
 badge both in the main stream row and in its profile drawer (the same threshold, so the two views never disagree); the
@@ -368,10 +368,10 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 
 | Property                        | Default | Description                                                                                                          |
 | -------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| `bootui.panels.email.enabled`     | `true`  | Show the Email Viewer panel when a `JavaMailSender` bean is present.                                                  |
+| `bootui.panels.email.enabled`     | `true`  | Show the Email Viewer panel when a supported mail sender is present (`JavaMailSender` on Spring or `quarkus-mailer` on Quarkus). |
 | `bootui.panels.email.read-only`   | `false` | Disable the clear action while keeping captured messages visible.                                                     |
 | `bootui.email.max-entries`        | `100`   | Maximum number of captured messages retained; the oldest is evicted once full.                                        |
-| `bootui.email.dev-trap`           | `false` | When `true`, captured messages are recorded but never actually handed to the real mail transport. Off by default so BootUI never silently swallows application mail. |
+| `bootui.email.dev-trap`           | `false` | On Spring, when `true`, captured messages are recorded but never actually handed to the real mail transport. On Quarkus, sent/not-sent instead reflects `quarkus.mailer.mock` because capture happens after send. |
 
 ### Exceptions
 

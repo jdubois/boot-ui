@@ -5,6 +5,8 @@ import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
+import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
@@ -22,6 +24,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
@@ -60,7 +63,7 @@ import javax.sql.DataSource;
 
 /**
  * JAX-RS resource for the Live Activity panel ({@code GET /bootui/api/activity}). The Quarkus analogue of
- * the Spring adapter's {@code LiveActivityController}: it merges the four signals captured on this platform
+ * the Spring adapter's {@code LiveActivityController}: it merges the five signals captured on this platform
  * — HTTP exchanges (via the shared {@link HttpExchangeBuffer}), SQL trace (via the shared
  * {@link SqlTraceRecorder}), exceptions (via the shared {@link ExceptionStore}), and security/audit events
  * (via the shared {@link SecurityEventBuffer}) — plus JVM heap into the neutral {@link LiveActivityReport}.
@@ -71,7 +74,7 @@ import javax.sql.DataSource;
  * simply omits the source (security) and its entries are omitted. Signal-to-request correlation is
  * data-driven on the OpenTelemetry trace id when present: each captured signal is stamped with the active
  * span's trace id (see {@code QuarkusOtelTraceIdProvider}), and the engine {@link LiveActivityAssembler}
- * nests SQL/exception/security entries under the request sharing that trace id, also stamping a uniquely
+ * nests SQL/exception/security/MAIL entries under the request sharing that trace id, also stamping a uniquely
  * correlated security event's principal onto its parent request as {@code securedPrincipal}.
  *
  * <p>The optional JDBC persistence backend ({@code bootui.activity.persistence.enabled}) is served by the
@@ -109,7 +112,7 @@ import javax.sql.DataSource;
  * non-profileable. Spring's controller/correlator computes its own {@code profileable} semantics
  * independently and is unaffected by this adapter-only step. Read-only (the profile drill-down only reads
  * already-captured signals), plus the SSE change-notification stream {@code /stream} that ticks whenever a
- * new HTTP exchange is captured so the shared Vue panel's auto-refresh toggle works identically to Spring.
+ * new HTTP exchange or captured email is recorded so the shared Vue panel's auto-refresh toggle works identically to Spring.
  */
 @Path("/bootui/api/activity")
 public class LiveActivityResource {
@@ -122,6 +125,7 @@ public class LiveActivityResource {
     private final Instance<SqlTraceRecorder> sqlRecorder;
     private final ExceptionStore exceptionStore;
     private final ExceptionsService exceptionsService;
+    private final Instance<EmailCaptureService> emailCaptureService;
     private final SecurityEventBuffer securityBuffer;
     private final QuarkusPanelAvailability panelAvailability;
     private final TracesService tracesService;
@@ -142,6 +146,7 @@ public class LiveActivityResource {
             Instance<SqlTraceRecorder> sqlRecorder,
             ExceptionStore exceptionStore,
             ExceptionsService exceptionsService,
+            Instance<EmailCaptureService> emailCaptureService,
             SecurityEventBuffer securityBuffer,
             QuarkusPanelAvailability panelAvailability,
             TracesService tracesService,
@@ -153,6 +158,7 @@ public class LiveActivityResource {
         this.sqlRecorder = sqlRecorder;
         this.exceptionStore = exceptionStore;
         this.exceptionsService = exceptionsService;
+        this.emailCaptureService = emailCaptureService;
         this.securityBuffer = securityBuffer;
         this.panelAvailability = panelAvailability;
         this.tracesService = tracesService;
@@ -266,6 +272,8 @@ public class LiveActivityResource {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
+        EmailsReport emailReport = emailReport();
+        boolean emailAvailable = emailReport != null;
 
         LiveActivityReport report = assembler.report(
                 requests,
@@ -276,7 +284,9 @@ public class LiveActivityResource {
                 securityEvents(securityAvailable),
                 securityAvailable,
                 null,
-                limit);
+                limit,
+                emailAvailable ? emailReport.messages() : List.<EmailMessageDto>of(),
+                emailAvailable);
 
         // Adapter-side post-processing over the shared assembler's output — not a change to the engine's
         // own `profileable` default (which stays `false` for every entry it builds, unaffected by this
@@ -329,7 +339,14 @@ public class LiveActivityResource {
     @Path("/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
     public Multi<OutboundSseEvent> stream(@Context Sse sse) {
-        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, buffer::subscribe);
+        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, onChange -> {
+            Runnable unsubscribeRequests = buffer.subscribe(onChange);
+            Runnable unsubscribeEmails = emailChangeSource().subscribe(onChange);
+            return () -> {
+                unsubscribeRequests.run();
+                unsubscribeEmails.run();
+            };
+        });
     }
 
     private HttpExchangesReport requestsReport() {
@@ -343,6 +360,22 @@ public class LiveActivityResource {
                 null,
                 null,
                 null);
+    }
+
+    private EmailsReport emailReport() {
+        if (!panelAvailability.isPanelAvailable(BootUiPanels.EMAIL) || !emailCaptureService.isResolvable()) {
+            return null;
+        }
+        return emailCaptureService.get().list();
+    }
+
+    private SseStreams.ChangeSource emailChangeSource() {
+        return onChange -> {
+            if (!emailCaptureService.isResolvable()) {
+                return () -> {};
+            }
+            return emailCaptureService.get().subscribe(onChange);
+        };
     }
 
     private SqlSnapshot sqlSnapshot() {

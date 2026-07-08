@@ -154,7 +154,7 @@ public class LiveActivityService {
         }
         if (emails != null) {
             for (EmailMessageDto message : emails.messages()) {
-                all.add(toEmailEntry(message));
+                all.add(toEmailEntry(message, matchMailParent(message, anchors)));
             }
         }
         if (requests != null) {
@@ -402,7 +402,7 @@ public class LiveActivityService {
                 false);
     }
 
-    private ActivityEntryDto toEmailEntry(EmailMessageDto message) {
+    private ActivityEntryDto toEmailEntry(EmailMessageDto message, String parentId) {
         String to = message.to().isEmpty() ? "" : String.join(", ", message.to());
         String subject = message.subject() == null ? "(no subject)" : message.subject();
         String detail = to.isBlank() ? null : "to " + to;
@@ -417,13 +417,13 @@ public class LiveActivityService {
                 subject,
                 detail,
                 null,
+                message.traceId(),
                 null,
                 null,
                 null,
-                null,
-                null,
+                message.thread(),
                 false,
-                null,
+                parentId,
                 null,
                 false);
     }
@@ -431,7 +431,7 @@ public class LiveActivityService {
     /**
      * Builds one {@link RequestAnchor} per recent HTTP request, resolving its serving thread and precise
      * window from {@link RequestCorrelationRegistry} when available. Used to attach correlated SQL,
-     * exception, and security entries to the request that caused them.
+     * exception, security, and MAIL entries to the request that caused them.
      */
     private List<RequestAnchor> buildAnchors(HttpExchangesReport requests) {
         if (requests == null) {
@@ -479,6 +479,35 @@ public class LiveActivityService {
         String found = null;
         for (RequestAnchor anchor : anchors) {
             if (thread.equals(anchor.thread()) && covers(anchor, entry.timestamp())) {
+                if (found != null) {
+                    return null;
+                }
+                found = anchor.id();
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Resolves the request that a captured email belongs to: trace-id join first (exact), then serving
+     * thread within the request window (exact). Returns {@code null} when neither tier yields a unique
+     * request, so the entry stays top-level rather than being mis-attributed.
+     */
+    private static String matchMailParent(EmailMessageDto message, List<RequestAnchor> anchors) {
+        String traceId = message.traceId();
+        if (traceId != null && !traceId.isBlank()) {
+            String byTrace = uniqueByTrace(anchors, traceId);
+            if (byTrace != null) {
+                return byTrace;
+            }
+        }
+        String thread = message.thread();
+        if (thread == null) {
+            return null;
+        }
+        String found = null;
+        for (RequestAnchor anchor : anchors) {
+            if (thread.equals(anchor.thread()) && covers(anchor, message.timestamp())) {
                 if (found != null) {
                     return null;
                 }

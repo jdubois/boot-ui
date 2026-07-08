@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
@@ -94,6 +95,32 @@ class LiveActivityAssemblerTests {
 
         assertThat(entry(report, "sql-10").parentId()).isEqualTo("req-1");
         assertThat(entry(report, "sql-11").parentId()).isEqualTo("req-2");
+    }
+
+    @Test
+    void nestsMailUnderRequestSharingTraceId() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<EmailMessageDto> emails = List.of(email("email-1", "trace-a", "mail-thread", 1_010L));
+
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, "UP", 0, emails, true);
+
+        ActivityEntryDto mailEntry = entry(report, "email-1");
+        assertThat(mailEntry.parentId()).isEqualTo("req-1");
+        assertThat(mailEntry.correlationId()).isEqualTo("trace-a");
+        assertThat(mailEntry.thread()).isEqualTo("mail-thread");
+        assertThat(report.sources()).contains("email");
+    }
+
+    @Test
+    void leavesMailTopLevelWhenNoRequestSharesItsTraceId() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<EmailMessageDto> emails = List.of(email("email-1", "trace-orphan", "mail-thread", 1_010L));
+
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, exceptions(), List.of(), false, "UP", 0, emails, true);
+
+        assertThat(entry(report, "email-1").parentId()).isNull();
     }
 
     @Test
@@ -320,5 +347,22 @@ class LiveActivityAssemblerTests {
                 lastTraceId,
                 "OPEN",
                 0);
+    }
+
+    private static EmailMessageDto email(String id, String traceId, String thread, long timestamp) {
+        return new EmailMessageDto(
+                id,
+                timestamp,
+                "noreply@example.com",
+                List.of("user@example.com"),
+                List.of(),
+                List.of(),
+                "Welcome",
+                "Hello",
+                null,
+                List.of(),
+                true,
+                traceId,
+                thread);
     }
 }

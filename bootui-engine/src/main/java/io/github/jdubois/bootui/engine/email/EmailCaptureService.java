@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.List;
 
 /**
@@ -31,6 +32,16 @@ public final class EmailCaptureService {
     /** Whether dev-trap mode is enabled: captured messages are recorded but never actually sent. */
     public boolean isDevTrapEnabled() {
         return devTrapEnabled;
+    }
+
+    /** Installs the trace-id provider used when stamping captured messages. */
+    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
+        this.store.setTraceIdProvider(traceIdProvider);
+    }
+
+    /** Registers a listener notified whenever the captured-message store changes. */
+    public Runnable subscribe(Runnable listener) {
+        return store.subscribe(listener);
     }
 
     /**
@@ -83,7 +94,9 @@ public final class EmailCaptureService {
                 reveal ? email.textBody() : maskIfPresent(email.textBody()),
                 reveal ? email.htmlBody() : maskIfPresent(email.htmlBody()),
                 email.attachments().stream().map(CapturedAttachment::toDto).toList(),
-                entry.sent());
+                entry.sent(),
+                entry.traceId(),
+                entry.thread());
     }
 
     private static List<String> maskEach(List<String> addresses) {

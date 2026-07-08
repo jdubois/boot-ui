@@ -730,12 +730,14 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<SqlTraceRecorder> sqlTraceRecorders,
                 ObjectProvider<HttpExchangesController> httpExchangesControllers,
                 ObjectProvider<ReactiveBootUiExceptionHandler> exceptionHandlers,
-                ObjectProvider<ReactiveSecurityLogsController> securityLogsControllers) {
+                ObjectProvider<ReactiveSecurityLogsController> securityLogsControllers,
+                ObjectProvider<io.github.jdubois.bootui.engine.email.EmailCaptureService> emailCaptureServices) {
             return () -> {
                 sqlTraceRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
                 httpExchangesControllers.ifAvailable(
                         controller -> controller.setTraceRegistry(httpExchangeTraceRegistry));
                 exceptionHandlers.ifAvailable(handler -> handler.setTraceIdProvider(traceIdProvider));
+                emailCaptureServices.ifAvailable(service -> service.setTraceIdProvider(traceIdProvider));
                 securityLogsControllers.ifAvailable(controller -> {
                     controller.setTraceIdProvider(traceIdProvider);
                     controller.setTraceRegistry(securityEventTraceRegistry);

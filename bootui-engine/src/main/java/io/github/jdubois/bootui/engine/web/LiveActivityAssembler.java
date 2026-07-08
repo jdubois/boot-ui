@@ -24,8 +24,8 @@ import java.util.Map;
 /**
  * Framework-neutral assembly of the Live Activity merged stream + KPI summary from already-masked source
  * reports. The Spring adapter has its own richer, controller-fed service (with per-request signal
- * correlation and thread attribution); the Quarkus adapter feeds this assembler the four signal sources it
- * captures — HTTP requests, SQL trace, exceptions, and security/audit events — which are merged into one
+ * correlation and thread attribution); the Quarkus adapter feeds this assembler the five signal sources it
+ * captures — HTTP requests, SQL trace, exceptions, security/audit events, and captured emails — which are merged into one
  * reverse-chronological feed with JVM heap and per-type KPIs.
  *
  * <p>Inputs are already masked and self-filtered by their owning engine services before they reach this
@@ -35,7 +35,7 @@ import java.util.Map;
  * lets it attribute signals by serving thread, but on the Vert.x event loop a thread does not map to a
  * single request, so that strategy is unportable. Instead, when the adapter stamps a distributed-trace id on
  * each signal (the Quarkus adapter reads {@code Span.current()} when OpenTelemetry is present, whose context
- * propagates across the event-loop→worker hops), this assembler nests each SQL/exception/security entry
+ * propagates across the event-loop→worker hops), this assembler nests each SQL/exception/security/MAIL entry
  * under the REQUEST entry sharing the same trace id by setting its {@code parentId}, using the shared
  * {@link TraceCorrelationIndex} primitive. A child is only nested when <em>exactly one</em> request carries
  * that trace id (a uniqueness guard against a reused inbound {@code traceparent}). When no trace id is
@@ -110,9 +110,9 @@ public final class LiveActivityAssembler {
 
     /**
      * Builds the report by merging the captured signals, additionally including captured outgoing emails
-     * (see {@code EmailCaptureService}) as {@code MAIL} entries. Email entries are not correlated to a
-     * request: BootUI's mail capture happens at the mail-sender boundary, not the HTTP boundary, so there is
-     * no reliable shared trace id to nest them under.
+     * (see {@code EmailCaptureService}) as {@code MAIL} entries. Email capture stamps the active trace id
+     * alongside the sending thread, so MAIL entries can be nested under the uniquely matching REQUEST entry
+     * that shares that trace id.
      *
      * @param emailMessages already-masked captured emails (newest-first), or {@code null}; ignored unless
      *     {@code emailAvailable}
@@ -231,7 +231,7 @@ public final class LiveActivityAssembler {
         }
 
         for (EmailMessageDto message : emails) {
-            entries.add(toEmailEntry(message));
+            entries.add(toEmailEntry(message, traceIndex.parentRequestId(message.traceId())));
         }
 
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
@@ -365,7 +365,7 @@ public final class LiveActivityAssembler {
                 false);
     }
 
-    private ActivityEntryDto toEmailEntry(EmailMessageDto message) {
+    private ActivityEntryDto toEmailEntry(EmailMessageDto message, String parentId) {
         String to = message.to().isEmpty() ? "" : String.join(", ", message.to());
         String subject = message.subject() == null ? "(no subject)" : message.subject();
         String detail = to.isBlank() ? null : "to " + to;
@@ -380,13 +380,13 @@ public final class LiveActivityAssembler {
                 subject,
                 detail,
                 null,
+                message.traceId(),
                 null,
                 null,
                 null,
-                null,
-                null,
+                message.thread(),
                 false,
-                null,
+                parentId,
                 null,
                 false);
     }
