@@ -165,14 +165,24 @@ Scope — new event types, roughly in priority order:
   and correlates naturally as a `REQUEST` child, mirroring how `SQL` nests today.
 - **Messaging (Kafka/RabbitMQ/JMS) publish and consume.** The highest-value new-instrumentation candidate after mail and
   REST calls: async messaging is exactly where a Telescope/Aspire-style console helps most, since message flow is
-  otherwise invisible outside the debugger. Needs its own bounded capture buffer, wired only when a `KafkaTemplate`/
-  `RabbitTemplate`/JMS `ConnectionFactory` bean is present, matching the fail-closed pattern used elsewhere.
-- **Generic `ApplicationEvent`/domain events.** Telescope's "Event" watcher equivalent. Broad and easy to over-capture
-  (framework internals fire constantly), so it needs an explicit allow-list (e.g. only user-defined event classes,
-  excluding `org.springframework.*`) to stay useful and bounded; lower priority given that design risk.
-- **`@Async` task execution.** Captures fire-and-forget background work the way Scheduled Tasks execution capture does
-  for cron work; lower value than messaging/scheduled tasks since a meaningful summary line is harder to derive without
-  app-specific knowledge.
+  otherwise invisible outside the debugger. Unlike the other items above, this is a materially bigger investment: Kafka,
+  RabbitMQ, and JMS are three unrelated client APIs (no single "messaging" abstraction to intercept once), so scope this
+  as **Kafka-first**, with RabbitMQ/JMS as later, separately-scoped follow-ups rather than one bundled feature. Each
+  needs its own bounded capture buffer, wired only when the relevant client bean/class (`KafkaTemplate`,
+  `RabbitTemplate`, JMS `ConnectionFactory`) is present, following the same optional-dependency/fail-closed pattern as
+  Hibernate/Cache/Flyway/Liquibase — the interceptor must live in the adapter behind a `@ConditionalOnClass` gate (Spring)
+  or a capability-gated `ExcludedTypeBuildItem` (Quarkus), never statically imported by the framework-neutral engine.
+  Interception itself is more invasive than any existing capture source: it means wrapping the app's own messaging beans
+  (a `BeanPostProcessor`, mirroring the existing HTTP Exchanges repository wrapper) or registering interceptor/advice
+  hooks, so pass-through-by-default and fail-open wrapping are non-negotiable design constraints, and message bodies
+  need their own bounding/masking design (arbitrary, potentially large application payloads, unlike a SQL statement or
+  HTTP header). On Quarkus, the natural interception point is different in kind, not just in wiring: Quarkus applications
+  typically use SmallRye Reactive Messaging (`@Incoming`/`@Outgoing` channels) rather than Spring's imperative
+  `spring-kafka`/`spring-rabbit` templates, so a shared `MessagingProvider`-style SPI would need materially different
+  per-adapter implementations — closer to the Beans panel's `BeanProvider` split (CDI vs. Spring bean introspection) than
+  the thinner Cache/Flyway provider seams. The panel-registration plumbing itself (a `@Produces` bean + auto-discovered
+  `@Path` resource) follows the existing GitHub-panel template with no deployment build-step change, but the capture
+  mechanism is effectively a second engine-service design per adapter, not a thin shared seam.
 
 Scope — enhancements on top of the existing/in-flight event types, generally cheaper than a new source and some of
 higher value:
@@ -195,14 +205,13 @@ Design constraints:
 
 - Every new source stays **read-only** and **fails closed** when its backing bean/class is absent, consistent with
   §3.1/§3.3 and the cross-cutting rules in §4.
-- Sensitive payloads (cache keys/values, message bodies, event payloads) are masked by default and follow the same
-  value-exposure model as the rest of the panel; cache keys are hashed rather than shown raw even under full exposure.
+- Sensitive payloads (cache keys/values, message bodies) are masked by default and follow the same value-exposure model
+  as the rest of the panel; cache keys are hashed rather than shown raw even under full exposure.
 - New capture buffers are bounded and self-filtering (BootUI's own traffic must not appear in its own feed), consistent
   with the existing `bootui.monitoring.exclude-self` behaviour.
 - Recommended sequencing: land Mail (§3.3) and REST call capture with `REQUEST`-nesting from day one; then Scheduled
   Task runs and Cache operations (cheapest, reuse existing panel discovery); treat Messaging as the next major
-  new-instrumentation investment; keep generic `ApplicationEvent` capture pending a design for bounding/allow-listing
-  noise.
+  new-instrumentation investment.
 
 ## 4. Cross-cutting work for every new panel
 
@@ -231,7 +240,8 @@ For each feature above, the following must move together, consistent with the ex
 | Optional Actuator endpoints, libraries, beans, or servers missing | all        | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.      |
 | Bean/dependency graph or correlation bloating the bundle          | 3.1, 3.2   | Medium | Bounded rendering, lightweight visualization, and lazy-loaded panels.                                     |
 | Silently swallowing application mail                              | 3.3        | Medium | Pass-through by default; "dev trap" mode strictly opt-in.                                                 |
-| Over-broad or noisy new Live Activity event types (generic events, messaging) | 3.4 | Medium | Explicit allow-listing/opt-in wiring by bean/class presence, bounded buffers, masked payloads/hashed cache keys. |
+| Over-broad or noisy new Live Activity event types (e.g. cache operations) | 3.4 | Medium | Explicit opt-in wiring by bean/class presence, bounded buffers, masked payloads/hashed cache keys. |
+| Messaging capture's added optional-dependency surface (Kafka/RabbitMQ/JMS clients), invasive interception of app-owned messaging beans, and a per-adapter capture design (SmallRye Reactive Messaging on Quarkus vs. imperative templates on Spring) | 3.4 | High | Scope Kafka-first with Rabbit/JMS as separate follow-ups; classpath/capability gating identical to Hibernate/Cache/Flyway/Liquibase; pass-through-by-default, fail-open wrapping; bounded/masked message-body capture. |
 | Scope creep beyond this merged feature set                        | all        | High   | Treat this list as the maximum near-term surface; move further ideas to a later plan.                     |
 
 ## 6. Validation checklist
