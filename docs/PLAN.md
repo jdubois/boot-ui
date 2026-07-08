@@ -161,7 +161,7 @@ Scope — new event types, roughly in priority order:
   existing discovery and closes an obvious "did my job run, and how long did it take" gap. No request parent (background
   thread), but nests a correlated exception the same way `REQUEST` does today.
 - **Cache operations. ✅ Shipped (Spring servlet and WebFlux adapters).** The Cache panel showed topology and aggregate
-  hit/miss counters only; a lightweight, sampled `CACHE` event (hit/miss/put/evict/clear, cache name, key hash — never
+  hit/miss counters only; a lightweight, bounded `CACHE` event (hit/miss/put/evict/clear, cache name, key hash — never
   the raw key/value) now explains *why* those counters moved and nests as a `REQUEST` child, mirroring how `SQL` nests
   today. Captured by decorating `CacheManager`/`Cache` beans (`CacheActivityCacheManagerBeanPostProcessor`), so both
   annotation-driven (`@Cacheable`/`@CachePut`/`@CacheEvict`) and programmatic `CacheManager` access are covered; the

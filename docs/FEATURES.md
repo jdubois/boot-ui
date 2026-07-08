@@ -201,16 +201,20 @@ on Quarkus once persistence is switched on. The runtime "Use the existing dataso
 identically on Quarkus: the same engine-level `ActivitySwitchService` backs a thin JAX-RS mirror of Spring's endpoint,
 so the tip, button, and confirmation flow behave the same regardless of adapter.
 
-On Spring Boot WebFlux the panel is available too, and — like Quarkus — needed no new *capture* pipeline: HTTP
-requests, SQL trace, exceptions, and security events are each already captured reactively (see their own sections
-below), so the WebFlux port is purely a merge over those existing sources. Correlation is **trace-id only** here too,
+On Spring Boot WebFlux the panel is available too, and — like Quarkus — needed no new *capture* pipeline for four of
+its five signals: HTTP requests, SQL trace, exceptions, and security events are each already captured reactively (see
+their own sections below), so the WebFlux port is purely a merge over those existing sources. The fifth signal, cache
+accesses, reuses the exact same `CacheActivityRecorder`/`CacheActivityCacheManagerBeanPostProcessor` pair the servlet
+adapter uses — both are wired once in the shared `BootUiEngineConfiguration` so servlet and WebFlux behave identically
+— rather than a WebFlux-specific implementation. Correlation is **trace-id only** here too,
 and for the same reason as Quarkus: Reactor Netty has no thread-per-request model to correlate by (a request isn't
 served start-to-finish on one dedicated worker thread), so the servlet adapter's thread-based/time-window
-correlation tiers do not apply. It is narrower than on Quarkus, though: the HTTP exchange capture shared with the
+correlation tiers do not apply, including for cache accesses (unlike the servlet adapter, which additionally falls
+back to serving-thread tiering for `CACHE` the same way it does for `SQL`). It is narrower than on Quarkus, though: the HTTP exchange capture shared with the
 servlet adapter does not stamp the active tracing span's id at capture time the way Quarkus's Vert.x filter does, so
 a request only carries a trace id when the inbound call itself propagates one (for example a `traceparent` header
-from an upstream caller), not merely because `micrometer-tracing`/OTLP is configured server-side; SQL, exception, and
-security trace ids fall back to the same SLF4J MDC value the servlet adapter already uses, whose propagation across
+from an upstream caller), not merely because `micrometer-tracing`/OTLP is configured server-side; SQL, exception,
+security, and cache trace ids fall back to the same SLF4J MDC value the servlet adapter already uses, whose propagation across
 Reactor's event-loop→worker-thread hop for blocking calls is best-effort rather than guaranteed. When a shared trace
 id is present on both sides, matching signals nest under the request exactly as on Quarkus; without one, every
 signal still appears in the feed, just flat/top-level rather than nested per-request. The per-request **profiler**
