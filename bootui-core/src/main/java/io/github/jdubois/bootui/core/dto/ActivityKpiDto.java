@@ -19,6 +19,7 @@ package io.github.jdubois.bootui.core.dto;
  * @param healthStatus current Actuator health status, or {@code null}
  * @param heapUsedBytes current JVM heap usage in bytes, or {@code null}
  * @param heapMaxBytes maximum JVM heap size in bytes, or {@code null}
+ * @param scheduledTaskFailureCount number of failed scheduled-task executions currently retained
  */
 public record ActivityKpiDto(
         double requestsPerMinute,
@@ -32,4 +33,5 @@ public record ActivityKpiDto(
         Long slowestQueryMs,
         String healthStatus,
         Long heapUsedBytes,
-        Long heapMaxBytes) {}
+        Long heapMaxBytes,
+        int scheduledTaskFailureCount) {}
