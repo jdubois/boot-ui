@@ -38,12 +38,9 @@ const {
   scheduleReload,
   shownCount,
   totalCount
-} = useServerPagedList(
-  'api/beans',
-  'beans',
-  () => ({q: filter.value.trim(), classification: classification.value}),
-  {errorContext: 'Could not load beans'}
-)
+} = useServerPagedList('api/beans', 'beans', () => ({q: filter.value.trim(), classification: classification.value}), {
+  errorContext: 'Could not load beans'
+})
 
 const graphHeight = computed(() => {
   const rows = Math.max(graph.value?.dependencies?.length || 0, graph.value?.dependents?.length || 0, 2)
@@ -53,9 +50,7 @@ const graphHeight = computed(() => {
 const focusY = computed(() => (graphHeight.value - NODE_HEIGHT) / 2)
 const dependencyNodes = computed(() => layoutColumn(graph.value?.dependencies || [], 0))
 const dependentNodes = computed(() => layoutColumn(graph.value?.dependents || [], 2))
-const focusNode = computed(() =>
-  graph.value?.focus ? {...graph.value.focus, x: COLUMN_X[1], y: focusY.value} : null
-)
+const focusNode = computed(() => (graph.value?.focus ? {...graph.value.focus, x: COLUMN_X[1], y: focusY.value} : null))
 
 function layoutColumn(items, column) {
   if (!items.length) return []
@@ -88,9 +83,7 @@ async function loadGraph(name) {
   graphError.value = null
   conditions.value = []
   try {
-    const report = await getJson(
-      `api/beans/graph?focus=${encodeURIComponent(focus)}&limit=${GRAPH_LIMIT}`
-    )
+    const report = await getJson(`api/beans/graph?focus=${encodeURIComponent(focus)}&limit=${GRAPH_LIMIT}`)
     if (id !== graphRequest) return
     graph.value = report
     if (!report.available) {
@@ -118,13 +111,9 @@ async function loadConditions(bean, id) {
   if (!className) return
   conditionsLoading.value = true
   try {
-    const report = await getJson(
-      `api/conditions?outcome=positive&q=${encodeURIComponent(className)}&limit=100`
-    )
+    const report = await getJson(`api/conditions?outcome=positive&q=${encodeURIComponent(className)}&limit=100`)
     if (id !== graphRequest) return
-    conditions.value = (report.positiveMatches || []).filter(
-      (entry) => entry.autoConfigurationClass === className
-    )
+    conditions.value = (report.positiveMatches || []).filter((entry) => entry.autoConfigurationClass === className)
   } catch {
     // Conditions are optional enrichment; the graph remains useful without them.
   } finally {
@@ -209,7 +198,12 @@ onBeforeUnmount(() => {
     <template v-if="view === 'list'">
       <div class="row g-2 mb-3">
         <div class="col-md-8">
-          <input v-model="filter" class="form-control" placeholder="Filter by name or type…" aria-label="Filter beans" />
+          <input
+            v-model="filter"
+            class="form-control"
+            placeholder="Filter by name or type…"
+            aria-label="Filter beans"
+          />
         </div>
         <div class="col-md-4">
           <select v-model="classification" class="form-select" aria-label="Filter by classification">
@@ -244,13 +238,23 @@ onBeforeUnmount(() => {
           <tbody>
             <tr v-for="b in visibleBeans" :key="b.name">
               <td>
-                <button type="button" class="bean-link" :title="`Graph ${b.name}`" @click="showGraph(b)">
+                <button
+                  type="button"
+                  class="bean-link"
+                  :title="`Graph ${b.name}`"
+                  :aria-label="`Graph ${b.name}`"
+                  @click="showGraph(b)"
+                >
                   {{ b.name }}
                 </button>
               </td>
-              <td><small :title="b.type" class="text-truncate d-block">{{ b.type }}</small></td>
+              <td>
+                <small :title="b.type" class="text-truncate d-block">{{ b.type }}</small>
+              </td>
               <td>{{ b.scope }}</td>
-              <td><span class="badge bg-light text-dark">{{ b.classification }}</span></td>
+              <td>
+                <span class="badge bg-light text-dark">{{ b.classification }}</span>
+              </td>
               <td>
                 <small :title="b.dependencies.join(', ')" class="text-muted text-truncate d-block">{{
                   b.dependencies.join(', ')
@@ -296,7 +300,8 @@ onBeforeUnmount(() => {
             class="graph-suggestion"
             @click="showGraph(bean)"
           >
-            <code>{{ bean.name }}</code><span>{{ bean.type }}</span>
+            <code>{{ bean.name }}</code
+            ><span>{{ bean.type }}</span>
           </button>
         </div>
       </form>
@@ -320,11 +325,7 @@ onBeforeUnmount(() => {
           <span>Dependencies</span><span>Focused bean</span><span>Dependents</span>
         </div>
         <div class="graph-canvas">
-          <svg
-            :viewBox="`0 0 860 ${graphHeight}`"
-            role="img"
-            :aria-label="`Dependency graph for ${graph.focus.name}`"
-          >
+          <svg :viewBox="`0 0 860 ${graphHeight}`" role="img" :aria-label="`Dependency graph for ${graph.focus.name}`">
             <line
               v-for="node in dependencyNodes"
               :key="`dependency-edge-${node.name}`"
@@ -358,13 +359,7 @@ onBeforeUnmount(() => {
               <text :x="node.x + 12" :y="node.y + 46" class="graph-node__type">{{ shortName(node.type, 31) }}</text>
             </g>
             <g class="graph-node graph-node--focus" aria-hidden="true">
-              <rect
-                :x="focusNode.x"
-                :y="focusNode.y"
-                :width="NODE_WIDTH"
-                :height="NODE_HEIGHT"
-                rx="10"
-              />
+              <rect :x="focusNode.x" :y="focusNode.y" :width="NODE_WIDTH" :height="NODE_HEIGHT" rx="10" />
               <text :x="focusNode.x + 12" :y="focusNode.y + 25" class="graph-node__name">
                 {{ shortName(focusNode.name) }}
               </text>
@@ -375,9 +370,12 @@ onBeforeUnmount(() => {
           </svg>
         </div>
 
-        <p v-if="graph.hiddenDependencies || graph.hiddenDependents" class="small text-muted mt-2">
-          Bounded view: {{ graph.hiddenDependencies }} more dependencies and {{ graph.hiddenDependents }} more
-          dependents are hidden.
+        <p
+          v-if="graph.hiddenDependencies || graph.hiddenDependents || graph.hiddenUnresolvedDependencies"
+          class="small text-muted mt-2"
+        >
+          Bounded view: {{ graph.hiddenDependencies }} more dependencies, {{ graph.hiddenDependents }} more dependents,
+          and {{ graph.hiddenUnresolvedDependencies }} unresolved references are hidden.
         </p>
         <div v-if="graph.unresolvedDependencies.length" class="unresolved mt-3">
           <strong>Unresolved dependency references</strong>

@@ -73,4 +73,17 @@ test.describe('Beans view', () => {
     await expect(rows).toHaveCount(1)
     await expect(rows.first()).toContainText('demoBean204')
   })
+
+  test('focuses a bean in the bounded dependency graph', async ({openView}) => {
+    const page = await openView('beans', 'Beans')
+
+    await page.getByPlaceholder(/Filter by name or type/).fill('productRepository')
+    const bean = page.getByRole('button', {name: /Graph productRepository/})
+    await expect(bean).toBeVisible()
+    await bean.click()
+
+    await expect(page.getByRole('img', {name: /Dependency graph for productRepository/})).toBeVisible()
+    await expect(page.getByRole('button', {name: 'Graph'})).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByLabel('Focus bean')).toHaveValue('productRepository')
+  })
 })

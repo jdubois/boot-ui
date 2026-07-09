@@ -13,13 +13,14 @@ public record BeanGraphReport(
         List<BeanGraphEdge> edges,
         List<String> unresolvedDependencies,
         int hiddenDependencies,
-        int hiddenDependents) {
+        int hiddenDependents,
+        int hiddenUnresolvedDependencies) {
 
     public static BeanGraphReport unavailable() {
-        return new BeanGraphReport(false, null, List.of(), List.of(), List.of(), List.of(), 0, 0);
+        return new BeanGraphReport(false, null, List.of(), List.of(), List.of(), List.of(), 0, 0, 0);
     }
 
     public static BeanGraphReport empty() {
-        return new BeanGraphReport(true, null, List.of(), List.of(), List.of(), List.of(), 0, 0);
+        return new BeanGraphReport(true, null, List.of(), List.of(), List.of(), List.of(), 0, 0, 0);
     }
 }

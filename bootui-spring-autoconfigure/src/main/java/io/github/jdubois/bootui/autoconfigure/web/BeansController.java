@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.core.dto.BeanGraphReport;
+import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;

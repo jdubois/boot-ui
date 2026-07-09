@@ -576,6 +576,51 @@ const beans = {
   ]
 }
 
+const beanGraph = {
+  available: true,
+  focus: beans.beans[0],
+  dependencies: [
+    {
+      name: 'sampleCatalog',
+      type: 'io.github.jdubois.bootui.sample.BootUiSampleApplication$SampleCatalog',
+      scope: 'singleton',
+      resource: 'io/github/jdubois/bootui/sample/BootUiSampleApplication.class',
+      classification: 'APPLICATION',
+      dependencies: ['productRepository'],
+      aliases: []
+    },
+    {
+      name: 'sampleSettings',
+      type: 'io.github.jdubois.bootui.sample.SampleSettings',
+      scope: 'singleton',
+      resource: 'io/github/jdubois/bootui/sample/SampleConfiguration.class',
+      classification: 'APPLICATION',
+      dependencies: [],
+      aliases: []
+    }
+  ],
+  dependents: [
+    {
+      name: 'sampleApi',
+      type: 'io.github.jdubois.bootui.sample.SampleApi',
+      scope: 'singleton',
+      resource: 'io/github/jdubois/bootui/sample/SampleApi.class',
+      classification: 'APPLICATION',
+      dependencies: ['sampleController'],
+      aliases: []
+    }
+  ],
+  edges: [
+    {source: 'sampleCatalog', target: 'sampleController'},
+    {source: 'sampleSettings', target: 'sampleController'},
+    {source: 'sampleController', target: 'sampleApi'}
+  ],
+  unresolvedDependencies: [],
+  hiddenDependencies: 0,
+  hiddenDependents: 0,
+  hiddenUnresolvedDependencies: 0
+}
+
 const mappings = {
   contexts: {
     'bootui-sample': {
@@ -3693,7 +3738,17 @@ const screenshots = [
   ['config', 'Configuration', 'bootui-configuration.webp', waitForText('sample.greeting')],
   ['profile-diff', 'Profile Diff', 'bootui-profile-diff.webp', waitForText('classpath:/application-dev.properties')],
   ['loggers', 'Loggers', 'bootui-loggers.webp', waitForText('io.github.jdubois.bootui')],
-  ['beans', 'Beans', 'bootui-beans.webp', waitForText('sampleController')],
+  [
+    'beans',
+    'Beans',
+    'bootui-beans.webp',
+    async (page) => {
+      const bean = page.getByRole('button', {name: 'Graph sampleController'})
+      await bean.waitFor()
+      await bean.click()
+      await page.getByRole('img', {name: 'Dependency graph for sampleController'}).waitFor()
+    }
+  ],
   ['conditions', 'Conditions', 'bootui-conditions.webp', waitForText('BootUiAutoConfiguration')],
   ['mappings', 'Mappings', 'bootui-mappings.webp', waitForText('/api/sample/products')],
   [
@@ -4288,6 +4343,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'metrics/detail')
     return fulfillJson(route, metricDetail(url.searchParams.get('name') || 'jvm.memory.used'))
   if (endpoint === 'conditions') return fulfillJson(route, conditions)
+  if (endpoint === 'beans/graph') return fulfillJson(route, beanGraph)
   if (endpoint === 'beans') return fulfillJson(route, beans)
   if (endpoint === 'mappings') return fulfillJson(route, mappings)
   if (endpoint === 'mappings/flat') return fulfillJson(route, pagedReport('mappings', flatMappings, url))

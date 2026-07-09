@@ -51,4 +51,21 @@ class BootUiQuarkusBeansResourceTest {
                 .as("BootUI's own beans must be filtered out of the Beans panel")
                 .noneMatch(type -> type.startsWith("io.github.jdubois.bootui"));
     }
+
+    @Test
+    void resolvesCdiInjectionPointsIntoTheBoundedGraph() {
+        Response response = probe().get("/bootui/api/beans/graph?focus=beanGraphConsumer&limit=10");
+
+        assertThat(response.status()).as("GET /bootui/api/beans/graph status").isEqualTo(200);
+        JsonNode body = response.json();
+        assertThat(body.path("available").asBoolean()).isTrue();
+        assertThat(body.path("focus").path("name").asText()).isEqualTo("beanGraphConsumer");
+        assertThat(body.path("dependencies"))
+                .anySatisfy(dependency ->
+                        assertThat(dependency.path("name").asText()).isEqualTo("beansDemoBean"));
+        assertThat(body.path("edges")).anySatisfy(edge -> {
+            assertThat(edge.path("source").asText()).isEqualTo("beansDemoBean");
+            assertThat(edge.path("target").asText()).isEqualTo("beanGraphConsumer");
+        });
+    }
 }

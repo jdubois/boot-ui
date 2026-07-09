@@ -2,8 +2,8 @@ package io.github.jdubois.bootui.engine.beans;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.core.dto.BeanGraphReport;
+import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.core.dto.BeanSummary;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import java.util.List;
@@ -15,7 +15,7 @@ class BeansServiceTests {
         return new BeanSummary(name, type, "singleton", null, List.of(), List.of(), classification);
     }
 
-    private static BeanSummary bean(String name, String... dependencies) {
+    private static BeanSummary graphBean(String name, String... dependencies) {
         return new BeanSummary(
                 name, "com.example." + name, "singleton", null, List.of(dependencies), List.of(), "APPLICATION");
     }
@@ -112,7 +112,7 @@ class BeansServiceTests {
         assertThat(new BeansService(null).graph("alpha", null).available()).isFalse();
 
         FakeBeanProvider provider = new FakeBeanProvider();
-        provider.beans = List.of(bean("alpha"));
+        provider.beans = List.of(graphBean("alpha"));
         BeanGraphReport report = new BeansService(provider).graph("missing", null);
 
         assertThat(report.available()).isTrue();
@@ -124,11 +124,11 @@ class BeansServiceTests {
     void buildsDeterministicDirectDependenciesAndReverseDependents() {
         FakeBeanProvider provider = new FakeBeanProvider();
         provider.beans = List.of(
-                bean("zDependent", "focus"),
-                bean("focus", "missing", "beta", "alpha", "alpha", "focus"),
-                bean("beta"),
-                bean("aDependent", "focus"),
-                bean("alpha"));
+                graphBean("zDependent", "focus"),
+                graphBean("focus", "missing", "beta", "alpha", "alpha", "focus"),
+                graphBean("beta"),
+                graphBean("aDependent", "focus"),
+                graphBean("alpha"));
 
         BeanGraphReport report = new BeansService(provider).graph("focus", 10);
 
@@ -143,11 +143,8 @@ class BeansServiceTests {
     @Test
     void boundsEachGraphSideAndReportsHiddenCountsAcrossCycles() {
         FakeBeanProvider provider = new FakeBeanProvider();
-        provider.beans = List.of(
-                bean("focus", "a", "b"),
-                bean("a", "focus"),
-                bean("b"),
-                bean("c", "focus"));
+        provider.beans =
+                List.of(graphBean("focus", "a", "b"), graphBean("a", "focus"), graphBean("b"), graphBean("c", "focus"));
 
         BeanGraphReport report = new BeansService(provider).graph("focus", 1);
 
@@ -155,6 +152,17 @@ class BeansServiceTests {
         assertThat(report.dependents()).extracting(BeanSummary::name).containsExactly("a");
         assertThat(report.hiddenDependencies()).isEqualTo(1);
         assertThat(report.hiddenDependents()).isEqualTo(1);
+    }
+
+    @Test
+    void boundsUnresolvedDependencyReferences() {
+        FakeBeanProvider provider = new FakeBeanProvider();
+        provider.beans = List.of(graphBean("focus", "missingC", "missingA", "missingB"));
+
+        BeanGraphReport report = new BeansService(provider).graph("focus", 2);
+
+        assertThat(report.unresolvedDependencies()).containsExactly("missingA", "missingB");
+        assertThat(report.hiddenUnresolvedDependencies()).isEqualTo(1);
     }
 
     private static final class FakeBeanProvider implements BeanProvider {

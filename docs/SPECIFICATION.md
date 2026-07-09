@@ -239,12 +239,22 @@ Features:
   - Java/Jakarta platform beans.
   - other beans.
 - Show bean name, type, scope, resource/declaring class when available, dependencies, aliases, and classification.
+- Offer List and Graph views under the same `beans` panel, route, and access policy.
+- `GET /bootui/api/beans/graph?focus=<exact bean name>&limit=<per-side bound>` returns a stable, framework-neutral report
+  containing the focused bean, direct dependencies, reverse dependents, directed edges, unresolved dependency names, and
+  hidden counts. It never returns the complete context graph.
+- Render the graph as a lightweight, deterministic, keyboard-operable three-column SVG without adding a graph library.
+- On Spring only, associate Conditions explanations when the bean's defining resource maps exactly to the reported
+  auto-configuration class; do not infer approximate associations.
+- On Quarkus, resolve dependencies best-effort from Arc/CDI injection points and omit ambiguous, unsatisfied, internal, or
+  synthetic edges rather than guessing.
 
 Acceptance criteria:
 
 - A developer can find a bean by name or type.
 - A developer can inspect why a bean matters by seeing dependencies.
-- Large applications remain usable through search and lazy loading.
+- A developer can focus any visible graph node to inspect both dependency directions.
+- Large applications remain usable through search, lazy loading, and independently bounded graph sides.
 
 ### 5.3 Conditions Explorer
 
@@ -1460,6 +1470,7 @@ Initial endpoints:
 | `/bootui/api/github`                         | GET    | Local GitHub origin metadata and the latest cached dashboard snapshot                  |
 | `/bootui/api/github/refresh`                 | POST   | Explicit bounded GitHub API refresh for project metrics and quotas                     |
 | `/bootui/api/beans`                          | GET    | Searchable bean summary                                                                |
+| `/bootui/api/beans/graph`                    | GET    | Bounded direct dependency/dependent neighborhood for one exact bean                    |
 | `/bootui/api/conditions`                     | GET    | Auto-configuration conditions                                                          |
 | `/bootui/api/config`                         | GET    | Effective configuration values                                                         |
 | `/bootui/api/config/overrides`               | POST   | Create or update a local runtime configuration property override                       |

@@ -7,8 +7,8 @@ and Quarkus (an extension)** from one shared, framework-neutral engine that serv
 `/bootui/api/**` contract on either runtime. The released surface already covers runtime introspection, configuration,
 database migrations, services, diagnostics, project health, and developer tooling, including the recently shipped
 Threads, HTTP Exchanges, Flyway, Liquibase, Hibernate Advisor, HTTP Sessions, GitHub, Security Advisor, and Overview
-scanner dashboard panels. This plan describes the **next merged feature workstream** after the `1.0.0` release: it keeps
-the remaining roadmap items and the one capture-oriented addition chosen to close the clearest gaps against comparable
+scanner dashboard panels. This plan records the **completed feature workstream** after the `1.0.0` release: it keeps
+the shipped roadmap items and the one capture-oriented addition chosen to close the clearest gaps against comparable
 developer dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Pulse, Phoenix LiveDashboard, .NET Aspire,
 Symfony Web Profiler) while staying inside BootUI's read-mostly, fail-closed safety model.
 
@@ -50,6 +50,9 @@ The priorities for every item below remain unchanged:
   `RestClient`/`RestTemplate`/`WebClient` capture (Spring only). Each keeps pass-through-by-default capture, nests under
   the originating request as a child event when a shared trace id/serving thread/time window is available, and reuses
   the same masking, bounded-buffer, and panel-toggle model as the original four entry types.
+- Shipped §3.2 inside the existing **Beans** panel: its List/Graph toggle opens a bounded, focus-first dependency
+  neighborhood, shows direct dependencies, reverse dependents, unresolved references, and truncation counts, and enriches
+  exact Spring auto-configuration beans with matching Conditions explanations.
 
 Each new panel must:
 
@@ -63,15 +66,14 @@ Each new panel must:
 
 ## 2. Scope of this workstream
 
-One open feature remains. The §3.1 correlation item has shipped as the **Live Activity** panel; the §3.3 e-mail viewer
-has shipped too, both as a standalone panel and as a `MAIL` entry type feeding the Live Activity stream; and all five
-§3.4 event-type extensions (Scheduled Task runs, Cache operations, Kafka messaging, Mail, and REST call capture) have
-shipped. The bean/dependency graph visualization (§3.2) is the one remaining item in this workstream.
+No open feature remains in this workstream. The §3.1 correlation item shipped as **Live Activity**, §3.2 shipped as the
+bounded graph view inside **Beans**, §3.3 shipped as **Email** and a `MAIL` Live Activity entry, and all five §3.4
+event-type extensions shipped.
 
 | Priority | Feature                               | Group         | Primary data source                                | Mutation?         | Origin           |
 | -------- | ------------------------------------- | ------------- | -------------------------------------------------- | ----------------- | ---------------- |
 | Done     | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
-| 1        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 | No                | Existing roadmap |
+| Done     | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 | No                | Existing roadmap |
 | Done     | E-mail Viewer                         | Services      | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
 | Done     | Live Activity — REST call capture     | Diagnostics   | Intercepted `RestClient`/`RestTemplate`/`WebClient` | No (capture only) | Shipped |
 | Done     | Live Activity — new event types       | Diagnostics   | Cache, scheduled-task, Kafka, and mail capture sources (see §3.4) | No (capture only) | Cache, Scheduled Tasks, Kafka, and Mail all shipped |
@@ -83,9 +85,9 @@ pass-through by default, with an explicitly opt-in `bootui.email.dev-trap` mode,
 default (opt-in `bootui.email.mask-content`), a sandboxed HTML preview, and a per-message `.eml` download. All five of
 the §3.4 Live Activity event-type extensions have
 now shipped — Scheduled Task runs, Cache operations, Kafka messaging, an E-mail Viewer-backed `MAIL` event type, and
-outbound `RestClient`/`RestTemplate`/`WebClient` capture — leaving only the bean/dependency graph visualization (§3.2) as
-the remaining item in this workstream. Each capture-oriented feature keeps pass-through application behaviour by default
-and makes any dev-trap mode explicitly opt-in.
+outbound `RestClient`/`RestTemplate`/`WebClient` capture. The bean/dependency graph visualization (§3.2) has also shipped,
+completing this workstream. Each capture-oriented feature keeps pass-through application behaviour by default and makes
+any dev-trap mode explicitly opt-in.
 
 ## 3. Feature specifications
 
@@ -116,7 +118,13 @@ Design constraints:
 - Trace propagation is best-effort. Correlation is presented as a convenience, not a guarantee, and must work for the
   common case where Micrometer Tracing/OTLP is active without breaking when it is not.
 
-### 3.2 Bean / dependency graph visualization — Configuration
+### 3.2 Bean / dependency graph visualization — Configuration ✅ Completed
+
+**Status: completed.** Shipped as a List/Graph toggle in the existing **Beans** panel. The graph endpoint returns only the
+focused bean's direct dependencies and dependents, independently capped on each side, with deterministic ordering,
+unresolved dependency references, and hidden-node counts. Spring reuses Actuator's bean dependency names and enriches an
+exact defining auto-configuration class with matching Conditions entries. Quarkus resolves CDI injection points
+best-effort and omits ambiguous or unsatisfied edges. The original scope and constraints are retained below.
 
 Layers an Aspire-style relationship view on top of data BootUI already has from the Beans and Conditions panels, without a
 new data source.

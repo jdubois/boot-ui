@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.quarkus.web;
 
-import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.core.dto.BeanGraphReport;
+import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;

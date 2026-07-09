@@ -135,6 +135,31 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void beansGraphHasTheSharedBoundedContract() {
+        Response inventory = probe().get("/bootui/api/beans?offset=0&limit=1");
+        assertThat(inventory.status()).as("GET /bootui/api/beans status").isEqualTo(200);
+        JsonNode beans = inventory.json().path("beans");
+        if (beans.isEmpty()) {
+            return;
+        }
+
+        String focus = beans.get(0).path("name").asText();
+        String encodedFocus = java.net.URLEncoder.encode(focus, java.nio.charset.StandardCharsets.UTF_8);
+        Response response = probe().get("/bootui/api/beans/graph?focus=" + encodedFocus + "&limit=2");
+
+        assertThat(response.status()).as("GET /bootui/api/beans/graph status").isEqualTo(200);
+        JsonNode graph = response.json();
+        assertThat(graph.path("available").isBoolean()).isTrue();
+        assertThat(graph.path("focus").path("name").asText()).isEqualTo(focus);
+        assertThat(graph.path("dependencies").isArray()).isTrue();
+        assertThat(graph.path("dependents").isArray()).isTrue();
+        assertThat(graph.path("edges").isArray()).isTrue();
+        assertThat(graph.path("unresolvedDependencies").isArray()).isTrue();
+        assertThat(graph.path("dependencies").size()).isLessThanOrEqualTo(2);
+        assertThat(graph.path("dependents").size()).isLessThanOrEqualTo(2);
+    }
+
+    @Test
     void availablePanelsAnswerTheirPrimaryGet() {
         Response manifest = probe().get("/bootui/api/panels");
         assertThat(manifest.status()).as("GET /bootui/api/panels status").isEqualTo(200);

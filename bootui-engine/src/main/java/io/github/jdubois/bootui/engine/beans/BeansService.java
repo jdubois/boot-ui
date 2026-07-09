@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.engine.beans;
 
-import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.core.dto.BeanGraphEdge;
 import io.github.jdubois.bootui.core.dto.BeanGraphReport;
+import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.core.dto.BeanSummary;
 import io.github.jdubois.bootui.engine.support.PagedList;
 import io.github.jdubois.bootui.spi.BeanProvider;
@@ -84,8 +84,12 @@ public final class BeansService {
         Set<String> dependencyNames = normalizedDependencies(focused);
         List<String> resolvedDependencyNames =
                 dependencyNames.stream().filter(byName::containsKey).sorted().toList();
+        List<String> allUnresolvedDependencyNames = dependencyNames.stream()
+                .filter(name -> !byName.containsKey(name))
+                .sorted()
+                .toList();
         List<String> unresolvedDependencyNames =
-                dependencyNames.stream().filter(name -> !byName.containsKey(name)).sorted().toList();
+                allUnresolvedDependencyNames.stream().limit(boundedLimit).toList();
         List<String> dependentNames = byName.values().stream()
                 .filter(bean -> normalizedDependencies(bean).contains(focused.name()))
                 .map(BeanSummary::name)
@@ -107,7 +111,8 @@ public final class BeansService {
                 List.copyOf(edges),
                 unresolvedDependencyNames,
                 Math.max(0, resolvedDependencyNames.size() - dependencies.size()),
-                Math.max(0, dependentNames.size() - dependents.size()));
+                Math.max(0, dependentNames.size() - dependents.size()),
+                Math.max(0, allUnresolvedDependencyNames.size() - unresolvedDependencyNames.size()));
     }
 
     private static Set<String> normalizedDependencies(BeanSummary bean) {
@@ -123,8 +128,7 @@ public final class BeansService {
         return dependencies;
     }
 
-    private static List<BeanSummary> limitedBeans(
-            List<String> names, Map<String, BeanSummary> byName, int limit) {
+    private static List<BeanSummary> limitedBeans(List<String> names, Map<String, BeanSummary> byName, int limit) {
         return names.stream().limit(limit).map(byName::get).toList();
     }
 

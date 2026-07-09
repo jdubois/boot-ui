@@ -7,8 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
-import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.core.dto.BeanGraphReport;
+import io.github.jdubois.bootui.core.dto.BeanList;
 import io.github.jdubois.bootui.core.dto.BeanSummary;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import java.util.List;

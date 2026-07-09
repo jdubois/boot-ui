@@ -3,12 +3,20 @@ package io.github.jdubois.bootui.quarkus.beans;
 import io.github.jdubois.bootui.core.dto.BeanSummary;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.spi.BeanProvider;
-import jakarta.enterprise.inject.Any;
+import io.quarkus.arc.InjectableBean;
 import jakarta.enterprise.inject.AmbiguousResolutionException;
+import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.enterprise.inject.spi.InjectionPoint;
+import jakarta.inject.Inject;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -90,10 +98,9 @@ public final class QuarkusBeanProvider implements BeanProvider {
 
     private List<String> dependencies(Bean<?> bean) {
         List<String> dependencies = new ArrayList<>();
-        for (InjectionPoint injectionPoint : bean.getInjectionPoints()) {
+        for (DependencyLookup injectionPoint : injectionPoints(bean)) {
             try {
-                Annotation[] qualifiers = injectionPoint.getQualifiers().toArray(Annotation[]::new);
-                Set<Bean<?>> candidates = beanManager.getBeans(injectionPoint.getType(), qualifiers);
+                Set<Bean<?>> candidates = beanManager.getBeans(injectionPoint.type(), injectionPoint.qualifiers());
                 Bean<?> dependency = beanManager.resolve(candidates);
                 if (dependency == null || dependency == bean) {
                     continue;
@@ -113,6 +120,66 @@ public final class QuarkusBeanProvider implements BeanProvider {
         }
         return dependencies.stream().distinct().sorted().toList();
     }
+
+    private List<DependencyLookup> injectionPoints(Bean<?> bean) {
+        Set<InjectionPoint> retained = bean.getInjectionPoints();
+        if (retained != null && !retained.isEmpty()) {
+            return retained.stream()
+                    .map(point -> new DependencyLookup(
+                            point.getType(), point.getQualifiers().toArray(Annotation[]::new)))
+                    .toList();
+        }
+        Class<?> beanClass = bean.getBeanClass();
+        if (beanClass == null
+                || beanClass.isInterface()
+                || !(bean instanceof InjectableBean<?> injectableBean)
+                || injectableBean.getKind() != InjectableBean.Kind.CLASS) {
+            return List.of();
+        }
+        try {
+            return injectionPointsFor(beanClass);
+        } catch (RuntimeException | LinkageError ignored) {
+            return List.of();
+        }
+    }
+
+    private List<DependencyLookup> injectionPointsFor(Class<?> beanClass) {
+        List<DependencyLookup> injectionPoints = new ArrayList<>();
+        for (Class<?> current = beanClass;
+                current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            for (Field field : current.getDeclaredFields()) {
+                if (field.isAnnotationPresent(Inject.class)) {
+                    injectionPoints.add(new DependencyLookup(field.getGenericType(), qualifiers(field)));
+                }
+            }
+            for (Method method : current.getDeclaredMethods()) {
+                if (method.isAnnotationPresent(Inject.class)) {
+                    addParameters(injectionPoints, method.getParameters());
+                }
+            }
+        }
+        for (Constructor<?> constructor : beanClass.getDeclaredConstructors()) {
+            if (constructor.isAnnotationPresent(Inject.class)) {
+                addParameters(injectionPoints, constructor.getParameters());
+            }
+        }
+        return injectionPoints;
+    }
+
+    private void addParameters(List<DependencyLookup> injectionPoints, Parameter[] parameters) {
+        for (Parameter parameter : parameters) {
+            injectionPoints.add(new DependencyLookup(parameter.getParameterizedType(), qualifiers(parameter)));
+        }
+    }
+
+    private Annotation[] qualifiers(AnnotatedElement element) {
+        return java.util.Arrays.stream(element.getAnnotations())
+                .filter(annotation -> beanManager.isQualifier(annotation.annotationType()))
+                .toArray(Annotation[]::new);
+    }
+
+    private record DependencyLookup(Type type, Annotation[] qualifiers) {}
 
     private String name(Bean<?> bean, Class<?> beanClass) {
         String name = bean.getName();

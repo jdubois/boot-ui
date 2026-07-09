@@ -200,7 +200,8 @@ action behind the same DTO contract) · `Scheduled Tasks`
 (→ `quarkus-scheduler`) · `Architecture` advisor (ArchUnit engine + rules run unmodified; Spring-stereotype rules
 simply match no classes and degrade to a no-op pass, while a few rules are already dual-framework via the shared
 `jakarta.*` annotations) · `Beans` (**Implemented** — → Arc/CDI `BeanManager.getBeans(...)`, build-time-retained beans
-only, so a few fields are reduced fidelity — see §5 appendix) · `Overview` (panel available; the scoring dashboard
+only; its bounded graph resolves direct dependencies best-effort from unambiguous CDI injection points, while defining
+resources and Spring Conditions enrichment remain unavailable — see §5 appendix) · `Overview` (panel available; the scoring dashboard
 aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome).
 
 ### 5.3 Kept, with a rebuilt capture layer or reduced fidelity (10)
