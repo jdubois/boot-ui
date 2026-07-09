@@ -1,13 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.safety;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties.Mode;
 import io.github.jdubois.bootui.autoconfigure.web.AbstractBootUiFilter;
-import io.github.jdubois.bootui.engine.safety.CidrRange;
 import io.github.jdubois.bootui.engine.safety.ContainerGatewayDetector;
-import io.github.jdubois.bootui.engine.safety.GatewayTrust;
 import io.github.jdubois.bootui.engine.safety.LocalhostGuard;
-import io.github.jdubois.bootui.engine.safety.LocalhostGuardConfig;
 import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision;
 import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision.Allow;
 import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision.Reject;
@@ -17,12 +13,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,10 +21,11 @@ import org.slf4j.LoggerFactory;
  *
  * <p>This Spring servlet filter is a thin binding over the framework-neutral
  * {@link LocalhostGuard}: it translates the {@link HttpServletRequest} and the BootUI configuration
- * into a {@link LocalhostGuardRequest} / {@link LocalhostGuardConfig}, asks the guard to
- * {@link LocalhostGuard#decide decide}, and renders the {@link LocalhostGuardDecision}. The access
- * policy itself (trusted-source / Host allow-list / cross-site-write defenses, their evaluation
- * order, and the canonical 403 messages) lives in the engine so the Quarkus adapter shares it.</p>
+ * into a {@link LocalhostGuardRequest} / {@link io.github.jdubois.bootui.engine.safety.LocalhostGuardConfig},
+ * asks the guard to {@link LocalhostGuard#decide decide}, and renders the {@link LocalhostGuardDecision}.
+ * The access policy itself (trusted-source / Host allow-list / cross-site-write defenses, their
+ * evaluation order, and the canonical 403 messages) lives in the engine so the Quarkus adapter shares
+ * it.</p>
  *
  * <p>The three defenses are bypassed entirely only when {@code bootui.allow-non-localhost=true}:</p>
  * <ol>
@@ -48,10 +39,12 @@ import org.slf4j.LoggerFactory;
  *       rejected on {@code Sec-Fetch-Site: cross-site} or an {@code Origin} host mismatch.</li>
  * </ol>
  *
- * <p>This binding owns the per-instance caches and side effects the guard intentionally does not:
- * the {@code bootui.trusted-proxies} parse cache, the resolve-once container-gateway snapshot, the
- * once-only "trusting container gateway" warning (emitted when a request is ultimately allowed via a
- * gateway), and the per-reason rejection logging.</p>
+ * <p>The per-instance caches and side effects the guard intentionally does not own (the
+ * {@code bootui.trusted-proxies} parse cache, the resolve-once container-gateway snapshot, and the
+ * once-only "trusting container gateway" warning) live in {@link LocalhostGuardConfigSupport}, shared
+ * with the WebFlux sibling {@code ReactiveLocalhostOnlyFilter} since none of that translation touches a
+ * servlet or reactive request type. This class keeps only the per-reason rejection logging, which does
+ * read the servlet request.</p>
  *
  * <p>BootUI is a developer tool, not a production endpoint, so we fail closed by default.</p>
  */
@@ -60,17 +53,7 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
     private static final Logger log = LoggerFactory.getLogger(LocalhostOnlyFilter.class);
 
     private final LocalhostGuard guard = new LocalhostGuard();
-
-    private volatile String[] parsedFrom;
-    private volatile List<CidrRange> trustedRanges = List.of();
-
-    private final ContainerGatewayDetector gatewayDetector;
-
-    private final Object gatewayLock = new Object();
-    private volatile boolean gatewayResolved = false;
-    private volatile boolean inContainer = false;
-    private volatile Set<InetAddress> containerGateways = Set.of();
-    private volatile boolean loggedTrustedGateway = false;
+    private final LocalhostGuardConfigSupport configSupport;
 
     public LocalhostOnlyFilter(BootUiProperties properties) {
         this(properties, new ContainerGatewayDetector());
@@ -78,7 +61,7 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
 
     LocalhostOnlyFilter(BootUiProperties properties, ContainerGatewayDetector gatewayDetector) {
         super(properties);
-        this.gatewayDetector = gatewayDetector;
+        this.configSupport = new LocalhostGuardConfigSupport(properties, gatewayDetector);
     }
 
     @Override
@@ -97,7 +80,7 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
                 request.getHeader("Origin"),
                 request.getHeader("Sec-Fetch-Site"));
 
-        LocalhostGuardDecision decision = guard.decide(guardRequest, buildConfig());
+        LocalhostGuardDecision decision = guard.decide(guardRequest, configSupport.buildConfig(log));
 
         if (decision instanceof Reject reject) {
             logRejection(reject, request);
@@ -106,63 +89,9 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
         }
 
         if (decision instanceof Allow allow && allow.trustedViaGateway()) {
-            warnTrustedGatewayOnce(allow.trustedGateway());
+            configSupport.warnTrustedGatewayOnce(log, allow.trustedGateway());
         }
         chain.doFilter(request, response);
-    }
-
-    /**
-     * Builds the per-request guard configuration. The container-gateway snapshot is resolved (and
-     * cached) lazily on the first request only when {@code bootui.trust-container-gateway} is not
-     * {@code OFF}, so an {@code OFF} deployment never touches {@code /proc} or DNS.
-     */
-    private LocalhostGuardConfig buildConfig() {
-        GatewayTrust gatewayTrust = toGatewayTrust(properties.getTrustContainerGateway());
-        boolean container;
-        Set<InetAddress> gateways;
-        if (gatewayTrust == GatewayTrust.OFF) {
-            container = false;
-            gateways = Set.of();
-        } else {
-            resolveGatewayOnce();
-            container = this.inContainer;
-            gateways = this.containerGateways;
-        }
-        String[] allowedHosts = properties.getAllowedHosts();
-        return new LocalhostGuardConfig(
-                properties.isAllowNonLocalhost(),
-                allowedHosts == null ? List.of() : Arrays.asList(allowedHosts),
-                trustedRanges(),
-                gatewayTrust,
-                container,
-                gateways);
-    }
-
-    private static GatewayTrust toGatewayTrust(Mode mode) {
-        if (mode == null) {
-            return GatewayTrust.OFF;
-        }
-        return switch (mode) {
-            case AUTO -> GatewayTrust.AUTO;
-            case ON -> GatewayTrust.ON;
-            case OFF -> GatewayTrust.OFF;
-        };
-    }
-
-    /**
-     * Emits the once-only operator warning that a container gateway is being trusted as
-     * loopback-equivalent. Mirrors the legacy message; it now fires when a request is actually
-     * allowed via the gateway (rather than the instant source trust is granted), which is invisible
-     * to behavior — no response status or body depends on it.
-     */
-    private void warnTrustedGatewayOnce(InetAddress gateway) {
-        if (loggedTrustedGateway) {
-            return;
-        }
-        loggedTrustedGateway = true;
-        log.warn(
-                "BootUI trusting auto-detected container gateway {} (/32) for loopback-equivalent access.",
-                gateway != null ? gateway.getHostAddress() : null);
     }
 
     private void logRejection(Reject reject, HttpServletRequest request) {
@@ -180,55 +109,6 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
             case CROSS_SITE_WRITE ->
                 log.warn("BootUI rejected cross-site {} request to {}", request.getMethod(), request.getRequestURI());
         }
-    }
-
-    /**
-     * Resolves and caches the container detection result and trusted gateways exactly once. Mirrors
-     * the lazy, double-checked caching used by {@link #trustedRanges()} so the lookups happen on the
-     * first relevant request rather than per request. The trusted set is the union of the route-table
-     * default gateway and any Docker Desktop gateway resolved from {@code gateway.docker.internal}.
-     */
-    private void resolveGatewayOnce() {
-        if (gatewayResolved) {
-            return;
-        }
-        synchronized (gatewayLock) {
-            if (gatewayResolved) {
-                return;
-            }
-            inContainer = gatewayDetector.isInContainer();
-            Set<InetAddress> gateways = new LinkedHashSet<>();
-            gatewayDetector.defaultGateway().ifPresent(gateways::add);
-            gateways.addAll(gatewayDetector.dockerDesktopGateways());
-            containerGateways = Set.copyOf(gateways);
-            gatewayResolved = true;
-        }
-    }
-
-    /**
-     * Returns the configured {@code bootui.trusted-proxies} ranges, parsing (and caching) them only
-     * when the configured array changes. Malformed entries are logged once and skipped.
-     */
-    private List<CidrRange> trustedRanges() {
-        String[] configured = properties.getTrustedProxies();
-        if (configured == parsedFrom) {
-            return trustedRanges;
-        }
-        List<CidrRange> parsed = new ArrayList<>();
-        if (configured != null) {
-            for (String entry : configured) {
-                CidrRange range = CidrRange.parse(entry);
-                if (range != null) {
-                    parsed.add(range);
-                } else if (entry != null && !entry.isBlank()) {
-                    log.warn("BootUI ignoring malformed bootui.trusted-proxies entry '{}'", entry);
-                }
-            }
-        }
-        List<CidrRange> immutable = List.copyOf(parsed);
-        trustedRanges = immutable;
-        parsedFrom = configured;
-        return immutable;
     }
 
     private void reject(HttpServletResponse response, String message) throws IOException {
