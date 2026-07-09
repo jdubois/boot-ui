@@ -27,7 +27,7 @@ class CapturingJavaMailSenderTests {
     @Test
     void passesMimeMessageThroughAndCapturesIt() throws Exception {
         JavaMailSenderImpl delegate = mock(JavaMailSenderImpl.class);
-        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), false);
+        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), false, false);
         CapturingJavaMailSender sender = new CapturingJavaMailSender(delegate, captureService);
 
         MimeMessage message = new MimeMessage(SESSION);
@@ -46,7 +46,7 @@ class CapturingJavaMailSenderTests {
     @Test
     void devTrapModeSuppressesRealSend() throws Exception {
         JavaMailSenderImpl delegate = mock(JavaMailSenderImpl.class);
-        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), true);
+        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), true, false);
         CapturingJavaMailSender sender = new CapturingJavaMailSender(delegate, captureService);
 
         SimpleMailMessage simple = new SimpleMailMessage();
@@ -63,9 +63,27 @@ class CapturingJavaMailSenderTests {
     }
 
     @Test
-    void maskedByDefaultOnRead() throws Exception {
+    void revealsContentByDefaultOnRead() throws Exception {
         JavaMailSenderImpl delegate = mock(JavaMailSenderImpl.class);
-        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), maskedExposure(), false);
+        EmailCaptureService captureService =
+                new EmailCaptureService(new EmailStore(10), maskedExposure(), false, false);
+        CapturingJavaMailSender sender = new CapturingJavaMailSender(delegate, captureService);
+
+        SimpleMailMessage simple = new SimpleMailMessage();
+        simple.setFrom("sender@example.com");
+        simple.setTo("to@example.com");
+        simple.setSubject("Sensitive subject");
+        simple.setText("Sensitive body");
+
+        sender.send(simple);
+
+        assertThat(captureService.list().messages().get(0).subject()).isEqualTo("Sensitive subject");
+    }
+
+    @Test
+    void masksContentWhenMaskContentEnabled() throws Exception {
+        JavaMailSenderImpl delegate = mock(JavaMailSenderImpl.class);
+        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), maskedExposure(), false, true);
         CapturingJavaMailSender sender = new CapturingJavaMailSender(delegate, captureService);
 
         SimpleMailMessage simple = new SimpleMailMessage();

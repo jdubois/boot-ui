@@ -203,7 +203,7 @@ class LiveActivityResourceTests {
                 Map.of(),
                 "trace-a"));
         EmailCaptureService emailService =
-                new EmailCaptureService(new EmailStore(10), new QuarkusExposurePolicy(config(Map.of())), false);
+                new EmailCaptureService(new EmailStore(10), new QuarkusExposurePolicy(config(Map.of())), false, false);
         emailService.setTraceIdProvider(() -> "trace-a");
         emailService.capture(CapturedEmail.builder()
                 .from("noreply@example.com")

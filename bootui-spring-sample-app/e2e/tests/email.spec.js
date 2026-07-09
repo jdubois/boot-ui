@@ -30,6 +30,9 @@ test.describe.serial('Email view', () => {
     await expect(rows.first()).toBeVisible()
     // Captured-but-not-sent messages carry a dev-trap status badge rather than a "sent" one.
     await expect(page.locator('main table tbody .badge.text-bg-warning').first()).toHaveText('dev-trap')
+
+    // bootui.email.mask-content defaults to false, so subjects are revealed, not masked (******).
+    await expect(page.locator('main table tbody .email-subject-cell').first()).not.toHaveText('******')
   })
 
   test('opens a message with its attachment and body in the detail drawer', async ({openView, page}) => {

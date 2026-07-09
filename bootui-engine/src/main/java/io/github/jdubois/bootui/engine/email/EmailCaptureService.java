@@ -10,11 +10,21 @@ import java.util.List;
 
 /**
  * Framework-neutral service backing the Email Viewer panel: wraps an {@link EmailStore} with masking
- * (via the shared {@link ExposurePolicy}) and dev-trap policy, and assembles the browser-facing
- * {@link EmailsReport}/{@link EmailMessageDto} DTOs.
+ * and dev-trap policy, and assembles the browser-facing {@link EmailsReport}/{@link EmailMessageDto}
+ * DTOs.
  *
- * <p>Recipients, subject, and body are masked at <em>read</em> time (not at capture time), exactly like
- * BootUI's other masked panels, so a live change to {@code bootui.expose-values} takes effect on the
+ * <p>Unlike BootUI's config/secret-bearing panels, captured email content is revealed by default:
+ * recipients, subject, and body are ordinary application-generated data (not credentials), matching
+ * both Laravel Telescope's Mail watcher (no redaction) and this codebase's own established pattern for
+ * other "captured data" panels (HTTP Exchanges, SQL Trace) which reveal by default and mask only
+ * individually-flagged secret-shaped fields rather than blanket-masking everything. Content masking is
+ * an explicit opt-in ({@code maskContent}), decoupled from the global {@code bootui.expose-values} /
+ * {@link ExposurePolicy} that governs actual secrets elsewhere (Configuration, Beans, connection pool
+ * URLs) — flipping that flag to read a config secret should not be required just to read a test email,
+ * and vice versa. When {@code maskContent} is enabled, the previous behavior applies unchanged:
+ * {@code from}/{@code to}/{@code cc}/{@code bcc}/{@code subject}/{@code textBody}/{@code htmlBody} are
+ * masked unless {@link ExposurePolicy#valueExposure()} is {@link ValueExposure#FULL}. Masking (when
+ * enabled) is applied at <em>read</em> time (not at capture time), so a live change takes effect on the
  * next request without needing to re-capture anything.</p>
  */
 public final class EmailCaptureService {
@@ -22,16 +32,27 @@ public final class EmailCaptureService {
     private final EmailStore store;
     private final ExposurePolicy exposurePolicy;
     private final boolean devTrapEnabled;
+    private final boolean maskContent;
 
-    public EmailCaptureService(EmailStore store, ExposurePolicy exposurePolicy, boolean devTrapEnabled) {
+    public EmailCaptureService(
+            EmailStore store, ExposurePolicy exposurePolicy, boolean devTrapEnabled, boolean maskContent) {
         this.store = store;
         this.exposurePolicy = exposurePolicy;
         this.devTrapEnabled = devTrapEnabled;
+        this.maskContent = maskContent;
     }
 
     /** Whether dev-trap mode is enabled: captured messages are recorded but never actually sent. */
     public boolean isDevTrapEnabled() {
         return devTrapEnabled;
+    }
+
+    /**
+     * Whether captured message content is masked by default (opt-in, off by default — see the class
+     * Javadoc for the rationale).
+     */
+    public boolean isMaskContentEnabled() {
+        return maskContent;
     }
 
     /** Installs the trace-id provider used when stamping captured messages. */
@@ -57,7 +78,7 @@ public final class EmailCaptureService {
         return sent;
     }
 
-    /** Lists all captured messages, newest-first, masked according to the live exposure policy. */
+    /** Lists all captured messages, newest-first, revealed or masked per {@link #isMaskContentEnabled()}. */
     public EmailsReport list() {
         List<EmailStore.Entry> entries = store.list();
         return new EmailsReport(
@@ -69,7 +90,7 @@ public final class EmailCaptureService {
                 entries.stream().map(this::toDto).toList());
     }
 
-    /** Returns one captured message by id, masked according to the live exposure policy. */
+    /** Returns one captured message by id, revealed or masked per {@link #isMaskContentEnabled()}. */
     public EmailMessageDto get(String id) {
         return store.get(id).map(this::toDto).orElse(null);
     }
@@ -81,7 +102,7 @@ public final class EmailCaptureService {
 
     private EmailMessageDto toDto(EmailStore.Entry entry) {
         CapturedEmail email = entry.email();
-        boolean reveal = exposurePolicy.valueExposure() == ValueExposure.FULL;
+        boolean reveal = !maskContent || exposurePolicy.valueExposure() == ValueExposure.FULL;
         String masked = SecretMasker.MASKED_VALUE;
         return new EmailMessageDto(
                 entry.id(),

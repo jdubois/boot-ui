@@ -53,7 +53,7 @@ class MailHealthCoexistenceTests {
 
         @Bean
         EmailCaptureService bootUiEmailCaptureService() {
-            return new EmailCaptureService(new EmailStore(10), fullExposure(), false);
+            return new EmailCaptureService(new EmailStore(10), fullExposure(), false, false);
         }
 
         @Bean

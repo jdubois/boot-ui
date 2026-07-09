@@ -17,7 +17,7 @@ class BootUiMailSenderBeanPostProcessorTests {
 
     @Test
     void wrapsJavaMailSenderBeans() {
-        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), false);
+        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), false, false);
         BootUiMailSenderBeanPostProcessor postProcessor =
                 new BootUiMailSenderBeanPostProcessor(captureServiceProvider(captureService));
 
@@ -29,7 +29,7 @@ class BootUiMailSenderBeanPostProcessorTests {
 
     @Test
     void leavesUnrelatedBeansUnchanged() {
-        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), false);
+        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), false, false);
         BootUiMailSenderBeanPostProcessor postProcessor =
                 new BootUiMailSenderBeanPostProcessor(captureServiceProvider(captureService));
 
@@ -41,7 +41,7 @@ class BootUiMailSenderBeanPostProcessorTests {
 
     @Test
     void doesNotDoubleWrapAlreadyCapturingSender() {
-        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), false);
+        EmailCaptureService captureService = new EmailCaptureService(new EmailStore(10), fullExposure(), false, false);
         BootUiMailSenderBeanPostProcessor postProcessor =
                 new BootUiMailSenderBeanPostProcessor(captureServiceProvider(captureService));
 

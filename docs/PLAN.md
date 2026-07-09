@@ -40,9 +40,11 @@ The priorities for every item below remain unchanged:
   carries a KPI strip, and deep-links into the HTTP Exchanges, SQL Trace, Exceptions, Health, and Heap Dump panels. The
   panel is read-only and reuses the existing masking, value-exposure, and panel-toggle model.
 - Shipped §3.3 (E-mail Viewer) as the **Email** panel: a `JavaMailSender` `BeanPostProcessor` captures every outgoing
-  message pass-through by default (with an explicitly opt-in `bootui.email.dev-trap` mode), masks recipients/subject/body
-  under the existing value-exposure model, renders HTML previews sandboxed, and offers a per-message `.eml` download.
-  Captured mail also feeds the Live Activity stream as a `MAIL` entry type.
+  message pass-through by default (with an explicitly opt-in `bootui.email.dev-trap` mode), reveals recipients/subject/body
+  by default — decoupled from the global value-exposure model, matching Laravel Telescope's Mail watcher, with an
+  explicitly opt-in `bootui.email.mask-content` flag for teams that want the old masked-by-default behavior — renders
+  HTML previews sandboxed, and offers a per-message `.eml` download. Captured mail also feeds the Live Activity stream as
+  a `MAIL` entry type.
 - Shipped all five §3.4 Live Activity event-type extensions, bringing the stream to nine merged entry types —
   `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED_TASK`, `MESSAGING`, `MAIL`, and `REST_CLIENT`: Cache
   operations, Scheduled Task runs, Kafka messaging (both adapters), Mail (backed by the Email panel above), and outbound
@@ -71,15 +73,16 @@ shipped. The bean/dependency graph visualization (§3.2) is the one remaining it
 | -------- | ------------------------------------- | ------------- | -------------------------------------------------- | ----------------- | ---------------- |
 | Done     | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
 | 1        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 | No                | Existing roadmap |
-| Done     | E-mail Viewer                         | Diagnostics   | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
+| Done     | E-mail Viewer                         | Services      | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
 | Done     | Live Activity — REST call capture     | Diagnostics   | Intercepted `RestClient`/`RestTemplate`/`WebClient` | No (capture only) | Shipped |
 | Done     | Live Activity — new event types       | Diagnostics   | Cache, scheduled-task, Kafka, and mail capture sources (see §3.4) | No (capture only) | Cache, Scheduled Tasks, Kafka, and Mail all shipped |
 
 The Trace ↔ Log ↔ Request correlation work in §3.1 has shipped as the **Live Activity** panel, building on the
 already-shipped HTTP Exchanges panel and the existing Traces and Log Tail panels. The E-mail Viewer (§3.3) has shipped as
-the **Email** panel (Diagnostics group): a `JavaMailSender` `BeanPostProcessor` captures every outgoing message
-pass-through by default, with an explicitly opt-in `bootui.email.dev-trap` mode, masked recipients/subject/body, a
-sandboxed HTML preview, and a per-message `.eml` download. All five of the §3.4 Live Activity event-type extensions have
+the **Email** panel (Services group): a `JavaMailSender` `BeanPostProcessor` captures every outgoing message
+pass-through by default, with an explicitly opt-in `bootui.email.dev-trap` mode, recipients/subject/body revealed by
+default (opt-in `bootui.email.mask-content`), a sandboxed HTML preview, and a per-message `.eml` download. All five of
+the §3.4 Live Activity event-type extensions have
 now shipped — Scheduled Task runs, Cache operations, Kafka messaging, an E-mail Viewer-backed `MAIL` event type, and
 outbound `RestClient`/`RestTemplate`/`WebClient` capture — leaving only the bean/dependency graph visualization (§3.2) as
 the remaining item in this workstream. Each capture-oriented feature keeps pass-through application behaviour by default
@@ -136,7 +139,7 @@ Design constraints:
   performance within the project's large-app budget.
 - Avoid heavy graph libraries where a lightweight approach is sufficient, in line with the bundle-size risk in §5.
 
-### 3.3 E-mail Viewer — Diagnostics ✅ Completed
+### 3.3 E-mail Viewer — Services ✅ Completed
 
 **Status: completed.** Shipped as the **Email** panel (see `docs/FEATURES.md` → *Email*). The original scope and
 design constraints below are retained for reference.
@@ -157,8 +160,11 @@ Scope:
 Design constraints:
 
 - Available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`); otherwise fail closed.
-- Recipients, subjects, and bodies are sensitive → masked by default and revealed only under value-exposure; HTML is
-  rendered sandboxed to prevent script execution.
+- Recipients, subjects, and bodies are revealed by default, like Laravel Telescope's Mail watcher and BootUI's other
+  data-capture panels (HTTP Exchanges, SQL Trace) — email content is not a config secret, so masking is decoupled from
+  the global value-exposure model. An opt-in `bootui.email.mask-content` flag applies the same name-based
+  `SecretMasker` heuristic for teams routing real customer PII through a shared dev environment. HTML is rendered
+  sandboxed to prevent script execution.
 - Fixed-size buffer; no persistence to disk beyond on-demand `.eml` download.
 
 ### 3.4 Live Activity — event types and correlation — Diagnostics ✅ Completed

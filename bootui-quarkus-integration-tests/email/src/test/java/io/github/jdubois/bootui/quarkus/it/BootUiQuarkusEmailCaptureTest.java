@@ -25,10 +25,13 @@ import org.junit.jupiter.api.Test;
  *
  * <p>This is the mailer-<em>present</em> half of the Email coverage; the sibling
  * {@code bootui-quarkus-integration-tests} module proves the mailer-<em>absent</em> path (the class-presence
- * gate keeps the {@code email} panel unavailable, with no capture observer). The default {@code MASKED}
- * value-exposure is left in place so this also asserts recipient/subject/body masking is applied on Quarkus
- * exactly as on Spring, while attachment metadata (never masked) confirms the real message flowed through.
- * Nothing here triggers a network call or scan on render — only the explicit {@code DELETE} mutates state.</p>
+ * gate keeps the {@code email} panel unavailable, with no capture observer). {@code bootui.email.mask-content}
+ * defaults to {@code false} (email content is not a config secret, so it is revealed by default, decoupled
+ * from the global {@code bootui.expose-values} secret-exposure flag — see the engine
+ * {@code EmailCaptureService}'s class Javadoc), so this asserts recipient/subject/body content is revealed on
+ * Quarkus exactly as on Spring, while attachment metadata (never masked) confirms the real message flowed
+ * through. Nothing here triggers a network call or scan on render — only the explicit {@code DELETE} mutates
+ * state.</p>
  */
 @QuarkusTest
 class BootUiQuarkusEmailCaptureTest {
@@ -44,7 +47,7 @@ class BootUiQuarkusEmailCaptureTest {
     }
 
     @Test
-    void emailPanelCapturesMessagesMasksThemAndClears() {
+    void emailPanelCapturesMessagesRevealsThemAndClears() {
         mailer.send(Mail.withText("customer@example.com", "Welcome to BootUI", "Hello from the Quarkus sample")
                 .addAttachment("invoice.txt", "INV-1".getBytes(StandardCharsets.UTF_8), "text/plain"));
 
@@ -70,11 +73,11 @@ class BootUiQuarkusEmailCaptureTest {
                 .as("mock-mode messages are not handed to a real transport")
                 .isFalse();
         assertThat(message.path("subject").asText(null))
-                .as("the subject is masked by default (MASKED value-exposure)")
-                .isEqualTo("******");
+                .as("the subject is revealed by default (bootui.email.mask-content defaults to false)")
+                .isEqualTo("Welcome to BootUI");
         assertThat(message.path("to").path(0).asText(null))
-                .as("recipients are masked by default")
-                .isEqualTo("******");
+                .as("recipients are revealed by default")
+                .isEqualTo("customer@example.com");
 
         JsonNode attachment = message.path("attachments").path(0);
         assertThat(attachment.path("filename").asText(null))
@@ -90,15 +93,15 @@ class BootUiQuarkusEmailCaptureTest {
         assertThat(detail.status()).as("GET /bootui/api/email/{id} status").isEqualTo(200);
         assertThat(detail.json().path("id").asText(null)).isEqualTo(id);
 
-        // .eml download: the shared EmailEmlRenderer produces byte-identical output to Spring, honoring masking.
+        // .eml download: the shared EmailEmlRenderer produces byte-identical output to Spring.
         Response eml = probe().get("/bootui/api/email/" + id + "/eml");
         assertThat(eml.status()).as("GET /bootui/api/email/{id}/eml status").isEqualTo(200);
         assertThat(eml.contentType())
                 .as("the .eml download is served as message/rfc822")
                 .contains("message/rfc822");
         assertThat(eml.body())
-                .as("the .eml carries the masked subject and the (unmasked, size-less) attachment metadata")
-                .contains("Subject: ******")
+                .as("the .eml carries the revealed subject and the (unmasked, size-less) attachment metadata")
+                .contains("Subject: Welcome to BootUI")
                 .contains("invoice.txt (text/plain, null bytes)");
 
         // The clear action (state-changing, behind the shared LocalhostGuard write floor) empties the buffer.

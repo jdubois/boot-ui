@@ -1198,11 +1198,15 @@ preview rendered in a sandboxed iframe (scripts and same-origin access are both 
 and attachment metadata (name/type/size, never contents). Each message can be downloaded as a `.eml` file, and the whole
 buffer can be cleared.
 
-Recipients, subjects, and bodies are sensitive, so they are masked by default and only revealed under
-`bootui.expose-values=FULL`, exactly like every other BootUI panel. An optional, explicitly opt-in **dev-trap** mode
-(`bootui.email.dev-trap=true`) records messages without actually sending them, similar to MailDev/GreenMail; it is off
-by default so BootUI never silently swallows application mail. The panel is available only when a `JavaMailSender` bean
-is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear unavailable reason.
+Recipients, subjects, and bodies are revealed by default — like Laravel Telescope's Mail watcher, and consistent with
+BootUI's other data-capture panels (HTTP Exchanges, SQL Trace), email content is not treated as a config secret, so it
+is not masked by the global `bootui.expose-values` flag. Teams that route real customer PII through a shared dev
+environment can opt into masking with `bootui.email.mask-content=true`, which reuses the same name-based `SecretMasker`
+heuristic as Configuration/HTTP Exchanges and is only then lifted back under `bootui.expose-values=FULL`. An optional,
+explicitly opt-in **dev-trap** mode (`bootui.email.dev-trap=true`) records messages without actually sending them,
+similar to MailDev/GreenMail; it is off by default so BootUI never silently swallows application mail. The panel is
+available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear
+unavailable reason.
 
 On Quarkus the panel is identical, running over the same shared engine `EmailCaptureService` and the same
 `/bootui/api/email` contract (list/detail/`.eml`/clear, with the `.eml` bytes produced by the shared engine renderer so

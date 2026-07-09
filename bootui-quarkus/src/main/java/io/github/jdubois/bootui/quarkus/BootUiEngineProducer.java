@@ -230,6 +230,11 @@ public class BootUiEngineProducer {
      * {@code true} in dev/test — the only launch modes where the console is wired): mock mode records the message
      * without handing it to a real transport, so {@code sent=false} is the honest report, exactly matching what
      * the engine's {@code sent=!devTrapEnabled} already computes.</p>
+     *
+     * <p>Captured content is revealed by default ({@code bootui.email.mask-content}, default {@code false}),
+     * matching the Spring adapter and the engine's own rationale (see {@code EmailCaptureService}'s class
+     * Javadoc): email content is not a config secret, so it should not require flipping the global secret-
+     * exposure flag to read.</p>
      */
     @Produces
     @Singleton
@@ -239,7 +244,9 @@ public class BootUiEngineProducer {
                 .orElse(100);
         boolean mock = config.getOptionalValue("quarkus.mailer.mock", Boolean.class)
                 .orElseGet(() -> LaunchMode.current().isDevOrTest());
-        EmailCaptureService service = new EmailCaptureService(new EmailStore(maxEntries), exposure, mock);
+        boolean maskContent = config.getOptionalValue("bootui.email.mask-content", Boolean.class)
+                .orElse(false);
+        EmailCaptureService service = new EmailCaptureService(new EmailStore(maxEntries), exposure, mock, maskContent);
         if (traceIdProvider.isResolvable()) {
             service.setTraceIdProvider(traceIdProvider.get());
         }

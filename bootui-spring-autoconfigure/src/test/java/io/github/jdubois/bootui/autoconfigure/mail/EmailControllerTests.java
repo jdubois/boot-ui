@@ -106,7 +106,7 @@ class EmailControllerTests {
 
     @SuppressWarnings("unchecked")
     private MockMvc buildMvc(EmailStore store, JavaMailSender mailSender) {
-        EmailCaptureService captureService = new EmailCaptureService(store, fullExposure(), false);
+        EmailCaptureService captureService = new EmailCaptureService(store, fullExposure(), false, false);
         ObjectProvider<EmailCaptureService> captureServiceProvider = mock(ObjectProvider.class);
         when(captureServiceProvider.getIfAvailable()).thenReturn(captureService);
         ObjectProvider<JavaMailSender> mailSenderProvider = mock(ObjectProvider.class);

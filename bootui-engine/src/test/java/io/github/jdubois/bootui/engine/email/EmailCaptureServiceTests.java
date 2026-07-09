@@ -13,9 +13,27 @@ import org.junit.jupiter.api.Test;
 class EmailCaptureServiceTests {
 
     @Test
-    void masksSensitiveFieldsByDefault() {
+    void revealsFieldsByDefaultEvenWhenValueExposureIsMasked() {
+        // maskContent defaults to false: email content is not a config secret, so it is revealed
+        // regardless of the global bootui.expose-values setting (decoupled, unlike Configuration/Beans).
         EmailCaptureService service =
-                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false);
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false, false);
+        service.capture(email());
+
+        EmailsReport report = service.list();
+        assertThat(report.messages()).hasSize(1);
+        EmailMessageDto message = report.messages().get(0);
+        assertThat(message.from()).isEqualTo("noreply@example.com");
+        assertThat(message.to()).containsExactly("user@example.com");
+        assertThat(message.subject()).isEqualTo("Welcome");
+        assertThat(message.textBody()).isEqualTo("Hello there");
+        assertThat(message.attachments().get(0).filename()).isEqualTo("invoice.pdf");
+    }
+
+    @Test
+    void masksSensitiveFieldsWhenMaskContentEnabled() {
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false, true);
         service.capture(email());
 
         EmailsReport report = service.list();
@@ -30,8 +48,9 @@ class EmailCaptureServiceTests {
     }
 
     @Test
-    void revealsFieldsUnderFullExposure() {
-        EmailCaptureService service = new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.FULL), false);
+    void revealsFieldsUnderFullExposureEvenWhenMaskContentEnabled() {
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.FULL), false, true);
         service.capture(email());
 
         EmailMessageDto message = service.list().messages().get(0);
@@ -43,7 +62,8 @@ class EmailCaptureServiceTests {
 
     @Test
     void devTrapModeSuppressesRealSend() {
-        EmailCaptureService service = new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.FULL), true);
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.FULL), true, false);
 
         boolean shouldSend = service.capture(email());
 
@@ -54,7 +74,8 @@ class EmailCaptureServiceTests {
 
     @Test
     void passThroughModeStillSends() {
-        EmailCaptureService service = new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.FULL), false);
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.FULL), false, false);
 
         boolean shouldSend = service.capture(email());
 
@@ -63,9 +84,9 @@ class EmailCaptureServiceTests {
     }
 
     @Test
-    void getReturnsMaskedMessageById() {
+    void getReturnsMessageById() {
         EmailCaptureService service =
-                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false);
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false, false);
         service.capture(email());
         String id = service.list().messages().get(0).id();
 
@@ -75,12 +96,24 @@ class EmailCaptureServiceTests {
 
     @Test
     void clearDiscardsMessages() {
-        EmailCaptureService service = new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.FULL), false);
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.FULL), false, false);
         service.capture(email());
         service.clear();
 
         assertThat(service.list().messages()).isEmpty();
         assertThat(service.list().total()).isZero();
+    }
+
+    @Test
+    void exposesMaskContentFlag() {
+        EmailCaptureService revealing =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false, false);
+        EmailCaptureService masking =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.MASKED), false, true);
+
+        assertThat(revealing.isMaskContentEnabled()).isFalse();
+        assertThat(masking.isMaskContentEnabled()).isTrue();
     }
 
     private static CapturedEmail email() {

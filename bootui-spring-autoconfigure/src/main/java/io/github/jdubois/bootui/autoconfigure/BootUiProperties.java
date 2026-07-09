@@ -1910,6 +1910,16 @@ public class BootUiProperties {
          */
         private boolean devTrap = false;
 
+        /**
+         * When {@code true}, captured recipients/subject/body are masked unless {@code bootui.expose-
+         * values=FULL}, matching BootUI's config/secret masking. Off by default: email content is
+         * ordinary application data (not credentials), so it is revealed by default — like Laravel
+         * Telescope's Mail watcher and like BootUI's own HTTP Exchanges/SQL Trace panels — decoupled
+         * from the global secret-exposure flag so reading a test email never requires exposing
+         * unrelated production secrets (or vice versa).
+         */
+        private boolean maskContent = false;
+
         public int getMaxEntries() {
             return maxEntries;
         }
@@ -1924,6 +1934,14 @@ public class BootUiProperties {
 
         public void setDevTrap(boolean devTrap) {
             this.devTrap = devTrap;
+        }
+
+        public boolean isMaskContent() {
+            return maskContent;
+        }
+
+        public void setMaskContent(boolean maskContent) {
+            this.maskContent = maskContent;
         }
     }
 
