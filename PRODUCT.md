@@ -6,7 +6,7 @@ product
 
 ## Users
 
-Spring Boot developers working in the **inner development loop** on their own machine, against a single app
+Application developers working in the **inner development loop** on their own machine, against a single app
 running on `localhost`. They reach for BootUI with the app already running, mid-task, to answer a concrete
 question fast ("why is this bean wired like that?", "what config is actually effective?", "is this endpoint
 healthy?") and get back to coding. Four recurring shapes (from the spec's persona table):
@@ -15,21 +15,21 @@ healthy?") and get back to coding. Four recurring shapes (from the spec's person
   endpoints. Value: one local URL with beans, config, mappings, health, and logs.
 - **Enterprise service onboarder** — inherits unfamiliar profiles, conditional beans, and dependencies. Value:
   BootUI explains the effective runtime state without reading the whole codebase first.
-- **Platform engineer** — wants a standard way to inspect many Spring Boot services. Value: one common
+- **Platform engineer** — wants a standard way to inspect many Spring Boot and Quarkus services. Value: one common
   diagnostic surface every team can rely on.
 - **Microservices developer** — debugging local service wiring and environment issues. Value: local health,
   connection details, mappings, and config sources at a glance.
 
-These are technical, time-pressured users who already know Spring. They don't need hand-holding; they need the
+These are technical, time-pressured users who already know their framework stack. They don't need hand-holding; they need the
 runtime made legible. Increasingly, an **AI coding agent** (Copilot, Claude Code) is a second "user" reading the
 same panels through the opt-in MCP server — so the information has to be structured and explained, not just drawn.
 
 ## Product Purpose
 
-BootUI is a **Spring Boot 4 starter** that drops an embedded, **local-only** developer console into a running
-app. Its primary goal is blunt: **make a running Spring Boot application understandable in minutes.** It is a
-Spring-native *visualization and explanation layer* over Actuator and the live application context — not an APM,
-not production monitoring, not a hosted dashboard, not an Actuator replacement.
+BootUI is an embedded, **local-only** developer console for **Spring Boot 4** (servlet and WebFlux) and
+**Quarkus** applications. Its primary goal is blunt: **make a running application understandable in minutes.**
+It is a framework-neutral visualization and explanation layer over each runtime's diagnostics and live application
+context — not an APM, not production monitoring, not a hosted dashboard.
 
 Secondary goals: cut time spent debugging auto-configuration and configuration; help developers onboard onto
 unfamiliar services; give an IDE-agnostic surface for runtime insight; make Actuator data readable and
@@ -42,7 +42,7 @@ without BootUI ever leaking a secret, calling the network unprompted, or staying
 
 ## Brand Personality
 
-**Polished, modern, confident.** BootUI is a craft demonstration: a tool that advises Spring developers on
+**Polished, modern, confident.** BootUI is a craft demonstration: a tool that advises Spring and Quarkus developers on
 architecture, security, and performance has to *look* like it was built by someone who holds those standards. It
 should feel like best-in-class developer tooling (the Linear / Stripe / Raycast tier), translated into the
 Spring world — calm, precise, and quietly authoritative.

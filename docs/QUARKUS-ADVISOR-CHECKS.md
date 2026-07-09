@@ -80,7 +80,7 @@ accepts the same values: `none`/`create`/`drop-and-create`/`drop`/`update`/`vali
 One or more endpoints return `Uni`/`Multi`/`CompletionStage`/`CompletableFuture`/`Publisher` (run on the I/O
 event loop), and neither the method nor its declaring resource class carries a `@Blocking` or `@Transactional`
 guard (Quarkus REST dispatches a `@Transactional` method to a worker thread just like `@Blocking` — see the
-[REST execution-model docs](https://quarkus.io/version/3.33/guides/rest#execution-model-blocking-non-blocking)),
+[REST execution-model docs](https://quarkus.io/guides/rest#execution-model-blocking-non-blocking)),
 while a blocking JDBC datasource is configured; a JDBC call on the event loop stalls it and throws
 `BlockingOperationNotAllowedException` at runtime. This is one of the most common and severe Quarkus
 production footguns, hence HIGH rather than an informational note. Annotate blocking work with `@Blocking`

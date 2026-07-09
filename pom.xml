@@ -52,7 +52,7 @@
         <!--
             The Quarkus sample app stays in the always-on reactor so IDEs (e.g. IntelliJ) import it as a
             Java/Maven module on ANY JDK. Its Hibernate ORM build-time augmentation cannot run on a JDK newer
-            than the Quarkus 3.33 platform supports, so that work (only) is skipped on JDK 26+ by a profile in
+            than the selected Quarkus platform supports, so that work (only) is skipped on JDK 26+ by a profile in
             the module's own pom; plain compile (release 17) + jar still runs everywhere. The module has no
             tests, so nothing fails on an unsupported JDK.
         -->
@@ -67,7 +67,7 @@
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <spring-boot.version>4.1.0</spring-boot.version>
-        <!-- Quarkus platform for the bootui-quarkus extension + Quarkus sample app. 3.33 LTS targets Java 17/21/25. -->
+        <!-- Quarkus platform for the bootui-quarkus extension + Quarkus sample app. -->
         <quarkus.platform.version>3.37.1</quarkus.platform.version>
         <!-- testcontainers version is managed by the Spring Boot BOM (2.0.x) -->
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
@@ -338,7 +338,7 @@
     <profiles>
         <!--
             The Hibernate Quarkus integration-test module depends on Hibernate ORM, whose build-time ByteBuddy
-            enhancement (via the Quarkus 3.33 platform) cannot read class files newer than the JDKs that platform
+            enhancement (via the selected Quarkus platform) cannot read class files newer than the JDKs that platform
             supports (17, 21 and 25). It is a @QuarkusTest module whose tests force that augmentation, so it cannot
             simply skip the work the way the sample app can; it is therefore wired into the reactor only on a
             supported JDK so that:

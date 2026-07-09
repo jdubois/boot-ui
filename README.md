@@ -4,7 +4,7 @@
 [![CodeQL](https://github.com/jdubois/boot-ui/actions/workflows/codeql.yml/badge.svg)](https://github.com/jdubois/boot-ui/actions/workflows/codeql.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6db33f?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
-[![Quarkus](https://img.shields.io/badge/Quarkus-3.33.x-4695EB?logo=quarkus&logoColor=white)](https://quarkus.io/)
+[![Quarkus](https://img.shields.io/badge/Quarkus-3.37.x-4695EB?logo=quarkus&logoColor=white)](https://quarkus.io/)
 [![Java](https://img.shields.io/badge/Java-17-orange?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
 
 BootUI adds an embedded, local-only developer console to your application. It runs on **Spring Boot 4** (servlet or
