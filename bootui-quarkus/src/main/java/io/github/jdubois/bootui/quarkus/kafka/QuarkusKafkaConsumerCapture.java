@@ -21,8 +21,9 @@ import org.jboss.logging.Logger;
  * <p><strong>This class (with {@link QuarkusKafkaProducerCapture}) is the sole importer of
  * {@code io.smallrye.reactive.messaging.*} and Kafka-connector metadata types in the Quarkus adapter's
  * capture path (R2).</strong> It is capability-gated exactly like its producer twin (registered only
- * when {@code Capability.KAFKA} is present, {@linkplain io.quarkus.arc.deployment.ExcludedTypeBuildItem
- * excluded} otherwise), so Arc never links the messaging API in an app without
+ * when {@code Capability.KAFKA} is present, excluded via {@code
+ * io.quarkus.arc.deployment.ExcludedTypeBuildItem} otherwise), so Arc never links the messaging API in an
+ * app without
  * {@code quarkus-messaging-kafka}.</p>
  *
  * <p><strong>Behavioral contract, preserved from the Spring capture mechanism:</strong> metadata only

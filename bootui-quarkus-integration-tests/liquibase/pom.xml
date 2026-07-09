@@ -121,4 +121,30 @@
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <!--
+                        This module must never reach Maven Central (see maven.deploy.skip above), but
+                        central-publishing-maven-plugin has no working <skip> parameter of its own - its
+                        auto-injected "injected-central-publishing" execution runs regardless of maven.deploy.skip
+                        (see the root pom for the full explanation). Re-declaring that same execution id with
+                        <phase>none</phase> is the documented way to disable it for just this module.
+                    -->
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>injected-central-publishing</id>
+                                <phase>none</phase>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

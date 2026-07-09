@@ -78,11 +78,15 @@
         <archunit.version>1.4.2</archunit.version>
         <central.autoPublish>true</central.autoPublish>
         <!--
-            central-publishing-maven-plugin does NOT honor maven.deploy.skip (it implements its own
-            skip mechanism). Default it here so every module inherits it, then tie the plugin's own
-            <skip> to it below - modules that already set <maven.deploy.skip>true</maven.deploy.skip>
-            (sample apps, integration tests, conformance) now also skip Central publishing instead of
-            silently uploading multi-hundred-MB fat jars on every release.
+            maven.deploy.skip alone does NOT stop Central publishing: central-publishing-maven-plugin binds
+            its "publish" goal to the deploy phase via <extensions>true</extensions> auto-injection (execution
+            id "injected-central-publishing"), which is a plain lifecycle-phase binding, not the built-in
+            deploy:deploy goal - so it never consults maven.deploy.skip (that property is only read by
+            maven-deploy-plugin's own mojos). The plugin also has no <skip> parameter of its own (confirmed
+            against its docs; configuring one just produces an "unknown parameter" warning). Modules that must
+            never reach Central (sample apps, integration tests, conformance) therefore re-declare that same
+            execution id with <phase>none</phase> in their own pom (see e.g. bootui-conformance/pom.xml) to
+            disable it, instead of silently uploading multi-hundred-MB fat jars on every release.
         -->
         <maven.deploy.skip>false</maven.deploy.skip>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
@@ -280,7 +284,6 @@
                     <configuration>
                         <publishingServerId>central</publishingServerId>
                         <autoPublish>${central.autoPublish}</autoPublish>
-                        <skip>${maven.deploy.skip}</skip>
                         <!--
                             Sonatype only mandates md5+sha1 checksums (sha256/sha512 are optional, see
                             https://central.sonatype.org/publish/requirements/#provide-file-checksums). The

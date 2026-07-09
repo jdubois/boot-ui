@@ -28,8 +28,8 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
  * references {@code org.hibernate.resource.jdbc.spi.StatementInspector} and
  * {@code io.quarkus.hibernate.orm.PersistenceUnitExtension}, optional types that must stay absent in an app
  * without {@code quarkus-hibernate-orm} (R2) — so {@code BootUiQuarkusProcessor#registerHibernateSqlTrace}
- * pins it unremovable when Hibernate is present and {@linkplain io.quarkus.arc.deployment.ExcludedTypeBuildItem
- * excludes} it otherwise, mirroring {@code BootUiHibernateProducer}.</p>
+ * pins it unremovable when Hibernate is present and excludes it otherwise via
+ * {@code io.quarkus.arc.deployment.ExcludedTypeBuildItem}, mirroring {@code BootUiHibernateProducer}.</p>
  *
  * <p>The recorder is resolved through an {@link Instance} so capture degrades to a no-op (returning the SQL
  * unchanged) if no recorder is present — Hibernate always implies an Agroal datasource, so in practice it is

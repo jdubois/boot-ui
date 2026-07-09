@@ -19,8 +19,8 @@ import java.util.Set;
  * and the availability-probe groups), SmallRye Health has <em>no</em> framework-default contributors: every
  * check is application-authored. The default-contributor set is therefore deliberately <em>empty</em>, which
  * makes the engine's "only default contributors are present" nudge unreachable on Quarkus (an empty default set
- * can never contain a non-empty set of reported checks) — so {@link #defaultContributorReason} and
- * {@link #defaultContributorSetup} are intentionally left empty/null.</p>
+ * can never contain a non-empty set of reported checks) — so {@link HealthGuidance#defaultContributorReason()}
+ * and {@link HealthGuidance#defaultContributorSetup()} are intentionally left empty/null.</p>
  */
 public final class QuarkusHealthGuidance {
 

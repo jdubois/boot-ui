@@ -16,7 +16,8 @@ import java.util.regex.Pattern;
  * "chatty" flagging and bounded call-site aggregation.
  *
  * <p>Mirrors {@code SqlTraceGrouping}'s role for SQL executions, factored out of {@link
- * RestClientTraceRecorder#topCalls()} so any other consumer that needs the exact same definition of
+ * RestClientTraceRecorder#topCalls(boolean, io.github.jdubois.bootui.core.ValueExposure)} so any other
+ * consumer that needs the exact same definition of
  * "looks like a chatty access pattern" the REST Client panel uses can apply it over an explicit,
  * already-correlated subset of calls rather than the recorder's full buffer. Unlike {@code
  * SqlTraceGrouping}, this grouping is not (yet) reused by Live Activity: {@code LiveActivityService}

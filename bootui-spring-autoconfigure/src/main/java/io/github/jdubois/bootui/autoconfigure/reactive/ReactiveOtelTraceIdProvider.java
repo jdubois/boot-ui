@@ -13,7 +13,7 @@ import io.opentelemetry.api.trace.SpanContext;
  *
  * <p>This mirrors {@code QuarkusOtelTraceIdProvider} exactly, and is installed onto the same capture
  * points (SQL, exceptions, security events, and - unlike Quarkus, which stamps its {@code HttpExchange}
- * DTO directly - the HTTP exchange itself via the side-buffer {@link HttpExchangeTraceRegistry}, since
+ * DTO directly - the HTTP exchange itself via the side-buffer {@code HttpExchangeTraceRegistry}, since
  * Spring's Actuator {@code HttpExchange} model has no trace-id field to populate). Only wired by {@link
  * io.github.jdubois.bootui.autoconfigure.BootUiReactiveAutoConfiguration}, gated on the OpenTelemetry SDK
  * being present, exactly like {@code BootUiOpenTelemetryConfiguration}; the servlet adapter never
