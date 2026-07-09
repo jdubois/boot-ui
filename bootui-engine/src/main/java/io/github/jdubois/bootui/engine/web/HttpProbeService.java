@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.HttpProbeRequest;
 import io.github.jdubois.bootui.core.dto.HttpProbeResponse;
 import io.github.jdubois.bootui.spi.ServerPortSupplier;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -24,6 +25,11 @@ import java.util.Set;
  * {@link ServerPortSupplier} (read on every probe, since the bound port is only known once the server
  * is running). Hop-by-hop request headers are stripped, and only a small allow-list of response headers
  * is surfaced.
+ *
+ * <p>Response bodies are bounded at {@link BoundedBodyReader#HTTP_PROBE_MAX_BYTES}: reading stops at
+ * that limit without first buffering the full response, so a large or streaming local endpoint cannot
+ * destabilise the host JVM. When the body is truncated, {@link HttpProbeResponse#truncated()} is
+ * {@code true} so the browser can surface a clear truncation notice.
  */
 public class HttpProbeService {
 
@@ -50,8 +56,16 @@ public class HttpProbeService {
 
     private final HttpClient httpClient;
 
+    private final int maxBodyBytes;
+
     public HttpProbeService(ServerPortSupplier serverPort) {
+        this(serverPort, BoundedBodyReader.HTTP_PROBE_MAX_BYTES);
+    }
+
+    /** Package-private constructor for testing with a custom byte limit. */
+    HttpProbeService(ServerPortSupplier serverPort, int maxBodyBytes) {
         this.serverPort = serverPort;
+        this.maxBodyBytes = maxBodyBytes;
         this.httpClient =
                 HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build();
     }
@@ -68,25 +82,30 @@ public class HttpProbeService {
             applyHeaders(builder, request == null ? null : request.headers());
             builder.method(method, requestBodyPublisher(method, request == null ? null : request.body()));
 
-            HttpResponse<String> response =
-                    httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<InputStream> response =
+                    httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
             long durationMs = System.currentTimeMillis() - start;
+            BoundedBodyReader.BoundedRead read;
+            try (InputStream body = response.body()) {
+                read = BoundedBodyReader.readBounded(body, maxBodyBytes, StandardCharsets.UTF_8);
+            }
             return new HttpProbeResponse(
                     response.statusCode(),
                     statusText(response.statusCode()),
                     filterHeaders(response.headers().map()),
-                    response.body(),
+                    read.body(),
                     durationMs,
-                    null);
+                    null,
+                    read.truncated());
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
             long durationMs = System.currentTimeMillis() - start;
-            return new HttpProbeResponse(0, "Error", Map.of(), null, durationMs, e.getMessage());
+            return new HttpProbeResponse(0, "Error", Map.of(), null, durationMs, e.getMessage(), false);
         } catch (IllegalArgumentException e) {
             long durationMs = System.currentTimeMillis() - start;
-            return new HttpProbeResponse(0, "Error", Map.of(), null, durationMs, e.getMessage());
+            return new HttpProbeResponse(0, "Error", Map.of(), null, durationMs, e.getMessage(), false);
         }
     }
 

@@ -5,7 +5,9 @@ import io.github.jdubois.bootui.core.dto.*;
 import io.github.jdubois.bootui.engine.github.GitHubClient;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.github.GitHubTokenProvider;
+import io.github.jdubois.bootui.engine.web.BoundedBodyReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -300,8 +302,13 @@ final class GitHubApiClient implements GitHubClient {
         if (token != null && token.value() != null && !token.value().isBlank()) {
             builder.header("Authorization", "Bearer " + token.value());
         }
-        HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-        JsonNode json = parseJson(response.body());
+        HttpResponse<InputStream> response =
+                httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
+        String responseBody;
+        try (InputStream stream = response.body()) {
+            responseBody = BoundedBodyReader.readString(stream, BoundedBodyReader.GITHUB_MAX_BYTES);
+        }
+        JsonNode json = parseJson(responseBody);
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
             return new ApiResponse(response.statusCode(), json, response.headers(), null);
         }
