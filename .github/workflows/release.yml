@@ -150,7 +150,10 @@ jobs:
           done
 
           if [[ "$SKIP_BUILD" != "true" ]]; then
-            ./mvnw -B -ntp -Prelease clean verify -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"
+            # No -Dgpg.passphrase here: that user property is deprecated by maven-gpg-plugin
+            # ("may leak sensitive information"). The plugin already reads the passphrase from
+            # the MAVEN_GPG_PASSPHRASE env var above (its passphraseEnvName default) instead.
+            ./mvnw -B -ntp -Prelease clean verify
           fi
 
           echo "Prepared release $TAG (version $VERSION) in the working tree; deferring the commit, tag, and push until the artifacts are verified on Maven Central."
@@ -211,9 +214,11 @@ jobs:
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: |
+          # No -Dgpg.passphrase here: that user property is deprecated by maven-gpg-plugin
+          # ("may leak sensitive information"). The plugin already reads the passphrase from
+          # the MAVEN_GPG_PASSPHRASE env var above (its passphraseEnvName default) instead.
           ./mvnw -B -ntp -Prelease clean deploy \
-            -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}" \
-            -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"
+            -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}"
 
       - name: Wait for Maven Central availability
         if: env.CENTRAL_AUTO_PUBLISH == 'true'
