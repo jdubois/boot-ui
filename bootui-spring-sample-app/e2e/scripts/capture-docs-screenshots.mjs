@@ -33,7 +33,8 @@ const quarkusUnavailablePanels = new Set([
   'http-sessions',
   'data',
   'spring-security',
-  'devtools'
+  'devtools',
+  'email'
 ])
 
 const panelOrder = [
@@ -74,6 +75,7 @@ const panelOrder = [
   ['exceptions', 'Exceptions'],
   ['http-exchanges', 'HTTP Exchanges'],
   ['http-probe', 'HTTP Probe'],
+  ['email', 'Email'],
   ['architecture', 'Architecture'],
   ['rest-api', 'REST API'],
   ['mcp-server', 'MCP Server'],
@@ -2520,6 +2522,45 @@ const httpExchanges = [
   httpExchange('ex-3', 'GET', '/admin', null, 403, 12, 0, null, [{name: 'cookie', values: [], masked: true}])
 ]
 
+const emailMessages = [
+  {
+    id: 'email-1',
+    timestamp: nowMillis - 4 * 60 * 1000,
+    from: 'orders@bootui-sample.example',
+    to: ['customer@example.com'],
+    cc: [],
+    bcc: [],
+    subject: 'Your order has shipped',
+    textBody: 'Hi there,\n\nYour order #1042 has shipped and is on its way.\n\nThanks for shopping with us!',
+    htmlBody:
+      '<p>Hi there,</p><p>Your order <strong>#1042</strong> has shipped and is on its way.</p><p>Thanks for shopping with us!</p>',
+    attachments: [{filename: 'invoice-10042.pdf', contentType: 'application/pdf', sizeBytes: 48213}],
+    sent: true
+  },
+  {
+    id: 'email-2',
+    timestamp: nowMillis - 32 * 60 * 1000,
+    from: 'noreply@bootui-sample.example',
+    to: ['new.user@example.com'],
+    cc: [],
+    bcc: [],
+    subject: 'Welcome to BootUI Sample',
+    textBody: 'Welcome! Confirm your account to get started.',
+    htmlBody: '<p>Welcome! Confirm your account to get started.</p>',
+    attachments: [],
+    sent: true
+  }
+]
+
+const email = {
+  available: true,
+  unavailableReason: null,
+  devTrapEnabled: true,
+  maxEntries: 100,
+  total: emailMessages.length,
+  messages: emailMessages
+}
+
 const copilotSessionId = 'session-bootui-2026-001'
 const copilotSession2Id = 'session-bootui-2026-002'
 
@@ -3367,6 +3408,16 @@ const screenshots = [
       await page.getByText('200 OK').waitFor()
     }
   ],
+  [
+    'email',
+    'Email',
+    'bootui-email.webp',
+    async (page) => {
+      await page.getByText('Your order has shipped').waitFor()
+      await page.getByRole('button', {name: 'View'}).first().click()
+      await page.getByText('HTML preview').waitFor()
+    }
+  ],
   ['architecture', 'Architecture', 'bootui-architecture.webp', waitForText('Packages should be free of cycles')],
   ['rest-api', 'REST API', 'bootui-rest-api.webp', waitForText("Don't expose JPA entities in responses")],
   ['spring', 'Spring', 'bootui-spring.webp', waitForText('Prefer RestClient over RestTemplate')],
@@ -3959,6 +4010,7 @@ async function handleApiRoute(route) {
         unavailableReason: null
       })
     )
+  if (endpoint === 'email') return fulfillJson(route, email)
   if (endpoint === 'vulnerabilities') return fulfillJson(route, dependencies)
   if (endpoint === 'vulnerabilities/scan') return fulfillJson(route, dependencies)
   if (endpoint === 'pentesting') return fulfillJson(route, pentesting)

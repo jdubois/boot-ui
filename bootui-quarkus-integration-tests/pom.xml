@@ -34,6 +34,7 @@
         <module>scheduler</module>
         <module>security</module>
         <module>cache</module>
+        <module>email</module>
         <module>flyway</module>
         <module>liquibase</module>
         <module>datasource</module>

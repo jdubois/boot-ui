@@ -238,7 +238,7 @@ class QuarkusPanelAccessFilterTest {
             Set.of(BootUiPanels.HTTP_SESSIONS, BootUiPanels.GRAALVM, BootUiPanels.DEVTOOLS, BootUiPanels.CRAC);
 
     /** Action-capable in the shared registry (Spring has a write path), but Quarkus has none yet. */
-    private static final Set<String> NO_WRITE_PATH_ON_QUARKUS_YET = Set.of(BootUiPanels.CONFIG);
+    private static final Set<String> NO_WRITE_PATH_ON_QUARKUS_YET = Set.of(BootUiPanels.CONFIG, BootUiPanels.EMAIL);
 
     /**
      * Action-capable in the shared registry with a Spring implementation, but Quarkus support is planned

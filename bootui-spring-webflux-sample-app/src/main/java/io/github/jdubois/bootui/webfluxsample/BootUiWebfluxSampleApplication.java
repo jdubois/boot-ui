@@ -8,9 +8,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 /**
  * Reference Spring Boot 4 WebFlux (reactive, Netty) application used to exercise the BootUI reactive
  * adapter. Deliberately minimal: a couple of {@code Mono}/{@code Flux} REST endpoints backed by blocking
- * JDBC (off the event loop), a {@code @Scheduled} task, and a {@code @Cacheable} service - just enough to
- * light up the Scheduled Tasks, Cache, Database Connection Pools, Flyway, and Liquibase panels alongside
- * the panels that need no application-specific data at all.
+ * JDBC (off the event loop), a {@code @Scheduled} task, a {@code @Cacheable} service, and a couple of
+ * dev-trapped sample emails - just enough to light up the Scheduled Tasks, Cache, Database Connection
+ * Pools, Flyway, Liquibase, and Email panels alongside the panels that need no application-specific data
+ * at all.
  *
  * <p>Deliberately does NOT add Spring Security: BootUI's Spring Security advisor and its own
  * permit-all {@code SecurityWebFilterChain} binding are not yet ported to WebFlux (see

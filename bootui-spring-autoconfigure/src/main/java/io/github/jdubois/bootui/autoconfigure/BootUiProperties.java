@@ -136,6 +136,10 @@ public class BootUiProperties {
      */
     private RestClientTrace restClientTrace = new RestClientTrace();
     /**
+     * Kafka message capture settings, feeding the Live Activity stream's {@code MESSAGING} entries.
+     */
+    private Kafka kafka = new Kafka();
+    /**
      * HTTP Sessions panel settings.
      */
     private HttpSessions httpSessions = new HttpSessions();
@@ -171,6 +175,10 @@ public class BootUiProperties {
      * Live Activity panel settings (merged activity stream and per-request profiler).
      */
     private Activity activity = new Activity();
+    /**
+     * Email Viewer panel settings (captured outgoing mail).
+     */
+    private Email email = new Email();
     /**
      * Free-on-idle memory reclamation settings.
      */
@@ -409,6 +417,14 @@ public class BootUiProperties {
         this.restClientTrace = restClientTrace == null ? new RestClientTrace() : restClientTrace;
     }
 
+    public Kafka getKafka() {
+        return kafka;
+    }
+
+    public void setKafka(Kafka kafka) {
+        this.kafka = kafka == null ? new Kafka() : kafka;
+    }
+
     public HttpSessions getHttpSessions() {
         return httpSessions;
     }
@@ -479,6 +495,14 @@ public class BootUiProperties {
 
     public void setActivity(Activity activity) {
         this.activity = activity == null ? new Activity() : activity;
+    }
+
+    public Email getEmail() {
+        return email;
+    }
+
+    public void setEmail(Email email) {
+        this.email = email == null ? new Email() : email;
     }
 
     public FreeOnIdle getFreeOnIdle() {
@@ -563,12 +587,42 @@ public class BootUiProperties {
          */
         private boolean clearEnabled = true;
 
+        /**
+         * Whether BootUI wraps {@code CacheManager} beans to capture hit/miss/put/evict/clear accesses
+         * into the Live Activity panel's {@code CACHE} event type. Cache keys are always hashed, never
+         * recorded raw, regardless of value exposure. When {@code false}, no {@code CacheManager} is
+         * wrapped and cache accesses never appear in Live Activity.
+         */
+        private boolean activityCaptureEnabled = true;
+
+        /**
+         * Maximum number of recent cache accesses retained in the in-memory ring buffer feeding Live
+         * Activity.
+         */
+        private int activityMaxEvents = 500;
+
         public boolean isClearEnabled() {
             return clearEnabled;
         }
 
         public void setClearEnabled(boolean clearEnabled) {
             this.clearEnabled = clearEnabled;
+        }
+
+        public boolean isActivityCaptureEnabled() {
+            return activityCaptureEnabled;
+        }
+
+        public void setActivityCaptureEnabled(boolean activityCaptureEnabled) {
+            this.activityCaptureEnabled = activityCaptureEnabled;
+        }
+
+        public int getActivityMaxEvents() {
+            return activityMaxEvents;
+        }
+
+        public void setActivityMaxEvents(int activityMaxEvents) {
+            this.activityMaxEvents = activityMaxEvents;
         }
     }
 
@@ -1203,6 +1257,69 @@ public class BootUiProperties {
         }
     }
 
+    public static class Kafka {
+
+        /**
+         * Whether BootUI captures {@code KafkaTemplate} sends and {@code @KafkaListener} deliveries
+         * into the Live Activity stream as {@code MESSAGING} entries. When {@code false}, no
+         * {@code KafkaTemplate}/listener container factory bean is post-processed. Only takes effect
+         * when {@code spring-kafka} is on the classpath.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Whether the message key is retained alongside each captured entry (truncated to {@link
+         * #maxKeyLength}). On by default since a Kafka key is typically a correlation/partitioning id
+         * rather than a secret, but this lets an application disable it when its keys do carry sensitive
+         * data. The message value/payload is never captured at all, regardless of this setting: unlike a
+         * SQL statement or a config value, it is an arbitrary, potentially large application payload
+         * with no generic masking strategy.
+         */
+        private boolean captureKey = true;
+
+        /**
+         * Maximum number of captured messages retained in the in-memory ring buffer.
+         */
+        private int maxEntries = 200;
+
+        /**
+         * Maximum retained length of a captured message key; longer keys are truncated.
+         */
+        private int maxKeyLength = 200;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isCaptureKey() {
+            return captureKey;
+        }
+
+        public void setCaptureKey(boolean captureKey) {
+            this.captureKey = captureKey;
+        }
+
+        public int getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public int getMaxKeyLength() {
+            return maxKeyLength;
+        }
+
+        public void setMaxKeyLength(int maxKeyLength) {
+            this.maxKeyLength = maxKeyLength;
+        }
+    }
+
     public static class HttpSessions {
 
         /**
@@ -1730,6 +1847,12 @@ public class BootUiProperties {
          */
         private ActivityPersistence persistence = new ActivityPersistence();
 
+        /**
+         * Maximum number of recent {@code @Scheduled} task executions retained for the
+         * {@code SCHEDULED_TASK} entries in the activity stream.
+         */
+        private int maxScheduledTaskRuns = 200;
+
         public int getMaxEntries() {
             return maxEntries;
         }
@@ -1760,6 +1883,47 @@ public class BootUiProperties {
 
         public void setPersistence(ActivityPersistence persistence) {
             this.persistence = persistence == null ? new ActivityPersistence() : persistence;
+        }
+
+        public int getMaxScheduledTaskRuns() {
+            return maxScheduledTaskRuns;
+        }
+
+        public void setMaxScheduledTaskRuns(int maxScheduledTaskRuns) {
+            this.maxScheduledTaskRuns = maxScheduledTaskRuns;
+        }
+    }
+
+    /**
+     * Settings for the Email Viewer panel, which intercepts every {@code JavaMailSender.send(...)} call
+     * into a bounded ring buffer before delegating to the real sender (pass-through by default).
+     */
+    public static class Email {
+
+        /** Maximum number of captured messages retained; the oldest is evicted once full. */
+        private int maxEntries = 100;
+
+        /**
+         * When {@code true}, captured messages are recorded but never actually handed to the real mail
+         * transport (like MailDev/GreenMail's dev-trap behavior). Off by default, so BootUI never
+         * silently swallows application mail.
+         */
+        private boolean devTrap = false;
+
+        public int getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public boolean isDevTrap() {
+            return devTrap;
+        }
+
+        public void setDevTrap(boolean devTrap) {
+            this.devTrap = devTrap;
         }
     }
 

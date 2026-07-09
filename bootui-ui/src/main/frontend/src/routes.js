@@ -45,6 +45,7 @@ const Ai = () => import('./views/Ai.vue')
 const Copilot = () => import('./views/Copilot.vue')
 const McpServer = () => import('./views/McpServer.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
+const Email = () => import('./views/Email.vue')
 
 export const groups = {
   overview: 'overview',
@@ -688,6 +689,18 @@ export const routes = [
       title: 'HTTP Probe',
       shortcut: 'hp',
       keywords: ['curl', 'request', 'api test', 'send request', 'http client', 'ping']
+    }
+  },
+  {
+    path: '/email',
+    name: 'email',
+    component: Email,
+    meta: {
+      group: groups.diagnostics,
+      icon: 'bi-envelope',
+      title: 'Email',
+      shortcut: 'em',
+      keywords: ['mail', 'javamailsender', 'outgoing email', 'mail trap', 'dev trap', 'smtp']
     }
   },
   {

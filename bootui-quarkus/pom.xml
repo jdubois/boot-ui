@@ -195,6 +195,49 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus Messaging Kafka extension, compile-only (provided): needed solely to compile the optional
+             Live Activity Kafka capture interceptors (QuarkusKafkaProducerCapture / QuarkusKafkaConsumerCapture),
+             which implement SmallRye Reactive Messaging's OutgoingInterceptor / IncomingInterceptor SPI and read
+             io.smallrye.reactive.messaging.kafka.api Kafka record metadata into the shared KafkaActivityRecorder.
+             provided scope is NOT transitive, so an application that depends on this extension but does not add
+             quarkus-messaging-kafka never gets io.smallrye.reactive.messaging on its classpath, and the
+             capability-gated build step (registerKafkaCapture) excludes the interceptors that would reference them
+             (R2). When an app DOES add quarkus-messaging-kafka, the API is supplied (at the same quarkus-bom-managed
+             version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-messaging-kafka</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Scheduler, compile-only (provided): needed solely to compile the Live Activity
+             scheduled-task-run capture observer (QuarkusScheduledTaskRunRecorder), which observes
+             io.quarkus.scheduler.SuccessfulExecution / FailedExecution CDI events (fired by BaseScheduler
+             after every @Scheduled invocation) into the shared engine ScheduledTaskRunStore. This is a
+             separate runtime import from the existing build-time-only Scheduled Tasks panel
+             (QuarkusScheduledTaskProvider), which deliberately avoids importing io.quarkus.scheduler.* at
+             runtime. provided scope is NOT transitive, so an application that does not add quarkus-scheduler
+             never gets these types, and the capability-gated build step excludes the observer that would
+             reference them (R2). When an app DOES add quarkus-scheduler, the API is supplied (at the same
+             quarkus-bom-managed version) and the observer is registered. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Mailer, compile-only (provided): needed solely to compile the optional Email Viewer capture
+             observer (QuarkusEmailCapture), which observes io.quarkus.mailer.SentMail CDI events into the shared
+             EmailCaptureService. provided scope is NOT transitive, so an application that does not add quarkus-mailer
+             never gets io.quarkus.mailer on its classpath, and the class-presence-gated build step (registerEmail)
+             excludes the observer that would reference it (R2). When an app DOES add quarkus-mailer, the API is
+             supplied (at the same quarkus-bom-managed version) by that extension and the observer is registered. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-mailer</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Unit-test deps (quarkus-bom managed). The runtime module carries a small same-package unit test for
              QuarkusHealthProvider.map(), which needs SmallRye's jakarta.json API + the Parsson implementation —
              both already on the test classpath via the provided smallrye-health dependency above. Keeping the

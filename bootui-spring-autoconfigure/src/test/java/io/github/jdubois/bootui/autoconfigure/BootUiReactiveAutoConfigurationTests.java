@@ -35,6 +35,7 @@ import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -86,6 +87,7 @@ class BootUiReactiveAutoConfigurationTests {
                         .hasSingleBean(BootUiReactiveAutoConfiguration.class)
                         .hasSingleBean(ReactiveLocalhostOnlyFilter.class)
                         .hasSingleBean(ReactivePanelAccessFilter.class)
+                        .hasSingleBean(KafkaActivityRecorder.class)
                         .hasSingleBean(ReactiveBootUiIndexController.class)
                         .hasSingleBean(OverviewController.class)
                         .hasSingleBean(BootUiActivation.class));

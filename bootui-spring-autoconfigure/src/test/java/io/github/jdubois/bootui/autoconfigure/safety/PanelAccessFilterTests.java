@@ -234,6 +234,7 @@ class PanelAccessFilterTests {
         requests.put("rest-client-trace", new ActionRequest("POST", "/bootui/api/rest-client-trace/clear"));
         requests.put("mcp-server", new ActionRequest("POST", "/bootui/api/mcp-server/toggle"));
         requests.put("activity", new ActionRequest("POST", "/bootui/api/activity/use-existing-datasource"));
+        requests.put("email", new ActionRequest("DELETE", "/bootui/api/email"));
         return requests;
     }
 

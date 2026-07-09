@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
@@ -71,7 +72,8 @@ class PanelsControllerTests {
             BootUiPanels.SQL_TRACE,
             BootUiPanels.REST_CLIENT_TRACE,
             BootUiPanels.MCP_SERVER,
-            BootUiPanels.ACTIVITY);
+            BootUiPanels.ACTIVITY,
+            BootUiPanels.EMAIL);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {
@@ -350,10 +352,11 @@ class PanelsControllerTests {
         // GenericReactiveWebApplicationContext is the Spring Boot marker Spring uses for a genuine WebFlux
         // (reactive) ApplicationContext - the same shared PanelsController that BootUiReactiveAutoConfiguration
         // imports unmodified must detect it and (a) report the reactive platform discriminator and (b) mark the
-        // panels that have no faithful reactive equivalent (HTTP Sessions) or are not yet ported (Spring
-        // Security advisor, MCP Server) as unavailable with a WebFlux-specific reason, instead
-        // of relying on incidental classpath presence. Live Activity is ported reactively (it merges
-        // signals already captured by other reactive/shared controllers), so it stays available here too.
+        // panels that have no faithful reactive equivalent (HTTP Sessions), are not yet ported (Spring
+        // Security advisor, MCP Server), or are servlet-only by design (REST Client Trace) as unavailable with
+        // a WebFlux-specific reason, instead of relying on incidental classpath presence. Live Activity is
+        // ported reactively (it merges signals already captured by other reactive/shared controllers), so it
+        // stays available here too.
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             context.refresh();
             PanelsController controller =
@@ -377,8 +380,42 @@ class PanelsControllerTests {
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.MCP_SERVER) + ".unavailableReason")
                             .value(startsWith("Not yet ported for Spring WebFlux")))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".unavailableReason")
+                            .value("REST Client Trace is only available on the Spring MVC (servlet) adapter"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.ACTIVITY) + ".available")
                             .value(true));
+        }
+    }
+
+    @Test
+    void restClientTraceStaysUnavailableUnderWebFluxEvenWithRecorderBeanPresent() throws Exception {
+        // RestClientTraceBackendConfiguration deliberately declares the RestClientTraceRecorder bean in shared
+        // engine wiring (BootUiEngineConfiguration) so both the servlet BootUiAutoConfiguration and reactive
+        // BootUiReactiveAutoConfiguration reuse the exact same instance for Live Activity capture - so on
+        // WebFlux, beanPresent(RestClientTraceRecorder.class) alone is always true and cannot be used to gate
+        // this panel's availability. Unlike SECURITY (which relies on an incidental type mismatch between the
+        // servlet/reactive Spring Security filter beans), REST_CLIENT_TRACE needs and has an explicit
+        // !isReactive() guard: this test proves the panel still reports unavailable even when a real recorder
+        // bean is registered, so the dedicated REST Client Trace panel (servlet-only SseEmitter controller)
+        // never lights up a dead link on WebFlux.
+        try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
+            context.registerBean(
+                    "bootUiRestClientTraceRecorder",
+                    RestClientTraceRecorder.class,
+                    () -> new RestClientTraceRecorder(true, true, true, true, 100, 1000L, 200, 200, 5));
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties());
+            MockMvc mvc = standaloneSetup(controller).build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".unavailableReason")
+                            .value("REST Client Trace is only available on the Spring MVC (servlet) adapter"));
         }
     }
 

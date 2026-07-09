@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.mcp.McpServerController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
@@ -259,6 +260,7 @@ class BootUiAutoConfigurationTests {
                             GraalVmController.class,
                             CracController.class,
                             LiveActivityController.class,
+                            EmailController.class,
                             SqlTraceController.class,
                             RestClientTraceController.class,
                             HealthController.class,

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
@@ -353,8 +354,12 @@ class LiveActivityControllerTests {
                 empty(ExceptionsController.class),
                 empty(SecurityLogsController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 empty(RequestCorrelationRegistry.class),
                 empty(SecurityEventCorrelationRegistry.class),
+                empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
+                empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
                 properties);
         return service.report(type, severity, since, limit);
     }
@@ -456,11 +461,16 @@ class LiveActivityControllerTests {
                 empty(SecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 recorder,
                 empty(RestClientTraceRecorder.class),
                 exceptionStore,
                 empty(RequestCorrelationRegistry.class),
                 empty(SecurityEventCorrelationRegistry.class),
+                empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
+                empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.email.EmailCaptureService.class),
                 activityStore,
                 persistenceSettings,
                 dataSourceProvider,
@@ -477,11 +487,16 @@ class LiveActivityControllerTests {
                 empty(SecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
                 empty(SqlTraceRecorder.class),
                 restClientTraceRecorder,
                 empty(ExceptionStore.class),
                 empty(RequestCorrelationRegistry.class),
                 empty(SecurityEventCorrelationRegistry.class),
+                empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
+                empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.email.EmailCaptureService.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 empty(DataSource.class),

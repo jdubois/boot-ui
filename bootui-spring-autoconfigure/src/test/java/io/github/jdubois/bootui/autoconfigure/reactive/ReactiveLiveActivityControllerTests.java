@@ -8,12 +8,15 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
+import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
@@ -26,9 +29,13 @@ import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import java.time.Instant;
@@ -279,9 +286,14 @@ class ReactiveLiveActivityControllerTests {
                 empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 provider(exceptionStore),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -306,6 +318,72 @@ class ReactiveLiveActivityControllerTests {
     }
 
     @Test
+    void mergedReportIncludesCacheEventsWhenRecorderPresent() {
+        CacheActivityRecorder cacheRecorder = new CacheActivityRecorder(true, 10);
+        cacheRecorder.recordMiss("cacheManager", "products", "product-1");
+        BootUiProperties properties = new BootUiProperties();
+
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                provider(cacheRecorder),
+                empty(KafkaActivityRecorder.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        LiveActivityReport report = controller.mergedReport(0);
+
+        assertThat(report.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.type()).isEqualTo("CACHE"));
+        assertThat(report.sources()).contains("cache");
+    }
+
+    @Test
+    void mergedReportIncludesScheduledTaskEntriesWhenStoreIsPresent() {
+        ScheduledTaskRunStore scheduledTaskStore = new ScheduledTaskRunStore(10);
+        scheduledTaskStore.record("com.example.Job#run", 1_000L, 25L, true, null, null, "worker-1");
+        BootUiProperties properties = new BootUiProperties();
+
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                provider(scheduledTaskStore),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        LiveActivityReport report = controller.mergedReport(0);
+
+        assertThat(report.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.type()).isEqualTo("SCHEDULED_TASK"));
+        assertThat(report.sources()).contains("scheduled-tasks");
+    }
+
+    @Test
     void mergedReportOmitsRequestsWhenHttpExchangesPanelIsDisabled() {
         HttpExchangesController httpExchanges = mock(HttpExchangesController.class);
         when(httpExchanges.exchanges(null, null, null, null, null))
@@ -325,9 +403,14 @@ class ReactiveLiveActivityControllerTests {
                 empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -350,9 +433,14 @@ class ReactiveLiveActivityControllerTests {
                 empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 provider(exceptionStore),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -375,9 +463,14 @@ class ReactiveLiveActivityControllerTests {
                 empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 provider(securityLogs),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -418,9 +511,14 @@ class ReactiveLiveActivityControllerTests {
                 provider(recorder),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -440,6 +538,85 @@ class ReactiveLiveActivityControllerTests {
     }
 
     @Test
+    void mergedReportIncludesKafkaMessagesWhenRecorderPresent() {
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 50);
+        kafka.recordProduce("orders", 0, "order-1", 1L, true, null);
+
+        BootUiProperties properties = new BootUiProperties();
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                provider(kafka),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        assertThat(controller.mergedReport(0).entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.type()).isEqualTo("MESSAGING");
+            assertThat(entry.detail()).contains(hashedKey("order-1"));
+            assertThat(entry.detail()).doesNotContain("order-1");
+        });
+    }
+
+    @Test
+    void mergedReportIncludesEmailMessagesWhenAvailable() {
+        EmailController email = mock(EmailController.class);
+        EmailMessageDto message = new EmailMessageDto(
+                "email-1",
+                1_000L,
+                "noreply@example.com",
+                List.of("user@example.com"),
+                List.of(),
+                List.of(),
+                "Welcome",
+                "Hello",
+                null,
+                List.of(),
+                true,
+                null,
+                "worker-1");
+        when(email.list()).thenReturn(new EmailsReport(true, null, false, 200, 1, List.of(message)));
+        BootUiProperties properties = new BootUiProperties();
+
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                provider(email),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        LiveActivityReport report = controller.mergedReport(0);
+
+        assertThat(report.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.type()).isEqualTo("MAIL"));
+        assertThat(report.sources()).contains("email");
+    }
+
+    @Test
     void mergedReportSkipsHealthStatusWhenHealthPanelIsDisabled() {
         HealthController health = mock(HealthController.class);
         BootUiProperties properties = new BootUiProperties();
@@ -450,9 +627,14 @@ class ReactiveLiveActivityControllerTests {
                 empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 provider(health),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -475,9 +657,14 @@ class ReactiveLiveActivityControllerTests {
                 empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -507,9 +694,14 @@ class ReactiveLiveActivityControllerTests {
                 empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -538,9 +730,14 @@ class ReactiveLiveActivityControllerTests {
                 empty(RestClientTraceRecorder.class),
                 empty(DataSource.class),
                 empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 provider(traces),
                 empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
                 properties,
@@ -666,9 +863,14 @@ class ReactiveLiveActivityControllerTests {
                 restClientTraceRecorder,
                 dataSourceProvider,
                 exceptionStore,
+                empty(ScheduledTaskRunStore.class),
                 empty(ReactiveSecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
                 activityStore,
                 persistenceSettings,
                 properties,
@@ -687,5 +889,11 @@ class ReactiveLiveActivityControllerTests {
         ObjectProvider<T> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(value);
         return provider;
+    }
+
+    private static String hashedKey(String key) {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
+        recorder.recordProduce("orders", 0, key, 0L, true, null);
+        return recorder.recent().get(0).key();
     }
 }

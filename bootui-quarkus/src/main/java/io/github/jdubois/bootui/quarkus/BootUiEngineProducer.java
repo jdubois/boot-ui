@@ -12,6 +12,8 @@ import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
+import io.github.jdubois.bootui.engine.email.EmailStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
@@ -24,6 +26,7 @@ import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
@@ -36,6 +39,7 @@ import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
@@ -62,7 +66,9 @@ import io.github.jdubois.bootui.spi.FlywayProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LiquibaseProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.quarkus.runtime.LaunchMode;
 import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.AmbiguousResolutionException;
@@ -188,6 +194,56 @@ public class BootUiEngineProducer {
         int capacity = config.getOptionalValue("bootui.security-logs.max-logs", Integer.class)
                 .orElse(500);
         return new SecurityEventBuffer(capacity);
+    }
+
+    /**
+     * The Quarkus-only scheduled-task-run ring buffer fed by {@code QuarkusScheduledTaskRunRecorder}
+     * (the CDI {@code SuccessfulExecution}/{@code FailedExecution} observer — see {@code docs/PLAN.md}
+     * §3.4). Always produced, mirroring the always-produced pattern the other optional-dependency
+     * buffers use: when {@code quarkus-scheduler} is absent (or the capability-gated observer is
+     * excluded), nothing ever calls {@link ScheduledTaskRunStore#record}, so the Live Activity panel
+     * simply renders no {@code SCHEDULED_TASK} entries. Capacity bounds memory
+     * ({@code bootui.activity.max-scheduled-task-runs}, default 200, matching the Spring adapter's
+     * {@code BootUiProperties.Activity.getMaxScheduledTaskRuns()} default) so the same config key works
+     * identically on both adapters.
+     */
+    @Produces
+    @Singleton
+    public ScheduledTaskRunStore scheduledTaskRunStore(Config config) {
+        int maxRuns = config.getOptionalValue("bootui.activity.max-scheduled-task-runs", Integer.class)
+                .orElse(200);
+        return new ScheduledTaskRunStore(maxRuns);
+    }
+
+    /**
+     * The framework-neutral Email Viewer capture service, always produced (like the engine
+     * {@code CacheService}) so {@code GET /bootui/api/email} never fails even when {@code quarkus-mailer} is
+     * absent; the resource then reports the panel unavailable via {@link QuarkusPanelAvailability#EMAIL_PRESENT_KEY}.
+     * When {@code quarkus-mailer} <em>is</em> present, {@code QuarkusEmailCapture} (registered by the
+     * deployment {@code registerEmail} build step) observes {@code io.quarkus.mailer.SentMail} and feeds this
+     * service's {@link EmailStore}. Capacity bounds memory ({@code bootui.email.max-entries}, default 100,
+     * matching the Spring panel cap).
+     *
+     * <p>Unlike Spring's {@code bootui.email.dev-trap} (which intercepts <em>before</em> the send and can block
+     * it), Quarkus fires {@code SentMail} <em>after</em> the send, so BootUI cannot trap the message. Instead the
+     * service's dev-trap flag is mapped to the effective {@code quarkus.mailer.mock} value (which defaults to
+     * {@code true} in dev/test — the only launch modes where the console is wired): mock mode records the message
+     * without handing it to a real transport, so {@code sent=false} is the honest report, exactly matching what
+     * the engine's {@code sent=!devTrapEnabled} already computes.</p>
+     */
+    @Produces
+    @Singleton
+    public EmailCaptureService emailCaptureService(
+            QuarkusExposurePolicy exposure, Config config, Instance<TraceIdProvider> traceIdProvider) {
+        int maxEntries = config.getOptionalValue("bootui.email.max-entries", Integer.class)
+                .orElse(100);
+        boolean mock = config.getOptionalValue("quarkus.mailer.mock", Boolean.class)
+                .orElseGet(() -> LaunchMode.current().isDevOrTest());
+        EmailCaptureService service = new EmailCaptureService(new EmailStore(maxEntries), exposure, mock);
+        if (traceIdProvider.isResolvable()) {
+            service.setTraceIdProvider(traceIdProvider.get());
+        }
+        return service;
     }
 
     /**
@@ -682,6 +738,36 @@ public class BootUiEngineProducer {
         CacheProvider provider = cacheProviders.isUnsatisfied() ? null : cacheProviders.get();
         MeterSelfFilter meterFilter = new MeterSelfFilter(selfClassifier);
         return new CacheService(provider, () -> resolveRegistry(registries), meterFilter::shouldIncludeMeter);
+    }
+
+    /**
+     * The Live Activity Kafka capture buffer. Produced <em>unconditionally</em> because
+     * {@link KafkaActivityRecorder} holds no Kafka-client or messaging type of its own (only JDK types):
+     * the {@code io.smallrye.reactive.messaging}-importing capture beans ({@code QuarkusKafkaProducerCapture}
+     * / {@code QuarkusKafkaConsumerCapture}) that feed it live behind the {@code KAFKA} capability gate (R2),
+     * and {@code LiveActivityResource} reads it directly. When {@code quarkus-messaging-kafka} is absent the
+     * capture beans are not wired, so nothing is ever recorded and the recorder simply stays empty —
+     * Live Activity renders no {@code MESSAGING} entries, exactly as on Spring without {@code spring-kafka}.
+     *
+     * <p>The {@code bootui.kafka.*} keys and their defaults (enabled/capture-key {@code true},
+     * max-entries/max-key-length {@code 200}) are kept unified with the Spring adapter's
+     * {@code BootUiProperties.Kafka}, so the same values size and gate capture identically on both
+     * frameworks. Per-panel gating of the Live Activity panel itself is handled by
+     * {@code QuarkusPanelAccessFilter} on the read path (as for every other Quarkus source), so the
+     * recorder gates only on {@code bootui.kafka.enabled}.</p>
+     */
+    @Produces
+    @Singleton
+    public KafkaActivityRecorder kafkaActivityRecorder(Config config) {
+        boolean enabled =
+                config.getOptionalValue("bootui.kafka.enabled", Boolean.class).orElse(true);
+        boolean captureKey = config.getOptionalValue("bootui.kafka.capture-key", Boolean.class)
+                .orElse(true);
+        int maxEntries = config.getOptionalValue("bootui.kafka.max-entries", Integer.class)
+                .orElse(200);
+        int maxKeyLength = config.getOptionalValue("bootui.kafka.max-key-length", Integer.class)
+                .orElse(200);
+        return new KafkaActivityRecorder(enabled, captureKey, maxEntries, maxKeyLength);
     }
 
     /**

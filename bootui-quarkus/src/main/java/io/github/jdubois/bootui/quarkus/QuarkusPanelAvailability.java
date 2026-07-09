@@ -222,6 +222,15 @@ public class QuarkusPanelAvailability {
      */
     public static final String DEV_SERVICES_PRESENT_KEY = "bootui.internal.dev-services-present";
 
+    /**
+     * Runtime-config key carrying the build-time Quarkus Mailer decision. The deployment processor emits it
+     * (default {@code false}) only when {@code io.quarkus.mailer.reactive.ReactiveMailer} is present at runtime
+     * and the launch mode is non-production; this bean reads it back to decide whether the dynamically-available
+     * Email Viewer panel is lit up, mirroring {@link #HIBERNATE_PRESENT_KEY}. (There is no {@code MAILER}
+     * capability, so the processor gates on class presence instead — see {@code BootUiQuarkusProcessor}.)
+     */
+    public static final String EMAIL_PRESENT_KEY = "bootui.internal.email-present";
+
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
     private static final String HIBERNATE_ABSENT =
@@ -251,6 +260,10 @@ public class QuarkusPanelAvailability {
     private static final String DEV_SERVICES_ABSENT =
             "Not available: no Quarkus Dev Services were started. Run in dev/test mode with a Dev Services-backed"
                     + " extension (and Docker/Podman available) so containers are auto-started.";
+
+    private static final String EMAIL_ABSENT =
+            "Not available: this application does not use the Quarkus Mailer. Add the quarkus-mailer extension"
+                    + " to enable the Email Viewer panel.";
 
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
@@ -336,6 +349,8 @@ public class QuarkusPanelAvailability {
 
     private final boolean devServicesPresent;
 
+    private final boolean emailPresent;
+
     private final boolean securityLogsAvailable;
 
     private final List<String> githubAllowedApiHosts;
@@ -363,6 +378,8 @@ public class QuarkusPanelAvailability {
                 .orElse(false);
         this.devServicesPresent =
                 config.getOptionalValue(DEV_SERVICES_PRESENT_KEY, Boolean.class).orElse(false);
+        this.emailPresent =
+                config.getOptionalValue(EMAIL_PRESENT_KEY, Boolean.class).orElse(false);
         boolean securityPresent = config.getOptionalValue(SECURITY_LOGS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
         boolean eventsEnabled = config.getOptionalValue("quarkus.security.events.enabled", Boolean.class)
@@ -440,6 +457,7 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.LIQUIBASE.equals(panelId) && liquibasePresent)
                 || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panelId) && connectionPoolsPresent)
                 || (BootUiPanels.DEV_SERVICES.equals(panelId) && devServicesPresent)
+                || (BootUiPanels.EMAIL.equals(panelId) && emailPresent)
                 || (BootUiPanels.SECURITY_LOGS.equals(panelId) && securityLogsAvailable)
                 || (BootUiPanels.SQL_TRACE.equals(panelId) && connectionPoolsPresent)
                 || (BootUiPanels.PROFILE_DIFF.equals(panelId) && profilesActive)
@@ -470,6 +488,9 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.DEV_SERVICES.equals(panelId)) {
             return DEV_SERVICES_ABSENT;
+        }
+        if (BootUiPanels.EMAIL.equals(panelId)) {
+            return EMAIL_ABSENT;
         }
         if (BootUiPanels.SQL_TRACE.equals(panelId)) {
             return "Not available: no JDBC datasource is on the classpath. Add a Quarkus JDBC datasource"

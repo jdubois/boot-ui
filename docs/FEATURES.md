@@ -59,33 +59,51 @@ the current per-panel list), and the shell chrome is populated by the same `GET 
 ### Live Activity
 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
-application just did, plus a per-request profiler for drilling into any single request. It does not add any new
-instrumentation — instead it reuses BootUI's existing in-memory signal buffers by calling the same controllers that back
-the HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, and Security Logs panels, so every value is already
-masked, self-filtered, and bounded exactly as those panels are.
+application just did, plus a per-request profiler for drilling into any single request. It adds no new instrumentation
+for six of its nine signals — instead it reuses BootUI's existing in-memory signal buffers by calling the same
+controllers that back the HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, Security Logs, and Email panels, so
+every value is already masked, self-filtered, and bounded exactly as those panels are. The seventh signal, cache
+accesses, is captured by a small dedicated recorder (Spring servlet and WebFlux adapters only — see below) that only
+ever stores a hashed cache key, never a raw key or value. The eighth signal, scheduled-task runs, captures each
+`@Scheduled` method *execution* (start, success, failure, duration) on both adapters: Spring taps its own scheduling
+observability hook (no extra proxying), Quarkus observes the CDI `SuccessfulExecution`/`FailedExecution` events its
+scheduler always fires — feeding a bounded in-memory buffer the same way the other sources do. The ninth signal, Kafka
+producer/consumer activity, is described below.
 
-The stream merges five signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), outbound REST client
-calls (`REST_CLIENT`), exceptions (`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a color-coded severity
+The stream merges nine signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
+(`EXCEPTION`), security events (`SECURITY`), scheduled-task runs (`SCHEDULED_TASK`), Kafka producer/consumer activity
+(`MESSAGING`), and captured emails (`MAIL`) on both adapters, plus — on the Spring servlet and WebFlux adapters only —
+outbound REST client calls (`REST_CLIENT`) and cache accesses (`CACHE`). Each row carries a timestamp, a type icon, a
+color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
 latency badge so you can see at a glance *how* slow a request was. A request whose correlated SQL contains a suspected
 N+1 access pattern carries a red **N+1** badge right in the row — the same detection the per-request profiler flags in
 detail, computed with the identical threshold/logic so the two views never disagree — so a developer scanning the feed
-can spot a suspect request without opening every drawer. Adjacent identical entries are collapsed with an
+can spot a suspect request without opening every drawer. A `CACHE` row summarizes the operation and cache name (e.g.
+"MISS orders"), with a `WARN` severity for a miss and `OK` for every other operation, and its detail shows only a short
+hashed key (`key a1b2c3…`) — the raw key or value is never captured, even under full value exposure. Adjacent identical
+entries are collapsed with an
 occurrence count to cut noise, and the feed can be narrowed
 by type, severity, a free-text needle (path, status, SQL, or exception class), and an **errors-only** quick toggle — the
 chosen filters are persisted in the browser so they survive a reload. A small **requests-over-time** sparkline above the
 table makes spikes and error bursts (drawn in red) visible at a glance. A KPI strip across the top summarises requests per
-minute, error rate, p50/p95 latency, SQL rate, the slowest recent endpoint, active exception count, health status, and
-heap usage computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`). Several KPI cards are themselves
-launchpads: the slowest-endpoint card opens **HTTP Exchanges** pre-filtered to that endpoint, while the
-active-exceptions, health, and heap-usage cards jump to the **Exceptions**, **Health**, and **Heap Dump** panels
+minute, error rate, p50/p95 latency, SQL rate, (Spring servlet/WebFlux only) outbound REST-call error rate/p95 latency,
+the slowest recent endpoint, active exception count, health status, heap
+usage, (Spring servlet/WebFlux only) the cache hit ratio, and scheduled-task failure count, computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`).
+Several KPI cards are themselves
+launchpads: the outbound-errors card opens **REST Client Trace**, the slowest-endpoint card opens **HTTP Exchanges**
+pre-filtered to that endpoint, while the
+active-exceptions, health, heap-usage, cache-hit-ratio, and scheduled-failures cards jump to the **Exceptions**, **Health**, **Heap Dump**,
+**Cache**, and **Scheduled Tasks** panels
 respectively. Because the merged feed is genuinely event-driven, it refreshes over **Server-Sent Events** instead of
 fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement, REST
-client call, exception, or security event), and the feed can be paused and resumed so a row you are inspecting does not scroll away.
+client call, exception, security event, cache access, scheduled-task run, Kafka message, or captured email), and the
+feed can be paused and resumed so a row you are inspecting does not scroll away.
 When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
-SQL statements, REST client calls, exceptions, and security events that BootUI can pin precisely to a request — by trace id, by the
+SQL statements, REST client calls, exceptions, security events, cache accesses, and emails that BootUI can pin precisely
+to a request — by trace id, by the
 request's serving thread, or by request method and path — are folded into a collapsible group beneath that request row
 (expanded by default), so one click reveals exactly what a single request did, in order. Requests that triggered a
 security event are flagged as **authenticated** — a lock icon plus a gray pill naming the caller's principal — so a
@@ -96,11 +114,13 @@ signal.
 
 Every row is also a launchpad: clicking anywhere on a request row opens its profiler, and each row carries a deep link
 that jumps to the dedicated panel with the originating record pre-filtered — requests open in **HTTP Exchanges**, SQL in
-**SQL Trace**, REST client calls in **REST Client Trace**, and exceptions in **Exceptions**. REST client calls nest
-under their correlated request in the stream using the same trace-id-first, serving-thread-second join described below
-for SQL, but — unlike SQL, exceptions, and security events — are not yet part of the per-request profiler drawer's
-correlated timeline or **Copy profile** export; that correlation, and the N+1-style "chatty" badge, stay scoped to the
-REST Client Trace panel itself for now. The per-request profiler drawer is a Symfony-style view that correlates
+**SQL Trace**, REST client calls in **REST Client Trace**, exceptions in **Exceptions**, cache accesses in **Cache**,
+and scheduled-task runs in **Scheduled Tasks**. REST client calls nest under their correlated request in the stream
+using the same trace-id-first, serving-thread-second join described below for SQL, exactly like cache accesses and
+emails — but, unlike SQL, exceptions, and security events, none of REST client calls, cache accesses, or scheduled-task
+runs are yet part of the per-request profiler drawer's correlated timeline or **Copy profile** export; that
+correlation, and the N+1-style "chatty" badge, stay scoped to the REST Client Trace panel itself for now. The
+per-request profiler drawer is a Symfony-style view that correlates
 that single request's signals using a tiered join that degrades gracefully and never fabricates data: the distributed
 trace is matched by trace id, exceptions are matched by request method, path, and time window — and, when the
 request's serving thread is uniquely known, further disambiguated by that thread so a concurrent identical request
@@ -133,6 +153,21 @@ confirmation-gated and blocked like any other action when the app or panel is re
 sources can be turned off through their existing `bootui.panels.*` toggles (a disabled source simply drops out of the
 stream).
 
+When Kafka support is present, BootUI captures producer/consumer activity into the stream as `MESSAGING` entries. On
+Spring, it wraps every application-owned `KafkaTemplate` (a `ProducerListener`) and `@KafkaListener` container factory
+(a `RecordInterceptor`) — composing with, never replacing, any listener/interceptor the application already configured,
+exactly like `HttpExchangesController`'s repository wrapper. On Quarkus, it hooks SmallRye Reactive Messaging's Kafka
+interceptors. Each entry records topic, partition, offset (for consumed records), a truncated key, direction (`→`/`←`
+for produce/consume), success/failure, and — for consumed records — the consumer group id, a listener identifier, and
+processing duration (a producer send's duration is not exposed by either framework's callback, so it is not tracked).
+That listener identifier is intentionally framework-specific: on Spring it is currently the **listener container
+factory bean name** (the per-`@KafkaListener` id is not exposed at the factory-wide interception point), while on
+Quarkus it is the channel name. **The message value/payload is never captured** — only metadata — since a Kafka payload
+is an arbitrary, potentially large and sensitive application object with no generic masking strategy. Kafka entries are
+top-level in the feed today (not yet nested under a correlated request). Capture is on by default whenever the relevant
+Kafka integration is present and the panel is enabled, and can be tuned or disabled entirely via `bootui.kafka.enabled`,
+`bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length` — see `docs/PROPERTIES.md`.
+
 By default the stream is in-memory only, so history is lost on a restart and the feed can only show as far back as the
 small buffers behind it reach. Setting `bootui.activity.persistence.enabled=true` additionally buffers
 captured entries and flushes them to a SQL database over direct JDBC every `bootui.activity.persistence.flush-interval`
@@ -162,16 +197,18 @@ disk, so a later restart reverts to the in-memory default unless `bootui.activit
 in configuration. If no `DataSource` is present, the button instead links straight to the setup documentation for
 configuring one (a dedicated one, just for Live Activity, or reusing an existing one).
 
-On Quarkus the panel merges the same four signals it did before REST Client Trace existed: HTTP requests (from the same
-Vert.x-fed ring buffer as HTTP Exchanges), SQL trace, exceptions, and security events, alongside JVM heap KPIs — REST
-Client Trace itself is Spring-servlet-only today (see its own section above), so Quarkus has no outbound-call signal to
-merge yet. SQL trace contributes only when a JDBC datasource is
+On Quarkus the panel merges seven signals: HTTP requests (from the same Vert.x-fed ring buffer as HTTP Exchanges), SQL
+trace, exceptions, security events, scheduled-task runs, Kafka producer/consumer activity, and captured emails, alongside
+JVM heap KPIs. Cache accesses and outbound REST-client calls (`REST_CLIENT`) are Spring-servlet/WebFlux-only today (see
+their own sections above) — neither has a Quarkus capture seam yet, so both slots stay empty/unavailable there. SQL trace
+contributes only when a JDBC datasource is
 configured (the recorder is gated on Agroal); when none is present those entries drop out and the report carries a clear
 note. Signal-to-request correlation works by **trace id**: Spring's thread-per-request anchor is unportable on the Vert.x
 event loop (a thread does not map to a single request), so when `quarkus-opentelemetry` is present the adapter stamps the
 active server span's trace id at each capture point — the HTTP filter, the SQL recorder, the exception store, and the CDI
-security-event observer — and the engine nests SQL, exception, and security entries under the request sharing that trace
-id; the OpenTelemetry context propagates across the event-loop→worker hop, so the same trace id is available even for
+security-event observer — and the engine nests SQL, exception, security, and email entries under the request sharing that
+trace id, exactly as on Spring (scheduled-task runs and Kafka activity always stay top-level, as described above); the
+OpenTelemetry context propagates across the event-loop→worker hop, so the same trace id is available even for
 blocking JDBC on a worker thread or a security event fired from a CDI observer. A request whose trace id uniquely matches
 a correlated security event is flagged **authenticated** exactly like Spring, naming the audit event's principal; Quarkus's
 own security layer authenticating the caller (surfaced directly on the captured HTTP exchange) takes precedence over a
@@ -197,28 +234,35 @@ on Quarkus once persistence is switched on. The runtime "Use the existing dataso
 identically on Quarkus: the same engine-level `ActivitySwitchService` backs a thin JAX-RS mirror of Spring's endpoint,
 so the tip, button, and confirmation flow behave the same regardless of adapter.
 
-On Spring Boot WebFlux the panel is available too. HTTP requests, SQL trace, exceptions, and security events were
-already captured reactively; this fix adds the missing outbound REST/WebClient capture by relocating the shared
-`RestClientTraceRecorder` + Spring Boot client customizers into the common engine wiring that both servlet and
-reactive auto-configurations import, so a WebFlux application's own `WebClient` calls are now captured and merged here
-as well. Correlation is **trace-id only** for those REST entries — the same shared-engine rule SQL/exceptions/security
-already use on WebFlux and Quarkus — because Reactor Netty has no thread-per-request model to correlate by (a request
-isn't served start-to-finish on one dedicated worker thread), so the servlet adapter's thread-based/time-window
-correlation tiers do not apply. It is still narrower than on Quarkus in one respect: the HTTP exchange capture shared
-with the servlet adapter does not stamp the active tracing span's id at capture time the way Quarkus's Vert.x filter
-does, so a request only carries a trace id when the inbound call itself propagates one (for example a `traceparent`
-header from an upstream caller), not merely because `micrometer-tracing`/OTLP is configured server-side; SQL,
-exception, security, and now REST-client trace ids fall back to the same SLF4J MDC value the servlet adapter already
-uses, whose propagation across Reactor's event-loop→worker-thread hop for blocking calls is best-effort rather than
-guaranteed. When a shared trace id is present on both sides, matching signals nest under the request exactly as on
-Quarkus; without one, every signal still appears in the feed, just flat/top-level rather than nested per-request. The
-per-request **profiler** drawer is available too, in the same reduced, trace-id-only form as Quarkus: it correlates by
-exact trace id when the request has one, and honestly reports itself unavailable rather than fabricating a partial
-profile when it does not. N+1 detection, its row badge, and call-site capture are computed by the same shared engine
-code as every other adapter, so a WebFlux request that resolves a trace-id correlation gets byte-identical flagging to
-Spring MVC and Quarkus. The optional durable persistence backend and the "Use the existing datasource" hot-switch
-described above work identically on WebFlux too, over the same shared engine machinery. The dedicated REST Client
-Trace panel itself is still not available on WebFlux — only its capture and Live Activity merge are. See
+On Spring Boot WebFlux the panel is available too, merging all nine signals like the servlet adapter does. Seven of
+them needed no new *capture* pipeline at all: HTTP requests, SQL trace, exceptions, security events, scheduled-task
+runs, Kafka producer/consumer activity, and captured emails are each already reactive-safe — their engine beans live
+in the shared `BootUiEngineConfiguration` both the servlet and reactive auto-configurations import — so the WebFlux
+port is purely a merge over those existing sources (see their own sections below). The remaining two needed one each.
+Cache accesses reuse the exact same `CacheActivityRecorder`/`CacheActivityCacheManagerBeanPostProcessor` pair the
+servlet adapter uses — both wired once in that same shared configuration so servlet and WebFlux behave identically —
+rather than a WebFlux-specific implementation. Outbound REST/WebClient calls work the same way: the shared
+`RestClientTraceRecorder` + Spring Boot client customizers live in that common engine wiring too, so a WebFlux
+application's own `WebClient` calls are captured and merged here as well. Correlation is **trace-id only** for cache
+and REST-client entries — the same shared-engine rule SQL/exceptions/security already use on WebFlux and Quarkus —
+because Reactor Netty has no thread-per-request model to correlate by (a request isn't served start-to-finish on one
+dedicated worker thread), so the servlet adapter's thread-based/time-window correlation tiers, including its
+serving-thread fallback for `CACHE` (the same one it uses for `SQL`), do not apply. It is still narrower than on
+Quarkus in one respect: the HTTP exchange capture shared with the servlet adapter does not stamp the active tracing
+span's id at capture time the way Quarkus's Vert.x filter does, so a request only carries a trace id when the inbound
+call itself propagates one (for example a `traceparent` header from an upstream caller), not merely because
+`micrometer-tracing`/OTLP is configured server-side; SQL, exception, security, cache, and REST-client trace ids all
+fall back to the same SLF4J MDC value the servlet adapter already uses, whose propagation across Reactor's
+event-loop→worker-thread hop for blocking calls is best-effort rather than guaranteed. When a shared trace id is
+present on both sides, matching signals nest under the request exactly as on Quarkus; without one, every signal
+still appears in the feed, just flat/top-level rather than nested per-request. The per-request **profiler** drawer is
+available too, in the same reduced, trace-id-only form as Quarkus: it correlates by exact trace id when the request
+has one, and honestly reports itself unavailable rather than fabricating a partial profile when it does not. N+1
+detection, its row badge, and call-site capture are computed by the same shared engine code as every other adapter,
+so a WebFlux request that resolves a trace-id correlation gets byte-identical flagging to Spring MVC and Quarkus. The
+optional durable persistence backend and the "Use the existing datasource" hot-switch described above work
+identically on WebFlux too, over the same shared engine machinery. The dedicated REST Client Trace panel itself is
+still not available on WebFlux — only its capture and Live Activity merge are. See
 [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full detail.
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
@@ -1247,6 +1291,36 @@ server is up). As a state-changing action it is gated by the same localhost-only
 
 ![BootUI HTTP Probe panel](./images/bootui-http-probe.webp)
 
+### Email
+
+The Email panel is BootUI's mail-watcher equivalent of Laravel Telescope: it intercepts the application's
+`JavaMailSender` so every outgoing `send(...)` call is recorded into a bounded ring buffer *before* delegating to the
+real sender — pass-through by default, so application behaviour is unchanged. Captured messages list newest-first with
+sender, recipients, subject, and attachment count; opening a message shows the parsed `from`/`to`/`cc`/`bcc`, an HTML
+preview rendered in a sandboxed iframe (scripts and same-origin access are both disabled), the plain-text alternative,
+and attachment metadata (name/type/size, never contents). Each message can be downloaded as a `.eml` file, and the whole
+buffer can be cleared.
+
+Recipients, subjects, and bodies are sensitive, so they are masked by default and only revealed under
+`bootui.expose-values=FULL`, exactly like every other BootUI panel. An optional, explicitly opt-in **dev-trap** mode
+(`bootui.email.dev-trap=true`) records messages without actually sending them, similar to MailDev/GreenMail; it is off
+by default so BootUI never silently swallows application mail. The panel is available only when a `JavaMailSender` bean
+is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear unavailable reason.
+
+On Quarkus the panel is identical, running over the same shared engine `EmailCaptureService` and the same
+`/bootui/api/email` contract (list/detail/`.eml`/clear, with the `.eml` bytes produced by the shared engine renderer so
+they match Spring's). Because Quarkus's blocking/reactive/Mutiny `Mailer` beans all funnel through one internal mailer
+that fires a CDI `SentMail` event after every successful send, a single `@Observes SentMail` observer captures every
+send style — the Quarkus analogue of Spring's `CapturingJavaMailSender` decorator. The panel is available when
+`quarkus-mailer` is on the classpath (and dark in production); otherwise it reports a clear unavailable reason. One
+behaviour differs by necessity: because the event fires *after* the send, BootUI cannot trap a message the way Spring's
+dev-trap does, so on Quarkus the recorded-but-not-sent distinction reflects the framework's own mock-mail mode
+(`quarkus.mailer.mock=true`, the default in dev and test) rather than a BootUI trap — the panel labels such messages
+**mock** instead of **dev-trap**. Attachment sizes are shown as unknown on Quarkus, since the sent-attachment API
+exposes none.
+
+![BootUI Email panel](./images/bootui-email.webp)
+
 ### REST Client Trace
 
 The REST Client Trace panel shows outbound HTTP calls your application recently made through Spring's own REST clients,
@@ -1335,8 +1409,8 @@ groups:
   runs and returns the report DTO.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`. `get_live_activity` returns the correlated feed
-  the [Live Activity panel](#live-activity) shows (HTTP requests, SQL statements, exceptions, and security events
-  grouped by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or
+  the [Live Activity panel](#live-activity) shows (HTTP requests, SQL statements, exceptions, security events,
+  scheduled-task runs, and — Spring only — cache accesses, grouped by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or
   `get_live_activity`) and returns that exception group's full stack trace, causes, and individual occurrences.
 - **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`.
 

@@ -7,6 +7,8 @@ import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
@@ -34,6 +36,7 @@ import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -220,6 +223,7 @@ import org.springframework.web.util.DisconnectedClientHelper;
     ReactiveSqlTraceController.class,
     ReactiveSecurityLogsController.class,
     ReactiveLiveActivityController.class,
+    EmailController.class,
     ReactiveLogTailController.class,
     ReactiveCopilotController.class,
     ReactiveClaudeCodeController.class,
@@ -275,6 +279,7 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveSqlTraceController.class.getName(),
             ReactiveSecurityLogsController.class.getName(),
             ReactiveLiveActivityController.class.getName(),
+            EmailController.class.getName(),
             ReactiveCopilotController.class.getName(),
             ReactiveClaudeCodeController.class.getName());
 
@@ -487,6 +492,20 @@ public class BootUiReactiveAutoConfiguration {
     static SqlTraceDataSourceBeanPostProcessor bootUiSqlTraceDataSourceBeanPostProcessor(
             ObjectProvider<SqlTraceRecorder> recorderProvider) {
         return new SqlTraceDataSourceBeanPostProcessor(recorderProvider);
+    }
+
+    /**
+     * Duplicates {@link BootUiAutoConfiguration#bootUiMailSenderBeanPostProcessor}: wraps
+     * {@code JavaMailSender} beans directly, no stack-specific dependency. Guarded by
+     * {@code @ConditionalOnClass} because {@code JavaMailSender} comes from the optional
+     * {@code spring-boot-starter-mail} dependency.
+     */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+            name = "org.springframework.mail.javamail.JavaMailSender")
+    static BootUiMailSenderBeanPostProcessor bootUiMailSenderBeanPostProcessor(
+            ObjectProvider<io.github.jdubois.bootui.engine.email.EmailCaptureService> captureServiceProvider) {
+        return new BootUiMailSenderBeanPostProcessor(captureServiceProvider);
     }
 
     /**
@@ -714,17 +733,21 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<RestClientTraceRecorder> restClientTraceRecorders,
                 ObjectProvider<HttpExchangesController> httpExchangesControllers,
                 ObjectProvider<ReactiveBootUiExceptionHandler> exceptionHandlers,
-                ObjectProvider<ReactiveSecurityLogsController> securityLogsControllers) {
+                ObjectProvider<ReactiveSecurityLogsController> securityLogsControllers,
+                ObjectProvider<CacheActivityRecorder> cacheActivityRecorders,
+                ObjectProvider<io.github.jdubois.bootui.engine.email.EmailCaptureService> emailCaptureServices) {
             return () -> {
                 sqlTraceRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
                 restClientTraceRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
                 httpExchangesControllers.ifAvailable(
                         controller -> controller.setTraceRegistry(httpExchangeTraceRegistry));
                 exceptionHandlers.ifAvailable(handler -> handler.setTraceIdProvider(traceIdProvider));
+                emailCaptureServices.ifAvailable(service -> service.setTraceIdProvider(traceIdProvider));
                 securityLogsControllers.ifAvailable(controller -> {
                     controller.setTraceIdProvider(traceIdProvider);
                     controller.setTraceRegistry(securityEventTraceRegistry);
                 });
+                cacheActivityRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
             };
         }
     }

@@ -12,7 +12,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.jar.JarEntry;
@@ -47,6 +53,12 @@ final class GraalVmDependencyScanner {
     private static final String MAVEN_POM_PREFIX = "META-INF/maven/";
     private static final String NESTED_LIBRARY_PREFIX = "BOOT-INF/lib/";
     private static final int MAX_DEPENDENCIES = 500;
+    /**
+     * Bounded fan-out for the repository-coverage network lookups below, matching the concurrency
+     * {@code OsvVulnerabilityScanner} uses for its own per-package OSV.dev fetches.
+     */
+    private static final int REPOSITORY_LOOKUP_CONCURRENCY = 10;
+
     private static final String REPOSITORY_BROWSER_BASE_URL =
             "https://github.com/oracle/graalvm-reachability-metadata/tree/master/metadata/";
     private static final String REPOSITORY_BROWSER_FILE_BASE_URL =
@@ -182,41 +194,122 @@ final class GraalVmDependencyScanner {
     }
 
     private List<GraalVmDependencyDto> applyRepositoryCoverage(List<InspectedDependency> inspected) {
-        List<GraalVmDependencyDto> dependencies = new ArrayList<>(inspected.size());
-        Map<Coordinates, RepositoryCoverage> cache = new LinkedHashMap<>();
-        int index = 0;
-        for (InspectedDependency dependency : inspected) {
-            if (cancellationRequested.get()) {
-                break;
+        if (!repositoryLookupEnabled) {
+            List<GraalVmDependencyDto> dependencies = new ArrayList<>(inspected.size());
+            for (InspectedDependency dependency : inspected) {
+                dependencies.add(dependency.toDto(
+                        Optional.empty(), "Oracle reachability metadata repository lookup is disabled."));
             }
-            index++;
-            progress.set(new Progress(
-                    true,
-                    "dependencies.repository",
-                    index,
-                    inspected.size(),
-                    "Checking reachability metadata repository coverage (" + index + " of " + inspected.size() + ")."));
-            Optional<RepositoryCoverage> coverage = Optional.empty();
-            String repositoryNote;
+            return dependencies;
+        }
+
+        // Phase 1 (sequential, no I/O): assign every distinct coordinate a lookup slot, in
+        // first-encounter order, so the configured bootui.graalvm.max-repository-lookups cap stays a
+        // deterministic function of classpath order regardless of how the concurrent fetches below
+        // complete.
+        Map<Coordinates, Boolean> lookupSlots = new LinkedHashMap<>();
+        for (InspectedDependency dependency : inspected) {
             Coordinates coordinates = dependency.coordinates();
-            if (!repositoryLookupEnabled) {
-                repositoryNote = "Oracle reachability metadata repository lookup is disabled.";
-            } else if (coordinates != null && coordinates.isComplete()) {
-                if (!cache.containsKey(coordinates)) {
-                    cache.put(
-                            coordinates,
-                            cache.size() >= maxRepositoryLookups
-                                    ? RepositoryCoverage.unavailable("repository lookup limit reached")
-                                    : toCoverage(coordinates, repository.fetch(coordinates)));
-                }
-                coverage = Optional.of(cache.get(coordinates));
-                repositoryNote = coverage.get().note(coordinates);
+            if (coordinates != null && coordinates.isComplete()) {
+                lookupSlots.putIfAbsent(coordinates, lookupSlots.size() < maxRepositoryLookups);
+            }
+        }
+        List<Coordinates> toFetch = lookupSlots.entrySet().stream()
+                .filter(Map.Entry::getValue)
+                .map(Map.Entry::getKey)
+                .toList();
+
+        // Phase 2: fetch coverage for every in-budget coordinate concurrently. Each lookup is one
+        // bounded HTTP GET to a different repository path (see HttpReachabilityMetadataRepository), so
+        // running them one at a time makes the scan's wall-clock time scale linearly with the
+        // classpath's dependency count; a small bounded pool keeps it close to a single request's
+        // latency instead.
+        Map<Coordinates, RepositoryCoverage> coverageByCoordinates = new ConcurrentHashMap<>();
+        progress.set(new Progress(
+                true,
+                "dependencies.repository",
+                0,
+                inspected.size(),
+                "Checking reachability metadata repository coverage (0 of " + inspected.size() + ")."));
+        if (!toFetch.isEmpty() && !cancellationRequested.get()) {
+            fetchConcurrently(toFetch, inspected.size(), coverageByCoordinates);
+        }
+        for (Map.Entry<Coordinates, Boolean> slot : lookupSlots.entrySet()) {
+            coverageByCoordinates.computeIfAbsent(
+                    slot.getKey(),
+                    coordinates -> slot.getValue()
+                            ? RepositoryCoverage.unavailable("scan cancelled")
+                            : RepositoryCoverage.unavailable("repository lookup limit reached"));
+        }
+
+        // Phase 3 (sequential, no I/O): reassemble the survey in the inspected dependencies' original
+        // order, mapping each back to its (already-resolved) coordinate coverage.
+        List<GraalVmDependencyDto> dependencies = new ArrayList<>(inspected.size());
+        for (InspectedDependency dependency : inspected) {
+            Coordinates coordinates = dependency.coordinates();
+            Optional<RepositoryCoverage> coverage;
+            String repositoryNote;
+            if (coordinates != null && coordinates.isComplete()) {
+                RepositoryCoverage resolved = coverageByCoordinates.get(coordinates);
+                coverage = Optional.of(resolved);
+                repositoryNote = resolved.note(coordinates);
             } else {
+                coverage = Optional.empty();
                 repositoryNote = "Could not determine Maven coordinates for repository coverage lookup.";
             }
             dependencies.add(dependency.toDto(coverage, repositoryNote));
         }
         return dependencies;
+    }
+
+    /**
+     * Runs the repository lookups for {@code toFetch} across a small bounded thread pool, writing each
+     * result into {@code coverageByCoordinates} as it completes and updating {@link #progress} with a
+     * running "N of {@code totalDependencies}" count. Honors {@link #cancellationRequested}: once
+     * observed, waiting stops and the pool is shut down immediately, interrupting in-flight HTTP
+     * requests (see {@code HttpReachabilityMetadataRepository}, which handles interruption gracefully)
+     * and dropping any lookups that had not yet started.
+     */
+    private void fetchConcurrently(
+            List<Coordinates> toFetch,
+            int totalDependencies,
+            Map<Coordinates, RepositoryCoverage> coverageByCoordinates) {
+        AtomicInteger completed = new AtomicInteger();
+        ExecutorService executor =
+                Executors.newFixedThreadPool(Math.min(REPOSITORY_LOOKUP_CONCURRENCY, toFetch.size()));
+        try {
+            List<Future<?>> futures = new ArrayList<>(toFetch.size());
+            for (Coordinates coordinates : toFetch) {
+                futures.add(executor.submit(() -> {
+                    coverageByCoordinates.put(coordinates, toCoverage(coordinates, repository.fetch(coordinates)));
+                    int done = completed.incrementAndGet();
+                    progress.set(new Progress(
+                            true,
+                            "dependencies.repository",
+                            done,
+                            totalDependencies,
+                            "Checking reachability metadata repository coverage (" + done + " of " + totalDependencies
+                                    + ")."));
+                }));
+            }
+            for (Future<?> future : futures) {
+                if (cancellationRequested.get()) {
+                    break;
+                }
+                try {
+                    future.get();
+                } catch (ExecutionException ex) {
+                    // repository.fetch/toCoverage never throw checked exceptions in practice (every
+                    // failure maps to ReachabilityMetadataIndex.unavailable); guard anyway so one
+                    // unexpected task failure can't abort the rest of the scan's progress reporting.
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     /**
