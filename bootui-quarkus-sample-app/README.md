@@ -42,7 +42,7 @@ Quarkus Dev Services starts a throwaway PostgreSQL container, so **Docker (or Po
 Install the extension (and its dependencies) once, then launch the sample in dev mode:
 
 ```bash
-./mvnw -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am -DskipTests install
+./mvnw -pl bootui-quarkus-sample-app -am -DskipTests install
 ./mvnw -f bootui-quarkus-sample-app/pom.xml quarkus:dev
 ```
 

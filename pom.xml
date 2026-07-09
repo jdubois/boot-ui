@@ -180,6 +180,33 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.6</version>
+                    <configuration>
+                        <!-- A modest, fixed number of test-class forks, reused across classes assigned to
+                             each one (JVM start-up is amortized instead of paid per class). This is
+                             process-level parallelism only — different forks are separate JVMs, so it
+                             needs no in-JVM thread-safety from test code, and every test in this reactor
+                             that binds a real socket already binds to port 0 (ephemeral) rather than a
+                             fixed port (embedded HttpServer fixtures in bootui-engine/
+                             bootui-spring-autoconfigure/bootui-quarkus, @SpringBootTest's
+                             WebEnvironment.RANDOM_PORT everywhere, and quarkus.http.test-port=0 in every
+                             bootui-quarkus-integration-tests/* submodule); the only fixed-port literals
+                             elsewhere are inert (ArchUnit bytecode-scan fixtures that are never actually
+                             instantiated, or plain ints/strings in mocks and DTOs).
+
+                             Deliberately NOT scaled to core count (e.g. 1C): CI (.github/workflows/build.yml)
+                             and CONTRIBUTING.md's recommended local command both build with -T 1C, so
+                             several sibling modules' own Surefire runs can already be executing concurrently
+                             (e.g. bootui-spring-autoconfigure and bootui-quarkus depend only on
+                             bootui-engine, so they are reactor-parallel with each other). forkCount scaling
+                             to the core count in each of those concurrent executions compounds with
+                             reactor-level parallelism and oversubscribes CPU enough to trip real timeouts
+                             (observed: a WebTestClient read exceeding its default 5s budget under that
+                             combined load). A small fixed count still gives every large test module
+                             (bootui-engine, bootui-spring-autoconfigure) real intra-module parallelism
+                             without multiplying out of control. -->
+                        <forkCount>2</forkCount>
+                        <reuseForks>true</reuseForks>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
