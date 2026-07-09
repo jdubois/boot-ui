@@ -12,8 +12,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Minimal, framework-neutral HTTP client used by the conformance suite. Built on the JDK
@@ -94,12 +96,13 @@ public final class BootUiHttpProbe {
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             // Collapse multi-value headers to the first value (test probe is header-single-value-oriented)
-            Map<String, String> flatHeaders = new java.util.LinkedHashMap<>();
-            response.headers().map().forEach((name, values) -> {
-                if (!values.isEmpty()) {
-                    flatHeaders.put(name.toLowerCase(java.util.Locale.ROOT), values.get(0));
-                }
-            });
+            Map<String, String> flatHeaders = response.headers().map().entrySet().stream()
+                    .filter(e -> !e.getValue().isEmpty())
+                    .collect(Collectors.toMap(
+                            e -> e.getKey().toLowerCase(Locale.ROOT),
+                            e -> e.getValue().get(0),
+                            (a, b) -> a,
+                            java.util.LinkedHashMap::new));
             return new Response(
                     response.statusCode(),
                     response.headers().firstValue("content-type").orElse(""),

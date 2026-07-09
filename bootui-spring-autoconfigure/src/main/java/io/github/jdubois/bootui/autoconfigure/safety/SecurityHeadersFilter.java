@@ -64,7 +64,7 @@ public class SecurityHeadersFilter extends AbstractBootUiFilter {
         String path = contextRelativePath(request);
         String cacheControl = BootUiSecurityHeaders.cacheControl(path, properties.getApiPath());
         response.setHeader(BootUiSecurityHeaders.CACHE_CONTROL, cacheControl);
-        if (!BootUiSecurityHeaders.IMMUTABLE.equals(cacheControl)) {
+        if (BootUiSecurityHeaders.shouldSetPragma(cacheControl)) {
             response.setHeader(BootUiSecurityHeaders.PRAGMA, BootUiSecurityHeaders.PRAGMA_NO_CACHE);
         }
     }

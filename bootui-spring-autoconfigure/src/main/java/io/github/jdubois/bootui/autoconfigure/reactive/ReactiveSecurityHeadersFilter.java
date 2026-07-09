@@ -56,7 +56,7 @@ public class ReactiveSecurityHeadersFilter extends AbstractReactiveBootUiFilter 
         String path = pathWithinApplication(request);
         String cacheControl = BootUiSecurityHeaders.cacheControl(path, properties.getApiPath());
         response.getHeaders().set(BootUiSecurityHeaders.CACHE_CONTROL, cacheControl);
-        if (!BootUiSecurityHeaders.IMMUTABLE.equals(cacheControl)) {
+        if (BootUiSecurityHeaders.shouldSetPragma(cacheControl)) {
             response.getHeaders().set(BootUiSecurityHeaders.PRAGMA, BootUiSecurityHeaders.PRAGMA_NO_CACHE);
         }
     }

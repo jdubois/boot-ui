@@ -130,5 +130,21 @@ public final class BootUiSecurityHeaders {
         return NO_CACHE;
     }
 
+    /**
+     * Returns {@code true} when the {@code Cache-Control} value requires a paired
+     * {@code Pragma: no-cache} header for HTTP/1.0 compatibility.
+     *
+     * <p>Immutable hashed assets ({@link #IMMUTABLE}) do not need {@code Pragma} because
+     * they are served as indefinitely-cacheable and HTTP/1.0 agents should not bypass the cache
+     * for them. All other BootUI cache-control values ({@link #NO_STORE} and {@link #NO_CACHE})
+     * are paired with {@code Pragma: no-cache}.</p>
+     *
+     * @param cacheControl the value returned by {@link #cacheControl(String, String)}
+     * @return {@code true} if {@code Pragma: no-cache} should be added alongside
+     */
+    public static boolean shouldSetPragma(String cacheControl) {
+        return !IMMUTABLE.equals(cacheControl);
+    }
+
     private BootUiSecurityHeaders() {}
 }

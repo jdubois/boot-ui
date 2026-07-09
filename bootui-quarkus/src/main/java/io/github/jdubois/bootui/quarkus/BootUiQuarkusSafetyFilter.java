@@ -144,7 +144,7 @@ public class BootUiQuarkusSafetyFilter {
 
         String cacheControl = BootUiSecurityHeaders.cacheControl(relativePath, API_PATH);
         response.putHeader(BootUiSecurityHeaders.CACHE_CONTROL, cacheControl);
-        if (!BootUiSecurityHeaders.IMMUTABLE.equals(cacheControl)) {
+        if (BootUiSecurityHeaders.shouldSetPragma(cacheControl)) {
             response.putHeader(BootUiSecurityHeaders.PRAGMA, BootUiSecurityHeaders.PRAGMA_NO_CACHE);
         }
     }
