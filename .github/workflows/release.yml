@@ -349,8 +349,34 @@ jobs:
             echo "Project files already declare the released version; tagging current HEAD."
           fi
 
+          # The Maven Central publish + availability wait + smoke test steps above can take
+          # tens of minutes - long enough for another PR to merge into $GITHUB_REF_NAME while
+          # this job runs, which would otherwise reject this push as a non-fast-forward. Retry
+          # by rebasing onto the latest remote tip instead of failing outright: the release
+          # commit only touches version-specific files (pom.xml, README.md, docs/SETUP.md,
+          # package.json/-lock.json), so an unrelated concurrent merge is expected to rebase
+          # cleanly. A genuine conflict (e.g. a second release racing this one) still fails loudly.
+          attempt=1
+          max_attempts=5
+          while ! git push origin "HEAD:$GITHUB_REF_NAME"; do
+            if (( attempt >= max_attempts )); then
+              echo "::error::Failed to push the release commit to $GITHUB_REF_NAME after $max_attempts attempts (another merge kept landing on $GITHUB_REF_NAME)."
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            echo "Push rejected: $GITHUB_REF_NAME advanced during the release. Rebasing onto the latest origin/$GITHUB_REF_NAME and retrying (attempt $attempt/$max_attempts)."
+            sleep 5
+            git fetch origin "$GITHUB_REF_NAME"
+            if ! git rebase FETCH_HEAD; then
+              git rebase --abort
+              echo "::error::Rebasing the release commit onto origin/$GITHUB_REF_NAME hit a conflict; resolve manually and re-run the release."
+              exit 1
+            fi
+          done
+
+          # Tag after the push succeeds so the tag points at the commit that actually landed on
+          # $GITHUB_REF_NAME (a rebase above would have changed the release commit's SHA).
           git tag -a "$TAG" -m "Release $TAG"
-          git push origin "HEAD:$GITHUB_REF_NAME"
           git push origin "$TAG"
 
       - name: Redeploy documentation site
