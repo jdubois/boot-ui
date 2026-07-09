@@ -1168,6 +1168,8 @@ own `WebClient` calls are captured and merged into **Live Activity** with the sa
 WebFlux already uses there for SQL/exceptions/security. Quarkus still has no outbound REST client capture pipeline of
 any kind yet, so both the dedicated panel and Live Activity REST entries remain unavailable on that adapter for now.
 
+![BootUI REST Client panel](./images/bootui-rest-client-trace.webp)
+
 ### Cache
 
 The Cache panel inspects the application's cache infrastructure on **both** frameworks from one shared panel and report

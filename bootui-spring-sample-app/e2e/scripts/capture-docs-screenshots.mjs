@@ -34,7 +34,8 @@ const quarkusUnavailablePanels = new Set([
   'data',
   'spring-security',
   'devtools',
-  'email'
+  'email',
+  'rest-client-trace'
 ])
 
 const panelOrder = [
@@ -67,6 +68,7 @@ const panelOrder = [
   ['pentesting', 'Pentesting'],
   ['vulnerabilities', 'Vulnerabilities'],
   ['scheduled', 'Scheduled Tasks'],
+  ['rest-client-trace', 'REST Client'],
   ['cache', 'Cache'],
   ['ai', 'AI Usage'],
   ['activity', 'Live Activity'],
@@ -2561,6 +2563,113 @@ const email = {
   messages: emailMessages
 }
 
+const restClientTraceEntries = [
+  {
+    id: 42,
+    timestamp: nowMillis - 1435,
+    method: 'GET',
+    uri: 'https://inventory.internal/api/stock/42',
+    host: 'inventory.internal',
+    path: '/api/stock/42',
+    status: 200,
+    durationMillis: 45,
+    success: true,
+    errorMessage: null,
+    slow: false,
+    clientType: 'RestClient',
+    requestHeaders: {},
+    traceId,
+    thread: 'http-nio-8080-exec-3',
+    callSite: 'SampleProductClient.checkStock(SampleProductClient.java:28)'
+  },
+  {
+    id: 41,
+    timestamp: nowMillis - 9400,
+    method: 'POST',
+    uri: 'https://payments.internal/api/charge',
+    host: 'payments.internal',
+    path: '/api/charge',
+    status: null,
+    durationMillis: 3002,
+    success: false,
+    errorMessage: 'Connection refused: payments.internal:8443',
+    slow: true,
+    clientType: 'WebClient',
+    requestHeaders: {},
+    traceId: null,
+    thread: 'http-nio-8080-exec-2',
+    callSite: 'SamplePaymentClient.charge(SamplePaymentClient.java:51)'
+  },
+  {
+    id: 40,
+    timestamp: nowMillis - 65000,
+    method: 'GET',
+    uri: 'https://inventory.internal/api/stock/17',
+    host: 'inventory.internal',
+    path: '/api/stock/17',
+    status: 200,
+    durationMillis: 38,
+    success: true,
+    errorMessage: null,
+    slow: false,
+    clientType: 'RestClient',
+    requestHeaders: {},
+    traceId: null,
+    thread: 'http-nio-8080-exec-1',
+    callSite: 'SampleProductClient.checkStock(SampleProductClient.java:28)'
+  }
+]
+
+const restClientTrace = {
+  available: true,
+  unavailableReason: null,
+  capturing: true,
+  captureHeaders: false,
+  bufferSize: 500,
+  totalCaptured: 128,
+  slowCallThresholdMillis: 1000,
+  clientTypes: ['RestClient', 'WebClient'],
+  stats: {
+    totalCalls: restClientTraceEntries.length,
+    totalDurationMillis: 3085,
+    maxDurationMillis: 3002,
+    avgDurationMillis: 1028.3,
+    slowCalls: 1,
+    failedCalls: 1,
+    errorStatusCalls: 0,
+    getCount: 2,
+    postCount: 1,
+    putCount: 0,
+    deleteCount: 0,
+    otherCount: 0,
+    evicted: 0
+  },
+  entries: restClientTraceEntries,
+  topCalls: [
+    {
+      method: 'GET',
+      host: 'inventory.internal',
+      path: '/api/stock/{id}',
+      executions: 2,
+      totalDurationMillis: 83,
+      maxDurationMillis: 45,
+      chatty: false,
+      callSites: ['SampleProductClient.checkStock(SampleProductClient.java:28)']
+    },
+    {
+      method: 'POST',
+      host: 'payments.internal',
+      path: '/api/charge',
+      executions: 1,
+      totalDurationMillis: 3002,
+      maxDurationMillis: 3002,
+      chatty: false,
+      callSites: ['SamplePaymentClient.charge(SamplePaymentClient.java:51)']
+    }
+  ],
+  warnings: []
+}
+
 const copilotSessionId = 'session-bootui-2026-001'
 const copilotSession2Id = 'session-bootui-2026-002'
 
@@ -3063,24 +3172,9 @@ const activityReport = {
   available: true,
   entries: [
     {
-      id: 'act-req-4',
-      type: 'REQUEST',
-      timestamp: nowMillis - 800,
-      severity: 'OK',
-      summary: 'GET /api/sample/search → 200',
-      detail: null,
-      durationMs: 340,
-      correlationId: null,
-      method: 'GET',
-      path: '/api/sample/search',
-      status: 200,
-      thread: 'http-nio-8080-exec-4',
-      profileable: true
-    },
-    {
       id: activityRequestId,
       type: 'REQUEST',
-      timestamp: nowMillis - 1500,
+      timestamp: nowMillis - 700,
       severity: 'SLOW',
       summary: 'GET /api/sample/products → 200',
       detail: null,
@@ -3097,7 +3191,7 @@ const activityReport = {
     {
       id: 'act-sql-1',
       type: 'SQL',
-      timestamp: nowMillis - 1450,
+      timestamp: nowMillis - 650,
       severity: 'OK',
       summary: 'select * from products where active = ?',
       detail: null,
@@ -3113,7 +3207,7 @@ const activityReport = {
     {
       id: 'act-sec-prod',
       type: 'SECURITY',
-      timestamp: nowMillis - 1400,
+      timestamp: nowMillis - 600,
       severity: 'OK',
       summary: 'AUTHENTICATION_SUCCESS · alice',
       detail: null,
@@ -3127,9 +3221,86 @@ const activityReport = {
       parentId: activityRequestId
     },
     {
+      id: 'act-req-4',
+      type: 'REQUEST',
+      timestamp: nowMillis - 1500,
+      severity: 'OK',
+      summary: 'GET /api/sample/search → 200',
+      detail: null,
+      durationMs: 340,
+      correlationId: null,
+      method: 'GET',
+      path: '/api/sample/search',
+      status: 200,
+      thread: 'http-nio-8080-exec-4',
+      profileable: true
+    },
+    {
+      id: 'act-cache-2',
+      type: 'CACHE',
+      timestamp: nowMillis - 1450,
+      severity: 'OK',
+      summary: 'HIT sample-catalog',
+      detail: 'key 4d8e1f22…',
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'http-nio-8080-exec-4',
+      profileable: false,
+      parentId: 'act-req-4'
+    },
+    {
+      id: 'act-rest-1',
+      type: 'REST_CLIENT',
+      timestamp: nowMillis - 1400,
+      severity: 'OK',
+      summary: 'GET inventory.internal/api/stock/42 → 200',
+      detail: 'RestClient',
+      durationMs: 45,
+      correlationId: null,
+      method: 'GET',
+      path: '/api/stock/42',
+      status: 200,
+      thread: 'http-nio-8080-exec-4',
+      profileable: false,
+      parentId: 'act-req-4'
+    },
+    {
+      id: 'act-kafka-2',
+      type: 'MESSAGING',
+      timestamp: nowMillis - 2200,
+      severity: 'OK',
+      summary: '← orders.created [0]',
+      detail: 'key=order-1042 offset=1041',
+      durationMs: 8,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: null,
+      profileable: false
+    },
+    {
+      id: 'act-kafka-1',
+      type: 'MESSAGING',
+      timestamp: nowMillis - 2300,
+      severity: 'OK',
+      summary: '→ orders.created [0]',
+      detail: 'key=order-1042',
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: null,
+      profileable: false
+    },
+    {
       id: 'act-exc-1',
       type: 'EXCEPTION',
-      timestamp: nowMillis - 2200,
+      timestamp: nowMillis - 2700,
       severity: 'ERROR',
       summary: 'java.lang.IllegalStateException: Sample failure for the BootUI Exceptions panel demo',
       detail: 'SampleController.java:63 ×3',
@@ -3145,7 +3316,7 @@ const activityReport = {
     {
       id: 'act-req-2',
       type: 'REQUEST',
-      timestamp: nowMillis - 2300,
+      timestamp: nowMillis - 2800,
       severity: 'ERROR',
       summary: 'GET /api/sample/boom → 500',
       detail: null,
@@ -3158,9 +3329,39 @@ const activityReport = {
       profileable: true
     },
     {
+      id: 'act-cache-1',
+      type: 'CACHE',
+      timestamp: nowMillis - 3200,
+      severity: 'WARN',
+      summary: 'MISS sample-products',
+      detail: 'key 7f9a2b3c…',
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'http-nio-8080-exec-3',
+      profileable: false
+    },
+    {
+      id: 'act-cache-3',
+      type: 'CACHE',
+      timestamp: nowMillis - 3600,
+      severity: 'OK',
+      summary: 'HIT sample-products',
+      detail: 'key 7f9a2b3c…',
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'http-nio-8080-exec-1',
+      profileable: false
+    },
+    {
       id: 'act-sec-1',
       type: 'SECURITY',
-      timestamp: nowMillis - 3100,
+      timestamp: nowMillis - 4000,
       severity: 'WARN',
       summary: 'AUTHENTICATION_FAILURE · bob',
       detail: null,
@@ -3173,9 +3374,24 @@ const activityReport = {
       profileable: false
     },
     {
+      id: 'act-cache-4',
+      type: 'CACHE',
+      timestamp: nowMillis - 4500,
+      severity: 'OK',
+      summary: 'HIT sample-catalog',
+      detail: 'key 4d8e1f22…',
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'http-nio-8080-exec-2',
+      profileable: false
+    },
+    {
       id: 'act-req-3',
       type: 'REQUEST',
-      timestamp: nowMillis - 4200,
+      timestamp: nowMillis - 5000,
       severity: 'OK',
       summary: 'GET /api/sample/hello → 200',
       detail: null,
@@ -3186,9 +3402,79 @@ const activityReport = {
       status: 200,
       thread: 'http-nio-8080-exec-1',
       profileable: true
+    },
+    {
+      id: 'act-rest-2',
+      type: 'REST_CLIENT',
+      timestamp: nowMillis - 9400,
+      severity: 'ERROR',
+      summary: 'POST payments.internal/api/charge → failed',
+      detail: 'Connection refused: payments.internal:8443',
+      durationMs: 3002,
+      correlationId: null,
+      method: 'POST',
+      path: '/api/charge',
+      status: null,
+      thread: 'http-nio-8080-exec-2',
+      profileable: false
+    },
+    {
+      id: 'act-sched-1',
+      type: 'SCHEDULED_TASK',
+      timestamp: nowMillis - 30000,
+      severity: 'OK',
+      summary: 'EchoScheduler.echo',
+      detail: null,
+      durationMs: 3,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'scheduling-1',
+      profileable: false
+    },
+    {
+      id: 'act-sched-2',
+      type: 'SCHEDULED_TASK',
+      timestamp: nowMillis - 95000,
+      severity: 'ERROR',
+      summary: 'InventorySyncScheduler.sync',
+      detail: 'IllegalStateException: sync backlog too large',
+      durationMs: 640,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'scheduling-2',
+      profileable: false
+    },
+    {
+      id: 'email-1',
+      type: 'MAIL',
+      timestamp: nowMillis - 4 * 60 * 1000,
+      severity: 'OK',
+      summary: 'Your order has shipped',
+      detail: 'to customer@example.com',
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: null,
+      profileable: false
     }
   ],
-  typeCounts: {REQUEST: 4, SQL: 1, EXCEPTION: 1, SECURITY: 2},
+  typeCounts: {
+    REQUEST: 4,
+    SQL: 1,
+    EXCEPTION: 1,
+    SECURITY: 2,
+    CACHE: 4,
+    REST_CLIENT: 2,
+    MAIL: 1,
+    SCHEDULED_TASK: 2,
+    MESSAGING: 2
+  },
   kpis: {
     requestsPerMinute: 42.5,
     errorRatePercent: 12.5,
@@ -3201,9 +3487,13 @@ const activityReport = {
     slowestQueryMs: 18,
     healthStatus: 'UP',
     heapUsedBytes: 268_435_456,
-    heapMaxBytes: 1_073_741_824
+    heapMaxBytes: 1_073_741_824,
+    cacheHitRatioPercent: 75.0,
+    scheduledTaskFailureCount: 1,
+    restCallErrorRatePercent: 50.0,
+    restCallP95LatencyMs: 3002
   },
-  sources: ['HTTP Exchanges', 'SQL Trace', 'Exceptions', 'Security Logs'],
+  sources: ['requests', 'exceptions', 'sql', 'security', 'cache', 'scheduled-tasks', 'kafka', 'email', 'rest-client'],
   warnings: []
 }
 
@@ -3369,9 +3659,32 @@ const screenshots = [
     }
   ],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.webp', waitForText('EchoScheduler.echo')],
+  [
+    'rest-client-trace',
+    'REST Client',
+    'bootui-rest-client-trace.webp',
+    async (page) => {
+      await page.getByText('inventory.internal').first().waitFor()
+      await page.getByText('Most frequent calls').waitFor()
+      await page.locator('.rest-row').first().click()
+      await page.getByText('Call site').waitFor()
+    }
+  ],
   ['cache', 'Cache', 'bootui-cache.webp', waitForText('sample-products')],
   ['ai', 'AI Usage', 'bootui-ai.webp', waitForText('Token usage')],
-  ['activity', 'Live Activity', 'bootui-activity.webp', waitForText('GET /api/sample/products')],
+  [
+    'activity',
+    'Live Activity',
+    'bootui-activity.webp',
+    async (page) => {
+      await page.getByText('GET /api/sample/products').first().waitFor()
+      await page.getByText('inventory.internal').first().waitFor()
+      await page.getByText('Your order has shipped').first().waitFor()
+      await page.getByText('EchoScheduler.echo').first().waitFor()
+      await page.getByText('orders.created').first().waitFor()
+      await page.getByText('Cache hit ratio').waitFor()
+    }
+  ],
   ['traces', 'Traces', 'bootui-traces.webp', waitForText('/api/chat')],
   ['log-tail', 'Log Tail', 'bootui-log-tail.webp', waitForText('Started BootUI sample application')],
   [
@@ -4011,6 +4324,9 @@ async function handleApiRoute(route) {
       })
     )
   if (endpoint === 'email') return fulfillJson(route, email)
+  if (endpoint === 'rest-client-trace') return fulfillJson(route, restClientTrace)
+  if (endpoint === 'rest-client-trace/clear') return fulfillJson(route, restClientTrace)
+  if (endpoint === 'rest-client-trace/recording') return fulfillJson(route, restClientTrace)
   if (endpoint === 'vulnerabilities') return fulfillJson(route, dependencies)
   if (endpoint === 'vulnerabilities/scan') return fulfillJson(route, dependencies)
   if (endpoint === 'pentesting') return fulfillJson(route, pentesting)
