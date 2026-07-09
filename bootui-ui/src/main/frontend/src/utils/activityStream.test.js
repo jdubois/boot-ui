@@ -153,11 +153,11 @@ describe('deepLink', () => {
     })
   })
 
-  it('links a REST entry to REST Client Trace filtered by path', () => {
+  it('links a REST entry to REST Client filtered by path', () => {
     expect(deepLink({type: 'REST_CLIENT', path: '/api/orders', summary: 'GET /api/orders → 200'})).toEqual({
       path: '/rest-client-trace',
       query: {q: '/api/orders'},
-      label: 'Open in REST Client Trace'
+      label: 'Open in REST Client'
     })
   })
 

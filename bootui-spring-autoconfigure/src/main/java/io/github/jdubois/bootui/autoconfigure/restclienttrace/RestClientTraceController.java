@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * Read-mostly endpoint backing the REST Client Trace panel.
+ * Read-mostly endpoint backing the REST Client panel.
  *
  * <p>Returns the outbound {@code RestClient}/{@code RestTemplate}/{@code WebClient} calls captured by
  * BootUI's instrumentation and exposes state-changing {@code clear} and {@code recording} (pause/resume)

@@ -9,7 +9,7 @@ import {expect, test} from '@playwright/test'
  * same Vue bundle is served either way, so once one adapter's UI is proven, the remaining risk specific
  * to WebFlux is (a) the shell actually boots and reports the right platform, (b) a representative sample
  * of panels that ARE ported render correctly, and (c) the panels that stay unavailable on this adapter
- * (HTTP Sessions, Spring Security, MCP Server, REST Client Trace) surface their WebFlux-specific explanation
+ * (HTTP Sessions, Spring Security, MCP Server, REST Client) surface their WebFlux-specific explanation
  * through the real sidebar/alert UI rather than just the JSON contract.
  */
 test.describe('BootUI on Spring WebFlux', () => {
@@ -74,7 +74,7 @@ test.describe('BootUI on Spring WebFlux', () => {
 
     await page.goto('/bootui/#/rest-client-trace')
     await expect(page.locator('.panel-availability-alert')).toContainText(
-      'REST Client Trace is only available on the Spring MVC (servlet) adapter'
+      'REST Client is only available on the Spring MVC (servlet) adapter'
     )
   })
 })

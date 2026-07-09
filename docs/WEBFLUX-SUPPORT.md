@@ -18,7 +18,7 @@ advisor scans (Architecture, Spring, Hibernate, Pentesting, REST API, Memory, Vu
 triage.
 
 Only **HTTP Sessions**, the **Security advisor**, the raw **Spring Security** panel, **MCP Server**, and the
-standalone **REST Client Trace** panel stay unavailable, each with a panel-specific reason surfaced through the
+standalone **REST Client** panel stay unavailable, each with a panel-specific reason surfaced through the
 `/bootui/api/panels` manifest (and, in turn, the sidebar tooltip and the panel's own alert banner — see §5).
 `docs/FEATURES.md` and the per-panel `unavailableReason` strings in `PanelsController` are the authoritative, current
 detail.
@@ -150,7 +150,7 @@ capture wiring (`BootUiEngineConfiguration`) is gated purely on classpath/bean p
 `KafkaActivityRecorder` (fed by the same `KafkaTemplate`/`@KafkaListener` `BeanPostProcessor` wrapping used on the
 servlet adapter, which has no servlet-specific dependency); and REST/WebClient calls are read from the same
 `RestClientTraceRecorder` fed by `BootUiEngineConfiguration`'s `WebClientCustomizer` (see §6.5 — capture is active
-here even though the *standalone* REST Client Trace panel is not). The servlet adapter's `LiveActivityController`
+here even though the *standalone* REST Client panel is not). The servlet adapter's `LiveActivityController`
 additionally depends on two things with no reactive equivalent: a `ServletRequestHandledEvent` listener, which exists
 purely as an SSE-refresh trigger (not a data source), and a thread-based `LiveActivityCorrelator` that stitches a
 request to its downstream activity via serving-thread identity — meaningless on Reactor Netty, where a request is
@@ -209,7 +209,7 @@ OpenTelemetry SDK is present — see §7 for how this was found.
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Spring Security (raw panel, `spring-security`) | *"Not yet ported for Spring WebFlux: this advisor analyzes the servlet SecurityFilterChain/HttpSecurity configuration model, which has no reactive equivalent wired here yet (a ServerHttpSecurity/SecurityWebFilterChain ruleset is planned)."* `springSecurityAvailable()` now requires `!isReactive()` in addition to the pre-existing classpath/bean checks. |
 | MCP Server              | *"Not yet ported for Spring WebFlux: the MCP tool catalog is hard-wired to the servlet panel controllers, so it cannot yet resolve the reactive panel surface."* The JSON-RPC bridge itself (`McpDispatcher`) is already framework-neutral; only `BootUiMcpTools`' tool catalog needs a reactive-aware rewrite. |
-| REST Client Trace       | *"REST Client Trace is only available on the Spring MVC (servlet) adapter."* — the panel's availability check in `PanelsController` requires `!isReactive()` alongside the pre-existing `RestClientTraceRecorder` bean-presence check, so the dedicated full-detail panel (with its own filtering/paging over every captured call) is not wired into `BootUiReactiveAutoConfiguration`. **Capture itself is not stack-gated**, though: `BootUiEngineConfiguration`'s `WebClientCustomizer` attaches `RestClientTraceExchangeFilter` to every auto-configured `WebClient.Builder` regardless of web application type, so REST/WebClient calls are still captured into the shared `RestClientTraceRecorder` and still appear as `REST_CLIENT` entries in the Live Activity merge (§6.4) on WebFlux — only the standalone panel is unavailable. |
+| REST Client       | *"REST Client is only available on the Spring MVC (servlet) adapter."* — the panel's availability check in `PanelsController` requires `!isReactive()` alongside the pre-existing `RestClientTraceRecorder` bean-presence check, so the dedicated full-detail panel (with its own filtering/paging over every captured call) is not wired into `BootUiReactiveAutoConfiguration`. **Capture itself is not stack-gated**, though: `BootUiEngineConfiguration`'s `WebClientCustomizer` attaches `RestClientTraceExchangeFilter` to every auto-configured `WebClient.Builder` regardless of web application type, so REST/WebClient calls are still captured into the shared `RestClientTraceRecorder` and still appear as `REST_CLIENT` entries in the Live Activity merge (§6.4) on WebFlux — only the standalone panel is unavailable. |
 
 Note: **the Security advisor** (`security`, grouped under Advisors — distinct from the raw **Spring Security**
 configuration panel above, grouped under Security) also stays unavailable on WebFlux, but needed no dedicated

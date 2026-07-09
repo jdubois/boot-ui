@@ -167,7 +167,7 @@ public class LiveActivityService {
         // REST client calls correlate to their parent request the same way SQL statements do (trace-id
         // first, then serving thread within the request window); unlike SQL there is no per-request
         // N+1-style flag on the REQUEST entry in v1, so no index by parent id is needed here — each
-        // "chatty call" group is only surfaced inside the REST Client Trace panel itself.
+        // "chatty call" group is only surfaced inside the REST Client panel itself.
         if (rest != null) {
             for (RestClientTraceEntryDto entry : rest.entries()) {
                 all.add(toRestEntry(entry, matchRestParent(entry, anchors)));
@@ -305,7 +305,7 @@ public class LiveActivityService {
         if (!report.available()) {
             return null;
         }
-        sources.add("REST Client Trace");
+        sources.add("REST Client");
         return report;
     }
 

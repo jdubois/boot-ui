@@ -61,7 +61,7 @@ the current per-panel list), and the shell chrome is populated by the same `GET 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
 application just did, plus a per-request profiler for drilling into any single request. It adds no new instrumentation
 for six of its nine signals — instead it reuses BootUI's existing in-memory signal buffers by calling the same
-controllers that back the HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, Security Logs, and Email panels, so
+controllers that back the HTTP Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, and Email panels, so
 every value is already masked, self-filtered, and bounded exactly as those panels are. The seventh signal, cache
 accesses, is captured by a small dedicated recorder (Spring servlet and WebFlux adapters only — see below) that only
 ever stores a hashed cache key, never a raw key or value. The eighth signal, scheduled-task runs, captures each
@@ -92,7 +92,7 @@ minute, error rate, p50/p95 latency, SQL rate, (Spring servlet/WebFlux only) out
 the slowest recent endpoint, active exception count, health status, heap
 usage, (Spring servlet/WebFlux only) the cache hit ratio, and scheduled-task failure count, computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`).
 Several KPI cards are themselves
-launchpads: the outbound-errors card opens **REST Client Trace**, the slowest-endpoint card opens **HTTP Exchanges**
+launchpads: the outbound-errors card opens **REST Client**, the slowest-endpoint card opens **HTTP Exchanges**
 pre-filtered to that endpoint, while the
 active-exceptions, health, heap-usage, cache-hit-ratio, and scheduled-failures cards jump to the **Exceptions**, **Health**, **Heap Dump**,
 **Cache**, and **Scheduled Tasks** panels
@@ -114,12 +114,12 @@ signal.
 
 Every row is also a launchpad: clicking anywhere on a request row opens its profiler, and each row carries a deep link
 that jumps to the dedicated panel with the originating record pre-filtered — requests open in **HTTP Exchanges**, SQL in
-**SQL Trace**, REST client calls in **REST Client Trace**, exceptions in **Exceptions**, cache accesses in **Cache**,
+**SQL Trace**, REST client calls in **REST Client**, exceptions in **Exceptions**, cache accesses in **Cache**,
 and scheduled-task runs in **Scheduled Tasks**. REST client calls nest under their correlated request in the stream
 using the same trace-id-first, serving-thread-second join described below for SQL, exactly like cache accesses and
 emails — but, unlike SQL, exceptions, and security events, none of REST client calls, cache accesses, or scheduled-task
 runs are yet part of the per-request profiler drawer's correlated timeline or **Copy profile** export; that
-correlation, and the N+1-style "chatty" badge, stay scoped to the REST Client Trace panel itself for now. The
+correlation, and the N+1-style "chatty" badge, stay scoped to the REST Client panel itself for now. The
 per-request profiler drawer is a Symfony-style view that correlates
 that single request's signals using a tiered join that degrades gracefully and never fabricates data: the distributed
 trace is matched by trace id, exceptions are matched by request method, path, and time window — and, when the
@@ -261,7 +261,7 @@ has one, and honestly reports itself unavailable rather than fabricating a parti
 detection, its row badge, and call-site capture are computed by the same shared engine code as every other adapter,
 so a WebFlux request that resolves a trace-id correlation gets byte-identical flagging to Spring MVC and Quarkus. The
 optional durable persistence backend and the "Use the existing datasource" hot-switch described above work
-identically on WebFlux too, over the same shared engine machinery. The dedicated REST Client Trace panel itself is
+identically on WebFlux too, over the same shared engine machinery. The dedicated REST Client panel itself is
 still not available on WebFlux — only its capture and Live Activity merge are. See
 [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full detail.
 
@@ -1103,6 +1103,71 @@ dependency-inventory capture) and maps it onto the same trigger/expression/initi
 initial delay is carried through. The panel is available only when the `quarkus-scheduler` extension is present;
 programmatic `Scheduler.newJob()` jobs are not captured (annotation-discovered tasks only).
 
+### REST Client
+
+The REST Client panel shows outbound HTTP calls your application recently made through Spring's own REST clients,
+captured without a third-party HTTP proxy library. When BootUI is active it customizes every auto-configured `RestClient`
+and `RestTemplate` with a shared `ClientHttpRequestInterceptor` (one instance per client type, so the recorded client
+label — `RestClient` or `RestTemplate` — is always correct) and every auto-configured `WebClient` with an
+`ExchangeFilterFunction`, recording each call's method, host, path, query string, response status, wall-clock duration,
+success/failure, the client type, a trace id when one is active, the executing thread, and the call site in your own
+application code that issued it (when call-site capture is enabled — see below). A capture failure never disrupts the
+outbound call itself: both instrumentation points always let the request through and only best-effort record around it.
+
+Calls are retained in a bounded in-memory ring buffer (most recent first) alongside aggregate stats: retained count,
+average and slowest duration, a configurable slow-call count, and — unlike SQL Trace's single failure counter — two
+distinct failure counts, because an outbound HTTP call can fail two different ways: **Failed** counts transport-level
+failures (the call never got a response — connection refused, timeout, DNS failure), while **Error responses** counts
+calls that completed with a `4xx`/`5xx` status. A per-method breakdown badges GET/POST/PUT/DELETE/other call counts, and
+an "Instrumented clients" row lists which client types (`RestClient`, `RestTemplate`, `WebClient`) are actually wired in
+the running application. The panel also groups calls by method, host, and normalized path — numeric and UUID path
+segments collapse to `{id}`, so calls to `/orders/1`, `/orders/2`, … group under `/orders/{id}` — into a "Most frequent
+calls" table, flagging a group at or above `bootui.rest-client-trace.chatty-call-threshold` calls as a **chatty**
+(repeated-call) pattern; unlike SQL's N+1 rule, which only flags repeated `SELECT`s, a chatty pattern is flagged for
+calls of *any* HTTP method, since looping a `POST`/`PUT` once per item is just as real and costly an anti-pattern as
+looping a `GET`. A flagged group also lists the distinct call site(s) that issued it, most-recently-seen first and
+bounded to a handful of entries. Each individual call row expands to reveal the full URI, captured request headers,
+client type, trace id, executing thread, call site, and error message, and can be filtered by HTTP method, a slow-only
+toggle, or free text across URI, host, method, client, and thread. Local-only **Pause/Resume** and **Clear** actions let
+you stop recording without removing the client instrumentation, or empty the buffer.
+
+The panel is read-mostly and privacy-conscious. The URI is always captured, including query parameter values — but,
+unlike SQL Trace's bound parameters, which are withheld wholesale unless capture is explicitly turned on, each query
+parameter and header value is masked **by name** (the same `SecretMasker` rules the Config and HTTP Exchanges panels
+use) rather than suppressed outright, so a runtime change to `bootui.expose-values`/`bootui.mask-secrets` is reflected
+immediately for both already-captured and new calls. Request headers are the one part **not** captured by default,
+since a header (for example `Authorization`) is far more likely to carry a raw secret than a query parameter; setting
+`bootui.rest-client-trace.capture-headers=true` records them, still subject to the same by-name masking. Call-site
+capture is a separate concern, exactly as in SQL Trace: a call site names only your own application's code (class,
+method, line), never a value, so it is **not** privacy-gated — `bootui.rest-client-trace.capture-call-site` defaults to
+`true` and only trades a small, defensively-bounded stack walk per call for the ability to see where it came from. The
+recorder itself is registered unconditionally whenever the panel is enabled, so the panel is never reported unavailable
+just because an application has no outbound HTTP traffic — it shows an empty buffer instead; only the customizer that
+wires a given client type fails open, skipping itself entirely when that client's Spring Boot module (for example
+`spring-boot-webclient`) is not on the classpath, so an app without `WebClient` simply never gets a `WebClient`
+customizer rather than failing startup. Tracing, the initial recording state, header capture, call-site capture, buffer
+size, the slow-call and chatty-call thresholds, and URI/header truncation limits are all configurable under
+`bootui.rest-client-trace.*`.
+
+Because the trace buffer is genuinely event-driven, the panel refreshes over **Server-Sent Events** instead of
+fixed-interval polling: the browser subscribes to `/bootui/api/rest-client-trace/stream` and the server pushes a small
+coalesced notification the moment a call is captured, the buffer is cleared, or recording is paused/resumed. The push
+carries no data — masking and truncation rules still apply through the regular endpoint — and bursts of calls are folded
+into a single refresh so high-volume workloads do not flood the UI.
+
+Recent calls also surface in **Live Activity**, nested under the request that made them using the same trace-id-first,
+serving-thread-second correlation SQL statements use, and carry a deep link back to this panel. The "chatty" grouping
+above is not (yet) surfaced as a row-level badge in the merged stream the way SQL's N+1 suspicion is — it is visible only
+in this panel's own "Most frequent calls" table.
+
+**REST Client's dedicated panel is currently available on the Spring MVC (servlet) adapter only.** Its own
+push-updating `/stream` endpoint is built on the servlet-specific `SseEmitter`, so BootUI does not yet expose that full
+panel (with its pause/resume controls, retained-call table, and "Most frequent calls" grouping) on Spring WebFlux or
+Quarkus. However, the underlying outbound-call capture is now shared by both Spring adapters: a WebFlux application's
+own `WebClient` calls are captured and merged into **Live Activity** with the same trace-id-only correlation model that
+WebFlux already uses there for SQL/exceptions/security. Quarkus still has no outbound REST client capture pipeline of
+any kind yet, so both the dedicated panel and Live Activity REST entries remain unavailable on that adapter for now.
+
 ### Cache
 
 The Cache panel inspects the application's cache infrastructure on **both** frameworks from one shared panel and report
@@ -1122,6 +1187,36 @@ clear action evicts via `cache.invalidateAll()`. Because Quarkus binds caching w
 operations, so the operations table is replaced by a short explanatory note and the panel shows cache names + metrics +
 clear. The panel is gated on the `quarkus-cache` extension (the `CACHE` capability) and is reported unavailable, with a
 capability hint, on applications that do not use it.
+
+### Email
+
+The Email panel is BootUI's mail-watcher equivalent of Laravel Telescope: it intercepts the application's
+`JavaMailSender` so every outgoing `send(...)` call is recorded into a bounded ring buffer *before* delegating to the
+real sender — pass-through by default, so application behaviour is unchanged. Captured messages list newest-first with
+sender, recipients, subject, and attachment count; opening a message shows the parsed `from`/`to`/`cc`/`bcc`, an HTML
+preview rendered in a sandboxed iframe (scripts and same-origin access are both disabled), the plain-text alternative,
+and attachment metadata (name/type/size, never contents). Each message can be downloaded as a `.eml` file, and the whole
+buffer can be cleared.
+
+Recipients, subjects, and bodies are sensitive, so they are masked by default and only revealed under
+`bootui.expose-values=FULL`, exactly like every other BootUI panel. An optional, explicitly opt-in **dev-trap** mode
+(`bootui.email.dev-trap=true`) records messages without actually sending them, similar to MailDev/GreenMail; it is off
+by default so BootUI never silently swallows application mail. The panel is available only when a `JavaMailSender` bean
+is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear unavailable reason.
+
+On Quarkus the panel is identical, running over the same shared engine `EmailCaptureService` and the same
+`/bootui/api/email` contract (list/detail/`.eml`/clear, with the `.eml` bytes produced by the shared engine renderer so
+they match Spring's). Because Quarkus's blocking/reactive/Mutiny `Mailer` beans all funnel through one internal mailer
+that fires a CDI `SentMail` event after every successful send, a single `@Observes SentMail` observer captures every
+send style — the Quarkus analogue of Spring's `CapturingJavaMailSender` decorator. The panel is available when
+`quarkus-mailer` is on the classpath (and dark in production); otherwise it reports a clear unavailable reason. One
+behaviour differs by necessity: because the event fires *after* the send, BootUI cannot trap a message the way Spring's
+dev-trap does, so on Quarkus the recorded-but-not-sent distinction reflects the framework's own mock-mail mode
+(`quarkus.mailer.mock=true`, the default in dev and test) rather than a BootUI trap — the panel labels such messages
+**mock** instead of **dev-trap**. Attachment sizes are shown as unknown on Quarkus, since the sent-attachment API
+exposes none.
+
+![BootUI Email panel](./images/bootui-email.webp)
 
 ### AI Usage
 
@@ -1290,101 +1385,6 @@ launch mode (and a random `=0` port still resolves, because Quarkus rewrites the
 server is up). As a state-changing action it is gated by the same localhost-only safety floor as every other write.
 
 ![BootUI HTTP Probe panel](./images/bootui-http-probe.webp)
-
-### Email
-
-The Email panel is BootUI's mail-watcher equivalent of Laravel Telescope: it intercepts the application's
-`JavaMailSender` so every outgoing `send(...)` call is recorded into a bounded ring buffer *before* delegating to the
-real sender — pass-through by default, so application behaviour is unchanged. Captured messages list newest-first with
-sender, recipients, subject, and attachment count; opening a message shows the parsed `from`/`to`/`cc`/`bcc`, an HTML
-preview rendered in a sandboxed iframe (scripts and same-origin access are both disabled), the plain-text alternative,
-and attachment metadata (name/type/size, never contents). Each message can be downloaded as a `.eml` file, and the whole
-buffer can be cleared.
-
-Recipients, subjects, and bodies are sensitive, so they are masked by default and only revealed under
-`bootui.expose-values=FULL`, exactly like every other BootUI panel. An optional, explicitly opt-in **dev-trap** mode
-(`bootui.email.dev-trap=true`) records messages without actually sending them, similar to MailDev/GreenMail; it is off
-by default so BootUI never silently swallows application mail. The panel is available only when a `JavaMailSender` bean
-is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear unavailable reason.
-
-On Quarkus the panel is identical, running over the same shared engine `EmailCaptureService` and the same
-`/bootui/api/email` contract (list/detail/`.eml`/clear, with the `.eml` bytes produced by the shared engine renderer so
-they match Spring's). Because Quarkus's blocking/reactive/Mutiny `Mailer` beans all funnel through one internal mailer
-that fires a CDI `SentMail` event after every successful send, a single `@Observes SentMail` observer captures every
-send style — the Quarkus analogue of Spring's `CapturingJavaMailSender` decorator. The panel is available when
-`quarkus-mailer` is on the classpath (and dark in production); otherwise it reports a clear unavailable reason. One
-behaviour differs by necessity: because the event fires *after* the send, BootUI cannot trap a message the way Spring's
-dev-trap does, so on Quarkus the recorded-but-not-sent distinction reflects the framework's own mock-mail mode
-(`quarkus.mailer.mock=true`, the default in dev and test) rather than a BootUI trap — the panel labels such messages
-**mock** instead of **dev-trap**. Attachment sizes are shown as unknown on Quarkus, since the sent-attachment API
-exposes none.
-
-![BootUI Email panel](./images/bootui-email.webp)
-
-### REST Client Trace
-
-The REST Client Trace panel shows outbound HTTP calls your application recently made through Spring's own REST clients,
-captured without a third-party HTTP proxy library. When BootUI is active it customizes every auto-configured `RestClient`
-and `RestTemplate` with a shared `ClientHttpRequestInterceptor` (one instance per client type, so the recorded client
-label — `RestClient` or `RestTemplate` — is always correct) and every auto-configured `WebClient` with an
-`ExchangeFilterFunction`, recording each call's method, host, path, query string, response status, wall-clock duration,
-success/failure, the client type, a trace id when one is active, the executing thread, and the call site in your own
-application code that issued it (when call-site capture is enabled — see below). A capture failure never disrupts the
-outbound call itself: both instrumentation points always let the request through and only best-effort record around it.
-
-Calls are retained in a bounded in-memory ring buffer (most recent first) alongside aggregate stats: retained count,
-average and slowest duration, a configurable slow-call count, and — unlike SQL Trace's single failure counter — two
-distinct failure counts, because an outbound HTTP call can fail two different ways: **Failed** counts transport-level
-failures (the call never got a response — connection refused, timeout, DNS failure), while **Error responses** counts
-calls that completed with a `4xx`/`5xx` status. A per-method breakdown badges GET/POST/PUT/DELETE/other call counts, and
-an "Instrumented clients" row lists which client types (`RestClient`, `RestTemplate`, `WebClient`) are actually wired in
-the running application. The panel also groups calls by method, host, and normalized path — numeric and UUID path
-segments collapse to `{id}`, so calls to `/orders/1`, `/orders/2`, … group under `/orders/{id}` — into a "Most frequent
-calls" table, flagging a group at or above `bootui.rest-client-trace.chatty-call-threshold` calls as a **chatty**
-(repeated-call) pattern; unlike SQL's N+1 rule, which only flags repeated `SELECT`s, a chatty pattern is flagged for
-calls of *any* HTTP method, since looping a `POST`/`PUT` once per item is just as real and costly an anti-pattern as
-looping a `GET`. A flagged group also lists the distinct call site(s) that issued it, most-recently-seen first and
-bounded to a handful of entries. Each individual call row expands to reveal the full URI, captured request headers,
-client type, trace id, executing thread, call site, and error message, and can be filtered by HTTP method, a slow-only
-toggle, or free text across URI, host, method, client, and thread. Local-only **Pause/Resume** and **Clear** actions let
-you stop recording without removing the client instrumentation, or empty the buffer.
-
-The panel is read-mostly and privacy-conscious. The URI is always captured, including query parameter values — but,
-unlike SQL Trace's bound parameters, which are withheld wholesale unless capture is explicitly turned on, each query
-parameter and header value is masked **by name** (the same `SecretMasker` rules the Config and HTTP Exchanges panels
-use) rather than suppressed outright, so a runtime change to `bootui.expose-values`/`bootui.mask-secrets` is reflected
-immediately for both already-captured and new calls. Request headers are the one part **not** captured by default,
-since a header (for example `Authorization`) is far more likely to carry a raw secret than a query parameter; setting
-`bootui.rest-client-trace.capture-headers=true` records them, still subject to the same by-name masking. Call-site
-capture is a separate concern, exactly as in SQL Trace: a call site names only your own application's code (class,
-method, line), never a value, so it is **not** privacy-gated — `bootui.rest-client-trace.capture-call-site` defaults to
-`true` and only trades a small, defensively-bounded stack walk per call for the ability to see where it came from. The
-recorder itself is registered unconditionally whenever the panel is enabled, so the panel is never reported unavailable
-just because an application has no outbound HTTP traffic — it shows an empty buffer instead; only the customizer that
-wires a given client type fails open, skipping itself entirely when that client's Spring Boot module (for example
-`spring-boot-webclient`) is not on the classpath, so an app without `WebClient` simply never gets a `WebClient`
-customizer rather than failing startup. Tracing, the initial recording state, header capture, call-site capture, buffer
-size, the slow-call and chatty-call thresholds, and URI/header truncation limits are all configurable under
-`bootui.rest-client-trace.*`.
-
-Because the trace buffer is genuinely event-driven, the panel refreshes over **Server-Sent Events** instead of
-fixed-interval polling: the browser subscribes to `/bootui/api/rest-client-trace/stream` and the server pushes a small
-coalesced notification the moment a call is captured, the buffer is cleared, or recording is paused/resumed. The push
-carries no data — masking and truncation rules still apply through the regular endpoint — and bursts of calls are folded
-into a single refresh so high-volume workloads do not flood the UI.
-
-Recent calls also surface in **Live Activity**, nested under the request that made them using the same trace-id-first,
-serving-thread-second correlation SQL statements use, and carry a deep link back to this panel. The "chatty" grouping
-above is not (yet) surfaced as a row-level badge in the merged stream the way SQL's N+1 suspicion is — it is visible only
-in this panel's own "Most frequent calls" table.
-
-**REST Client Trace's dedicated panel is currently available on the Spring MVC (servlet) adapter only.** Its own
-push-updating `/stream` endpoint is built on the servlet-specific `SseEmitter`, so BootUI does not yet expose that full
-panel (with its pause/resume controls, retained-call table, and "Most frequent calls" grouping) on Spring WebFlux or
-Quarkus. However, the underlying outbound-call capture is now shared by both Spring adapters: a WebFlux application's
-own `WebClient` calls are captured and merged into **Live Activity** with the same trace-id-only correlation model that
-WebFlux already uses there for SQL/exceptions/security. Quarkus still has no outbound REST client capture pipeline of
-any kind yet, so both the dedicated panel and Live Activity REST entries remain unavailable on that adapter for now.
 
 ## Developer tools
 

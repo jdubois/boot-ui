@@ -177,7 +177,7 @@ function clearTrace() {
   <div>
     <PanelHeader
       icon="bi-globe2"
-      title="REST Client Trace"
+      title="REST Client"
       :subtitle="subtitle"
       :loading="loading"
       :error="error"

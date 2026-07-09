@@ -502,7 +502,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Security Logs       | **done**    | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |
 | Log Tail            | **done**    | Rebuild | Log tail model                   | `LogCaptureSource` → JBoss LogManager       |
 | Email               | **done**    | Rebuild | Email capture service            | CDI `@Observes SentMail` observer → quarkus-mailer |
-| REST Client Trace   | spring-only | Drop    | —                                 | no comparable runtime interception seam yet for the Quarkus-native REST client; see `docs/PLAN.md` §3.4 |
+| REST Client         | spring-only | Drop    | —                                 | no comparable runtime interception seam yet for the Quarkus-native REST client; see `docs/PLAN.md` §3.4 |
 | Spring              | **done**    | Replace | Scanning engine                  | new `Quarkus` advisor ruleset               |
 | Cache               | **done**    | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
 | Beans               | **done**    | Adapt   | Beans service                    | `BeanProvider` → Arc (build-time; low fidelity) |

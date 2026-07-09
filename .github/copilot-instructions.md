@@ -367,7 +367,7 @@ hide newer ones. Keep API, UI,
 - **Configuration**: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings
 - **Database**: Database Connection Pools, SQL Trace, Spring Data, Flyway, Liquibase
 - **Security**: Spring Security, Security Logs
-- **Services**: Scheduled Tasks, Cache, AI Usage
+- **Services**: Scheduled Tasks, REST Client, Cache, Email, AI Usage
 - **Diagnostics**: Traces, Log Tail, Exceptions, HTTP Exchanges, HTTP Probe
 - **Developer Tools**: MCP Server, DevTools, Dev Services, Copilot, Claude Code
 

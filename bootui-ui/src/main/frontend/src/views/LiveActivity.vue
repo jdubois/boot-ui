@@ -679,7 +679,7 @@ function clearFilters() {
           <router-link
             class="card h-100 text-reset text-decoration-none activity-kpi-link"
             :to="{path: '/rest-client-trace'}"
-            title="Open the REST Client Trace panel"
+            title="Open the REST Client panel"
           >
             <div class="card-body py-2">
               <div class="text-muted small">

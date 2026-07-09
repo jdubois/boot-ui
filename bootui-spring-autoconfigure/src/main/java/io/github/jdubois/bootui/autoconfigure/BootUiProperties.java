@@ -132,7 +132,7 @@ public class BootUiProperties {
      */
     private SqlTrace sqlTrace = new SqlTrace();
     /**
-     * REST Client Trace panel settings.
+     * REST Client panel settings.
      */
     private RestClientTrace restClientTrace = new RestClientTrace();
     /**

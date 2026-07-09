@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.core.dto;
 import java.util.List;
 
 /**
- * Top-level REST client trace report returned by the REST Client Trace panel.
+ * Top-level REST client trace report returned by the REST Client panel.
  *
  * @param available whether at least one Spring HTTP client (RestClient, RestTemplate, or WebClient) has
  *     been instrumented

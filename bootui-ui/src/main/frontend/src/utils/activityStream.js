@@ -153,9 +153,7 @@ export function deepLink(entry) {
       return needle ? {path: '/sql-trace', query: {q: needle}, label: 'Open in SQL Trace'} : null
     }
     case 'REST_CLIENT':
-      return entry.path
-        ? {path: '/rest-client-trace', query: {q: entry.path}, label: 'Open in REST Client Trace'}
-        : null
+      return entry.path ? {path: '/rest-client-trace', query: {q: entry.path}, label: 'Open in REST Client'} : null
     case 'EXCEPTION': {
       const needle = exceptionNeedle(entry.summary)
       return needle ? {path: '/exceptions', query: {q: needle}, label: 'Open in Exceptions'} : null

@@ -181,7 +181,7 @@ public class PanelsController {
             case BootUiPanels.REST_CLIENT_TRACE ->
                 availability(
                         !isReactive() && beanPresent(RestClientTraceRecorder.class),
-                        "REST Client Trace is only available on the Spring MVC (servlet) adapter");
+                        "REST Client is only available on the Spring MVC (servlet) adapter");
             case BootUiPanels.THREADS ->
                 availability(
                         java.lang.management.ManagementFactory.getThreadMXBean() != null,

@@ -17,11 +17,11 @@ import java.util.regex.Pattern;
  *
  * <p>Mirrors {@code SqlTraceGrouping}'s role for SQL executions, factored out of {@link
  * RestClientTraceRecorder#topCalls()} so any other consumer that needs the exact same definition of
- * "looks like a chatty access pattern" the REST Client Trace panel uses can apply it over an explicit,
+ * "looks like a chatty access pattern" the REST Client panel uses can apply it over an explicit,
  * already-correlated subset of calls rather than the recorder's full buffer. Unlike {@code
  * SqlTraceGrouping}, this grouping is not (yet) reused by Live Activity: {@code LiveActivityService}
  * deliberately does not flag a chatty pattern on the correlated {@code REQUEST} entry the way it flags
- * SQL N+1 suspicion, so a chatty group is visible only inside the REST Client Trace panel's own "most
+ * SQL N+1 suspicion, so a chatty group is visible only inside the REST Client panel's own "most
  * frequent calls" table today.</p>
  *
  * <p>Unlike SQL's N+1 rule, which only flags repeated {@code SELECT}s (an {@code INSERT}/{@code UPDATE}

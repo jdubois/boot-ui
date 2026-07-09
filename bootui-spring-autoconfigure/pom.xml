@@ -59,7 +59,7 @@
           RestClientCustomizer/RestTemplateCustomizer (org.springframework.boot.restclient) and
           WebClientCustomizer (org.springframework.boot.webclient) each moved to their own Spring Boot 4
           module and are not transitively pulled in by spring-boot-starter-web/-webflux. Both are gated by
-          @ConditionalOnClass nested configuration in BootUiAutoConfiguration for the REST Client Trace
+          @ConditionalOnClass nested configuration in BootUiAutoConfiguration for the REST Client
           panel, so they stay optional here too.
         -->
         <dependency>

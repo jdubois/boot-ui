@@ -114,7 +114,7 @@ public final class BootUiPanels {
             new Panel(SPRING, "Spring", true, "/spring"),
             new Panel(CRAC, "CRaC", true, "/crac"),
             new Panel(SQL_TRACE, "SQL Trace", true, "/sql-trace"),
-            new Panel(REST_CLIENT_TRACE, "REST Client Trace", true, "/rest-client-trace"),
+            new Panel(REST_CLIENT_TRACE, "REST Client", true, "/rest-client-trace"),
             new Panel(MCP_SERVER, "MCP Server", true, "/mcp-server"),
             new Panel(ACTIVITY, "Live Activity", true, "/activity"),
             new Panel(EMAIL, "Email", true, "/email"));

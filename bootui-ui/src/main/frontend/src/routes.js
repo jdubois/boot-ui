@@ -597,6 +597,27 @@ export const routes = [
     }
   },
   {
+    path: '/rest-client-trace',
+    name: 'rest-client-trace',
+    component: RestClientTrace,
+    meta: {
+      group: groups.services,
+      icon: 'bi-globe2',
+      title: 'REST Client',
+      shortcut: 'rc',
+      keywords: [
+        'restclient',
+        'resttemplate',
+        'webclient',
+        'outbound',
+        'outbound calls',
+        'http client',
+        'downstream',
+        'chatty calls'
+      ]
+    }
+  },
+  {
     path: '/cache',
     name: 'cache',
     component: SpringCache,
@@ -606,6 +627,18 @@ export const routes = [
       title: 'Cache',
       shortcut: 'ca',
       keywords: ['caching', 'cacheable', 'cache manager', 'cacheput', 'cacheevict', 'caches']
+    }
+  },
+  {
+    path: '/email',
+    name: 'email',
+    component: Email,
+    meta: {
+      group: groups.services,
+      icon: 'bi-envelope',
+      title: 'Email',
+      shortcut: 'em',
+      keywords: ['mail', 'javamailsender', 'outgoing email', 'mail trap', 'dev trap', 'smtp']
     }
   },
   {
@@ -689,39 +722,6 @@ export const routes = [
       title: 'HTTP Probe',
       shortcut: 'hp',
       keywords: ['curl', 'request', 'api test', 'send request', 'http client', 'ping']
-    }
-  },
-  {
-    path: '/email',
-    name: 'email',
-    component: Email,
-    meta: {
-      group: groups.diagnostics,
-      icon: 'bi-envelope',
-      title: 'Email',
-      shortcut: 'em',
-      keywords: ['mail', 'javamailsender', 'outgoing email', 'mail trap', 'dev trap', 'smtp']
-    }
-  },
-  {
-    path: '/rest-client-trace',
-    name: 'rest-client-trace',
-    component: RestClientTrace,
-    meta: {
-      group: groups.diagnostics,
-      icon: 'bi-globe2',
-      title: 'REST Client Trace',
-      shortcut: 'rc',
-      keywords: [
-        'restclient',
-        'resttemplate',
-        'webclient',
-        'outbound',
-        'outbound calls',
-        'http client',
-        'downstream',
-        'chatty calls'
-      ]
     }
   },
   {

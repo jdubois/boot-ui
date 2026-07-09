@@ -278,7 +278,7 @@ Scope — new event types, roughly in priority order:
   `spring-boot-webclient` modules, so servlet and WebFlux wire identically and the configuration is skipped entirely
   when a module is absent. The framework-neutral `RestClientTraceRecorder` (`bootui-engine`) captures each call (client
   type, URI, method, status, duration, headers/call-site when enabled) into a bounded buffer, feeding both the
-  standalone REST Client Trace panel and, like Cache/Mail, a `REST_CLIENT` entry into the merged Live Activity feed —
+  standalone REST Client panel and, like Cache/Mail, a `REST_CLIENT` entry into the merged Live Activity feed —
   nesting as a `REQUEST` child via the same trace-id-then-thread join `SQL`/`CACHE`/`MAIL` use (see the `MAIL` bullet
   above for why `EXCEPTION`/`SECURITY` are not part of that list), and adding
   `restCallErrorRatePercent`/`restCallP95LatencyMs` KPI tiles deep-linked to `/rest-client-trace`. Quarkus is out of

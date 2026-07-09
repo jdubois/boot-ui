@@ -497,7 +497,7 @@ class LiveActivityServiceTests {
                         "REST_CLIENT:" + BASE.plusMillis(1500).toEpochMilli(),
                         "REQUEST:" + BASE.plusMillis(1000).toEpochMilli());
         assertThat(report.typeCounts()).containsEntry("REST_CLIENT", 1);
-        assertThat(report.sources()).contains("REST Client Trace");
+        assertThat(report.sources()).contains("REST Client");
         assertThat(report.entries())
                 .filteredOn(e -> e.type().equals("REST_CLIENT"))
                 .extracting(e -> e.id() + "=" + e.summary() + "=" + e.detail())
@@ -638,7 +638,7 @@ class LiveActivityServiceTests {
 
         LiveActivityReport report = service.report(null, null, 0, 0);
 
-        assertThat(report.sources()).doesNotContain("REST Client Trace");
+        assertThat(report.sources()).doesNotContain("REST Client");
         assertThat(report.entries()).noneMatch(e -> e.type().equals("REST_CLIENT"));
     }
 

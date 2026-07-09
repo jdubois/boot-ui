@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Verifies the grouping/chatty-flagging/call-site-aggregation/path-normalization helper shared by the
- * REST Client Trace panel's own {@code topCalls()} and the future Live Activity list-level chatty badge,
+ * REST Client panel's own {@code topCalls()} and the future Live Activity list-level chatty badge,
  * so both agree on exactly what counts as a chatty (repeated-call) access pattern.
  */
 class RestClientTraceGroupingTests {

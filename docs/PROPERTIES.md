@@ -142,14 +142,15 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                |
 | Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                |
 | Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                |
+| Services        | REST Client               | `rest-client-trace`         | `bootui.panels.rest-client-trace.enabled`         | `bootui.panels.rest-client-trace.read-only` |
 | Services        | Cache                     | `cache`                     | `bootui.panels.cache.enabled`                     | `bootui.panels.cache.read-only`           |
+| Services        | Email                     | `email`                     | `bootui.panels.email.enabled`                     | `bootui.panels.email.read-only`           |
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
 | Diagnostics     | Exceptions                | `exceptions`                | `bootui.panels.exceptions.enabled`                | `bootui.panels.exceptions.read-only`      |
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
-| Diagnostics     | REST Client Trace         | `rest-client-trace`         | `bootui.panels.rest-client-trace.enabled`         | `bootui.panels.rest-client-trace.read-only` |
 | Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | DevTools                  | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`    |
@@ -301,11 +302,11 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | `bootui.sql-trace.max-parameter-length`   | `200`   | Maximum retained length of a single captured parameter value.                                                                                |
 | `bootui.sql-trace.n-plus-one-threshold`   | `5`     | Number of times an identical `SELECT` must repeat within the buffer before it is flagged as a likely N+1 access pattern (minimum `2`).       |
 
-### REST Client Trace
+### REST Client
 
 | Property                                              | Default | Description |
 | ----------------------------------------------------- | ------- | ----------- |
-| `bootui.panels.rest-client-trace.enabled`             | `true`  | Show the REST Client Trace panel and its captured outbound HTTP calls. |
+| `bootui.panels.rest-client-trace.enabled`             | `true`  | Show the REST Client panel and its captured outbound HTTP calls. |
 | `bootui.panels.rest-client-trace.read-only`           | `false` | Disable the Pause/Resume and Clear actions while keeping captured calls visible. |
 | `bootui.rest-client-trace.enabled`                    | `true`  | Instrument Spring's `RestClient`, `RestTemplate`, and `WebClient` beans to capture outbound HTTP calls. When `false`, no client customizer is registered. |
 | `bootui.rest-client-trace.recording`                  | `true`  | Initial recording state. Recording can be paused and resumed at runtime from the panel without removing the client instrumentation. |
@@ -319,7 +320,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 
 ### Live Activity
 
-The Live Activity panel reuses the HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, Security Logs, Cache,
+The Live Activity panel reuses the HTTP Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, Cache,
 Scheduled Tasks, and Email sources, so disabling any of those panels through their own `bootui.panels.*` toggles also
 removes them from the stream (Kafka capture has its own separate `bootui.kafka.*` toggle — see below). The panel itself is
 read-only. A request whose correlated SQL trips `bootui.activity.n-plus-one-threshold` is flagged with a red **N+1**

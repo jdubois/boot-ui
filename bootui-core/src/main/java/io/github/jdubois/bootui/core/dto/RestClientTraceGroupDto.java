@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.core.dto;
 import java.util.List;
 
 /**
- * A group of outbound HTTP calls to the same endpoint captured by the REST Client Trace panel, used to
+ * A group of outbound HTTP calls to the same endpoint captured by the REST Client panel, used to
  * surface repeated calls and likely "chatty" access patterns (the REST analog of a SQL N+1 query).
  *
  * @param method the HTTP method shared by the grouped calls

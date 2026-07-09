@@ -28,7 +28,7 @@ Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (al
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
 `docs/WEBFLUX-SUPPORT.md` §6.4); a handful of panels (the Security advisor, the raw Spring Security panel, MCP Server,
-and the standalone REST Client Trace panel) are not yet ported, and HTTP Sessions is not applicable to a reactive,
+and the standalone REST Client panel) are not yet ported, and HTTP Sessions is not applicable to a reactive,
 container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
 is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
 current per-platform status.
@@ -40,7 +40,7 @@ Out of scope for the current 1.x line:
 - A dedicated BootUI Gradle plugin (the Spring starters and Quarkus extension are consumable from Maven or Gradle as
   ordinary dependencies).
 - On Spring Boot WebFlux: a reactive Security advisor ruleset, the raw Spring Security panel, MCP Server, and the
-  standalone REST Client Trace panel (see `docs/WEBFLUX-SUPPORT.md` for the reasons and the plan to close each gap).
+  standalone REST Client panel (see `docs/WEBFLUX-SUPPORT.md` for the reasons and the plan to close each gap).
 
 ## 2. Product goals
 
@@ -712,7 +712,7 @@ reverse-chronological activity stream, plus a Symfony-style per-request profiler
 
 Data sources:
 
-- Reuses the existing HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
+- Reuses the existing HTTP Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
 - Scheduled-task-run capture (both adapters): a bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`.
@@ -785,7 +785,7 @@ Features:
   `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length`.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, (Spring servlet/WebFlux only, `null` on Quarkus) outbound-call error
-  rate/p95 latency deep-linked to the REST Client Trace panel, health status, heap usage, (Spring only, `null` on
+  rate/p95 latency deep-linked to the REST Client panel, health status, heap usage, (Spring only, `null` on
   Quarkus) cache hit
   ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel — and a
   scheduled-task failure count linking into the Scheduled Tasks panel.
@@ -1472,10 +1472,10 @@ Initial endpoints:
 | `/bootui/api/mcp-server`                     | GET    | MCP Server panel status (enabled state, configured mode, transport, advertised tools)  |
 | `/bootui/api/mcp-server/toggle`              | POST   | Enable/disable the MCP server at runtime, overriding `bootui.mcp.enabled`               |
 | `/bootui/api/mcp`                            | GET/POST | Local-only MCP JSON-RPC 2.0 endpoint and status (served only while the server is enabled) |
-| `/bootui/api/rest-client-trace`              | GET    | Latest REST Client Trace report and retained outbound HTTP calls                        |
+| `/bootui/api/rest-client-trace`              | GET    | Latest REST Client report and retained outbound HTTP calls                              |
 | `/bootui/api/rest-client-trace/clear`        | POST   | Clear the retained REST client call buffer                                              |
 | `/bootui/api/rest-client-trace/recording`    | POST   | Pause/resume REST client call capture at runtime                                        |
-| `/bootui/api/rest-client-trace/stream`       | GET    | REST Client Trace change notifications over Server-Sent Events (re-fetch trigger)       |
+| `/bootui/api/rest-client-trace/stream`       | GET    | REST Client change notifications over Server-Sent Events (re-fetch trigger)             |
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |
@@ -1741,7 +1741,7 @@ Future compatibility:
 - Spring Boot 3.5 if demand requires it.
 - Gradle examples.
 - Closing the remaining Spring Boot WebFlux gaps: a reactive Security advisor, the raw Spring Security panel, MCP
-  Server, and the standalone REST Client Trace panel (see `docs/WEBFLUX-SUPPORT.md`).
+  Server, and the standalone REST Client panel (see `docs/WEBFLUX-SUPPORT.md`).
 
 ## 9. Testing strategy
 

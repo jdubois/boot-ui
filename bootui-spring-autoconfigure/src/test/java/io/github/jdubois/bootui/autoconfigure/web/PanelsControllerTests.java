@@ -353,7 +353,7 @@ class PanelsControllerTests {
         // (reactive) ApplicationContext - the same shared PanelsController that BootUiReactiveAutoConfiguration
         // imports unmodified must detect it and (a) report the reactive platform discriminator and (b) mark the
         // panels that have no faithful reactive equivalent (HTTP Sessions), are not yet ported (Spring
-        // Security advisor, MCP Server), or are servlet-only by design (REST Client Trace) as unavailable with
+        // Security advisor, MCP Server), or are servlet-only by design (REST Client) as unavailable with
         // a WebFlux-specific reason, instead of relying on incidental classpath presence. Live Activity is
         // ported reactively (it merges signals already captured by other reactive/shared controllers), so it
         // stays available here too.
@@ -383,7 +383,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".unavailableReason")
-                            .value("REST Client Trace is only available on the Spring MVC (servlet) adapter"))
+                            .value("REST Client is only available on the Spring MVC (servlet) adapter"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.ACTIVITY) + ".available")
                             .value(true));
         }
@@ -398,7 +398,7 @@ class PanelsControllerTests {
         // this panel's availability. Unlike SECURITY (which relies on an incidental type mismatch between the
         // servlet/reactive Spring Security filter beans), REST_CLIENT_TRACE needs and has an explicit
         // !isReactive() guard: this test proves the panel still reports unavailable even when a real recorder
-        // bean is registered, so the dedicated REST Client Trace panel (servlet-only SseEmitter controller)
+        // bean is registered, so the dedicated REST Client panel (servlet-only SseEmitter controller)
         // never lights up a dead link on WebFlux.
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             context.registerBean(
@@ -415,7 +415,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".unavailableReason")
-                            .value("REST Client Trace is only available on the Spring MVC (servlet) adapter"));
+                            .value("REST Client is only available on the Spring MVC (servlet) adapter"));
         }
     }
 
