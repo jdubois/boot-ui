@@ -28,7 +28,6 @@ import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -2059,11 +2058,6 @@ public abstract class AgentSessionStore {
 
     public boolean isRawRevealAllowed() {
         return properties.isAllowRawReveal();
-    }
-
-    /** Visible for testing - returns an unmodifiable snapshot of cached session ids. */
-    java.util.Set<String> cachedSessionIds() {
-        return Collections.unmodifiableSet(sessions.keySet());
     }
 
     // ── internal types ────────────────────────────────────────────────────────

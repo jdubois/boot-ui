@@ -14,7 +14,6 @@ public record HibernateEntityModel(String name, Class<?> javaType, List<Hibernat
     private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
     private static final String CACHE = "org.hibernate.annotations.Cache";
     private static final String CACHEABLE = "jakarta.persistence.Cacheable";
-    private static final String VERSION = "jakarta.persistence.Version";
 
     public HibernateEntityModel {
         attributes = List.copyOf(attributes);

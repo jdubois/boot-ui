@@ -61,16 +61,6 @@ record SecurityContext(
         return chains.stream().anyMatch(FilterChainModel::isStateful);
     }
 
-    boolean isResourceServerConfigured() {
-        return chains.stream().anyMatch(chain -> chain.hasFilterContaining("BearerTokenAuthenticationFilter"))
-                || firstProperty(
-                                "spring.security.oauth2.resourceserver.jwt.issuer-uri",
-                                "spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
-                                "spring.security.oauth2.resourceserver.jwt.public-key-location")
-                        != null
-                || !jwtDecoderTypes.isEmpty();
-    }
-
     /**
      * {@code true} when the application configures (or is expected to run behind) TLS: server-side
      * SSL is configured, a forwarded-headers strategy indicates TLS is terminated upstream, or a

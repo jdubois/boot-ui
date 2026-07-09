@@ -12,7 +12,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -124,14 +123,6 @@ public final class BootUiHttpProbe {
             } catch (IOException ex) {
                 throw new IllegalStateException("Response body is not valid JSON: " + preview(), ex);
             }
-        }
-
-        /** Parse the body as a JSON object into an insertion-ordered map of top-level fields. */
-        public Map<String, JsonNode> jsonFields() {
-            JsonNode node = json();
-            Map<String, JsonNode> fields = new LinkedHashMap<>();
-            node.fieldNames().forEachRemaining(name -> fields.put(name, node.get(name)));
-            return fields;
         }
 
         private String preview() {

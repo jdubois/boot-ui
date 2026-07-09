@@ -15,8 +15,6 @@ import java.util.function.Predicate;
  */
 public final class PagedList {
 
-    static final int DEFAULT_LIMIT = 200;
-
     static final int MAX_LIMIT = 1000;
 
     private PagedList() {}

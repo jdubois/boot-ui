@@ -44,12 +44,4 @@ public record CracRuntimeInventory(
     public static CracRuntimeInventory empty() {
         return new CracRuntimeInventory(List.of(), List.of(), true);
     }
-
-    boolean hasConnectionPools() {
-        return !connectionPoolBeans.isEmpty();
-    }
-
-    boolean hasCacheManagers() {
-        return !cacheManagerBeans.isEmpty();
-    }
 }
