@@ -22,6 +22,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
@@ -42,6 +43,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
@@ -76,10 +78,11 @@ import reactor.core.publisher.Flux;
  * trace id (see {@code TraceIdProvider}), and a request with no trace id simply renders flat/unprofileable
  * rather than guessing.
  *
- * <p>All eight signal sources are read directly from the already-reactive, already-masked/self-filtered
+ * <p>All nine signal sources are read directly from the already-reactive, already-masked/self-filtered
  * beans this adapter wires for their own panels — {@link HttpExchangesController} (HTTP requests, shared
  * with the servlet adapter since it depends only on the stack-agnostic Actuator
- * {@code HttpExchangeRepository}), {@link SqlTraceRecorder} (SQL trace), {@link ExceptionStore} (exceptions),
+ * {@code HttpExchangeRepository}), {@link SqlTraceRecorder} (SQL trace), {@link RestClientTraceRecorder}
+ * (outbound REST/WebClient calls), {@link ExceptionStore} (exceptions),
  * {@code ReactiveSecurityLogsController} (security/audit events), {@link ScheduledTaskRunStore}
  * ({@code @Scheduled} executions), {@link CacheActivityRecorder} (cache hit/miss/eviction events),
  * {@link KafkaActivityRecorder} (captured producer/consumer metadata), and {@link EmailController}
@@ -107,6 +110,7 @@ public class ReactiveLiveActivityController {
 
     private final ObjectProvider<HttpExchangesController> httpExchanges;
     private final ObjectProvider<SqlTraceRecorder> sqlTraceRecorder;
+    private final ObjectProvider<RestClientTraceRecorder> restClientTrace;
     private final ObjectProvider<DataSource> dataSourceProvider;
     private final ObjectProvider<ExceptionStore> exceptionStoreProvider;
     private final ObjectProvider<ScheduledTaskRunStore> scheduledTaskActivity;
@@ -130,6 +134,7 @@ public class ReactiveLiveActivityController {
     public ReactiveLiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
+            ObjectProvider<RestClientTraceRecorder> restClientTrace,
             ObjectProvider<DataSource> dataSourceProvider,
             ObjectProvider<ExceptionStore> exceptionStoreProvider,
             ObjectProvider<ScheduledTaskRunStore> scheduledTaskActivity,
@@ -146,6 +151,7 @@ public class ReactiveLiveActivityController {
             BootUiExposure exposure) {
         this.httpExchanges = httpExchanges;
         this.sqlTraceRecorder = sqlTraceRecorder;
+        this.restClientTrace = restClientTrace;
         this.dataSourceProvider = dataSourceProvider;
         this.exceptionStoreProvider = exceptionStoreProvider;
         this.scheduledTaskActivity = scheduledTaskActivity;
@@ -165,6 +171,10 @@ public class ReactiveLiveActivityController {
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
         if (recorder != null) {
             unsubscribers.add(recorder.subscribe(changeStream::signal));
+        }
+        RestClientTraceRecorder restClientTraceRecorder = restClientTrace.getIfAvailable();
+        if (restClientTraceRecorder != null) {
+            unsubscribers.add(restClientTraceRecorder.subscribe(changeStream::signal));
         }
         ExceptionStore store = exceptionStoreProvider.getIfAvailable();
         if (store != null) {
@@ -327,6 +337,8 @@ public class ReactiveLiveActivityController {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS);
+        List<RestClientTraceEntryDto> restEntries = restClientTraceEntries();
+        boolean restAvailable = restEntries != null;
         List<ScheduledTaskRunStore.Run> scheduledRuns = scheduledTaskRuns();
         String healthStatus = currentHealthStatus();
         List<CacheActivityEvent> cacheEvents = cacheEvents();
@@ -352,7 +364,9 @@ public class ReactiveLiveActivityController {
                 kafkaMessages,
                 kafkaAvailable,
                 emailAvailable ? emailReport.messages() : List.<EmailMessageDto>of(),
-                emailAvailable);
+                emailAvailable,
+                restEntries,
+                restAvailable);
 
         // Adapter-side post-processing over the shared assembler's output, mirroring the Quarkus adapter
         // exactly: a REQUEST entry is profileable here iff its exchange carries a resolvable trace id,
@@ -426,6 +440,17 @@ public class ReactiveLiveActivityController {
         }
         ScheduledTaskRunStore store = scheduledTaskActivity.getIfAvailable();
         return store == null ? null : store.runs();
+    }
+
+    private List<RestClientTraceEntryDto> restClientTraceEntries() {
+        if (!properties.isPanelEnabled(BootUiPanels.REST_CLIENT_TRACE)) {
+            return null;
+        }
+        RestClientTraceRecorder recorder = restClientTrace.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return null;
+        }
+        return recorder.report(exposure.maskSecrets(), exposure.valueExposure()).entries();
     }
 
     private List<SecurityLogEventDto> securityEvents(boolean securityAvailable) {

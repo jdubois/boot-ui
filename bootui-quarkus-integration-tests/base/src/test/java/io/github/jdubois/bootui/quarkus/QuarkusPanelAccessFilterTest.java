@@ -132,6 +132,7 @@ class QuarkusPanelAccessFilterTest {
                         .map(BootUiPanels.Panel::id)
                         .filter(id -> !NOT_APPLICABLE_ON_QUARKUS.contains(id))
                         .filter(id -> !NO_WRITE_PATH_ON_QUARKUS_YET.contains(id))
+                        .filter(id -> !NOT_YET_PORTED_TO_QUARKUS.contains(id))
                         .toList());
 
         QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.read-only", "true"));
@@ -238,6 +239,13 @@ class QuarkusPanelAccessFilterTest {
 
     /** Action-capable in the shared registry (Spring has a write path), but Quarkus has none yet. */
     private static final Set<String> NO_WRITE_PATH_ON_QUARKUS_YET = Set.of(BootUiPanels.CONFIG, BootUiPanels.EMAIL);
+
+    /**
+     * Action-capable in the shared registry with a Spring implementation, but Quarkus support is planned
+     * for a follow-up pass and has zero {@code @Path} resources yet (unlike {@link #NOT_APPLICABLE_ON_QUARKUS},
+     * this is not a permanent architectural gap — see {@code docs/QUARKUS-SUPPORT.md}).
+     */
+    private static final Set<String> NOT_YET_PORTED_TO_QUARKUS = Set.of(BootUiPanels.REST_CLIENT_TRACE);
 
     private static QuarkusPanelAccessFilter newFilter(Map<String, String> properties) {
         return new QuarkusPanelAccessFilter(configOf(properties));

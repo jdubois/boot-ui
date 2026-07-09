@@ -71,8 +71,9 @@ import javax.sql.DataSource;
  * (via the shared {@link SecurityEventBuffer}), scheduled-task runs (via the shared
  * {@link ScheduledTaskRunStore}), Kafka messages (via the shared {@link KafkaActivityRecorder}), and
  * captured email (via the shared {@link EmailCaptureService}) — plus JVM heap into the neutral
- * {@link LiveActivityReport}. Cache activity has no capture seam on Quarkus yet (see
- * {@link LiveActivityAssembler}'s class Javadoc), so its slot is always empty/unavailable here. SQL trace
+ * {@link LiveActivityReport}. Cache activity and outbound REST-client calls have no capture seam on
+ * Quarkus yet (see {@link LiveActivityAssembler}'s class Javadoc), so both slots are always
+ * empty/unavailable here. SQL trace
  * contributes only when a datasource is configured (the recorder is gated on Agroal); security events
  * contribute only when Quarkus's security capability is present and
  * {@code quarkus.security.events.enabled=true} (the same gate {@code SecurityLogsResource} uses, reused here
@@ -307,7 +308,11 @@ public class LiveActivityResource {
                 kafkaAvailable ? kafkaRecorder.recent() : List.of(),
                 kafkaAvailable,
                 emailAvailable ? emailReport.messages() : List.<EmailMessageDto>of(),
-                emailAvailable);
+                emailAvailable,
+                // No Quarkus outbound REST-client capture seam exists yet either (see the same class
+                // Javadoc); restCallErrorRatePercent/restCallP95LatencyMs stay null.
+                List.of(),
+                false);
 
         // Adapter-side post-processing over the shared assembler's output — not a change to the engine's
         // own `profileable` default (which stays `false` for every entry it builds, unaffected by this

@@ -710,7 +710,7 @@ reverse-chronological activity stream, plus a Symfony-style per-request profiler
 
 Data sources:
 
-- Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
+- Reuses the existing HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
 - Scheduled-task-run capture (both adapters): a bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`.
@@ -741,16 +741,16 @@ Data sources:
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, (Spring only) `CACHE`, `SCHEDULED_TASK`, `MESSAGING`, and
-  `MAIL` entries normalized to a common shape (timestamp, type, severity, one-line summary, optional duration and
-  correlation id), sorted newest-first and capped by
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `SCHEDULED_TASK`, `MESSAGING`, `MAIL`, and (Spring
+  servlet/WebFlux only) `CACHE` and `REST_CLIENT` entries normalized to a common shape (timestamp, type, severity,
+  one-line summary, optional duration and correlation id), sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
-  method/path), so the client can nest correlated SQL, exceptions, security events, cache accesses, and captured email
-  chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the sparkline
-  are unaffected) and entries without a precise request correlation have a null `parentId` — a `SCHEDULED_TASK` or
-  `MESSAGING` entry always has a null `parentId` since neither has a single owning request (a background-thread
-  execution and an unattributed message flow, respectively). A `CACHE` entry's summary is
+  method/path), so the client can nest correlated SQL, REST, exceptions, security events, cache accesses, and captured
+  email chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the
+  sparkline are unaffected) and entries without a precise request correlation have a null `parentId` — a
+  `SCHEDULED_TASK` or `MESSAGING` entry always has a null `parentId` since neither has a single owning request (a
+  background-thread execution and an unattributed message flow, respectively). A `CACHE` entry's summary is
   `"<HIT|MISS|PUT|EVICT|CLEAR> <cacheName>"`, its detail is `"key <hash>"` when a key was involved (omitted for
   whole-cache `CLEAR`), and a `MISS` is flagged `WARN` severity (all other operations `OK`). A `REQUEST` entry that was
   correlated to a Spring Security audit
@@ -778,7 +778,9 @@ Features:
   point), while on Quarkus it carries the channel name. Controlled by `bootui.kafka.enabled`,
   `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length`.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
-  exception count, SQL/min, slowest query, health status, heap usage, (Spring only, `null` on Quarkus) cache hit
+  exception count, SQL/min, slowest query, (Spring servlet/WebFlux only, `null` on Quarkus) outbound-call error
+  rate/p95 latency deep-linked to the REST Client Trace panel, health status, heap usage, (Spring only, `null` on
+  Quarkus) cache hit
   ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel — and a
   scheduled-task failure count linking into the Scheduled Tasks panel.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
@@ -1464,6 +1466,10 @@ Initial endpoints:
 | `/bootui/api/mcp-server`                     | GET    | MCP Server panel status (enabled state, configured mode, transport, advertised tools)  |
 | `/bootui/api/mcp-server/toggle`              | POST   | Enable/disable the MCP server at runtime, overriding `bootui.mcp.enabled`               |
 | `/bootui/api/mcp`                            | GET/POST | Local-only MCP JSON-RPC 2.0 endpoint and status (served only while the server is enabled) |
+| `/bootui/api/rest-client-trace`              | GET    | Latest REST Client Trace report and retained outbound HTTP calls                        |
+| `/bootui/api/rest-client-trace/clear`        | POST   | Clear the retained REST client call buffer                                              |
+| `/bootui/api/rest-client-trace/recording`    | POST   | Pause/resume REST client call capture at runtime                                        |
+| `/bootui/api/rest-client-trace/stream`       | GET    | REST Client Trace change notifications over Server-Sent Events (re-fetch trigger)       |
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |

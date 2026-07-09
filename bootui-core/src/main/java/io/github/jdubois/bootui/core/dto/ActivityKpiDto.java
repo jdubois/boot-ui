@@ -22,6 +22,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param cacheHitRatioPercent percentage of recent cache reads that were hits, or {@code null} when no
  *     cache accesses have been captured
  * @param scheduledTaskFailureCount number of failed scheduled-task executions currently retained
+ * @param restCallErrorRatePercent percentage of recent outbound REST calls that failed or returned a 4xx/5xx status, or {@code null}
+ * @param restCallP95LatencyMs 95th-percentile outbound REST call latency in milliseconds, or {@code null}
  */
 public record ActivityKpiDto(
         double requestsPerMinute,
@@ -37,4 +39,6 @@ public record ActivityKpiDto(
         Long heapUsedBytes,
         Long heapMaxBytes,
         Double cacheHitRatioPercent,
-        int scheduledTaskFailureCount) {}
+        int scheduledTaskFailureCount,
+        Double restCallErrorRatePercent,
+        Long restCallP95LatencyMs) {}

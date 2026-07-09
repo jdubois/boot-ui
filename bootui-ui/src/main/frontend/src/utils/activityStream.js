@@ -2,10 +2,10 @@
 // independently of the Vue component.
 
 /**
- * Nest correlated child signals (SQL, exceptions, security events) under the HTTP request entry they
- * belong to, using the server-computed {@code parentId}. Top-level entries keep their newest-first
- * input order; each request's {@code children} are ordered chronologically (oldest first) so they read
- * as the sequence of things that happened while the request was handled.
+ * Nest correlated child signals (SQL, REST client calls, exceptions, security events) under the HTTP
+ * request entry they belong to, using the server-computed {@code parentId}. Top-level entries keep their
+ * newest-first input order; each request's {@code children} are ordered chronologically (oldest first) so
+ * they read as the sequence of things that happened while the request was handled.
  *
  * An entry whose {@code parentId} is absent, self-referential, or not present in the supplied list
  * stays top-level (so nothing is hidden when its parent has scrolled out of the window). Every returned
@@ -152,6 +152,10 @@ export function deepLink(entry) {
       const needle = sqlNeedle(entry.summary)
       return needle ? {path: '/sql-trace', query: {q: needle}, label: 'Open in SQL Trace'} : null
     }
+    case 'REST_CLIENT':
+      return entry.path
+        ? {path: '/rest-client-trace', query: {q: entry.path}, label: 'Open in REST Client Trace'}
+        : null
     case 'EXCEPTION': {
       const needle = exceptionNeedle(entry.summary)
       return needle ? {path: '/exceptions', query: {q: needle}, label: 'Open in Exceptions'} : null

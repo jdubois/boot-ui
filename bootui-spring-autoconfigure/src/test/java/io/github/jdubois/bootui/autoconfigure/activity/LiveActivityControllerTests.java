@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
@@ -27,6 +28,7 @@ import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import java.util.List;
@@ -51,6 +53,25 @@ class LiveActivityControllerTests {
     void shutdownClosesChangeStreamAndTerminatesSchedulerThread() throws Exception {
         SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, true, false, 100, 100, 2000, 200, 5);
         LiveActivityController controller = controllerWith(provider(recorder), empty(ExceptionStore.class));
+
+        controller.stream(); // open an SSE emitter so a signal schedules a flush
+        java.util.Set<Thread> before = streamThreads();
+        recorder.clear(); // notifies the subscribed change stream → schedules a flush → starts its thread
+
+        Thread scheduler = awaitNewStreamThread(before);
+        assertThat(scheduler).as("scheduler thread should have started").isNotNull();
+
+        controller.shutdown();
+
+        // close() shuts the scheduler down so a DevTools restart does not leak one daemon thread
+        // (and, through it, the discarded context's class loader) per live reload.
+        assertThat(awaitNotAlive(scheduler)).isTrue();
+    }
+
+    @Test
+    void shutdownClosesChangeStreamAndTerminatesSchedulerThreadForRestClientTraceRecorderToo() throws Exception {
+        RestClientTraceRecorder recorder = new RestClientTraceRecorder(true, true, true, false, 100, 100, 2000, 200, 5);
+        LiveActivityController controller = controllerWithRestClientTraceRecorder(provider(recorder));
 
         controller.stream(); // open an SSE emitter so a signal schedules a flush
         java.util.Set<Thread> before = streamThreads();
@@ -329,6 +350,7 @@ class LiveActivityControllerTests {
         LiveActivityService service = new LiveActivityService(
                 empty(HttpExchangesController.class),
                 empty(SqlTraceController.class),
+                empty(RestClientTraceController.class),
                 empty(ExceptionsController.class),
                 empty(SecurityLogsController.class),
                 empty(HealthController.class),
@@ -434,12 +456,14 @@ class LiveActivityControllerTests {
         return new LiveActivityController(
                 empty(HttpExchangesController.class),
                 empty(SqlTraceController.class),
+                empty(RestClientTraceController.class),
                 empty(ExceptionsController.class),
                 empty(SecurityLogsController.class),
                 empty(TracesController.class),
                 empty(HealthController.class),
                 empty(EmailController.class),
                 recorder,
+                empty(RestClientTraceRecorder.class),
                 exceptionStore,
                 empty(RequestCorrelationRegistry.class),
                 empty(SecurityEventCorrelationRegistry.class),
@@ -451,6 +475,32 @@ class LiveActivityControllerTests {
                 persistenceSettings,
                 dataSourceProvider,
                 properties);
+    }
+
+    private static LiveActivityController controllerWithRestClientTraceRecorder(
+            ObjectProvider<RestClientTraceRecorder> restClientTraceRecorder) {
+        return new LiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceController.class),
+                empty(RestClientTraceController.class),
+                empty(ExceptionsController.class),
+                empty(SecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(SqlTraceRecorder.class),
+                restClientTraceRecorder,
+                empty(ExceptionStore.class),
+                empty(RequestCorrelationRegistry.class),
+                empty(SecurityEventCorrelationRegistry.class),
+                empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
+                empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.email.EmailCaptureService.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                empty(DataSource.class),
+                new BootUiProperties());
     }
 
     @SuppressWarnings("unchecked")

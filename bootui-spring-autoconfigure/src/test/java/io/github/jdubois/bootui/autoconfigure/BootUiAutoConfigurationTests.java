@@ -18,6 +18,8 @@ import io.github.jdubois.bootui.autoconfigure.mcp.McpServerController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceInterceptor;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
@@ -26,6 +28,7 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.BootUiSpanExporter;
 import java.net.URI;
 import java.nio.file.Path;
@@ -48,10 +51,13 @@ import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.actuate.web.exchanges.InMemoryHttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.restclient.RestClientCustomizer;
+import org.springframework.boot.restclient.RestTemplateCustomizer;
 import org.springframework.boot.servlet.actuate.web.exchanges.HttpExchangesFilter;
 import org.springframework.boot.servlet.filter.OrderedFilter;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.boot.webmvc.autoconfigure.DispatcherServletAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -59,7 +65,10 @@ import org.springframework.core.SpringProperties;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
@@ -253,6 +262,7 @@ class BootUiAutoConfigurationTests {
                             LiveActivityController.class,
                             EmailController.class,
                             SqlTraceController.class,
+                            RestClientTraceController.class,
                             HealthController.class,
                             DatabaseConnectionPoolsController.class,
                             HttpExchangesController.class,
@@ -584,6 +594,110 @@ class BootUiAutoConfigurationTests {
         runner.withPropertyValues("bootui.enabled=ON")
                 .withClassLoader(new FilteredClassLoader("org.springframework.boot.tomcat.TomcatWebServer"))
                 .run(context -> assertThat(context).doesNotHaveBean(HttpSessionsController.class));
+    }
+
+    @Test
+    void restClientCustomizersAreRegisteredWhenDependenciesArePresent() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .run(context -> assertThat(context)
+                        .hasSingleBean(RestClientCustomizer.class)
+                        .hasSingleBean(RestTemplateCustomizer.class)
+                        .hasSingleBean(WebClientCustomizer.class));
+    }
+
+    @Test
+    void skipsRestClientAndRestTemplateCustomizersWhenRestClientCustomizerIsMissing() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .withClassLoader(new FilteredClassLoader("org.springframework.boot.restclient.RestClientCustomizer"))
+                .run(context -> assertThat(context)
+                        .doesNotHaveBean(RestClientCustomizer.class)
+                        .doesNotHaveBean(RestTemplateCustomizer.class));
+    }
+
+    @Test
+    void skipsWebClientCustomizerWhenWebClientCustomizerIsMissing() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .withClassLoader(new FilteredClassLoader("org.springframework.boot.webclient.WebClientCustomizer"))
+                .run(context -> assertThat(context).doesNotHaveBean(WebClientCustomizer.class));
+    }
+
+    @Test
+    void restTemplateCustomizerAttachesInterceptorWhenRecorderIsEnabled() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            RestTemplateCustomizer customizer = context.getBean(RestTemplateCustomizer.class);
+            RestClientTraceRecorder recorder = context.getBean(RestClientTraceRecorder.class);
+            RestTemplate restTemplate = new RestTemplate();
+
+            customizer.customize(restTemplate);
+
+            assertThat(restTemplate.getInterceptors()).singleElement().isInstanceOf(RestClientTraceInterceptor.class);
+            assertThat(recorder.clientTypes()).contains("RestTemplate");
+        });
+    }
+
+    @Test
+    void restTemplateCustomizerDoesNotAttachInterceptorWhenDisabled() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.rest-client-trace.enabled=false")
+                .run(context -> {
+                    RestTemplateCustomizer customizer = context.getBean(RestTemplateCustomizer.class);
+                    RestClientTraceRecorder recorder = context.getBean(RestClientTraceRecorder.class);
+                    RestTemplate restTemplate = new RestTemplate();
+
+                    customizer.customize(restTemplate);
+
+                    assertThat(restTemplate.getInterceptors()).isEmpty();
+                    assertThat(recorder.clientTypes()).doesNotContain("RestTemplate");
+                });
+    }
+
+    @Test
+    void restClientCustomizerRegistersClientTypeWhenRecorderIsEnabled() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            RestClientCustomizer customizer = context.getBean(RestClientCustomizer.class);
+            RestClientTraceRecorder recorder = context.getBean(RestClientTraceRecorder.class);
+
+            customizer.customize(RestClient.builder());
+
+            assertThat(recorder.clientTypes()).contains("RestClient");
+        });
+    }
+
+    @Test
+    void restClientCustomizerDoesNotRegisterClientTypeWhenDisabled() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.rest-client-trace.enabled=false")
+                .run(context -> {
+                    RestClientCustomizer customizer = context.getBean(RestClientCustomizer.class);
+                    RestClientTraceRecorder recorder = context.getBean(RestClientTraceRecorder.class);
+
+                    customizer.customize(RestClient.builder());
+
+                    assertThat(recorder.clientTypes()).doesNotContain("RestClient");
+                });
+    }
+
+    @Test
+    void webClientCustomizerRegistersClientTypeWhenRecorderIsEnabled() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            WebClientCustomizer customizer = context.getBean(WebClientCustomizer.class);
+            RestClientTraceRecorder recorder = context.getBean(RestClientTraceRecorder.class);
+
+            customizer.customize(WebClient.builder());
+
+            assertThat(recorder.clientTypes()).contains("WebClient");
+        });
+    }
+
+    @Test
+    void webClientCustomizerDoesNotRegisterClientTypeWhenDisabled() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.rest-client-trace.enabled=false")
+                .run(context -> {
+                    WebClientCustomizer customizer = context.getBean(WebClientCustomizer.class);
+                    RestClientTraceRecorder recorder = context.getBean(RestClientTraceRecorder.class);
+
+                    customizer.customize(WebClient.builder());
+
+                    assertThat(recorder.clientTypes()).doesNotContain("WebClient");
+                });
     }
 
     @Test

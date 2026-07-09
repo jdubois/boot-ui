@@ -29,6 +29,7 @@ import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
@@ -153,6 +154,7 @@ import tools.jackson.databind.ObjectMapper;
     LiveActivityController.class,
     EmailController.class,
     SqlTraceController.class,
+    RestClientTraceController.class,
     ThreadDumpController.class,
     MemoryController.class,
     DismissedRulesController.class,
@@ -187,6 +189,7 @@ public class BootUiAutoConfiguration {
             LiveActivityController.class.getName(),
             EmailController.class.getName(),
             SqlTraceController.class.getName(),
+            RestClientTraceController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),
             HttpExchangesController.class.getName(),

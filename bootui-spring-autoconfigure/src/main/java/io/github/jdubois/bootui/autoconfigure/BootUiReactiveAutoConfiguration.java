@@ -39,6 +39,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
@@ -729,6 +730,7 @@ public class BootUiReactiveAutoConfiguration {
                 HttpExchangeTraceRegistry httpExchangeTraceRegistry,
                 ReactiveSecurityEventTraceRegistry securityEventTraceRegistry,
                 ObjectProvider<SqlTraceRecorder> sqlTraceRecorders,
+                ObjectProvider<RestClientTraceRecorder> restClientTraceRecorders,
                 ObjectProvider<HttpExchangesController> httpExchangesControllers,
                 ObjectProvider<ReactiveBootUiExceptionHandler> exceptionHandlers,
                 ObjectProvider<ReactiveSecurityLogsController> securityLogsControllers,
@@ -736,6 +738,7 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<io.github.jdubois.bootui.engine.email.EmailCaptureService> emailCaptureServices) {
             return () -> {
                 sqlTraceRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
+                restClientTraceRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
                 httpExchangesControllers.ifAvailable(
                         controller -> controller.setTraceRegistry(httpExchangeTraceRegistry));
                 exceptionHandlers.ifAvailable(handler -> handler.setTraceIdProvider(traceIdProvider));

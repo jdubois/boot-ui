@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
@@ -29,10 +30,11 @@ import java.util.Map;
 /**
  * Framework-neutral assembly of the Live Activity merged stream + KPI summary from already-masked source
  * reports. The Spring adapter has its own richer, controller-fed service (with per-request signal
- * correlation and thread attribution); the WebFlux and Quarkus adapters feed this assembler the signal
- * sources they capture — HTTP requests, SQL trace, exceptions, security/audit events, cache accesses,
- * captured {@code @Scheduled} task executions, captured emails, and optionally Kafka messaging — which are
- * merged into one reverse-chronological feed with JVM heap and per-type KPIs.
+ * correlation and thread attribution); the Spring WebFlux and Quarkus adapters feed this assembler the
+ * shared signal sources they capture — HTTP requests, SQL trace, exceptions, security/audit events, cache
+ * accesses, captured {@code @Scheduled} task executions, captured emails, optionally Kafka messaging, and
+ * (on WebFlux) outbound REST client calls — which are merged into one reverse-chronological feed with JVM
+ * heap and per-type KPIs.
  *
  * <p>Inputs are already masked and self-filtered by their owning engine services before they reach this
  * shape, so the assembler only normalizes, severities, merges, correlates and caps.</p>
@@ -41,8 +43,9 @@ import java.util.Map;
  * lets it attribute signals by serving thread, but on the Vert.x event loop a thread does not map to a
  * single request, so that strategy is unportable. Instead, when the adapter stamps a distributed-trace id on
  * each signal (the Quarkus adapter reads {@code Span.current()} when OpenTelemetry is present, whose context
- * propagates across the event-loop→worker hops), this assembler nests each SQL/exception/security/MAIL entry
- * under the REQUEST entry sharing the same trace id by setting its {@code parentId}, using the shared
+ * propagates across the event-loop→worker hops), this assembler nests each SQL/REST-client/exception/
+ * security/MAIL entry under the REQUEST entry sharing the same trace id by setting its {@code parentId},
+ * using the shared
  * {@link TraceCorrelationIndex} primitive. A child is only nested when <em>exactly one</em> request carries
  * that trace id (a uniqueness guard against a reused inbound {@code traceparent}). When no trace id is
  * stamped — OpenTelemetry absent — every {@code correlationId} is {@code null}, no {@code parentId} is set,
@@ -81,6 +84,13 @@ import java.util.Map;
  * trace id available on the producer/consumer thread today, so every {@link KafkaActivityEntries#toEntry}
  * mapping is flat by design (see {@code docs/PLAN.md} §3.4 for the nesting this can grow into once
  * messaging spans carry a correlation id).</p>
+ *
+ * <p><strong>Outbound REST client calls (the {@code REST_CLIENT} entry type / {@code restCallErrorRatePercent}
+ * and {@code restCallP95LatencyMs} KPIs) follow that same trace-id-only correlation rule</strong>: the
+ * servlet adapter's serving-thread fallback is intentionally not ported because neither Reactor nor Vert.x
+ * has a thread-per-request model to correlate on. Only the Spring WebFlux adapter feeds these today; the
+ * Quarkus adapter has no outbound REST capture seam yet, so it always calls {@link #report} with
+ * {@code restAvailable=false}.</p>
  */
 public final class LiveActivityAssembler {
 
@@ -98,6 +108,7 @@ public final class LiveActivityAssembler {
 
     private static final String TYPE_REQUEST = "REQUEST";
     private static final String TYPE_SQL = "SQL";
+    private static final String TYPE_REST_CLIENT = "REST_CLIENT";
     private static final String TYPE_EXCEPTION = "EXCEPTION";
     private static final String TYPE_SECURITY = "SECURITY";
     private static final String TYPE_MAIL = "MAIL";
@@ -144,6 +155,10 @@ public final class LiveActivityAssembler {
      *     thread, so {@code MAIL} entries can be nested under the uniquely matching REQUEST entry that
      *     shares that trace id, exactly like SQL/exceptions/security/cache above.
      * @param emailAvailable whether a mail sender is present and the Email Viewer panel is feeding
+     * @param restEntries already-masked outbound REST client calls (newest-first), or {@code null}; ignored
+     *     unless {@code restAvailable}. Spring WebFlux can supply these from the shared recorder; Quarkus
+     *     currently has no outbound REST capture seam and therefore passes an empty list.
+     * @param restAvailable whether the REST-client source is present and feeding
      */
     public LiveActivityReport report(
             HttpExchangesReport requests,
@@ -161,7 +176,9 @@ public final class LiveActivityAssembler {
             List<CapturedMessage> kafkaMessages,
             boolean kafkaAvailable,
             List<EmailMessageDto> emailMessages,
-            boolean emailAvailable) {
+            boolean emailAvailable,
+            List<RestClientTraceEntryDto> restEntries,
+            boolean restAvailable) {
 
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
@@ -171,6 +188,7 @@ public final class LiveActivityAssembler {
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
         List<CapturedMessage> kafka = !kafkaAvailable || kafkaMessages == null ? List.of() : kafkaMessages;
         List<EmailMessageDto> emails = !emailAvailable || emailMessages == null ? List.of() : emailMessages;
+        List<RestClientTraceEntryDto> rest = !restAvailable || restEntries == null ? List.of() : restEntries;
 
         List<ActivityEntryDto> entries = new ArrayList<>();
 
@@ -293,6 +311,10 @@ public final class LiveActivityAssembler {
             entries.add(toEmailEntry(message, traceIndex.parentRequestId(message.traceId())));
         }
 
+        for (RestClientTraceEntryDto entry : rest) {
+            entries.add(toRestEntry(entry, traceIndex.parentRequestId(entry.traceId())));
+        }
+
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
 
         Map<String, Integer> typeCounts = new LinkedHashMap<>();
@@ -325,6 +347,9 @@ public final class LiveActivityAssembler {
         if (emailAvailable) {
             sources.add("email");
         }
+        if (restAvailable) {
+            sources.add("rest-client");
+        }
 
         List<String> warnings = new ArrayList<>();
         if (!sqlAvailable && sqlUnavailableWarning != null && !sqlUnavailableWarning.isBlank()) {
@@ -348,6 +373,18 @@ public final class LiveActivityAssembler {
         int scheduledTaskFailureCount =
                 (int) scheduled.stream().filter(run -> !run.success()).count();
 
+        Double restCallErrorRatePercent = null;
+        Long restCallP95LatencyMs = null;
+        if (restAvailable && !rest.isEmpty()) {
+            long restErrors = rest.stream()
+                    .filter(entry -> !entry.success() || (entry.status() != null && entry.status() >= 400))
+                    .count();
+            restCallErrorRatePercent = round((restErrors * 100d) / rest.size());
+            List<Long> restDurations =
+                    rest.stream().map(RestClientTraceEntryDto::durationMillis).toList();
+            restCallP95LatencyMs = percentile(restDurations, 95);
+        }
+
         ActivityKpiDto kpis = new ActivityKpiDto(
                 0d,
                 exchanges.isEmpty() ? 0d : (errors * 100d) / exchanges.size(),
@@ -362,7 +399,9 @@ public final class LiveActivityAssembler {
                 heapUsed(),
                 heapMax(),
                 cacheHitRatioPercent,
-                scheduledTaskFailureCount);
+                scheduledTaskFailureCount,
+                restCallErrorRatePercent,
+                restCallP95LatencyMs);
         return new LiveActivityReport(true, entries, typeCounts, kpis, sources, warnings);
     }
 
@@ -390,6 +429,43 @@ public final class LiveActivityAssembler {
                 null,
                 null,
                 event.thread(),
+                false,
+                parentId,
+                null,
+                false);
+    }
+
+    private ActivityEntryDto toRestEntry(RestClientTraceEntryDto entry, String parentId) {
+        String severity;
+        if (!entry.success()) {
+            severity = SEVERITY_ERROR;
+        } else if (entry.status() != null && entry.status() >= 500) {
+            severity = SEVERITY_ERROR;
+        } else if (entry.status() != null && entry.status() >= 400) {
+            severity = SEVERITY_WARN;
+        } else if (entry.slow()) {
+            severity = SEVERITY_SLOW;
+        } else {
+            severity = SEVERITY_OK;
+        }
+        String host = entry.host() == null ? "" : entry.host();
+        String path = entry.path() == null ? "" : entry.path();
+        String outcome = entry.success() ? String.valueOf(entry.status()) : "failed";
+        String summary = (entry.method() == null ? "" : entry.method() + " ") + host + path + " → " + outcome;
+        String detail = entry.success() ? entry.clientType() : entry.errorMessage();
+        return new ActivityEntryDto(
+                "rest-" + entry.id(),
+                TYPE_REST_CLIENT,
+                entry.timestamp(),
+                severity,
+                summary.trim(),
+                detail,
+                entry.durationMillis(),
+                entry.traceId(),
+                entry.method(),
+                entry.path(),
+                entry.status(),
+                entry.thread(),
                 false,
                 parentId,
                 null,

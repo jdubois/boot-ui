@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
@@ -19,17 +20,18 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
  * Verifies the trace-id correlation both Quarkus and Spring WebFlux rely on for Live Activity: when the
- * captured signals share a distributed-trace id, the assembler nests the SQL/exception/security entries under
- * the owning REQUEST entry by setting their {@code parentId} (a uniquely-matched security event additionally
- * stamps {@code securedPrincipal} on that request); when no shared trace id is present the feed stays flat;
- * and an ambiguous trace id shared by more than one request never nests a child under the wrong one nor
- * stamps a principal. Also verifies the {@code SCHEDULED_TASK} fallback tier: an exception with no matching
- * request trace id nests under a captured {@code @Scheduled} execution instead, via a serving-thread +
- * time-window join, but only when the request/trace-id tier does not already claim it.
+ * captured signals share a distributed-trace id, the assembler nests the SQL/REST-client/exception/security
+ * entries under the owning REQUEST entry by setting their {@code parentId} (a uniquely-matched security
+ * event additionally stamps {@code securedPrincipal} on that request); when no shared trace id is present
+ * the feed stays flat; and an ambiguous trace id shared by more than one request never nests a child under
+ * the wrong one nor stamps a principal. Also verifies the {@code SCHEDULED_TASK} fallback tier: an exception
+ * with no matching request trace id nests under a captured {@code @Scheduled} execution instead, via a
+ * serving-thread + time-window join, but only when the request/trace-id tier does not already claim it.
  */
 class LiveActivityAssemblerTests {
 
@@ -54,6 +56,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -93,6 +97,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
@@ -118,6 +124,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -149,6 +157,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
@@ -174,6 +184,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -204,7 +216,9 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 emails,
-                true);
+                true,
+                List.of(),
+                false);
 
         ActivityEntryDto mailEntry = entry(report, "email-1");
         assertThat(mailEntry.parentId()).isEqualTo("req-1");
@@ -234,7 +248,9 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 emails,
-                true);
+                true,
+                List.of(),
+                false);
 
         assertThat(entry(report, "email-1").parentId()).isNull();
     }
@@ -257,6 +273,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -293,6 +311,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(securityEntry(report).severity()).isEqualTo("WARN");
@@ -317,6 +337,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -345,6 +367,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -377,6 +401,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "req-1").securedPrincipal()).isEqualTo("bob");
@@ -399,6 +425,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -428,6 +456,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -467,6 +497,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.kpis().cacheHitRatioPercent()).isNull();
@@ -496,6 +528,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 2,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -532,7 +566,9 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 emails,
-                true);
+                true,
+                List.of(),
+                false);
 
         // Only 2 entries are returned (limit=2), but the counts must reflect all 4 captured entries so the
         // dashboard's per-type totals never understate what was actually captured.
@@ -567,6 +603,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "req-1").sqlNPlusOneSuspected()).isTrue();
@@ -594,6 +632,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -625,6 +665,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -681,6 +723,8 @@ class LiveActivityAssemblerTests {
                 kafka,
                 true,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.entries()).extracting(ActivityEntryDto::id).containsExactly("kafka-1", "sql-10");
@@ -712,6 +756,8 @@ class LiveActivityAssemblerTests {
                 recorder.recent(),
                 true,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "kafka-1").detail())
@@ -739,6 +785,8 @@ class LiveActivityAssemblerTests {
                 scheduled,
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -770,6 +818,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "exc-e1").parentId()).isNull();
@@ -798,6 +848,8 @@ class LiveActivityAssemblerTests {
                 scheduled,
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -837,6 +889,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         ActivityEntryDto ok = entry(report, "sched-1");
@@ -873,6 +927,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.sources()).doesNotContain("scheduled-tasks");
@@ -904,10 +960,158 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.entries()).hasSize(2);
         assertThat(report.typeCounts()).containsEntry("REQUEST", 3).containsEntry("SCHEDULED_TASK", 1);
+    }
+
+    @Test
+    void mapsRestClientEntrySeveritySummaryDetailAndParentFromTraceId() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<RestClientTraceEntryDto> rest =
+                List.of(rest(7, "GET", "api.example.com", "/users", 200, 75L, true, null, false, "trace-a"));
+
+        LiveActivityReport report = assembler.report(
+                requests,
+                List.of(),
+                false,
+                null,
+                exceptions(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                rest,
+                true);
+
+        ActivityEntryDto restEntry = entry(report, "rest-7");
+        assertThat(restEntry.type()).isEqualTo("REST_CLIENT");
+        assertThat(restEntry.severity()).isEqualTo("OK");
+        assertThat(restEntry.summary()).isEqualTo("GET api.example.com/users → 200");
+        assertThat(restEntry.detail()).isEqualTo("WebClient");
+        assertThat(restEntry.method()).isEqualTo("GET");
+        assertThat(restEntry.path()).isEqualTo("/users");
+        assertThat(restEntry.status()).isEqualTo(200);
+        assertThat(restEntry.parentId()).isEqualTo("req-1");
+        assertThat(restEntry.correlationId()).isEqualTo("trace-a");
+        assertThat(report.sources()).contains("rest-client");
+    }
+
+    @Test
+    void leavesRestClientEntryFlatWhenNoTraceIdIsStampedOrItIsAmbiguous() {
+        HttpExchangesReport missingTraceRequest = requests(request("req-1", "/orders", null, 1_000L));
+        LiveActivityReport missingTraceReport = assembler.report(
+                missingTraceRequest,
+                List.of(),
+                false,
+                null,
+                exceptions(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(rest(7, "GET", "api.example.com", "/users", 200, 75L, true, null, false, null)),
+                true);
+        assertThat(entry(missingTraceReport, "rest-7").parentId()).isNull();
+
+        HttpExchangesReport ambiguousRequests =
+                requests(request("req-1", "/orders", "trace-a", 1_000L), request("req-2", "/items", "trace-a", 2_000L));
+        LiveActivityReport ambiguousReport = assembler.report(
+                ambiguousRequests,
+                List.of(),
+                false,
+                null,
+                exceptions(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(rest(8, "GET", "api.example.com", "/users", 200, 75L, true, null, false, "trace-a")),
+                true);
+        assertThat(entry(ambiguousReport, "rest-8").parentId()).isNull();
+    }
+
+    @Test
+    void computesRestClientKpis() {
+        List<RestClientTraceEntryDto> rest = List.of(
+                rest(1, "GET", "api", "/ok", 200, 10L, true, null, false, "trace-a"),
+                rest(2, "GET", "api", "/slow", 404, 20L, true, null, false, "trace-b"),
+                rest(3, "GET", "api", "/down", null, 30L, false, "boom", false, "trace-c"),
+                rest(4, "GET", "api", "/slower", 200, 40L, true, null, true, "trace-d"));
+
+        LiveActivityReport report = assembler.report(
+                requests(),
+                List.of(),
+                false,
+                null,
+                exceptions(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                rest,
+                true);
+
+        assertThat(report.kpis().restCallErrorRatePercent()).isEqualTo(50.0);
+        assertThat(report.kpis().restCallP95LatencyMs()).isEqualTo(40L);
+    }
+
+    @Test
+    void omitsRestClientSourceAndKpisWhenUnavailable() {
+        LiveActivityReport report = assembler.report(
+                requests(),
+                List.of(),
+                false,
+                null,
+                exceptions(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(rest(1, "GET", "api", "/ok", 200, 10L, true, null, false, "trace-a")),
+                false);
+
+        assertThat(report.sources()).doesNotContain("rest-client");
+        assertThat(report.kpis().restCallErrorRatePercent()).isNull();
+        assertThat(report.kpis().restCallP95LatencyMs()).isNull();
     }
 
     private static ActivityEntryDto entry(LiveActivityReport report, String id) {
@@ -997,6 +1201,36 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 traceId,
                 callSite);
+    }
+
+    private static RestClientTraceEntryDto rest(
+            long id,
+            String method,
+            String host,
+            String path,
+            Integer status,
+            long durationMillis,
+            boolean success,
+            String errorMessage,
+            boolean slow,
+            String traceId) {
+        return new RestClientTraceEntryDto(
+                id,
+                1_000L + id,
+                method,
+                "https://" + host + path,
+                host,
+                path,
+                status,
+                durationMillis,
+                success,
+                errorMessage,
+                slow,
+                "WebClient",
+                Map.of(),
+                traceId,
+                "worker-1",
+                null);
     }
 
     private static List<ExceptionGroupDto> exceptions() {

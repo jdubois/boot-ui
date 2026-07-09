@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiEngineConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
@@ -28,6 +29,7 @@ import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.ArrayList;
@@ -60,10 +62,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * <p>Because the merged feed is genuinely event-driven, the panel refreshes over Server-Sent Events
  * instead of fixed-interval polling: {@link #stream()} pushes a tiny coalesced {@code update} tick
  * whenever any underlying source changes, and the browser re-fetches {@link #activity} so all
- * masking, filtering and bounds still apply. SQL trace, exceptions, cache accesses, scheduled-task
- * runs, Kafka messages, and captured emails are wired in as signals through their in-process subscribe
- * hooks; security and HTTP requests are wired through Spring application events — a single
- * {@link BootUiChangeStream} coalesces a burst into one push.
+ * masking, filtering and bounds still apply. SQL trace, REST client trace, exceptions, cache accesses,
+ * scheduled-task runs, Kafka messages, and captured emails are wired in as signals through their
+ * in-process subscribe hooks; security and HTTP requests are wired through Spring application events —
+ * a single {@link BootUiChangeStream} coalesces a burst into one push.
  *
  * <p>This controller also always owns the capture side: whenever the injected {@link
  * #persistenceSettings} has persistence enabled (from startup configuration, or later via the "Use the
@@ -92,12 +94,14 @@ public class LiveActivityController {
     public LiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
             ObjectProvider<SqlTraceController> sqlTrace,
+            ObjectProvider<RestClientTraceController> restClientTrace,
             ObjectProvider<ExceptionsController> exceptions,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             ObjectProvider<HealthController> health,
             ObjectProvider<EmailController> email,
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
+            ObjectProvider<RestClientTraceRecorder> restClientTraceRecorder,
             ObjectProvider<ExceptionStore> exceptionStore,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
@@ -112,6 +116,7 @@ public class LiveActivityController {
         this.service = new LiveActivityService(
                 httpExchanges,
                 sqlTrace,
+                restClientTrace,
                 exceptions,
                 securityLogs,
                 health,
@@ -137,6 +142,10 @@ public class LiveActivityController {
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
         if (recorder != null) {
             unsubscribers.add(recorder.subscribe(changeStream::signal));
+        }
+        RestClientTraceRecorder restRecorder = restClientTraceRecorder.getIfAvailable();
+        if (restRecorder != null) {
+            unsubscribers.add(restRecorder.subscribe(changeStream::signal));
         }
         ExceptionStore store = exceptionStore.getIfAvailable();
         if (store != null) {

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
@@ -19,13 +20,18 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
+import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -162,6 +168,51 @@ class LiveActivityServiceTests {
         assertThat(kpis.slowestEndpoint()).isEqualTo("/slow");
         assertThat(kpis.slowestEndpointMs()).isEqualTo(200L);
         assertThat(kpis.slowestQueryMs()).isEqualTo(40L);
+    }
+
+    @Test
+    void computesRestKpisFromCapturedCalls() {
+        LiveActivityService service = service(
+                null,
+                null,
+                rest(
+                        restEntry(1, BASE.plusMillis(10).toEpochMilli(), "GET", "api", "/ok", 200, 10L, true, null),
+                        restEntry(2, BASE.plusMillis(20).toEpochMilli(), "GET", "api", "/warn", 404, 20L, true, null),
+                        restEntry(3, BASE.plusMillis(30).toEpochMilli(), "GET", "api", "/error", 500, 30L, true, null),
+                        restEntry(
+                                4,
+                                BASE.plusMillis(40).toEpochMilli(),
+                                "GET",
+                                "api",
+                                "/down",
+                                null,
+                                40L,
+                                false,
+                                "Connection refused")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        var kpis = service.report(null, null, 0, 0).kpis();
+
+        assertThat(kpis.restCallErrorRatePercent()).isEqualTo(75.0);
+        assertThat(kpis.restCallP95LatencyMs()).isEqualTo(40L);
+    }
+
+    @Test
+    void leavesRestKpisNullWhenRestTraceUnavailableOrEmpty() {
+        var emptyKpis = service(null, null, rest(), null, null, null, new BootUiProperties())
+                .report(null, null, 0, 0)
+                .kpis();
+        assertThat(emptyKpis.restCallErrorRatePercent()).isNull();
+        assertThat(emptyKpis.restCallP95LatencyMs()).isNull();
+
+        var unavailableKpis = service(null, null, unavailableRest(), null, null, null, new BootUiProperties())
+                .report(null, null, 0, 0)
+                .kpis();
+        assertThat(unavailableKpis.restCallErrorRatePercent()).isNull();
+        assertThat(unavailableKpis.restCallP95LatencyMs()).isNull();
     }
 
     @Test
@@ -419,6 +470,179 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void mergesRestClientCallsIntoStream() {
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                rest(restEntry(
+                        1,
+                        BASE.plusMillis(1500).toEpochMilli(),
+                        "GET",
+                        "api.example.com",
+                        "/users",
+                        200,
+                        8L,
+                        true,
+                        null)),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(report.entries())
+                .extracting(e -> e.type() + ":" + e.timestamp())
+                .containsExactly(
+                        "REST_CLIENT:" + BASE.plusMillis(1500).toEpochMilli(),
+                        "REQUEST:" + BASE.plusMillis(1000).toEpochMilli());
+        assertThat(report.typeCounts()).containsEntry("REST_CLIENT", 1);
+        assertThat(report.sources()).contains("REST Client Trace");
+        assertThat(report.entries())
+                .filteredOn(e -> e.type().equals("REST_CLIENT"))
+                .extracting(e -> e.id() + "=" + e.summary() + "=" + e.detail())
+                .containsExactly("rest-1=GET api.example.com/users → 200=RestClient");
+    }
+
+    @Test
+    void classifiesRestSeverityFromStatusSuccessAndSlowness() {
+        LiveActivityService service = service(
+                null,
+                null,
+                rest(
+                        restEntry(1, BASE.plusMillis(10).toEpochMilli(), "GET", "api", "/ok", 200, 5L, true, null),
+                        restEntry(
+                                2,
+                                BASE.plusMillis(20).toEpochMilli(),
+                                "GET",
+                                "api",
+                                "/slow",
+                                200,
+                                5000L,
+                                true,
+                                null,
+                                true),
+                        restEntry(3, BASE.plusMillis(30).toEpochMilli(), "GET", "api", "/warn", 404, 5L, true, null),
+                        restEntry(4, BASE.plusMillis(40).toEpochMilli(), "GET", "api", "/err", 500, 5L, true, null),
+                        restEntry(
+                                5,
+                                BASE.plusMillis(50).toEpochMilli(),
+                                "GET",
+                                "api",
+                                "/down",
+                                null,
+                                5L,
+                                false,
+                                "Connection refused")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(report.entries())
+                .filteredOn(e -> e.type().equals("REST_CLIENT"))
+                .extracting(e -> e.id() + "=" + e.severity())
+                .containsExactlyInAnyOrder("rest-1=OK", "rest-2=SLOW", "rest-3=WARN", "rest-4=ERROR", "rest-5=ERROR");
+    }
+
+    @Test
+    void marksFailedRestCallDetailWithErrorMessage() {
+        LiveActivityService service = service(
+                null,
+                null,
+                rest(restEntry(
+                        1,
+                        BASE.plusMillis(10).toEpochMilli(),
+                        "GET",
+                        "api",
+                        "/down",
+                        null,
+                        5L,
+                        false,
+                        "Connection refused")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(report.entries())
+                .filteredOn(e -> e.type().equals("REST_CLIENT"))
+                .extracting(e -> e.detail())
+                .containsExactly("Connection refused");
+    }
+
+    @Test
+    void nestsRestUnderRequestByTraceId() {
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                rest(restEntryOn(1, BASE.plusMillis(1010).toEpochMilli(), "http-thread", "trace-r1")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "rest-1")).isEqualTo("r1");
+    }
+
+    @Test
+    void nestsRestUnderRequestByServingThread() {
+        RequestCorrelationRegistry requestCorrelations = new RequestCorrelationRegistry(10);
+        requestCorrelations.record(new RequestCorrelationRegistry.RequestCorrelation(
+                BASE.plusMillis(1000).toEpochMilli(), BASE.plusMillis(1030).toEpochMilli(), "worker-9", "GET", "/a"));
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                rest(restEntryOn(1, BASE.plusMillis(1015).toEpochMilli(), "worker-9", null)),
+                null,
+                null,
+                null,
+                requestCorrelations,
+                null,
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "rest-1")).isEqualTo("r1");
+    }
+
+    @Test
+    void leavesUncorrelatedRestCallTopLevel() {
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                rest(restEntryOn(1, BASE.plusMillis(5000).toEpochMilli(), "other-thread", "trace-zzz")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+        assertThat(parentOf(report, "rest-1")).isNull();
+    }
+
+    @Test
+    void doesNotIncludeRestClientTraceInSourcesWhenPanelDisabled() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.REST_CLIENT_TRACE).setEnabled(false);
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                rest(restEntry(1, BASE.plusMillis(1500).toEpochMilli(), "GET", "api", "/users", 200, 8L, true, null)),
+                null,
+                null,
+                null,
+                properties);
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(report.sources()).doesNotContain("REST Client Trace");
+        assertThat(report.entries()).noneMatch(e -> e.type().equals("REST_CLIENT"));
+    }
+
+    @Test
     void mergesCacheEventsIntoTheStream() {
         io.github.jdubois.bootui.engine.cache.CacheActivityRecorder recorder =
                 new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
@@ -579,7 +803,20 @@ class LiveActivityServiceTests {
             SecurityLogsController security,
             HealthController health,
             BootUiProperties properties) {
-        return service(requests, sql, exceptions, security, health, null, null, null, null, null, null, properties);
+        return service(
+                requests, sql, null, exceptions, security, health, null, null, null, null, null, null, properties);
+    }
+
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            RestClientTraceController rest,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            BootUiProperties properties) {
+        return service(
+                requests, sql, rest, exceptions, security, health, null, null, null, null, null, null, properties);
     }
 
     private LiveActivityService service(
@@ -590,7 +827,8 @@ class LiveActivityServiceTests {
             HealthController health,
             EmailController email,
             BootUiProperties properties) {
-        return service(requests, sql, exceptions, security, health, email, null, null, null, null, null, properties);
+        return service(
+                requests, sql, null, exceptions, security, health, email, null, null, null, null, null, properties);
     }
 
     private LiveActivityService service(
@@ -605,6 +843,33 @@ class LiveActivityServiceTests {
         return service(
                 requests,
                 sql,
+                null,
+                exceptions,
+                security,
+                health,
+                null,
+                requestCorrelations,
+                securityCorrelations,
+                null,
+                null,
+                null,
+                properties);
+    }
+
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            RestClientTraceController rest,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            RequestCorrelationRegistry requestCorrelations,
+            SecurityEventCorrelationRegistry securityCorrelations,
+            BootUiProperties properties) {
+        return service(
+                requests,
+                sql,
+                rest,
                 exceptions,
                 security,
                 health,
@@ -630,6 +895,7 @@ class LiveActivityServiceTests {
         return service(
                 requests,
                 sql,
+                null,
                 exceptions,
                 security,
                 health,
@@ -655,6 +921,7 @@ class LiveActivityServiceTests {
         return service(
                 requests,
                 sql,
+                null,
                 exceptions,
                 security,
                 health,
@@ -676,6 +943,7 @@ class LiveActivityServiceTests {
     private LiveActivityService service(
             HttpExchangesController requests,
             SqlTraceController sql,
+            RestClientTraceController rest,
             ExceptionsController exceptions,
             SecurityLogsController security,
             HealthController health,
@@ -689,6 +957,7 @@ class LiveActivityServiceTests {
         return new LiveActivityService(
                 provider(requests),
                 provider(sql),
+                provider(rest),
                 provider(exceptions),
                 provider(security),
                 provider(health),
@@ -703,7 +972,7 @@ class LiveActivityServiceTests {
 
     private LiveActivityService serviceWithKafka(
             io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder, BootUiProperties properties) {
-        return service(null, null, null, null, null, null, null, null, null, null, recorder, properties);
+        return service(null, null, null, null, null, null, null, null, null, null, null, recorder, properties);
     }
 
     private LiveActivityService serviceWithCache(
@@ -715,7 +984,19 @@ class LiveActivityServiceTests {
             io.github.jdubois.bootui.engine.cache.CacheActivityRecorder cacheActivity,
             BootUiProperties properties) {
         return service(
-                requests, sql, exceptions, security, health, null, null, null, cacheActivity, null, null, properties);
+                requests,
+                sql,
+                null,
+                exceptions,
+                security,
+                health,
+                null,
+                null,
+                null,
+                cacheActivity,
+                null,
+                null,
+                properties);
     }
 
     @SuppressWarnings("unchecked")
@@ -754,6 +1035,31 @@ class LiveActivityServiceTests {
                 List.of(),
                 List.of());
         when(controller.trace()).thenReturn(report);
+        return controller;
+    }
+
+    private static RestClientTraceController rest(RestClientTraceEntryDto... entries) {
+        RestClientTraceController controller = mock(RestClientTraceController.class);
+        RestClientTraceReport report = new RestClientTraceReport(
+                true,
+                null,
+                true,
+                false,
+                100,
+                entries.length,
+                1000,
+                List.of("RestClient"),
+                RestClientTraceStatsDto.empty(),
+                List.of(entries),
+                List.of(),
+                List.of());
+        when(controller.trace()).thenReturn(report);
+        return controller;
+    }
+
+    private static RestClientTraceController unavailableRest() {
+        RestClientTraceController controller = mock(RestClientTraceController.class);
+        when(controller.trace()).thenReturn(RestClientTraceReport.unavailable("REST client tracing is not configured"));
         return controller;
     }
 
@@ -823,6 +1129,69 @@ class LiveActivityServiceTests {
                 false,
                 List.of(),
                 traceId,
+                null);
+    }
+
+    private static RestClientTraceEntryDto restEntry(
+            long id,
+            long timestamp,
+            String method,
+            String host,
+            String path,
+            Integer status,
+            long durationMillis,
+            boolean success,
+            String errorMessage) {
+        return restEntry(id, timestamp, method, host, path, status, durationMillis, success, errorMessage, false);
+    }
+
+    private static RestClientTraceEntryDto restEntry(
+            long id,
+            long timestamp,
+            String method,
+            String host,
+            String path,
+            Integer status,
+            long durationMillis,
+            boolean success,
+            String errorMessage,
+            boolean slow) {
+        return new RestClientTraceEntryDto(
+                id,
+                timestamp,
+                method,
+                "https://" + host + path,
+                host,
+                path,
+                status,
+                durationMillis,
+                success,
+                errorMessage,
+                slow,
+                "RestClient",
+                Map.of(),
+                null,
+                "http-thread",
+                null);
+    }
+
+    private static RestClientTraceEntryDto restEntryOn(long id, long timestamp, String thread, String traceId) {
+        return new RestClientTraceEntryDto(
+                id,
+                timestamp,
+                "GET",
+                "https://api.example.com/users",
+                "api.example.com",
+                "/users",
+                200,
+                5,
+                true,
+                null,
+                false,
+                "RestClient",
+                Map.of(),
+                traceId,
+                thread,
                 null);
     }
 

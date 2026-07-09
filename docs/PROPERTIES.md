@@ -149,6 +149,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Diagnostics     | Exceptions                | `exceptions`                | `bootui.panels.exceptions.enabled`                | `bootui.panels.exceptions.read-only`      |
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
+| Diagnostics     | REST Client Trace         | `rest-client-trace`         | `bootui.panels.rest-client-trace.enabled`         | `bootui.panels.rest-client-trace.read-only` |
 | Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | DevTools                  | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`    |
@@ -300,10 +301,27 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | `bootui.sql-trace.max-parameter-length`   | `200`   | Maximum retained length of a single captured parameter value.                                                                                |
 | `bootui.sql-trace.n-plus-one-threshold`   | `5`     | Number of times an identical `SELECT` must repeat within the buffer before it is flagged as a likely N+1 access pattern (minimum `2`).       |
 
+### REST Client Trace
+
+| Property                                              | Default | Description |
+| ----------------------------------------------------- | ------- | ----------- |
+| `bootui.panels.rest-client-trace.enabled`             | `true`  | Show the REST Client Trace panel and its captured outbound HTTP calls. |
+| `bootui.panels.rest-client-trace.read-only`           | `false` | Disable the Pause/Resume and Clear actions while keeping captured calls visible. |
+| `bootui.rest-client-trace.enabled`                    | `true`  | Instrument Spring's `RestClient`, `RestTemplate`, and `WebClient` beans to capture outbound HTTP calls. When `false`, no client customizer is registered. |
+| `bootui.rest-client-trace.recording`                  | `true`  | Initial recording state. Recording can be paused and resumed at runtime from the panel without removing the client instrumentation. |
+| `bootui.rest-client-trace.capture-headers`            | `false` | Capture request headers alongside each call. Off by default because header values may be sensitive; when enabled, values are captured subject to truncation and masked at read/report time according to the live exposure policy. |
+| `bootui.rest-client-trace.capture-call-site`          | `true`  | Capture the first application stack frame that triggered each outbound call, shown per call and aggregated per group so chatty-call warnings point directly at the application code to inspect. |
+| `bootui.rest-client-trace.max-entries`                | `200`   | Maximum number of outbound calls retained in the in-memory ring buffer. |
+| `bootui.rest-client-trace.slow-call-threshold-millis` | `1000`  | Calls at or above this many milliseconds are flagged as slow. Set to `0` to disable slow-call flagging. |
+| `bootui.rest-client-trace.max-uri-length`             | `2000`  | Maximum retained length of the request URI and path; longer values are truncated. |
+| `bootui.rest-client-trace.max-header-value-length`    | `200`   | Maximum retained length of a single captured header value. |
+| `bootui.rest-client-trace.chatty-call-threshold`      | `5`     | Number of calls to the same method/host/path (with numeric and UUID path segments normalized) within the buffer before the group is flagged as a likely repeated-call access pattern (minimum `2`). |
+
 ### Live Activity
 
-The Live Activity panel reuses the HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Email sources, so disabling any of
-those panels through their own `bootui.panels.*` toggles also removes them from the stream. The panel itself is
+The Live Activity panel reuses the HTTP Exchanges, SQL Trace, REST Client Trace, Exceptions, Security Logs, Cache,
+Scheduled Tasks, and Email sources, so disabling any of those panels through their own `bootui.panels.*` toggles also
+removes them from the stream (Kafka capture has its own separate `bootui.kafka.*` toggle — see below). The panel itself is
 read-only. A request whose correlated SQL trips `bootui.activity.n-plus-one-threshold` is flagged with a red **N+1**
 badge both in the main stream row and in its profile drawer (the same threshold, so the two views never disagree); the
 drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-trace.capture-call-site` is enabled.
