@@ -24,7 +24,9 @@ package io.github.jdubois.bootui.core.dto;
  * @param thread originating thread name when known, or {@code null}
  * @param profileable whether a per-request profile can be requested for this entry
  * @param parentId id of the {@code REQUEST} entry this entry is correlated to (so the UI can nest it
- *     under that request), or {@code null} when the entry has no precise request correlation
+ *     under that request), or {@code null} when the entry has no precise request correlation; for an
+ *     {@code EXCEPTION} entry with no owning request, this may instead reference the {@code
+ *     SCHEDULED_TASK} entry for the background execution that produced it
  * @param securedPrincipal for a {@code REQUEST} entry that ran as an authenticated principal — either
  *     from the request's own security context, or via a correlated audit/security event naming one —
  *     the principal it ran as; {@code null} when the request was not secured (no correlated event, or

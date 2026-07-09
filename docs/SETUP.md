@@ -285,15 +285,14 @@ The [Running inside a Docker container](#running-inside-a-docker-container) guid
 ### Which panels are available on Spring WebFlux
 
 The large majority of BootUI's panels are live on the reactive adapter, including every advisor scan except Security,
-plus Flyway/Liquibase, Database Connection Pools, Cache, SQL Trace, Log Tail, Security Logs, and Exceptions (over a
-rebuilt reactive streaming/capture layer). The following panels are not yet available:
+plus Flyway/Liquibase, Database Connection Pools, Cache, SQL Trace, Log Tail, Security Logs, Exceptions, and Live
+Activity (over a rebuilt reactive streaming/capture layer). The following panels are not yet available:
 
 - **HTTP Sessions** — not applicable: it is the servlet container's `HttpSession` API, with no reactive equivalent.
 - **Security** (the advisor) and the raw **Spring Security** panel — not yet ported: both key off the servlet
   `SecurityFilterChain` bean, which a reactive Spring Security setup never registers (it registers a
   `WebFilterChainProxy` instead); a `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned.
 - **MCP Server** — not yet ported: the tool catalog is hard-wired to the servlet panel controllers.
-- **Live Activity** — not yet ported: it aggregates a servlet-only event signal with no reactive equivalent wired yet.
 
 For the authoritative, per-panel detail and the reasoning behind each gap, see [Features](FEATURES.md) and
 [BootUI on Spring WebFlux](WEBFLUX-SUPPORT.md).

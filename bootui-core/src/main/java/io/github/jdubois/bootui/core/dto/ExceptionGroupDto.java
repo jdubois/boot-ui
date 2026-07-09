@@ -10,8 +10,10 @@ package io.github.jdubois.bootui.core.dto;
  *
  * <p>{@code lastTraceId} is the distributed-trace id of the most recent occurrence, or {@code null} when
  * none was captured. It lets the Live Activity timeline nest this exception under the HTTP request that
- * shares the same trace id (used by the Quarkus adapter; {@code null} on Spring, which correlates by
- * serving thread instead).</p>
+ * shares the same trace id — populated on Quarkus and Spring WebFlux (both stamp it from a
+ * {@code TraceIdProvider} at the exception-capture point); {@code null} on Spring servlet (MVC), which has
+ * no such provider wired at its {@code HandlerExceptionResolver} capture point and instead correlates by
+ * serving thread (see {@code ActivityEntryDto.parentId}).</p>
  *
  * <p>{@code status} is one of {@code OPEN} (default), {@code ACKNOWLEDGED}, or {@code RESOLVED} — the
  * triage workflow for this group. {@code regressionCount} counts how many times a {@code RESOLVED}

@@ -117,9 +117,14 @@ public final class ExceptionStore {
     /**
      * Records a thrown exception, stamping the distributed-trace id of the request in flight so the Live
      * Activity timeline can nest the exception under its owning request. The {@code traceId} is supplied by
-     * the adapter capture point (the Quarkus filter reads the active OpenTelemetry span); pass {@code null}
-     * when no trace context is available, which is the behavior of the {@linkplain #record(Throwable,
-     * String, String, String, String, String) six-argument overload} the Spring adapter uses.
+     * the adapter capture point; pass {@code null} when no trace context is available or applicable — the
+     * behavior of the {@linkplain #record(Throwable, String, String, String, String, String) six-argument
+     * overload}, which the Spring <strong>servlet</strong> (MVC) handler-exception capture path always uses
+     * (that adapter correlates by serving thread instead — see {@code ExceptionGroupDto.lastTraceId}).
+     * Spring <strong>WebFlux</strong>'s handler-exception capture and Quarkus's handler and log-based
+     * capture all supply a real trace id via their own {@code TraceIdProvider}; Spring's Logback-based
+     * log-appender capture path (shared by both the servlet and WebFlux adapters) always passes
+     * {@code null}, since it has no reliable request-scoped context to read from an appender callback.
      */
     public void record(
             Throwable throwable,

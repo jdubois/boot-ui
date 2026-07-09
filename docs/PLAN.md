@@ -208,7 +208,7 @@ Scope — new event types, roughly in priority order:
   `KafkaConsumerCaptureBeanPostProcessor` (`bootui-spring-autoconfigure`, `@ConditionalOnClass(KafkaTemplate)`), which
   wrap application-owned `KafkaTemplate`/`@KafkaListener` container factory beans — composing with, not replacing, any
   existing `ProducerListener`/`RecordInterceptor` — and surface every send/delivery outcome as a `MESSAGING` entry
-  (topic, partition, offset, truncated key, direction, success/failure, consumer group id, listener id, duration).
+  (topic, partition, offset, a hash of the key, direction, success/failure, consumer group id, listener id, duration).
   Message values/payloads are never captured (out of scope by design, sidestepping the payload-masking problem
   entirely). Controlled by `bootui.kafka.*` (see `docs/PROPERTIES.md`). RabbitMQ/JMS remain later, separately-scoped
   follow-ups. The **Quarkus port (SmallRye Reactive Messaging) has now shipped**, reusing the same
@@ -246,8 +246,13 @@ Scope — new event types, roughly in priority order:
   Activity feed, so — like Cache and Scheduled Task runs — it needed no new capture instrumentation, just a read of an
   existing buffer. Unlike Kafka `MESSAGING` entries (always top-level, no correlation attempted, since a message has no
   single owning request), `MAIL` nests as a `REQUEST` child whenever the captured message's trace id matches an
-  in-flight request — the same `parentRequestId` join `SQL`/`EXCEPTION`/`SECURITY`/`CACHE` already use — so an email
-  sent from inside a request handler shows up in that request's profiler drawer. `EmailCaptureService.subscribe(...)`
+  in-flight request — the same trace-id-then-thread `parentRequestId` join `SQL`/`CACHE` already use (`EXCEPTION`/
+  `SECURITY` predate this join and are correlated differently depending on adapter: on Spring **servlet** (MVC),
+  neither carries a trace id — the exception-resolver context has none, nor does Spring Boot's audit repository — so
+  they correlate by method/path + serving thread and by a thread-classifier registry respectively; on Spring
+  **WebFlux** and Quarkus, both *do* join by trace id like `SQL`/`CACHE`/`MAIL`, since each has its own
+  `TraceIdProvider`-backed capture point — see `ActivityEntryDto.parentId`) — so an email sent from inside a request
+  handler shows up in that request's profiler drawer. `EmailCaptureService.subscribe(...)`
   feeds the same `BootUiChangeStream`/`ReactiveBootUiChangeStream` coalesced SSE tick the other five in-process sources
   already use, so a newly captured message refreshes the live feed the same way a new cache access or scheduled-task
   run does, on both the servlet and WebFlux adapters. On Quarkus, `LiveActivityResource` reads the same
@@ -264,7 +269,8 @@ Scope — new event types, roughly in priority order:
   when a module is absent. The framework-neutral `RestClientTraceRecorder` (`bootui-engine`) captures each call (client
   type, URI, method, status, duration, headers/call-site when enabled) into a bounded buffer, feeding both the
   standalone REST Client Trace panel and, like Cache/Mail, a `REST_CLIENT` entry into the merged Live Activity feed —
-  nesting as a `REQUEST` child via the same trace-id join `SQL`/`EXCEPTION`/`SECURITY`/`CACHE`/`MAIL` use, and adding
+  nesting as a `REQUEST` child via the same trace-id-then-thread join `SQL`/`CACHE`/`MAIL` use (see the `MAIL` bullet
+  above for why `EXCEPTION`/`SECURITY` are not part of that list), and adding
   `restCallErrorRatePercent`/`restCallP95LatencyMs` KPI tiles deep-linked to `/rest-client-trace`. Quarkus is out of
   scope for now — like Cache, no comparable runtime interception seam exists yet for the Quarkus-native REST client
   (see `docs/QUARKUS-SUPPORT.md`), so the Quarkus adapter reports the merged-stream slot unavailable.

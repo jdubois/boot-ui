@@ -750,7 +750,10 @@ Features:
   email chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the
   sparkline are unaffected) and entries without a precise request correlation have a null `parentId` — a
   `SCHEDULED_TASK` or `MESSAGING` entry always has a null `parentId` since neither has a single owning request (a
-  background-thread execution and an unattributed message flow, respectively). A `CACHE` entry's summary is
+  background-thread execution and an unattributed message flow, respectively). The one exception to "`parentId` always
+  points at a `REQUEST`": an `EXCEPTION` entry with no owning HTTP request falls back to a serving-thread + time-window
+  join against captured `@Scheduled` executions, so a scheduled task's failure nests under its `SCHEDULED_TASK` entry
+  instead. A `CACHE` entry's summary is
   `"<HIT|MISS|PUT|EVICT|CLEAR> <cacheName>"`, its detail is `"key <hash>"` when a key was involved (omitted for
   whole-cache `CLEAR`), and a `MISS` is flagged `WARN` severity (all other operations `OK`). A `REQUEST` entry that was
   correlated to a Spring Security audit
@@ -769,10 +772,11 @@ Features:
   `KafkaConsumerCaptureBeanPostProcessor` wrap application-owned `KafkaTemplate` and `@KafkaListener` container factory
   beans — composing with, never replacing, any `ProducerListener`/`RecordInterceptor` the application already
   configured, mirroring the HTTP Exchanges repository-wrapper precedent. On Quarkus, SmallRye Reactive Messaging Kafka
-  interceptors capture the same metadata. Each entry carries topic, partition, offset (consume only), a truncated key,
+  interceptors capture the same metadata. Each entry carries topic, partition, offset (consume only), a hash of the key,
   direction, success/failure, and — for consumed records — consumer group id, listener id, and processing duration.
   Only metadata is captured; the message value/payload is never captured or masked, since it is an arbitrary
-  application payload with no generic masking strategy. Kafka entries are top-level (no request-parent correlation yet).
+  application payload with no generic masking strategy. Kafka entries are always top-level by design — no
+  request-parent correlation is attempted, since a message has no single owning request.
   The listener-id field is intentionally honest about framework limits: on Spring it currently carries the listener
   container factory bean name (the resolved per-`@KafkaListener` id is not exposed at the factory-wide interception
   point), while on Quarkus it carries the channel name. Controlled by `bootui.kafka.enabled`,

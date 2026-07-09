@@ -55,22 +55,26 @@ public final class ScheduledTaskRunStore {
             String exceptionClassName,
             String message,
             String thread) {
-        Run run = new Run(
-                sequence.incrementAndGet(),
-                runnable,
-                startTimestamp,
-                Math.max(0L, durationMs),
-                success,
-                exceptionClassName,
-                message,
-                thread);
-        synchronized (lock) {
-            runs.addFirst(run);
-            while (runs.size() > maxEntries) {
-                runs.removeLast();
+        try {
+            Run run = new Run(
+                    sequence.incrementAndGet(),
+                    runnable,
+                    startTimestamp,
+                    Math.max(0L, durationMs),
+                    success,
+                    exceptionClassName,
+                    message,
+                    thread);
+            synchronized (lock) {
+                runs.addFirst(run);
+                while (runs.size() > maxEntries) {
+                    runs.removeLast();
+                }
             }
+            notifyListeners();
+        } catch (RuntimeException ex) {
+            // Recording must never disrupt the scheduled task execution it observes.
         }
-        notifyListeners();
     }
 
     /** Retained runs, newest-first. */

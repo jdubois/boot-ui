@@ -24,6 +24,10 @@ import org.springframework.kafka.support.ProducerListener;
  * and composed with the capturing listener rather than replaced. Reading the field is best-effort: if
  * it fails for any reason, the capturing listener is still installed (nothing to compose with), so
  * sends are never silently left uncaptured, and the application's own listener is never dropped.</p>
+ *
+ * <p>Recording is fail-open: any failure while reading the record (including a key whose {@code
+ * toString()} throws) or while recording it is caught and logged at warn, and the composed delegate is
+ * still invoked afterward — mirroring {@code QuarkusKafkaProducerCapture}'s equivalent guarantee.</p>
  */
 public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProcessor {
 
@@ -77,13 +81,24 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
 
         @Override
         public void onSuccess(ProducerRecord<Object, Object> producerRecord, RecordMetadata recordMetadata) {
-            recorder.recordProduce(
-                    producerRecord.topic(),
-                    recordMetadata == null ? producerRecord.partition() : recordMetadata.partition(),
-                    keyOf(producerRecord),
-                    null, // ProducerListener carries no send-start timestamp, so duration is never known here
-                    true,
-                    null);
+            try {
+                // Boxing recordMetadata.partition() explicitly keeps both ternary branches Integer;
+                // mixing Integer with a raw int branch here would make the conditional expression's own
+                // type int (JLS 15.25 binary numeric promotion), unboxing producerRecord.partition() even
+                // when this branch isn't selected at runtime, and NPEing whenever it is null.
+                Integer partition = recordMetadata == null
+                        ? producerRecord.partition()
+                        : Integer.valueOf(recordMetadata.partition());
+                recorder.recordProduce(
+                        producerRecord.topic(),
+                        partition,
+                        keyOf(producerRecord),
+                        null, // ProducerListener carries no send-start timestamp, so duration is never known here
+                        true,
+                        null);
+            } catch (RuntimeException ex) {
+                log.warn("BootUI could not capture an outgoing Kafka message; leaving it untouched", ex);
+            }
             if (delegate != null) {
                 delegate.onSuccess(producerRecord, recordMetadata);
             }
@@ -92,13 +107,17 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
         @Override
         public void onError(
                 ProducerRecord<Object, Object> producerRecord, RecordMetadata recordMetadata, Exception exception) {
-            recorder.recordProduce(
-                    producerRecord.topic(),
-                    producerRecord.partition(),
-                    keyOf(producerRecord),
-                    null, // see onSuccess: no send-start timestamp is available to compute a duration
-                    false,
-                    exception == null ? null : exception.getMessage());
+            try {
+                recorder.recordProduce(
+                        producerRecord.topic(),
+                        producerRecord.partition(),
+                        keyOf(producerRecord),
+                        null, // see onSuccess: no send-start timestamp is available to compute a duration
+                        false,
+                        exception == null ? null : exception.getMessage());
+            } catch (RuntimeException ex) {
+                log.warn("BootUI could not capture an outgoing Kafka message; leaving it untouched", ex);
+            }
             if (delegate != null) {
                 delegate.onError(producerRecord, recordMetadata, exception);
             }

@@ -24,6 +24,10 @@ import org.springframework.kafka.listener.RecordInterceptor;
  * if reflection fails for one factory, BootUI leaves <em>that factory</em> unwrapped (so its deliveries
  * are not captured) but still lets the application start and all other factories be processed
  * normally.</p>
+ *
+ * <p>Recording is fail-open: any failure while reading the record/consumer or while recording the
+ * outcome is caught and logged at warn, and the composed delegate is still invoked afterward —
+ * mirroring {@code QuarkusKafkaConsumerCapture}'s equivalent guarantee.</p>
  */
 public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProcessor {
 
@@ -120,24 +124,28 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
                 Consumer<Object, Object> consumer,
                 boolean success,
                 String errorMessage) {
-            Long start = startNanos.get();
-            // start is only null if success()/failure() fires without a matching intercept() call, which
-            // spring-kafka never does in practice (both are always invoked on the same thread for the
-            // same record); 0 is used rather than null in that defensive case since it is not a real,
-            // reachable "unknown duration" state worth modelling explicitly.
-            Long durationMillis = start == null ? 0L : (System.nanoTime() - start) / 1_000_000L;
-            Object key = record.key();
-            String groupId = groupIdOf(consumer);
-            recorder.recordConsume(
-                    record.topic(),
-                    record.partition(),
-                    record.offset(),
-                    key == null ? null : String.valueOf(key),
-                    durationMillis,
-                    success,
-                    errorMessage,
-                    groupId,
-                    listenerId);
+            try {
+                Long start = startNanos.get();
+                // start is only null if success()/failure() fires without a matching intercept() call, which
+                // spring-kafka never does in practice (both are always invoked on the same thread for the
+                // same record); 0 is used rather than null in that defensive case since it is not a real,
+                // reachable "unknown duration" state worth modelling explicitly.
+                Long durationMillis = start == null ? 0L : (System.nanoTime() - start) / 1_000_000L;
+                Object key = record.key();
+                String groupId = groupIdOf(consumer);
+                recorder.recordConsume(
+                        record.topic(),
+                        record.partition(),
+                        record.offset(),
+                        key == null ? null : String.valueOf(key),
+                        durationMillis,
+                        success,
+                        errorMessage,
+                        groupId,
+                        listenerId);
+            } catch (RuntimeException ex) {
+                log.warn("BootUI could not capture an incoming Kafka message; leaving it untouched", ex);
+            }
         }
 
         private static String groupIdOf(Consumer<Object, Object> consumer) {

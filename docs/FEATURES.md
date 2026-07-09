@@ -157,7 +157,7 @@ When Kafka support is present, BootUI captures producer/consumer activity into t
 Spring, it wraps every application-owned `KafkaTemplate` (a `ProducerListener`) and `@KafkaListener` container factory
 (a `RecordInterceptor`) — composing with, never replacing, any listener/interceptor the application already configured,
 exactly like `HttpExchangesController`'s repository wrapper. On Quarkus, it hooks SmallRye Reactive Messaging's Kafka
-interceptors. Each entry records topic, partition, offset (for consumed records), a truncated key, direction (`→`/`←`
+interceptors. Each entry records topic, partition, offset (for consumed records), a hash of the key, direction (`→`/`←`
 for produce/consume), success/failure, and — for consumed records — the consumer group id, a listener identifier, and
 processing duration (a producer send's duration is not exposed by either framework's callback, so it is not tracked).
 That listener identifier is intentionally framework-specific: on Spring it is currently the **listener container
