@@ -1440,7 +1440,7 @@ class BootUiQuarkusProcessor {
      * {@code FailedExecution}, so it must be excluded from bean discovery when no scheduler extension is
      * present; the always-produced engine {@code ScheduledTaskRunStore} (see
      * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) is neutral (no scheduler imports), so
-     * it wires unconditionally and the Live Activity panel simply renders no {@code SCHEDULED_TASK}
+     * it wires unconditionally and the Live Activity panel simply renders no {@code SCHEDULED}
      * entries when the observer is absent. Mirrors {@link #registerSecurityLogs} exactly; unlike
      * {@link #registerScheduledTasks} (the static-definitions capture, which needs no exclusion at all
      * since it imports no {@code io.quarkus.scheduler.*} type), this observer is the first runtime

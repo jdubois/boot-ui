@@ -379,7 +379,7 @@ class ReactiveLiveActivityControllerTests {
 
         assertThat(report.entries())
                 .singleElement()
-                .satisfies(entry -> assertThat(entry.type()).isEqualTo("SCHEDULED_TASK"));
+                .satisfies(entry -> assertThat(entry.type()).isEqualTo("SCHEDULED"));
         assertThat(report.sources()).contains("scheduled-tasks");
     }
 

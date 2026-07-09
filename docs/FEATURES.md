@@ -71,7 +71,7 @@ scheduler always fires — feeding a bounded in-memory buffer the same way the o
 producer/consumer activity, is described below.
 
 The stream merges nine signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
-(`EXCEPTION`), security events (`SECURITY`), scheduled-task runs (`SCHEDULED_TASK`), Kafka producer/consumer activity
+(`EXCEPTION`), security events (`SECURITY`), scheduled-task runs (`SCHEDULED`), Kafka producer/consumer activity
 (`MESSAGING`), and captured emails (`MAIL`) on both adapters, plus — on the Spring servlet and WebFlux adapters only —
 outbound REST client calls (`REST_CLIENT`) and cache accesses (`CACHE`). Each row carries a timestamp, a type icon, a
 color-coded severity

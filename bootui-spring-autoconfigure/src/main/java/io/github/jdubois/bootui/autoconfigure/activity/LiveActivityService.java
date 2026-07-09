@@ -65,7 +65,7 @@ public class LiveActivityService {
     static final String TYPE_SECURITY = "SECURITY";
     static final String TYPE_MAIL = "MAIL";
     static final String TYPE_CACHE = "CACHE";
-    static final String TYPE_SCHEDULED_TASK = "SCHEDULED_TASK";
+    static final String TYPE_SCHEDULED = "SCHEDULED";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -636,7 +636,7 @@ public class LiveActivityService {
     }
 
     /**
-     * Maps a captured {@code @Scheduled} execution to a {@code SCHEDULED_TASK} entry. There is no request
+     * Maps a captured {@code @Scheduled} execution to a {@code SCHEDULED} entry. There is no request
      * to nest this entry itself under (it runs on a background thread), so its own {@code parentId} is
      * always {@code null}; a run that threw is flagged {@code ERROR}, one slower than the shared
      * request-slow threshold is flagged {@code SLOW}, otherwise {@code OK}. A failure is always summarized
@@ -657,7 +657,7 @@ public class LiveActivityService {
         String detail = run.success() ? null : run.exceptionClassName() + messageSuffix(run.message());
         return new ActivityEntryDto(
                 "sched-" + run.sequence(),
-                TYPE_SCHEDULED_TASK,
+                TYPE_SCHEDULED,
                 run.startTimestamp(),
                 severity,
                 run.runnable(),
@@ -896,7 +896,7 @@ public class LiveActivityService {
 
     /**
      * A captured {@code @Scheduled} execution reduced to what is needed to attach a correlated exception to
-     * it: its {@code SCHEDULED_TASK} entry id, its execution window, and the thread it ran on.
+     * it: its {@code SCHEDULED} entry id, its execution window, and the thread it ran on.
      */
     private record ScheduledTaskAnchor(String id, long start, long end, String thread) {}
 

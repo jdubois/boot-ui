@@ -46,7 +46,7 @@ The priorities for every item below remain unchanged:
   HTML previews sandboxed, and offers a per-message `.eml` download. Captured mail also feeds the Live Activity stream as
   a `MAIL` entry type.
 - Shipped all five §3.4 Live Activity event-type extensions, bringing the stream to nine merged entry types —
-  `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED_TASK`, `MESSAGING`, `MAIL`, and `REST_CLIENT`: Cache
+  `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED`, `MESSAGING`, `MAIL`, and `REST_CLIENT`: Cache
   operations, Scheduled Task runs, Kafka messaging (both adapters), Mail (backed by the Email panel above), and outbound
   `RestClient`/`RestTemplate`/`WebClient` capture (Spring only). Each keeps pass-through-by-default capture, nests under
   the originating request as a child event when a shared trace id/serving thread/time window is available, and reuses
@@ -170,7 +170,7 @@ Design constraints:
 ### 3.4 Live Activity — event types and correlation — Diagnostics ✅ Completed
 
 **Status: completed.** All five event-type extensions below have shipped. Live Activity now merges nine entry types —
-`REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED_TASK`, `MESSAGING`, `MAIL`, and `REST_CLIENT` — from
+`REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED`, `MESSAGING`, `MAIL`, and `REST_CLIENT` — from
 BootUI's existing in-memory buffers (see `docs/SPECIFICATION.md` §5.14.2). The original scope, prioritized by value
 versus new-instrumentation cost and drawn from the same comparable-dashboard benchmarks (Laravel Telescope, Symfony Web
 Profiler, .NET Aspire) already guiding this workstream, is retained below for reference.
@@ -178,7 +178,7 @@ Profiler, .NET Aspire) already guiding this workstream, is retained below for re
 Scope — new event types, roughly in priority order:
 
 - **Scheduled Task runs — implemented on both adapters.** Each `@Scheduled` method *execution* (start/success/failure,
-  duration, exception if any) is captured as a `SCHEDULED_TASK` entry, reusing the existing Scheduled Tasks panel's
+  duration, exception if any) is captured as a `SCHEDULED` entry, reusing the existing Scheduled Tasks panel's
   discovery/naming so a captured run and its static definition share the same identifier. On Spring, the framework's own
   Micrometer instrumentation (`ScheduledTaskObservationContext`, present since Spring Framework 6.1) is tapped via a
   `SchedulingConfigurer` bean that installs an `ObservationHandler` — no AOP proxying or bean wrapping needed — feeding a

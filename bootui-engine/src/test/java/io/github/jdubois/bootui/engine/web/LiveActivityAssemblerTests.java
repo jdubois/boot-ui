@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
  * entries under the owning REQUEST entry by setting their {@code parentId} (a uniquely-matched security
  * event additionally stamps {@code securedPrincipal} on that request); when no shared trace id is present
  * the feed stays flat; and an ambiguous trace id shared by more than one request never nests a child under
- * the wrong one nor stamps a principal. Also verifies the {@code SCHEDULED_TASK} fallback tier: an exception
+ * the wrong one nor stamps a principal. Also verifies the {@code SCHEDULED} fallback tier: an exception
  * with no matching request trace id nests under a captured {@code @Scheduled} execution instead, via a
  * serving-thread + time-window join, but only when the request/trace-id tier does not already claim it.
  */
@@ -894,7 +894,7 @@ class LiveActivityAssemblerTests {
                 false);
 
         ActivityEntryDto ok = entry(report, "sched-1");
-        assertThat(ok.type()).isEqualTo("SCHEDULED_TASK");
+        assertThat(ok.type()).isEqualTo("SCHEDULED");
         assertThat(ok.severity()).isEqualTo("OK");
         assertThat(ok.summary()).isEqualTo("com.example.Job#run");
         assertThat(ok.parentId()).isNull();
@@ -965,7 +965,7 @@ class LiveActivityAssemblerTests {
                 false);
 
         assertThat(report.entries()).hasSize(2);
-        assertThat(report.typeCounts()).containsEntry("REQUEST", 3).containsEntry("SCHEDULED_TASK", 1);
+        assertThat(report.typeCounts()).containsEntry("REQUEST", 3).containsEntry("SCHEDULED", 1);
     }
 
     @Test

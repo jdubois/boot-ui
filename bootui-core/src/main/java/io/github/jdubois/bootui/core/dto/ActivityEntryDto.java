@@ -11,7 +11,7 @@ package io.github.jdubois.bootui.core.dto;
  * @param id stable identifier for the entry; for {@code REQUEST} entries this is the HTTP exchange
  *     id, which the per-request profiler endpoint accepts as {@code /activity/request/{id}}
  * @param type coarse activity type: {@code REQUEST}, {@code SQL}, {@code REST_CLIENT}, {@code EXCEPTION},
- *     {@code SECURITY}, {@code MAIL}, {@code CACHE}, {@code SCHEDULED_TASK}, or {@code MESSAGING}
+ *     {@code SECURITY}, {@code MAIL}, {@code CACHE}, {@code SCHEDULED}, or {@code MESSAGING}
  * @param timestamp epoch milliseconds when the activity occurred
  * @param severity {@code OK}, {@code SLOW}, {@code WARN}, or {@code ERROR}
  * @param summary one-line, already-masked human-readable summary
@@ -26,7 +26,7 @@ package io.github.jdubois.bootui.core.dto;
  * @param parentId id of the {@code REQUEST} entry this entry is correlated to (so the UI can nest it
  *     under that request), or {@code null} when the entry has no precise request correlation; for an
  *     {@code EXCEPTION} entry with no owning request, this may instead reference the {@code
- *     SCHEDULED_TASK} entry for the background execution that produced it
+ *     SCHEDULED} entry for the background execution that produced it
  * @param securedPrincipal for a {@code REQUEST} entry that ran as an authenticated principal — either
  *     from the request's own security context, or via a correlated audit/security event naming one —
  *     the principal it ran as; {@code null} when the request was not secured (no correlated event, or

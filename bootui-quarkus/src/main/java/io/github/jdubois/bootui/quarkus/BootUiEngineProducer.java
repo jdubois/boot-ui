@@ -202,7 +202,7 @@ public class BootUiEngineProducer {
      * §3.4). Always produced, mirroring the always-produced pattern the other optional-dependency
      * buffers use: when {@code quarkus-scheduler} is absent (or the capability-gated observer is
      * excluded), nothing ever calls {@link ScheduledTaskRunStore#record}, so the Live Activity panel
-     * simply renders no {@code SCHEDULED_TASK} entries. Capacity bounds memory
+     * simply renders no {@code SCHEDULED} entries. Capacity bounds memory
      * ({@code bootui.activity.max-scheduled-task-runs}, default 200, matching the Spring adapter's
      * {@code BootUiProperties.Activity.getMaxScheduledTaskRuns()} default) so the same config key works
      * identically on both adapters.

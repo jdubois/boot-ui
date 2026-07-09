@@ -24,7 +24,7 @@ import org.springframework.scheduling.support.ScheduledTaskObservationContext;
  *
  * <p>Only {@code @Scheduled} <em>method</em> tasks go through this observation; a manually registered
  * {@code Runnable}/{@code Trigger} task (via {@code SchedulingConfigurer}) is not observed and so does
- * not appear as a {@code SCHEDULED_TASK} activity entry — consistent with the static Scheduled Tasks
+ * not appear as a {@code SCHEDULED} activity entry — consistent with the static Scheduled Tasks
  * panel, which lists it as a task but with a generic runnable name.</p>
  */
 public final class ScheduledTaskRunObservationHandler implements ObservationHandler<ScheduledTaskObservationContext> {

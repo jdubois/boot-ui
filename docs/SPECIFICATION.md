@@ -722,7 +722,7 @@ Data sources:
   `FailedExecution` events the scheduler always fires after every execution (the single-instance `JobInstrumenter` SPI
   is unusable since `quarkus-opentelemetry` already claims it); the trigger's `getFireTime()` stands in for a start
   timestamp since these events only fire on completion. Only `@Scheduled` *method* tasks are observed this way, so a
-  manually registered `Runnable`/`Trigger` task does not produce a `SCHEDULED_TASK` entry, consistent with how the
+  manually registered `Runnable`/`Trigger` task does not produce a `SCHEDULED` entry, consistent with how the
   static Scheduled Tasks panel lists it with only a generic runnable name. Capped by
   `bootui.activity.max-scheduled-task-runs` (default 200, shared config key on both adapters), and self-filtered the
   same way the static task list is; on Quarkus the observer is additionally gated on the `SCHEDULER` capability (see
@@ -743,7 +743,7 @@ Data sources:
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `SCHEDULED_TASK`, `MESSAGING`, `MAIL`, and (Spring
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `SCHEDULED`, `MESSAGING`, `MAIL`, and (Spring
   servlet/WebFlux only) `CACHE` and `REST_CLIENT` entries normalized to a common shape (timestamp, type, severity,
   one-line summary, optional duration and correlation id), sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
@@ -751,10 +751,10 @@ Features:
   method/path), so the client can nest correlated SQL, REST, exceptions, security events, cache accesses, and captured
   email chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the
   sparkline are unaffected) and entries without a precise request correlation have a null `parentId` — a
-  `SCHEDULED_TASK` or `MESSAGING` entry always has a null `parentId` since neither has a single owning request (a
+  `SCHEDULED` or `MESSAGING` entry always has a null `parentId` since neither has a single owning request (a
   background-thread execution and an unattributed message flow, respectively). The one exception to "`parentId` always
   points at a `REQUEST`": an `EXCEPTION` entry with no owning HTTP request falls back to a serving-thread + time-window
-  join against captured `@Scheduled` executions, so a scheduled task's failure nests under its `SCHEDULED_TASK` entry
+  join against captured `@Scheduled` executions, so a scheduled task's failure nests under its `SCHEDULED` entry
   instead. A `CACHE` entry's summary is
   `"<HIT|MISS|PUT|EVICT|CLEAR> <cacheName>"`, its detail is `"key <hash>"` when a key was involved (omitted for
   whole-cache `CLEAR`), and a `MISS` is flagged `WARN` severity (all other operations `OK`). A `REQUEST` entry that was
@@ -764,7 +764,7 @@ Features:
   lock icon and a principal tag without opening the profiler. It also carries a `sqlNPlusOneSuspected` boolean, computed
   with the identical threshold/logic the per-request profiler uses below, so a request whose correlated SQL looks like
   an N+1 access pattern can be badged directly in the list without opening its profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
-  100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are. A `SCHEDULED_TASK` entry is severity
+  100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are. A `SCHEDULED` entry is severity
   `ERROR` on a thrown exception (with the exception class name and message surfaced as `detail`), `SLOW` when its
   duration meets the same slow-request threshold, otherwise `OK`, and clicking it deep-links into the Scheduled Tasks
   panel prefilled with its runnable name.
@@ -882,7 +882,7 @@ Acceptance criteria:
 - The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
   `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
   active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
-- `SCHEDULED_TASK` capture is implemented on both adapters. Quarkus's scheduler
+- `SCHEDULED` capture is implemented on both adapters. Quarkus's scheduler
   (`io.quarkus.scheduler.Scheduler`) has no per-execution observability hook analogous to Spring's
   `ScheduledTaskObservationContext`; instead `QuarkusScheduledTaskRunRecorder` observes the CDI
   `SuccessfulExecution`/`FailedExecution` events the scheduler always fires, gated on the `SCHEDULER` capability
