@@ -16,6 +16,7 @@ const slowButton = document.getElementById('slow-button')
 const poolStressButton = document.getElementById('pool-stress-button')
 const chainedButton = document.getElementById('chained-button')
 const authFailButton = document.getElementById('auth-fail-button')
+const sendEmailButton = document.getElementById('send-email-button')
 const sampleActionStatus = document.getElementById('sample-action-status')
 const sampleActionResult = document.getElementById('sample-action-result')
 
@@ -276,6 +277,17 @@ chainedButton.addEventListener('click', () =>
       'This request nests child spans across a catalog read and a live query.\n\n' +
         'Open BootUI Traces or Diagnostics to inspect the correlated timeline.'
     )
+  })
+)
+
+sendEmailButton.addEventListener('click', () =>
+  runSampleAction(sendEmailButton, 'Sending test email...', async () => {
+    const response = await fetch('/api/sample/send-email')
+    const text = await readTextResponse(response)
+    if (!response.ok) {
+      throw new Error(text)
+    }
+    showSampleResult('Test email sent', `${text}\n\nOpen BootUI Email to inspect the captured message.`)
   })
 )
 

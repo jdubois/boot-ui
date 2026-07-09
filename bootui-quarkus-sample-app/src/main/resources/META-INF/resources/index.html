@@ -98,6 +98,11 @@
           <small>Inspect: Traces, Diagnostics, HTTP Exchanges, SQL Trace</small>
         </article>
         <article class="test-action">
+          <button class="button" id="send-email-button" type="button">Send test email</button>
+          <p>Calls <code>GET /api/sample/send-email</code> to send a demo email through the app's mailer.</p>
+          <small>Inspect: Email</small>
+        </article>
+        <article class="test-action">
           <button class="button" id="auth-fail-button" type="button">Fail authentication</button>
           <p>Calls <code>GET /api/secure</code> with bad credentials to produce an unauthorized response.</p>
           <small>Inspect: Security, Security Logs, Pentesting</small>

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.webfluxsample.mail;
 
 import jakarta.mail.internet.MimeMessage;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -21,6 +22,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>Seeding runs once from {@link ApplicationReadyEvent}, which fires on the startup thread rather than
  * a Netty event-loop thread, so the (dev-trapped, non-blocking) sends here never touch the event loop.</p>
+ *
+ * <p>{@link #sendSampleEmail()} lets callers (e.g. the sample "Send email" endpoint) generate one more
+ * message on demand, exactly like the servlet sample's {@code SampleMailSender}.</p>
  */
 @Component
 public class WebfluxSampleMailSender {
@@ -28,6 +32,7 @@ public class WebfluxSampleMailSender {
     private static final Logger log = LoggerFactory.getLogger(WebfluxSampleMailSender.class);
 
     private final JavaMailSender mailSender;
+    private final AtomicInteger counter = new AtomicInteger();
 
     public WebfluxSampleMailSender(JavaMailSender mailSender) {
         this.mailSender = mailSender;
@@ -40,7 +45,17 @@ public class WebfluxSampleMailSender {
         sendWelcome();
     }
 
-    private void sendOrderShipped() {
+    /**
+     * Sends one more sample email on demand and returns a short human-readable summary.
+     *
+     * <p>Alternates between the HTML "order shipped" message (with a PDF attachment) and the simpler
+     * "welcome" message so repeated calls exercise both the MIME and plain-text capture paths.</p>
+     */
+    public String sendSampleEmail() {
+        return counter.getAndIncrement() % 2 == 0 ? sendOrderShipped() : sendWelcome();
+    }
+
+    private String sendOrderShipped() {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
@@ -53,12 +68,14 @@ public class WebfluxSampleMailSender {
                             + "<p>Thanks for shopping with us!</p>");
             helper.addAttachment("invoice-1042.pdf", new ByteArrayResource(samplePdf()), "application/pdf");
             mailSender.send(message);
+            return "Sent 'Your order has shipped' to customer@example.com";
         } catch (Exception ex) {
             log.warn("Sample app could not send the 'order shipped' demo email", ex);
+            return "Could not send the 'order shipped' demo email: " + ex.getMessage();
         }
     }
 
-    private void sendWelcome() {
+    private String sendWelcome() {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom("noreply@bootui-sample.example");
@@ -66,8 +83,10 @@ public class WebfluxSampleMailSender {
             message.setSubject("Welcome to BootUI Sample");
             message.setText("Welcome! Confirm your account to get started.");
             mailSender.send(message);
+            return "Sent 'Welcome to BootUI Sample' to new.user@example.com";
         } catch (Exception ex) {
             log.warn("Sample app could not send the 'welcome' demo email", ex);
+            return "Could not send the 'welcome' demo email: " + ex.getMessage();
         }
     }
 

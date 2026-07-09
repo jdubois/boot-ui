@@ -252,6 +252,11 @@
           <p>Calls <code>GET /api/sample/chained</code>, which nests spans across a notes read and a greeting call.</p>
           <small>Inspect: Traces, HTTP Exchanges, SQL Trace</small>
         </article>
+        <article class="test-action">
+          <button class="button" id="send-email-button" type="button">Send test email</button>
+          <p>Calls <code>GET /api/sample/send-email</code> to send a demo email through the app's mail sender.</p>
+          <small>Inspect: Email</small>
+        </article>
       </div>
       <div class="form-row">
         <span aria-live="polite" class="chat-status" id="sample-action-status" role="status"></span>
@@ -270,6 +275,7 @@
   const slowButton = document.getElementById('slow-button')
   const poolStressButton = document.getElementById('pool-stress-button')
   const chainedButton = document.getElementById('chained-button')
+  const sendEmailButton = document.getElementById('send-email-button')
   const sampleActionStatus = document.getElementById('sample-action-status')
   const sampleActionResult = document.getElementById('sample-action-result')
 
@@ -425,6 +431,17 @@
         'This request nests child spans across a notes read and a greeting call.\n\n' +
           'Open BootUI Traces or HTTP Exchanges to inspect the correlated timeline.'
       )
+    })
+  )
+
+  sendEmailButton.addEventListener('click', () =>
+    runSampleAction(sendEmailButton, 'Sending test email...', async () => {
+      const response = await fetch('/api/sample/send-email')
+      const text = await readTextResponse(response)
+      if (!response.ok) {
+        throw new Error(text)
+      }
+      showSampleResult('Test email sent', `${text}\n\nOpen BootUI Email to inspect the captured message.`)
     })
   )
 </script>

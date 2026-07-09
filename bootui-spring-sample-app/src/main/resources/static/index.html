@@ -325,6 +325,11 @@
           <small>Inspect: Traces, Diagnostics, HTTP Exchanges, SQL Trace</small>
         </article>
         <article class="test-action">
+          <button class="button" id="send-email-button" type="button">Send test email</button>
+          <p>Calls <code>GET /api/sample/send-email</code> to send a demo email through the app's mail sender.</p>
+          <small>Inspect: Email</small>
+        </article>
+        <article class="test-action">
           <button class="button" id="quarkus-cross-service-button" type="button">Call the Quarkus sample app</button>
           <p>
             Calls <code>GET /api/sample/quarkus-secure-products</code>, which this Spring Boot app uses to call the
@@ -388,6 +393,7 @@
   const chainedButton = document.getElementById('chained-button')
   const quarkusCrossServiceButton = document.getElementById('quarkus-cross-service-button')
   const authFailButton = document.getElementById('auth-fail-button')
+  const sendEmailButton = document.getElementById('send-email-button')
   const sessionDataButton = document.getElementById('session-data-button')
   const sessionDataStatus = document.getElementById('session-data-status')
   const sampleActionStatus = document.getElementById('sample-action-status')
@@ -669,6 +675,17 @@
         'This request nests child spans across a catalog read and a live query.\n\n' +
           'Open BootUI Traces or Diagnostics to inspect the correlated timeline.'
       )
+    })
+  )
+
+  sendEmailButton.addEventListener('click', () =>
+    runSampleAction(sendEmailButton, 'Sending test email...', async () => {
+      const response = await fetch('/api/sample/send-email')
+      const text = await readTextResponse(response)
+      if (!response.ok) {
+        throw new Error(text)
+      }
+      showSampleResult('Test email sent', `${text}\n\nOpen BootUI Email to inspect the captured message.`)
     })
   )
 
