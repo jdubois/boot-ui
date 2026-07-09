@@ -7,6 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **REST Client panel now reports unavailable until a client is actually instrumented (Spring MVC).** The panel's
+  `/bootui/api/panels` availability previously only checked that the internal `RestClientTraceRecorder` bean existed
+  — but that bean is registered unconditionally (it also backs Live Activity), so the check was always true and the
+  panel showed up in the sidebar even for applications with no `RestClient`, `RestTemplate`, or `WebClient` ever
+  built. Availability now mirrors the recorder's own "has anything been instrumented yet" signal, the same pattern
+  Kafka/Email/Cache already use.
+
 ## [1.11.0] - 2026-07-09
 
 Feature release headlined by three new dev-loop panels — **Email**, **REST Client Trace**, and **Kafka** — and

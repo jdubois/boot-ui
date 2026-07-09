@@ -421,6 +421,77 @@ class PanelsControllerTests {
     }
 
     @Test
+    void restClientTraceUnavailableOnServletWhenRecorderBeanIsAbsent() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties());
+            MockMvc mvc = standaloneSetup(controller).build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".unavailableReason")
+                            .value("REST client tracing is not configured"));
+        }
+    }
+
+    @Test
+    void restClientTraceAvailableOnServletOnceAClientIsInstrumented() throws Exception {
+        // RestClientTraceBackendConfiguration declares the RestClientTraceRecorder bean unconditionally
+        // whenever BootUI is active, so mere bean presence can't signal "the application configured a REST
+        // client" - this proves the panel instead tracks the recorder's own hasInstrumentedClient() signal
+        // (the same one RestClientTraceController uses for its empty state), exactly like the
+        // Kafka/Email/Cache panels track their own beans, and flips to available once a client customizer
+        // actually fires.
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            RestClientTraceRecorder recorder =
+                    new RestClientTraceRecorder(true, true, true, true, 100, 1000L, 200, 200, 5);
+            context.registerBean("bootUiRestClientTraceRecorder", RestClientTraceRecorder.class, () -> recorder);
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties());
+            MockMvc mvc = standaloneSetup(controller).build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".unavailableReason")
+                            .value("No RestClient, RestTemplate, or WebClient has been instrumented yet."));
+
+            recorder.registerClientCustomization("RestClient");
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
+                            .value(true));
+        }
+    }
+
+    @Test
+    void restClientTraceUnavailableOnServletWhenTracingIsDisabled() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            RestClientTraceRecorder recorder =
+                    new RestClientTraceRecorder(false, true, true, true, 100, 1000L, 200, 200, 5);
+            context.registerBean("bootUiRestClientTraceRecorder", RestClientTraceRecorder.class, () -> recorder);
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties());
+            MockMvc mvc = standaloneSetup(controller).build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".unavailableReason")
+                            .value("REST client tracing is disabled (set bootui.rest-client-trace.enabled=true in a "
+                                    + "trusted local profile)."));
+        }
+    }
+
+    @Test
     void securityAdvisorStaysUnavailableUnderWebFluxEvenWithReactiveSpringSecurityConfigured() throws Exception {
         // The SECURITY advisor panel (distinct from the SPRING_SECURITY raw-config panel) is NOT in
         // BootUiReactiveAutoConfiguration's @Import list, so it must never report available:true on a

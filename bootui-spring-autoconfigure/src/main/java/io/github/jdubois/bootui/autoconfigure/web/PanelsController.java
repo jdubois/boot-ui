@@ -179,9 +179,7 @@ public class PanelsController {
             case BootUiPanels.SQL_TRACE ->
                 availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
             case BootUiPanels.REST_CLIENT_TRACE ->
-                availability(
-                        !isReactive() && beanPresent(RestClientTraceRecorder.class),
-                        "REST Client is only available on the Spring MVC (servlet) adapter");
+                availability(restClientTraceAvailable(), restClientTraceUnavailableReason());
             case BootUiPanels.THREADS ->
                 availability(
                         java.lang.management.ManagementFactory.getThreadMXBean() != null,
@@ -323,6 +321,37 @@ public class PanelsController {
     private String mcpServerUnavailableReason() {
         return "Not yet ported for Spring WebFlux: the MCP tool catalog is hard-wired to the servlet panel"
                 + " controllers, so it cannot yet resolve the reactive panel surface.";
+    }
+
+    // RestClientTraceBackendConfiguration declares the RestClientTraceRecorder bean unconditionally (so
+    // both the servlet and reactive adapters can share it for Live Activity capture), so bean presence
+    // alone can't signal whether the application actually configured a client - it is always present when
+    // BootUI is active. Mirror the recorder's own "has anything been instrumented yet" signal (the same
+    // one RestClientTraceController uses to render its empty state) so the panel lands in "Disabled /
+    // unavailable" until a RestClient/RestTemplate/WebClient bean is actually built, exactly like the
+    // Kafka/Email/Cache panels gate on their own beans.
+    private boolean restClientTraceAvailable() {
+        RestClientTraceRecorder recorder = restClientTraceRecorder();
+        return !isReactive() && recorder != null && recorder.hasInstrumentedClient();
+    }
+
+    private String restClientTraceUnavailableReason() {
+        if (isReactive()) {
+            return "REST Client is only available on the Spring MVC (servlet) adapter";
+        }
+        RestClientTraceRecorder recorder = restClientTraceRecorder();
+        if (recorder == null) {
+            return "REST client tracing is not configured";
+        }
+        if (!recorder.isEnabled()) {
+            return "REST client tracing is disabled (set bootui.rest-client-trace.enabled=true in a "
+                    + "trusted local profile).";
+        }
+        return "No RestClient, RestTemplate, or WebClient has been instrumented yet.";
+    }
+
+    private RestClientTraceRecorder restClientTraceRecorder() {
+        return applicationContext.getBeanProvider(RestClientTraceRecorder.class).getIfAvailable();
     }
 
     private boolean hikariAvailable() {

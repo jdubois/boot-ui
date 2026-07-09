@@ -1143,8 +1143,13 @@ since a header (for example `Authorization`) is far more likely to carry a raw s
 capture is a separate concern, exactly as in SQL Trace: a call site names only your own application's code (class,
 method, line), never a value, so it is **not** privacy-gated — `bootui.rest-client-trace.capture-call-site` defaults to
 `true` and only trades a small, defensively-bounded stack walk per call for the ability to see where it came from. The
-recorder itself is registered unconditionally whenever the panel is enabled, so the panel is never reported unavailable
-just because an application has no outbound HTTP traffic — it shows an empty buffer instead; only the customizer that
+recorder bean itself is still registered unconditionally whenever the panel is enabled — it doubles as the source for
+Live Activity's REST entries on both Spring adapters — but panel-level availability (`/bootui/api/panels`) does **not**
+just track the bean's presence: it mirrors the recorder's own "has anything been instrumented yet" signal (the same one
+that drives this panel's own empty-state message), the same pattern Kafka/Email/Cache use against their own beans. So an
+application that never builds a `RestClient`, `RestTemplate`, or `WebClient` lands in the "Disabled / unavailable"
+section instead of showing a perpetually empty buffer; the panel flips to available the moment any one of the three is
+instrumented and stays that way for the rest of the run, even if the buffer is later cleared. Only the customizer that
 wires a given client type fails open, skipping itself entirely when that client's Spring Boot module (for example
 `spring-boot-webclient`) is not on the classpath, so an app without `WebClient` simply never gets a `WebClient`
 customizer rather than failing startup. Tracing, the initial recording state, header capture, call-site capture, buffer
