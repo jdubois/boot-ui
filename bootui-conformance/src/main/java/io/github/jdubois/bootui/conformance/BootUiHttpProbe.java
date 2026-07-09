@@ -93,10 +93,18 @@ public final class BootUiHttpProbe {
     private Response send(HttpRequest request) {
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            // Collapse multi-value headers to the first value (test probe is header-single-value-oriented)
+            Map<String, String> flatHeaders = new java.util.LinkedHashMap<>();
+            response.headers().map().forEach((name, values) -> {
+                if (!values.isEmpty()) {
+                    flatHeaders.put(name.toLowerCase(java.util.Locale.ROOT), values.get(0));
+                }
+            });
             return new Response(
                     response.statusCode(),
                     response.headers().firstValue("content-type").orElse(""),
-                    response.body());
+                    response.body(),
+                    java.util.Collections.unmodifiableMap(flatHeaders));
         } catch (IOException ex) {
             throw new IllegalStateException("HTTP request failed: " + request.uri(), ex);
         } catch (InterruptedException ex) {
@@ -109,11 +117,24 @@ public final class BootUiHttpProbe {
         return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
     }
 
-    /** A captured HTTP response: status code, content-type header, and the raw body. */
-    public record Response(int status, String contentType, String body) {
+    /** A captured HTTP response: status code, content-type header, raw body, and response headers. */
+    public record Response(int status, String contentType, String body, Map<String, String> headers) {
+
+        /** Backward-compatible constructor that uses an empty header map. */
+        public Response(int status, String contentType, String body) {
+            this(status, contentType, body, Map.of());
+        }
 
         public boolean isJson() {
             return contentType != null && contentType.toLowerCase().contains("json");
+        }
+
+        /**
+         * Returns the first value of the named response header (case-insensitive), or {@code null}
+         * when the header is absent.
+         */
+        public String header(String name) {
+            return name == null ? null : headers.get(name.toLowerCase(java.util.Locale.ROOT));
         }
 
         /** Parse the body as JSON, failing with a descriptive error if it is not valid JSON. */

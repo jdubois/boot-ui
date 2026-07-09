@@ -51,12 +51,13 @@ public class ReactiveLocalhostOnlyFilter extends AbstractReactiveBootUiFilter im
     }
 
     /**
-     * Matches the servlet filter's {@code FilterRegistrationBean} order ({@code Integer.MIN_VALUE}):
-     * WebFlux has no registration-level ordering, so this is the sole ordering mechanism.
+     * Matches the servlet filter's {@code FilterRegistrationBean} order ({@code Integer.MIN_VALUE + 1}),
+     * one after {@link ReactiveSecurityHeadersFilter}: WebFlux has no registration-level ordering, so
+     * this is the sole ordering mechanism.
      */
     @Override
     public int getOrder() {
-        return Integer.MIN_VALUE;
+        return Integer.MIN_VALUE + 1;
     }
 
     @Override

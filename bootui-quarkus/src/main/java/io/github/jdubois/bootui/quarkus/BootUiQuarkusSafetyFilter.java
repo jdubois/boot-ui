@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.engine.safety.BootUiSecurityHeaders;
 import io.github.jdubois.bootui.engine.safety.CidrRange;
 import io.github.jdubois.bootui.engine.safety.ContainerGatewayDetector;
 import io.github.jdubois.bootui.engine.safety.GatewayTrust;
@@ -106,10 +107,14 @@ public class BootUiQuarkusSafetyFilter {
     }
 
     void handle(RoutingContext rc) {
-        if (!isBootUiRequest(bootUiRelativePath(rc.normalizedPath()))) {
+        String relativePath = bootUiRelativePath(rc.normalizedPath());
+        if (!isBootUiRequest(relativePath)) {
             rc.next();
             return;
         }
+
+        // Apply security headers to all BootUI responses (including 403 rejections below).
+        applySecurityHeaders(rc.response(), relativePath);
 
         LocalhostGuardDecision decision = guard.decide(toGuardRequest(rc), buildConfig());
 
@@ -123,6 +128,25 @@ public class BootUiQuarkusSafetyFilter {
             warnTrustedGatewayOnce(allow.trustedGateway());
         }
         rc.next();
+    }
+
+    /**
+     * Applies the BootUI security-header policy to the response. Called before the guard check so the
+     * headers are present on both 403 rejections and passing responses, at parity with the Spring adapters'
+     * {@code SecurityHeadersFilter}.
+     */
+    private void applySecurityHeaders(HttpServerResponse response, String relativePath) {
+        response.putHeader(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY, BootUiSecurityHeaders.CSP_VALUE);
+        response.putHeader(BootUiSecurityHeaders.X_CONTENT_TYPE_OPTIONS, BootUiSecurityHeaders.NOSNIFF);
+        response.putHeader(BootUiSecurityHeaders.X_FRAME_OPTIONS, BootUiSecurityHeaders.DENY);
+        response.putHeader(
+                BootUiSecurityHeaders.REFERRER_POLICY, BootUiSecurityHeaders.STRICT_ORIGIN_WHEN_CROSS_ORIGIN);
+
+        String cacheControl = BootUiSecurityHeaders.cacheControl(relativePath, API_PATH);
+        response.putHeader(BootUiSecurityHeaders.CACHE_CONTROL, cacheControl);
+        if (!BootUiSecurityHeaders.IMMUTABLE.equals(cacheControl)) {
+            response.putHeader(BootUiSecurityHeaders.PRAGMA, BootUiSecurityHeaders.PRAGMA_NO_CACHE);
+        }
     }
 
     /**
