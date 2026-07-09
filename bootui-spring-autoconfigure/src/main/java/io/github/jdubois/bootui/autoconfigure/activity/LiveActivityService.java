@@ -751,56 +751,21 @@ public class LiveActivityService {
     }
 
     /**
-     * Resolves the request that a captured email belongs to: trace-id join first (exact), then serving
-     * thread within the request window (exact). Returns {@code null} when neither tier yields a unique
-     * request, so the entry stays top-level rather than being mis-attributed.
+     * Resolves the request that a captured email belongs to using the same trace-id-then-serving-thread
+     * tiering {@link #matchSqlParent} uses for SQL, since captured emails are recorded on the same
+     * application thread as the request that triggered them.
      */
     private static String matchMailParent(EmailMessageDto message, List<RequestAnchor> anchors) {
-        String traceId = message.traceId();
-        if (traceId != null && !traceId.isBlank()) {
-            String byTrace = uniqueByTrace(anchors, traceId);
-            if (byTrace != null) {
-                return byTrace;
-            }
-        }
-        String thread = message.thread();
-        if (thread == null) {
-            return null;
-        }
-        String found = null;
-        for (RequestAnchor anchor : anchors) {
-            if (thread.equals(anchor.thread()) && covers(anchor, message.timestamp())) {
-                if (found != null) {
-                    return null;
-                }
-                found = anchor.id();
-            }
-        }
-        return found;
+        return matchByTraceThenThread(message.traceId(), message.thread(), message.timestamp(), anchors);
     }
 
+    /**
+     * Resolves the request that an outbound REST call belongs to using the same trace-id-then-serving-thread
+     * tiering {@link #matchSqlParent} uses for SQL, since outbound calls are made on the same application
+     * thread as the request that triggered them.
+     */
     private static String matchRestParent(RestClientTraceEntryDto entry, List<RequestAnchor> anchors) {
-        String traceId = entry.traceId();
-        if (traceId != null && !traceId.isBlank()) {
-            String byTrace = uniqueByTrace(anchors, traceId);
-            if (byTrace != null) {
-                return byTrace;
-            }
-        }
-        String thread = entry.thread();
-        if (thread == null) {
-            return null;
-        }
-        String found = null;
-        for (RequestAnchor anchor : anchors) {
-            if (thread.equals(anchor.thread()) && covers(anchor, entry.timestamp())) {
-                if (found != null) {
-                    return null;
-                }
-                found = anchor.id();
-            }
-        }
-        return found;
+        return matchByTraceThenThread(entry.traceId(), entry.thread(), entry.timestamp(), anchors);
     }
 
     /**
