@@ -7,6 +7,37 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-09
+
+Feature release headlined by two new dev-loop panels — **Email** and **REST Client Trace** — and **Live Activity
+growing from 4 to 9 merged signal types**. Also ships a ~2.4x faster Maven build.
+
+### Added
+
+- **Email panel** — captures outgoing application email (recipients, subject, HTML/text body, attachments) for local
+  inspection, mirroring Laravel Telescope's mail watcher. Ships on both Spring and Quarkus; content is revealed by
+  default, with an opt-in `bootui.email.mask-content` flag for teams routing real PII through a shared dev
+  environment (#538).
+- **REST Client Trace panel** — captures outbound `RestClient`/`RestTemplate`/`WebClient` calls (method, host, path,
+  status, duration), with slow-call and "chatty" (repeated-call) detection. Spring servlet adapter only for now
+  (#544).
+- **Live Activity grows from 4 to 9 merged signal types**, adding cache accesses, scheduled-task runs, Kafka
+  producer/consumer activity, outbound REST client calls, and captured email to the existing request/SQL/exception/
+  security feed — each nested under its correlated request. Kafka and scheduled-task capture are also new on
+  Quarkus, and cache capture is also new on Spring WebFlux (#538, #541, #542, #543, #544).
+
+### Changed
+
+- **Email and REST Client Trace moved into the Services group** in the sidebar, alongside Scheduled Tasks and Cache.
+- **~2.4x faster full Maven build** (5:09 → ~2:10 min on a 10-core machine) by enabling reactor (`-T 1C`) and
+  Surefire test parallelism, after fixing two latent Quarkus concurrency races that made parallel builds flaky
+  (#545).
+
+### Fixed
+
+- **Hardened Kafka and Scheduled Tasks activity capture to fail open on errors**, so a capture-side bug can no
+  longer disrupt a real Kafka send/consume or scheduled-task run.
+
 ## [1.10.0] - 2026-07-07
 
 Feature release headlined by **Spring WebFlux support**, a third first-class BootUI adapter alongside Spring MVC and
