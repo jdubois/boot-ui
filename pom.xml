@@ -255,6 +255,16 @@
                         <doclint>none</doclint>
                         <failOnError>false</failOnError>
                         <quiet>true</quiet>
+                        <!--
+                            Trim static doclet boilerplate that scales with class count instead of actual
+                            documentation content, to help stay under Maven Central's new monthly publishing
+                            quota (see https://central.sonatype.org/publish/maven-central-publishing-limits/):
+                            noindex/notree/nohelp drop the master index, class-hierarchy tree, and per-page
+                            help link. No loss of per-class Javadoc content, just the generated index chrome.
+                        -->
+                        <noindex>true</noindex>
+                        <notree>true</notree>
+                        <nohelp>true</nohelp>
                     </configuration>
                 </plugin>
                 <plugin>
