@@ -161,7 +161,7 @@ describe('LiveActivity', () => {
   it('renders a scheduled-task-run entry with its own icon and links the KPI card to the Scheduled Tasks panel', async () => {
     const scheduledEntry = {
       id: 'sched-1',
-      type: 'SCHEDULED_TASK',
+      type: 'SCHEDULED',
       timestamp: 1700000000000,
       severity: 'ERROR',
       summary: 'com.example.jobs.NightlyJob.run',
@@ -194,7 +194,7 @@ describe('LiveActivity', () => {
             heapUsedBytes: 104857600,
             scheduledTaskFailureCount: 3
           },
-          typeCounts: {REQUEST: 0, SQL: 0, EXCEPTION: 0, SECURITY: 0, SCHEDULED_TASK: 1},
+          typeCounts: {REQUEST: 0, SQL: 0, EXCEPTION: 0, SECURITY: 0, SCHEDULED: 1},
           entries: [scheduledEntry]
         }),
         requestProfile()
@@ -205,7 +205,7 @@ describe('LiveActivity', () => {
     await flushPromises()
 
     const row = wrapper.get('tbody tr')
-    expect(row.text()).toContain('SCHEDULED_TASK')
+    expect(row.text()).toContain('SCHEDULED')
     expect(row.find('i.bi-clock-history').exists()).toBe(true)
 
     const scheduledLink = wrapper.findAll('router-link').find((a) => a.text().includes('Scheduled failures'))

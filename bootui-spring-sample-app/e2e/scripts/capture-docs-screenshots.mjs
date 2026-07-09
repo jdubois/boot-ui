@@ -3506,7 +3506,7 @@ const activityReport = {
     },
     {
       id: 'act-sched-1',
-      type: 'SCHEDULED_TASK',
+      type: 'SCHEDULED',
       timestamp: nowMillis - 30000,
       severity: 'OK',
       summary: 'EchoScheduler.echo',
@@ -3521,7 +3521,7 @@ const activityReport = {
     },
     {
       id: 'act-sched-2',
-      type: 'SCHEDULED_TASK',
+      type: 'SCHEDULED',
       timestamp: nowMillis - 95000,
       severity: 'ERROR',
       summary: 'InventorySyncScheduler.sync',
@@ -3558,7 +3558,7 @@ const activityReport = {
     CACHE: 4,
     REST_CLIENT: 2,
     MAIL: 1,
-    SCHEDULED_TASK: 2,
+    SCHEDULED: 2,
     MESSAGING: 2
   },
   kpis: {

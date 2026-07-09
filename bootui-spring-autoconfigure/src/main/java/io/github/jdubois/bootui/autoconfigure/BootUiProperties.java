@@ -1849,7 +1849,7 @@ public class BootUiProperties {
 
         /**
          * Maximum number of recent {@code @Scheduled} task executions retained for the
-         * {@code SCHEDULED_TASK} entries in the activity stream.
+         * {@code SCHEDULED} entries in the activity stream.
          */
         private int maxScheduledTaskRuns = 200;
 

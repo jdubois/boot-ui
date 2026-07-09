@@ -70,7 +70,7 @@ import java.util.Map;
  * there. The Quarkus adapter therefore always passes {@code cacheAvailable=false}, and
  * {@code cacheHitRatioPercent} renders {@code null} on that adapter, exactly as before.</p>
  *
- * <p><strong>Scheduled-task executions ({@code SCHEDULED_TASK} entries) do not correlate on trace id at
+ * <p><strong>Scheduled-task executions ({@code SCHEDULED} entries) do not correlate on trace id at
  * all</strong>, unlike every other signal above: a background {@code @Scheduled} job runs on its own thread
  * outside any HTTP request or distributed trace, so it never has a request to nest under (its own
  * {@code parentId} is always {@code null}). Instead, the relationship runs the other way — a captured
@@ -114,7 +114,7 @@ public final class LiveActivityAssembler {
     private static final String TYPE_SECURITY = "SECURITY";
     private static final String TYPE_MAIL = "MAIL";
     private static final String TYPE_CACHE = "CACHE";
-    private static final String TYPE_SCHEDULED_TASK = "SCHEDULED_TASK";
+    private static final String TYPE_SCHEDULED = "SCHEDULED";
 
     private static final String SEVERITY_OK = "OK";
     private static final String SEVERITY_SLOW = "SLOW";
@@ -587,7 +587,7 @@ public final class LiveActivityAssembler {
     }
 
     /**
-     * Build a {@code SCHEDULED_TASK} entry for a captured {@code @Scheduled} execution, mirroring Spring's
+     * Build a {@code SCHEDULED} entry for a captured {@code @Scheduled} execution, mirroring Spring's
      * {@code LiveActivityService.toScheduledTaskEntry}: there is no request to nest this entry itself under
      * (it runs on a background thread), so its own {@code parentId} is always {@code null}; a run that
      * threw is flagged {@code ERROR}, one slower than the shared request-slow threshold is flagged
@@ -608,7 +608,7 @@ public final class LiveActivityAssembler {
         String detail = run.success() ? null : run.exceptionClassName() + messageSuffix(run.message());
         return new ActivityEntryDto(
                 "sched-" + run.sequence(),
-                TYPE_SCHEDULED_TASK,
+                TYPE_SCHEDULED,
                 run.startTimestamp(),
                 severity,
                 run.runnable(),
@@ -672,7 +672,7 @@ public final class LiveActivityAssembler {
 
     /**
      * A captured {@code @Scheduled} execution reduced to what is needed to attach a correlated exception to
-     * it: its {@code SCHEDULED_TASK} entry id, its execution window, and the thread it ran on.
+     * it: its {@code SCHEDULED} entry id, its execution window, and the thread it ran on.
      */
     private record ScheduledTaskAnchor(String id, long start, long end, String thread) {
         boolean covers(long timestamp) {
