@@ -993,6 +993,39 @@ Acceptance criteria:
   Quarkus has no outbound REST client capture pipeline at all yet, so both the dedicated panel and the Live Activity
   `REST_CLIENT` entries are unavailable there (see `docs/WEBFLUX-SUPPORT.md` and `docs/QUARKUS-SUPPORT.md`).
 
+### 5.14.6 Kafka Panel
+
+Purpose: show producer/consumer activity over `KafkaTemplate`/`@KafkaListener` (Spring) or SmallRye Reactive
+Messaging Kafka channels (Quarkus) as its own dedicated, filterable view, over the same capture that already feeds
+Live Activity's `MESSAGING` entries.
+
+Data sources:
+
+- On Spring, `KafkaProducerCaptureBeanPostProcessor` and `KafkaConsumerCaptureBeanPostProcessor` wrap every
+  application-owned `KafkaTemplate` bean and `@KafkaListener` container factory, pass-through by default. On
+  Quarkus, `QuarkusKafkaProducerCapture`/`QuarkusKafkaConsumerCapture` implement SmallRye Reactive Messaging's
+  `OutgoingInterceptor`/`IncomingInterceptor` SPI. Both feed the same framework-neutral `KafkaActivityRecorder`
+  (bounded ring buffer in `bootui-engine`) that already backs Live Activity's `MESSAGING` entries — there is only
+  ever one buffer, so the dedicated panel and Live Activity are always in sync and clearing one clears both.
+
+Acceptance criteria:
+
+- Available whenever a `KafkaTemplate` bean is present on Spring, or the Quarkus `KAFKA` capability is present in a
+  non-production launch; otherwise the panel reports a clear unavailable reason instead of an empty list.
+- Only metadata is ever captured — direction (`PRODUCE`/`CONSUME`), topic, partition, offset, duration,
+  success/failure, consumer group id, and listener/channel id. The message value/payload is never captured at all,
+  regardless of configuration, since it is an arbitrary, potentially large application payload with no generic
+  masking strategy (unlike a SQL statement or a config value).
+- The message key is never retained verbatim: when `bootui.kafka.capture-key=true` (the default), a SHA-256 hash of
+  the key is captured and truncated to `bootui.kafka.max-key-length` hex characters; when disabled, the key is
+  `null`.
+- Messages are listed newest-first from a bounded ring buffer sized by `bootui.kafka.max-entries` (default 200,
+  oldest evicted first).
+- Clearing the buffer is gated by `bootui.panels.kafka.read-only`, consistent with every other clearable capture
+  panel; disabling capture entirely (`bootui.kafka.enabled=false`) stops both the panel and Live Activity's
+  `MESSAGING` entries, not just the dedicated view.
+- Ships on both Spring (servlet and WebFlux — the controller has no reactive-specific code) and Quarkus.
+
 ### 5.15 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.

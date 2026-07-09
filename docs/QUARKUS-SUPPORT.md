@@ -167,9 +167,10 @@ extension of the mechanism `App.vue` already uses, so the same UI build renders 
 > behind the shared `LocalhostGuard` write floor: Heap Dump (capture/analyze/delete/download), Threads (download), the
 > advisor scans, Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Traces
 > (clear), Email (clear), Kafka (clear), and the MCP Server toggle. Only **GraalVM**, **CRaC**, **Conditions**, **Startup Timeline**, **HTTP
-> Sessions**, **Spring Data**, **Spring Security**, and **DevTools** stay deliberately unavailable, each with a
-> panel-specific not-applicable reason. The per-panel `**Implemented**` markers below and `docs/FEATURES.md` carry the
-> authoritative, current per-platform detail.
+> Sessions**, **Spring Data**, **Spring Security**, and **DevTools** stay unavailable with a panel-specific
+> not-applicable reason (§5.5), plus **REST Client Trace**, which is Spring MVC only for now (see the Result note
+> below §5.5). The per-panel `**Implemented**` markers below and `docs/FEATURES.md` carry the authoritative, current
+> per-platform detail.
 
 ### 5.1 Ported as-is — framework-agnostic or same library (17)
 
@@ -308,7 +309,7 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
   it niche), `DevTools` (**Implemented as `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
   Spring-style DevTools restart/LiveReload to expose; the panel reports *not applicable* rather than *not yet*).
 
-**Result:** 40 of the 49 panels ship on Quarkus (17 ported as-is, 11 source-swapped, 9 capture-rebuilt, 3 replaced
+**Result:** 41 of the 50 panels ship on Quarkus (17 ported as-is, 11 source-swapped, 10 capture-rebuilt, 3 replaced
 with a Quarkus-native panel), and 9 are dropped: 8 as *not applicable* (GraalVM, CRaC, Conditions, Startup
 Timeline, HTTP Sessions, Spring Data, Spring Security, DevTools) and 1 (REST Client Trace) as Spring-servlet-only
 for now — no comparable runtime interception seam yet for the Quarkus-native REST client. The Overview dashboard

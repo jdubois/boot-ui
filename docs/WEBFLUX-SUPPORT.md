@@ -9,7 +9,7 @@ reactive analog genuinely exists, and an honest "not yet ported" / "not applicab
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 49-panel manifest the servlet adapter
+The WebFlux adapter serves the large majority of the panel surface — the same 50-panel manifest the servlet adapter
 reports, minus the five panels that stay unavailable for stack reasons described below. **Every action-capable panel
 that is available behaves identically to the servlet adapter**, behind the same shared `LocalhostGuard` write floor:
 Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Heap Dump
@@ -87,7 +87,7 @@ reactive binding (e.g. a `WebFilter` capturing into the same engine store) · `R
 capture layer replacing a servlet-only primitive · `Not yet ported` = deliberately deferred, no reactive
 implementation wired yet · `Not applicable` = no faithful reactive analog exists for this panel's concept.
 
-### 6.1 Ported as-is (36 panels)
+### 6.1 Ported as-is (37 panels)
 
 Bulk-imported from the servlet adapter's `@RestController`s with no code changes at all — confirming these
 controllers were already framework-neutral in practice, not just in the engine underneath them:
@@ -95,7 +95,10 @@ controllers were already framework-neutral in practice, not just in the engine u
 Overview · GitHub · Beans · Conditions · Configuration · Mappings · Health · Loggers · Startup Timeline · Spring Data ·
 Hibernate · Flyway · Liquibase · Database Connection Pools · Cache · Dev Services · Vulnerabilities · Scheduled Tasks ·
 HTTP Probe · Pentesting · Heap Dump · Architecture · REST API advisor · Profile Diff · Spring advisor[^spring-advisor-reactive] ·
-Live Memory · JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory · Email.
+Live Memory · JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory · Email · Kafka.
+`KafkaController` and its `KafkaTemplate`/`@KafkaListener` `BeanPostProcessor` capture pair have no
+`ConditionalOnWebApplication`/reactive-specific code at all, so the panel and its Live Activity `MESSAGING` capture
+work identically to the servlet adapter with zero adapter changes, the same as Email.
 
 [^spring-advisor-reactive]: The `SpringController` wiring itself needed no adapter change, but the ruleset it runs
     (`SpringScanner`/`SpringRules`) is reactive-aware internally: it detects a WebFlux `ReactiveWebApplicationContext`
@@ -203,23 +206,14 @@ OpenTelemetry SDK is present — see §7 for how this was found.
 - The servlet adapter's thread-based correlation (`LiveActivityCorrelator`) is not ported — it has no reactive
   equivalent.
 
-### 6.5 Not yet ported (3 panels)
+### 6.5 Not yet ported (4 panels)
 
 | Panel          | Reason                                                                                                                                                                                        |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Spring Security (raw panel, `spring-security`) | *"Not yet ported for Spring WebFlux: this advisor analyzes the servlet SecurityFilterChain/HttpSecurity configuration model, which has no reactive equivalent wired here yet (a ServerHttpSecurity/SecurityWebFilterChain ruleset is planned)."* `springSecurityAvailable()` now requires `!isReactive()` in addition to the pre-existing classpath/bean checks. |
+| Security advisor (`security`, grouped under Advisors — distinct from the raw Spring Security panel above, grouped under Security) | Also stays unavailable on WebFlux, but needed no dedicated reactive-aware string: `securityAvailable()` checks for a `FilterChainProxy` bean (the servlet security filter, `extends GenericFilterBean`), while a reactive Spring Security setup only ever registers a `WebFilterChainProxy` bean (`implements WebFilter`, package `org.springframework.security.web.server`) — two unrelated types in the same `spring-security-web` jar. The existing check already resolves `false` on WebFlux by construction, so the panel falls through to its pre-existing generic reasons ("Spring Security not on the classpath" / "No Spring Security filter chains are available") rather than a WebFlux-specific one. A reactive ruleset for this advisor is a genuinely new advisor (comparable in scope to the from-scratch Quarkus Security ruleset), deliberately deferred to a follow-up. |
 | MCP Server              | *"Not yet ported for Spring WebFlux: the MCP tool catalog is hard-wired to the servlet panel controllers, so it cannot yet resolve the reactive panel surface."* The JSON-RPC bridge itself (`McpDispatcher`) is already framework-neutral; only `BootUiMcpTools`' tool catalog needs a reactive-aware rewrite. |
 | REST Client       | *"REST Client is only available on the Spring MVC (servlet) adapter."* — the panel's availability check in `PanelsController` requires `!isReactive()` alongside the pre-existing `RestClientTraceRecorder` bean-presence check, so the dedicated full-detail panel (with its own filtering/paging over every captured call) is not wired into `BootUiReactiveAutoConfiguration`. **Capture itself is not stack-gated**, though: `BootUiEngineConfiguration`'s `WebClientCustomizer` attaches `RestClientTraceExchangeFilter` to every auto-configured `WebClient.Builder` regardless of web application type, so REST/WebClient calls are still captured into the shared `RestClientTraceRecorder` and still appear as `REST_CLIENT` entries in the Live Activity merge (§6.4) on WebFlux — only the standalone panel is unavailable. |
-
-Note: **the Security advisor** (`security`, grouped under Advisors — distinct from the raw **Spring Security**
-configuration panel above, grouped under Security) also stays unavailable on WebFlux, but needed no dedicated
-reactive-aware string: `securityAvailable()` checks for a `FilterChainProxy` bean (the servlet security filter,
-`extends GenericFilterBean`), while a reactive Spring Security setup only ever registers a `WebFilterChainProxy` bean
-(`implements WebFilter`, package `org.springframework.security.web.server`) — two unrelated types in the same
-`spring-security-web` jar. So the existing check already resolves `false` on WebFlux by construction, and the panel
-falls through to its pre-existing generic reasons ("Spring Security not on the classpath" / "No Spring Security
-filter chains are available") rather than a WebFlux-specific one. A reactive ruleset for this advisor is a genuinely
-new advisor (comparable in scope to the from-scratch Quarkus Security ruleset), deliberately deferred to a follow-up.
 
 ### 6.6 Not applicable (1 panel)
 
