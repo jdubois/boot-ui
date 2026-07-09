@@ -52,28 +52,28 @@ Each new panel must:
 
 ## 2. Scope of this workstream
 
-Two open features remain. The §3.1 correlation item has shipped as the **Live Activity** panel; the §3.3 e-mail viewer
-has shipped too, both as a standalone panel and — as of this workstream — as a `MAIL` entry type feeding the Live
-Activity stream. The bean/dependency graph visualization (§3.2) and the Live Activity REST call capture branch (§3.4)
-are the two remaining items in this workstream.
+One open feature remains. The §3.1 correlation item has shipped as the **Live Activity** panel; the §3.3 e-mail viewer
+has shipped too, both as a standalone panel and as a `MAIL` entry type feeding the Live Activity stream; and all five
+§3.4 event-type extensions (Scheduled Task runs, Cache operations, Kafka messaging, Mail, and REST call capture) have
+shipped. The bean/dependency graph visualization (§3.2) is the one remaining item in this workstream.
 
 | Priority | Feature                               | Group         | Primary data source                                | Mutation?         | Origin           |
 | -------- | ------------------------------------- | ------------- | -------------------------------------------------- | ----------------- | ---------------- |
 | Done     | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
 | 1        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 | No                | Existing roadmap |
 | Done     | E-mail Viewer                         | Diagnostics   | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
-| 2        | Live Activity — REST call capture     | Diagnostics   | Intercepted `RestClient`/`RestTemplate`/`WebClient` | No (capture only) | In progress (open PR) |
+| Done     | Live Activity — REST call capture     | Diagnostics   | Intercepted `RestClient`/`RestTemplate`/`WebClient` | No (capture only) | Shipped |
 | Done     | Live Activity — new event types       | Diagnostics   | Cache, scheduled-task, Kafka, and mail capture sources (see §3.4) | No (capture only) | Cache, Scheduled Tasks, Kafka, and Mail all shipped |
 
 The Trace ↔ Log ↔ Request correlation work in §3.1 has shipped as the **Live Activity** panel, building on the
 already-shipped HTTP Exchanges panel and the existing Traces and Log Tail panels. The E-mail Viewer (§3.3) has shipped as
 the **Email** panel (Diagnostics group): a `JavaMailSender` `BeanPostProcessor` captures every outgoing message
 pass-through by default, with an explicitly opt-in `bootui.email.dev-trap` mode, masked recipients/subject/body, a
-sandboxed HTML preview, and a per-message `.eml` download. Four of the §3.4 Live Activity event-type extensions have now
-shipped — Scheduled Task runs, Cache operations, Kafka messaging, and an E-mail Viewer-backed `MAIL` event type — leaving
-only the outbound `RestClient`/`RestTemplate`/`WebClient` capture branch (tracked separately above) and the bean/
-dependency graph visualization (§3.2) as the remaining items in this workstream. Each capture-oriented feature keeps
-pass-through application behaviour by default and makes any dev-trap mode explicitly opt-in.
+sandboxed HTML preview, and a per-message `.eml` download. All five of the §3.4 Live Activity event-type extensions have
+now shipped — Scheduled Task runs, Cache operations, Kafka messaging, an E-mail Viewer-backed `MAIL` event type, and
+outbound `RestClient`/`RestTemplate`/`WebClient` capture — leaving only the bean/dependency graph visualization (§3.2) as
+the remaining item in this workstream. Each capture-oriented feature keeps pass-through application behaviour by default
+and makes any dev-trap mode explicitly opt-in.
 
 ## 3. Feature specifications
 
@@ -151,14 +151,13 @@ Design constraints:
   rendered sandboxed to prevent script execution.
 - Fixed-size buffer; no persistence to disk beyond on-demand `.eml` download.
 
-### 3.4 Live Activity — future event types and correlation — Diagnostics
+### 3.4 Live Activity — event types and correlation — Diagnostics ✅ Completed
 
-Live Activity currently merges eight entry types — `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED_TASK`,
-`MESSAGING`, and `MAIL` — from BootUI's existing in-memory buffers (see `docs/SPECIFICATION.md` §5.14.2). One extension
-remains underway outside this plan: a separate, already-open pull request adds an outbound
-`RestClient`/`RestTemplate`/`WebClient` capture. This section captures what should come next in the panel, prioritized by
-value versus new-instrumentation cost, drawn from the same comparable-dashboard benchmarks (Laravel Telescope, Symfony
-Web Profiler, .NET Aspire) already guiding this workstream.
+**Status: completed.** All five event-type extensions below have shipped. Live Activity now merges nine entry types —
+`REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED_TASK`, `MESSAGING`, `MAIL`, and `REST_CLIENT` — from
+BootUI's existing in-memory buffers (see `docs/SPECIFICATION.md` §5.14.2). The original scope, prioritized by value
+versus new-instrumentation cost and drawn from the same comparable-dashboard benchmarks (Laravel Telescope, Symfony Web
+Profiler, .NET Aspire) already guiding this workstream, is retained below for reference.
 
 Scope — new event types, roughly in priority order:
 
@@ -254,21 +253,34 @@ Scope — new event types, roughly in priority order:
   run does, on both the servlet and WebFlux adapters. On Quarkus, `LiveActivityResource` reads the same
   `EmailCaptureService` directly (not through the Email panel's own resource) and feeds its merged SSE stream
   identically, mirroring the Spring wiring exactly.
+- **Outbound REST call capture — ✅ Shipped (Spring servlet and WebFlux adapters).** Every `RestClient`/`RestTemplate`/
+  `WebClient` built through Spring Boot's auto-configured builders is instrumented via Spring Boot's own
+  `RestClientCustomizer`/`RestTemplateCustomizer`/`WebClientCustomizer` hooks, attaching a `RestClientTraceInterceptor`
+  (`RestClient`/`RestTemplate`) or `RestClientTraceExchangeFilter` (`WebClient`) from inside the `customize(...)`
+  callback — so a disabled panel or `bootui.rest-client-trace.enabled=false` adds no interceptor at all, and
+  pass-through application behaviour is unaffected either way. Both customizer configurations live in the shared
+  `BootUiEngineConfiguration`, gated by `@ConditionalOnClass` on the optional `spring-boot-restclient`/
+  `spring-boot-webclient` modules, so servlet and WebFlux wire identically and the configuration is skipped entirely
+  when a module is absent. The framework-neutral `RestClientTraceRecorder` (`bootui-engine`) captures each call (client
+  type, URI, method, status, duration, headers/call-site when enabled) into a bounded buffer, feeding both the
+  standalone REST Client Trace panel and, like Cache/Mail, a `REST_CLIENT` entry into the merged Live Activity feed —
+  nesting as a `REQUEST` child via the same trace-id join `SQL`/`EXCEPTION`/`SECURITY`/`CACHE`/`MAIL` use, and adding
+  `restCallErrorRatePercent`/`restCallP95LatencyMs` KPI tiles deep-linked to `/rest-client-trace`. Quarkus is out of
+  scope for now — like Cache, no comparable runtime interception seam exists yet for the Quarkus-native REST client
+  (see `docs/QUARKUS-SUPPORT.md`), so the Quarkus adapter reports the merged-stream slot unavailable.
 
-Scope — enhancements on top of the existing/in-flight event types, generally cheaper than a new source and some of
-higher value:
+Scope — enhancements on top of the shipped event types, generally cheaper than a new source and some of higher value:
 
-- **Nest the REST call capture as a `REQUEST` child**, the same way `SQL`/`EXCEPTION`/`SECURITY`/`CACHE`/`MAIL` nest
-  today, once that branch lands, so a request that fans out to outbound calls shows the whole causal chain in one
-  profiler view. This is likely the single highest-value change once REST call capture ships, since correlation — not
-  just another list — is the panel's core value proposition.
-- **Extend the KPI strip** with metrics for each new source as it lands: outbound-call error rate/p95. (Cache hit ratio
-  and scheduled-task failure count have already shipped, above.)
+- **Extend the KPI strip** with metrics for each new source as it lands — this has now shipped for every source that
+  has one: outbound-call error rate/p95 (REST call capture), cache hit ratio (Cache), and scheduled-task failure count
+  (Scheduled Task runs).
 - **Verify persistence and filtering stay generic over `type`** as new event types are added — `JdbcActivityStore`,
-  `BufferedActivityStore`, and the client-side type filter chips should pick up new types automatically, but this should
-  be confirmed with tests as each lands.
-- **Add deep links** from `REQUEST` entries into the Cache and Scheduled Tasks panels. Both now ship, joining the
-  existing deep links into HTTP Exchanges, SQL Trace, Exceptions, Health, and Heap Dump.
+  `BufferedActivityStore`, and the client-side type filter chips pick up new types automatically; keep confirming this
+  with tests if any further event type (e.g. RabbitMQ/JMS messaging) lands later.
+- **Add deep links** for each entry type into its own source panel — Cache and Scheduled Tasks entries now link to
+  `/cache` and `/scheduled` respectively, and REST Client entries link to `/rest-client-trace`, joining the existing
+  per-entry deep links into HTTP Exchanges (REQUEST), SQL Trace (SQL), and Exceptions (EXCEPTION); the KPI strip's own
+  launchpad cards additionally deep-link Health and Heap usage.
 
 Design constraints:
 
@@ -278,8 +290,9 @@ Design constraints:
   as the rest of the panel; cache keys are hashed rather than shown raw even under full exposure.
 - New capture buffers are bounded and self-filtering (BootUI's own traffic must not appear in its own feed), consistent
   with the existing `bootui.monitoring.exclude-self` behaviour.
-- Recommended sequencing: land Mail (§3.3) and REST call capture with `REQUEST`-nesting from day one; Scheduled Task
-  runs and Cache operations have both now shipped; treat Messaging as the next major new-instrumentation investment.
+- Actual shipped sequencing: Scheduled Task runs and Cache operations landed first, then Kafka messaging, then Mail,
+  then REST call capture last — all five now shipped, each with `REQUEST`-nesting from day one where a nesting
+  relationship applies (Kafka `MESSAGING` is the deliberate exception: always top-level, no correlation attempted).
 
 ## 4. Cross-cutting work for every new panel
 
