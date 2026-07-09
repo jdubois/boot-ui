@@ -59,7 +59,8 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
         RecordInterceptor<Object, Object> interceptor = currentInterceptor(factory);
         ConsumerRecord<Object, Object> record = new ConsumerRecord<>("orders", 0, 5L, "k1", "v1");
         Consumer<Object, Object> consumer = mock(Consumer.class);
-        when(consumer.groupMetadata()).thenReturn(new ConsumerGroupMetadata("group-a"));
+        ConsumerGroupMetadata groupMetadata = groupMetadata("group-a");
+        when(consumer.groupMetadata()).thenReturn(groupMetadata);
 
         interceptor.intercept(record, consumer);
         interceptor.success(record, consumer);
@@ -92,7 +93,8 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
         RecordInterceptor<Object, Object> interceptor = currentInterceptor(factory);
         ConsumerRecord<Object, Object> record = new ConsumerRecord<>("orders", 0, 5L, "k1", "v1");
         Consumer<Object, Object> consumer = mock(Consumer.class);
-        when(consumer.groupMetadata()).thenReturn(new ConsumerGroupMetadata("group-a"));
+        ConsumerGroupMetadata groupMetadata = groupMetadata("group-a");
+        when(consumer.groupMetadata()).thenReturn(groupMetadata);
 
         interceptor.intercept(record, consumer);
         interceptor.failure(record, new IllegalStateException("boom"), consumer);
@@ -133,5 +135,13 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
         recorder.recordConsume("orders", 0, 0L, key, 0L, true, null, null, null);
         return recorder.recent().get(0).key();
+    }
+
+    // ConsumerGroupMetadata's own constructors are deprecated for removal (Kafka 4.2+); a mock sidesteps them
+    // since the only member the capture code reads is groupId().
+    private static ConsumerGroupMetadata groupMetadata(String groupId) {
+        ConsumerGroupMetadata metadata = mock(ConsumerGroupMetadata.class);
+        when(metadata.groupId()).thenReturn(groupId);
+        return metadata;
     }
 }
