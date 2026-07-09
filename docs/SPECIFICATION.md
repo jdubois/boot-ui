@@ -990,6 +990,11 @@ Acceptance criteria:
 - The dedicated panel is available on the Spring MVC (servlet) adapter only, since its push-updating `/stream`
   endpoint relies on the servlet-specific `SseEmitter`. The underlying `WebClient` call capture is shared with Spring
   WebFlux and feeds Live Activity there with trace-id-only correlation, but WebFlux has no dedicated panel yet.
+- On the servlet adapter, `/bootui/api/panels` additionally requires that at least one `RestClient`, `RestTemplate`,
+  or `WebClient` has actually been instrumented (mirroring how Kafka/Email/Cache report against their own beans): an
+  application that never builds one of the three reports the panel unavailable rather than available-with-an-empty-
+  buffer, since the recorder bean backing the panel is registered unconditionally and so is never itself a useful
+  signal.
   Quarkus has no outbound REST client capture pipeline at all yet, so both the dedicated panel and the Live Activity
   `REST_CLIENT` entries are unavailable there (see `docs/WEBFLUX-SUPPORT.md` and `docs/QUARKUS-SUPPORT.md`).
 
