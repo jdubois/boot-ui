@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.telemetry;
 
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.sdk.trace.ReadWriteSpan;
 import io.opentelemetry.sdk.trace.ReadableSpan;
@@ -26,8 +27,8 @@ public final class BootUiIdentitySpanProcessor implements SpanProcessor {
 
     public BootUiIdentitySpanProcessor(TelemetrySettings settings, String serviceName, String instanceId) {
         this.settings = settings;
-        this.serviceName = blankToNull(serviceName);
-        this.instanceId = blankToNull(instanceId);
+        this.serviceName = BlankStrings.blankToNull(serviceName);
+        this.instanceId = BlankStrings.blankToNull(instanceId);
     }
 
     @Override
@@ -61,9 +62,5 @@ public final class BootUiIdentitySpanProcessor implements SpanProcessor {
     @Override
     public boolean isEndRequired() {
         return false;
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
     }
 }

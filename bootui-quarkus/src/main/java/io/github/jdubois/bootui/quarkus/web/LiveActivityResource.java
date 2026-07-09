@@ -33,6 +33,7 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.TracesService;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
@@ -73,7 +74,9 @@ import javax.sql.DataSource;
  * captured email (via the shared {@link EmailCaptureService}) — plus JVM heap into the neutral
  * {@link LiveActivityReport}. Cache activity and outbound REST-client calls have no capture seam on
  * Quarkus yet (see {@link LiveActivityAssembler}'s class Javadoc), so both slots are always
- * empty/unavailable here. SQL trace
+ * empty/unavailable here. The HTTP-exchange source hides BootUI's own traffic via the adapter-wide
+ * {@link SelfTelemetryClassifier} singleton (see its class javadoc), the same instance Metrics/Cache/Traces
+ * inject, rather than a locally hardcoded path check. SQL trace
  * contributes only when a datasource is configured (the recorder is gated on Agroal); security events
  * contribute only when Quarkus's security capability is present and
  * {@code quarkus.security.events.enabled=true} (the same gate {@code SecurityLogsResource} uses, reused here
@@ -142,6 +145,7 @@ public class LiveActivityResource {
     private final ActivityPersistenceSettings persistenceSettings;
     private final Instance<DataSource> dataSources;
     private final KafkaActivityRecorder kafkaRecorder;
+    private final SelfTelemetryClassifier selfClassifier;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
     private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
@@ -164,7 +168,8 @@ public class LiveActivityResource {
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             Instance<DataSource> dataSources,
-            KafkaActivityRecorder kafkaRecorder) {
+            KafkaActivityRecorder kafkaRecorder,
+            SelfTelemetryClassifier selfClassifier) {
         this.buffer = buffer;
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
@@ -179,6 +184,7 @@ public class LiveActivityResource {
         this.persistenceSettings = persistenceSettings;
         this.dataSources = dataSources;
         this.kafkaRecorder = kafkaRecorder;
+        this.selfClassifier = selfClassifier;
     }
 
     /**
@@ -399,7 +405,7 @@ public class LiveActivityResource {
     private HttpExchangesReport requestsReport() {
         return exchanges.report(
                 buffer.snapshot(),
-                uri -> uri != null && (uri.contains("/bootui/") || uri.endsWith("/bootui")),
+                uri -> !selfClassifier.shouldInclude(selfClassifier.isBootUiPath(uri)),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
                 null,

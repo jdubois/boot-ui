@@ -4,9 +4,9 @@ import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import io.github.jdubois.bootui.core.dto.HibernateScanStatusDto;
 import io.github.jdubois.bootui.core.dto.HibernateSeverityCountDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,9 +26,8 @@ public final class HibernateScanner {
             "Heuristic Hibernate/JPA mapping rules run against the host application's mapped entities only. "
                     + "These checks are review prompts, not verdicts, and should be validated against the "
                     + "application's data access patterns.";
-    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<HibernateRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
-                    (HibernateRuleResultDto result) -> severityRank(result.severity()))
+                    (HibernateRuleResultDto result) -> SeverityOrder.rank(result.severity()))
             .thenComparing(Comparator.comparingInt(HibernateRuleResultDto::violationCount)
                     .reversed())
             .thenComparing(HibernateRuleResultDto::id);
@@ -221,15 +220,8 @@ public final class HibernateScanner {
     }
 
     private List<HibernateSeverityCountDto> severityCounts(List<HibernateRuleResultDto> results) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String severity : SEVERITIES) {
-            counts.put(severity, 0);
-        }
-        for (HibernateRuleResultDto result : results) {
-            if (isViolation(result)) {
-                counts.computeIfPresent(result.severity(), (ignored, count) -> count + 1);
-            }
-        }
+        Map<String, Integer> counts =
+                SeverityOrder.counts(results, HibernateScanner::isViolation, HibernateRuleResultDto::severity);
         return counts.entrySet().stream()
                 .map(entry -> new HibernateSeverityCountDto(entry.getKey(), entry.getValue()))
                 .toList();
@@ -249,11 +241,6 @@ public final class HibernateScanner {
                 .distinct()
                 .sorted()
                 .toList();
-    }
-
-    private static int severityRank(String severity) {
-        int index = SEVERITIES.indexOf(severity);
-        return index >= 0 ? index : SEVERITIES.size();
     }
 
     private static boolean isViolation(HibernateRuleResultDto result) {

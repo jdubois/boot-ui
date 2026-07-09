@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
@@ -511,7 +512,18 @@ class LiveActivityResourceTests {
                 activityStore,
                 settings,
                 dataSources,
-                kafkaRecorder);
+                kafkaRecorder,
+                selfTelemetryClassifier(config));
+    }
+
+    /** Mirrors {@code BootUiTelemetryProducer.selfTelemetryClassifier} so tests wire the same classifier. */
+    private static SelfTelemetryClassifier selfTelemetryClassifier(SmallRyeConfig config) {
+        boolean excludeSelf = config.getOptionalValue("bootui.monitoring.exclude-self", Boolean.class)
+                .orElse(Boolean.TRUE);
+        String path = config.getOptionalValue("bootui.path", String.class).orElse("/bootui");
+        String apiPath =
+                config.getOptionalValue("bootui.api-path", String.class).orElse("/bootui/api");
+        return new SelfTelemetryClassifier(excludeSelf, path, apiPath);
     }
 
     private static SmallRyeConfig config(Map<String, String> properties) {

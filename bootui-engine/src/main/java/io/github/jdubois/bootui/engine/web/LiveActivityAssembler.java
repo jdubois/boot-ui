@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.time.Instant;
@@ -214,7 +215,7 @@ public final class LiveActivityAssembler {
         Map<String, String> securedPrincipalByRequestId = new HashMap<>();
         for (SecurityLogEventDto event : security) {
             String requestId = traceIndex.parentRequestId(event.traceId());
-            String principal = blankToNull(event.principal());
+            String principal = BlankStrings.blankToNull(event.principal());
             if (requestId != null && principal != null) {
                 securedPrincipalByRequestId.putIfAbsent(requestId, principal);
             }
@@ -538,7 +539,7 @@ public final class LiveActivityAssembler {
         String type = event.type() == null ? "" : event.type();
         String upperType = type.toUpperCase(Locale.ROOT);
         String severity = upperType.contains("FAILURE") || upperType.contains("DENIED") ? SEVERITY_WARN : SEVERITY_OK;
-        String principal = blankToNull(event.principal());
+        String principal = BlankStrings.blankToNull(event.principal());
         String summary = (type + (principal == null ? "" : " · " + principal)).trim();
         return new ActivityEntryDto(
                 SecurityActivityIds.stableId(event),
@@ -678,10 +679,6 @@ public final class LiveActivityAssembler {
             return timestamp >= start - SCHEDULED_TASK_WINDOW_SLACK_MS
                     && timestamp <= end + SCHEDULED_TASK_WINDOW_SLACK_MS;
         }
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
     }
 
     /** Parse an ISO-8601 instant to epoch millis, returning {@code 0} for null/blank/unparseable input. */

@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
+import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
@@ -109,7 +110,8 @@ class QuarkusActivityCaptureTests {
                 new SwitchableActivityStore(new InMemoryActivityStore(10)),
                 disabledSettings(),
                 new UnsatisfiedInstance<>(),
-                new KafkaActivityRecorder(true, true, 200, 200));
+                new KafkaActivityRecorder(true, true, 200, 200),
+                new SelfTelemetryClassifier(true, "/bootui", "/bootui/api"));
     }
 
     private static Thread awaitThreadNamed(String name) throws InterruptedException {

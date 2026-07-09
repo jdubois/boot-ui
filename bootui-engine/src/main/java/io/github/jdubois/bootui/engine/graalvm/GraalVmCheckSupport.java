@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.graalvm;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
 import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
+import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,7 +23,6 @@ final class GraalVmCheckSupport {
     static final String ERROR = "ERROR";
 
     private static final int MAX_SAMPLE_OCCURRENCES = 10;
-    private static final int MAX_DETAIL_CHARS = 240;
 
     private GraalVmCheckSupport() {}
 
@@ -78,17 +78,7 @@ final class GraalVmCheckSupport {
     }
 
     static String detail(String value) {
-        if (value == null) {
-            return "No additional detail.";
-        }
-        String sanitized = value.replaceAll("[\\r\\n\\t]+", " ").trim();
-        if (sanitized.isBlank()) {
-            return "No additional detail.";
-        }
-        if (sanitized.length() <= MAX_DETAIL_CHARS) {
-            return sanitized;
-        }
-        return sanitized.substring(0, MAX_DETAIL_CHARS - 3) + "...";
+        return DetailText.sanitize(value);
     }
 
     static int maxSampleOccurrences() {

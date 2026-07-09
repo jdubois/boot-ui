@@ -33,6 +33,7 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessa
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import io.github.jdubois.bootui.engine.web.SecurityActivityIds;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -236,8 +237,8 @@ public class LiveActivityService {
             typeCounts.merge(entry.type(), 1, Integer::sum);
         }
 
-        String normalizedType = blankToNull(typeFilter);
-        String normalizedSeverity = blankToNull(severityFilter);
+        String normalizedType = BlankStrings.blankToNullTrimmed(typeFilter);
+        String normalizedSeverity = BlankStrings.blankToNullTrimmed(severityFilter);
         List<ActivityEntryDto> visible = new ArrayList<>();
         for (ActivityEntryDto entry : all) {
             if (entry.timestamp() <= since) {
@@ -1077,9 +1078,5 @@ public class LiveActivityService {
             return value;
         }
         return value.substring(0, SQL_SUMMARY_LENGTH) + "…";
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 }

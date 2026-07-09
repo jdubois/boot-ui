@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
 import io.github.jdubois.bootui.core.dto.MemoryScanStatusDto;
 import io.github.jdubois.bootui.core.dto.MemorySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.MemorySummaryDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import java.time.Clock;
 import java.util.Comparator;
@@ -36,10 +37,8 @@ public final class MemoryScanner {
             "Heuristic JVM memory and thread health rules run against this process's live management beans only. "
                     + "These findings are review prompts, not verdicts, and should be validated against the "
                     + "application's workload and a profiler before acting.";
-    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
-
     private static final Comparator<MemoryRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
-                    (MemoryRuleResultDto result) -> severityRank(result.severity()))
+                    (MemoryRuleResultDto result) -> SeverityOrder.rank(result.severity()))
             .thenComparing(
                     Comparator.comparingInt(MemoryRuleResultDto::violationCount).reversed())
             .thenComparing(MemoryRuleResultDto::id);
@@ -278,21 +277,10 @@ public final class MemoryScanner {
     }
 
     private List<MemorySeverityCountDto> severityCounts(List<MemoryRuleResultDto> violations) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String severity : SEVERITIES) {
-            counts.put(severity, 0);
-        }
-        for (MemoryRuleResultDto result : violations) {
-            counts.computeIfPresent(result.severity(), (ignored, count) -> count + 1);
-        }
+        Map<String, Integer> counts = SeverityOrder.counts(violations, MemoryRuleResultDto::severity);
         return counts.entrySet().stream()
                 .map(entry -> new MemorySeverityCountDto(entry.getKey(), entry.getValue()))
                 .toList();
-    }
-
-    private static int severityRank(String severity) {
-        int index = SEVERITIES.indexOf(severity);
-        return index >= 0 ? index : SEVERITIES.size();
     }
 
     private static boolean isViolation(MemoryRuleResultDto result) {

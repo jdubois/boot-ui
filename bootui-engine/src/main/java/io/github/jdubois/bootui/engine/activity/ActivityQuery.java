@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.activity;
 
+import io.github.jdubois.bootui.engine.support.BlankStrings;
+
 /**
  * A query against an {@link ActivityStore}: an optional filter set plus a "load more" pagination
  * cursor. All filters are optional (blank/{@code null} means "no filter on this field") and are applied
@@ -50,18 +52,14 @@ public record ActivityQuery(
     }
 
     String normalizedType() {
-        return blankToNull(type);
+        return BlankStrings.blankToNull(type);
     }
 
     String normalizedSeverity() {
-        return blankToNull(severity);
+        return BlankStrings.blankToNull(severity);
     }
 
     String normalizedText() {
-        return blankToNull(text);
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
+        return BlankStrings.blankToNull(text);
     }
 }
