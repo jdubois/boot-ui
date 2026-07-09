@@ -4,7 +4,7 @@ import {expect, test} from './fixtures.js'
 test.describe('GraalVM view', () => {
   test('runs the native-image readiness scan and reports analysed classes', async ({openView, page}) => {
     // The native-image readiness scan can take a while on slower CI hardware.
-    test.setTimeout(120_000)
+    test.setTimeout(150_000)
 
     await openView('graalvm', 'GraalVM')
 
@@ -15,8 +15,11 @@ test.describe('GraalVM view', () => {
 
     await page.getByRole('button', {name: 'Run readiness checks'}).click()
 
-    // The scan surveys the host application's own classes, so the empty state clears.
-    await expect(page.getByText('No readiness data yet')).toHaveCount(0, {timeout: 45_000})
+    // The scan checks GraalVM reachability-metadata repository coverage for every classpath
+    // dependency with one bounded HTTP GET each (see HttpReachabilityMetadataRepository), so its
+    // duration scales with the sample app's dependency count. The empty state clears once that
+    // walk finishes; allow generous headroom rather than the dependency-count-agnostic default.
+    await expect(page.getByText('No readiness data yet')).toHaveCount(0, {timeout: 90_000})
 
     const checksRun = page.locator('.advisor-summary__metric', {hasText: 'Checks run'}).locator('dd')
     await expect

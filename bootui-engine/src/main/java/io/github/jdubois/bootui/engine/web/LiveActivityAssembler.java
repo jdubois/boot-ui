@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.web;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityKpiDto;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
@@ -30,8 +31,8 @@ import java.util.Map;
  * reports. The Spring adapter has its own richer, controller-fed service (with per-request signal
  * correlation and thread attribution); the WebFlux and Quarkus adapters feed this assembler the signal
  * sources they capture — HTTP requests, SQL trace, exceptions, security/audit events, cache accesses,
- * captured {@code @Scheduled} task executions, and optionally Kafka messaging — which are merged into
- * one reverse-chronological feed with JVM heap and per-type KPIs.
+ * captured {@code @Scheduled} task executions, captured emails, and optionally Kafka messaging — which are
+ * merged into one reverse-chronological feed with JVM heap and per-type KPIs.
  *
  * <p>Inputs are already masked and self-filtered by their owning engine services before they reach this
  * shape, so the assembler only normalizes, severities, merges, correlates and caps.</p>
@@ -40,7 +41,7 @@ import java.util.Map;
  * lets it attribute signals by serving thread, but on the Vert.x event loop a thread does not map to a
  * single request, so that strategy is unportable. Instead, when the adapter stamps a distributed-trace id on
  * each signal (the Quarkus adapter reads {@code Span.current()} when OpenTelemetry is present, whose context
- * propagates across the event-loop→worker hops), this assembler nests each SQL/exception/security entry
+ * propagates across the event-loop→worker hops), this assembler nests each SQL/exception/security/MAIL entry
  * under the REQUEST entry sharing the same trace id by setting its {@code parentId}, using the shared
  * {@link TraceCorrelationIndex} primitive. A child is only nested when <em>exactly one</em> request carries
  * that trace id (a uniqueness guard against a reused inbound {@code traceparent}). When no trace id is
@@ -99,6 +100,7 @@ public final class LiveActivityAssembler {
     private static final String TYPE_SQL = "SQL";
     private static final String TYPE_EXCEPTION = "EXCEPTION";
     private static final String TYPE_SECURITY = "SECURITY";
+    private static final String TYPE_MAIL = "MAIL";
     private static final String TYPE_CACHE = "CACHE";
     private static final String TYPE_SCHEDULED_TASK = "SCHEDULED_TASK";
 
@@ -137,6 +139,11 @@ public final class LiveActivityAssembler {
      *     no trace id available on the producer/consumer thread today — see {@code docs/PLAN.md} §3.4.
      * @param kafkaAvailable whether the Kafka capture source is present and feeding ({@code KafkaTemplate}/
      *     {@code @KafkaListener} beans on Spring, SmallRye Reactive Messaging channels on Quarkus)
+     * @param emailMessages already-masked captured outgoing emails (newest-first), or {@code null}; ignored
+     *     unless {@code emailAvailable}. Email capture stamps the active trace id alongside the sending
+     *     thread, so {@code MAIL} entries can be nested under the uniquely matching REQUEST entry that
+     *     shares that trace id, exactly like SQL/exceptions/security/cache above.
+     * @param emailAvailable whether a mail sender is present and the Email Viewer panel is feeding
      */
     public LiveActivityReport report(
             HttpExchangesReport requests,
@@ -152,7 +159,9 @@ public final class LiveActivityAssembler {
             String healthStatus,
             int limit,
             List<CapturedMessage> kafkaMessages,
-            boolean kafkaAvailable) {
+            boolean kafkaAvailable,
+            List<EmailMessageDto> emailMessages,
+            boolean emailAvailable) {
 
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
@@ -161,6 +170,7 @@ public final class LiveActivityAssembler {
         List<ScheduledTaskRunStore.Run> scheduled = scheduledRuns == null ? List.of() : scheduledRuns;
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
         List<CapturedMessage> kafka = !kafkaAvailable || kafkaMessages == null ? List.of() : kafkaMessages;
+        List<EmailMessageDto> emails = !emailAvailable || emailMessages == null ? List.of() : emailMessages;
 
         List<ActivityEntryDto> entries = new ArrayList<>();
 
@@ -279,6 +289,10 @@ public final class LiveActivityAssembler {
             entries.add(KafkaActivityEntries.toEntry(message));
         }
 
+        for (EmailMessageDto message : emails) {
+            entries.add(toEmailEntry(message, traceIndex.parentRequestId(message.traceId())));
+        }
+
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
 
         Map<String, Integer> typeCounts = new LinkedHashMap<>();
@@ -307,6 +321,9 @@ public final class LiveActivityAssembler {
         }
         if (kafkaAvailable) {
             sources.add("kafka");
+        }
+        if (emailAvailable) {
+            sources.add("email");
         }
 
         List<String> warnings = new ArrayList<>();
@@ -466,6 +483,32 @@ public final class LiveActivityAssembler {
                 false);
     }
 
+    private ActivityEntryDto toEmailEntry(EmailMessageDto message, String parentId) {
+        String to = message.to().isEmpty() ? "" : String.join(", ", message.to());
+        String subject = message.subject() == null ? "(no subject)" : message.subject();
+        String detail = to.isBlank() ? null : "to " + to;
+        if (!message.sent()) {
+            detail = (detail == null ? "" : detail + " · ") + "dev-trap: not sent";
+        }
+        return new ActivityEntryDto(
+                message.id(),
+                TYPE_MAIL,
+                message.timestamp(),
+                message.sent() ? SEVERITY_OK : SEVERITY_WARN,
+                subject,
+                detail,
+                null,
+                message.traceId(),
+                null,
+                null,
+                null,
+                message.thread(),
+                false,
+                parentId,
+                null,
+                false);
+    }
+
     /**
      * Build a {@code SCHEDULED_TASK} entry for a captured {@code @Scheduled} execution, mirroring Spring's
      * {@code LiveActivityService.toScheduledTaskEntry}: there is no request to nest this entry itself under
@@ -505,6 +548,7 @@ public final class LiveActivityAssembler {
                 false);
     }
 
+    /** Suffixes a scheduled-task failure summary with its exception message, when one was captured. */
     private static String messageSuffix(String message) {
         return message == null || message.isBlank() ? "" : ": " + message;
     }

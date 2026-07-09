@@ -6,10 +6,13 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
+import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
@@ -207,6 +210,39 @@ class LiveActivityServiceTests {
                 new BootUiProperties());
 
         assertThat(parentOf(service.report(null, null, 0, 0), "exc-e1")).isEqualTo("r1");
+    }
+
+    @Test
+    void nestsMailUnderRequestByTraceId() {
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                null,
+                null,
+                null,
+                email(email("email-1", BASE.plusMillis(1010).toEpochMilli(), "trace-r1", "mail-thread")),
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "email-1")).isEqualTo("r1");
+    }
+
+    @Test
+    void leavesMailTopLevelWhenTraceIdAndThreadDoNotCorrelate() {
+        RequestCorrelationRegistry requestCorrelations = new RequestCorrelationRegistry(10);
+        requestCorrelations.record(new RequestCorrelationRegistry.RequestCorrelation(
+                BASE.plusMillis(1000).toEpochMilli(), BASE.plusMillis(1030).toEpochMilli(), "worker-9", "GET", "/a"));
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                null,
+                null,
+                null,
+                email(email("email-1", BASE.plusMillis(2000).toEpochMilli(), "trace-orphan", "mail-thread")),
+                requestCorrelations,
+                null,
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "email-1")).isNull();
     }
 
     @Test
@@ -543,7 +579,42 @@ class LiveActivityServiceTests {
             SecurityLogsController security,
             HealthController health,
             BootUiProperties properties) {
-        return service(requests, sql, exceptions, security, health, null, null, null, properties);
+        return service(requests, sql, exceptions, security, health, null, null, null, null, null, null, properties);
+    }
+
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            EmailController email,
+            BootUiProperties properties) {
+        return service(requests, sql, exceptions, security, health, email, null, null, null, null, null, properties);
+    }
+
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            RequestCorrelationRegistry requestCorrelations,
+            SecurityEventCorrelationRegistry securityCorrelations,
+            BootUiProperties properties) {
+        return service(
+                requests,
+                sql,
+                exceptions,
+                security,
+                health,
+                null,
+                requestCorrelations,
+                securityCorrelations,
+                null,
+                null,
+                null,
+                properties);
     }
 
     private LiveActivityService service(
@@ -556,34 +627,83 @@ class LiveActivityServiceTests {
             SecurityEventCorrelationRegistry securityCorrelations,
             io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledTaskRuns,
             BootUiProperties properties) {
+        return service(
+                requests,
+                sql,
+                exceptions,
+                security,
+                health,
+                null,
+                requestCorrelations,
+                securityCorrelations,
+                null,
+                scheduledTaskRuns,
+                null,
+                properties);
+    }
+
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            EmailController email,
+            RequestCorrelationRegistry requestCorrelations,
+            SecurityEventCorrelationRegistry securityCorrelations,
+            BootUiProperties properties) {
+        return service(
+                requests,
+                sql,
+                exceptions,
+                security,
+                health,
+                email,
+                requestCorrelations,
+                securityCorrelations,
+                null,
+                null,
+                null,
+                properties);
+    }
+
+    /**
+     * The fullest helper: every other {@code service(...)} overload above forwards here so a caller's
+     * parameters are always passed straight through to the production constructor with explicit
+     * {@code null}s for whatever it doesn't set, rather than routing through another partial overload
+     * (which previously let a merge silently drop a parameter without a compile error).
+     */
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            EmailController email,
+            RequestCorrelationRegistry requestCorrelations,
+            SecurityEventCorrelationRegistry securityCorrelations,
+            io.github.jdubois.bootui.engine.cache.CacheActivityRecorder cacheActivity,
+            io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledTaskRuns,
+            io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder kafka,
+            BootUiProperties properties) {
         return new LiveActivityService(
                 provider(requests),
                 provider(sql),
                 provider(exceptions),
                 provider(security),
                 provider(health),
+                provider(email),
                 provider(requestCorrelations),
                 provider(securityCorrelations),
-                provider(null),
+                provider(cacheActivity),
                 provider(scheduledTaskRuns),
-                provider(null),
+                provider(kafka),
                 properties);
     }
 
     private LiveActivityService serviceWithKafka(
             io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder, BootUiProperties properties) {
-        return new LiveActivityService(
-                provider(null),
-                provider(null),
-                provider(null),
-                provider(null),
-                provider(null),
-                provider(null),
-                provider(null),
-                provider(null),
-                provider(null),
-                provider(recorder),
-                properties);
+        return service(null, null, null, null, null, null, null, null, null, null, recorder, properties);
     }
 
     private LiveActivityService serviceWithCache(
@@ -594,18 +714,8 @@ class LiveActivityServiceTests {
             HealthController health,
             io.github.jdubois.bootui.engine.cache.CacheActivityRecorder cacheActivity,
             BootUiProperties properties) {
-        return new LiveActivityService(
-                provider(requests),
-                provider(sql),
-                provider(exceptions),
-                provider(security),
-                provider(health),
-                provider(null),
-                provider(null),
-                provider(cacheActivity),
-                provider(null),
-                provider(null),
-                properties);
+        return service(
+                requests, sql, exceptions, security, health, null, null, null, cacheActivity, null, null, properties);
     }
 
     @SuppressWarnings("unchecked")
@@ -729,9 +839,33 @@ class LiveActivityServiceTests {
         return controller;
     }
 
+    private static EmailController email(EmailMessageDto... messages) {
+        EmailController controller = mock(EmailController.class);
+        EmailsReport report = new EmailsReport(true, null, false, 100, messages.length, List.of(messages));
+        when(controller.list()).thenReturn(report);
+        return controller;
+    }
+
     private static SecurityLogEventDto securityEvent(String type, String principal, long timestampMillis) {
         return new SecurityLogEventDto(
                 Instant.ofEpochMilli(timestampMillis).toString(), principal, type, List.of(), null);
+    }
+
+    private static EmailMessageDto email(String id, long timestamp, String traceId, String thread) {
+        return new EmailMessageDto(
+                id,
+                timestamp,
+                "noreply@example.com",
+                List.of("user@example.com"),
+                List.of(),
+                List.of(),
+                "Welcome",
+                "Hello",
+                null,
+                List.of(),
+                true,
+                traceId,
+                thread);
     }
 
     private static ExceptionGroupDto group(String id, String className, long lastSeen) {

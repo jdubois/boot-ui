@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
@@ -54,6 +55,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         ActivityEntryDto request = entry(report, "req-1");
@@ -88,6 +91,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
@@ -113,6 +118,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -140,6 +147,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
@@ -166,10 +175,68 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "sql-10").parentId()).isEqualTo("req-1");
         assertThat(entry(report, "sql-11").parentId()).isEqualTo("req-2");
+    }
+
+    @Test
+    void nestsMailUnderRequestSharingTraceId() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<EmailMessageDto> emails = List.of(email("email-1", "trace-a", "mail-thread", 1_010L));
+
+        LiveActivityReport report = assembler.report(
+                requests,
+                List.of(),
+                false,
+                null,
+                exceptions(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                emails,
+                true);
+
+        ActivityEntryDto mailEntry = entry(report, "email-1");
+        assertThat(mailEntry.parentId()).isEqualTo("req-1");
+        assertThat(mailEntry.correlationId()).isEqualTo("trace-a");
+        assertThat(mailEntry.thread()).isEqualTo("mail-thread");
+        assertThat(report.sources()).contains("email");
+    }
+
+    @Test
+    void leavesMailTopLevelWhenNoRequestSharesItsTraceId() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<EmailMessageDto> emails = List.of(email("email-1", "trace-orphan", "mail-thread", 1_010L));
+
+        LiveActivityReport report = assembler.report(
+                requests,
+                List.of(),
+                false,
+                null,
+                exceptions(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                emails,
+                true);
+
+        assertThat(entry(report, "email-1").parentId()).isNull();
     }
 
     @Test
@@ -190,6 +257,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -222,6 +291,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(securityEntry(report).severity()).isEqualTo("WARN");
@@ -246,6 +317,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -272,6 +345,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -300,6 +375,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "req-1").securedPrincipal()).isEqualTo("bob");
@@ -322,6 +399,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -349,6 +428,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -384,6 +465,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.kpis().cacheHitRatioPercent()).isNull();
@@ -414,6 +497,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 2,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         // Only 2 entries are returned (limit=2), but the counts must reflect all 4 captured entries so the
@@ -421,6 +506,39 @@ class LiveActivityAssemblerTests {
         assertThat(report.entries()).hasSize(2);
         assertThat(report.typeCounts().get("REQUEST")).isEqualTo(3);
         assertThat(report.typeCounts().get("CACHE")).isEqualTo(1);
+    }
+
+    @Test
+    void typeCountsReflectTheFullFeedEvenWhenTheLimitTruncatesVisibleMailEntries() {
+        HttpExchangesReport requests = requests(
+                request("req-1", "/orders", "trace-a", 1_000L),
+                request("req-2", "/orders", "trace-b", 1_001L),
+                request("req-3", "/orders", "trace-c", 1_002L));
+        List<EmailMessageDto> emails = List.of(email("email-1", null, "mail-thread", 1_003L));
+
+        LiveActivityReport report = assembler.report(
+                requests,
+                List.of(),
+                false,
+                null,
+                exceptions(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                2,
+                List.of(),
+                false,
+                emails,
+                true);
+
+        // Only 2 entries are returned (limit=2), but the counts must reflect all 4 captured entries so the
+        // dashboard's per-type totals never understate what was actually captured.
+        assertThat(report.entries()).hasSize(2);
+        assertThat(report.typeCounts().get("REQUEST")).isEqualTo(3);
+        assertThat(report.typeCounts().get("MAIL")).isEqualTo(1);
     }
 
     @Test
@@ -446,6 +564,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -475,6 +595,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "req-1").sqlNPlusOneSuspected()).isFalse();
@@ -503,6 +625,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -555,7 +679,9 @@ class LiveActivityAssemblerTests {
                 "UP",
                 2,
                 kafka,
-                true);
+                true,
+                List.of(),
+                false);
 
         assertThat(report.entries()).extracting(ActivityEntryDto::id).containsExactly("kafka-1", "sql-10");
         assertThat(report.typeCounts())
@@ -584,7 +710,9 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 recorder.recent(),
-                true);
+                true,
+                List.of(),
+                false);
 
         assertThat(entry(report, "kafka-1").detail())
                 .contains(hashedKey("super-secret-key"))
@@ -612,6 +740,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "exc-e1").parentId()).isEqualTo("sched-1");
@@ -637,6 +767,8 @@ class LiveActivityAssemblerTests {
                 scheduled,
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -666,6 +798,8 @@ class LiveActivityAssemblerTests {
                 scheduled,
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -701,6 +835,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         ActivityEntryDto ok = entry(report, "sched-1");
@@ -735,6 +871,8 @@ class LiveActivityAssemblerTests {
                 "UP",
                 0,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.sources()).doesNotContain("scheduled-tasks");
@@ -763,6 +901,8 @@ class LiveActivityAssemblerTests {
                 scheduled,
                 "UP",
                 2,
+                List.of(),
+                false,
                 List.of(),
                 false);
 
@@ -881,6 +1021,23 @@ class LiveActivityAssemblerTests {
                 lastTraceId,
                 "OPEN",
                 0);
+    }
+
+    private static EmailMessageDto email(String id, String traceId, String thread, long timestamp) {
+        return new EmailMessageDto(
+                id,
+                timestamp,
+                "noreply@example.com",
+                List.of("user@example.com"),
+                List.of(),
+                List.of(),
+                "Welcome",
+                "Hello",
+                null,
+                List.of(),
+                true,
+                traceId,
+                thread);
     }
 
     /**

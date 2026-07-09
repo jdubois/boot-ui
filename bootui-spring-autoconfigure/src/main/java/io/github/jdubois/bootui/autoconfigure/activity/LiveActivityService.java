@@ -2,12 +2,15 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityKpiDto;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
+import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.core.dto.HealthNodeDto;
@@ -55,6 +58,7 @@ public class LiveActivityService {
     static final String TYPE_SQL = "SQL";
     static final String TYPE_EXCEPTION = "EXCEPTION";
     static final String TYPE_SECURITY = "SECURITY";
+    static final String TYPE_MAIL = "MAIL";
     static final String TYPE_CACHE = "CACHE";
     static final String TYPE_SCHEDULED_TASK = "SCHEDULED_TASK";
 
@@ -68,6 +72,7 @@ public class LiveActivityService {
     private final ObjectProvider<ExceptionsController> exceptions;
     private final ObjectProvider<SecurityLogsController> securityLogs;
     private final ObjectProvider<HealthController> health;
+    private final ObjectProvider<EmailController> email;
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
     private final ObjectProvider<CacheActivityRecorder> cacheActivity;
@@ -81,6 +86,7 @@ public class LiveActivityService {
             ObjectProvider<ExceptionsController> exceptions,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<HealthController> health,
+            ObjectProvider<EmailController> email,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             ObjectProvider<CacheActivityRecorder> cacheActivity,
@@ -92,6 +98,7 @@ public class LiveActivityService {
         this.exceptions = exceptions;
         this.securityLogs = securityLogs;
         this.health = health;
+        this.email = email;
         this.requestCorrelations = requestCorrelations;
         this.securityCorrelations = securityCorrelations;
         this.cacheActivity = cacheActivity;
@@ -117,6 +124,7 @@ public class LiveActivityService {
         SqlTraceReport sql = loadSql(sources);
         ExceptionsReport exceptionsReport = loadExceptions(sources);
         SecurityLogsReport security = loadSecurity(sources);
+        EmailsReport emails = loadEmail(sources);
         List<CacheActivityEvent> cache = loadCache(sources);
         List<ScheduledTaskRunStore.Run> scheduledRuns = loadScheduledTaskRuns(sources);
         List<CapturedMessage> kafkaMessages = loadKafka(sources);
@@ -172,6 +180,11 @@ public class LiveActivityService {
                     securedByRequest.putIfAbsent(parentId, principal);
                 }
                 all.add(toSecurityEntry(event, parentId));
+            }
+        }
+        if (emails != null) {
+            for (EmailMessageDto message : emails.messages()) {
+                all.add(toEmailEntry(message, matchMailParent(message, anchors)));
             }
         }
         if (cache != null) {
@@ -292,6 +305,22 @@ public class LiveActivityService {
             return null;
         }
         sources.add("Security Logs");
+        return report;
+    }
+
+    private EmailsReport loadEmail(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.EMAIL)) {
+            return null;
+        }
+        EmailController controller = email.getIfAvailable();
+        if (controller == null) {
+            return null;
+        }
+        EmailsReport report = controller.list();
+        if (!report.available()) {
+            return null;
+        }
+        sources.add("Email");
         return report;
     }
 
@@ -487,6 +516,32 @@ public class LiveActivityService {
                 false);
     }
 
+    private ActivityEntryDto toEmailEntry(EmailMessageDto message, String parentId) {
+        String to = message.to().isEmpty() ? "" : String.join(", ", message.to());
+        String subject = message.subject() == null ? "(no subject)" : message.subject();
+        String detail = to.isBlank() ? null : "to " + to;
+        if (!message.sent()) {
+            detail = (detail == null ? "" : detail + " · ") + "dev-trap: not sent";
+        }
+        return new ActivityEntryDto(
+                message.id(),
+                TYPE_MAIL,
+                message.timestamp(),
+                message.sent() ? SEVERITY_OK : SEVERITY_WARN,
+                subject,
+                detail,
+                null,
+                message.traceId(),
+                null,
+                null,
+                null,
+                message.thread(),
+                false,
+                parentId,
+                null,
+                false);
+    }
+
     private ActivityEntryDto toCacheEntry(CacheActivityEvent event, String parentId) {
         String severity = event.operation() == CacheActivityOperation.MISS ? SEVERITY_WARN : SEVERITY_OK;
         String summary = event.operation().name() + " " + event.cacheName();
@@ -556,7 +611,7 @@ public class LiveActivityService {
     /**
      * Builds one {@link RequestAnchor} per recent HTTP request, resolving its serving thread and precise
      * window from {@link RequestCorrelationRegistry} when available. Used to attach correlated SQL,
-     * exception, and security entries to the request that caused them.
+     * exception, security, and MAIL entries to the request that caused them.
      */
     private List<RequestAnchor> buildAnchors(HttpExchangesReport requests) {
         if (requests == null) {
@@ -616,6 +671,35 @@ public class LiveActivityService {
         String found = null;
         for (RequestAnchor anchor : anchors) {
             if (thread.equals(anchor.thread()) && covers(anchor, timestamp)) {
+                if (found != null) {
+                    return null;
+                }
+                found = anchor.id();
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Resolves the request that a captured email belongs to: trace-id join first (exact), then serving
+     * thread within the request window (exact). Returns {@code null} when neither tier yields a unique
+     * request, so the entry stays top-level rather than being mis-attributed.
+     */
+    private static String matchMailParent(EmailMessageDto message, List<RequestAnchor> anchors) {
+        String traceId = message.traceId();
+        if (traceId != null && !traceId.isBlank()) {
+            String byTrace = uniqueByTrace(anchors, traceId);
+            if (byTrace != null) {
+                return byTrace;
+            }
+        }
+        String thread = message.thread();
+        if (thread == null) {
+            return null;
+        }
+        String found = null;
+        for (RequestAnchor anchor : anchors) {
+            if (thread.equals(anchor.thread()) && covers(anchor, message.timestamp())) {
                 if (found != null) {
                     return null;
                 }

@@ -51,6 +51,7 @@ import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
 import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
 import io.quarkus.arc.deployment.SyntheticBeanBuildItem;
+import io.quarkus.bootstrap.classloading.QuarkusClassLoader;
 import io.quarkus.builder.Version;
 import io.quarkus.deployment.Capabilities;
 import io.quarkus.deployment.Capability;
@@ -189,6 +190,15 @@ class BootUiQuarkusProcessor {
 
     private static final String SCHEDULED_TASK_RUN_RECORDER_CLASS =
             "io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskRunRecorder";
+
+    // Referenced by class name only: QuarkusEmailCapture observes io.quarkus.mailer.SentMail, so the deployment
+    // classloader must never load it while augmenting an application without quarkus-mailer (loading it would link
+    // the mailer API that must stay absent — R2). There is no MAILER capability, so registerEmail gates on
+    // runtime class presence of io.quarkus.mailer.reactive.ReactiveMailer instead.
+    private static final String EMAIL_CAPTURE_CLASS = "io.github.jdubois.bootui.quarkus.web.QuarkusEmailCapture";
+
+    // The runtime type whose presence tells registerEmail that quarkus-mailer is on the application's classpath.
+    private static final String REACTIVE_MAILER_CLASS = "io.quarkus.mailer.reactive.ReactiveMailer";
 
     // Referenced by class name only: BootUiSqlTraceProducer @Produces an Alternative DataSource that wraps the
     // default Agroal pool, and imports io.agroal.*; the deployment classloader must never load it without a JDBC
@@ -1437,6 +1447,39 @@ class BootUiQuarkusProcessor {
                     .build());
         } else {
             excludedTypes.produce(new ExcludedTypeBuildItem(SCHEDULED_TASK_RUN_RECORDER_CLASS));
+        }
+    }
+
+    /**
+     * Class-presence-gated registration of the Email Viewer capture observer (R2), the mailer analogue of
+     * {@link #registerSecurityLogs}. {@code QuarkusEmailCapture} observes {@code io.quarkus.mailer.SentMail}, so
+     * it must be excluded from bean discovery when {@code quarkus-mailer} is absent; the {@code EmailResource} and
+     * the engine {@code EmailCaptureService} are neutral (no mailer imports) and wire unconditionally in dev/test,
+     * so the resource simply reports the panel unavailable.
+     *
+     * <p>Unlike Cache/Flyway/Liquibase there is no {@code MAILER} {@link Capability}, so this gates on the runtime
+     * presence of {@link #REACTIVE_MAILER_CLASS} via {@link QuarkusClassLoader#isClassPresentAtRuntime(String)}
+     * instead. When present in dev/test the observer is registered (pinned unremovable, since it is only referenced
+     * through the CDI event bus that Arc's usage analysis cannot see) and {@code EMAIL_PRESENT_KEY} is set so the
+     * panel lights up; otherwise the observer is excluded and the key defaults to {@code false}.</p>
+     */
+    @BuildStep
+    void registerEmail(
+            LaunchModeBuildItem launchMode,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL
+                && QuarkusClassLoader.isClassPresentAtRuntime(REACTIVE_MAILER_CLASS);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(EMAIL_CAPTURE_CLASS)
+                    .setUnremovable()
+                    .build());
+            runtimeDefaults.produce(
+                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.EMAIL_PRESENT_KEY, "true"));
+        } else {
+            excludedTypes.produce(new ExcludedTypeBuildItem(EMAIL_CAPTURE_CLASS));
         }
     }
 

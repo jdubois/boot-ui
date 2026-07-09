@@ -226,6 +226,18 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus Mailer, compile-only (provided): needed solely to compile the optional Email Viewer capture
+             observer (QuarkusEmailCapture), which observes io.quarkus.mailer.SentMail CDI events into the shared
+             EmailCaptureService. provided scope is NOT transitive, so an application that does not add quarkus-mailer
+             never gets io.quarkus.mailer on its classpath, and the class-presence-gated build step (registerEmail)
+             excludes the observer that would reference it (R2). When an app DOES add quarkus-mailer, the API is
+             supplied (at the same quarkus-bom-managed version) by that extension and the observer is registered. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-mailer</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Unit-test deps (quarkus-bom managed). The runtime module carries a small same-package unit test for
              QuarkusHealthProvider.map(), which needs SmallRye's jakarta.json API + the Parsson implementation —
              both already on the test classpath via the provided smallrye-health dependency above. Keeping the

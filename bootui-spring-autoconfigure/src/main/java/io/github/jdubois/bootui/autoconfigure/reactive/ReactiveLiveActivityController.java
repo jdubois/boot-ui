@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiEngineConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
@@ -12,6 +13,8 @@ import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
+import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HealthNodeDto;
@@ -33,6 +36,7 @@ import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -72,13 +76,14 @@ import reactor.core.publisher.Flux;
  * trace id (see {@code TraceIdProvider}), and a request with no trace id simply renders flat/unprofileable
  * rather than guessing.
  *
- * <p>All five signal sources are read directly from the already-reactive, already-masked/self-filtered
+ * <p>All eight signal sources are read directly from the already-reactive, already-masked/self-filtered
  * beans this adapter wires for their own panels — {@link HttpExchangesController} (HTTP requests, shared
  * with the servlet adapter since it depends only on the stack-agnostic Actuator
  * {@code HttpExchangeRepository}), {@link SqlTraceRecorder} (SQL trace), {@link ExceptionStore} (exceptions),
  * {@code ReactiveSecurityLogsController} (security/audit events), {@link ScheduledTaskRunStore}
- * ({@code @Scheduled} executions), {@link CacheActivityRecorder} (cache hit/miss/eviction events), and
- * {@link KafkaActivityRecorder} (captured producer/consumer metadata) — so this controller adds no new
+ * ({@code @Scheduled} executions), {@link CacheActivityRecorder} (cache hit/miss/eviction events),
+ * {@link KafkaActivityRecorder} (captured producer/consumer metadata), and {@link EmailController}
+ * (captured outgoing emails, via the shared {@code EmailCaptureService}) — so this controller adds no new
  * capture instrumentation of its own, only the merge. Because those beans are reached directly (bypassing
  * the HTTP layer, and with it
  * {@code ReactivePanelAccessFilter}'s per-panel enablement check), every signal read here re-checks
@@ -94,7 +99,7 @@ import reactor.core.publisher.Flux;
  * WebFlux equivalent of the servlet {@code ServletRequestHandledEvent} used to trigger a tick,
  * {@link ReactiveActivitySignalFilter} calls {@link #signalRequestHandled()} after every non-BootUI request
  * completes, and the SQL trace recorder / exception store / scheduled-task-store / cache recorder / Kafka
- * recorder subscriptions signal directly, same as servlet.
+ * recorder / email capture service subscriptions signal directly, same as servlet.
  */
 @RestController
 @RequestMapping("/bootui/api/activity")
@@ -108,6 +113,8 @@ public class ReactiveLiveActivityController {
     private final ObjectProvider<ReactiveSecurityLogsController> securityLogs;
     private final ObjectProvider<TracesController> traces;
     private final ObjectProvider<HealthController> health;
+    private final ObjectProvider<EmailController> email;
+    private final ObjectProvider<EmailCaptureService> emailCaptureService;
     private final ObjectProvider<CacheActivityRecorder> cacheActivity;
     private final ObjectProvider<KafkaActivityRecorder> kafkaActivity;
     private final BootUiProperties properties;
@@ -129,6 +136,8 @@ public class ReactiveLiveActivityController {
             ObjectProvider<ReactiveSecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             ObjectProvider<HealthController> health,
+            ObjectProvider<EmailController> email,
+            ObjectProvider<EmailCaptureService> emailCaptureService,
             ObjectProvider<CacheActivityRecorder> cacheActivity,
             ObjectProvider<KafkaActivityRecorder> kafkaActivity,
             SwitchableActivityStore activityStore,
@@ -143,6 +152,8 @@ public class ReactiveLiveActivityController {
         this.securityLogs = securityLogs;
         this.traces = traces;
         this.health = health;
+        this.email = email;
+        this.emailCaptureService = emailCaptureService;
         this.cacheActivity = cacheActivity;
         this.kafkaActivity = kafkaActivity;
         this.activityStore = activityStore;
@@ -170,6 +181,10 @@ public class ReactiveLiveActivityController {
         KafkaActivityRecorder kafkaRecorder = kafkaActivity.getIfAvailable();
         if (kafkaRecorder != null) {
             unsubscribers.add(kafkaRecorder.subscribe(changeStream::signal));
+        }
+        EmailCaptureService emailCapture = emailCaptureService.getIfAvailable();
+        if (emailCapture != null) {
+            unsubscribers.add(emailCapture.subscribe(changeStream::signal));
         }
         if (persistenceSettings.enabled()) {
             // Capture side of the persistence option: poll the same merged feed the panel itself reads,
@@ -318,6 +333,8 @@ public class ReactiveLiveActivityController {
         boolean cacheAvailable = cacheEvents != null;
         List<CapturedMessage> kafkaMessages = kafkaMessages();
         boolean kafkaAvailable = kafkaMessages != null;
+        EmailsReport emailReport = emailReport();
+        boolean emailAvailable = emailReport != null && emailReport.available();
 
         LiveActivityReport report = assembler.report(
                 requests,
@@ -333,7 +350,9 @@ public class ReactiveLiveActivityController {
                 healthStatus,
                 limit,
                 kafkaMessages,
-                kafkaAvailable);
+                kafkaAvailable,
+                emailAvailable ? emailReport.messages() : List.<EmailMessageDto>of(),
+                emailAvailable);
 
         // Adapter-side post-processing over the shared assembler's output, mirroring the Quarkus adapter
         // exactly: a REQUEST entry is profileable here iff its exchange carries a resolvable trace id,
@@ -360,6 +379,14 @@ public class ReactiveLiveActivityController {
             return HttpExchangesReport.unavailable("HTTP exchange repository not available");
         }
         return controller.exchanges(null, null, null, null, null);
+    }
+
+    private EmailsReport emailReport() {
+        if (!properties.isPanelEnabled(BootUiPanels.EMAIL)) {
+            return null;
+        }
+        EmailController controller = email.getIfAvailable();
+        return controller == null ? null : controller.list();
     }
 
     private SqlSnapshot sqlSnapshot() {

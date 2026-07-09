@@ -60,20 +60,20 @@ the current per-panel list), and the shell chrome is populated by the same `GET 
 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
 application just did, plus a per-request profiler for drilling into any single request. It adds no new instrumentation
-for four of its seven signals — instead it reuses BootUI's existing in-memory signal buffers by calling the same
-controllers that back the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is already
-masked, self-filtered, and bounded exactly as those panels are. The fifth signal, cache accesses, is captured by a
-small dedicated recorder (Spring servlet and WebFlux adapters only — see below) that only ever stores a hashed cache key, never a raw key or
-value. The sixth signal, scheduled-task runs, captures each `@Scheduled` method *execution* (start, success,
-failure, duration) on both adapters: Spring taps its own scheduling observability hook (no extra proxying), Quarkus
-observes the CDI `SuccessfulExecution`/`FailedExecution` events its scheduler always fires — feeding a bounded
-in-memory buffer the same way the other sources do. The seventh signal, Kafka producer/consumer activity, is described
-below.
+for five of its eight signals — instead it reuses BootUI's existing in-memory signal buffers by calling the same
+controllers that back the HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Email panels, so every value is
+already masked, self-filtered, and bounded exactly as those panels are. The sixth signal, cache accesses, is captured
+by a small dedicated recorder (Spring servlet and WebFlux adapters only — see below) that only ever stores a hashed
+cache key, never a raw key or value. The seventh signal, scheduled-task runs, captures each `@Scheduled` method
+*execution* (start, success, failure, duration) on both adapters: Spring taps its own scheduling observability hook (no
+extra proxying), Quarkus observes the CDI `SuccessfulExecution`/`FailedExecution` events its scheduler always fires —
+feeding a bounded in-memory buffer the same way the other sources do. The eighth signal, Kafka producer/consumer
+activity, is described below.
 
-The stream merges seven signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
+The stream merges eight signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
 (`EXCEPTION`), security events (`SECURITY`), — on the Spring servlet and WebFlux adapters — cache accesses (`CACHE`),
-scheduled-task runs (`SCHEDULED_TASK`), and Kafka producer/consumer activity (`MESSAGING`). Each row carries a
-timestamp, a type icon, a color-coded severity
+scheduled-task runs (`SCHEDULED_TASK`), Kafka producer/consumer activity (`MESSAGING`), and captured emails (`MAIL`).
+Each row carries a timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
 latency badge so you can see at a glance *how* slow a request was. A request whose correlated SQL contains a suspected
@@ -96,11 +96,11 @@ active-exceptions, health, heap-usage, cache-hit-ratio, and scheduled-failures c
 respectively. Because the merged feed is genuinely event-driven, it refreshes over **Server-Sent Events** instead of
 fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
-exception, security event, cache access, scheduled-task run, or Kafka message), and the feed can be paused and resumed so a row you are inspecting does not
-scroll away.
+exception, security event, cache access, scheduled-task run, Kafka message, or captured email), and the feed can be
+paused and resumed so a row you are inspecting does not scroll away.
 When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
-SQL statements, exceptions, security events, and cache accesses that BootUI can pin precisely to a request — by trace id,
-by the
+SQL statements, exceptions, security events, cache accesses, and emails that BootUI can pin precisely to a request — by
+trace id, by the
 request's serving thread, or by request method and path — are folded into a collapsible group beneath that request row
 (expanded by default), so one click reveals exactly what a single request did, in order. Requests that triggered a
 security event are flagged as **authenticated** — a lock icon plus a gray pill naming the caller's principal — so a
@@ -1271,6 +1271,36 @@ launch mode (and a random `=0` port still resolves, because Quarkus rewrites the
 server is up). As a state-changing action it is gated by the same localhost-only safety floor as every other write.
 
 ![BootUI HTTP Probe panel](./images/bootui-http-probe.webp)
+
+### Email
+
+The Email panel is BootUI's mail-watcher equivalent of Laravel Telescope: it intercepts the application's
+`JavaMailSender` so every outgoing `send(...)` call is recorded into a bounded ring buffer *before* delegating to the
+real sender — pass-through by default, so application behaviour is unchanged. Captured messages list newest-first with
+sender, recipients, subject, and attachment count; opening a message shows the parsed `from`/`to`/`cc`/`bcc`, an HTML
+preview rendered in a sandboxed iframe (scripts and same-origin access are both disabled), the plain-text alternative,
+and attachment metadata (name/type/size, never contents). Each message can be downloaded as a `.eml` file, and the whole
+buffer can be cleared.
+
+Recipients, subjects, and bodies are sensitive, so they are masked by default and only revealed under
+`bootui.expose-values=FULL`, exactly like every other BootUI panel. An optional, explicitly opt-in **dev-trap** mode
+(`bootui.email.dev-trap=true`) records messages without actually sending them, similar to MailDev/GreenMail; it is off
+by default so BootUI never silently swallows application mail. The panel is available only when a `JavaMailSender` bean
+is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear unavailable reason.
+
+On Quarkus the panel is identical, running over the same shared engine `EmailCaptureService` and the same
+`/bootui/api/email` contract (list/detail/`.eml`/clear, with the `.eml` bytes produced by the shared engine renderer so
+they match Spring's). Because Quarkus's blocking/reactive/Mutiny `Mailer` beans all funnel through one internal mailer
+that fires a CDI `SentMail` event after every successful send, a single `@Observes SentMail` observer captures every
+send style — the Quarkus analogue of Spring's `CapturingJavaMailSender` decorator. The panel is available when
+`quarkus-mailer` is on the classpath (and dark in production); otherwise it reports a clear unavailable reason. One
+behaviour differs by necessity: because the event fires *after* the send, BootUI cannot trap a message the way Spring's
+dev-trap does, so on Quarkus the recorded-but-not-sent distinction reflects the framework's own mock-mail mode
+(`quarkus.mailer.mock=true`, the default in dev and test) rather than a BootUI trap — the panel labels such messages
+**mock** instead of **dev-trap**. Attachment sizes are shown as unknown on Quarkus, since the sent-attachment API
+exposes none.
+
+![BootUI Email panel](./images/bootui-email.webp)
 
 ## Developer tools
 

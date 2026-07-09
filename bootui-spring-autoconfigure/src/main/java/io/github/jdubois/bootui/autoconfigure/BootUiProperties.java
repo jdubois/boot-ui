@@ -172,6 +172,10 @@ public class BootUiProperties {
      */
     private Activity activity = new Activity();
     /**
+     * Email Viewer panel settings (captured outgoing mail).
+     */
+    private Email email = new Email();
+    /**
      * Free-on-idle memory reclamation settings.
      */
     private FreeOnIdle freeOnIdle = new FreeOnIdle();
@@ -479,6 +483,14 @@ public class BootUiProperties {
 
     public void setActivity(Activity activity) {
         this.activity = activity == null ? new Activity() : activity;
+    }
+
+    public Email getEmail() {
+        return email;
+    }
+
+    public void setEmail(Email email) {
+        this.email = email == null ? new Email() : email;
     }
 
     public FreeOnIdle getFreeOnIdle() {
@@ -1731,6 +1743,39 @@ public class BootUiProperties {
 
         public void setMaxScheduledTaskRuns(int maxScheduledTaskRuns) {
             this.maxScheduledTaskRuns = maxScheduledTaskRuns;
+        }
+    }
+
+    /**
+     * Settings for the Email Viewer panel, which intercepts every {@code JavaMailSender.send(...)} call
+     * into a bounded ring buffer before delegating to the real sender (pass-through by default).
+     */
+    public static class Email {
+
+        /** Maximum number of captured messages retained; the oldest is evicted once full. */
+        private int maxEntries = 100;
+
+        /**
+         * When {@code true}, captured messages are recorded but never actually handed to the real mail
+         * transport (like MailDev/GreenMail's dev-trap behavior). Off by default, so BootUI never
+         * silently swallows application mail.
+         */
+        private boolean devTrap = false;
+
+        public int getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public boolean isDevTrap() {
+            return devTrap;
+        }
+
+        public void setDevTrap(boolean devTrap) {
+            this.devTrap = devTrap;
         }
     }
 

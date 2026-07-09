@@ -53,6 +53,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-cache</artifactId>
         </dependency>
+        <!-- Mail: makes the BootUI Email panel available so this reactive sample demonstrates it too.
+             The panel runs in dev-trap mode (bootui.email.dev-trap=true), so captured demo messages are
+             recorded but never handed to a real SMTP transport - no mail server is required. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>

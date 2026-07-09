@@ -710,7 +710,7 @@ reverse-chronological activity stream, plus a Symfony-style per-request profiler
 
 Data sources:
 
-- Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
+- Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
 - Scheduled-task-run capture (both adapters): a bounded, framework-neutral `ScheduledTaskRunStore` in `bootui-engine`.
@@ -741,15 +741,16 @@ Data sources:
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, (Spring only) `CACHE`, `SCHEDULED_TASK`, and `MESSAGING`
-  entries normalized to a common shape (timestamp, type, severity, one-line summary, optional duration and correlation id),
-  sorted newest-first and capped by
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, (Spring only) `CACHE`, `SCHEDULED_TASK`, `MESSAGING`, and
+  `MAIL` entries normalized to a common shape (timestamp, type, severity, one-line summary, optional duration and
+  correlation id), sorted newest-first and capped by
   `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
-  method/path), so the client can nest correlated SQL, exceptions, security events, and cache accesses chronologically
-  under the request that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected)
-  and entries without a precise request correlation have a null `parentId` — a `SCHEDULED_TASK` entry always has a
-  null `parentId` since it runs on a background thread with no originating request. A `CACHE` entry's summary is
+  method/path), so the client can nest correlated SQL, exceptions, security events, cache accesses, and captured email
+  chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the sparkline
+  are unaffected) and entries without a precise request correlation have a null `parentId` — a `SCHEDULED_TASK` or
+  `MESSAGING` entry always has a null `parentId` since neither has a single owning request (a background-thread
+  execution and an unattributed message flow, respectively). A `CACHE` entry's summary is
   `"<HIT|MISS|PUT|EVICT|CLEAR> <cacheName>"`, its detail is `"key <hash>"` when a key was involved (omitted for
   whole-cache `CLEAR`), and a `MISS` is flagged `WARN` severity (all other operations `OK`). A `REQUEST` entry that was
   correlated to a Spring Security audit
@@ -926,6 +927,31 @@ Acceptance criteria:
   trace capture and the waterfall are otherwise unchanged.
 - Enrichment never forwards data off-process and adds no unbounded state: per-span running counters are held in a bounded
   structure and the no-op enricher path (telemetry or enrichment disabled) pays nothing.
+
+### 5.14.4 Email Panel
+
+Purpose: capture outgoing application email for local inspection, mirroring Laravel Telescope's mail watcher — a
+high-value dev-loop aid with no built-in Spring equivalent.
+
+Data sources:
+
+- A `BeanPostProcessor` wraps every `JavaMailSender` bean with a decorator that parses each `send(...)` call (recipients,
+  subject, text/HTML bodies, attachment metadata) into the framework-neutral `EmailCaptureService`/`EmailStore` before
+  delegating to the real sender — pass-through by default, so application behaviour is unchanged.
+- An optional, explicitly opt-in `bootui.email.dev-trap=true` mode records messages without ever handing them to the
+  real sender (a MailDev/GreenMail-style trap), off by default so BootUI never silently swallows application mail.
+
+Acceptance criteria:
+
+- Available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`); otherwise the panel reports
+  a clear unavailable reason instead of an empty list.
+- Recipients, subject, and body text are masked by default and only revealed under `bootui.expose-values=FULL`,
+  exactly like every other BootUI panel; attachment metadata (name/type/size, never contents) is never masked since it
+  carries no message content.
+- Messages are listed newest-first from a bounded ring buffer sized by `bootui.email.max-entries` (default 100, oldest
+  evicted first); a message's HTML body renders in a sandboxed iframe (no script execution, no same-origin access) and
+  each message can be downloaded as a `.eml` file.
+- Clearing the buffer is gated by `bootui.panels.email.read-only`, consistent with every other clearable capture panel.
 
 ### 5.15 Profile Diff Panel
 
@@ -1473,6 +1499,8 @@ Initial properties:
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Cache clear actions after explicit browser confirmation.                            |
 | `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
+| `bootui.email.max-entries`                   | `100`                                   | Maximum outgoing emails retained in memory for the Email panel; oldest evicted first.              |
+| `bootui.email.dev-trap`                      | `false`                                 | Capture outgoing email without handing it to the real mail transport (MailDev/GreenMail-style trap). |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.vulnerabilities.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
 | `bootui.vulnerabilities.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
@@ -1646,6 +1674,7 @@ Top-level navigation:
   - Exceptions.
   - HTTP Exchanges.
   - HTTP Probe.
+  - Email.
 - Developer tools:
   - DevTools.
   - Dev Services.
