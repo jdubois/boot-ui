@@ -18,7 +18,7 @@ import org.jboss.logging.Logger;
  * transport, so no mail server is required and no real email is ever sent — the panel labels these messages
  * "mock".
  *
- * <p>A couple of messages are seeded once at startup, and {@link #sendSampleEmail()} lets callers (e.g. the
+ * <p>One message is seeded once at startup, and {@link #sendSampleEmail()} lets callers (e.g. the
  * sample {@code /api/sample/send-email} endpoint) generate one more on demand.</p>
  */
 @ApplicationScoped
@@ -31,9 +31,8 @@ public class SampleMailSender {
 
     private final AtomicInteger counter = new AtomicInteger();
 
-    /** Seeds a couple of sample emails once the application starts, so the panel is not empty. */
+    /** Seeds a single sample email once the application starts, so the panel is not empty. */
     void seedSampleEmails(@Observes StartupEvent event) {
-        sendOrderShipped();
         sendWelcome();
     }
 

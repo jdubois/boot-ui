@@ -38,10 +38,9 @@ public class WebfluxSampleMailSender {
         this.mailSender = mailSender;
     }
 
-    /** Seeds a couple of sample emails once the application is ready, so the panel is not empty. */
+    /** Seeds a single sample email once the application is ready, so the panel is not empty. */
     @EventListener(ApplicationReadyEvent.class)
     public void seedSampleEmails() {
-        sendOrderShipped();
         sendWelcome();
     }
 
