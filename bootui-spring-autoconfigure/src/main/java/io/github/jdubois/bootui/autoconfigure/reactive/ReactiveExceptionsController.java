@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsControllerSupport;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionStatusUpdateRequest;
@@ -26,7 +27,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 
 /**
@@ -82,53 +82,29 @@ public class ReactiveExceptionsController {
 
     @GetMapping
     public ExceptionsReport list() {
-        ExceptionStore store = storeProvider.getIfAvailable();
-        if (store == null) {
-            return ExceptionsReport.unavailable(
-                    "Exception capture is disabled", properties.getExceptions().getMaxGroups());
-        }
-        return service.report(store);
+        return ExceptionsControllerSupport.list(storeProvider, properties, service);
     }
 
     @GetMapping("/{id}")
     public ExceptionDetailDto detail(@PathVariable String id) {
-        ExceptionStore store = storeProvider.getIfAvailable();
-        ExceptionStore.GroupDetail detail = store == null ? null : store.find(id);
-        if (detail == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "exception " + id + " not found");
-        }
-        return service.detail(detail);
+        return ExceptionsControllerSupport.detail(storeProvider, service, id);
     }
 
     @DeleteMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void clear() {
-        ExceptionStore store = storeProvider.getIfAvailable();
-        if (store != null) {
-            store.clear();
-        }
+        ExceptionsControllerSupport.clear(storeProvider);
     }
 
-    /**
-     * Changes the triage status of one exception group ({@code OPEN}/{@code ACKNOWLEDGED}/
-     * {@code RESOLVED}). See {@link ExceptionsService#updateStatus} for validation and regression
-     * semantics.
-     */
     @PostMapping("/{id}/status")
     public ExceptionGroupDto updateStatus(
             @PathVariable String id, @RequestBody(required = false) ExceptionStatusUpdateRequest request) {
-        ExceptionStore store = storeProvider.getIfAvailable();
-        ExceptionGroupDto updated = service.updateStatus(store, id, request == null ? null : request.status());
-        if (updated == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "exception " + id + " not found");
-        }
-        return updated;
+        return ExceptionsControllerSupport.updateStatus(storeProvider, service, id, request);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
+        return ExceptionsControllerSupport.handleBadRequest(ex);
     }
 
     /**

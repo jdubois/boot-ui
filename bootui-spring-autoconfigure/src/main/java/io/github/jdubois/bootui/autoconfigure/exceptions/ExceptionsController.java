@@ -26,7 +26,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -36,6 +35,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * {@code METADATA_ONLY}, scrubbed of obvious secret-like assignments for the default {@code MASKED}
  * mode, and shown verbatim only for {@code FULL}. Stack frames carry only class/method/file/line
  * information.</p>
+ *
+ * <p>The read/clear/triage business logic lives in {@link ExceptionsControllerSupport}, shared with
+ * the WebFlux sibling {@code ReactiveExceptionsController} since none of it touches a servlet or
+ * reactive request/response type. This class keeps only the {@code @RestController} wiring, the
+ * SSE {@code /stream} endpoint, and the store-listener lifecycle.</p>
  */
 @RestController
 @RequestMapping("/bootui/api/exceptions")
@@ -89,53 +93,29 @@ public class ExceptionsController {
 
     @GetMapping
     public ExceptionsReport list() {
-        ExceptionStore store = storeProvider.getIfAvailable();
-        if (store == null) {
-            return ExceptionsReport.unavailable(
-                    "Exception capture is disabled", properties.getExceptions().getMaxGroups());
-        }
-        return service.report(store);
+        return ExceptionsControllerSupport.list(storeProvider, properties, service);
     }
 
     @GetMapping("/{id}")
     public ExceptionDetailDto detail(@PathVariable String id) {
-        ExceptionStore store = storeProvider.getIfAvailable();
-        ExceptionStore.GroupDetail detail = store == null ? null : store.find(id);
-        if (detail == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "exception " + id + " not found");
-        }
-        return service.detail(detail);
+        return ExceptionsControllerSupport.detail(storeProvider, service, id);
     }
 
     @DeleteMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void clear() {
-        ExceptionStore store = storeProvider.getIfAvailable();
-        if (store != null) {
-            store.clear();
-        }
+        ExceptionsControllerSupport.clear(storeProvider);
     }
 
-    /**
-     * Changes the triage status of one exception group ({@code OPEN}/{@code ACKNOWLEDGED}/
-     * {@code RESOLVED}). See {@link ExceptionsService#updateStatus} for validation and regression
-     * semantics.
-     */
     @PostMapping("/{id}/status")
     public ExceptionGroupDto updateStatus(
             @PathVariable String id, @RequestBody(required = false) ExceptionStatusUpdateRequest request) {
-        ExceptionStore store = storeProvider.getIfAvailable();
-        ExceptionGroupDto updated = service.updateStatus(store, id, request == null ? null : request.status());
-        if (updated == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "exception " + id + " not found");
-        }
-        return updated;
+        return ExceptionsControllerSupport.updateStatus(storeProvider, service, id, request);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
+        return ExceptionsControllerSupport.handleBadRequest(ex);
     }
 
     /**
