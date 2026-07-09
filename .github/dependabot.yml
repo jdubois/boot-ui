@@ -32,6 +32,40 @@ updates:
           - "bootstrap"
           - "bootstrap-icons"
 
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      vuepress:
+        patterns:
+          - "vuepress"
+          - "@vuepress/*"
+          - "vue"
+
+  - package-ecosystem: npm
+    directory: /bootui-spring-sample-app/e2e
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      playwright:
+        patterns:
+          - "@playwright/*"
+          - "prettier"
+
+  - package-ecosystem: npm
+    directory: /bootui-quarkus-sample-app/e2e
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      playwright:
+        patterns:
+          - "@playwright/*"
+          - "prettier"
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
