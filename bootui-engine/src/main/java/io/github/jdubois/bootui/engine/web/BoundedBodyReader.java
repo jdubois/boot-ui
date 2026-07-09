@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.web;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.net.http.HttpResponse;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -154,28 +153,13 @@ public final class BoundedBodyReader {
         return readString(is, maxBytes, StandardCharsets.UTF_8);
     }
 
-    /**
-     * Returns a {@link HttpResponse.BodyHandler} that discards the response body immediately.
-     * Useful as a lightweight alternative to {@code BodyHandlers.discarding()} when a reference to
-     * this class is already imported.
-     */
-    public static HttpResponse.BodyHandler<Void> discarding() {
-        return HttpResponse.BodyHandlers.discarding();
-    }
-
     // ── result type ───────────────────────────────────────────────────────────
 
     /**
      * Result of a {@linkplain #readBounded bounded} read: the (possibly truncated) decoded body and
      * a flag indicating whether the response was larger than the configured byte budget.
      */
-    public record BoundedRead(String body, boolean truncated) {
-
-        /** Returns {@code true} when the response body was larger than the configured byte budget. */
-        public boolean truncated() {
-            return truncated;
-        }
-    }
+    public record BoundedRead(String body, boolean truncated) {}
 
     // ── unchecked wrapper (for use in lambdas) ────────────────────────────────
 

@@ -62,7 +62,7 @@ class BoundedBodyReaderTests {
     }
 
     @Test
-    void readBounded_multibytUtf8_exactBoundaryNotTruncated() throws IOException {
+    void readBounded_multibyteUtf8_exactBoundaryNotTruncated() throws IOException {
         // U+00E9 (é) encodes to 2 bytes in UTF-8: 0xC3 0xA9
         String text = "caf\u00e9"; // 4 chars, 5 bytes
         byte[] data = text.getBytes(StandardCharsets.UTF_8);
@@ -74,7 +74,7 @@ class BoundedBodyReaderTests {
     }
 
     @Test
-    void readBounded_multibytUtf8_truncatedInMiddleOfSequence() throws IOException {
+    void readBounded_multibyteUtf8_truncatedInMiddleOfSequence() throws IOException {
         // U+00E9 (é) is 0xC3 0xA9; cut at 4 bytes splits the 2-byte sequence
         String text = "caf\u00e9"; // 4 chars, 5 bytes
         byte[] data = text.getBytes(StandardCharsets.UTF_8);
@@ -148,7 +148,7 @@ class BoundedBodyReaderTests {
     }
 
     @Test
-    void readString_multibytUtf8_atExactLimitReturnsString() throws IOException {
+    void readString_multibyteUtf8_atExactLimitReturnsString() throws IOException {
         String text = "caf\u00e9"; // 5 bytes in UTF-8
         byte[] data = text.getBytes(StandardCharsets.UTF_8);
 
@@ -157,7 +157,7 @@ class BoundedBodyReaderTests {
     }
 
     @Test
-    void readString_multibytUtf8_oversizedThrowsIOException() {
+    void readString_multibyteUtf8_oversizedThrowsIOException() {
         String text = "caf\u00e9extra"; // 5 + 5 = 10 bytes
         byte[] data = text.getBytes(StandardCharsets.UTF_8);
 
