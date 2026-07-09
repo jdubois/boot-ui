@@ -276,11 +276,14 @@ jobs:
           # This guard applies to all three tests below; do not re-install between them.
           rm -rf "$HOME/.m2/repository/com/julien-dubois/bootui"
 
+          # Maximum seconds to wait for a Spring Boot app to serve the BootUI index.
+          BOOTUI_SMOKE_TIMEOUT=300
+
           # ── Helper: probe a running Spring Boot app for the BootUI index ──────────────
           # Usage: wait_for_bootui <label> <base-url> <log-file> <app-pid>
           wait_for_bootui() {
             local label="$1" base_url="$2" log="$3" pid="$4"
-            local body="" ready="" deadline=$(( SECONDS + 300 ))
+            local body="" ready="" deadline=$(( SECONDS + BOOTUI_SMOKE_TIMEOUT ))
             while (( SECONDS <= deadline )); do
               if ! kill -0 "$pid" 2>/dev/null; then
                 echo "::error::${label}: app exited before BootUI became available at ${base_url}."
@@ -369,6 +372,13 @@ jobs:
               </dependencies>
             </dependencyManagement>
             <dependencies>
+              <!--
+                Declaring bootui-quarkus (the runtime artifact) is sufficient.
+                Quarkus build-time augmentation automatically resolves and downloads
+                bootui-quarkus-deployment from Maven Central via the extension's
+                quarkus-extension.properties, so both published coordinates are
+                exercised by this single dependency declaration.
+              -->
               <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-quarkus</artifactId>
