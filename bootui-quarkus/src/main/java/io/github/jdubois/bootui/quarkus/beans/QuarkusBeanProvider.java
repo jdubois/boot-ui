@@ -4,11 +4,15 @@ import io.github.jdubois.bootui.core.dto.BeanSummary;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.AmbiguousResolutionException;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
+import jakarta.enterprise.inject.spi.InjectionPoint;
+import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Quarkus {@link BeanProvider} backed by the Arc/CDI container.
@@ -21,8 +25,9 @@ import java.util.Locale;
  * filters and pages on top.</p>
  *
  * <p><strong>Reduced fidelity vs Spring (documented honestly).</strong> Arc does not expose, at runtime,
- * the bean's defining resource nor its inter-bean injection edges the way Actuator's {@code BeansEndpoint}
- * does, so {@code resource} and {@code dependencies} are always empty here. The {@code scope} is the CDI
+ * the bean's defining resource, so {@code resource} is always empty here. Dependencies are resolved
+ * best-effort from CDI injection points; ambiguous, unsatisfied, internal, and synthetic injection points
+ * are skipped. The {@code scope} is the CDI
  * scope vocabulary ({@code ApplicationScoped}, {@code Singleton}, {@code RequestScoped}, {@code Dependent},
  * …) rather than Spring's {@code singleton}/{@code prototype}. {@code name} is the bean's EL name when it
  * is {@code @Named}, otherwise a synthetic decapitalized simple class name (most CDI beans are unnamed).
@@ -79,7 +84,34 @@ public final class QuarkusBeanProvider implements BeanProvider {
     }
 
     private BeanSummary toSummary(Bean<?> bean, Class<?> beanClass, String type) {
-        return new BeanSummary(name(bean, beanClass), type, scope(bean), null, List.of(), List.of(), classify(type));
+        return new BeanSummary(
+                name(bean, beanClass), type, scope(bean), null, dependencies(bean), List.of(), classify(type));
+    }
+
+    private List<String> dependencies(Bean<?> bean) {
+        List<String> dependencies = new ArrayList<>();
+        for (InjectionPoint injectionPoint : bean.getInjectionPoints()) {
+            try {
+                Annotation[] qualifiers = injectionPoint.getQualifiers().toArray(Annotation[]::new);
+                Set<Bean<?>> candidates = beanManager.getBeans(injectionPoint.getType(), qualifiers);
+                Bean<?> dependency = beanManager.resolve(candidates);
+                if (dependency == null || dependency == bean) {
+                    continue;
+                }
+                Class<?> dependencyClass = dependency.getBeanClass();
+                String dependencyType = dependencyClass == null ? null : dependencyClass.getName();
+                if (dependencyType != null && INTERNAL_PACKAGES.matchesName(dependencyType)) {
+                    continue;
+                }
+                String dependencyName = name(dependency, dependencyClass);
+                if (dependencyName != null && !dependencyName.isBlank()) {
+                    dependencies.add(dependencyName);
+                }
+            } catch (AmbiguousResolutionException | IllegalArgumentException ignored) {
+                // Reduced-fidelity inventory: an unresolved edge is safer than guessing.
+            }
+        }
+        return dependencies.stream().distinct().sorted().toList();
     }
 
     private String name(Bean<?> bean, Class<?> beanClass) {

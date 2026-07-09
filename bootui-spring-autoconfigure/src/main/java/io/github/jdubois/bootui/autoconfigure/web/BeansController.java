@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.BeanList;
+import io.github.jdubois.bootui.core.dto.BeanGraphReport;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,5 +35,12 @@ public class BeansController {
             @RequestParam(name = "offset", required = false) Integer offset,
             @RequestParam(name = "limit", required = false) Integer limit) {
         return beansService.beans(query, classification, offset, limit);
+    }
+
+    @GetMapping("/graph")
+    public BeanGraphReport graph(
+            @RequestParam(name = "focus", required = false) String focus,
+            @RequestParam(name = "limit", required = false) Integer limit) {
+        return beansService.graph(focus, limit);
     }
 }

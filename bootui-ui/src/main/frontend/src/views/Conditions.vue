@@ -1,6 +1,7 @@
 <script setup>
 import {getJson} from '../api.js'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {useRoute} from 'vue-router'
 import {describeLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import {SERVER_PAGE_SIZE} from '../utils/useServerPagedList.js'
@@ -8,7 +9,8 @@ import ServerListFooter from './components/ServerListFooter.vue'
 
 const data = ref(null)
 const tab = ref('positive')
-const filter = ref('')
+const route = useRoute()
+const filter = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref(null)

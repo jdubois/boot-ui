@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.core.dto.BeanList;
+import io.github.jdubois.bootui.core.dto.BeanGraphReport;
 import io.github.jdubois.bootui.core.dto.BeanSummary;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import java.util.List;
@@ -61,5 +62,23 @@ class BeansControllerTests {
                 .andExpect(jsonPath("$.beans.length()").value(0));
 
         verify(service).beans(null, null, null, null);
+    }
+
+    @Test
+    void delegatesGraphFocusAndLimitToTheEngineService() throws Exception {
+        BeansService service = mock(BeansService.class);
+        when(service.graph("sampleBean", 8)).thenReturn(BeanGraphReport.empty());
+
+        MockMvc mvc = standaloneSetup(new BeansController(service)).build();
+
+        mvc.perform(get("/bootui/api/beans/graph")
+                        .param("focus", "sampleBean")
+                        .param("limit", "8")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true))
+                .andExpect(jsonPath("$.dependencies.length()").value(0));
+
+        verify(service).graph("sampleBean", 8);
     }
 }

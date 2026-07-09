@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.BeanList;
+import io.github.jdubois.bootui.core.dto.BeanGraphReport;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -36,5 +37,12 @@ public class BeansResource {
             @QueryParam("offset") Integer offset,
             @QueryParam("limit") Integer limit) {
         return beans.beans(query, classification, offset, limit);
+    }
+
+    @GET
+    @Path("/graph")
+    @Produces(MediaType.APPLICATION_JSON)
+    public BeanGraphReport graph(@QueryParam("focus") String focus, @QueryParam("limit") Integer limit) {
+        return beans.graph(focus, limit);
     }
 }
