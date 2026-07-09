@@ -485,13 +485,14 @@ public class ReactiveLiveActivityController {
 
     /**
      * Recent Kafka messages feeding the assembler's {@code MESSAGING} entries, or {@code null} when the
-     * source is not feeding (Live Activity panel disabled, Kafka capture disabled via
+     * source is not feeding (dedicated Kafka panel disabled, Kafka capture disabled via
      * {@code bootui.kafka.enabled}, or no recorder bean present) — same present-vs-absent distinction
      * {@link #sqlSnapshot()} and {@link #securityEvents(boolean)} make, so the assembler can tell "no
-     * Kafka message yet" from "no Kafka source at all".
+     * Kafka message yet" from "no Kafka source at all". Gated on the {@code KAFKA} panel, like
+     * {@link #cacheEvents} gates on {@code CACHE} — its own domain panel, not Live Activity's.
      */
     private List<CapturedMessage> kafkaMessages() {
-        if (!properties.isPanelEnabled(BootUiPanels.ACTIVITY)) {
+        if (!properties.isPanelEnabled(BootUiPanels.KAFKA)) {
             return null;
         }
         KafkaActivityRecorder recorder = kafkaActivity.getIfAvailable();

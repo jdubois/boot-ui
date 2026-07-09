@@ -724,19 +724,29 @@ public class BootUiEngineConfiguration {
      * The Live Activity Kafka capture backend is framework-neutral (a bounded in-memory recorder plus two
      * Spring-specific post-processors) and is needed by both servlet and reactive stacks, so it is wired
      * here in the shared engine configuration rather than under the servlet-only auto-configuration. The
-     * recorder itself stays ungated exactly as before; the two {@code BeanPostProcessor}s keep their
-     * method-level {@code @ConditionalOnClass(KafkaTemplate)} guards so a Spring-Kafka-absent application
-     * never links those types.
+     * two {@code BeanPostProcessor}s keep their method-level
+     * {@code @ConditionalOnClass(KafkaTemplate)} guards so a Spring-Kafka-absent application never links
+     * those types. The recorder feeds both the Live Activity {@code MESSAGING} entries and the dedicated
+     * Kafka panel from the same buffer (see {@code bootUiKafkaActivityRecorder}'s Javadoc for why it is
+     * gated on the Kafka panel rather than Live Activity's, mirroring {@code bootUiCacheActivityRecorder}
+     * above).
      */
     @Configuration(proxyBeanMethods = false)
     static class KafkaBackendConfiguration {
 
+        /**
+         * Gated on the dedicated Kafka panel ({@link BootUiPanels#KAFKA}), not Live Activity's — exactly
+         * like {@code bootUiCacheActivityRecorder} above — because this single recorder now backs two
+         * consumers (Live Activity's {@code MESSAGING} entries and the Kafka panel's own report), and
+         * disabling the Kafka panel should stop the underlying capture entirely rather than merely hide
+         * it from one of the two views.
+         */
         @Bean
         @Lazy
         @ConditionalOnMissingBean
         KafkaActivityRecorder bootUiKafkaActivityRecorder(BootUiProperties properties) {
             BootUiProperties.Kafka kafka = properties.getKafka();
-            boolean enabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.ACTIVITY);
+            boolean enabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.KAFKA);
             return new KafkaActivityRecorder(
                     enabled, kafka.isCaptureKey(), kafka.getMaxEntries(), kafka.getMaxKeyLength());
         }

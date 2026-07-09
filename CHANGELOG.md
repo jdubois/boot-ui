@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Kafka panel** — a dedicated, filterable view over the same producer/consumer capture that already feeds Live
+  Activity's `MESSAGING` entries: direction, topic, partition, offset, key hash, duration, and success/failure, with
+  the message value/payload never captured. Ships in the Services group just under Email, on both Spring and
+  Quarkus, reusing the existing `bootui.kafka.*` capture properties and adding `bootui.panels.kafka.*` panel toggles.
+
 ## [1.11.0] - 2026-07-09
 
 Feature release headlined by two new dev-loop panels — **Email** and **REST Client Trace** — and **Live Activity

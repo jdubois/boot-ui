@@ -46,6 +46,7 @@ const Copilot = () => import('./views/Copilot.vue')
 const McpServer = () => import('./views/McpServer.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
 const Email = () => import('./views/Email.vue')
+const Kafka = () => import('./views/Kafka.vue')
 
 export const groups = {
   overview: 'overview',
@@ -639,6 +640,29 @@ export const routes = [
       title: 'Email',
       shortcut: 'em',
       keywords: ['mail', 'javamailsender', 'outgoing email', 'mail trap', 'dev trap', 'smtp']
+    }
+  },
+  {
+    path: '/kafka',
+    name: 'kafka',
+    component: Kafka,
+    meta: {
+      group: groups.services,
+      icon: 'bi-inboxes',
+      title: 'Kafka',
+      shortcut: 'ka',
+      keywords: [
+        'messaging',
+        'kafkatemplate',
+        'kafkalistener',
+        'producer',
+        'consumer',
+        'topic',
+        'partition',
+        'broker',
+        'reactive messaging',
+        'smallrye'
+      ]
     }
   },
   {

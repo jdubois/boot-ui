@@ -168,6 +168,12 @@ export function deepLink(entry) {
       return {path: '/cache', label: 'Open in Cache'}
     case 'MAIL':
       return entry.id ? {path: '/email', query: {id: entry.id}, label: 'Open in Email'} : null
+    case 'MESSAGING': {
+      const needle = kafkaNeedle(entry.summary)
+      return needle
+        ? {path: '/kafka', query: {q: needle}, label: 'Open in Kafka'}
+        : {path: '/kafka', label: 'Open in Kafka'}
+    }
     default:
       return null
   }
@@ -182,6 +188,13 @@ function exceptionNeedle(summary) {
   if (!text) return ''
   const colon = text.indexOf(': ')
   return colon > 0 ? text.slice(0, colon) : text
+}
+
+function kafkaNeedle(summary) {
+  return (summary || '')
+    .replace(/^[→←]\s*/, '')
+    .replace(/\s*\[\d+]$/, '')
+    .trim()
 }
 
 /**

@@ -62,6 +62,7 @@ public final class BootUiPanels {
     public static final String MCP_SERVER = "mcp-server";
     public static final String ACTIVITY = "activity";
     public static final String EMAIL = "email";
+    public static final String KAFKA = "kafka";
 
     private static final List<Panel> PANELS = List.of(
             // Overview registers no API prefix on purpose: GET /bootui/api/overview is the shell's
@@ -117,7 +118,8 @@ public final class BootUiPanels {
             new Panel(REST_CLIENT_TRACE, "REST Client", true, "/rest-client-trace"),
             new Panel(MCP_SERVER, "MCP Server", true, "/mcp-server"),
             new Panel(ACTIVITY, "Live Activity", true, "/activity"),
-            new Panel(EMAIL, "Email", true, "/email"));
+            new Panel(EMAIL, "Email", true, "/email"),
+            new Panel(KAFKA, "Kafka", true, "/kafka"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

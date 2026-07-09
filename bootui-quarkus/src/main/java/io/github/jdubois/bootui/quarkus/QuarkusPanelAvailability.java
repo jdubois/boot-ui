@@ -231,6 +231,16 @@ public class QuarkusPanelAvailability {
      */
     public static final String EMAIL_PRESENT_KEY = "bootui.internal.email-present";
 
+    /**
+     * Runtime-config key carrying the build-time Kafka capability decision. The deployment processor emits it
+     * (default {@code false}) only when {@code Capability.KAFKA} is present at build time and the launch mode
+     * is non-production; this bean reads it back to decide whether the dedicated Kafka panel is lit up,
+     * mirroring {@link #HIBERNATE_PRESENT_KEY}. The recorder backing it ({@code KafkaActivityRecorder}) is
+     * produced unconditionally either way (see {@code BootUiEngineProducer}) — this key only gates the
+     * panel's own <em>availability</em>, exactly as {@link #EMAIL_PRESENT_KEY} does for the Email panel.
+     */
+    public static final String KAFKA_PRESENT_KEY = "bootui.internal.kafka-present";
+
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
     private static final String HIBERNATE_ABSENT =
@@ -264,6 +274,10 @@ public class QuarkusPanelAvailability {
     private static final String EMAIL_ABSENT =
             "Not available: this application does not use the Quarkus Mailer. Add the quarkus-mailer extension"
                     + " to enable the Email Viewer panel.";
+
+    private static final String KAFKA_ABSENT =
+            "Not available: this application does not use Kafka messaging. Add the quarkus-messaging-kafka"
+                    + " extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel.";
 
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
@@ -351,6 +365,8 @@ public class QuarkusPanelAvailability {
 
     private final boolean emailPresent;
 
+    private final boolean kafkaPresent;
+
     private final boolean securityLogsAvailable;
 
     private final List<String> githubAllowedApiHosts;
@@ -380,6 +396,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(DEV_SERVICES_PRESENT_KEY, Boolean.class).orElse(false);
         this.emailPresent =
                 config.getOptionalValue(EMAIL_PRESENT_KEY, Boolean.class).orElse(false);
+        this.kafkaPresent =
+                config.getOptionalValue(KAFKA_PRESENT_KEY, Boolean.class).orElse(false);
         boolean securityPresent = config.getOptionalValue(SECURITY_LOGS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
         boolean eventsEnabled = config.getOptionalValue("quarkus.security.events.enabled", Boolean.class)
@@ -458,6 +476,7 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panelId) && connectionPoolsPresent)
                 || (BootUiPanels.DEV_SERVICES.equals(panelId) && devServicesPresent)
                 || (BootUiPanels.EMAIL.equals(panelId) && emailPresent)
+                || (BootUiPanels.KAFKA.equals(panelId) && kafkaPresent)
                 || (BootUiPanels.SECURITY_LOGS.equals(panelId) && securityLogsAvailable)
                 || (BootUiPanels.SQL_TRACE.equals(panelId) && connectionPoolsPresent)
                 || (BootUiPanels.PROFILE_DIFF.equals(panelId) && profilesActive)
@@ -491,6 +510,9 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.EMAIL.equals(panelId)) {
             return EMAIL_ABSENT;
+        }
+        if (BootUiPanels.KAFKA.equals(panelId)) {
+            return KAFKA_ABSENT;
         }
         if (BootUiPanels.SQL_TRACE.equals(panelId)) {
             return "Not available: no JDBC datasource is on the classpath. Add a Quarkus JDBC datasource"

@@ -223,8 +223,9 @@ Scope — new event types, roughly in priority order:
   (framework-neutral, `bootui-engine`) is fed by `KafkaProducerCaptureBeanPostProcessor` /
   `KafkaConsumerCaptureBeanPostProcessor` (`bootui-spring-autoconfigure`, `@ConditionalOnClass(KafkaTemplate)`), which
   wrap application-owned `KafkaTemplate`/`@KafkaListener` container factory beans — composing with, not replacing, any
-  existing `ProducerListener`/`RecordInterceptor` — and surface every send/delivery outcome as a `MESSAGING` entry
-  (topic, partition, offset, a hash of the key, direction, success/failure, consumer group id, listener id, duration).
+  existing `ProducerListener`/`RecordInterceptor` — feeding both the standalone **Kafka** panel (Services group) and,
+  like Cache/Mail/REST Client, a `MESSAGING` entry into the merged Live Activity feed (topic, partition, offset, a hash
+  of the key, direction, success/failure, consumer group id, listener id, duration).
   Message values/payloads are never captured (out of scope by design, sidestepping the payload-masking problem
   entirely). Controlled by `bootui.kafka.*` (see `docs/PROPERTIES.md`). RabbitMQ/JMS remain later, separately-scoped
   follow-ups. The **Quarkus port (SmallRye Reactive Messaging) has now shipped**, reusing the same
@@ -256,7 +257,9 @@ Scope — new event types, roughly in priority order:
   introspection) in spirit, though the shared, framework-neutral `KafkaActivityRecorder` and `KafkaActivityEntries`
   mapping keep the engine seam intact. The panel-registration plumbing itself (an unconditional recorder `@Produces` bean
   plus the capability-gated interceptor beans) follows the existing optional-dependency template with a single
-  `registerKafkaCapture` deployment build-step, and needs no new panel/route (Live Activity gains a source, not a panel).
+  `registerKafkaCapture` deployment build-step, which also lights up the standalone Kafka panel (`GET`/`DELETE
+  /bootui/api/kafka` on both adapters, gated the same way as the capture interceptors) — Live Activity gains a source
+  *and* a dedicated panel, exactly like Cache and REST Client.
 - **Captured email — ✅ Shipped (both adapters).** The standalone Email panel (§3.3) already captured every outgoing
   message via the shared, framework-neutral `EmailCaptureService`; this item only adds a `MAIL` entry to the merged Live
   Activity feed, so — like Cache and Scheduled Task runs — it needed no new capture instrumentation, just a read of an

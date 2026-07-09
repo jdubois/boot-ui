@@ -396,14 +396,13 @@ public class LiveActivityService {
     }
 
     /**
-     * Loads recently captured Kafka messages from {@link KafkaActivityRecorder} directly (unlike the
-     * other sources, there is no dedicated controller/panel: Kafka capture only feeds this stream, see
-     * {@code docs/PLAN.md} §3.4). Gated on the {@code ACTIVITY} panel like the other sources, plus the
-     * recorder's own {@code bootui.kafka.enabled} toggle (folded into {@link
-     * KafkaActivityRecorder#isEnabled()} at construction).
+     * Loads recently captured Kafka messages from {@link KafkaActivityRecorder} directly. Gated on the
+     * dedicated {@code KAFKA} panel — like {@link #loadCache}/{@link #loadEmail} gate on their own domain
+     * panel — plus the recorder's own {@code bootui.kafka.enabled} toggle (folded into
+     * {@link KafkaActivityRecorder#isEnabled()} at construction).
      */
     private List<CapturedMessage> loadKafka(List<String> sources) {
-        if (!properties.isPanelEnabled(BootUiPanels.ACTIVITY)) {
+        if (!properties.isPanelEnabled(BootUiPanels.KAFKA)) {
             return List.of();
         }
         KafkaActivityRecorder recorder = kafka == null ? null : kafka.getIfAvailable();
