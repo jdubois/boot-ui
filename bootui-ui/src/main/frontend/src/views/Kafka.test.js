@@ -3,6 +3,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import {useRoute} from 'vue-router'
 
 import Kafka from './Kafka.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 vi.mock('../utils/useConfirm.js', () => ({
   useConfirm: () => ({confirm: () => Promise.resolve(true)})
@@ -99,6 +100,40 @@ describe('Kafka panel', () => {
 
     expect(wrapper.text()).toContain('Kafka capture is unavailable')
     expect(wrapper.text()).toContain('No KafkaTemplate bean is present')
+  })
+
+  it('shows an unavailable notice without calling the API when the panel manifest reports Kafka unavailable', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(Kafka, {
+      props: {
+        panel: {
+          id: 'kafka',
+          enabled: true,
+          available: false,
+          unavailableReason: 'No KafkaTemplate bean is available'
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Kafka capture is unavailable')
+    expect(wrapper.text()).toContain('No KafkaTemplate bean is available')
+    expect(wrapper.findComponent(PanelHeader).props('refreshable')).toBe(false)
+  })
+
+  it('shows a disabled explanation without calling the API when the panel is disabled via config', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(Kafka, {props: {panel: {id: 'kafka', enabled: false}}})
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Kafka capture is unavailable')
+    expect(wrapper.text()).toContain('Panel is disabled via bootui.panels.kafka.enabled=false')
   })
 
   it('shows an empty state when no Kafka activity has been captured yet', async () => {
