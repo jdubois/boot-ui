@@ -9,18 +9,19 @@ reactive analog genuinely exists, and an honest "not yet ported" / "not applicab
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 47-panel manifest the servlet adapter
-reports, minus the four panels that stay unavailable for stack reasons described below. **Every action-capable panel
+The WebFlux adapter serves the large majority of the panel surface — the same 49-panel manifest the servlet adapter
+reports, minus the five panels that stay unavailable for stack reasons described below. **Every action-capable panel
 that is available behaves identically to the servlet adapter**, behind the same shared `LocalhostGuard` write floor:
 Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Heap Dump
 (capture/analyze/delete/download), Threads (download), Traces (clear), SQL Trace (toggle recording/clear), the
 advisor scans (Architecture, Spring, Hibernate, Pentesting, REST API, Memory, Vulnerabilities/OSV), and Exceptions
 triage.
 
-Only **HTTP Sessions**, the **Security advisor**, the raw **Spring Security** panel, and **MCP Server** stay
-unavailable, each with a panel-specific reason surfaced through the `/bootui/api/panels` manifest (and,
-in turn, the sidebar tooltip and the panel's own alert banner — see §5). `docs/FEATURES.md` and the per-panel
-`unavailableReason` strings in `PanelsController` are the authoritative, current detail.
+Only **HTTP Sessions**, the **Security advisor**, the raw **Spring Security** panel, **MCP Server**, and the
+standalone **REST Client Trace** panel stay unavailable, each with a panel-specific reason surfaced through the
+`/bootui/api/panels` manifest (and, in turn, the sidebar tooltip and the panel's own alert banner — see §5).
+`docs/FEATURES.md` and the per-panel `unavailableReason` strings in `PanelsController` are the authoritative, current
+detail.
 
 ## 3. Why this is feasible — evidence from the current codebase
 
@@ -86,7 +87,7 @@ reactive binding (e.g. a `WebFilter` capturing into the same engine store) · `R
 capture layer replacing a servlet-only primitive · `Not yet ported` = deliberately deferred, no reactive
 implementation wired yet · `Not applicable` = no faithful reactive analog exists for this panel's concept.
 
-### 6.1 Ported as-is (35 panels)
+### 6.1 Ported as-is (36 panels)
 
 Bulk-imported from the servlet adapter's `@RestController`s with no code changes at all — confirming these
 controllers were already framework-neutral in practice, not just in the engine underneath them:
@@ -94,7 +95,7 @@ controllers were already framework-neutral in practice, not just in the engine u
 Overview · GitHub · Beans · Conditions · Configuration · Mappings · Health · Loggers · Startup Timeline · Spring Data ·
 Hibernate · Flyway · Liquibase · Database Connection Pools · Cache · Dev Services · Vulnerabilities · Scheduled Tasks ·
 HTTP Probe · Pentesting · Heap Dump · Architecture · REST API advisor · Profile Diff · Spring advisor[^spring-advisor-reactive] ·
-Live Memory · JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory.
+Live Memory · JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory · Email.
 
 [^spring-advisor-reactive]: The `SpringController` wiring itself needed no adapter change, but the ruleset it runs
     (`SpringScanner`/`SpringRules`) is reactive-aware internally: it detects a WebFlux `ReactiveWebApplicationContext`
@@ -138,16 +139,26 @@ servlet. Unhandled exceptions (the common case) are captured identically on both
 
 ### 6.4 Rebuilt as a merge over already-reactive signals (1 panel)
 
-Live Activity needed no new *capture* pipeline: HTTP Exchanges, SQL Trace, Exceptions, and Security Logs are already
-captured reactively by the panels in §6.2/§6.3. The servlet adapter's `LiveActivityController` additionally depends
-on two things with no reactive equivalent: a `ServletRequestHandledEvent` listener, which exists purely as an
-SSE-refresh trigger (not a data source), and a thread-based `LiveActivityCorrelator` that stitches a request to its
-downstream SQL/exception activity via serving-thread identity — meaningless on Reactor Netty, where a request is
+Live Activity needed no new *capture* pipeline for any of its **nine** merged signal types. The original four —
+HTTP Exchanges, SQL Trace, Exceptions, and Security Logs — are already captured reactively by the panels in
+§6.2/§6.3. The five newer entry types added by the Live Activity event-type extension workstream (`docs/PLAN.md`
+§3.4) reuse the same framework-neutral engine buffers regardless of servlet vs. reactive stack, because their
+capture wiring (`BootUiEngineConfiguration`) is gated purely on classpath/bean presence, never on
+`ConditionalOnWebApplication`: Cache and Scheduled Tasks are read from the same `CacheActivityRecorder`/
+`ScheduledTaskRunStore` the §6.1 Cache/Scheduled Tasks panels already expose unmodified; Mail is read from the same
+`EmailCaptureService`/`EmailController` the §6.1 Email panel exposes; Kafka messaging is read from
+`KafkaActivityRecorder` (fed by the same `KafkaTemplate`/`@KafkaListener` `BeanPostProcessor` wrapping used on the
+servlet adapter, which has no servlet-specific dependency); and REST/WebClient calls are read from the same
+`RestClientTraceRecorder` fed by `BootUiEngineConfiguration`'s `WebClientCustomizer` (see §6.5 — capture is active
+here even though the *standalone* REST Client Trace panel is not). The servlet adapter's `LiveActivityController`
+additionally depends on two things with no reactive equivalent: a `ServletRequestHandledEvent` listener, which exists
+purely as an SSE-refresh trigger (not a data source), and a thread-based `LiveActivityCorrelator` that stitches a
+request to its downstream activity via serving-thread identity — meaningless on Reactor Netty, where a request is
 not served start-to-finish on one dedicated worker thread.
 
 | Panel         | Reactive source                                                                                                                                                                                     |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Live Activity | `ReactiveLiveActivityController`, merging the same `HttpExchangesController`/`SqlTraceRecorder`/`ExceptionStore`/`ReactiveSecurityLogsController` sources via the shared engine `LiveActivityAssembler`/`RequestProfileAssembler` — the same classes the Quarkus adapter validated first; refreshed over `ReactiveBootUiChangeStream`, signaled by a new lightweight `ReactiveActivitySignalFilter` `WebFilter` after each non-BootUI request completes. |
+| Live Activity | `ReactiveLiveActivityController`, merging `HttpExchangesController` (requests), `SqlTraceRecorder` (SQL), `ExceptionStore` (exceptions), `ReactiveSecurityLogsController` (security), `CacheActivityRecorder` (cache), `ScheduledTaskRunStore` (scheduled tasks), `KafkaActivityRecorder` (messaging), `EmailCaptureService`/`EmailController` (mail), and `RestClientTraceRecorder` (REST/WebClient calls) via the shared engine `LiveActivityAssembler`/`RequestProfileAssembler` — the same classes the Quarkus adapter validated first; refreshed over `ReactiveBootUiChangeStream`, signaled by a new lightweight `ReactiveActivitySignalFilter` `WebFilter` after each non-BootUI request completes. |
 
 `ReactiveActivitySignalFilter` takes an `ObjectProvider<ReactiveLiveActivityController>` rather than a direct
 reference: `WebFilter` beans are eagerly resolved by WebFlux at startup to build the filter chain, so a direct
@@ -192,12 +203,13 @@ OpenTelemetry SDK is present — see §7 for how this was found.
 - The servlet adapter's thread-based correlation (`LiveActivityCorrelator`) is not ported — it has no reactive
   equivalent.
 
-### 6.5 Not yet ported (2 panels)
+### 6.5 Not yet ported (3 panels)
 
 | Panel          | Reason                                                                                                                                                                                        |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Spring Security (raw panel, `spring-security`) | *"Not yet ported for Spring WebFlux: this advisor analyzes the servlet SecurityFilterChain/HttpSecurity configuration model, which has no reactive equivalent wired here yet (a ServerHttpSecurity/SecurityWebFilterChain ruleset is planned)."* `springSecurityAvailable()` now requires `!isReactive()` in addition to the pre-existing classpath/bean checks. |
 | MCP Server              | *"Not yet ported for Spring WebFlux: the MCP tool catalog is hard-wired to the servlet panel controllers, so it cannot yet resolve the reactive panel surface."* The JSON-RPC bridge itself (`McpDispatcher`) is already framework-neutral; only `BootUiMcpTools`' tool catalog needs a reactive-aware rewrite. |
+| REST Client Trace       | *"REST Client Trace is only available on the Spring MVC (servlet) adapter."* — the panel's availability check in `PanelsController` requires `!isReactive()` alongside the pre-existing `RestClientTraceRecorder` bean-presence check, so the dedicated full-detail panel (with its own filtering/paging over every captured call) is not wired into `BootUiReactiveAutoConfiguration`. **Capture itself is not stack-gated**, though: `BootUiEngineConfiguration`'s `WebClientCustomizer` attaches `RestClientTraceExchangeFilter` to every auto-configured `WebClient.Builder` regardless of web application type, so REST/WebClient calls are still captured into the shared `RestClientTraceRecorder` and still appear as `REST_CLIENT` entries in the Live Activity merge (§6.4) on WebFlux — only the standalone panel is unavailable. |
 
 Note: **the Security advisor** (`security`, grouped under Advisors — distinct from the raw **Spring Security**
 configuration panel above, grouped under Security) also stays unavailable on WebFlux, but needed no dedicated

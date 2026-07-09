@@ -39,6 +39,16 @@ The priorities for every item below remain unchanged:
   trace id, serving thread, and time window. It refreshes over a `/bootui/api/activity/stream` Server-Sent Events feed,
   carries a KPI strip, and deep-links into the HTTP Exchanges, SQL Trace, Exceptions, Health, and Heap Dump panels. The
   panel is read-only and reuses the existing masking, value-exposure, and panel-toggle model.
+- Shipped §3.3 (E-mail Viewer) as the **Email** panel: a `JavaMailSender` `BeanPostProcessor` captures every outgoing
+  message pass-through by default (with an explicitly opt-in `bootui.email.dev-trap` mode), masks recipients/subject/body
+  under the existing value-exposure model, renders HTML previews sandboxed, and offers a per-message `.eml` download.
+  Captured mail also feeds the Live Activity stream as a `MAIL` entry type.
+- Shipped all five §3.4 Live Activity event-type extensions, bringing the stream to nine merged entry types —
+  `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED_TASK`, `MESSAGING`, `MAIL`, and `REST_CLIENT`: Cache
+  operations, Scheduled Task runs, Kafka messaging (both adapters), Mail (backed by the Email panel above), and outbound
+  `RestClient`/`RestTemplate`/`WebClient` capture (Spring only). Each keeps pass-through-by-default capture, nests under
+  the originating request as a child event when a shared trace id/serving thread/time window is available, and reuses
+  the same masking, bounded-buffer, and panel-toggle model as the original four entry types.
 
 Each new panel must:
 

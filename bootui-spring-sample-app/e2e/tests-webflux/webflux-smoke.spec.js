@@ -8,8 +8,8 @@ import {expect, test} from '@playwright/test'
  * bootui-conformance suite (WebFluxApiConformanceTest) and the servlet e2e spec-per-panel coverage - the
  * same Vue bundle is served either way, so once one adapter's UI is proven, the remaining risk specific
  * to WebFlux is (a) the shell actually boots and reports the right platform, (b) a representative sample
- * of panels that ARE ported render correctly, and (c) the panels that have no reactive equivalent yet
- * (HTTP Sessions, Spring Security, MCP Server) surface their WebFlux-specific explanation
+ * of panels that ARE ported render correctly, and (c) the panels that stay unavailable on this adapter
+ * (HTTP Sessions, Spring Security, MCP Server, REST Client Trace) surface their WebFlux-specific explanation
  * through the real sidebar/alert UI rather than just the JSON contract.
  */
 test.describe('BootUI on Spring WebFlux', () => {
@@ -72,7 +72,9 @@ test.describe('BootUI on Spring WebFlux', () => {
     await page.goto('/bootui/#/mcp-server')
     await expect(page.locator('.panel-availability-alert')).toContainText('Not yet ported for Spring WebFlux')
 
-    await page.goto('/bootui/#/activity')
-    await expect(page.locator('.panel-availability-alert')).toContainText('Not yet ported for Spring WebFlux')
+    await page.goto('/bootui/#/rest-client-trace')
+    await expect(page.locator('.panel-availability-alert')).toContainText(
+      'REST Client Trace is only available on the Spring MVC (servlet) adapter'
+    )
   })
 })

@@ -26,10 +26,12 @@ BootUI currently targets:
 
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
-layer; a handful of panels (the Security advisor, the raw Spring Security panel, MCP Server, Live Activity) are not
-yet ported, and HTTP Sessions is not applicable to a reactive, container-session-free stack — see
-`docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter is being built out**, with panels
-lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the current per-platform status.
+layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
+`docs/WEBFLUX-SUPPORT.md` §6.4); a handful of panels (the Security advisor, the raw Spring Security panel, MCP Server,
+and the standalone REST Client Trace panel) are not yet ported, and HTTP Sessions is not applicable to a reactive,
+container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
+is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
+current per-platform status.
 
 Out of scope for the current 1.x line:
 
@@ -37,8 +39,8 @@ Out of scope for the current 1.x line:
 - Spring Framework 6 / Boot 3 compatibility shims.
 - A dedicated BootUI Gradle plugin (the Spring starters and Quarkus extension are consumable from Maven or Gradle as
   ordinary dependencies).
-- On Spring Boot WebFlux: a reactive Security advisor ruleset, the raw Spring Security panel, MCP Server, and Live
-  Activity (see `docs/WEBFLUX-SUPPORT.md` for the reasons and the plan to close each gap).
+- On Spring Boot WebFlux: a reactive Security advisor ruleset, the raw Spring Security panel, MCP Server, and the
+  standalone REST Client Trace panel (see `docs/WEBFLUX-SUPPORT.md` for the reasons and the plan to close each gap).
 
 ## 2. Product goals
 
@@ -1739,7 +1741,7 @@ Future compatibility:
 - Spring Boot 3.5 if demand requires it.
 - Gradle examples.
 - Closing the remaining Spring Boot WebFlux gaps: a reactive Security advisor, the raw Spring Security panel, MCP
-  Server, and Live Activity (see `docs/WEBFLUX-SUPPORT.md`).
+  Server, and the standalone REST Client Trace panel (see `docs/WEBFLUX-SUPPORT.md`).
 
 ## 9. Testing strategy
 
