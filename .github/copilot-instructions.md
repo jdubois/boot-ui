@@ -367,7 +367,7 @@ hide newer ones. Keep API, UI,
 - **Configuration**: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings
 - **Database**: Database Connection Pools, SQL Trace, Spring Data, Flyway, Liquibase
 - **Security**: Spring Security, Security Logs
-- **Services**: Scheduled Tasks, REST Client, Cache, Email, AI Usage
+- **Services**: Scheduled Tasks, REST Client, Cache, Email, Kafka, AI Usage
 - **Diagnostics**: Traces, Log Tail, Exceptions, HTTP Exchanges, HTTP Probe
 - **Developer Tools**: MCP Server, DevTools, Dev Services, Copilot, Claude Code
 
@@ -396,13 +396,15 @@ hide newer ones. Keep API, UI,
   capability or detector is present:** Hibernate (Hibernate ORM), Scheduled Tasks (`quarkus-scheduler`), Cache
   (`quarkus-cache`), Flyway, Liquibase, Database Connection Pools (an Agroal datasource), Dev Services, Security Logs
   (`quarkus-security` + `quarkus.security.events.enabled`), SQL Trace (a datasource), REST API (app-owned JAX-RS
-  resources), Profile Diff (active profiles), GitHub (a detected repository), and Copilot / Claude Code (a detected
+  resources), Profile Diff (active profiles), GitHub (a detected repository), Email (`quarkus-mailer`), Kafka
+  (`quarkus-messaging-kafka` with a configured channel), and Copilot / Claude Code (a detected
   agent session directory). **Action-capable panels behave identically to Spring**, all behind the shared
   `LocalhostGuard` write floor: the advisor scans (Architecture, the Quarkus app advisor, Pentesting, Hibernate,
   Security, Memory, REST API, and Vulnerabilities/OSV), Heap Dump (capture/analyze/delete/download), Threads (download),
-  Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Traces (clear), and the
-  MCP Server toggle. Only GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security, and
-  DevTools stay deliberately unavailable, each with a panel-specific not-applicable reason. The
+  Loggers (set level), HTTP Probe, Cache (clear), Kafka (clear), Email (clear), Flyway (migrate/clean), Liquibase
+  (update), Traces (clear), and the MCP Server toggle. Only GraalVM, CRaC, Conditions, Startup Timeline, HTTP
+  Sessions, Spring Data, Spring Security, DevTools, and the standalone REST Client panel (Spring MVC only for now)
+  stay unavailable, most with a panel-specific not-applicable reason. The
   **Memory** advisor is the cleanest port: every scanner/rule/context class was already framework-neutral (JMX +
   `java.lang.management` only), so it relocated wholesale into the engine `MemoryScanner` (built via
   `MemoryScanner.create(ThreadDumpService, Clock)`) with the Spring `MemoryController` reduced to thin wiring and a

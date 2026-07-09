@@ -7,21 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-
-- **Kafka panel** — a dedicated, filterable view over the same producer/consumer capture that already feeds Live
-  Activity's `MESSAGING` entries: direction, topic, partition, offset, key hash, duration, and success/failure, with
-  the message value/payload never captured. Ships in the Services group just under Email, on both Spring and
-  Quarkus, reusing the existing `bootui.kafka.*` capture properties and adding `bootui.panels.kafka.*` panel toggles.
-- **Kafka support in the Spring sample app's `docker` profile** — a single-node KRaft `compose.yaml` service
-  (`apache/kafka`) plus a `spring-boot-starter-kafka` dependency, a seeded `orders.created` producer/listener pair,
-  and a **Send Kafka message** demo button, so the new Kafka panel has real produce/consume activity to show. The
-  `dev` profile stays Docker-free by excluding Kafka autoconfiguration.
-
 ## [1.11.0] - 2026-07-09
 
-Feature release headlined by two new dev-loop panels — **Email** and **REST Client Trace** — and **Live Activity
-growing from 4 to 9 merged signal types**. Also ships a ~2.4x faster Maven build.
+Feature release headlined by three new dev-loop panels — **Email**, **REST Client Trace**, and **Kafka** — and
+**Live Activity growing from 4 to 9 merged signal types**. Also ships a ~2.4x faster Maven build.
 
 ### Added
 
@@ -32,6 +21,9 @@ growing from 4 to 9 merged signal types**. Also ships a ~2.4x faster Maven build
 - **REST Client Trace panel** — captures outbound `RestClient`/`RestTemplate`/`WebClient` calls (method, host, path,
   status, duration), with slow-call and "chatty" (repeated-call) detection. Spring servlet adapter only for now
   (#544).
+- **Kafka panel** — a dedicated, filterable view over producer/consumer activity: direction, topic, partition,
+  offset, key hash, duration, and success/failure, with the message value/payload never captured. Ships on both
+  Spring and Quarkus (#550).
 - **Live Activity grows from 4 to 9 merged signal types**, adding cache accesses, scheduled-task runs, Kafka
   producer/consumer activity, outbound REST client calls, and captured email to the existing request/SQL/exception/
   security feed — each nested under its correlated request. Kafka and scheduled-task capture are also new on
