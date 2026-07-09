@@ -47,6 +47,27 @@
             <artifactId>bootui-quarkus</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!--
+            Explicit, provided-scope dependency on the deployment half of the extension under test. Without a
+            real Maven <dependency> edge here, this module's link to bootui-quarkus-deployment exists only as a
+            GAV string baked into bootui-quarkus's packaged extension descriptor (META-INF/quarkus-extension.
+            properties), read by Quarkus's own Aether-based bootstrap resolver at plugin-execution time — the
+            Maven reactor graph, and therefore its -T parallel-build scheduler, has no visibility into that
+            string. Without this dependency, a parallel reactor build can legally schedule this module's
+            quarkus:generate-code/build goals concurrently with (or before) bootui-quarkus-deployment finishes
+            installing, intermittently failing augmentation with an artifact-resolution error. This dependency
+            gives the reactor a real edge so bootui-quarkus-deployment always finishes first; provided scope
+            keeps it off this module's runtime/test classpath (Quarkus resolves the deployment artifact
+            independently for augmentation, exactly as it would for any consumer of a published extension).
+            Every sibling module under bootui-quarkus-integration-tests, plus bootui-quarkus-sample-app, needs
+            the same dependency for the same reason.
+        -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
 
         <!-- The shared, framework-neutral HTTP conformance contract + JDK-HttpClient probe. -->
         <dependency>
@@ -99,11 +120,31 @@
               LogManager, and QuarkusLoggerProvider only reports itself available when that manager is
               installed. Setting it here makes the Loggers IT (and the shared write-path conformance test)
               exercise the real backend deterministically instead of depending on JVM-global init order.
+
+              forkCount is pinned to 1 here too, overriding the root pom's pluginManagement default (see the
+              maven-surefire-plugin comment there for the general port-safety rationale of forked test
+              parallelism elsewhere in the reactor). This needs a real <build><plugins> override, not a
+              <properties> entry: forkCount is a Surefire "user property", but the root pom already binds it
+              to a literal value in pluginManagement, and a literal <configuration> value always wins over a
+              same-named property once one is present anywhere in the merged POM. This module has 49 test
+              classes and is the one where the incompatibility was first observed: @QuarkusTest builds a
+              "curated application" classloader keyed on shared derived artifacts under the module's own
+              target/test-classes directory (notably a test-classes.idx index file); running two Surefire
+              forks concurrently against the SAME module races writing/reading that shared cache, and one
+              fork failed test discovery with a NoSuchFileException. This is a genuine Quarkus test-bootstrap
+              incompatibility with forkCount > 1 within a single module, not a timing flake, and it
+              reproduced here (both with forkCount=1C and forkCount=2). Reactor-level parallelism (-T, see
+              .github/workflows/build.yml and CONTRIBUTING.md) is unaffected and still gives real speedup:
+              this module builds concurrently
+              with its Quarkus IT siblings. Every @QuarkusTest-bearing module in the reactor (bootui-quarkus
+              itself and every other bootui-quarkus-integration-tests/* submodule) pins the same override;
+              see there for the short cross-reference.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <forkCount>1</forkCount>
                     <systemPropertyVariables>
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
                     </systemPropertyVariables>

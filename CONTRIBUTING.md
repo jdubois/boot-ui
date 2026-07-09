@@ -39,6 +39,22 @@ This downloads Node + npm, runs `npm install`, runs the Vue unit tests with Vite
 builds the Vue UI with Vite, and packages every module. A full clean build takes
 about a minute on a warm cache.
 
+For a faster local build, add `-T 1C` (one reactor thread per CPU core) to build modules in parallel:
+
+```bash
+./mvnw -T 1C clean install
+```
+
+This is safe: every module that triggers Quarkus build-time augmentation declares an explicit
+`provided`-scope dependency on `bootui-quarkus-deployment` so the reactor always orders it first, and every
+`@QuarkusTest`-bearing module pins its own Surefire `forkCount` so parallel forks never race Quarkus's shared
+test-bootstrap cache (see the `maven-surefire-plugin` comments in the root `pom.xml` and in
+`bootui-quarkus-integration-tests/base/pom.xml`). `-T` is a personal preference, not a project default, so it
+is not baked into `.mvn/maven.config` — add it to your own shell alias or a personal, git-ignored
+`.mvn/maven.config` if you want it every time (that file is also used for personal, per-worktree overrides such
+as `-Dmaven.repo.local`; see "Isolating parallel worktrees" in `.github/copilot-instructions.md`). CI always
+builds with `-T 1C`.
+
 To rebuild only the backend (useful while iterating on Java code):
 
 ```bash

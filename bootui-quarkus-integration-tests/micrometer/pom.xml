@@ -50,6 +50,14 @@
             <artifactId>bootui-quarkus</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Explicit, provided-scope dependency on the deployment artifact — required for -T parallel-build
+             safety, not just an optional courtesy. See bootui-quarkus-integration-tests/base/pom.xml for why. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
 
         <!-- Adds a real Micrometer registry. Its presence makes a MeterRegistry bean available, so the engine
              MetricsReportProvider resolves the live composite registry and the Metrics panel reports real meters
@@ -95,6 +103,16 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <!-- forkCount=1: avoids a Quarkus @QuarkusTest classloading race between concurrent Surefire
+                 forks in the same module (test-classes.idx); see
+                 bootui-quarkus-integration-tests/base/pom.xml for the full rationale. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1</forkCount>
+                </configuration>
             </plugin>
         </plugins>
     </build>

@@ -75,6 +75,14 @@
             <artifactId>bootui-quarkus</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Explicit, provided-scope dependency on the deployment artifact — required for -T parallel-build
+             safety, not just an optional courtesy. See bootui-quarkus-integration-tests/base/pom.xml for why. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
 
         <!-- REST layer: drives the REST API advisor, Mappings, and the demo endpoints. -->
         <dependency>

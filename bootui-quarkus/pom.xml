@@ -271,6 +271,33 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- Force sequential (single-fork) Surefire execution for this module's own tests, overriding
+                 the root pom's pluginManagement forkCount default (see the maven-surefire-plugin comment
+                 there for the general port-safety rationale of forked test parallelism elsewhere in the
+                 reactor). This needs a real <build><plugins> override, not a <properties> entry: forkCount
+                 is a Surefire "user property", but the root pom already binds it to a literal value in
+                 pluginManagement, and a literal <configuration> value always wins over a same-named
+                 property once one is present anywhere in the merged POM. @QuarkusTest builds a "curated
+                 application" classloader keyed on shared derived artifacts under this module's own
+                 target/test-classes directory (notably a test-classes.idx index file); running two Surefire
+                 forks concurrently against the SAME module — this one has ~19 test classes, several
+                 @QuarkusTest-based (QuarkusServerPortSupplierTest, LiveActivityResourceTests,
+                 QuarkusResourceHandlersTest, QuarkusMappingProviderTest) — races writing/reading that shared
+                 cache, and one fork can fail test discovery with a NoSuchFileException. This is a genuine
+                 Quarkus test-bootstrap incompatibility with forkCount > 1 within a single module, not a
+                 timing flake, and it reproduced here (both with forkCount=1C and forkCount=2). Reactor-level
+                 parallelism (-T, see .github/workflows/build.yml and CONTRIBUTING.md) is unaffected and
+                 still gives real speedup: this
+                 module builds concurrently with its Spring siblings. Every @QuarkusTest-bearing module in
+                 the reactor (this one and every bootui-quarkus-integration-tests/* submodule) pins the same
+                 override; see there for the short cross-reference. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1</forkCount>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>
