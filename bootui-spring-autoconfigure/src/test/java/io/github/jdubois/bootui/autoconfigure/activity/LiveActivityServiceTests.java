@@ -62,6 +62,22 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void doesNotIncludeKafkaMessagesWhenKafkaPanelDisabled() {
+        io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 10, 50);
+        recorder.recordProduce("orders", 0, "order-1", 0L, true, null);
+
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.KAFKA).setEnabled(false);
+        LiveActivityService service = serviceWithKafka(recorder, properties);
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(report.sources()).doesNotContain("Kafka");
+        assertThat(report.entries()).noneMatch(e -> e.type().equals("MESSAGING"));
+    }
+
+    @Test
     void mergesAndSortsSourcesNewestFirst() {
         LiveActivityService service = service(
                 requests(

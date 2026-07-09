@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
@@ -224,6 +225,7 @@ import org.springframework.web.util.DisconnectedClientHelper;
     ReactiveSecurityLogsController.class,
     ReactiveLiveActivityController.class,
     EmailController.class,
+    KafkaController.class,
     ReactiveLogTailController.class,
     ReactiveCopilotController.class,
     ReactiveClaudeCodeController.class,
@@ -280,6 +282,7 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveSecurityLogsController.class.getName(),
             ReactiveLiveActivityController.class.getName(),
             EmailController.class.getName(),
+            KafkaController.class.getName(),
             ReactiveCopilotController.class.getName(),
             ReactiveClaudeCodeController.class.getName());
 

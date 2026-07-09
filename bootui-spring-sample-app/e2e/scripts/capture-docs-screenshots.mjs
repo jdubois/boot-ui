@@ -78,6 +78,7 @@ const panelOrder = [
   ['http-exchanges', 'HTTP Exchanges'],
   ['http-probe', 'HTTP Probe'],
   ['email', 'Email'],
+  ['kafka', 'Kafka'],
   ['architecture', 'Architecture'],
   ['rest-api', 'REST API'],
   ['mcp-server', 'MCP Server'],
@@ -2563,6 +2564,91 @@ const email = {
   messages: emailMessages
 }
 
+const kafkaMessages = [
+  {
+    id: 1042,
+    timestamp: nowMillis - 90 * 1000,
+    direction: 'CONSUME',
+    topic: 'orders.created',
+    partition: 0,
+    offset: 1041,
+    key: 'e3b0c44298fc1c14',
+    durationMillis: 8,
+    success: true,
+    errorMessage: null,
+    groupId: 'order-processing',
+    listenerId: 'orderCreatedListener'
+  },
+  {
+    id: 1041,
+    timestamp: nowMillis - 95 * 1000,
+    direction: 'PRODUCE',
+    topic: 'orders.created',
+    partition: 0,
+    offset: null,
+    key: 'e3b0c44298fc1c14',
+    durationMillis: null,
+    success: true,
+    errorMessage: null,
+    groupId: null,
+    listenerId: null
+  },
+  {
+    id: 1040,
+    timestamp: nowMillis - 4 * 60 * 1000,
+    direction: 'PRODUCE',
+    topic: 'shipment.dispatched',
+    partition: 1,
+    offset: null,
+    key: 'a1fe923c8d002187',
+    durationMillis: null,
+    success: true,
+    errorMessage: null,
+    groupId: null,
+    listenerId: null
+  },
+  {
+    id: 1039,
+    timestamp: nowMillis - 5.5 * 60 * 1000,
+    direction: 'CONSUME',
+    topic: 'inventory.updated',
+    partition: 2,
+    offset: 884,
+    key: '5f4dcc3b5aa765d6',
+    durationMillis: 14,
+    success: false,
+    errorMessage:
+      'org.apache.kafka.common.errors.SerializationException: Error deserializing value for topic inventory.updated',
+    groupId: 'inventory-sync',
+    listenerId: 'inventoryUpdatedListener'
+  },
+  {
+    id: 1038,
+    timestamp: nowMillis - 6 * 60 * 1000,
+    direction: 'PRODUCE',
+    topic: 'inventory.updated',
+    partition: 2,
+    offset: null,
+    key: '5f4dcc3b5aa765d6',
+    durationMillis: null,
+    success: true,
+    errorMessage: null,
+    groupId: null,
+    listenerId: null
+  }
+]
+
+const kafka = {
+  available: true,
+  unavailableReason: null,
+  capturing: true,
+  captureKeyEnabled: true,
+  maxEntries: 200,
+  totalCaptured: 5123,
+  total: kafkaMessages.length,
+  messages: kafkaMessages
+}
+
 const restClientTraceEntries = [
   {
     id: 42,
@@ -3731,6 +3817,15 @@ const screenshots = [
       await page.getByText('HTML preview').waitFor()
     }
   ],
+  [
+    'kafka',
+    'Kafka',
+    'bootui-kafka.webp',
+    async (page) => {
+      await page.getByText('orders.created').first().waitFor()
+      await page.locator('.badge.text-bg-danger').waitFor()
+    }
+  ],
   ['architecture', 'Architecture', 'bootui-architecture.webp', waitForText('Packages should be free of cycles')],
   ['rest-api', 'REST API', 'bootui-rest-api.webp', waitForText("Don't expose JPA entities in responses")],
   ['spring', 'Spring', 'bootui-spring.webp', waitForText('Prefer RestClient over RestTemplate')],
@@ -4324,6 +4419,7 @@ async function handleApiRoute(route) {
       })
     )
   if (endpoint === 'email') return fulfillJson(route, email)
+  if (endpoint === 'kafka') return fulfillJson(route, kafka)
   if (endpoint === 'rest-client-trace') return fulfillJson(route, restClientTrace)
   if (endpoint === 'rest-client-trace/clear') return fulfillJson(route, restClientTrace)
   if (endpoint === 'rest-client-trace/recording') return fulfillJson(route, restClientTrace)

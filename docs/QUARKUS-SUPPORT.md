@@ -138,7 +138,7 @@ Small interfaces the shared engine calls; each framework implements them. Names 
 | `HttpExchangeProvider`         | Recent HTTP exchanges                                                | Actuator `HttpExchangeRepository`                           | Vert.x filter buffer                         |
 | `AuditEventProvider`           | Security audit events (Security Logs)                                | Actuator `AuditEventRepository`                             | CDI security events                          |
 | `SqlTraceSource`               | Captured SQL statements                                              | datasource-proxy                                            | Agroal / JDBC interceptor                    |
-| `KafkaActivityRecorder`        | Kafka messaging capture (Live Activity)                             | `KafkaTemplate` / `@KafkaListener` `BeanPostProcessor` wrap | SmallRye `Outgoing`/`IncomingInterceptor`    |
+| `KafkaActivityRecorder`        | Kafka messaging capture (Live Activity + the Kafka panel)           | `KafkaTemplate` / `@KafkaListener` `BeanPostProcessor` wrap | SmallRye `Outgoing`/`IncomingInterceptor`    |
 | `LogCaptureSource`             | Tailed log lines (Log Tail)                                          | logback appender                                            | JBoss LogManager handler                     |
 | `LocalhostGuardBinding`        | Feeds request metadata to the shared guard                           | servlet `Filter`                                            | Vert.x handler                               |
 
@@ -163,10 +163,10 @@ extension of the mechanism `App.vue` already uses, so the same UI build renders 
 > **Implementation status (current).** The Quarkus adapter now lights up the large majority of the panel set — all of
 > §5.1 and §5.2 below, plus the advisors (Architecture, the Quarkus application advisor replacing Spring, Hibernate,
 > Pentesting, a Quarkus-native Security advisor, REST API, Memory) and the §5.3 capture panels (HTTP Exchanges, Live
-> Activity, Log Tail, SQL Trace, Exceptions, Security Logs, Email). **Action-capable panels behave identically to Spring**,
+> Activity, Log Tail, SQL Trace, Exceptions, Security Logs, Email, Kafka). **Action-capable panels behave identically to Spring**,
 > behind the shared `LocalhostGuard` write floor: Heap Dump (capture/analyze/delete/download), Threads (download), the
 > advisor scans, Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Traces
-> (clear), Email (clear), and the MCP Server toggle. Only **GraalVM**, **CRaC**, **Conditions**, **Startup Timeline**, **HTTP
+> (clear), Email (clear), Kafka (clear), and the MCP Server toggle. Only **GraalVM**, **CRaC**, **Conditions**, **Startup Timeline**, **HTTP
 > Sessions**, **Spring Data**, **Spring Security**, and **DevTools** stay deliberately unavailable, each with a
 > panel-specific not-applicable reason. The per-panel `**Implemented**` markers below and `docs/FEATURES.md` carry the
 > authoritative, current per-platform detail.
@@ -202,7 +202,7 @@ simply match no classes and degrade to a no-op pass, while a few rules are alrea
 only, so a few fields are reduced fidelity — see §5 appendix) · `Overview` (panel available; the scoring dashboard
 aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome).
 
-### 5.3 Kept, with a rebuilt capture layer or reduced fidelity (9)
+### 5.3 Kept, with a rebuilt capture layer or reduced fidelity (10)
 
 The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on the reactive stack.
 
@@ -217,6 +217,7 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | `Security Logs`       | **Implemented** — captures Quarkus CDI security events into the shared `SecurityEventBuffer` via `QuarkusSecurityEventCapture` (a `@Observes SecurityEvent` observer), which replaces Spring's `AuditEventRepository`. Gated on `quarkus-security` (the observer is excluded by the deployment processor when no security extension is present, R2) and `quarkus.security.events.enabled=true` (panel reports unavailable with a clear message when events are disabled). Honest partial: Quarkus fires events only for authentication success/failure and authorization failure — no logout or session events (no Quarkus equivalent). SSE `/stream` ticks on each capture. Read-only (no write endpoints) |
 | `Log Tail`            | **Implemented** — captured via a `java.util.logging` `Handler` (`QuarkusLogTailHandler`) attached to the root JBoss LogManager logger at `StartupEvent` (detached at `ShutdownEvent` so dev-mode restarts never leak handlers). The handler feeds the shared `LogTailBuffer`; both `/recent` (snapshot) and the SSE `/stream` (live fan-out with atomic snapshot-then-subscribe to avoid gaps) are full-fidelity. BootUI's own loggers are self-filtered. Identical wire to Spring's Logback appender path |
 | `Email`               | **Implemented** — captured via a CDI `@Observes SentMail` observer (`QuarkusEmailCapture`) into the shared `EmailCaptureService`, replacing Spring's `CapturingJavaMailSender` decorator; one observer catches the blocking/reactive/Mutiny send styles (all funnel through the internal mailer that fires `io.quarkus.mailer.SentMail` after each successful send, mock or real). Gated on `quarkus-mailer` — the sole `io.quarkus.mailer`-importing class (`QuarkusEmailCapture`) is `provided`-scoped and excluded by the deployment `registerEmail` build step (class-presence check on `io.quarkus.mailer.reactive.ReactiveMailer`, non-prod only) when absent, R2; the mailer-free `EmailResource`/`EmailCaptureService` are always wired, so `GET /bootui/api/email` renders `available:false` with a `quarkus-mailer` hint rather than throwing. The `.eml` download delegates to the shared engine renderer so the bytes match Spring. Reduced fidelity: because the event fires *after* the send, there is no BootUI dev-trap — the sent/not-sent distinction instead reflects the framework's own mock-mail mode (`quarkus.mailer.mock`, default in dev/test), labelled **mock** in the UI; attachment size is unknown (the sent-attachment API exposes none). Content masking is identical (revealed by default, decoupled from `bootui.expose-values`; opt in with `bootui.email.mask-content=true`). `clear` (DELETE) behind the `LocalhostGuard` write floor |
+| `Kafka`               | **Implemented** — the standalone panel over the same shared `KafkaActivityRecorder`/`Capability.KAFKA` gate described in the `Live Activity` row above; `GET`/`DELETE /bootui/api/kafka` mirror Spring's `KafkaController` contract exactly (list newest-first, clear), and the same reduced-fidelity notes carry over unchanged: metadata-only capture (never the payload), a null consumer group id (`IncomingKafkaRecordMetadata` exposes none), the channel name used as the listener id, and a null producer duration (the ack callback carries no send-start timestamp). Reports unavailable with a `quarkus-messaging-kafka` hint when the capability is absent. `clear` (DELETE) behind the `LocalhostGuard` write floor |
 
 **Why the per-request profiler (`GET /bootui/api/activity/{id}`) is trace-id-only on Quarkus.** Spring's
 `/activity/request/{id}` profiler is a Symfony-style join across SQL, exceptions, security audit events, the distributed
@@ -504,6 +505,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Security Logs       | **done**    | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |
 | Log Tail            | **done**    | Rebuild | Log tail model                   | `LogCaptureSource` → JBoss LogManager       |
 | Email               | **done**    | Rebuild | Email capture service            | CDI `@Observes SentMail` observer → quarkus-mailer |
+| Kafka               | **done**    | Rebuild | `KafkaActivityRecorder`          | SmallRye `Outgoing`/`IncomingInterceptor` (`Capability.KAFKA`-gated); same recorder as Live Activity |
 | REST Client         | spring-only | Drop    | —                                 | no comparable runtime interception seam yet for the Quarkus-native REST client; see `docs/PLAN.md` §3.4 |
 | Spring              | **done**    | Replace | Scanning engine                  | new `Quarkus` advisor ruleset               |
 | Cache               | **done**    | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |

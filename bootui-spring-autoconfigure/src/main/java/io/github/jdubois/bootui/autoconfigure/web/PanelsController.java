@@ -191,6 +191,7 @@ public class PanelsController {
             case BootUiPanels.FLYWAY -> availability(flywayAvailable(), flywayUnavailableReason());
             case BootUiPanels.LIQUIBASE -> availability(liquibaseAvailable(), liquibaseUnavailableReason());
             case BootUiPanels.EMAIL -> availability(emailAvailable(), "No JavaMailSender bean is available");
+            case BootUiPanels.KAFKA -> availability(kafkaAvailable(), "No KafkaTemplate bean is available");
             case BootUiPanels.SECURITY -> availability(securityAvailable(), securityUnavailableReason());
             case BootUiPanels.AI -> availability(aiAvailable(), aiUnavailableReason());
             case BootUiPanels.COPILOT ->
@@ -362,6 +363,11 @@ public class PanelsController {
     private boolean emailAvailable() {
         return classPresent("org.springframework.mail.javamail.JavaMailSender")
                 && beanPresent("org.springframework.mail.javamail.JavaMailSender");
+    }
+
+    private boolean kafkaAvailable() {
+        return classPresent("org.springframework.kafka.core.KafkaTemplate")
+                && beanPresent("org.springframework.kafka.core.KafkaTemplate");
     }
 
     private boolean beanPresent(String className) {

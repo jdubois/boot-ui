@@ -145,6 +145,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Services        | REST Client               | `rest-client-trace`         | `bootui.panels.rest-client-trace.enabled`         | `bootui.panels.rest-client-trace.read-only` |
 | Services        | Cache                     | `cache`                     | `bootui.panels.cache.enabled`                     | `bootui.panels.cache.read-only`           |
 | Services        | Email                     | `email`                     | `bootui.panels.email.enabled`                     | `bootui.panels.email.read-only`           |
+| Services        | Kafka                     | `kafka`                     | `bootui.panels.kafka.enabled`                     | `bootui.panels.kafka.read-only`           |
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
@@ -413,6 +414,17 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | `bootui.email.max-entries`        | `100`   | Maximum number of captured messages retained; the oldest is evicted once full.                                        |
 | `bootui.email.dev-trap`           | `false` | On Spring, when `true`, captured messages are recorded but never actually handed to the real mail transport. On Quarkus, sent/not-sent instead reflects `quarkus.mailer.mock` because capture happens after send. |
 | `bootui.email.mask-content`       | `false` | When `true`, mask recipients/subject/body (like Configuration's secret masking) unless `bootui.expose-values=FULL`. Email content is not a config secret, so BootUI reveals it by default (matching Laravel Telescope's Mail watcher); enable this for teams that route real customer PII through a shared dev environment. |
+
+### Kafka
+
+The Kafka panel is a dedicated, filterable view over the same producer/consumer capture that feeds Live Activity's
+`MESSAGING` entries — see "Live Activity Kafka capture" above for the shared `bootui.kafka.*` capture properties
+(`enabled`, `capture-key`, `max-entries`, `max-key-length`), which tune both surfaces identically.
+
+| Property                       | Default | Description                                                                                                                                        |
+| -------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.kafka.enabled`   | `true`  | Show the Kafka panel when a Kafka integration is present (`KafkaTemplate` on Spring, or `quarkus-messaging-kafka` with a configured channel on Quarkus). |
+| `bootui.panels.kafka.read-only` | `false` | Disable the clear action while keeping captured messages visible.                                                                                  |
 
 ### Exceptions
 

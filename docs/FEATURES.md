@@ -1226,6 +1226,34 @@ exposes none.
 
 ![BootUI Email panel](./images/bootui-email.webp)
 
+### Kafka
+
+The Kafka panel is a dedicated, filterable view over the same producer/consumer capture that already feeds `MESSAGING`
+entries into Live Activity (see above): every application-owned `KafkaTemplate` send and `@KafkaListener` consume is
+recorded into a bounded ring buffer, newest-first, without altering delivery. Each row shows the timestamp, direction
+(produced/consumed, with an icon), topic, partition, offset (consumed records only — a produced record's offset isn't
+known at send time), a short hash of the key, processing duration (consume only; a producer send's duration is not
+exposed by either framework's callback), success/failure with the underlying error available on hover, and — for
+consumed records — the consumer group id and listener identifier. As with Live Activity, **the message value/payload is
+never captured, only metadata**, since a Kafka payload is an arbitrary, potentially large and sensitive application
+object with no generic masking strategy. A text filter matches topic, key, group, and listener, a direction filter
+isolates produced or consumed records, and the whole buffer can be cleared.
+
+Capture is on by default whenever a Kafka integration is present and the panel is enabled, and is tuned through the same
+`bootui.kafka.*` properties Live Activity uses (`enabled`, `capture-key`, `max-entries`, `max-key-length`) — see
+`docs/PROPERTIES.md`. Turning off key capture (`bootui.kafka.capture-key=false`) is reflected in the panel with a notice
+instead of blank hashes, and turning off capture entirely (`bootui.kafka.enabled=false`) leaves already-captured
+messages visible with a similar notice. The panel is available only when a `KafkaTemplate` bean is present (e.g.
+`spring-kafka`); otherwise it reports a clear unavailable reason.
+
+On Quarkus the panel is identical, running over the same shared engine `KafkaActivityRecorder` and the same
+`/bootui/api/kafka` contract (list/clear); the same difference already documented for Live Activity applies here too —
+the listener identifier is the channel name rather than a listener container factory bean name. The panel is available
+when `quarkus-messaging-kafka` is on the classpath with at least one `@Incoming`/`@Outgoing` channel configured (and
+dark in production); otherwise it reports a clear unavailable reason.
+
+![BootUI Kafka panel](./images/bootui-kafka.webp)
+
 ### AI Usage
 
 The AI Usage panel summarizes Spring AI and LangChain4j activity collected from OpenTelemetry spans emitted by their

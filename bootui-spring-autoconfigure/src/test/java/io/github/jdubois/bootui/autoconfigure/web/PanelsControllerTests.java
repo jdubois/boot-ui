@@ -73,7 +73,8 @@ class PanelsControllerTests {
             BootUiPanels.REST_CLIENT_TRACE,
             BootUiPanels.MCP_SERVER,
             BootUiPanels.ACTIVITY,
-            BootUiPanels.EMAIL);
+            BootUiPanels.EMAIL,
+            BootUiPanels.KAFKA);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {

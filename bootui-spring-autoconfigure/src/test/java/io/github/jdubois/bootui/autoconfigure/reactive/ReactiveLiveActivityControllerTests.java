@@ -570,6 +570,35 @@ class ReactiveLiveActivityControllerTests {
     }
 
     @Test
+    void mergedReportOmitsKafkaMessagesWhenKafkaPanelDisabled() {
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 50);
+        kafka.recordProduce("orders", 0, "order-1", 1L, true, null);
+
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.KAFKA).setEnabled(false);
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                provider(kafka),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        assertThat(controller.mergedReport(0).entries()).isEmpty();
+    }
+
+    @Test
     void mergedReportIncludesEmailMessagesWhenAvailable() {
         EmailController email = mock(EmailController.class);
         EmailMessageDto message = new EmailMessageDto(

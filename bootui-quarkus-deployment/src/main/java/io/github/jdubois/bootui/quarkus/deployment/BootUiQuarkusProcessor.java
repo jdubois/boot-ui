@@ -1361,18 +1361,21 @@ class BootUiQuarkusProcessor {
      * is present, both are registered and pinned unremovable (SmallRye resolves them via {@code Instance}
      * lookups Arc's usage analysis cannot see).</p>
      *
-     * <p>No panel-availability key is needed: Live Activity is always available and Kafka is only an
-     * additional <em>source</em> within it. The always-produced {@code KafkaActivityRecorder} (see
-     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) simply stays empty when no capture
-     * interceptor is wired, so {@code LiveActivityResource} renders no {@code MESSAGING} entries until
-     * {@code quarkus-messaging-kafka} is added — exactly as on Spring without {@code spring-kafka}.</p>
+     * <p>This same capability gate also lights up the dedicated Kafka panel: {@link
+     * QuarkusPanelAvailability#KAFKA_PRESENT_KEY} is emitted alongside the interceptor registration, exactly
+     * as {@link #registerCacheAdvisor} emits {@code CACHE_PRESENT_KEY}. The always-produced {@code
+     * KafkaActivityRecorder} (see {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) simply stays
+     * empty when no capture interceptor is wired, so both the Kafka panel and {@code LiveActivityResource}
+     * render no messages/{@code MESSAGING} entries until {@code quarkus-messaging-kafka} is added — exactly as
+     * on Spring without {@code spring-kafka}.</p>
      */
     @BuildStep
     void registerKafkaCapture(
             LaunchModeBuildItem launchMode,
             Capabilities capabilities,
             BuildProducer<AdditionalBeanBuildItem> additionalBeans,
-            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.KAFKA);
         if (present) {
             additionalBeans.produce(AdditionalBeanBuildItem.builder()
@@ -1380,11 +1383,13 @@ class BootUiQuarkusProcessor {
                     .addBeanClass(KAFKA_CONSUMER_CAPTURE_CLASS)
                     .setUnremovable()
                     .build());
+            runtimeDefaults.produce(
+                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.KAFKA_PRESENT_KEY, "true"));
         } else {
             // No quarkus-messaging-kafka (or production): keep the SmallRye-messaging-importing interceptors out
             // of bean discovery so Arc never loads them and links the messaging API. The recorder still wires via
             // the always-produced KafkaActivityRecorder and stays empty, so Live Activity renders no MESSAGING
-            // entries.
+            // entries and the Kafka panel reports itself unavailable (KAFKA_PRESENT_KEY defaults to false).
             excludedTypes.produce(new ExcludedTypeBuildItem(KAFKA_PRODUCER_CAPTURE_CLASS));
             excludedTypes.produce(new ExcludedTypeBuildItem(KAFKA_CONSUMER_CAPTURE_CLASS));
         }

@@ -197,6 +197,30 @@ describe('deepLink', () => {
     expect(deepLink({type: 'MAIL', summary: 'Order shipped'})).toBeNull()
   })
 
+  it('links a messaging entry to the Kafka panel filtered by topic', () => {
+    expect(deepLink({type: 'MESSAGING', summary: '→ orders.created [0]'})).toEqual({
+      path: '/kafka',
+      query: {q: 'orders.created'},
+      label: 'Open in Kafka'
+    })
+    expect(deepLink({type: 'MESSAGING', summary: '← orders.created'})).toEqual({
+      path: '/kafka',
+      query: {q: 'orders.created'},
+      label: 'Open in Kafka'
+    })
+  })
+
+  it('links a messaging entry with no parsable topic to the Kafka panel without a filter', () => {
+    expect(deepLink({type: 'MESSAGING', summary: ''})).toEqual({
+      path: '/kafka',
+      label: 'Open in Kafka'
+    })
+    expect(deepLink({type: 'MESSAGING'})).toEqual({
+      path: '/kafka',
+      label: 'Open in Kafka'
+    })
+  })
+
   it('returns null for security entries and unknown types', () => {
     expect(deepLink({type: 'SECURITY', summary: 'AUTHENTICATION_FAILURE'})).toBeNull()
     expect(deepLink(null)).toBeNull()
