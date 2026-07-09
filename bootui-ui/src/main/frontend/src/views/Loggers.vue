@@ -2,7 +2,9 @@
 import {apiFetch} from '../api.js'
 import {onMounted, ref, watch} from 'vue'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useFlashMessage} from '../utils/useFlashMessage.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
+import FlashBanner from './components/FlashBanner.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
@@ -10,8 +12,7 @@ import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const filter = ref('')
-const message = ref(null)
-const messageType = ref('success')
+const {message, flash, clear} = useFlashMessage(3000)
 
 const {
   data,
@@ -37,7 +38,7 @@ const {
 
 async function changeLevel(logger, level) {
   if (readOnly.value) {
-    showMessage(readOnlyReason.value, 'warning')
+    flash(readOnlyReason.value, 'warning')
     return
   }
   const body = level ? {level} : {}
@@ -50,16 +51,8 @@ async function changeLevel(logger, level) {
     const updated = await res.json()
     const i = data.value.loggers.findIndex((l) => l.name === logger.name)
     if (i >= 0) data.value.loggers[i] = updated
-    showMessage(`Level updated for ${logger.name}`)
+    flash(`Level updated for ${logger.name}`)
   }
-}
-
-function showMessage(text, type = 'success') {
-  message.value = text
-  messageType.value = type
-  setTimeout(() => {
-    message.value = null
-  }, 3000)
 }
 
 const levelClass = (l) =>
@@ -81,7 +74,7 @@ watch(filter, scheduleReload)
   <div>
     <PanelHeader icon="bi-journal-text" title="Loggers" :error="error" />
     <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">Logger levels are read-only.</ReadOnlyNotice>
-    <div v-if="message" :class="'alert-' + messageType" class="alert">{{ message }}</div>
+    <FlashBanner :message="message" @dismiss="clear" />
     <input v-model="filter" class="form-control mb-3" placeholder="Filter loggers by name…" />
     <p v-if="data" class="small text-muted">{{ matchedCount }} of {{ totalCount }} loggers matched</p>
     <div class="table-responsive">
