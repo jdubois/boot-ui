@@ -25,6 +25,11 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!--
             The reusable conformance base classes live in src/main so other modules can extend them in
             test scope, hence JUnit/Jackson/AssertJ are compile-scoped here. Versions come from the

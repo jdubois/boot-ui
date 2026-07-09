@@ -77,6 +77,17 @@ npm install
 npm test
 ```
 
+### Panel metadata workflow
+
+Panel id/title/group/order/action-capable metadata is centrally tracked in:
+
+- `bootui-conformance/src/main/resources/io/github/jdubois/bootui/conformance/panel-catalog.json`
+
+When adding, renaming, or moving a panel, update that catalog first, then update
+the affected implementation files (`routes.js`, `BootUiPanels`, and any docs). CI
+now validates that the catalog, backend panel registry, conformance manifests, and
+`docs/FEATURES.md` stay aligned.
+
 Run the browser end-to-end suite when you change the UI, browser-facing API responses, or sample-app behavior:
 
 ```bash
