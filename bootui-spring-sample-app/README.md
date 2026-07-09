@@ -10,9 +10,9 @@ the Playwright suite under `e2e/` exercises.
 - BootUI auto-activating in local development (the `dev`/`docker` profiles, or via `spring-boot-devtools`).
 - A relational Spring Data repository so the Spring Data panel has data to show
   (in-memory H2 by default, PostgreSQL with the `docker` profile).
-- Optional PostgreSQL, Redis, and Ollama Docker Compose services (`compose.yaml`, enabled by the `docker` profile) so the
-  Spring Data, Database Connection Pools, Cache, AI Usage, and Dev Services panels have realistic infrastructure
-  to show.
+- Optional PostgreSQL, Redis, Kafka, and Ollama Docker Compose services (`compose.yaml`, enabled by the `docker`
+  profile) so the Spring Data, Database Connection Pools, Cache, Kafka, AI Usage, and Dev Services panels have
+  realistic infrastructure to show.
 - Flyway migrations (the `catalog_*` tables) and Liquibase change sets (the separate
   `inventory_*` tables) with two pending updates each so the Flyway and Liquibase actions can be exercised manually.
 - Spring Security, scheduled tasks, custom metrics, and a small static welcome
@@ -46,15 +46,15 @@ runs this same Docker-free `dev` profile.
 
 ## Run it with Docker
 
-For the full experience — Postgres, Redis, Ollama, and every panel populated — activate the `docker` profile from the
-repository root:
+For the full experience — Postgres, Redis, Kafka, Ollama, and every panel populated — activate the `docker` profile
+from the repository root:
 
 ```bash
 ./mvnw -pl bootui-spring-sample-app spring-boot:run -Dspring-boot.run.profiles=docker
 ```
 
-Spring Boot will start Docker Compose, wait for Postgres, Redis, and Ollama, pull the small `qwen2.5:0.5b` chat model
-when missing, and then bind the sample app to `http://localhost:8080`.
+Spring Boot will start Docker Compose, wait for Postgres, Redis, Kafka, and Ollama, pull the small `qwen2.5:0.5b` chat
+model when missing, and then bind the sample app to `http://localhost:8080`.
 
 ## Visit BootUI
 
@@ -105,19 +105,22 @@ and AI Usage steps note where the `docker` profile adds Postgres/Redis/Ollama-ba
 12. **Cache** — verify the in-memory (`ConcurrentHashMap`) `sample-products`
     and `sample-greetings` caches are listed (Redis-backed with the `docker`
     profile), inspect cache annotations, and clear a cache after confirming the action.
-13. **Dev Services** — in the default Docker-free mode no containers are listed;
+13. **Kafka** — unavailable in the default Docker-free mode (no `KafkaTemplate` bean); with the `docker` profile,
+    click **Send Kafka message** on the welcome page and watch the produce/consume pair for the `orders.created`
+    topic appear in the panel.
+14. **Dev Services** — in the default Docker-free mode no containers are listed;
     with the `docker` profile the Postgres and Redis Docker Compose entries appear
     and their service-connection metadata matches the actual mapped ports.
-14. **Spring Security and Security Logs** — inspect filter chains, endpoint rule explanations, and recent masked audit
+15. **Spring Security and Security Logs** — inspect filter chains, endpoint rule explanations, and recent masked audit
     events.
-15. **Traces, Log Tail, HTTP Exchanges, Architecture, Pentesting, Vulnerabilities** — inspect local telemetry, logs,
+16. **Traces, Log Tail, HTTP Exchanges, Architecture, Pentesting, Vulnerabilities** — inspect local telemetry, logs,
     inbound requests, and run explicit local scans as development hygiene prompts.
-16. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
+17. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
     external host and confirm it is rejected as non-loopback.
-17. **AI Usage** — the Chat and AI Usage panels report AI is unavailable in the
+18. **AI Usage** — the Chat and AI Usage panels report AI is unavailable in the
     default mode; with the `docker` profile, exercise the sample AI endpoints and
     local AI helper paths, then inspect the retained in-memory spans and token summaries.
-18. **DevTools, Dev Services, Copilot, Claude Code** — confirm the developer-tool panels show local status, bounded service
+19. **DevTools, Dev Services, Copilot, Claude Code** — confirm the developer-tool panels show local status, bounded service
     metadata/logs, and sanitized local agent activity.
 
 ## Stop it

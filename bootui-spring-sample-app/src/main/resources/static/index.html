@@ -330,6 +330,11 @@
           <small>Inspect: Email</small>
         </article>
         <article class="test-action">
+          <button class="button" id="send-kafka-button" type="button">Send Kafka message</button>
+          <p>Calls <code>GET /api/sample/send-kafka-message</code> to publish a demo "order created" event.</p>
+          <small>Inspect: Kafka (requires the "docker" profile)</small>
+        </article>
+        <article class="test-action">
           <button class="button" id="quarkus-cross-service-button" type="button">Call the Quarkus sample app</button>
           <p>
             Calls <code>GET /api/sample/quarkus-secure-products</code>, which this Spring Boot app uses to call the
@@ -394,6 +399,7 @@
   const quarkusCrossServiceButton = document.getElementById('quarkus-cross-service-button')
   const authFailButton = document.getElementById('auth-fail-button')
   const sendEmailButton = document.getElementById('send-email-button')
+  const sendKafkaButton = document.getElementById('send-kafka-button')
   const sessionDataButton = document.getElementById('session-data-button')
   const sessionDataStatus = document.getElementById('session-data-status')
   const sampleActionStatus = document.getElementById('sample-action-status')
@@ -686,6 +692,17 @@
         throw new Error(text)
       }
       showSampleResult('Test email sent', `${text}\n\nOpen BootUI Email to inspect the captured message.`)
+    })
+  )
+
+  sendKafkaButton.addEventListener('click', () =>
+    runSampleAction(sendKafkaButton, 'Publishing Kafka message...', async () => {
+      const response = await fetch('/api/sample/send-kafka-message')
+      const text = await readTextResponse(response)
+      if (!response.ok) {
+        throw new Error(text)
+      }
+      showSampleResult('Kafka message published', `${text}\n\nOpen BootUI Kafka to inspect the captured event.`)
     })
   )
 
