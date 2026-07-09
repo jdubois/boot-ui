@@ -31,9 +31,6 @@ import java.util.regex.Pattern;
  */
 public final class RestClientTraceGrouping {
 
-    /** Default chatty-call threshold used where no configured value is supplied. */
-    public static final int DEFAULT_CHATTY_THRESHOLD = 5;
-
     /** Maximum distinct call sites retained per group, most-recently-seen first. */
     public static final int MAX_CALL_SITES_PER_GROUP = 5;
 

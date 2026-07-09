@@ -8,13 +8,7 @@ import java.util.Properties;
  */
 public final class BootUiInfo {
 
-    public static final String NAME = "BootUI";
-
     public static final String VERSION = readVersion();
-
-    public static final String DEFAULT_PATH = "/bootui";
-
-    public static final String DEFAULT_API_PATH = "/bootui/api";
 
     private BootUiInfo() {}
 
