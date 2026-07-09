@@ -213,6 +213,47 @@ describe('LiveActivity', () => {
     expect(scheduledLink.text()).toContain('3')
   })
 
+  it('renders a mail entry with a deep link to its message in the Email panel', async () => {
+    const mailEntry = {
+      id: 'msg-1',
+      type: 'MAIL',
+      timestamp: 1700000000000,
+      severity: 'OK',
+      summary: 'Order shipped',
+      detail: 'to customer@example.com',
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'mail-1',
+      profileable: false,
+      parentId: null,
+      securedPrincipal: null,
+      sqlNPlusOneSuspected: false
+    }
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport({
+          typeCounts: {REQUEST: 0, SQL: 0, EXCEPTION: 0, SECURITY: 0, MAIL: 1},
+          entries: [mailEntry]
+        }),
+        requestProfile()
+      )
+    )
+
+    wrapper = mount(LiveActivity)
+    await flushPromises()
+
+    const row = wrapper.get('tbody tr')
+    expect(row.text()).toContain('MAIL')
+    expect(row.find('i.bi-envelope').exists()).toBe(true)
+
+    const mailLink = row.find('[title="Open in Email"]')
+    expect(mailLink.exists()).toBe(true)
+  })
+
   it('shows call sites for a flagged SQL group in the request profile drawer', async () => {
     vi.stubGlobal(
       'fetch',

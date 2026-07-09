@@ -185,6 +185,18 @@ describe('deepLink', () => {
     })
   })
 
+  it('links a mail entry to the Email panel by its id, opening that message directly', () => {
+    expect(deepLink({type: 'MAIL', id: 'msg-1', summary: 'Order shipped'})).toEqual({
+      path: '/email',
+      query: {id: 'msg-1'},
+      label: 'Open in Email'
+    })
+  })
+
+  it('returns null for a mail entry without an id', () => {
+    expect(deepLink({type: 'MAIL', summary: 'Order shipped'})).toBeNull()
+  })
+
   it('returns null for security entries and unknown types', () => {
     expect(deepLink({type: 'SECURITY', summary: 'AUTHENTICATION_FAILURE'})).toBeNull()
     expect(deepLink(null)).toBeNull()
