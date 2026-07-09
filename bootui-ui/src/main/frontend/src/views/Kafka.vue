@@ -15,7 +15,7 @@ import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
-const {readOnly, readOnlyReason} = usePanelState(props)
+const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
@@ -43,7 +43,10 @@ onMounted(() => {
   }
 })
 
-const {autoRefresh, loading, load} = useAutoRefresh(fetchKafka)
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchKafka, {
+  enabled: manifestAvailable,
+  initialLoading: false
+})
 
 const messages = computed(() => report.value?.messages ?? [])
 
@@ -57,8 +60,18 @@ const filteredMessages = computed(() => {
   })
 })
 
+// Whether the panel manifest already knows Kafka can't be used (no KafkaTemplate bean, or explicitly
+// disabled): the backing endpoint may not even be wired in that case (see KafkaController's
+// @ConditionalOnClass), so fetchKafka() is gated on manifestAvailable via useAutoRefresh and never runs —
+// avoiding a 404 in favor of this manifest-driven explanation.
+const available = computed(() => manifestAvailable.value && report.value?.available !== false)
+const unavailableReason = computed(() => {
+  if (!manifestAvailable.value) return manifestUnavailableReason.value
+  return report.value?.unavailableReason || 'Kafka capture is unavailable.'
+})
+
 const subtitle = computed(() => {
-  if (!report.value || !report.value.available) return null
+  if (!available.value || !report.value) return null
   const parts = [
     `${formatNumber(report.value.total)} retained`,
     `${formatNumber(report.value.totalCaptured)} captured since startup`
@@ -122,6 +135,8 @@ async function clearAll() {
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
+      :refreshable="manifestAvailable"
+      :auto-refreshable="manifestAvailable"
       v-model:auto-refresh="autoRefresh"
       @refresh="load"
     >
@@ -139,12 +154,12 @@ async function clearAll() {
 
     <FlashBanner :message="banner" @dismiss="clear" />
 
-    <PanelSkeleton v-if="loading && !report" />
+    <PanelSkeleton v-if="initialLoading && manifestAvailable" />
 
-    <template v-else-if="report">
-      <div v-if="!report.available" class="alert alert-warning">
+    <template v-else-if="!manifestAvailable || report">
+      <div v-if="!available" class="alert alert-warning">
         <strong>Kafka capture is unavailable.</strong>
-        <span class="d-block small">{{ report.unavailableReason }}</span>
+        <span class="d-block small">{{ unavailableReason }}</span>
       </div>
 
       <template v-else>
