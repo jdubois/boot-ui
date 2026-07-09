@@ -1,4 +1,4 @@
-name: Build
+name: Build (Java 17 baseline)
 
 on:
   push:

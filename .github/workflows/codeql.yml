@@ -1,5 +1,7 @@
 name: CodeQL
 
+# Security analysis stays on the Java 17 release baseline; focused Java 21/25 runtime
+# compatibility is covered by .github/workflows/jdk-compatibility.yml.
 on:
   push:
     branches: [ main ]

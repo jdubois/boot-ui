@@ -41,6 +41,8 @@ jobs:
           fetch-depth: 0
 
       - name: Set up JDK 17
+        # Releases stay on the Java 17 baseline; broader JDK compatibility is
+        # validated in CI by .github/workflows/jdk-compatibility.yml.
         uses: actions/setup-java@v5
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
