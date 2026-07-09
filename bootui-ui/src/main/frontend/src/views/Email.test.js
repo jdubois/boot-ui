@@ -2,6 +2,10 @@ import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {ref} from 'vue'
 
+const routeQuery = {}
+
+vi.mock('vue-router', () => ({useRoute: () => ({query: routeQuery})}))
+
 import Email from './Email.vue'
 
 function jsonResponse(body, ok = true, status = 200) {
@@ -67,6 +71,7 @@ describe('Email panel', () => {
     wrapper?.unmount()
     wrapper = null
     vi.unstubAllGlobals()
+    routeQuery.id = undefined
   })
 
   it('shows an unavailable notice when no JavaMailSender bean is present', async () => {
@@ -106,6 +111,29 @@ describe('Email panel', () => {
     expect(frame.attributes('srcdoc')).toContain('Your order is on the way')
     expect(frame.attributes('sandbox')).toBe('')
     expect(wrapper.text()).toContain('invoice.pdf')
+  })
+
+  it('opens the matching message detail drawer directly from a Live Activity ?id= deep link', async () => {
+    routeQuery.id = 'msg-1'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(reportWithMessages())))
+    wrapper = mount(Email)
+    await flushPromises()
+
+    const frame = wrapper.find('iframe.email-html-frame')
+    expect(frame.exists()).toBe(true)
+    expect(frame.attributes('srcdoc')).toContain('Your order is on the way')
+
+    const viewButton = wrapper.findAll('button').find((b) => b.text() === 'Close')
+    expect(viewButton).toBeTruthy()
+  })
+
+  it('ignores an ?id= deep link that does not match any captured message', async () => {
+    routeQuery.id = 'no-such-id'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(reportWithMessages())))
+    wrapper = mount(Email)
+    await flushPromises()
+
+    expect(wrapper.find('iframe.email-html-frame').exists()).toBe(false)
   })
 
   it('filters messages by sender, recipient, or subject', async () => {

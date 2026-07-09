@@ -115,7 +115,9 @@ signal.
 Every row is also a launchpad: clicking anywhere on a request row opens its profiler, and each row carries a deep link
 that jumps to the dedicated panel with the originating record pre-filtered — requests open in **HTTP Exchanges**, SQL in
 **SQL Trace**, REST client calls in **REST Client**, exceptions in **Exceptions**, cache accesses in **Cache**,
-and scheduled-task runs in **Scheduled Tasks**. REST client calls nest under their correlated request in the stream
+scheduled-task runs in **Scheduled Tasks**, and captured emails open the very same message's detail drawer in **Email**
+(the `MAIL` entry's id is the captured message's own id, so the link opens that exact email rather than only a
+filtered list). REST client calls nest under their correlated request in the stream
 using the same trace-id-first, serving-thread-second join described below for SQL, exactly like cache accesses and
 emails — but, unlike SQL, exceptions, and security events, none of REST client calls, cache accesses, or scheduled-task
 runs are yet part of the per-request profiler drawer's correlated timeline or **Copy profile** export; that

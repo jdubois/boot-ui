@@ -134,8 +134,10 @@ export function bucketEntries(entries, bucketCount = 24) {
 
 /**
  * Build a deep link from a merged stream entry to the dedicated panel that owns that signal, so the
- * Live Activity view is a launchpad rather than a dead end. The link prefills the target panel's
- * free-text filter (read from {@code ?q=}) to surface the originating record.
+ * Live Activity view is a launchpad rather than a dead end. Most link types prefill the target panel's
+ * free-text filter (read from {@code ?q=}) to surface the originating record; {@code MAIL} instead links
+ * by {@code ?id=} since a captured email's entry id is the same stable id the Email panel uses to open
+ * that exact message's detail drawer.
  *
  * Returns {@code null} for entry types without a dedicated drill-down (for example SECURITY) or when
  * there is no useful needle to filter by.
@@ -164,6 +166,8 @@ export function deepLink(entry) {
     }
     case 'CACHE':
       return {path: '/cache', label: 'Open in Cache'}
+    case 'MAIL':
+      return entry.id ? {path: '/email', query: {id: entry.id}, label: 'Open in Email'} : null
     default:
       return null
   }

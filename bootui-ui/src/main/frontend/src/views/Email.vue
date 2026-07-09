@@ -1,6 +1,7 @@
 <script setup>
 import {apiFetch, getJson} from '../api.js'
-import {computed, inject, ref} from 'vue'
+import {computed, inject, onMounted, ref} from 'vue'
+import {useRoute} from 'vue-router'
 import {formatBytes} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -53,6 +54,17 @@ const filteredMessages = computed(() => {
 })
 
 const selected = computed(() => messages.value.find((m) => m.id === selectedId.value) || null)
+
+// Deep-linked from Live Activity (see `deepLink` in utils/activityStream.js): a MAIL entry there
+// shares its id with the captured message here, so `?id=` opens that message's detail drawer directly
+// instead of only prefilling a filter like the other panels' `?q=` deep links do.
+const route = useRoute()
+onMounted(() => {
+  const targetId = route?.query?.id
+  if (typeof targetId === 'string' && targetId) {
+    selectedId.value = targetId
+  }
+})
 
 function toggle(id) {
   selectedId.value = id === selectedId.value ? null : id
