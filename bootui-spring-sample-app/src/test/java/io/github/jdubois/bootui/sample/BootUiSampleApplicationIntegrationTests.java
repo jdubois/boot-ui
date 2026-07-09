@@ -55,6 +55,8 @@ import org.springframework.web.client.RestClient;
                     + "org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration,"
                     + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,"
                     + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration,"
+                    + "org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration,"
+                    + "org.springframework.boot.kafka.autoconfigure.metrics.KafkaMetricsAutoConfiguration,"
                     + "org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration,"
                     + "org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration,"
                     + "org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration",

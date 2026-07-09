@@ -13,6 +13,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Activity's `MESSAGING` entries: direction, topic, partition, offset, key hash, duration, and success/failure, with
   the message value/payload never captured. Ships in the Services group just under Email, on both Spring and
   Quarkus, reusing the existing `bootui.kafka.*` capture properties and adding `bootui.panels.kafka.*` panel toggles.
+- **Kafka support in the Spring sample app's `docker` profile** — a single-node KRaft `compose.yaml` service
+  (`apache/kafka`) plus a `spring-boot-starter-kafka` dependency, a seeded `orders.created` producer/listener pair,
+  and a **Send Kafka message** demo button, so the new Kafka panel has real produce/consume activity to show. The
+  `dev` profile stays Docker-free by excluding Kafka autoconfiguration.
 
 ## [1.11.0] - 2026-07-09
 

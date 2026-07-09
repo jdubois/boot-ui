@@ -3,9 +3,10 @@ import {expect, test} from '@playwright/test'
 
 // These checks only run when the sample app was booted with the full Docker stack (the `docker`
 // Spring profile, set via BOOTUI_SAMPLE_PROFILES=docker by the weekly "Docker configuration"
-// workflow). They assert the runtime genuinely uses PostgreSQL, Redis, and Ollama instead of the
-// Docker-free `dev` defaults (H2, an in-memory cache, disabled Spring AI), so a green run actually
-// proves the Docker-based configuration works rather than passing in a broadly compatible mode.
+// workflow). They assert the runtime genuinely uses PostgreSQL, Redis, Kafka, and Ollama instead of
+// the Docker-free `dev` defaults (H2, an in-memory cache, no KafkaTemplate, disabled Spring AI), so a
+// green run actually proves the Docker-based configuration works rather than passing in a broadly
+// compatible mode.
 const dockerProfileActive = (process.env.BOOTUI_SAMPLE_PROFILES || '')
   .split(',')
   .map((profile) => profile.trim())
@@ -53,5 +54,20 @@ test.describe('Docker profile smoke checks', () => {
     const body = await response.json()
     expect(typeof body.reply).toBe('string')
     expect(body.reply.length).toBeGreaterThan(0)
+  })
+
+  test('captures a real Kafka produce/consume round trip', async ({request}) => {
+    const sendResponse = await request.get('/api/sample/send-kafka-message')
+    expect(sendResponse.ok()).toBeTruthy()
+
+    const response = await request.get('/bootui/api/kafka')
+    expect(response.ok()).toBeTruthy()
+    const kafka = await response.json()
+    expect(kafka.available).toBeTruthy()
+    const topics = (kafka.messages || []).map((message) => message.topic)
+    expect(topics).toContain('orders.created')
+    const directions = (kafka.messages || []).map((message) => message.direction)
+    expect(directions).toContain('PRODUCE')
+    expect(directions).toContain('CONSUME')
   })
 })
