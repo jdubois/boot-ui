@@ -184,7 +184,7 @@ lookup, a thin Jackson-2 `QuarkusMcpEnvelope` codec + `QuarkusMcpTools` catalog 
 `LocalhostGuard` write floor) · `Dev Services` (**Implemented** — a Quarkus-native concept; build-time
 `DevServicesResultBuildItem` snapshot captured via recorder + synthetic bean, masked config, logs/restart unavailable).
 
-### 5.2 Ported by swapping the data source (10)
+### 5.2 Ported by swapping the data source (11)
 
 Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quarkus API.
 
@@ -198,8 +198,9 @@ discovered via `LiquibaseFactoryUtil.getActiveLiquibaseFactories()`, the shared 
 action behind the same DTO contract) · `Scheduled Tasks`
 (→ `quarkus-scheduler`) · `Architecture` advisor (ArchUnit engine + rules run unmodified; Spring-stereotype rules
 simply match no classes and degrade to a no-op pass, while a few rules are already dual-framework via the shared
-`jakarta.*` annotations) · `Overview` (panel available; the scoring dashboard aggregates the advisor endpoints client-side, and
-`GET /bootui/api/overview` reports the Quarkus version + shell chrome).
+`jakarta.*` annotations) · `Beans` (**Implemented** — → Arc/CDI `BeanManager.getBeans(...)`, build-time-retained beans
+only, so a few fields are reduced fidelity — see §5 appendix) · `Overview` (panel available; the scoring dashboard
+aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome).
 
 ### 5.3 Kept, with a rebuilt capture layer or reduced fidelity (9)
 
@@ -284,12 +285,13 @@ store swapped and capturing on success — all behind the shared `LocalhostGuard
 true, "tableName": "bootui_activity"}`) the Vue UI reads to render the "Currently saving N events in memory" tip and
 the **Use a database** button/confirmation flow, so the panel behaves and looks identical on both adapters.
 
-### 5.4 Replaced with a Quarkus-native panel (2)
+### 5.4 Replaced with a Quarkus-native panel (3)
 
-| Spring panel     | Quarkus replacement                                                                                    |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| `Spring` advisor | **Implemented** — **`Quarkus` advisor**: new Quarkus-native ruleset over the shared scanning engine (CDI/Arc scopes, build-time config, reactive idioms, profiles) under the same panel id `spring` + `/bootui/api/spring` + `SpringReport`. See [QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md) |
-| `Cache`          | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven) |
+| Spring panel        | Quarkus replacement                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| `Spring` advisor    | **Implemented** — **`Quarkus` advisor**: new Quarkus-native ruleset over the shared scanning engine (CDI/Arc scopes, build-time config, reactive idioms, profiles) under the same panel id `spring` + `/bootui/api/spring` + `SpringReport`. See [QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md) |
+| `Cache`             | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven) |
+| `Security` advisor  | **Implemented** — a Quarkus-native ruleset (Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS, `@RolesAllowed`) under the same panel id `security`, replacing the Spring-Security-coupled checks. See [QUARKUS-CHECKS.md](QUARKUS-CHECKS.md) |
 
 ### 5.5 Dropped on Quarkus (8)
 
@@ -305,12 +307,12 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
   it niche), `DevTools` (**Implemented as `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
   Spring-style DevTools restart/LiveReload to expose; the panel reports *not applicable* rather than *not yet*).
 
-**Result:** 39 of the ~47 panels ship on Quarkus (17 ported as-is, 10 source-swapped, 8 capture-rebuilt, 2 replaced,
-plus the advisors and the runtime panels lit up through the shared engine), and 8 are dropped as *not applicable*
-(GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security, DevTools). No panels
-remain merely *not yet* ported: the Overview dashboard panel is now available (its scoring dashboard renders
-client-side from the advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both
-adapters).
+**Result:** 40 of the 49 panels ship on Quarkus (17 ported as-is, 11 source-swapped, 9 capture-rebuilt, 3 replaced
+with a Quarkus-native panel), and 9 are dropped: 8 as *not applicable* (GraalVM, CRaC, Conditions, Startup
+Timeline, HTTP Sessions, Spring Data, Spring Security, DevTools) and 1 (REST Client Trace) as Spring-servlet-only
+for now — no comparable runtime interception seam yet for the Quarkus-native REST client. The Overview dashboard
+panel is available (its scoring dashboard renders client-side from the advisor endpoints, and the shell-chrome
+`GET /bootui/api/overview` endpoint is served on both adapters).
 
 ## 6. Activation & safety on Quarkus
 

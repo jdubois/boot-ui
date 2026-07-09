@@ -961,6 +961,38 @@ Acceptance criteria:
   each message can be downloaded as a `.eml` file.
 - Clearing the buffer is gated by `bootui.panels.email.read-only`, consistent with every other clearable capture panel.
 
+### 5.14.5 REST Client Panel
+
+Purpose: show outbound HTTP calls the application makes through its own REST clients, so a slow or failing downstream
+dependency is visible without a third-party HTTP proxy library.
+
+Data sources:
+
+- A shared `ClientHttpRequestInterceptor` customizes every auto-configured `RestClient` and `RestTemplate`; a shared
+  `ExchangeFilterFunction` customizes every auto-configured `WebClient`. Each call is recorded with its method, host,
+  path, query string, response status, wall-clock duration, success/failure, client type, trace id (when active),
+  executing thread, and call site.
+
+Acceptance criteria:
+
+- A capture failure never disrupts the outbound call itself: both instrumentation points always let the request
+  through and only best-effort record around it.
+- The URI and query parameters are always captured and masked **by name** (the same `SecretMasker` rules Config and
+  HTTP Exchanges use); request headers are withheld by default and only captured, subject to the same masking, when
+  `bootui.rest-client-trace.capture-headers=true`.
+- Calls are grouped by method, host, and normalized path (numeric/UUID segments collapsed to `{id}`) and a group at or
+  above `bootui.rest-client-trace.chatty-call-threshold` is flagged as a **chatty** (repeated-call) pattern, for calls
+  of any HTTP method.
+- Pause/Resume and Clear are gated by `bootui.panels.rest-client-trace.read-only`; recording state, buffer size, and
+  the slow/chatty thresholds are configurable under `bootui.rest-client-trace.*`.
+- Recent calls surface in Live Activity as `REST_CLIENT` entries, nested under their correlated request using the
+  same trace-id-first, serving-thread-second join SQL statements use.
+- The dedicated panel is available on the Spring MVC (servlet) adapter only, since its push-updating `/stream`
+  endpoint relies on the servlet-specific `SseEmitter`. The underlying `WebClient` call capture is shared with Spring
+  WebFlux and feeds Live Activity there with trace-id-only correlation, but WebFlux has no dedicated panel yet.
+  Quarkus has no outbound REST client capture pipeline at all yet, so both the dedicated panel and the Live Activity
+  `REST_CLIENT` entries are unavailable there (see `docs/WEBFLUX-SUPPORT.md` and `docs/QUARKUS-SUPPORT.md`).
+
 ### 5.15 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.
