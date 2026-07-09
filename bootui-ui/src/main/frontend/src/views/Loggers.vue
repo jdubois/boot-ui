@@ -51,7 +51,7 @@ async function changeLevel(logger, level) {
     const updated = await res.json()
     const i = data.value.loggers.findIndex((l) => l.name === logger.name)
     if (i >= 0) data.value.loggers[i] = updated
-    flash(`Level updated for ${logger.name}`)
+    flash(`Level updated for ${logger.name}`, 'success')
   }
 }
 
