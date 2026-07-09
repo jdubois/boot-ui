@@ -413,7 +413,7 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | `bootui.panels.email.read-only`   | `false` | Disable the clear action while keeping captured messages visible.                                                     |
 | `bootui.email.max-entries`        | `100`   | Maximum number of captured messages retained; the oldest is evicted once full.                                        |
 | `bootui.email.dev-trap`           | `false` | On Spring, when `true`, captured messages are recorded but never actually handed to the real mail transport. On Quarkus, sent/not-sent instead reflects `quarkus.mailer.mock` because capture happens after send. |
-| `bootui.email.mask-content`       | `false` | When `true`, mask recipients/subject/body (like Configuration's secret masking) unless `bootui.expose-values=FULL`. Email content is not a config secret, so BootUI reveals it by default (matching Laravel Telescope's Mail watcher); enable this for teams that route real customer PII through a shared dev environment. |
+| `bootui.email.mask-content`       | `false` | When `true`, mask recipients/subject/body (like Configuration's secret masking) unless `bootui.expose-values=FULL`. Email content is not a config secret, so BootUI reveals it by default; enable this for teams that route real customer PII through a shared dev environment. |
 
 ### Kafka
 
