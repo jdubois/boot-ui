@@ -1,7 +1,7 @@
 {
   "name": "bootui-site",
   "private": true,
-  "version": "1.10.0",
+  "version": "1.11.0",
   "type": "module",
   "scripts": {
     "docs:dev": "vuepress dev docs --host 127.0.0.1 --port 8090",
