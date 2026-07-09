@@ -938,8 +938,8 @@ Acceptance criteria:
 
 ### 5.14.4 Email Panel
 
-Purpose: capture outgoing application email for local inspection, mirroring Laravel Telescope's mail watcher — a
-high-value dev-loop aid with no built-in Spring equivalent.
+Purpose: capture outgoing application email for local inspection — a high-value dev-loop aid with no built-in Spring
+equivalent.
 
 Data sources:
 

@@ -9,7 +9,7 @@ database migrations, services, diagnostics, project health, and developer toolin
 Threads, HTTP Exchanges, Flyway, Liquibase, Hibernate Advisor, HTTP Sessions, GitHub, Security Advisor, and Overview
 scanner dashboard panels. This plan describes the **next merged feature workstream** after the `1.0.0` release: it keeps
 the remaining roadmap items and the one capture-oriented addition chosen to close the clearest gaps against comparable
-developer dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Telescope/Pulse, Phoenix LiveDashboard, .NET Aspire,
+developer dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Pulse, Phoenix LiveDashboard, .NET Aspire,
 Symfony Web Profiler) while staying inside BootUI's read-mostly, fail-closed safety model.
 
 The priorities for every item below remain unchanged:
@@ -41,10 +41,9 @@ The priorities for every item below remain unchanged:
   panel is read-only and reuses the existing masking, value-exposure, and panel-toggle model.
 - Shipped §3.3 (E-mail Viewer) as the **Email** panel: a `JavaMailSender` `BeanPostProcessor` captures every outgoing
   message pass-through by default (with an explicitly opt-in `bootui.email.dev-trap` mode), reveals recipients/subject/body
-  by default — decoupled from the global value-exposure model, matching Laravel Telescope's Mail watcher, with an
-  explicitly opt-in `bootui.email.mask-content` flag for teams that want the old masked-by-default behavior — renders
-  HTML previews sandboxed, and offers a per-message `.eml` download. Captured mail also feeds the Live Activity stream as
-  a `MAIL` entry type.
+  by default — decoupled from the global value-exposure model, with an explicitly opt-in `bootui.email.mask-content`
+  flag for teams that want the old masked-by-default behavior — renders HTML previews sandboxed, and offers a
+  per-message `.eml` download. Captured mail also feeds the Live Activity stream as a `MAIL` entry type.
 - Shipped all five §3.4 Live Activity event-type extensions, bringing the stream to nine merged entry types —
   `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED`, `MESSAGING`, `MAIL`, and `REST_CLIENT`: Cache
   operations, Scheduled Task runs, Kafka messaging (both adapters), Mail (backed by the Email panel above), and outbound
@@ -144,8 +143,7 @@ Design constraints:
 **Status: completed.** Shipped as the **Email** panel (see `docs/FEATURES.md` → *Email*). The original scope and
 design constraints below are retained for reference.
 
-Laravel Telescope's mail watcher is a beloved feature with no built-in Spring equivalent. Captured outgoing mail (HTML
-preview plus raw source) is a high-value dev-loop aid.
+Captured outgoing mail (HTML preview plus raw source) is a high-value dev-loop aid with no built-in Spring equivalent.
 
 Scope:
 
@@ -160,7 +158,7 @@ Scope:
 Design constraints:
 
 - Available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`); otherwise fail closed.
-- Recipients, subjects, and bodies are revealed by default, like Laravel Telescope's Mail watcher and BootUI's other
+- Recipients, subjects, and bodies are revealed by default, like BootUI's other
   data-capture panels (HTTP Exchanges, SQL Trace) — email content is not a config secret, so masking is decoupled from
   the global value-exposure model. An opt-in `bootui.email.mask-content` flag applies the same name-based
   `SecretMasker` heuristic for teams routing real customer PII through a shared dev environment. HTML is rendered

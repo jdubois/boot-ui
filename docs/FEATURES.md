@@ -1194,7 +1194,7 @@ capability hint, on applications that do not use it.
 
 ### Email
 
-The Email panel is BootUI's mail-watcher equivalent of Laravel Telescope: it intercepts the application's
+The Email panel captures outgoing application mail: it intercepts the application's
 `JavaMailSender` so every outgoing `send(...)` call is recorded into a bounded ring buffer *before* delegating to the
 real sender — pass-through by default, so application behaviour is unchanged. Captured messages list newest-first with
 sender, recipients, subject, and attachment count; opening a message shows the parsed `from`/`to`/`cc`/`bcc`, an HTML
@@ -1202,7 +1202,7 @@ preview rendered in a sandboxed iframe (scripts and same-origin access are both 
 and attachment metadata (name/type/size, never contents). Each message can be downloaded as a `.eml` file, and the whole
 buffer can be cleared.
 
-Recipients, subjects, and bodies are revealed by default — like Laravel Telescope's Mail watcher, and consistent with
+Recipients, subjects, and bodies are revealed by default — consistent with
 BootUI's other data-capture panels (HTTP Exchanges, SQL Trace), email content is not treated as a config secret, so it
 is not masked by the global `bootui.expose-values` flag. Teams that route real customer PII through a shared dev
 environment can opt into masking with `bootui.email.mask-content=true`, which reuses the same name-based `SecretMasker`
@@ -1332,7 +1332,7 @@ intended for quick local diagnosis without leaving the BootUI console.
 ### Exceptions
 
 The Exceptions panel captures exceptions thrown by the running application and groups repeated failures into a single
-entry with an occurrence count, in the spirit of tools like Laravel Telescope. BootUI records exceptions from two
+entry with an occurrence count. BootUI records exceptions from two
 complementary sources while it is active: a non-intrusive Spring MVC `HandlerExceptionResolver` that observes exceptions
 escaping web request handlers (capturing the request method, path, and handler), and a logback appender that picks up
 anything logged with a throwable from scheduled tasks, async work, or `log.error("…", ex)` calls. A failure that is both
