@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
+import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,7 +21,6 @@ final class MemoryRuleSupport {
     private static final java.util.Set<String> KNOWN_SEVERITIES = java.util.Set.of(CRITICAL, HIGH, MEDIUM, LOW, INFO);
 
     private static final int MAX_SAMPLE_VIOLATIONS = 10;
-    private static final int MAX_DETAIL_CHARS = 240;
 
     private MemoryRuleSupport() {}
 
@@ -78,17 +78,7 @@ final class MemoryRuleSupport {
     }
 
     static String detail(String value) {
-        if (value == null) {
-            return "No additional detail.";
-        }
-        String sanitized = value.replaceAll("[\\r\\n\\t]+", " ").trim();
-        if (sanitized.isBlank()) {
-            return "No additional detail.";
-        }
-        if (sanitized.length() <= MAX_DETAIL_CHARS) {
-            return sanitized;
-        }
-        return sanitized.substring(0, MAX_DETAIL_CHARS - 3) + "...";
+        return DetailText.sanitize(value);
     }
 
     private static List<String> samples(List<String> details) {

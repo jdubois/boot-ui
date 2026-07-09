@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.web;
 
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -37,7 +38,7 @@ final class TraceCorrelationIndex {
         Map<String, String> requestIdByTrace = new HashMap<>();
         Set<String> ambiguousTraces = new HashSet<>();
         for (HttpExchangeDto e : exchanges) {
-            String trace = blankToNull(e.traceId());
+            String trace = BlankStrings.blankToNull(e.traceId());
             if (trace != null && requestIdByTrace.putIfAbsent(trace, e.id()) != null) {
                 ambiguousTraces.add(trace);
             }
@@ -51,14 +52,10 @@ final class TraceCorrelationIndex {
      * more than one request carries it (an ambiguous, likely reused, inbound {@code traceparent}).
      */
     String parentRequestId(String childTraceId) {
-        String trace = blankToNull(childTraceId);
+        String trace = BlankStrings.blankToNull(childTraceId);
         if (trace == null || ambiguousTraces.contains(trace)) {
             return null;
         }
         return requestIdByTrace.get(trace);
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
     }
 }

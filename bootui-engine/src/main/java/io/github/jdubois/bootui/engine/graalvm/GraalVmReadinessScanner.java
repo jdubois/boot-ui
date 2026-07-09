@@ -8,9 +8,9 @@ import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
 import io.github.jdubois.bootui.core.dto.GraalVmScanProgressDto;
 import io.github.jdubois.bootui.core.dto.GraalVmScanStatusDto;
 import io.github.jdubois.bootui.core.dto.GraalVmSeverityCountDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,9 +32,8 @@ public final class GraalVmReadinessScanner {
                     + "dependencies ship reachability metadata. They complement, but do not replace, the GraalVM "
                     + "tracing agent and an actual native-image build.";
 
-    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<GraalVmFindingDto> IMPORTANCE_ORDER = Comparator.comparingInt(
-                    (GraalVmFindingDto finding) -> severityRank(finding.severity()))
+                    (GraalVmFindingDto finding) -> SeverityOrder.rank(finding.severity()))
             .thenComparing(
                     Comparator.comparingInt(GraalVmFindingDto::occurrenceCount).reversed())
             .thenComparing(GraalVmFindingDto::id);
@@ -310,13 +309,7 @@ public final class GraalVmReadinessScanner {
     }
 
     private List<GraalVmSeverityCountDto> severityCounts(List<GraalVmFindingDto> findings) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String severity : SEVERITIES) {
-            counts.put(severity, 0);
-        }
-        for (GraalVmFindingDto finding : findings) {
-            counts.computeIfPresent(finding.severity(), (ignored, count) -> count + 1);
-        }
+        Map<String, Integer> counts = SeverityOrder.counts(findings, GraalVmFindingDto::severity);
         return counts.entrySet().stream()
                 .map(entry -> new GraalVmSeverityCountDto(entry.getKey(), entry.getValue()))
                 .toList();
@@ -328,11 +321,6 @@ public final class GraalVmReadinessScanner {
                         || GraalVmCheckSupport.ERROR.equals(result.status()))
                 .sorted(IMPORTANCE_ORDER)
                 .toList();
-    }
-
-    private static int severityRank(String severity) {
-        int index = SEVERITIES.indexOf(severity);
-        return index >= 0 ? index : SEVERITIES.size();
     }
 
     /** Result of one scan: the report served to the panel plus the metadata scaffold candidates. */

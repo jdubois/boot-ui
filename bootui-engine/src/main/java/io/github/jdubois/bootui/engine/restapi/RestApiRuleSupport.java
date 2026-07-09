@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.restapi;
 
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
+import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,7 +20,6 @@ final class RestApiRuleSupport {
     static final String ERROR = "ERROR";
 
     private static final int MAX_SAMPLE_VIOLATIONS = 10;
-    private static final int MAX_DETAIL_CHARS = 240;
 
     private RestApiRuleSupport() {}
 
@@ -69,16 +69,6 @@ final class RestApiRuleSupport {
     }
 
     static String detail(String value) {
-        if (value == null) {
-            return "No additional detail.";
-        }
-        String sanitized = value.replaceAll("[\\r\\n\\t]+", " ").trim();
-        if (sanitized.isBlank()) {
-            return "No additional detail.";
-        }
-        if (sanitized.length() <= MAX_DETAIL_CHARS) {
-            return sanitized;
-        }
-        return sanitized.substring(0, MAX_DETAIL_CHARS - 3) + "...";
+        return DetailText.sanitize(value);
     }
 }

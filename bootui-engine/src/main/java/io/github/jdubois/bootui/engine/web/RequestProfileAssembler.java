@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -75,7 +76,7 @@ public final class RequestProfileAssembler {
         if (request == null) {
             return RequestProfileDto.unavailable("Request " + requestId + " is no longer in the buffer");
         }
-        String traceId = blankToNull(request.traceId());
+        String traceId = BlankStrings.blankToNull(request.traceId());
         if (traceId == null) {
             return RequestProfileDto.unavailable("No distributed trace id was captured for this request; "
                     + "per-request profiling requires a resolvable trace id, for example from an active "
@@ -211,11 +212,6 @@ public final class RequestProfileAssembler {
     private static List<SqlTraceGroupDto> groupSql(List<SqlTraceEntryDto> sql) {
         return SqlTraceGrouping.group(sql, SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD);
     }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
-    }
-
     /** Parse an ISO-8601 instant to epoch millis, returning {@code 0} for null/blank/unparseable input. */
     private static long parseEpochMillis(String timestamp) {
         if (timestamp == null || timestamp.isBlank()) {

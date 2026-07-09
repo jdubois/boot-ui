@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
-import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceControllerSupport;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -27,8 +27,6 @@ import reactor.core.publisher.Flux;
 @RestController
 @RequestMapping("/bootui/api/sql-trace")
 public class ReactiveSqlTraceController {
-
-    private static final String NOT_CONFIGURED = "SQL tracing is not configured";
 
     private final ObjectProvider<SqlTraceRecorder> recorderProvider;
     private final ObjectProvider<DataSource> dataSourceProvider;
@@ -66,32 +64,17 @@ public class ReactiveSqlTraceController {
 
     @GetMapping
     public SqlTraceReport trace() {
-        SqlTraceRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null) {
-            return SqlTraceReport.unavailable(NOT_CONFIGURED);
-        }
-        return report(recorder);
+        return SqlTraceControllerSupport.trace(recorderProvider, exposure, dataSourceProvider);
     }
 
     @PostMapping("/clear")
     public SqlTraceReport clear() {
-        SqlTraceRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null) {
-            return SqlTraceReport.unavailable(NOT_CONFIGURED);
-        }
-        recorder.clear();
-        return report(recorder);
+        return SqlTraceControllerSupport.clear(recorderProvider, exposure, dataSourceProvider);
     }
 
     @PostMapping("/recording")
     public SqlTraceReport recording(@RequestBody(required = false) SqlTraceRecordingRequest request) {
-        SqlTraceRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null) {
-            return SqlTraceReport.unavailable(NOT_CONFIGURED);
-        }
-        boolean enabled = (request == null || request.enabled() == null) ? !recorder.isRecording() : request.enabled();
-        recorder.setRecording(enabled);
-        return report(recorder);
+        return SqlTraceControllerSupport.recording(recorderProvider, exposure, dataSourceProvider, request);
     }
 
     /**
@@ -101,24 +84,5 @@ public class ReactiveSqlTraceController {
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<Map<String, Object>>> stream() {
         return changeStream.open();
-    }
-
-    private SqlTraceReport report(SqlTraceRecorder recorder) {
-        if (!recorder.hasWrappedDataSource()) {
-            return SqlTraceReport.unavailable(unavailableReason(recorder));
-        }
-        boolean exposeParameters =
-                recorder.isCaptureParameters() && exposure.valueExposure() != ValueExposure.METADATA_ONLY;
-        return recorder.report(exposeParameters);
-    }
-
-    private String unavailableReason(SqlTraceRecorder recorder) {
-        if (!recorder.isEnabled()) {
-            return "SQL tracing is disabled (set bootui.sql-trace.enabled=true in a trusted local profile).";
-        }
-        if (dataSourceProvider.getIfAvailable() == null) {
-            return "No DataSource bean is available";
-        }
-        return "No DataSource has been wrapped for tracing yet.";
     }
 }

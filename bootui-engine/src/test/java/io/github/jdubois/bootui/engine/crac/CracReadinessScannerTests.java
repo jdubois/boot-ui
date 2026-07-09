@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.CracFindingDto;
 import io.github.jdubois.bootui.core.dto.CracReadinessReport;
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner.CracScanResult;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -74,7 +75,7 @@ class CracReadinessScannerTests {
                         "CRAC-SCHED-001",
                         "CRAC-POOL-002");
         assertThat(report.findings().stream().map(CracFindingDto::severity).toList())
-                .isSortedAccordingTo(Comparator.comparingInt(CracReadinessScannerTests::severityRank));
+                .isSortedAccordingTo(Comparator.comparingInt(SeverityOrder::rank));
         assertThat(report.severityCounts())
                 .extracting("severity")
                 .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
@@ -265,10 +266,6 @@ class CracReadinessScannerTests {
         assertThat(cache.status()).isEqualTo("REVIEW");
         assertThat(cache.occurrenceCount()).isEqualTo(1);
         assertThat(cache.sampleOccurrences()).anyMatch(sample -> sample.contains("ConcurrentMapCacheManager"));
-    }
-
-    private static int severityRank(String severity) {
-        return List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
     }
 
     private static List<String> findingSamples(CracReadinessReport report, String id) {

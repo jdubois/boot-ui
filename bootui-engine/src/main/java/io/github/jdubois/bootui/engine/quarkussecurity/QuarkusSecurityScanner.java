@@ -4,12 +4,11 @@ import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SecuritySeverityCountDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
 import java.time.Clock;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,9 +27,8 @@ public final class QuarkusSecurityScanner {
     private static final String DISCLAIMER =
             "Heuristic local checks against the Quarkus security configuration (HTTP auth, OIDC/JWT, TLS, CORS, "
                     + "headers) and authorization annotations. Review prompts only; not a substitute for a manual review.";
-    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<SecurityRuleResultDto> IMPORTANCE = Comparator.comparingInt(
-                    (SecurityRuleResultDto r) -> SEVERITIES.indexOf(r.severity()))
+                    (SecurityRuleResultDto r) -> SeverityOrder.rank(r.severity()))
             .thenComparing(r -> -r.violationCount())
             .thenComparing(SecurityRuleResultDto::id);
 
@@ -130,15 +128,9 @@ public final class QuarkusSecurityScanner {
     }
 
     private List<SecuritySeverityCountDto> severityCounts(List<SecurityRuleResultDto> results) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String s : SEVERITIES) {
-            counts.put(s, 0);
-        }
-        for (SecurityRuleResultDto r : results) {
-            counts.computeIfPresent(r.severity(), (k, c) -> c + 1);
-        }
-        List<SecuritySeverityCountDto> out = new ArrayList<>();
-        counts.forEach((sev, c) -> out.add(new SecuritySeverityCountDto(sev, c)));
-        return out;
+        Map<String, Integer> counts = SeverityOrder.counts(results, SecurityRuleResultDto::severity);
+        return counts.entrySet().stream()
+                .map(entry -> new SecuritySeverityCountDto(entry.getKey(), entry.getValue()))
+                .toList();
     }
 }

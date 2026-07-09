@@ -13,15 +13,7 @@ const panel = useAdvisorPanel(props, {
   scanErrorMessage: 'Unable to run memory checks',
   emptyScanPrompt: 'Run memory checks to see advisor findings',
   emptyNoFindings: 'No Memory Advisor findings',
-  countNoun: 'observation',
-  severityClasses: {
-    CRITICAL: 'text-bg-danger',
-    HIGH: 'text-bg-danger',
-    MEDIUM: 'text-bg-warning',
-    LOW: 'text-bg-info',
-    INFO: 'text-bg-secondary'
-  },
-  severityOrder: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+  countNoun: 'observation'
 })
 
 const summary = computed(() => panel.report?.summary || null)

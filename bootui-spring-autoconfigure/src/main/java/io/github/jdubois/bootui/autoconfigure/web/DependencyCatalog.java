@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import java.io.File;
 import java.io.IOException;
@@ -57,9 +58,9 @@ final class DependencyCatalog implements DependencyProvider {
         } catch (IOException ex) {
             throw new IllegalStateException("Could not read Maven metadata from " + resource.getDescription(), ex);
         }
-        String groupId = blankToNull(properties.getProperty("groupId"));
-        String artifactId = blankToNull(properties.getProperty("artifactId"));
-        String version = blankToNull(properties.getProperty("version"));
+        String groupId = BlankStrings.blankToNullTrimmed(properties.getProperty("groupId"));
+        String artifactId = BlankStrings.blankToNullTrimmed(properties.getProperty("artifactId"));
+        String version = BlankStrings.blankToNullTrimmed(properties.getProperty("version"));
         if (groupId == null || artifactId == null || version == null) {
             return null;
         }
@@ -121,12 +122,5 @@ final class DependencyCatalog implements DependencyProvider {
             groupId.append(groupPath.getName(i));
         }
         return groupId.toString();
-    }
-
-    private String blankToNull(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
     }
 }

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.web;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.smallrye.mutiny.Multi;
 import jakarta.inject.Inject;
@@ -76,8 +77,8 @@ public class SecurityLogsResource {
                 maxLogs,
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
-                blankToNull(principal),
-                blankToNull(type),
+                BlankStrings.blankToNullTrimmed(principal),
+                BlankStrings.blankToNullTrimmed(type),
                 parseAfter(after),
                 offset,
                 limit);
@@ -96,12 +97,8 @@ public class SecurityLogsResource {
     }
 
     private static Instant parseAfter(String after) {
-        String value = blankToNull(after);
-        if (value == null) {
-            return null;
-        }
         try {
-            return Instant.parse(value);
+            return BlankStrings.parseInstant(after);
         } catch (DateTimeException e) {
             // Mirror the Spring controller's @ExceptionHandler: a malformed `after` is a 400, not a 500.
             String message = e.getMessage() == null ? "Invalid request" : e.getMessage();
@@ -110,12 +107,5 @@ public class SecurityLogsResource {
                     .entity(Map.of("error", message))
                     .build());
         }
-    }
-
-    private static String blankToNull(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
     }
 }

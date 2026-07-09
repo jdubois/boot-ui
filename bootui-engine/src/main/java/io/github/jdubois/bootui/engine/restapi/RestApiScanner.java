@@ -5,9 +5,9 @@ import io.github.jdubois.bootui.core.dto.RestApiReport;
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
 import io.github.jdubois.bootui.core.dto.RestApiScanStatusDto;
 import io.github.jdubois.bootui.core.dto.RestApiSeverityCountDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,13 +30,11 @@ public final class RestApiScanner {
             "Heuristic, project-agnostic REST API design rules run against the host application's own controllers "
                     + "only. These checks complement, but do not replace, an API design review or contract testing. "
                     + "Security concerns (CORS, authentication, authorization) are covered by the Security Advisor.";
-    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
-
     /** Rules tied to Spring-only types (RFC 9457 ProblemDetail) with no JAX-RS equivalent; skipped on JAX-RS. */
     private static final Set<String> SPRING_ONLY_RULE_IDS = Set.of("RAPI-ERR-003", "RAPI-ERR-006");
 
     private static final Comparator<RestApiRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
-                    (RestApiRuleResultDto result) -> severityRank(result.severity()))
+                    (RestApiRuleResultDto result) -> SeverityOrder.rank(result.severity()))
             .thenComparing(Comparator.comparingInt(RestApiRuleResultDto::violationCount)
                     .reversed())
             .thenComparing(RestApiRuleResultDto::id);
@@ -261,15 +259,8 @@ public final class RestApiScanner {
     }
 
     private List<RestApiSeverityCountDto> severityCounts(List<RestApiRuleResultDto> results) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String severity : SEVERITIES) {
-            counts.put(severity, 0);
-        }
-        for (RestApiRuleResultDto result : results) {
-            if (isViolation(result)) {
-                counts.computeIfPresent(result.severity(), (ignored, count) -> count + 1);
-            }
-        }
+        Map<String, Integer> counts =
+                SeverityOrder.counts(results, RestApiScanner::isViolation, RestApiRuleResultDto::severity);
         return counts.entrySet().stream()
                 .map(entry -> new RestApiSeverityCountDto(entry.getKey(), entry.getValue()))
                 .toList();
@@ -280,11 +271,6 @@ public final class RestApiScanner {
                 .filter(RestApiScanner::isViolation)
                 .sorted(IMPORTANCE_ORDER)
                 .toList();
-    }
-
-    private static int severityRank(String severity) {
-        int index = SEVERITIES.indexOf(severity);
-        return index >= 0 ? index : SEVERITIES.size();
     }
 
     private static boolean isViolation(RestApiRuleResultDto result) {

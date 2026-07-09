@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.lang.ArchRule;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -52,7 +53,7 @@ class ArchitectureScannerTests {
         assertThat(report.results().stream()
                         .map(ArchitectureRuleResultDto::severity)
                         .toList())
-                .isSortedAccordingTo(Comparator.comparingInt(ArchitectureScannerTests::severityRank));
+                .isSortedAccordingTo(Comparator.comparingInt(SeverityOrder::rank));
 
         ArchitectureRuleResultDto standardStreams = report.results().stream()
                 .filter(result -> result.id().equals("ARCH-CODE-001"))
@@ -190,9 +191,5 @@ class ArchitectureScannerTests {
                 List.of("detail"),
                 "recommendation",
                 "https://example.com");
-    }
-
-    private static int severityRank(String severity) {
-        return List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
     }
 }

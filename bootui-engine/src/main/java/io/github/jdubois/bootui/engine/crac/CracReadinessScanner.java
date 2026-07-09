@@ -6,9 +6,9 @@ import io.github.jdubois.bootui.core.dto.CracReadinessReport;
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
 import io.github.jdubois.bootui.core.dto.CracScanStatusDto;
 import io.github.jdubois.bootui.core.dto.CracSeverityCountDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -29,9 +29,8 @@ public final class CracReadinessScanner {
                     + "commonly needs attention before a checkpoint, but they complement, and do not replace, an actual "
                     + "checkpoint/restore run on a CRaC-enabled JDK.";
 
-    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<CracFindingDto> IMPORTANCE_ORDER = Comparator.comparingInt(
-                    (CracFindingDto finding) -> severityRank(finding.severity()))
+                    (CracFindingDto finding) -> SeverityOrder.rank(finding.severity()))
             .thenComparing(
                     Comparator.comparingInt(CracFindingDto::occurrenceCount).reversed())
             .thenComparing(CracFindingDto::id);
@@ -199,13 +198,7 @@ public final class CracReadinessScanner {
     }
 
     private List<CracSeverityCountDto> severityCounts(List<CracFindingDto> findings) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String severity : SEVERITIES) {
-            counts.put(severity, 0);
-        }
-        for (CracFindingDto finding : findings) {
-            counts.computeIfPresent(finding.severity(), (ignored, count) -> count + 1);
-        }
+        Map<String, Integer> counts = SeverityOrder.counts(findings, CracFindingDto::severity);
         return counts.entrySet().stream()
                 .map(entry -> new CracSeverityCountDto(entry.getKey(), entry.getValue()))
                 .toList();
@@ -217,11 +210,6 @@ public final class CracReadinessScanner {
                         || CracCheckSupport.ERROR.equals(result.status()))
                 .sorted(IMPORTANCE_ORDER)
                 .toList();
-    }
-
-    private static int severityRank(String severity) {
-        int index = SEVERITIES.indexOf(severity);
-        return index >= 0 ? index : SEVERITIES.size();
     }
 
     /** Scan-specific portion of a CRaC readiness run, cached by the controller between requests. */

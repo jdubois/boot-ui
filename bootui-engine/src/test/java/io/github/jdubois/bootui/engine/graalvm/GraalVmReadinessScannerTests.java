@@ -6,6 +6,7 @@ import com.tngtech.archunit.lang.ArchRule;
 import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner.GraalVmScanResult;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -74,7 +75,7 @@ class GraalVmReadinessScannerTests {
                         "GRAAL-NATIVE-001",
                         "GRAAL-NATIVE-002");
         assertThat(report.findings().stream().map(GraalVmFindingDto::severity).toList())
-                .isSortedAccordingTo(Comparator.comparingInt(GraalVmReadinessScannerTests::severityRank));
+                .isSortedAccordingTo(Comparator.comparingInt(SeverityOrder::rank));
         assertThat(report.severityCounts())
                 .extracting("severity")
                 .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
@@ -258,9 +259,5 @@ class GraalVmReadinessScannerTests {
         ArchRule rule(GraalVmContext context) {
             return null;
         }
-    }
-
-    private static int severityRank(String severity) {
-        return List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
     }
 }

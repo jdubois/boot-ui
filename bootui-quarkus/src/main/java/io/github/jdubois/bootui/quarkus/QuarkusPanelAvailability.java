@@ -279,6 +279,29 @@ public class QuarkusPanelAvailability {
             "Not available: this application does not use Kafka messaging. Add the quarkus-messaging-kafka"
                     + " extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel.";
 
+    private static final String SQL_TRACE_ABSENT =
+            "Not available: no JDBC datasource is on the classpath. Add a Quarkus JDBC datasource"
+                    + " (e.g. quarkus-jdbc-h2) so SQL executions can be traced.";
+
+    private static final String PROFILE_DIFF_ABSENT =
+            "Not available: no profiles are active. Run with a profile (e.g. quarkus.profile=dev) to"
+                    + " compare profile-specific configuration.";
+
+    private static final String REST_API_ABSENT =
+            "Not available: no JAX-RS resources were found under the application base packages. Add a"
+                    + " @Path resource so the REST API advisor has controllers to analyse.";
+
+    private static final String SECURITY_LOGS_ABSENT =
+            "Not available: Quarkus security events are disabled. Set quarkus.security.events.enabled=true"
+                    + " (with a security extension) to capture authentication/authorization events.";
+
+    private static final String COPILOT_ABSENT = "Not available: no Copilot CLI session-state directory found (default"
+            + " ~/.copilot/session-state). Run the Copilot CLI locally so it has sessions to show.";
+
+    private static final String CLAUDE_CODE_ABSENT =
+            "Not available: no Claude Code project directory found (default ~/.claude/projects)."
+                    + " Run Claude Code locally so it has sessions to show.";
+
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
      * Quarkus equivalent — as opposed to the generic {@link #NOT_YET_AVAILABLE} panels that simply have not
@@ -319,6 +342,31 @@ public class QuarkusPanelAvailability {
             "Not applicable on Quarkus: Spring Boot DevTools restart/LiveReload has no runtime analogue. Quarkus"
                     + " dev mode owns live reload through build-time augmentation, with no stable runtime API to"
                     + " read or trigger it, so this panel is not used here.");
+
+    /**
+     * Reasons shown for panels that are unavailable only because the corresponding Quarkus
+     * extension/capability is missing from the application — as opposed to {@link #NOT_APPLICABLE},
+     * which is permanent regardless of what the application adds. Keyed by panel id; consulted by
+     * {@link #unavailableReason} once the dynamic GitHub case (the only reason computed fresh per
+     * call) has been ruled out. Mirrors the {@code dynamicAvailability} map {@link #isPanelAvailable}
+     * consults, so every dynamically-available panel has a matching absent-reason entry here.
+     */
+    private static final Map<String, String> CAPABILITY_ABSENT = Map.ofEntries(
+            Map.entry(BootUiPanels.HIBERNATE, HIBERNATE_ABSENT),
+            Map.entry(BootUiPanels.SCHEDULED, SCHEDULED_ABSENT),
+            Map.entry(BootUiPanels.CACHE, CACHE_ABSENT),
+            Map.entry(BootUiPanels.FLYWAY, FLYWAY_ABSENT),
+            Map.entry(BootUiPanels.LIQUIBASE, LIQUIBASE_ABSENT),
+            Map.entry(BootUiPanels.DATABASE_CONNECTION_POOLS, CONNECTION_POOLS_ABSENT),
+            Map.entry(BootUiPanels.DEV_SERVICES, DEV_SERVICES_ABSENT),
+            Map.entry(BootUiPanels.EMAIL, EMAIL_ABSENT),
+            Map.entry(BootUiPanels.KAFKA, KAFKA_ABSENT),
+            Map.entry(BootUiPanels.SQL_TRACE, SQL_TRACE_ABSENT),
+            Map.entry(BootUiPanels.PROFILE_DIFF, PROFILE_DIFF_ABSENT),
+            Map.entry(BootUiPanels.REST_API, REST_API_ABSENT),
+            Map.entry(BootUiPanels.SECURITY_LOGS, SECURITY_LOGS_ABSENT),
+            Map.entry(BootUiPanels.COPILOT, COPILOT_ABSENT),
+            Map.entry(BootUiPanels.CLAUDE_CODE, CLAUDE_CODE_ABSENT));
 
     private static final Set<String> AVAILABLE_PANELS = Set.of(
             BootUiPanels.OVERVIEW,
@@ -378,6 +426,15 @@ public class QuarkusPanelAvailability {
     private final boolean claudeCodePanelAvailable;
     private final QuarkusPanelAccessConfig accessConfig;
 
+    /**
+     * Panel id → live availability for every panel gated by a build-time capability flag or a
+     * dynamic detector (everything {@link #isPanelAvailable} checks besides the static
+     * {@link #AVAILABLE_PANELS} set and the GitHub special case). Built once here, right after the
+     * individual flags above are computed, so {@link #isPanelAvailable} reduces to a single map
+     * lookup instead of a 14-way OR-chain.
+     */
+    private final Map<String, Boolean> dynamicAvailability;
+
     @Inject
     public QuarkusPanelAvailability(Config config) {
         this.hibernatePresent =
@@ -412,6 +469,22 @@ public class QuarkusPanelAvailability {
         this.copilotPanelAvailable = agentDirectoryPresent(copilot);
         this.claudeCodePanelAvailable = agentDirectoryPresent(claude);
         this.accessConfig = new QuarkusPanelAccessConfig(config);
+        this.dynamicAvailability = Map.ofEntries(
+                Map.entry(BootUiPanels.HIBERNATE, hibernatePresent),
+                Map.entry(BootUiPanels.SCHEDULED, schedulingPresent),
+                Map.entry(BootUiPanels.CACHE, cachePresent),
+                Map.entry(BootUiPanels.FLYWAY, flywayPresent),
+                Map.entry(BootUiPanels.LIQUIBASE, liquibasePresent),
+                Map.entry(BootUiPanels.DATABASE_CONNECTION_POOLS, connectionPoolsPresent),
+                Map.entry(BootUiPanels.DEV_SERVICES, devServicesPresent),
+                Map.entry(BootUiPanels.EMAIL, emailPresent),
+                Map.entry(BootUiPanels.KAFKA, kafkaPresent),
+                Map.entry(BootUiPanels.SECURITY_LOGS, securityLogsAvailable),
+                Map.entry(BootUiPanels.SQL_TRACE, connectionPoolsPresent),
+                Map.entry(BootUiPanels.PROFILE_DIFF, profilesActive),
+                Map.entry(BootUiPanels.REST_API, restApiPresent),
+                Map.entry(BootUiPanels.COPILOT, copilotPanelAvailable),
+                Map.entry(BootUiPanels.CLAUDE_CODE, claudeCodePanelAvailable));
     }
 
     private static boolean agentDirectoryPresent(io.github.jdubois.bootui.spi.agent.AgentSessionProperties settings) {
@@ -462,86 +535,29 @@ public class QuarkusPanelAvailability {
      * <p>This is the single source of truth for panel availability — the manifest ({@link #toDto})
      * and the MCP tool catalog ({@code QuarkusMcpTools}) both consult it so a tool is advertised iff
      * its backing panel is live. It combines the static {@link #AVAILABLE_PANELS} set with the
-     * build-time capability flags (Hibernate ORM, Scheduler, Cache, Flyway, Liquibase, Agroal pools,
-     * Dev Services, REST API), the dynamic detectors (GitHub repository, active profiles, agent
-     * directories), and the security-events gate.
+     * precomputed {@link #dynamicAvailability} map (build-time capability flags — Hibernate ORM,
+     * Scheduler, Cache, Flyway, Liquibase, Agroal pools, Dev Services, REST API — plus the
+     * active-profiles and agent-directory detectors and the security-events gate) and the GitHub
+     * special case, which is deliberately <em>not</em> memoized: it reads the working directory and
+     * git config fresh on every call.
      */
     public boolean isPanelAvailable(String panelId) {
         return AVAILABLE_PANELS.contains(panelId)
-                || (BootUiPanels.HIBERNATE.equals(panelId) && hibernatePresent)
-                || (BootUiPanels.SCHEDULED.equals(panelId) && schedulingPresent)
-                || (BootUiPanels.CACHE.equals(panelId) && cachePresent)
-                || (BootUiPanels.FLYWAY.equals(panelId) && flywayPresent)
-                || (BootUiPanels.LIQUIBASE.equals(panelId) && liquibasePresent)
-                || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panelId) && connectionPoolsPresent)
-                || (BootUiPanels.DEV_SERVICES.equals(panelId) && devServicesPresent)
-                || (BootUiPanels.EMAIL.equals(panelId) && emailPresent)
-                || (BootUiPanels.KAFKA.equals(panelId) && kafkaPresent)
-                || (BootUiPanels.SECURITY_LOGS.equals(panelId) && securityLogsAvailable)
-                || (BootUiPanels.SQL_TRACE.equals(panelId) && connectionPoolsPresent)
-                || (BootUiPanels.PROFILE_DIFF.equals(panelId) && profilesActive)
-                || (BootUiPanels.REST_API.equals(panelId) && restApiPresent)
-                || (BootUiPanels.COPILOT.equals(panelId) && copilotPanelAvailable)
-                || (BootUiPanels.CLAUDE_CODE.equals(panelId) && claudeCodePanelAvailable)
+                || dynamicAvailability.getOrDefault(panelId, Boolean.FALSE)
                 || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable());
     }
 
+    /**
+     * Reason a not-currently-available panel is unavailable: the dynamic GitHub case first (computed
+     * fresh, mirroring {@link #isPanelAvailable}), then the capability-gated panels via
+     * {@link #CAPABILITY_ABSENT}, then the permanently-inapplicable panels via {@link #NOT_APPLICABLE},
+     * and finally the generic {@link #NOT_YET_AVAILABLE} fallback for panels not yet ported at all.
+     */
     private String unavailableReason(String panelId) {
-        if (BootUiPanels.HIBERNATE.equals(panelId)) {
-            return HIBERNATE_ABSENT;
-        }
-        if (BootUiPanels.SCHEDULED.equals(panelId)) {
-            return SCHEDULED_ABSENT;
-        }
-        if (BootUiPanels.CACHE.equals(panelId)) {
-            return CACHE_ABSENT;
-        }
-        if (BootUiPanels.FLYWAY.equals(panelId)) {
-            return FLYWAY_ABSENT;
-        }
-        if (BootUiPanels.LIQUIBASE.equals(panelId)) {
-            return LIQUIBASE_ABSENT;
-        }
-        if (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panelId)) {
-            return CONNECTION_POOLS_ABSENT;
-        }
-        if (BootUiPanels.DEV_SERVICES.equals(panelId)) {
-            return DEV_SERVICES_ABSENT;
-        }
-        if (BootUiPanels.EMAIL.equals(panelId)) {
-            return EMAIL_ABSENT;
-        }
-        if (BootUiPanels.KAFKA.equals(panelId)) {
-            return KAFKA_ABSENT;
-        }
-        if (BootUiPanels.SQL_TRACE.equals(panelId)) {
-            return "Not available: no JDBC datasource is on the classpath. Add a Quarkus JDBC datasource"
-                    + " (e.g. quarkus-jdbc-h2) so SQL executions can be traced.";
-        }
-        if (BootUiPanels.PROFILE_DIFF.equals(panelId)) {
-            return "Not available: no profiles are active. Run with a profile (e.g. quarkus.profile=dev) to"
-                    + " compare profile-specific configuration.";
-        }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();
         }
-        if (BootUiPanels.REST_API.equals(panelId)) {
-            return "Not available: no JAX-RS resources were found under the application base packages. Add a"
-                    + " @Path resource so the REST API advisor has controllers to analyse.";
-        }
-        if (BootUiPanels.SECURITY_LOGS.equals(panelId)) {
-            return "Not available: Quarkus security events are disabled. Set quarkus.security.events.enabled=true"
-                    + " (with a security extension) to capture authentication/authorization events.";
-        }
-        if (BootUiPanels.COPILOT.equals(panelId)) {
-            return "Not available: no Copilot CLI session-state directory found (default"
-                    + " ~/.copilot/session-state). Run the Copilot CLI locally so it has sessions to show.";
-        }
-        if (BootUiPanels.CLAUDE_CODE.equals(panelId)) {
-            return "Not available: no Claude Code project directory found (default ~/.claude/projects)."
-                    + " Run Claude Code locally so it has sessions to show.";
-        }
-        return NOT_APPLICABLE.getOrDefault(panelId, NOT_YET_AVAILABLE);
+        return CAPABILITY_ABSENT.getOrDefault(panelId, NOT_APPLICABLE.getOrDefault(panelId, NOT_YET_AVAILABLE));
     }
 
     /**

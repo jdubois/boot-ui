@@ -5,9 +5,9 @@ import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureScanStatusDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureSeverityCountDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,9 +27,8 @@ public final class ArchitectureScanner {
             "Heuristic, project-agnostic architecture rules run against the host application's own classes only. "
                     + "These checks complement, but do not replace, a project-specific ArchUnit test suite or an "
                     + "architecture review.";
-    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<ArchitectureRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
-                    (ArchitectureRuleResultDto result) -> severityRank(result.severity()))
+                    (ArchitectureRuleResultDto result) -> SeverityOrder.rank(result.severity()))
             .thenComparing(Comparator.comparingInt(ArchitectureRuleResultDto::violationCount)
                     .reversed())
             .thenComparing(ArchitectureRuleResultDto::id);
@@ -197,15 +196,8 @@ public final class ArchitectureScanner {
     }
 
     private List<ArchitectureSeverityCountDto> severityCounts(List<ArchitectureRuleResultDto> results) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String severity : SEVERITIES) {
-            counts.put(severity, 0);
-        }
-        for (ArchitectureRuleResultDto result : results) {
-            if (isViolation(result)) {
-                counts.computeIfPresent(result.severity(), (ignored, count) -> count + 1);
-            }
-        }
+        Map<String, Integer> counts =
+                SeverityOrder.counts(results, ArchitectureScanner::isViolation, ArchitectureRuleResultDto::severity);
         return counts.entrySet().stream()
                 .map(entry -> new ArchitectureSeverityCountDto(entry.getKey(), entry.getValue()))
                 .toList();
@@ -216,11 +208,6 @@ public final class ArchitectureScanner {
                 .filter(ArchitectureScanner::isViolation)
                 .sorted(IMPORTANCE_ORDER)
                 .toList();
-    }
-
-    private static int severityRank(String severity) {
-        int index = SEVERITIES.indexOf(severity);
-        return index >= 0 ? index : SEVERITIES.size();
     }
 
     private static boolean isViolation(ArchitectureRuleResultDto result) {

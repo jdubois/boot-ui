@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.cache;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.CacheOperationDto;
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import io.github.jdubois.bootui.spi.CacheManagerSnapshot;
 import io.github.jdubois.bootui.spi.CacheOperationDiscovery;
 import io.github.jdubois.bootui.spi.CacheProvider;
@@ -301,9 +302,9 @@ public class SpringCacheProvider implements CacheProvider {
         boolean allEntries = false;
         boolean beforeInvocation = false;
         if (operation instanceof CacheableOperation cacheable) {
-            unless = blankToNull(cacheable.getUnless());
+            unless = BlankStrings.blankToNull(cacheable.getUnless());
         } else if (operation instanceof CachePutOperation cachePut) {
-            unless = blankToNull(cachePut.getUnless());
+            unless = BlankStrings.blankToNull(cachePut.getUnless());
         } else if (operation instanceof CacheEvictOperation cacheEvict) {
             allEntries = cacheEvict.isCacheWide();
             beforeInvocation = cacheEvict.isBeforeInvocation();
@@ -315,8 +316,8 @@ public class SpringCacheProvider implements CacheProvider {
                 signatureOf(method),
                 operationName(operation),
                 operation.getCacheNames().stream().sorted().toList(),
-                blankToNull(operation.getKey()),
-                blankToNull(operation.getCondition()),
+                BlankStrings.blankToNull(operation.getKey()),
+                BlankStrings.blankToNull(operation.getCondition()),
                 unless,
                 allEntries,
                 beforeInvocation);
@@ -341,14 +342,6 @@ public class SpringCacheProvider implements CacheProvider {
                 .reduce((left, right) -> left + ", " + right)
                 .orElse("");
         return method.getReturnType().getSimpleName() + " " + method.getName() + "(" + params + ")";
-    }
-
-    private boolean isBlank(String value) {
-        return value == null || value.isBlank();
-    }
-
-    private String blankToNull(String value) {
-        return isBlank(value) ? null : value;
     }
 
     private record CacheManagerEntry(String name, CacheManager manager) {}

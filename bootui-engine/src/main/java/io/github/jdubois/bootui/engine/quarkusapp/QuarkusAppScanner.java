@@ -4,11 +4,11 @@ import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SpringSeverityCountDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshot;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,9 +27,8 @@ public final class QuarkusAppScanner {
     private static final String DISCLAIMER =
             "Heuristic local checks against the Quarkus application idioms (CDI scopes, MicroProfile config, "
                     + "reactive vs blocking, profiles). Review prompts only; not a substitute for a manual review.";
-    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<SpringRuleResultDto> IMPORTANCE = Comparator.comparingInt(
-                    (SpringRuleResultDto r) -> SEVERITIES.indexOf(r.severity()))
+                    (SpringRuleResultDto r) -> SeverityOrder.rank(r.severity()))
             .thenComparing(r -> -r.violationCount())
             .thenComparing(SpringRuleResultDto::id);
 
@@ -146,15 +145,9 @@ public final class QuarkusAppScanner {
     }
 
     private List<SpringSeverityCountDto> severityCounts(List<SpringRuleResultDto> results) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String s : SEVERITIES) {
-            counts.put(s, 0);
-        }
-        for (SpringRuleResultDto r : results) {
-            counts.computeIfPresent(r.severity(), (k, c) -> c + 1);
-        }
-        List<SpringSeverityCountDto> out = new ArrayList<>();
-        counts.forEach((sev, c) -> out.add(new SpringSeverityCountDto(sev, c)));
-        return out;
+        Map<String, Integer> counts = SeverityOrder.counts(results, SpringRuleResultDto::severity);
+        return counts.entrySet().stream()
+                .map(entry -> new SpringSeverityCountDto(entry.getKey(), entry.getValue()))
+                .toList();
     }
 }

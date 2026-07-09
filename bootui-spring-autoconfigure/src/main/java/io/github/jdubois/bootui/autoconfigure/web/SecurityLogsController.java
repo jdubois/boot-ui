@@ -6,7 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
-import java.time.Instant;
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
@@ -72,18 +72,22 @@ public class SecurityLogsController implements ApplicationListener<AuditApplicat
             return SecurityLogsReport.unavailable("No AuditEventRepository bean is available", maxLogs);
         }
 
-        List<CapturedSecurityEvent> events =
-                repository.find(blankToNull(principal), parseAfter(after), blankToNull(type)).stream()
-                        .map(SecurityLogsController::toCaptured)
-                        .toList();
+        List<CapturedSecurityEvent> events = repository
+                .find(
+                        BlankStrings.blankToNullTrimmed(principal),
+                        BlankStrings.parseInstant(after),
+                        BlankStrings.blankToNullTrimmed(type))
+                .stream()
+                .map(SecurityLogsController::toCaptured)
+                .toList();
         return securityLogsService.report(
                 events,
                 maxLogs,
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
-                blankToNull(principal),
-                blankToNull(type),
-                parseAfter(after),
+                BlankStrings.blankToNullTrimmed(principal),
+                BlankStrings.blankToNullTrimmed(type),
+                BlankStrings.parseInstant(after),
                 offset,
                 limit);
     }
@@ -133,17 +137,5 @@ public class SecurityLogsController implements ApplicationListener<AuditApplicat
 
     private int maxLogs() {
         return securityLogsService.maxLogs(properties.getSecurityLogs().getMaxLogs());
-    }
-
-    private Instant parseAfter(String after) {
-        String value = blankToNull(after);
-        return value == null ? null : Instant.parse(value);
-    }
-
-    private String blankToNull(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
     }
 }

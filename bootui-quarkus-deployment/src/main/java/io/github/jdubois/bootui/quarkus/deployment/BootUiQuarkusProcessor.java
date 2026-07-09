@@ -856,17 +856,10 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
         boolean enableCapture = launchMode.getLaunchMode() != LaunchMode.NORMAL
                 && capabilities.isPresent(Capability.OPENTELEMETRY_TRACER);
-        if (enableCapture) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(OTEL_PRODUCER_CLASS)
-                    .setUnremovable()
-                    .build());
-        } else {
-            // No OpenTelemetry tracing (or production): keep the OTel-importing producer out of bean
-            // discovery so Arc never tries to resolve its SpanProcessor return type. Traces/AI still wire
-            // via BootUiTelemetryProducer and render empty.
-            excludedTypes.produce(new ExcludedTypeBuildItem(OTEL_PRODUCER_CLASS));
-        }
+        // No OpenTelemetry tracing (or production): keep the OTel-importing producer out of bean
+        // discovery so Arc never tries to resolve its SpanProcessor return type. Traces/AI still wire
+        // via BootUiTelemetryProducer and render empty.
+        registerCapabilityGatedBeans(enableCapture, additionalBeans, excludedTypes, OTEL_PRODUCER_CLASS);
     }
 
     /**
@@ -896,17 +889,10 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
         boolean enableCorrelation = launchMode.getLaunchMode() != LaunchMode.NORMAL
                 && capabilities.isPresent(Capability.OPENTELEMETRY_TRACER);
-        if (enableCorrelation) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(OTEL_TRACE_ID_PROVIDER_CLASS)
-                    .setUnremovable()
-                    .build());
-        } else {
-            // No OpenTelemetry tracing (or production): keep the OTel-importing provider out of bean discovery
-            // so Arc never tries to resolve the Span it references. The capture points then resolve no
-            // TraceIdProvider and stamp null, so Live Activity stays flat (the honest status quo).
-            excludedTypes.produce(new ExcludedTypeBuildItem(OTEL_TRACE_ID_PROVIDER_CLASS));
-        }
+        // No OpenTelemetry tracing (or production): keep the OTel-importing provider out of bean discovery
+        // so Arc never tries to resolve the Span it references. The capture points then resolve no
+        // TraceIdProvider and stamp null, so Live Activity stays flat (the honest status quo).
+        registerCapabilityGatedBeans(enableCorrelation, additionalBeans, excludedTypes, OTEL_TRACE_ID_PROVIDER_CLASS);
     }
 
     /**
@@ -936,16 +922,59 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
         boolean enableCapture =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SMALLRYE_HEALTH);
-        if (enableCapture) {
+        // No SmallRye Health (or production): keep the SmallRye-importing producer out of bean discovery so
+        // Arc never tries to resolve its SmallRyeHealthReporter parameter. The Health panel still wires via
+        // the always-produced HealthService and renders setup guidance.
+        registerCapabilityGatedBeans(enableCapture, additionalBeans, excludedTypes, HEALTH_PRODUCER_CLASS);
+    }
+
+    /**
+     * Shared implementation of the R2 capability/class-presence-gated bean registration pattern repeated
+     * throughout this processor (e.g. {@link #registerOpenTelemetryCapture}, {@link #registerHibernateAdvisor},
+     * {@link #registerCacheAdvisor}, {@link #registerFlyway}, {@link #registerLiquibase},
+     * {@link #registerConnectionPools}, {@link #registerSecurityLogs}, {@link #registerKafkaCapture},
+     * {@link #registerEmail}): when {@code present} — a non-production launch with the gating capability or
+     * class on the application classpath — the optional-dependency-importing bean class(es) are registered
+     * (pinned unremovable, since each is reached only through a CDI {@code Instance}/event lookup that Arc's
+     * static usage analysis cannot see); otherwise each bean class is actively {@linkplain ExcludedTypeBuildItem
+     * excluded} from discovery instead of merely left unannotated. A missing CDI scope alone is not enough: the
+     * extension runtime jar is Jandex-indexed, so Arc would discover an annotated producer/observer/interceptor
+     * <em>unconditionally</em> regardless of whether its optional dependency is on the classpath (R2) — the
+     * exclusion is what keeps that dependency's types unlinked.
+     */
+    private static void registerCapabilityGatedBeans(
+            boolean present,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            String... beanClasses) {
+        if (present) {
             additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(HEALTH_PRODUCER_CLASS)
+                    .addBeanClasses(beanClasses)
                     .setUnremovable()
                     .build());
         } else {
-            // No SmallRye Health (or production): keep the SmallRye-importing producer out of bean discovery so
-            // Arc never tries to resolve its SmallRyeHealthReporter parameter. The Health panel still wires via
-            // the always-produced HealthService and renders setup guidance.
-            excludedTypes.produce(new ExcludedTypeBuildItem(HEALTH_PRODUCER_CLASS));
+            for (String beanClass : beanClasses) {
+                excludedTypes.produce(new ExcludedTypeBuildItem(beanClass));
+            }
+        }
+    }
+
+    /**
+     * Variant of {@link #registerCapabilityGatedBeans(boolean, BuildProducer, BuildProducer, String...)} for
+     * build steps that also publish a {@code bootui.internal.*-present=true} runtime-config default when
+     * present, so a dynamically-available panel lights up in the {@code /bootui/api/panels} manifest (see
+     * {@link QuarkusPanelAvailability}).
+     */
+    private static void registerCapabilityGatedBeans(
+            boolean present,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults,
+            String presentKey,
+            String... beanClasses) {
+        registerCapabilityGatedBeans(present, additionalBeans, excludedTypes, beanClasses);
+        if (present) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(presentKey, "true"));
         }
     }
 
@@ -978,20 +1007,17 @@ class BootUiQuarkusProcessor {
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.HIBERNATE_ORM);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(HIBERNATE_PRODUCER_CLASS)
-                    .setUnremovable()
-                    .build());
-            runtimeDefaults.produce(
-                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.HIBERNATE_PRESENT_KEY, "true"));
-        } else {
-            // No Hibernate ORM (or production): keep the jakarta.persistence-importing producer out of bean
-            // discovery so Arc never tries to resolve its EntityManagerFactory parameter. The Hibernate scanner
-            // still wires via the always-produced HibernateScanner and renders a not-configured report; the panel
-            // is reported unavailable in the manifest (HIBERNATE_PRESENT_KEY defaults to false).
-            excludedTypes.produce(new ExcludedTypeBuildItem(HIBERNATE_PRODUCER_CLASS));
-        }
+        // No Hibernate ORM (or production): keep the jakarta.persistence-importing producer out of bean
+        // discovery so Arc never tries to resolve its EntityManagerFactory parameter. The Hibernate scanner
+        // still wires via the always-produced HibernateScanner and renders a not-configured report; the panel
+        // is reported unavailable in the manifest (HIBERNATE_PRESENT_KEY defaults to false).
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.HIBERNATE_PRESENT_KEY,
+                HIBERNATE_PRODUCER_CLASS);
     }
 
     /**
@@ -1020,14 +1046,7 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
         boolean present =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.HIBERNATE_ORM);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(SQL_TRACE_INSPECTOR_CLASS)
-                    .setUnremovable()
-                    .build());
-        } else {
-            excludedTypes.produce(new ExcludedTypeBuildItem(SQL_TRACE_INSPECTOR_CLASS));
-        }
+        registerCapabilityGatedBeans(present, additionalBeans, excludedTypes, SQL_TRACE_INSPECTOR_CLASS);
     }
 
     /**
@@ -1328,20 +1347,17 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.CACHE);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(CACHE_PRODUCER_CLASS)
-                    .setUnremovable()
-                    .build());
-            runtimeDefaults.produce(
-                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.CACHE_PRESENT_KEY, "true"));
-        } else {
-            // No quarkus-cache (or production): keep the io.quarkus.cache-importing producer out of bean
-            // discovery so Arc never tries to resolve its CacheManager parameter. The cache service still wires
-            // via the always-produced CacheService and renders the panel unavailable; the panel is reported
-            // unavailable in the manifest (CACHE_PRESENT_KEY defaults to false).
-            excludedTypes.produce(new ExcludedTypeBuildItem(CACHE_PRODUCER_CLASS));
-        }
+        // No quarkus-cache (or production): keep the io.quarkus.cache-importing producer out of bean
+        // discovery so Arc never tries to resolve its CacheManager parameter. The cache service still wires
+        // via the always-produced CacheService and renders the panel unavailable; the panel is reported
+        // unavailable in the manifest (CACHE_PRESENT_KEY defaults to false).
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.CACHE_PRESENT_KEY,
+                CACHE_PRODUCER_CLASS);
     }
 
     /**
@@ -1377,22 +1393,18 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.KAFKA);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(KAFKA_PRODUCER_CAPTURE_CLASS)
-                    .addBeanClass(KAFKA_CONSUMER_CAPTURE_CLASS)
-                    .setUnremovable()
-                    .build());
-            runtimeDefaults.produce(
-                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.KAFKA_PRESENT_KEY, "true"));
-        } else {
-            // No quarkus-messaging-kafka (or production): keep the SmallRye-messaging-importing interceptors out
-            // of bean discovery so Arc never loads them and links the messaging API. The recorder still wires via
-            // the always-produced KafkaActivityRecorder and stays empty, so Live Activity renders no MESSAGING
-            // entries and the Kafka panel reports itself unavailable (KAFKA_PRESENT_KEY defaults to false).
-            excludedTypes.produce(new ExcludedTypeBuildItem(KAFKA_PRODUCER_CAPTURE_CLASS));
-            excludedTypes.produce(new ExcludedTypeBuildItem(KAFKA_CONSUMER_CAPTURE_CLASS));
-        }
+        // No quarkus-messaging-kafka (or production): keep the SmallRye-messaging-importing interceptors out
+        // of bean discovery so Arc never loads them and links the messaging API. The recorder still wires via
+        // the always-produced KafkaActivityRecorder and stays empty, so Live Activity renders no MESSAGING
+        // entries and the Kafka panel reports itself unavailable (KAFKA_PRESENT_KEY defaults to false).
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.KAFKA_PRESENT_KEY,
+                KAFKA_PRODUCER_CAPTURE_CLASS,
+                KAFKA_CONSUMER_CAPTURE_CLASS);
     }
 
     /**
@@ -1413,16 +1425,13 @@ class BootUiQuarkusProcessor {
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SECURITY);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(SECURITY_CAPTURE_CLASS)
-                    .setUnremovable()
-                    .build());
-            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                    QuarkusPanelAvailability.SECURITY_LOGS_PRESENT_KEY, "true"));
-        } else {
-            excludedTypes.produce(new ExcludedTypeBuildItem(SECURITY_CAPTURE_CLASS));
-        }
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.SECURITY_LOGS_PRESENT_KEY,
+                SECURITY_CAPTURE_CLASS);
     }
 
     /**
@@ -1445,14 +1454,7 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
         boolean present =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SCHEDULER);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(SCHEDULED_TASK_RUN_RECORDER_CLASS)
-                    .setUnremovable()
-                    .build());
-        } else {
-            excludedTypes.produce(new ExcludedTypeBuildItem(SCHEDULED_TASK_RUN_RECORDER_CLASS));
-        }
+        registerCapabilityGatedBeans(present, additionalBeans, excludedTypes, SCHEDULED_TASK_RUN_RECORDER_CLASS);
     }
 
     /**
@@ -1476,16 +1478,13 @@ class BootUiQuarkusProcessor {
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL
                 && QuarkusClassLoader.isClassPresentAtRuntime(REACTIVE_MAILER_CLASS);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(EMAIL_CAPTURE_CLASS)
-                    .setUnremovable()
-                    .build());
-            runtimeDefaults.produce(
-                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.EMAIL_PRESENT_KEY, "true"));
-        } else {
-            excludedTypes.produce(new ExcludedTypeBuildItem(EMAIL_CAPTURE_CLASS));
-        }
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.EMAIL_PRESENT_KEY,
+                EMAIL_CAPTURE_CLASS);
     }
 
     /**
@@ -1514,20 +1513,17 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.FLYWAY);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(FLYWAY_PRODUCER_CLASS)
-                    .setUnremovable()
-                    .build());
-            runtimeDefaults.produce(
-                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.FLYWAY_PRESENT_KEY, "true"));
-        } else {
-            // No quarkus-flyway (or production): keep the Flyway-importing producer out of bean discovery so Arc
-            // never loads QuarkusFlywayProvider and links the Flyway API. The Flyway service still wires via the
-            // always-produced FlywayService and renders the panel unavailable; the panel is reported unavailable
-            // in the manifest (FLYWAY_PRESENT_KEY defaults to false).
-            excludedTypes.produce(new ExcludedTypeBuildItem(FLYWAY_PRODUCER_CLASS));
-        }
+        // No quarkus-flyway (or production): keep the Flyway-importing producer out of bean discovery so Arc
+        // never loads QuarkusFlywayProvider and links the Flyway API. The Flyway service still wires via the
+        // always-produced FlywayService and renders the panel unavailable; the panel is reported unavailable
+        // in the manifest (FLYWAY_PRESENT_KEY defaults to false).
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.FLYWAY_PRESENT_KEY,
+                FLYWAY_PRODUCER_CLASS);
     }
 
     /**
@@ -1558,20 +1554,17 @@ class BootUiQuarkusProcessor {
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.LIQUIBASE);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(LIQUIBASE_PRODUCER_CLASS)
-                    .setUnremovable()
-                    .build());
-            runtimeDefaults.produce(
-                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.LIQUIBASE_PRESENT_KEY, "true"));
-        } else {
-            // No quarkus-liquibase (or production): keep the io.quarkus.liquibase-importing producer out of bean
-            // discovery so Arc never instantiates QuarkusLiquibaseProvider. The liquibase service still wires via
-            // the always-produced LiquibaseService and renders the panel unavailable; the panel is reported
-            // unavailable in the manifest (LIQUIBASE_PRESENT_KEY defaults to false).
-            excludedTypes.produce(new ExcludedTypeBuildItem(LIQUIBASE_PRODUCER_CLASS));
-        }
+        // No quarkus-liquibase (or production): keep the io.quarkus.liquibase-importing producer out of bean
+        // discovery so Arc never instantiates QuarkusLiquibaseProvider. The liquibase service still wires via
+        // the always-produced LiquibaseService and renders the panel unavailable; the panel is reported
+        // unavailable in the manifest (LIQUIBASE_PRESENT_KEY defaults to false).
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.LIQUIBASE_PRESENT_KEY,
+                LIQUIBASE_PRODUCER_CLASS);
     }
 
     /**
@@ -1607,22 +1600,18 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.AGROAL);
-        if (present) {
-            additionalBeans.produce(AdditionalBeanBuildItem.builder()
-                    .addBeanClass(AGROAL_PRODUCER_CLASS)
-                    .addBeanClass(SQL_TRACE_PRODUCER_CLASS)
-                    .setUnremovable()
-                    .build());
-            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                    QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY, "true"));
-        } else {
-            // No JDBC datasource extension (or production): keep the io.agroal-importing producer out of bean
-            // discovery so Arc never links the Agroal API. The connection-pool service still wires via the
-            // always-produced ConnectionPoolService and renders the panel unavailable; the panel is reported
-            // unavailable in the manifest (CONNECTION_POOLS_PRESENT_KEY defaults to false).
-            excludedTypes.produce(new ExcludedTypeBuildItem(AGROAL_PRODUCER_CLASS));
-            excludedTypes.produce(new ExcludedTypeBuildItem(SQL_TRACE_PRODUCER_CLASS));
-        }
+        // No JDBC datasource extension (or production): keep the io.agroal-importing producer out of bean
+        // discovery so Arc never links the Agroal API. The connection-pool service still wires via the
+        // always-produced ConnectionPoolService and renders the panel unavailable; the panel is reported
+        // unavailable in the manifest (CONNECTION_POOLS_PRESENT_KEY defaults to false).
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY,
+                AGROAL_PRODUCER_CLASS,
+                SQL_TRACE_PRODUCER_CLASS);
     }
 
     /**
