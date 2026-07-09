@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
  * {@code bootui.email.dev-trap=true}, BootUI captures each message for the panel but never hands it to a
  * real SMTP transport, so no mail server is required and no real email is ever sent.
  *
- * <p>A couple of messages are seeded once at startup, and {@link #sendSampleEmail()} lets callers (e.g.
+ * <p>One message is seeded once at startup, and {@link #sendSampleEmail()} lets callers (e.g.
  * the sample "Send email" endpoint and the Playwright e2e suite) generate one more on demand.</p>
  */
 @Component
@@ -34,10 +34,9 @@ public class SampleMailSender {
         this.mailSender = mailSender;
     }
 
-    /** Seeds a couple of sample emails once the application is ready, so the panel is not empty. */
+    /** Seeds a single sample email once the application is ready, so the panel is not empty. */
     @EventListener(ApplicationReadyEvent.class)
     public void seedSampleEmails() {
-        sendOrderShipped();
         sendWelcome();
     }
 
