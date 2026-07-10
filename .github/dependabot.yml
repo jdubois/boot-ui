@@ -8,12 +8,12 @@ updates:
     groups:
       spring-boot:
         patterns:
-          - "org.springframework.boot:*"
-          - "org.springframework:*"
+          - 'org.springframework.boot:*'
+          - 'org.springframework:*'
       maven-plugins:
         patterns:
-          - "org.apache.maven.plugins:*"
-          - "com.github.eirslett:frontend-maven-plugin"
+          - 'org.apache.maven.plugins:*'
+          - 'com.github.eirslett:frontend-maven-plugin'
 
   - package-ecosystem: npm
     directory: /bootui-ui/src/main/frontend
@@ -23,14 +23,14 @@ updates:
     groups:
       vue:
         patterns:
-          - "vue"
-          - "vue-router"
-          - "@vitejs/*"
-          - "vite"
+          - 'vue'
+          - 'vue-router'
+          - '@vitejs/*'
+          - 'vite'
       bootstrap:
         patterns:
-          - "bootstrap"
-          - "bootstrap-icons"
+          - 'bootstrap'
+          - 'bootstrap-icons'
 
   - package-ecosystem: npm
     directory: /
@@ -40,9 +40,9 @@ updates:
     groups:
       vuepress:
         patterns:
-          - "vuepress"
-          - "@vuepress/*"
-          - "vue"
+          - 'vuepress'
+          - '@vuepress/*'
+          - 'vue'
 
   - package-ecosystem: npm
     directory: /bootui-spring-sample-app/e2e
@@ -52,8 +52,8 @@ updates:
     groups:
       playwright:
         patterns:
-          - "@playwright/*"
-          - "prettier"
+          - '@playwright/*'
+          - 'prettier'
 
   - package-ecosystem: npm
     directory: /bootui-quarkus-sample-app/e2e
@@ -63,8 +63,8 @@ updates:
     groups:
       playwright:
         patterns:
-          - "@playwright/*"
-          - "prettier"
+          - '@playwright/*'
+          - 'prettier'
 
   - package-ecosystem: github-actions
     directory: /
