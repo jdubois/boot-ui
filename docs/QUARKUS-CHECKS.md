@@ -11,6 +11,9 @@ own classes. It never intercepts live traffic, exposes credentials or secrets, o
 configuration. Findings are heuristic review prompts; the right remediation depends on the application's
 threat model and deployment topology.
 
+OIDC checks aggregate the active default tenant and active named tenants; a tenant with
+`quarkus.oidc[.<tenant>].tenant-enabled=false` is excluded.
+
 This is the Quarkus replacement for the Spring ruleset in [SECURITY-CHECKS.md](SECURITY-CHECKS.md):
 the panel and DTO are shared, but the rules are framework-specific (Elytron/OIDC vs Spring Security),
 so there is no overlap. Spring-only concepts (filter chains, `FilterChainProxy`, method-security
@@ -93,6 +96,12 @@ A `quarkus-elytron-security-jdbc` `principal-query` uses the `clear-password-map
 compared/stored in plain text rather than hashed. Switch to `bcrypt-password-mapper` (or another hashing
 mapper) and re-hash stored passwords.
 
+### QS-AUTH-012 - Form authentication without TLS (HIGH)
+`quarkus.http.auth.form.enabled=true` while `quarkus.http.insecure-requests=enabled` accepts passwords over
+plain HTTP, exposing them to passive network observers and active intermediaries. Set
+`quarkus.http.insecure-requests=redirect` (or `disabled`) and configure TLS. Suppressed when forwarded headers
+indicate that a trusted reverse proxy terminates TLS.
+
 > **Retired: QS-AUTH-011** (JDBC identity store bcrypt work-factor too low) was removed. The rule checked
 > `principal-query.*.bcrypt-password-mapper.work-factor`, a property that does not exist:
 > `BcryptPasswordKeyMapperConfig` (quarkus-elytron-security-jdbc) has no work-factor/cost-factor field at all
@@ -146,6 +155,11 @@ to pin TLS independently for a REST client, gRPC, or OIDC connection). Acceptabl
 (`quarkus.tls.<name>.trust-all`), disabling certificate validation for outbound TLS (REST clients, OIDC,
 datasources, gRPC) on that bucket, enabling man-in-the-middle attacks. Remove `trust-all`; import the peer's
 CA into a trust-store instead.
+
+### QS-TLS-004 - Identity-provider and JWK endpoints should use HTTPS (HIGH)
+`quarkus.oidc.auth-server-url` (for the default or any named tenant) or
+`mp.jwt.verify.publickey.location` uses plain HTTP, allowing OIDC discovery metadata or JWT signing keys to be
+modified by an active network attacker. Use HTTPS endpoints with certificate validation enabled.
 
 ## CORS
 
@@ -248,9 +262,14 @@ production, or protect it via the management interface / a permission policy.
 
 ## OIDC
 
-### QS-OIDC-001 - OIDC without token audience validation (MEDIUM)
-OIDC is configured without `quarkus.oidc.token.audience`, so a token minted for a different client/audience
-by the same provider is accepted. Set `quarkus.oidc.token.audience` to this service's expected audience.
+### QS-OIDC-001 - OIDC service without token audience validation (HIGH)
+OIDC is configured for a default or named `service`/`hybrid` token-consuming tenant without that tenant's
+`quarkus.oidc[.<tenant>].token.audience`, so an access token minted for a different service by the same trusted
+provider can be accepted. Set the tenant's token audience to this resource server's expected audience. Pure
+`web-app` authorization-code clients are excluded because their primary authentication artifact is an OIDC
+ID token whose audience is validated against the client id by the protocol implementation; applying this
+resource-server rule to them would be a false positive. The severity is HIGH for service/M2M flows because
+RFC 8725 requires each JWT application to validate that the token was issued for it.
 
 ### QS-OIDC-002 - OIDC web-app session cookie not forced secure (MEDIUM)
 An OIDC `web-app`/`hybrid` app stores the session in a cookie but `cookie-force-secure` is off and the app
@@ -263,6 +282,12 @@ An OIDC `web-app`/`hybrid` client has no client secret configured (`quarkus.oidc
 `quarkus.oidc.authentication.pkce-required` is not enabled (the Quarkus default is `false`), leaving the
 authorization-code flow vulnerable to interception. Set `quarkus.oidc.authentication.pkce-required=true` for
 public clients.
+
+### QS-OIDC-004 - OIDC token issuer validation is bypassed (HIGH)
+`quarkus.oidc[.<tenant>].token.issuer=any` disables issuer matching for the default or a named tenant. A token
+with a valid signature but an unintended issuer can then be accepted, especially when keys are shared or
+federated. Remove `token.issuer=any` and pin the exact trusted issuer; use explicit tenant resolution when
+multiple issuers are intentional.
 
 ## Management
 

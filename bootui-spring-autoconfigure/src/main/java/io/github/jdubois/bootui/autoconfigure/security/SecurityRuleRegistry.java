@@ -13,6 +13,7 @@ final class SecurityRuleRegistry {
             new DefaultInMemoryUserRule(),
             new DefaultLoginPageProductionRule(),
             new BasicAuthWithoutTlsRule(),
+            new FormLoginWithoutTlsRule(),
             new UsernameEnumerationRiskRule(),
             new GeneratedUserInProductionRule(),
             // Authorization
@@ -66,6 +67,7 @@ final class SecurityRuleRegistry {
             new ResourceServerValidationRule(),
             new JwtAudienceValidationRule(),
             new JwtStaticKeyRule(),
+            new InsecureJwtMetadataUrlRule(),
             // Configuration hygiene
             new SecurityDebugRule(),
             new H2ConsoleFrameOptionsRule(),

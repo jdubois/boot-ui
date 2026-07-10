@@ -67,6 +67,17 @@ record SecurityContext(
      * chain installs an HTTPS-redirect filter.
      */
     boolean isTlsConfigured() {
+        if (isGlobalTlsConfigured()) {
+            return true;
+        }
+        return chains.stream().anyMatch(SecurityContext::hasHttpsRedirect);
+    }
+
+    boolean isTlsConfiguredFor(FilterChainModel chain) {
+        return isGlobalTlsConfigured() || hasHttpsRedirect(chain);
+    }
+
+    private boolean isGlobalTlsConfigured() {
         if (isPropertyTrue("server.ssl.enabled")
                 || firstProperty("server.ssl.key-store") != null
                 || firstProperty("server.ssl.bundle") != null
@@ -77,9 +88,11 @@ record SecurityContext(
         if (forwarded != null && ("framework".equalsIgnoreCase(forwarded) || "native".equalsIgnoreCase(forwarded))) {
             return true;
         }
-        return chains.stream()
-                .anyMatch(
-                        chain -> chain.hasFilter("ChannelProcessingFilter") || chain.hasFilter("HttpsRedirectFilter"));
+        return false;
+    }
+
+    private static boolean hasHttpsRedirect(FilterChainModel chain) {
+        return chain.hasFilter("ChannelProcessingFilter") || chain.hasFilter("HttpsRedirectFilter");
     }
 
     /**

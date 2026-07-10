@@ -64,6 +64,27 @@ class SecurityRulesTests {
     }
 
     @Test
+    void reportOnlyCspFrameAncestorsDoesNotSatisfyClickjackingRule() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("HeaderWriterFilter"),
+                null,
+                null,
+                List.of("ContentSecurityPolicyHeaderWriter"),
+                null,
+                null,
+                "default-src 'self'; frame-ancestors 'none'",
+                Boolean.TRUE,
+                null,
+                null);
+
+        SecurityRuleResultDto result = new FrameOptionsRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
+    @Test
     void headerWritersDisabledDoesNotFireWhenHeaderWriterFilterPresent() {
         FilterChainModel chain = chain(
                 "any request",
@@ -74,6 +95,30 @@ class SecurityRulesTests {
                         "AuthorizationFilter"));
 
         SecurityRuleResultDto result = new HeaderWritersDisabledRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void redirectOnDifferentChainDoesNotSuppressPlaintextFormLogin() {
+        FilterChainModel apiChain =
+                chain("PathPattern [/api/**]", List.of("HttpsRedirectFilter", "AuthorizationFilter"));
+        FilterChainModel formChain =
+                chain("PathPattern [/**]", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result =
+                new FormLoginWithoutTlsRule().evaluate(context(List.of(apiChain, formChain), new MockEnvironment()));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void redirectOnFormLoginChainPasses() {
+        FilterChainModel formChain = chain(
+                "PathPattern [/**]",
+                List.of("HttpsRedirectFilter", "UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(singleChain(formChain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
@@ -400,14 +445,15 @@ class SecurityRulesTests {
     }
 
     @Test
-    void jwtAudiencePassesWhenAudiencesConfigured() {
+    void jwtAudienceDoesNotTrustRemovedAudiencesProperty() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
 
         SecurityRuleResultDto result = new JwtAudienceValidationRule().evaluate(context(environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("MEDIUM");
     }
 
     @Test
@@ -824,6 +870,101 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
+    @Test
+    void redirectOnDifferentChainDoesNotSuppressPlaintextBasicAuth() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        FilterChainModel webChain =
+                chain("PathPattern [/web/**]", List.of("HttpsRedirectFilter", "AuthorizationFilter"));
+        FilterChainModel basicChain =
+                chain("PathPattern [/api/**]", List.of("BasicAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result =
+                new BasicAuthWithoutTlsRule().evaluate(context(List.of(webChain, basicChain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
+    // --- SEC-AUTH-010: form login requires TLS -----------------------------------------------
+
+    @Test
+    void formLoginWithoutTlsFires() {
+        FilterChainModel chain =
+                chain("any request", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void formLoginWithTlsPasses() {
+        MockEnvironment environment = new MockEnvironment().withProperty("server.ssl.enabled", "true");
+        FilterChainModel chain =
+                chain("any request", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-CSRF-002: stateless HTTP Basic remains CSRF-relevant ----------------------------
+
+    @Test
+    void csrfDisabledForStatelessHttpBasicFires() {
+        FilterChainModel chain = chain("any request", List.of("BasicAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new CsrfGloballyDisabledRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void csrfDisabledForBearerTokenApiPasses() {
+        FilterChainModel chain =
+                chain("any request", List.of("BearerTokenAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new CsrfGloballyDisabledRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void csrfDisabledForUnauthenticatedChainPasses() {
+        FilterChainModel chain = chain("any request", List.of("AnonymousAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new CsrfGloballyDisabledRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-SESSION-002: unset Secure only matters when sessions exist ----------------------
+
+    @Test
+    void unsetSessionCookieSecurePassesForStatelessChainInProduction() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        FilterChainModel chain =
+                chain("any request", List.of("BearerTokenAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new SessionCookieSecureRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void explicitlyFalseSessionCookieSecureStillFiresForStatelessChain() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("server.servlet.session.cookie.secure", "false");
+        FilterChainModel chain =
+                chain("any request", List.of("BearerTokenAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new SessionCookieSecureRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
     // --- SEC-AUTH-008: hideUserNotFoundExceptions should stay enabled -----------------------
 
     @Test
@@ -961,6 +1102,69 @@ class SecurityRulesTests {
     }
 
     // --- SEC-HEAD-008: weak HSTS policy ------------------------------------------------------
+
+    @Test
+    void cspWithoutFrameAncestorsDoesNotSatisfyClickjackingRule() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("HeaderWriterFilter"),
+                null,
+                null,
+                List.of("ContentSecurityPolicyHeaderWriter"),
+                null,
+                null,
+                "default-src 'self'");
+
+        SecurityRuleResultDto result = new FrameOptionsRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void cspFrameAncestorsSatisfiesClickjackingRule() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("HeaderWriterFilter"),
+                null,
+                null,
+                List.of("ContentSecurityPolicyHeaderWriter"),
+                null,
+                null,
+                "default-src 'self'; frame-ancestors 'none'");
+
+        SecurityRuleResultDto result = new FrameOptionsRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-OAUTH-004: remote identity metadata must use HTTPS ------------------------------
+
+    @Test
+    void insecureIssuerUriFires() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "http://issuer.example.com");
+
+        SecurityRuleResultDto result = new InsecureJwtMetadataUrlRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .containsExactly("spring.security.oauth2.resourceserver.jwt.issuer-uri uses plain HTTP.");
+    }
+
+    @Test
+    void secureIssuerAndJwkUrisPass() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
+                .withProperty(
+                        "spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
+                        "https://issuer.example.com/.well-known/jwks.json");
+
+        SecurityRuleResultDto result = new InsecureJwtMetadataUrlRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
 
     @Test
     void weakHstsMaxAgeFiresViolation() {

@@ -19,7 +19,7 @@ class QuarkusSecurityScannerTest {
 
     /**
      * Mutable builder whose defaults describe a hardened Quarkus app that fires zero rules, so each test can
-     * flip exactly the fields under test. Mirrors the 60-field {@link QuarkusSecuritySnapshot} positional record.
+     * flip exactly the fields under test. Mirrors the {@link QuarkusSecuritySnapshot} positional record.
      */
     private static final class Snap {
         // Auth mechanisms — basic auth on, over redirected HTTP, is a clean baseline.
@@ -96,6 +96,9 @@ class QuarkusSecurityScannerTest {
         boolean oidcHasClientSecret = true;
         boolean oidcPkceRequired = true;
         boolean healthUiAlwaysInclude = false;
+        boolean insecureIdentityProviderUrl = false;
+        boolean oidcIssuerAny = false;
+        boolean oidcServiceTokenConsumer = true;
 
         QuarkusSecuritySnapshot build() {
             return new QuarkusSecuritySnapshot(
@@ -158,7 +161,10 @@ class QuarkusSecurityScannerTest {
                     formTimeoutExcessive,
                     oidcHasClientSecret,
                     oidcPkceRequired,
-                    healthUiAlwaysInclude);
+                    healthUiAlwaysInclude,
+                    insecureIdentityProviderUrl,
+                    oidcIssuerAny,
+                    oidcServiceTokenConsumer);
         }
     }
 
@@ -482,7 +488,18 @@ class QuarkusSecurityScannerTest {
         s.oidc = true;
         s.oidcAudience = false;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-OIDC-001").severity()).isEqualTo("MEDIUM");
+        assertThat(find(r, "QS-OIDC-001").severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void oidcWebAppWithoutAudienceDoesNotFlagOidc001() {
+        Snap s = new Snap();
+        s.oidc = true;
+        s.oidcAudience = false;
+        s.oidcAppType = "web-app";
+        s.oidcServiceTokenConsumer = false;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-OIDC-001")).isNull();
     }
 
     @Test
@@ -585,6 +602,44 @@ class QuarkusSecurityScannerTest {
         s.jdbcClearPasswordMapper = true;
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-AUTH-010").severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void formAuthOverPlainHttpFlagsAuth012() {
+        Snap s = new Snap();
+        s.form = true;
+        s.csrf = true;
+        s.insecure = "enabled";
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-012").severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void formAuthBehindTlsTerminatingProxyDoesNotFlagAuth012() {
+        Snap s = new Snap();
+        s.form = true;
+        s.csrf = true;
+        s.insecure = "enabled";
+        s.behindProxy = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-012")).isNull();
+    }
+
+    @Test
+    void insecureIdentityProviderUrlFlagsTls004() {
+        Snap s = new Snap();
+        s.insecureIdentityProviderUrl = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-TLS-004").severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void oidcIssuerAnyFlagsOidc004() {
+        Snap s = new Snap();
+        s.oidc = true;
+        s.oidcIssuerAny = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-OIDC-004").severity()).isEqualTo("HIGH");
     }
 
     @Test
@@ -939,6 +994,6 @@ class QuarkusSecurityScannerTest {
         s.secured = 0;
         SecurityReport r = scan(s);
         assertThat(r.results()).allSatisfy(x -> assertThat(x.id()).startsWith("QS-"));
-        assertThat(r.scan().rulesEvaluated()).isEqualTo(45);
+        assertThat(r.scan().rulesEvaluated()).isEqualTo(48);
     }
 }

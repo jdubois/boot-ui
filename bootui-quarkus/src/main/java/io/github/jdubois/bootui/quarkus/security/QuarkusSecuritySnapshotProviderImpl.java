@@ -48,7 +48,8 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
 
     @Override
     public QuarkusSecuritySnapshot snapshot() {
-        boolean oidc = has("quarkus.oidc.auth-server-url");
+        Set<String> oidcTenants = oidcTenantPrefixes();
+        boolean oidc = !oidcTenants.isEmpty();
         boolean jwt = has("mp.jwt.verify.publickey")
                 || has("mp.jwt.verify.publickey.location")
                 || has("mp.jwt.verify.issuer");
@@ -67,7 +68,8 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         boolean corsCreds = corsCredentials(corsOrigins);
         boolean hsts = has("quarkus.http.header.\"Strict-Transport-Security\".value");
         boolean csp = has("quarkus.http.header.\"Content-Security-Policy\".value");
-        boolean oidcVerifyNone = "none".equalsIgnoreCase(str("quarkus.oidc.tls.verification", ""));
+        boolean oidcVerifyNone =
+                oidcTenants.stream().anyMatch(prefix -> "none".equalsIgnoreCase(str(prefix + ".tls.verification", "")));
         boolean swagger = bool("quarkus.swagger-ui.always-include", false);
         boolean openapi = bool("quarkus.smallrye-openapi.always-include", false);
         boolean csrfExtensionPresent = bool(CSRF_KEY, false);
@@ -78,9 +80,19 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 || bool("quarkus.http.proxy.allow-x-forwarded", false);
         boolean jwtIssuer = has("mp.jwt.verify.issuer");
         boolean proactiveAuthDisabled = !bool("quarkus.http.auth.proactive", true);
-        boolean oidcAudience = has("quarkus.oidc.token.audience");
-        String oidcAppType = str("quarkus.oidc.application-type", "").toLowerCase();
-        boolean oidcCookieForceSecure = bool("quarkus.oidc.authentication.cookie-force-secure", false);
+        boolean oidcServiceTokenConsumer = oidcTenants.stream().anyMatch(this::isServiceOidcTenant);
+        boolean oidcAudience = !oidcServiceTokenConsumer
+                || oidcTenants.stream()
+                        .filter(this::isServiceOidcTenant)
+                        .allMatch(prefix -> has(prefix + ".token.audience"));
+        boolean oidcWebApp = oidcTenants.stream().anyMatch(this::isWebOidcTenant);
+        String oidcAppType = oidcWebApp
+                ? (oidcServiceTokenConsumer ? "hybrid" : "web-app")
+                : (oidcServiceTokenConsumer ? "service" : "");
+        boolean oidcCookieForceSecure = !oidcWebApp
+                || oidcTenants.stream()
+                        .filter(this::isWebOidcTenant)
+                        .allMatch(prefix -> bool(prefix + ".authentication.cookie-force-secure", false));
         boolean tlsTrustAll = bool("quarkus.tls.trust-all", false) || namedTlsBucketTrustAll();
         String corsMethods = str("quarkus.http.cors.methods", null);
         String corsHeaders = str("quarkus.http.cors.headers", null);
@@ -117,10 +129,19 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         boolean formCookieSameSiteNone =
                 "none".equalsIgnoreCase(str("quarkus.http.auth.form.cookie-same-site", "strict"));
         boolean formSessionTimeoutExcessive = formSessionTimeoutExcessive();
-        boolean oidcHasClientSecret =
-                has("quarkus.oidc.credentials.secret") || has("quarkus.oidc.credentials.client-secret.value");
-        boolean oidcPkceRequired = bool("quarkus.oidc.authentication.pkce-required", false);
+        boolean oidcHasClientSecret = !oidcWebApp
+                || oidcTenants.stream().filter(this::isWebOidcTenant).allMatch(this::oidcTenantHasClientSecret);
+        boolean oidcPkceRequired = !oidcWebApp
+                || oidcTenants.stream()
+                        .filter(this::isWebOidcTenant)
+                        .allMatch(prefix -> oidcTenantHasClientSecret(prefix)
+                                || bool(prefix + ".authentication.pkce-required", false));
         boolean healthUiAlwaysInclude = bool("quarkus.smallrye-health.ui.always-include", false);
+        boolean insecureIdentityProviderUrl =
+                oidcTenants.stream().anyMatch(prefix -> isHttpUrl(str(prefix + ".auth-server-url", null)))
+                        || isHttpUrl(str("mp.jwt.verify.publickey.location", null));
+        boolean oidcIssuerAny =
+                oidcTenants.stream().anyMatch(prefix -> "any".equalsIgnoreCase(str(prefix + ".token.issuer", "")));
 
         return new QuarkusSecuritySnapshot(
                 oidc,
@@ -182,7 +203,10 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 formSessionTimeoutExcessive,
                 oidcHasClientSecret,
                 oidcPkceRequired,
-                healthUiAlwaysInclude);
+                healthUiAlwaysInclude,
+                insecureIdentityProviderUrl,
+                oidcIssuerAny,
+                oidcServiceTokenConsumer);
     }
 
     private static boolean isLoopbackHost(String host) {
@@ -195,6 +219,39 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 || h.startsWith("127.")
                 || h.equals("::1")
                 || h.equals("0:0:0:0:0:0:0:1");
+    }
+
+    private static boolean isHttpUrl(String value) {
+        return value != null && value.trim().toLowerCase().startsWith("http://");
+    }
+
+    private Set<String> oidcTenantPrefixes() {
+        Set<String> prefixes = new java.util.LinkedHashSet<>();
+        for (String name : config.getPropertyNames()) {
+            if (name.equals("quarkus.oidc.auth-server-url") && has(name) && bool("quarkus.oidc.tenant-enabled", true)) {
+                prefixes.add("quarkus.oidc");
+            } else if (name.startsWith("quarkus.oidc.") && name.endsWith(".auth-server-url") && has(name)) {
+                String prefix = name.substring(0, name.length() - ".auth-server-url".length());
+                if (bool(prefix + ".tenant-enabled", true)) {
+                    prefixes.add(prefix);
+                }
+            }
+        }
+        return prefixes;
+    }
+
+    private boolean isServiceOidcTenant(String prefix) {
+        String applicationType = str(prefix + ".application-type", "service");
+        return "service".equalsIgnoreCase(applicationType) || "hybrid".equalsIgnoreCase(applicationType);
+    }
+
+    private boolean isWebOidcTenant(String prefix) {
+        String applicationType = str(prefix + ".application-type", "service");
+        return "web-app".equalsIgnoreCase(applicationType) || "hybrid".equalsIgnoreCase(applicationType);
+    }
+
+    private boolean oidcTenantHasClientSecret(String prefix) {
+        return has(prefix + ".credentials.secret") || has(prefix + ".credentials.client-secret.value");
     }
 
     /** Raw-scans for any named TLS registry bucket ({@code quarkus.tls.<name>.key-store.*}) configuring a keystore,

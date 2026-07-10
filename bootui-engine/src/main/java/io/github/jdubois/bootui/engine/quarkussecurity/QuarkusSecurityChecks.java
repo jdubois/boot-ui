@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 final class QuarkusSecurityChecks {
 
     private static final String VIOLATION = "VIOLATION";
-    private static final int RULE_COUNT = 45;
+    private static final int RULE_COUNT = 48;
     private static final String GUIDE = "https://quarkus.io/guides/security-overview";
     private static final Pattern MAX_AGE = Pattern.compile("max-age\\s*=\\s*(\\d+)");
     private static final long HSTS_MIN_MAX_AGE = 31536000L;
@@ -64,6 +64,18 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("quarkus.http.auth.form.enabled=true, quarkus-rest-csrf absent"),
                     "Add the io.quarkus:quarkus-rest-csrf extension and embed the CSRF token in forms."));
+        }
+        if (s.formAuth() && "enabled".equals(s.insecureRequests()) && !s.behindProxy()) {
+            v.add(rule(
+                    "QS-AUTH-012",
+                    "Form authentication without TLS",
+                    "Authentication",
+                    "HIGH",
+                    "Form authentication is enabled while insecure HTTP requests are accepted, exposing submitted"
+                            + " credentials to passive network observers and active interception.",
+                    1,
+                    List.of("quarkus.http.auth.form.enabled=true, quarkus.http.insecure-requests=enabled"),
+                    "Set quarkus.http.insecure-requests=redirect (or disabled) and configure TLS."));
         }
         if (s.jwtConfigured() && !s.jwtIssuerConfigured()) {
             v.add(rule(
@@ -249,6 +261,18 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("quarkus.tls.trust-all=true (default or a named bucket)"),
                     "Remove trust-all; import the peer's CA into a trust-store instead."));
+        }
+        if (s.insecureIdentityProviderUrl()) {
+            v.add(rule(
+                    "QS-TLS-004",
+                    "Identity-provider and JWK endpoints should use HTTPS",
+                    "Transport",
+                    "HIGH",
+                    "An OIDC auth-server URL or remote JWT key location uses plain HTTP, allowing discovery"
+                            + " metadata or signing keys to be modified by an active network attacker.",
+                    1,
+                    List.of("quarkus.oidc.auth-server-url or mp.jwt.verify.publickey.location uses http://"),
+                    "Use HTTPS identity-provider and JWK endpoints with certificate validation enabled."));
         }
         boolean explicitWildcardCors = s.corsEnabled() && isExplicitWildcardOrigin(s.corsOrigins());
         boolean unsetOriginsCors =
@@ -456,17 +480,30 @@ final class QuarkusSecurityChecks {
                     "Remove the override so the Health UI is only available outside production, or protect it"
                             + " via the management interface / a permission policy."));
         }
-        if (s.oidcConfigured() && !s.oidcAudienceConfigured()) {
+        if (s.oidcConfigured() && s.oidcServiceTokenConsumer() && !s.oidcAudienceConfigured()) {
             v.add(rule(
                     "QS-OIDC-001",
                     "OIDC without token audience validation",
                     "OIDC",
-                    "MEDIUM",
+                    "HIGH",
                     "OIDC is configured without quarkus.oidc.token.audience, so a token minted for a different"
-                            + " client/audience by the same provider is accepted.",
+                            + " service/audience by the same provider can be accepted by this resource server.",
                     1,
                     List.of("quarkus.oidc.auth-server-url set, quarkus.oidc.token.audience absent"),
                     "Set quarkus.oidc.token.audience to this service's expected audience."));
+        }
+        if (s.oidcConfigured() && s.oidcIssuerAny()) {
+            v.add(rule(
+                    "QS-OIDC-004",
+                    "OIDC token issuer validation is bypassed",
+                    "OIDC",
+                    "HIGH",
+                    "quarkus.oidc.token.issuer=any disables issuer matching, so a correctly signed token from an"
+                            + " unintended issuer can be accepted.",
+                    1,
+                    List.of("quarkus.oidc.token.issuer=any"),
+                    "Remove token.issuer=any and configure the exact trusted issuer; use explicit tenant"
+                            + " resolution when multiple issuers are intentional."));
         }
         boolean oidcWebApp = "web-app".equals(s.oidcApplicationType()) || "hybrid".equals(s.oidcApplicationType());
         if (oidcWebApp && !s.oidcCookieForceSecure() && !s.sslConfigured()) {

@@ -31,6 +31,8 @@ final class SecurityModel {
      * @param cspPolicyDirectives the {@code ContentSecurityPolicyHeaderWriter}'s configured
      *     {@code policyDirectives}, when a CSP writer is present and the field could be read,
      *     {@code null} otherwise
+     * @param cspReportOnly whether the CSP writer emits Content-Security-Policy-Report-Only instead of
+     *     an enforcing policy
      * @param authorizationRuleShadowed {@code TRUE} when an earlier, broader {@code
      *     authorizeHttpRequests} matcher in this chain shadows a later, narrower one (so the later
      *     rule can never take effect), {@code FALSE} when no shadowing was detected, {@code null}
@@ -50,6 +52,7 @@ final class SecurityModel {
             Long hstsMaxAgeSeconds,
             Boolean hstsIncludeSubdomains,
             String cspPolicyDirectives,
+            Boolean cspReportOnly,
             Boolean authorizationRuleShadowed,
             Integer rememberMeKeyLength) {
 
@@ -91,6 +94,7 @@ final class SecurityModel {
                     null,
                     null,
                     null,
+                    null,
                     null);
         }
 
@@ -119,7 +123,35 @@ final class SecurityModel {
                     hstsIncludeSubdomains,
                     cspPolicyDirectives,
                     null,
+                    null,
                     null);
+        }
+
+        FilterChainModel(
+                int index,
+                String matcher,
+                List<String> filterNames,
+                Boolean permitsAllAnonymous,
+                Boolean sessionFixationDisabled,
+                List<String> headerWriterNames,
+                Long hstsMaxAgeSeconds,
+                Boolean hstsIncludeSubdomains,
+                String cspPolicyDirectives,
+                Boolean authorizationRuleShadowed,
+                Integer rememberMeKeyLength) {
+            this(
+                    index,
+                    matcher,
+                    filterNames,
+                    permitsAllAnonymous,
+                    sessionFixationDisabled,
+                    headerWriterNames,
+                    hstsMaxAgeSeconds,
+                    hstsIncludeSubdomains,
+                    cspPolicyDirectives,
+                    null,
+                    authorizationRuleShadowed,
+                    rememberMeKeyLength);
         }
 
         boolean hasFilter(String simpleClassName) {
@@ -136,6 +168,12 @@ final class SecurityModel {
 
         boolean hasHeaderWriterContaining(String fragment) {
             return headerWriterNames.stream().anyMatch(name -> name.contains(fragment));
+        }
+
+        boolean hasCspDirective(String directive) {
+            return !Boolean.TRUE.equals(cspReportOnly)
+                    && cspPolicyDirectives != null
+                    && hasDirective(cspPolicyDirectives.toLowerCase(Locale.ROOT), directive.toLowerCase(Locale.ROOT));
         }
 
         /**

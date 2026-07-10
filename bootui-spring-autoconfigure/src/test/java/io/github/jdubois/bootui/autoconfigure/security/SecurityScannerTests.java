@@ -23,7 +23,7 @@ import org.springframework.security.web.FilterChainProxy;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 59;
+    private static final int RULE_COUNT = 61;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -119,16 +119,14 @@ class SecurityScannerTests {
                         "PermissionsPolicyHeaderWriter",
                         "CrossOriginOpenerPolicyHeaderWriter",
                         "CrossOriginEmbedderPolicyHeaderWriter"));
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
-                .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
+        MockEnvironment environment = new MockEnvironment();
         SecurityContext context = new SecurityContext(
                 List.of(chain),
                 List.of(new PasswordEncoderModel(
                         "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder", null)),
                 List.of(),
                 false,
-                List.of(),
+                List.of("com.example.AudienceValidatingJwtDecoder"),
                 true,
                 false,
                 false,
@@ -170,9 +168,7 @@ class SecurityScannerTests {
                         "PermissionsPolicyHeaderWriter",
                         "CrossOriginOpenerPolicyHeaderWriter",
                         "CrossOriginEmbedderPolicyHeaderWriter"));
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
-                .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
+        MockEnvironment environment = new MockEnvironment();
         environment.getPropertySources().addLast(bootUiActuatorDefaultsInDefaultPropertiesSource());
         ConfigurationPropertySources.attach(environment);
         SecurityContext context = new SecurityContext(
@@ -181,7 +177,7 @@ class SecurityScannerTests {
                         "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder", null)),
                 List.of(),
                 false,
-                List.of(),
+                List.of("com.example.AudienceValidatingJwtDecoder"),
                 true,
                 false,
                 false,
@@ -224,8 +220,6 @@ class SecurityScannerTests {
                         "CrossOriginOpenerPolicyHeaderWriter",
                         "CrossOriginEmbedderPolicyHeaderWriter"));
         MockEnvironment environment = new MockEnvironment()
-                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
-                .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui")
                 .withProperty("management.endpoints.web.exposure.include", "env,beans")
                 .withProperty("management.endpoint.health.show-details", "always");
         environment.getPropertySources().addLast(bootUiActuatorDefaultsInDefaultPropertiesSource());
@@ -236,7 +230,7 @@ class SecurityScannerTests {
                         "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder", null)),
                 List.of(),
                 false,
-                List.of(),
+                List.of("com.example.AudienceValidatingJwtDecoder"),
                 true,
                 false,
                 false,
@@ -453,9 +447,7 @@ class SecurityScannerTests {
     }
 
     private static MockEnvironment resourceServerEnvironment() {
-        return new MockEnvironment()
-                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
-                .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
+        return new MockEnvironment();
     }
 
     private static SecurityContext hardenedContext(List<PasswordEncoderModel> encoders, MockEnvironment environment) {
@@ -464,7 +456,7 @@ class SecurityScannerTests {
                 encoders,
                 List.of(),
                 false,
-                List.of(),
+                List.of("com.example.AudienceValidatingJwtDecoder"),
                 true,
                 false,
                 false,
