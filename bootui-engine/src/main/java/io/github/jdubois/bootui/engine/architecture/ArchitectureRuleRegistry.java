@@ -44,7 +44,9 @@ final class ArchitectureRuleRegistry {
             new LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule(),
             new LifecycleCallbacksShouldNotBeProxyDrivenRule(),
             new AsyncAndTransactionalShouldNotBeCombinedRule(),
+            new AsyncEventListenersShouldReturnVoidRule(),
             new BeanPostProcessorFactoryMethodsShouldBeStaticRule(),
+            new LegacyJavaxTransactionalShouldBeMigratedRule(),
             new InternalPackagesShouldNotBeAccessedExternallyRule(),
             new NoDirectThreadInstantiationRule(),
             new AssertionsShouldHaveDetailMessageRule());

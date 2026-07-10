@@ -95,9 +95,14 @@ final class SpringStereotypes {
 
     static final String TRANSACTIONAL = "org.springframework.transaction.annotation.Transactional";
     static final String JAKARTA_TRANSACTIONAL = "jakarta.transaction.Transactional";
+    static final String JAVAX_TRANSACTIONAL = "javax.transaction.Transactional";
     static final String ASYNC = "org.springframework.scheduling.annotation.Async";
     static final String CACHEABLE = "org.springframework.cache.annotation.Cacheable";
+    static final String CACHE_EVICT = "org.springframework.cache.annotation.CacheEvict";
+    static final String CACHE_PUT = "org.springframework.cache.annotation.CachePut";
+    static final String CACHING = "org.springframework.cache.annotation.Caching";
     static final String SCHEDULED = "org.springframework.scheduling.annotation.Scheduled";
+    static final String EVENT_LISTENER = "org.springframework.context.event.EventListener";
     static final String CONFIGURATION_PROPERTIES =
             "org.springframework.boot.context.properties.ConfigurationProperties";
     static final String BEAN = "org.springframework.context.annotation.Bean";
@@ -140,6 +145,12 @@ final class SpringStereotypes {
     static final DescribedPredicate<CanBeAnnotated> ASYNC_ANNOTATED =
             annotatedWith(ASYNC).as("annotated with @Async");
 
+    static final DescribedPredicate<CanBeAnnotated> CACHE_OPERATION_ANNOTATED = annotatedWith(CACHEABLE)
+            .or(annotatedWith(CACHE_EVICT))
+            .or(annotatedWith(CACHE_PUT))
+            .or(annotatedWith(CACHING))
+            .as("annotated with a Spring cache operation");
+
     static final DescribedPredicate<CanBeAnnotated> SCHEDULED_ANNOTATED =
             annotatedWith(SCHEDULED).as("annotated with @Scheduled");
 
@@ -155,14 +166,15 @@ final class SpringStereotypes {
 
     static final DescribedPredicate<CanBeAnnotated> PROXIED_METHOD_ANNOTATED = TRANSACTIONAL_ANNOTATED
             .or(annotatedWith(ASYNC))
-            .or(annotatedWith(CACHEABLE))
-            .as("annotated with @Transactional, @Async, or @Cacheable");
+            .or(CACHE_OPERATION_ANNOTATED)
+            .as("annotated with @Transactional, @Async, or a Spring cache operation");
 
-    // Class-level @Async / @Cacheable make every method proxied, so self-invocation always loses the
-    // behaviour. Class-level @Transactional is deliberately excluded here: a self-call to another method
-    // of the same class simply joins the existing class-level transaction, so flagging it is noise.
-    static final DescribedPredicate<CanBeAnnotated> CLASS_LEVEL_PROXY_ANNOTATED =
-            annotatedWith(ASYNC).or(annotatedWith(CACHEABLE)).as("a class annotated with @Async or @Cacheable");
+    // Class-level @Async / cache operations make every method proxied, so self-invocation always loses
+    // the behaviour. Class-level @Transactional is deliberately excluded here: a self-call to another
+    // method of the same class simply joins the existing class-level transaction, so flagging it is noise.
+    static final DescribedPredicate<CanBeAnnotated> CLASS_LEVEL_PROXY_ANNOTATED = annotatedWith(ASYNC)
+            .or(CACHE_OPERATION_ANNOTATED)
+            .as("a class annotated with @Async or a Spring cache operation");
 
     private SpringStereotypes() {}
 }
@@ -419,7 +431,16 @@ final class NoSystemExitRule extends AbstractArchitectureRule {
     }
 
     private static boolean isStaticMainMethod(JavaCodeUnit origin) {
-        return origin.getName().equals("main") && origin.getModifiers().contains(JavaModifier.STATIC);
+        if (!(origin instanceof JavaMethod method)) {
+            return false;
+        }
+        List<JavaClass> parameters = method.getRawParameterTypes();
+        return method.getName().equals("main")
+                && method.getModifiers().contains(JavaModifier.PUBLIC)
+                && method.getModifiers().contains(JavaModifier.STATIC)
+                && method.getRawReturnType().isEquivalentTo(void.class)
+                && parameters.size() == 1
+                && parameters.get(0).isEquivalentTo(String[].class);
     }
 }
 
@@ -786,7 +807,8 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                 "LOW",
                 "Detects logger fields (SLF4J, Log4j2, Commons Logging, JBoss Logging, java.util.logging, or"
                         + " Logback) that are not private, static, and final. Exempts container-managed injection"
-                        + " points (@Inject/@Autowired/@Resource, e.g. Quarkus's `@Inject Logger log;`) and a"
+                        + " points (@Inject/@Autowired/jakarta.annotation.Resource, e.g. Quarkus's"
+                        + " `@Inject Logger log;`) and a"
                         + " protected, non-static, final logger declared in an abstract base class and initialized"
                         + " via LoggerFactory.getLogger(getClass()) so each subclass logs under its own name.",
                 "Make logger fields private, static, and final. For a logger shared with subclasses, declare it"
@@ -927,17 +949,18 @@ final class RepositoriesShouldNotDependOnServicesRule extends AbstractArchitectu
 }
 
 /**
- * Flags service and repository beans that depend on servlet request/response infrastructure.
+ * Flags service and repository beans that depend on servlet or reactive web request/response
+ * infrastructure.
  */
 final class ServicesAndRepositoriesShouldNotDependOnServletTypesRule extends AbstractArchitectureRule {
 
     ServicesAndRepositoriesShouldNotDependOnServletTypesRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-SPRING-008",
-                "Services and repositories should not depend on servlet types",
+                "Services and repositories should not depend on web request types",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Service or @Repository beans that depend on servlet or Spring web request types.",
+                "Detects @Service or @Repository beans that depend on servlet or reactive Spring web request types.",
                 "Extract request data in the web layer and pass plain application values into services and repositories.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_layer_checks"));
     }
@@ -949,7 +972,12 @@ final class ServicesAndRepositoriesShouldNotDependOnServletTypesRule extends Abs
                 .should()
                 .dependOnClassesThat()
                 .resideInAnyPackage(
-                        "jakarta.servlet..", "javax.servlet..", "org.springframework.web.context.request..");
+                        "jakarta.servlet..",
+                        "javax.servlet..",
+                        "org.springframework.web.context.request..",
+                        "org.springframework.web.reactive.function.server..",
+                        "org.springframework.web.server..",
+                        "org.springframework.http.server.reactive..");
     }
 }
 
@@ -1008,8 +1036,8 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
  * Flags methods annotated with proxy-driven annotations that the runtime's proxy mechanism cannot
  * actually intercept.
  *
- * <p>Spring's own proxy-driven annotations ({@code @Async}, {@code @Cacheable}, and Spring's own
- * {@code @Transactional}) require a public, non-static, non-final method: interface-based JDK
+ * <p>Spring's own proxy-driven annotations ({@code @Async}, Spring cache annotations, and Spring's
+ * own {@code @Transactional}) require a public, non-static, non-final method: interface-based JDK
  * proxies and the default CGLIB subclass proxy only ever intercept public instance methods (Spring's
  * transaction-management reference documents this restriction explicitly, and {@code CglibAopProxy}
  * logs a warning and silently calls the original, un-intercepted method for a {@code final} method).
@@ -1035,7 +1063,7 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
                 "Proxy-driven methods should be publicly overridable",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Async, @Cacheable, or Spring's own @Transactional on a non-public, static, or final method, and jakarta.transaction.Transactional on a private, static, or final method. Interface-based and CGLIB proxies can only intercept public, overridable instance methods, while a CDI client proxy can also intercept protected and package-private ones, so the proxy behaviour can be silently skipped.",
+                "Detects @Async, Spring cache annotations, or Spring's own @Transactional on a non-public, static, or final method, and jakarta.transaction.Transactional on a private, static, or final method. Interface-based and CGLIB proxies can only intercept public, overridable instance methods, while a CDI client proxy can also intercept protected and package-private ones, so the proxy behaviour can be silently skipped.",
                 "Make the annotated method public, non-static, and non-final so it can be intercepted by a Spring proxy (or at least package-visible, non-static, and non-final for the portable jakarta.transaction.Transactional annotation, which a CDI client proxy can also intercept), or move the annotation to a method that can be.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
@@ -1068,7 +1096,7 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
     private static Optional<String> proxyabilityProblem(JavaMethod method) {
         boolean springAnnotated = method.isAnnotatedWith(SpringStereotypes.TRANSACTIONAL)
                 || method.isAnnotatedWith(SpringStereotypes.ASYNC)
-                || method.isAnnotatedWith(SpringStereotypes.CACHEABLE);
+                || SpringStereotypes.CACHE_OPERATION_ANNOTATED.test(method);
         if (springAnnotated) {
             return visibilityProblem(method, JavaModifier.PUBLIC);
         }
@@ -1473,8 +1501,9 @@ final class ConfigurationPropertiesShouldBeImmutableRule extends AbstractArchite
 /**
  * Flags direct calls between {@code @Bean} methods declared in the same class when that class is not
  * a full {@code @Configuration(proxyBeanMethods=true)}. In lite mode such a call is a plain method
- * invocation, so the Spring container does not intercept it and a second, unmanaged instance is
- * created instead of returning the shared singleton.
+ * invocation, so the Spring container does not intercept it. Calling a sibling factory method creates
+ * a new instance rather than resolving the container-managed bean; whether that is a duplicate singleton
+ * or another unmanaged object depends on the factory method's scope and implementation.
  */
 final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends AbstractArchitectureRule {
 
@@ -1485,7 +1514,7 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
                         "Lite-mode @Bean methods should not call sibling @Bean methods",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "HIGH",
-                        "Detects direct calls between @Bean methods declared in the same class when that class is not a full @Configuration(proxyBeanMethods=true). In lite mode the call bypasses the Spring container, creating a second unmanaged instance instead of the shared singleton.",
+                        "Detects direct calls between @Bean methods declared in the same class when that class is not a full @Configuration(proxyBeanMethods=true). In lite mode the call is a plain Java invocation that bypasses the container, so it creates whatever the factory method returns instead of resolving the managed bean.",
                         "Declare the class as @Configuration (the default proxyBeanMethods=true), or pass the dependency as a @Bean method parameter instead of calling the sibling @Bean method directly.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Bean.html"));
     }
@@ -1554,7 +1583,8 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
 
 /**
  * Flags {@code @PostConstruct} / {@code @PreDestroy} lifecycle callbacks that are also annotated with
- * a proxy-driven annotation ({@code @Transactional}, {@code @Async}, or {@code @Cacheable}). Spring
+ * a proxy-driven annotation ({@code @Transactional}, {@code @Async}, or a Spring cache operation).
+ * Spring
  * invokes lifecycle callbacks before the bean is wrapped in its proxy (and after it is unwrapped at
  * destruction), so the proxy behaviour never applies.
  */
@@ -1566,7 +1596,7 @@ final class LifecycleCallbacksShouldNotBeProxyDrivenRule extends AbstractArchite
                 "Lifecycle callbacks should not be proxy-driven",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "HIGH",
-                "Detects @PostConstruct or @PreDestroy methods that are also annotated with @Transactional, @Async, or @Cacheable. The proxy is not active during bean initialization or destruction, so the transactional, asynchronous, or caching behaviour is silently lost.",
+                "Detects @PostConstruct or @PreDestroy methods that are also annotated with @Transactional, @Async, @Cacheable, @CachePut, @CacheEvict, or @Caching. The proxy is not active during bean initialization or destruction, so the transactional, asynchronous, or caching behaviour is silently lost.",
                 "Move the transactional, asynchronous, or cached work to a separate proxied bean method and invoke it after initialization rather than annotating the lifecycle callback itself.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
@@ -1584,7 +1614,7 @@ final class LifecycleCallbacksShouldNotBeProxyDrivenRule extends AbstractArchite
                                         SimpleConditionEvent.violated(
                                                 method,
                                                 "Lifecycle callback " + method.getFullName()
-                                                        + " is annotated with a proxy-driven annotation (@Transactional, @Async, or @Cacheable), which does not apply during initialization or destruction"));
+                                                        + " is annotated with a proxy-driven annotation (@Transactional, @Async, or a Spring cache operation), which does not apply during initialization or destruction"));
                             }
                         }
                     }
@@ -1632,6 +1662,96 @@ final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchite
                     }
                 })
                 .as("Async and transactional semantics on one method should be reviewed");
+    }
+}
+
+/**
+ * Flags asynchronous event listeners that declare a return value. Spring explicitly supports
+ * {@code @Async} on {@code @EventListener}, but its contract states that an asynchronous listener
+ * cannot publish a follow-up event by returning a value.
+ */
+final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitectureRule {
+
+    AsyncEventListenersShouldReturnVoidRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-020",
+                        "Async event listeners should return void",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @EventListener methods that run through @Async (on the method or declaring class) and return a value. Spring cannot publish that value as a follow-up event for an asynchronous listener.",
+                        "Return void from the asynchronous listener. To publish a follow-up event, inject ApplicationEventPublisher and publish it explicitly.",
+                        "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/event/EventListener.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("declare void-returning asynchronous event listeners") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        boolean classLevelAsync = SpringStereotypes.ASYNC_ANNOTATED.test(javaClass);
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if (method.isAnnotatedWith(SpringStereotypes.EVENT_LISTENER)
+                                    && (classLevelAsync || SpringStereotypes.ASYNC_ANNOTATED.test(method))
+                                    && !method.getRawReturnType().isEquivalentTo(void.class)) {
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Asynchronous event listener " + method.getFullName()
+                                                + " returns "
+                                                + method.getRawReturnType().getName()
+                                                + "; Spring cannot publish return values from asynchronous listeners"));
+                            }
+                        }
+                    }
+                })
+                .as("Async event listeners should return void");
+    }
+}
+
+/**
+ * Flags the legacy Java EE transaction annotation, which is ignored on the Spring Framework 7 /
+ * Jakarta EE 11 baseline used by Spring Boot 4.
+ */
+final class LegacyJavaxTransactionalShouldBeMigratedRule extends AbstractArchitectureRule {
+
+    LegacyJavaxTransactionalShouldBeMigratedRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-022",
+                        "Legacy javax.transaction.Transactional should be migrated",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "HIGH",
+                        "Detects javax.transaction.Transactional on classes or methods. Spring Framework 7 no longer supports legacy javax annotations, so the intended transaction boundary is ignored.",
+                        "Replace javax.transaction.Transactional with org.springframework.transaction.annotation.Transactional or jakarta.transaction.Transactional and use the corresponding Jakarta-era dependency.",
+                        "https://github.com/spring-projects/spring-framework/blob/v7.0.8/spring-tx/src/main/java/org/springframework/transaction/annotation/AnnotationTransactionAttributeSource.java"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("not use legacy javax.transaction.Transactional") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        if (javaClass.isAnnotatedWith(SpringStereotypes.JAVAX_TRANSACTIONAL)) {
+                            events.add(
+                                    SimpleConditionEvent.violated(
+                                            javaClass,
+                                            "Class " + javaClass.getName()
+                                                    + " uses legacy javax.transaction.Transactional, which Spring Framework 7 ignores"));
+                        }
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if (method.isAnnotatedWith(SpringStereotypes.JAVAX_TRANSACTIONAL)) {
+                                events.add(
+                                        SimpleConditionEvent.violated(
+                                                method,
+                                                "Method " + method.getFullName()
+                                                        + " uses legacy javax.transaction.Transactional, which Spring Framework 7 ignores"));
+                            }
+                        }
+                    }
+                })
+                .as("Legacy javax.transaction.Transactional should be migrated");
     }
 }
 
