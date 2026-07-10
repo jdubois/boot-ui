@@ -28,12 +28,13 @@ final class MemoryRuleRegistry {
             new BufferPoolGrowthWithoutReleaseRule(),
             // GC configuration
             new MissingHeapSizingInContainerRule(),
+            new ContainerSupportDisabledRule(),
             new HighGcOverheadRule(),
             new RecentGcOverheadRule(),
             new UnequalInitialAndMaxHeapRule(),
             new SerialGcOnMultiCoreRule(),
             new G1FullGcFrequencyRule(),
-            new GcPauseLatencyOutlierRule(),
+            new GcEventDurationOutlierRule(),
             // Threads
             new DeadlockDetectedRule(),
             new HighBlockedThreadRatioRule(),

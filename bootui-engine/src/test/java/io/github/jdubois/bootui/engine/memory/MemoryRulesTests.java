@@ -138,6 +138,15 @@ class MemoryRulesTests {
         assertThat(result.sampleViolations().get(0)).contains("object alignment 16 bytes");
     }
 
+    @Test
+    void heapFarAboveCompressedOopsBoundaryIsNotDescribedAsJustAbove() {
+        MemoryData memory =
+                memory(10 * GB, 47 * GB, List.of(), null, List.of("-Xmx47g"), List.of("G1 Young Generation"));
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-HEAP-004")).isNull();
+    }
+
     // --- MEM-FOOTPRINT-002: platform thread stack reservation --------------------------------
 
     @Test
@@ -846,7 +855,57 @@ class MemoryRulesTests {
         assertThat(find(scan(context), "MEM-GC-001")).isNull();
     }
 
-    // --- MEM-FOOTPRINT-004: high swap utilization (test coverage gap) ------------------------
+    // --- MEM-GC-007: container support explicitly disabled -----------------------------------
+
+    @Test
+    void disabledContainerSupportWithCgroupLimitIsHighPriority() {
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), 4 * GB, List.of("-Xmx2g", "-XX:-UseContainerSupport"));
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-GC-007");
+
+        assertThat(result).isNotNull();
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations().get(0)).contains("-XX:-UseContainerSupport");
+    }
+
+    @Test
+    void disabledContainerSupportWithoutCgroupLimitIsNotFlagged() {
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), null, List.of("-XX:-UseContainerSupport"));
+        MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(context), "MEM-GC-007")).isNull();
+    }
+
+    // --- MEM-FOOTPRINT-001: configured container headroom ------------------------------------
+
+    @Test
+    void maximumHeapIsUsedForConfiguredContainerHeadroom() {
+        MemoryData memory = new MemoryData(
+                256 * MB,
+                512 * MB,
+                7 * GB,
+                128 * MB,
+                512 * MB,
+                -1,
+                List.of(),
+                64 * MB,
+                64 * MB,
+                10,
+                -1,
+                List.of("-Xmx7g"),
+                List.of("G1 Young Generation"),
+                8 * GB,
+                null);
+        MemoryContext context = context(memory, threads(128), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(context), "MEM-FOOTPRINT-001");
+
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0)).contains("maximum heap").contains("headroom");
+    }
+
+    // --- MEM-FOOTPRINT-004: high swap utilization --------------------------------------------
 
     @Test
     void noSwapConfiguredIsSkipped() {
@@ -878,11 +937,8 @@ class MemoryRulesTests {
 
     @Test
     void highSwapWithFootprintExceedingFreePhysicalIsFlagged() {
-        // 90% swap used, well above the 50% threshold. The committed footprint is set to an
-        // unrealistically large value (hundreds of petabytes) so that it exceeds the free physical
-        // memory of any real test/CI machine, deterministically exercising the violation branch
-        // without needing to mock the live OperatingSystemMXBean read.
-        long hugeFootprint = 900_000L * GB;
+        // 90% swap used, with a deterministic free-physical-memory snapshot below the footprint.
+        long hugeFootprint = 2 * GB;
         MemoryData memory = new MemoryData(
                 hugeFootprint,
                 hugeFootprint,
@@ -899,13 +955,24 @@ class MemoryRulesTests {
                 List.of("G1 Young Generation"),
                 null,
                 null);
-        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, 100 * MB, 1 * GB, null);
+        RuntimeData runtime =
+                new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, 100 * MB, 1 * GB, null, -1, -1, null, 1 * GB);
         MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
 
         MemoryRuleResultDto result = find(scan(context), "MEM-FOOTPRINT-004");
 
         assertThat(result).isNotNull();
         assertThat(result.sampleViolations().get(0)).contains("90%");
+    }
+
+    @Test
+    void highSwapFromOtherProcessesIsNotFlaggedWhenJvmFitsInFreePhysicalMemory() {
+        RuntimeData runtime =
+                new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, 100 * MB, 1 * GB, null, -1, -1, null, 4 * GB);
+        MemoryContext context =
+                context(healthyMemoryForSwap(), ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
+
+        assertThat(find(scan(context), "MEM-FOOTPRINT-004")).isNull();
     }
 
     // --- MEM-CLASS-001: excessive loaded classes (test coverage gap) -------------------------
@@ -940,10 +1007,10 @@ class MemoryRulesTests {
         assertThat(find(scan(context), "MEM-CLASS-001")).isNull();
     }
 
-    // --- MEM-GC-006: GC pause-latency outlier (new rule) -------------------------------------
+    // --- MEM-GC-006: latest GC event duration -------------------------------------------------
 
     @Test
-    void gcPauseAboveThresholdIsFlagged() {
+    void latestGcEventAboveThresholdIsFlagged() {
         RuntimeData runtime = runtimeWithLastGcPause(1_500, "G1 Young Generation");
         MemoryContext context = context(
                 memory(256 * MB, 2 * GB, List.of(), null, List.of()),
@@ -959,7 +1026,7 @@ class MemoryRulesTests {
     }
 
     @Test
-    void gcPauseBelowThresholdIsNotFlagged() {
+    void latestGcEventBelowThresholdIsNotFlagged() {
         RuntimeData runtime = runtimeWithLastGcPause(200, "G1 Young Generation");
         MemoryContext context = context(
                 memory(256 * MB, 2 * GB, List.of(), null, List.of()),
@@ -971,7 +1038,7 @@ class MemoryRulesTests {
     }
 
     @Test
-    void gcPauseUnavailableIsSkipped() {
+    void latestGcEventUnavailableIsSkipped() {
         MemoryContext context = context(
                 memory(256 * MB, 2 * GB, List.of(), null, List.of()),
                 ThreadData.empty(),
