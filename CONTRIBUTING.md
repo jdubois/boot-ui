@@ -21,13 +21,35 @@ participating you are expected to uphold this code.
 ## Project layout
 
 ```
-bootui-core/                  Shared DTOs and helpers
-bootui-spring-autoconfigure/         Auto-configuration, REST controllers, safety filter
-bootui-spring-boot-starter/   Drop-in starter that pulls in everything
-bootui-ui/                    Vue 3 SPA bundled into META-INF/resources/bootui
-bootui-spring-sample-app/            Reference Spring Boot 4 app that demos the starter
-docs/                         Specification and roadmap
+bootui-core/                        Shared DTOs, secret masking, and core helpers
+bootui-engine/                      Framework-neutral services/advisors and SPI ports
+bootui-spring-autoconfigure/        Spring MVC + WebFlux adapter (auto-config, endpoints, safety)
+bootui-spring-boot-starter/         Spring MVC starter
+bootui-spring-boot-starter-reactive/ Spring WebFlux starter
+bootui-ui/                          Vue 3 SPA bundled into META-INF/resources/bootui
+bootui-conformance/                 Shared HTTP contract suite + golden manifests for all adapters
+bootui-spring-sample-app/           Reference Spring MVC app + Playwright e2e
+bootui-spring-webflux-sample-app/   Reference Spring WebFlux app
+bootui-quarkus/                     Quarkus runtime adapter
+bootui-quarkus-deployment/          Quarkus deployment/build-time wiring
+bootui-quarkus-integration-tests/   Quarkus @QuarkusTest suites
+bootui-quarkus-sample-app/          Reference Quarkus app
+docs/                               Public documentation source (VuePress)
 ```
+
+## Keeping framework-version references in sync
+
+Use the root Maven properties as the source of truth for the published adapters and public compatibility documentation:
+
+```bash
+./mvnw -q -DforceStdout help:evaluate -Dexpression=spring-boot.version
+./mvnw -q -DforceStdout help:evaluate -Dexpression=quarkus.platform.version
+```
+
+When updating compatibility text in docs (README, `docs/SETUP.md`, `docs/FEATURES.md`,
+`.github/copilot-instructions.md`), reference those properties and refresh any explicit version strings in the same PR.
+The non-published Quarkus sample app keeps a separate platform pin aligned with its Quarkus LangChain4j dependency; do
+not treat that demo-specific pin as the public compatibility version.
 
 ## Build
 

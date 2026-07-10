@@ -1,4 +1,4 @@
-name: Build
+name: Build (Java 17 baseline)
 
 on:
   push:
@@ -171,8 +171,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # The Quarkus sample app is wired into the reactor only on JDK 17/21 (Hibernate ORM ByteBuddy
-      # cannot augment on newer class files), so the Quarkus end-to-end suite runs on Java 17.
+      # The Quarkus sample app can augment on JDK 17/21/25 (Hibernate ORM ByteBuddy cannot read
+      # JDK 26+ class files), while the authoritative end-to-end baseline remains Java 17.
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
