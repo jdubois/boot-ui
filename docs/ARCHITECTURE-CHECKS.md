@@ -80,7 +80,8 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Inspects**: cyclic dependencies between the top-level package slices under the application base package
   (`<basePackage>.(*)..`).
 - **Fires when**: two or more slices depend on each other directly or transitively, forming a cycle. Evaluated per
-  detected base package and aggregated.
+  detected base package and aggregated. The violation count is the number of cycles ArchUnit reports, not the number of
+  dependency edges shown inside those cycle reports.
 - **Why it matters**: package cycles make code hard to understand, test, and modularize, and they block clean extraction
   of modules.
 - **Recommendation**: break the dependency cycle by extracting shared types or inverting one of the dependencies so
@@ -146,7 +147,8 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Severity**: HIGH
 - **Inspects**: calls to `System.exit(int)`, `Runtime.exit(int)`, or `Runtime.halt(int)`.
 - **Fires when**: a class abruptly terminates the JVM instead of letting the framework manage shutdown.
-  `System.exit(int)` is exempt when called directly from a static `main` method: this is Spring Boot's own officially
+  `System.exit(int)` is exempt when called directly from a canonical `public static void main(String[])` entry point:
+  this is Spring Boot's own officially
   documented pattern for propagating an `ExitCodeGenerator` result from CLI/batch applications,
   `System.exit(SpringApplication.exit(context, ...))` — see the Spring Boot reference docs,
   ["Application Exit"](https://docs.spring.io/spring-boot/reference/features/spring-application.html#features.spring-application.application-exit).
@@ -201,9 +203,12 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Inspects**: logger fields whose raw type is SLF4J, Log4j2, Commons Logging, JBoss Logging, `java.util.logging`, or
   Logback.
 - **Fires when**: a logger field is not `private`, `static`, and `final` — with two recognized alternate patterns.
-  Container-managed injection points (`@Inject`/`@Autowired`/`@Resource`, e.g. Quarkus's idiomatic `@Inject Logger
-  log;`) are exempt entirely, since a field wired by the container is non-static by construction — see the
+  Container-managed injection points (`@Inject`, `@Autowired`, or `jakarta.annotation.Resource`, e.g. Quarkus's idiomatic
+  `@Inject Logger log;`) are exempt entirely, since a field wired by the container is non-static by construction — see the
   [Quarkus Logging guide's "logging with injection" section](https://quarkus.io/guides/logging#logging-with-injection).
+  Legacy `javax.annotation.Resource` is deliberately not exempt: Spring Framework 7 removed support for
+  `javax.annotation` annotations, and Quarkus 3 uses the Jakarta namespace, so it is not a container-managed injection
+  point on either supported baseline.
   A `protected`, non-static, `final` logger declared in an abstract base class and initialized via
   `LoggerFactory.getLogger(getClass())` is also accepted: subclasses inherit the field and each logs under its own
   runtime class name, which requires the field to be an instance member; the SLF4J FAQ explicitly declines to
@@ -339,8 +344,8 @@ include up to a handful of sample detail lines from ArchUnit.
 
 - **Severity**: HIGH
 - **Inspects**: direct self-invocation (`this.method()`) of methods proxied through `@Transactional` (Spring's own or the
-  portable `jakarta.transaction.Transactional`), `@Async`, or `@Cacheable` on the method, or `@Async` / `@Cacheable` on
-  the declaring class.
+  portable `jakarta.transaction.Transactional`), `@Async`, or any Spring cache operation (`@Cacheable`, `@CachePut`,
+  `@CacheEvict`, or `@Caching`) on the method, or `@Async` / a cache operation on the declaring class.
 - **Fires when**: a bean calls one of its own proxied methods directly, bypassing the Spring proxy.
 - **Why it matters**: the transaction, async execution, or caching behaviour is silently lost because the call never
   passes through the proxy — a real correctness bug, not just a style issue.
@@ -360,12 +365,14 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Recommendation**: move Spring stereotype beans into a named package so component scanning and proxying work as
   expected.
 
-### ARCH-SPRING-008 — Services and repositories should not depend on servlet types
+### ARCH-SPRING-008 — Services and repositories should not depend on web request types
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Service` and `@Repository` beans that depend on `jakarta.servlet`, `javax.servlet`, or Spring web
-  request types.
-- **Fires when**: business or persistence code accepts, stores, or otherwise references servlet request/response
+  request types, including WebFlux functional request/response types (`ServerRequest` / `ServerResponse`), reactive
+  server exchange/session types (`ServerWebExchange`, `WebSession`, and their families), and low-level reactive HTTP
+  server types.
+- **Fires when**: business or persistence code accepts, stores, or otherwise references servlet or reactive web
   infrastructure.
 - **Why it matters**: service and repository code should be transport-agnostic so it can be reused from HTTP
   controllers, CLI runners, scheduled jobs, tests, and message consumers.
@@ -385,10 +392,11 @@ include up to a handful of sample detail lines from ArchUnit.
 
 - **Severity**: MEDIUM
 - **Inspects**: methods annotated with `@Transactional` (Spring's own or the portable
-  `jakarta.transaction.Transactional`), `@Async`, or `@Cacheable`.
-- **Fires when**: `@Async`, `@Cacheable`, or Spring's own `@Transactional` is applied to a method that is private,
-  protected, package-private, static, or final; or the portable `jakarta.transaction.Transactional` is applied to a
-  method that is private, static, or final.
+  `jakarta.transaction.Transactional`), `@Async`, or a Spring cache operation (`@Cacheable`, `@CachePut`, `@CacheEvict`,
+  or `@Caching`).
+- **Fires when**: `@Async`, a Spring cache operation, or Spring's own `@Transactional` is applied to a method that is
+  private, protected, package-private, static, or final; or the portable `jakarta.transaction.Transactional` is applied
+  to a method that is private, static, or final.
 - **Why it matters**: interface-based JDK proxies and the default CGLIB subclass proxy only intercept public, overridable
   instance methods — CGLIB additionally warns and silently calls the original, un-intercepted method when a `final`
   method carries the annotation — so the proxy behaviour can be silently skipped.
@@ -474,10 +482,11 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Severity**: HIGH
 - **Inspects**: direct calls between `@Bean` methods declared in the same class when that class is not a full
   `@Configuration(proxyBeanMethods=true)`.
-- **Fires when**: a `@Bean` method directly calls a different sibling `@Bean` method in lite mode, bypassing the Spring
-  container.
-- **Why it matters**: in lite mode the call is a plain method invocation, so Spring does not return the shared singleton
-  and a second, unmanaged instance can be created.
+- **Fires when**: a `@Bean` method directly calls a different sibling `@Bean` method in lite mode, where Spring treats
+  each factory method with ordinary Java semantics rather than intercepting inter-bean calls.
+- **Why it matters**: the call bypasses container resolution and directly creates whatever the sibling factory method
+  returns. For the common singleton case this is a duplicate unmanaged instance, but the exact consequence depends on
+  the factory method's scope and implementation.
 - **Recommendation**: declare the class as `@Configuration` (the default `proxyBeanMethods=true`), or pass the dependency
   as a `@Bean` method parameter instead of calling the sibling `@Bean` method directly.
 
@@ -485,7 +494,8 @@ include up to a handful of sample detail lines from ArchUnit.
 
 - **Severity**: HIGH
 - **Inspects**: `@PostConstruct` or `@PreDestroy` methods that are also annotated with `@Transactional` (Spring's own or
-  the portable `jakarta.transaction.Transactional`), `@Async`, or `@Cacheable`.
+  the portable `jakarta.transaction.Transactional`), `@Async`, or a Spring cache operation (`@Cacheable`, `@CachePut`,
+  `@CacheEvict`, or `@Caching`).
 - **Fires when**: a lifecycle callback is annotated with a proxy-driven annotation.
 - **Why it matters**: Spring invokes lifecycle callbacks before the bean is wrapped in its proxy, and after it is unwrapped
   at destruction, so the proxy behaviour never applies.
@@ -507,6 +517,18 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Recommendation**: review the design; usually the transactional work belongs in a separate bean method that the
   `@Async` method calls, so the transaction is scoped correctly on the async thread.
 
+### ARCH-SPRING-020 — Async event listeners should return void
+
+- **Severity**: MEDIUM
+- **Inspects**: `@EventListener` methods that run asynchronously because `@Async` is declared on the method or its class.
+- **Fires when**: an asynchronous event listener declares a non-`void` return type.
+- **Why it matters**: Spring supports return values from synchronous event listeners by publishing them as follow-up
+  events, but its
+  [`@EventListener` contract](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/event/EventListener.html)
+  explicitly states that asynchronous listeners cannot publish a subsequent event through their return value.
+- **Recommendation**: return `void`; when a follow-up event is needed, inject `ApplicationEventPublisher` and publish it
+  explicitly from the listener.
+
 ### ARCH-SPRING-021 — BeanPostProcessor and BeanFactoryPostProcessor @Bean methods should be static
 
 - **Severity**: MEDIUM
@@ -516,3 +538,16 @@ include up to a handful of sample detail lines from ArchUnit.
   bean post-processing is fully set up, which can disable post-processing of other beans.
 - **Recommendation**: declare these `@Bean` methods `static` so the post-processor can be created without instantiating
   the surrounding configuration class.
+
+### ARCH-SPRING-022 — Legacy javax.transaction.Transactional should be migrated
+
+- **Severity**: HIGH
+- **Inspects**: `javax.transaction.Transactional` on classes and methods.
+- **Fires when**: application bytecode still uses the legacy Java EE transaction annotation.
+- **Why it matters**: Spring Framework 7 uses a Jakarta EE 11 baseline. Its
+  [`AnnotationTransactionAttributeSource`](https://github.com/spring-projects/spring-framework/blob/v7.0.8/spring-tx/src/main/java/org/springframework/transaction/annotation/AnnotationTransactionAttributeSource.java)
+  registers parsers for Spring's own annotation and `jakarta.transaction.Transactional`, not the old
+  `javax.transaction.Transactional`. On BootUI's Spring Boot 4 baseline, the legacy annotation therefore does not create
+  the intended transaction boundary.
+- **Recommendation**: replace it with Spring's `org.springframework.transaction.annotation.Transactional` or
+  `jakarta.transaction.Transactional`, and replace the legacy Java EE API dependency with its Jakarta equivalent.

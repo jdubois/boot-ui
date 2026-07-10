@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.engine.architecture.cyclefixtures.alpha.AlphaComponent;
+import io.github.jdubois.bootui.engine.architecture.cyclefixtures.beta.BetaComponent;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.inject.Inject;
@@ -22,9 +24,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -32,8 +38,24 @@ import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebSession;
 
 class ArchitectureRulesTests {
+
+    @Test
+    void packageCyclesCountEachDetectedCycleOnceRatherThanEachDependencyEdge() {
+        JavaClasses importedClasses = new ClassFileImporter().importClasses(AlphaComponent.class, BetaComponent.class);
+        ArchitectureRuleResultDto result = new FreeOfPackageCyclesRule()
+                .evaluate(new ArchitectureContext(
+                        importedClasses, List.of("io.github.jdubois.bootui.engine.architecture.cyclefixtures")));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-PKG-001");
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations()).singleElement().asString().contains("Cycle detected");
+    }
 
     @Test
     void servicesShouldNotDependOnControllersFlagsWebLayerDependencies() {
@@ -237,6 +259,20 @@ class ArchitectureRulesTests {
     }
 
     @Test
+    void servicesAndRepositoriesShouldNotDependOnWebTypesFlagsReactiveRequestDependencies() {
+        ArchitectureRuleResultDto result = evaluate(
+                new ServicesAndRepositoriesShouldNotDependOnServletTypesRule(), ServiceUsingReactiveWebTypes.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-008");
+        assertThat(result.violationCount()).isGreaterThanOrEqualTo(3);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("ServerRequest"))
+                .anySatisfy(sample -> assertThat(sample).contains("ServerWebExchange"))
+                .anySatisfy(sample -> assertThat(sample).contains("WebSession"));
+    }
+
+    @Test
     void transactionalAnnotationsShouldNotBeDeclaredOnInterfacesFlagsInterfaceAnnotations() {
         ArchitectureRuleResultDto result = evaluate(
                 new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule(),
@@ -259,9 +295,11 @@ class ArchitectureRulesTests {
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(result.id()).isEqualTo("ARCH-SPRING-010");
-        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.violationCount()).isEqualTo(5);
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("private"));
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("protected"));
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("static"));
     }
@@ -448,6 +486,15 @@ class ArchitectureRulesTests {
     }
 
     @Test
+    void noSystemExitStillFlagsSystemExitFromStaticMainOverload() {
+        ArchitectureRuleResultDto result = evaluate(new NoSystemExitRule(), MainOverloadSystemExitCaller.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-006");
+        assertThat(result.violationCount()).isEqualTo(1);
+    }
+
+    @Test
     void noJdkInternalApiDoesNotFlagExportedComSunApi() {
         ArchitectureRuleResultDto result = evaluate(new NoJdkInternalApiRule(), ExportedComSunUser.class);
 
@@ -483,6 +530,16 @@ class ArchitectureRulesTests {
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(result.id()).isEqualTo("ARCH-SPRING-004");
+    }
+
+    @Test
+    void noSelfInvocationFlagsAllSpringCacheOperationAnnotations() {
+        ArchitectureRuleResultDto result =
+                evaluate(new NoSelfInvocationOfProxiedMethodsRule(), SelfInvokingCacheOperationsBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-004");
+        assertThat(result.violationCount()).isEqualTo(3);
     }
 
     @Test
@@ -533,6 +590,16 @@ class ArchitectureRulesTests {
     }
 
     @Test
+    void lifecycleCallbacksShouldNotBeProxyDrivenFlagsAllSpringCacheOperations() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LifecycleCallbacksShouldNotBeProxyDrivenRule(), CachedLifecycleBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-018");
+        assertThat(result.violationCount()).isEqualTo(3);
+    }
+
+    @Test
     void lifecycleCallbacksShouldNotBeProxyDrivenPassesForPlainLifecycleMethods() {
         ArchitectureRuleResultDto result =
                 evaluate(new LifecycleCallbacksShouldNotBeProxyDrivenRule(), CleanLifecycleBean.class);
@@ -557,6 +624,53 @@ class ArchitectureRulesTests {
                 evaluate(new AsyncAndTransactionalShouldNotBeCombinedRule(), AsyncOnlyBean.class);
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void asyncEventListenersShouldReturnVoidFlagsIgnoredReturnValues() {
+        ArchitectureRuleResultDto result = evaluate(
+                new AsyncEventListenersShouldReturnVoidRule(),
+                AsyncEventListenerBean.class,
+                ClassLevelAsyncEventListenerBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-020");
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("methodLevel"))
+                .anySatisfy(sample -> assertThat(sample).contains("classLevel"));
+    }
+
+    @Test
+    void asyncEventListenersShouldReturnVoidAllowsSynchronousReturnValuesAndAsyncVoidListeners() {
+        ArchitectureRuleResultDto result =
+                evaluate(new AsyncEventListenersShouldReturnVoidRule(), ValidEventListenerBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void legacyJavaxTransactionalShouldBeMigratedFlagsClassAndMethodUsage() {
+        ArchitectureRuleResultDto result = evaluate(
+                new LegacyJavaxTransactionalShouldBeMigratedRule(),
+                LegacyTransactionalBean.class,
+                LegacyTransactionalMethodBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-022");
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("LegacyTransactionalBean"))
+                .anySatisfy(sample -> assertThat(sample).contains("legacyTransaction"));
+    }
+
+    @Test
+    void loggersShouldNotTreatLegacyJavaxResourceAsContainerManagedOnSpringSeven() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LoggersShouldBePrivateStaticFinalRule(), LegacyResourceLoggerComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-012");
     }
 
     @Test
@@ -892,6 +1006,22 @@ class ArchitectureRulesTests {
         }
     }
 
+    @Service
+    private static class ServiceUsingReactiveWebTypes {
+
+        String requestPath(ServerRequest request) {
+            return request.path();
+        }
+
+        String exchangePath(ServerWebExchange exchange) {
+            return exchange.getRequest().getPath().value();
+        }
+
+        String sessionId(WebSession session) {
+            return session.getId();
+        }
+    }
+
     @Transactional
     private interface TransactionalInterface {}
 
@@ -908,6 +1038,39 @@ class ArchitectureRulesTests {
 
         @Async
         static void staticAsync() {}
+
+        @CachePut("items")
+        private String privateCachePut() {
+            return "item";
+        }
+
+        @CacheEvict("items")
+        protected void protectedCacheEvict() {}
+
+        @Caching(evict = @CacheEvict("items"))
+        static void staticCaching() {}
+    }
+
+    private static class SelfInvokingCacheOperationsBean {
+
+        void refreshAll() {
+            put();
+            evict();
+            combined();
+        }
+
+        @CachePut("items")
+        public String put() {
+            return "item";
+        }
+
+        @CacheEvict("items")
+        public void evict() {}
+
+        @Caching(put = @CachePut("items"), evict = @CacheEvict("other"))
+        public String combined() {
+            return "item";
+        }
     }
 
     private static class BadAsyncComponent {
@@ -1059,6 +1222,13 @@ class ArchitectureRulesTests {
         }
     }
 
+    private static class MainOverloadSystemExitCaller {
+
+        public static void main() {
+            System.exit(1);
+        }
+    }
+
     private static class ExportedComSunUser {
 
         String osName(com.sun.management.OperatingSystemMXBean osBean) {
@@ -1153,6 +1323,21 @@ class ArchitectureRulesTests {
         void init() {}
     }
 
+    private static class CachedLifecycleBean {
+
+        @PostConstruct
+        @CachePut("items")
+        void put() {}
+
+        @PostConstruct
+        @CacheEvict("items")
+        void evict() {}
+
+        @PostConstruct
+        @Caching(evict = @CacheEvict("items"))
+        void combined() {}
+    }
+
     private static class CleanLifecycleBean {
 
         @PostConstruct
@@ -1170,6 +1355,56 @@ class ArchitectureRulesTests {
 
         @Async
         void doWork() {}
+    }
+
+    private static class AsyncEventListenerBean {
+
+        @Async
+        @EventListener
+        String methodLevel(String event) {
+            return event;
+        }
+
+        @EventListener
+        String synchronous(String event) {
+            return event;
+        }
+    }
+
+    @Async
+    private static class ClassLevelAsyncEventListenerBean {
+
+        @EventListener
+        String classLevel(String event) {
+            return event;
+        }
+    }
+
+    private static class ValidEventListenerBean {
+
+        @Async
+        @EventListener
+        void asynchronous(String event) {}
+
+        @EventListener
+        String synchronous(String event) {
+            return event;
+        }
+    }
+
+    @javax.transaction.Transactional
+    private static class LegacyTransactionalBean {}
+
+    private static class LegacyTransactionalMethodBean {
+
+        @javax.transaction.Transactional
+        void legacyTransaction() {}
+    }
+
+    private static class LegacyResourceLoggerComponent {
+
+        @javax.annotation.Resource
+        Logger logger;
     }
 
     @Configuration
