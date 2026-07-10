@@ -72,9 +72,13 @@ class JaxRsRestApiModelTests {
 
     @Test
     void stateChangingGetRuleFiresOnJaxRs() {
-        String status =
-                new StateChangingHandlersNotOnGetRule().evaluate(context(BAD)).status();
-        assertThat(status).isEqualTo(RestApiRuleSupport.VIOLATION);
+        RestApiRuleResultDto result = new StateChangingHandlersNotOnGetRule().evaluate(context(BAD));
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("createGadget"));
+        assertThat(result.sampleViolations())
+                .noneMatch(violation -> violation.contains("postProcess")
+                        || violation.contains("putAside")
+                        || violation.contains("patchVersion"));
     }
 
     @Test
@@ -255,5 +259,22 @@ class JaxRsRestApiModelTests {
         assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
         assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("CatchAllRegexResource"));
         assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("ConstrainedIdResource"));
+    }
+
+    @Test
+    void springSpecificRulesExplainTheirActualJaxRsLimitation() {
+        RestApiContext context = context(GOOD);
+
+        RestApiRuleResultDto problemDetail = RestApiScanner.evaluate(new PreferProblemDetailRule(), context);
+        assertThat(problemDetail.status()).isEqualTo(RestApiRuleSupport.SKIPPED);
+        assertThat(problemDetail.sampleViolations().get(0))
+                .contains("RFC 9457 is framework-neutral")
+                .contains("current model cannot reliably identify");
+
+        RestApiRuleResultDto pagination = RestApiScanner.evaluate(new ReturnPagedTypeRule(), context);
+        assertThat(pagination.status()).isEqualTo(RestApiRuleSupport.SKIPPED);
+        assertThat(pagination.sampleViolations().get(0))
+                .contains("Spring Data Pageable")
+                .contains("Page/Slice");
     }
 }

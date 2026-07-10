@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Controller that should pass all Phase 2 REST API Advisor additions and the tightened existing
- * rules (RAPI-MAP-008, RAPI-RESP-008, RAPI-VER-005, RAPI-DTO-003, RAPI-VALID-001).
+ * rules (RAPI-MAP-008, RAPI-RESP-008, RAPI-VER-005, RAPI-VALID-001).
  */
 @RestController
 @RequestMapping("/api/orders")

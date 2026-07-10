@@ -35,6 +35,7 @@ final class RestApiRuleRegistry {
             new NoContentResponsesHaveNoBodyRule(),
             new ResponseStatusIgnoredWithResponseEntityRule(),
             new CreatedResponsesExposeLocationRule(),
+            new HeadHandlersDoNotReturnBodiesRule(),
             // Input validation & binding
             new RequestBodyIsValidatedRule(),
             new NoMassAssignmentViaEntitiesRule(),
@@ -65,6 +66,7 @@ final class RestApiRuleRegistry {
             new BroadExceptionHandlerRule(),
             new ResponseStatusOnExceptionRule(),
             new RetryAfterOnThrottlingResponsesRule(),
+            new ExceptionHandlersDoNotReturnRawStringsRule(),
             new EndpointsAreDocumentedRule(),
             new ControllersAreTaggedRule(),
             new DeprecatedEndpointsSignalDeprecationRule());

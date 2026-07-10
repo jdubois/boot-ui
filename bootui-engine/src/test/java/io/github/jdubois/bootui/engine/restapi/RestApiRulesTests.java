@@ -24,6 +24,8 @@ class RestApiRulesTests {
     private static final String NEWRULES_RETRY_AFTER = "io.github.jdubois.bootui.engine.restapi.newrules.retryafter";
     private static final String NEWRULES_PAGINATION = "io.github.jdubois.bootui.engine.restapi.newrules.pagination";
     private static final String NEWRULES_PAGINATION_PAGESIZE = NEWRULES_PAGINATION + ".pagesize";
+    private static final String RESPONSE_CONTRACTS =
+            "io.github.jdubois.bootui.engine.restapi.newrules.responsecontracts";
 
     private RestApiContext context(boolean openApiAnnotationsPresent, String... packages) {
         JavaClasses classes = new ClassFileImporter().importPackages(packages);
@@ -405,6 +407,35 @@ class RestApiRulesTests {
         // A clean package with no throttling status codes must PASS.
         assertThat(status(new RetryAfterOnThrottlingResponsesRule(), context(false, GOOD)))
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void headBodyAndRawStringExceptionRulesFireOnSpringAndJaxRs() {
+        for (String frameworkPackage : List.of(RESPONSE_CONTRACTS + ".spring", RESPONSE_CONTRACTS + ".jaxrs")) {
+            RestApiContext context = context(false, frameworkPackage);
+
+            RestApiRuleResultDto headResult = new HeadHandlersDoNotReturnBodiesRule().evaluate(context);
+            assertThat(headResult.status()).isEqualTo("VIOLATION");
+            assertThat(headResult.sampleViolations()).anyMatch(violation -> violation.contains("#head"));
+            assertThat(headResult.sampleViolations()).noneMatch(violation -> violation.contains("#headersOnly"));
+
+            RestApiRuleResultDto exceptionResult = new ExceptionHandlersDoNotReturnRawStringsRule().evaluate(context);
+            assertThat(exceptionResult.status()).isEqualTo("VIOLATION");
+            assertThat(exceptionResult.sampleViolations()).anyMatch(violation -> violation.contains("#handle"));
+        }
+    }
+
+    @Test
+    void stateChangingNameMatchingAvoidsAmbiguousHttpVerbPrefixesOnSpring() {
+        RestApiRuleResultDto result =
+                new StateChangingHandlersNotOnGetRule().evaluate(context(false, RESPONSE_CONTRACTS + ".spring"));
+
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("updateWidget"));
+        assertThat(result.sampleViolations())
+                .noneMatch(violation -> violation.contains("postProcess")
+                        || violation.contains("putAside")
+                        || violation.contains("patchVersion"));
     }
 
     @Test

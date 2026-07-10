@@ -16,8 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Controller that intentionally trips the Phase 2 REST API Advisor additions and tightened rules:
  * RAPI-MAP-008 (mutation without an id), RAPI-RESP-008 (CREATED body with no Location),
- * RAPI-VER-005 (inconsistent produces), RAPI-DTO-003 (non-GET raw collection), and RAPI-VALID-001
- * (bare {@code @NotNull} on a request body).
+ * RAPI-VER-005 (inconsistent produces), and RAPI-VALID-001 (bare {@code @NotNull} on a request body).
  */
 @RestController
 @RequestMapping("/api/items")

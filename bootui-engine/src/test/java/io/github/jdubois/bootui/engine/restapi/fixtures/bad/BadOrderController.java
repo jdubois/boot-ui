@@ -12,8 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class BadOrderController {
 
-    // RAPI-NAME-001 (verb), RAPI-DTO-001 (entity), RAPI-DTO-003 (raw collection),
-    // RAPI-PAGE-001 (unpaginated collection GET)
+    // RAPI-NAME-001 (verb), RAPI-DTO-001 (entity), RAPI-PAGE-001 (unpaginated collection GET)
     @GetMapping("/getOrders")
     public List<OrderEntity> getOrders() {
         return List.of();

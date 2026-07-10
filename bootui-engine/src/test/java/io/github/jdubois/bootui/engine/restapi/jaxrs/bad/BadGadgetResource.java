@@ -13,4 +13,22 @@ public class BadGadgetResource {
     public WidgetDto createGadget() {
         return new WidgetDto("1", "g");
     }
+
+    @GET
+    @Path("/post-process")
+    public WidgetDto postProcess() {
+        return new WidgetDto("2", "processed");
+    }
+
+    @GET
+    @Path("/put-aside")
+    public WidgetDto putAside() {
+        return new WidgetDto("3", "aside");
+    }
+
+    @GET
+    @Path("/patch-version")
+    public WidgetDto patchVersion() {
+        return new WidgetDto("4", "versioned");
+    }
 }
