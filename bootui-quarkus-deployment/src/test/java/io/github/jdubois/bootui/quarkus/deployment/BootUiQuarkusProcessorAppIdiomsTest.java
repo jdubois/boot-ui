@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -86,11 +87,13 @@ class BootUiQuarkusProcessorAppIdiomsTest {
         assertThat(BootUiQuarkusProcessor.mutableFieldsOf(index, APPLICATION_SCOPED))
                 .containsExactlyInAnyOrder(
                         "MutableAppScopedBean.publicMutableField",
-                        "MutableAppScopedBean.publicFinalField",
+                        "MutableAppScopedBean.publicFinalMutableReference",
                         "MutableAppScopedBean.privateMutableField")
                 .as("static fields, @Inject fields, and @ConfigProperty fields are never a shared-state risk")
                 .doesNotContain(
                         "MutableAppScopedBean.staticField",
+                        "MutableAppScopedBean.publicFinalValueField",
+                        "MutableAppScopedBean.publicFinalStringField",
                         "MutableAppScopedBean.injectedField",
                         "MutableAppScopedBean.configPropertyField");
     }
@@ -160,7 +163,9 @@ class BootUiQuarkusProcessorAppIdiomsTest {
     @ApplicationScoped
     static class MutableAppScopedBean {
         public int publicMutableField;
-        public final int publicFinalField = 1;
+        public final int publicFinalValueField = 1;
+        public final String publicFinalStringField = "immutable";
+        public final List<String> publicFinalMutableReference = new java.util.ArrayList<>();
         private int privateMutableField;
         private static int staticField;
 

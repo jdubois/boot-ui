@@ -16,7 +16,7 @@ import org.springframework.mock.env.MockEnvironment;
 
 class SpringScannerTests {
 
-    private static final int RULE_COUNT = 39;
+    private static final int RULE_COUNT = 41;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T10:00:00Z"), ZoneOffset.UTC);
 
     @Test

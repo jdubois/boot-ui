@@ -25,6 +25,7 @@ final class SpringRuleRegistry {
             new RemovedOrRenamedPropertyRule(),
             new MissingApplicationNameRule(),
             new ConfigOnNotFoundIgnoreRule(),
+            new Jackson2DefaultsCompatibilityRule(),
             // Profiles and environment
             new NoActiveProfileRule(),
             new DevToolsOnClasspathRule(),
@@ -48,6 +49,7 @@ final class SpringRuleRegistry {
             // Data and persistence
             new OpenSessionInViewEnabledRule(),
             new InMemoryDatasourceInProductionRule(),
+            new InMemoryR2dbcInProductionRule(),
             // Actuator and management
             new ActuatorExposeAllRule(),
             new SensitiveActuatorEndpointsExposedRule(),

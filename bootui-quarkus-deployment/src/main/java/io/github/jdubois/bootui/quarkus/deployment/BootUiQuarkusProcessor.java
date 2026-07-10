@@ -734,7 +734,7 @@ class BootUiQuarkusProcessor {
     record VirtualThreadCounts(int sites, int synchronizedSites) {}
 
     /**
-     * Public-or-non-final, non-static, non-injected fields on every class annotated {@code scopeAnnotation}.
+     * Mutable, non-static, non-injected fields on every class annotated {@code scopeAnnotation}.
      * Shared by QA-CDI-001 ({@code @ApplicationScoped}) and QA-CDI-003 ({@code @Singleton}) — both scopes are
      * a single instance shared across threads, so a mutable field on either is unsynchronised shared state.
      */
@@ -751,12 +751,41 @@ class BootUiQuarkusProcessor {
                 boolean isStatic = (f.flags() & 0x0008) != 0;
                 boolean injected =
                         f.hasAnnotation(INJECT) || f.hasAnnotation(CONFIG_PROPERTY) || f.hasAnnotation(REST_CLIENT);
-                if (!isStatic && !injected && (isPublic || !isFinal)) {
+                boolean mutableReference = !isKnownImmutableValueType(f.type(), app);
+                if (!isStatic && !injected && (!isFinal || (isPublic && mutableReference))) {
                     result.add(cls.simpleName() + "." + f.name());
                 }
             }
         }
         return result;
+    }
+
+    private static boolean isKnownImmutableValueType(Type type, IndexView index) {
+        if (type.kind() == Type.Kind.PRIMITIVE) {
+            return true;
+        }
+        DotName name = type.name();
+        if (name == null) {
+            return false;
+        }
+        String value = name.toString();
+        if (value.equals("java.lang.String")
+                || value.equals("java.lang.Boolean")
+                || value.equals("java.lang.Byte")
+                || value.equals("java.lang.Character")
+                || value.equals("java.lang.Double")
+                || value.equals("java.lang.Float")
+                || value.equals("java.lang.Integer")
+                || value.equals("java.lang.Long")
+                || value.equals("java.lang.Short")
+                || value.equals("java.math.BigDecimal")
+                || value.equals("java.math.BigInteger")
+                || value.equals("java.util.UUID")
+                || value.startsWith("java.time.")) {
+            return true;
+        }
+        ClassInfo classInfo = index.getClassByName(name);
+        return classInfo != null && classInfo.isEnum();
     }
 
     static int classAnnotations(IndexView index, DotName annotation) {
