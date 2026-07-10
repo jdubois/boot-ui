@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
+    "test:webflux": "playwright test --config=playwright.webflux.config.js",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "screenshots": "node scripts/capture-docs-screenshots.mjs",
