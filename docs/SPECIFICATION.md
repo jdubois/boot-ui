@@ -604,9 +604,10 @@ Features:
   lookups can be disabled independently of OSV scanning, and a failed/unreachable EPSS request never fails the scan or
   discards the underlying OSV results — it just omits the EPSS figures.
 - Derive an explicit `fixAvailable` signal per advisory by comparing the dependency's currently-resolved version
-  against the advisory's `fixedVersions` (lightweight Maven-version-aware comparison), so the UI can render an
-  unambiguous "no fix published yet" state instead of leaving an empty `fixedVersions` list ambiguous between "checked,
-  none published" and "unknown".
+  against the advisory's `fixedVersions` using Maven `ComparableVersion` qualifier semantics. An empty list means only
+  that OSV reported no `fixed` event: a range may instead end with `last_affected`, which names the final vulnerable
+  version but does not identify the first non-vulnerable upgrade target. The UI must not conflate that state with proof
+  that no fix exists.
 - Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
 - Allow dismissing/restoring an individual vulnerability finding for a specific dependency, excluding it from the
   vulnerable count and severity rollups until restored, consistent with the dismiss/restore workflow shared by every

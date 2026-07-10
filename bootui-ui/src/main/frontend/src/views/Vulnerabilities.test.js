@@ -238,7 +238,7 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).not.toContain('EPSS')
   })
 
-  it('shows "No fix published yet" when fixedVersions is empty', async () => {
+  it('does not claim that no fix exists when OSV reports no fixed event', async () => {
     const noFix = dependency(
       'org.example:no-fix',
       '1.0.0',
@@ -247,7 +247,7 @@ describe('Vulnerabilities', () => {
     )
     const {wrapper} = await mountWithReports([report([noFix])])
 
-    expect(wrapper.text()).toContain('No fix published yet')
+    expect(wrapper.text()).toContain('No fixed version reported by OSV')
   })
 
   it('shows the upgrade target when a newer fixed version is available', async () => {
@@ -260,7 +260,7 @@ describe('Vulnerabilities', () => {
     const {wrapper} = await mountWithReports([report([fixable])])
 
     expect(wrapper.text()).toContain('fixed in 1.2.0')
-    expect(wrapper.text()).not.toContain('No fix published yet')
+    expect(wrapper.text()).not.toContain('No fixed version reported by OSV')
   })
 
   it('shows "already on a fixed version" when fixedVersions is non-empty but fixAvailable is false', async () => {
@@ -273,7 +273,7 @@ describe('Vulnerabilities', () => {
     const {wrapper} = await mountWithReports([report([alreadyFixed])])
 
     expect(wrapper.text()).toContain('already on a fixed version')
-    expect(wrapper.text()).not.toContain('No fix published yet')
+    expect(wrapper.text()).not.toContain('No fixed version reported by OSV')
   })
 
   it('links a CVE alias to NVD and a GHSA alias to GitHub Advisories', async () => {

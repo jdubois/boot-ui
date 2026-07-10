@@ -145,18 +145,13 @@ public final class DependencyReports {
     }
 
     /**
-     * Parses an OSV {@code severity[].score} value into a numeric Base Score.
+     * Parses a supported OSV {@code severity[].score} value into a numeric Base Score.
      *
      * <p>Per the <a href="https://ossf.github.io/osv-schema/">OSV schema</a>, {@code score} is a CVSS
-     * vector string for {@code CVSS_V2}/{@code CVSS_V3}/{@code CVSS_V4} severity types (prefixed
-     * {@code "CVSS:3.1/..."} etc. for v3+) &mdash; never a bare number for any of those types. Empirically,
-     * real OSV.dev responses for the {@code CVSS_V3} type always carry the {@code "CVSS:3.0/"} or
-     * {@code "CVSS:3.1/"} prefix, which this method dispatches to {@link CvssV3BaseScore}. Other CVSS
-     * versions (v4.0, and the legacy unprefixed v2 format) are not computed &mdash; see
-     * {@link CvssV3BaseScore}'s class Javadoc for why v4.0 is deliberately excluded; v2 was excluded because
-     * zero occurrences appeared in a 170-advisory sample of real Maven-ecosystem OSV.dev responses. A bare
-     * numeric string (not documented by the schema for any known type, but accepted defensively in case a
-     * database ever emits one) still parses via {@link Double#parseDouble(String)}.
+     * vector string for {@code CVSS_V2}/{@code CVSS_V3}/{@code CVSS_V4} severity types. This method computes
+     * only prefixed CVSS v3.0/v3.1 vectors via {@link CvssV3BaseScore}; the unprefixed CVSS v2 notation and
+     * CVSS v4 vectors are left to the caller's database-specific severity fallback. A bare numeric string,
+     * although not a CVSS value in the OSV schema, is accepted defensively.
      *
      * @return the Base Score, or {@code null} if it can't be determined from {@code value}
      */
@@ -252,8 +247,9 @@ public final class DependencyReports {
      * Whether at least one of {@code fixedVersions} is newer than {@code currentVersion}, using the
      * lightweight {@link MavenVersionComparator} (BootUI takes no dependency on Maven's own
      * {@code ComparableVersion}). Backs {@link DependencyVulnerabilityDto#fixAvailable()}, which lets the UI
-     * distinguish "OSV reports no fix yet" ({@code fixedVersions} empty &mdash; this returns {@code false})
-     * from a genuine upgrade target.
+     * distinguish a reported fixed-version upgrade target from an advisory without a {@code fixed} event.
+     * The latter does not prove that no fix exists: OSV ranges may instead close with {@code last_affected},
+     * which identifies the final vulnerable version without naming the first non-vulnerable version.
      *
      * <p>An inconclusive per-version comparison (blank/unparseable input) is treated as "a fix is
      * available": OSV positively reported a {@code fixed} event for this advisory, so failing to parse the
@@ -266,6 +262,7 @@ public final class DependencyReports {
         if (fixedVersions == null || fixedVersions.isEmpty()) {
             return false;
         }
+
         for (String fixedVersion : fixedVersions) {
             Integer compared = MavenVersionComparator.compare(currentVersion, fixedVersion);
             if (compared == null || compared < 0) {
@@ -273,6 +270,27 @@ public final class DependencyReports {
             }
         }
         return false;
+    }
+
+    /**
+     * Returns the first distinct package/version scan inputs, preserving inventory order and applying the
+     * configured bound after de-duplication.
+     */
+    public static List<DependencyDto> scanCandidates(List<DependencyDto> dependencies, int maxPackages) {
+        Map<String, DependencyDto> distinct = new LinkedHashMap<>();
+        for (DependencyDto dependency : dependencies) {
+            distinct.putIfAbsent(dependency.packageName() + ":" + dependency.version(), dependency);
+        }
+        return distinct.values().stream().limit(Math.max(1, maxPackages)).toList();
+    }
+
+    /** Returns the number of distinct package/version inputs in the inventory. */
+    public static int scanCandidateCount(List<DependencyDto> dependencies) {
+        Set<String> distinct = new LinkedHashSet<>();
+        for (DependencyDto dependency : dependencies) {
+            distinct.add(dependency.packageName() + ":" + dependency.version());
+        }
+        return distinct.size();
     }
 
     /**

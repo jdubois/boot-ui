@@ -567,8 +567,8 @@ two are mutually exclusive, and some advisories only carry severity at the packa
 first before falling back to the top-level array. A CVSS v3.0/v3.1 vector (from either level) is parsed into a real
 numeric Base Score using the formula from the
 [FIRST.org CVSS v3.1 specification](https://www.first.org/cvss/v3-1/specification-document); CVSS v4.0 has no
-closed-form Base Score equation (its MacroVector lookup table is a much larger undertaking) and legacy CVSS v2 is
-essentially unseen in real Maven-ecosystem OSV advisories, so both fall back to the advisory's
+closed-form Base Score equation (its MacroVector lookup table is a much larger undertaking), and BootUI's calculator is
+intentionally v3-specific rather than implementing the separate CVSS v2 formula, so both fall back to the advisory's
 `database_specific.severity` label (`CRITICAL`/`HIGH`/`MODERATE`/`LOW`, normalized to BootUI's `MEDIUM` label) when no
 v3 score is present at either level. An advisory with neither a parseable CVSS v3 score nor a `database_specific` label
 renders as `UNKNOWN` rather than being silently dropped. Advisories carrying a `withdrawn` timestamp are excluded from
@@ -600,11 +600,12 @@ spelling out the percentile). EPSS lookups can be disabled independently of OSV 
 the OSV results — it simply omits the badge for that scan.
 
 Each advisory also carries a derived `fixAvailable` boolean, computed by comparing the dependency's currently-resolved
-version against the advisory's `fixedVersions` with a lightweight Maven-version-aware comparison. This lets the UI
-distinguish three states unambiguously: a genuine upgrade target ("fixed in `x.y.z`"), a dependency that already sits at
-or above every fixed version OSV reported ("already on a fixed version"), and an advisory with no `fixedVersions` at all
-("No fix published yet") — previously all three collapsed into the same blank space in the UI, which was ambiguous
-between "no fix exists yet" and "we don't know."
+version against the advisory's `fixedVersions` with Maven `ComparableVersion` qualifier ordering, including
+alpha/beta/milestone/RC/SNAPSHOT/release/service-pack semantics. This lets the UI distinguish a genuine upgrade target
+("fixed in `x.y.z`") from a dependency already at or above every fixed version OSV reported. When OSV reports no
+`fixed` event, the UI says only "No fixed version reported by OSV": under the OSV 1.8 schema a range may instead close
+with a mutually exclusive `last_affected` event, which identifies the final vulnerable version without naming the first
+non-vulnerable version, so absence of `fixedVersions` is not proof that no fix exists.
 
 Like every other advisor, a vulnerability can be **dismissed** when it does not apply to your project (already
 patched downstream, accepted risk, or a fix not yet available upstream) — see the shared dismiss/restore explanation
@@ -619,7 +620,10 @@ On Quarkus the panel is identical, listing the local inventory first and contact
 scan, over the same report contract, the same CVSS/withdrawn/partial-failure handling, the same pagination/batch-
 chunking, the same EPSS enrichment, and the same dismiss/restore workflow. The one platform difference is dependency
 discovery: the Spring adapter scans the classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the
-Quarkus runtime classloader, so the Quarkus inventory is captured at build time from the application's resolved runtime
+Quarkus runtime classloader. For JARs without embedded metadata, Spring also reads an adjacent Maven POM (including in
+nonstandard local-repository paths), and only falls back to path-derived coordinates when a literal `repository`
+directory makes the group path unambiguous; it never guesses a group id from an arbitrary cache path. The Quarkus
+inventory is captured at build time from the application's resolved runtime
 dependency model and read back at runtime (mirroring the Architecture panel's build-time base-package discovery). The
 OSV and EPSS lookups are identical, and `bootui.vulnerabilities.osv-enabled=false` /
 `bootui.vulnerabilities.epss-enabled=false` disable on-demand scanning / EPSS enrichment on both adapters.

@@ -6,11 +6,19 @@ import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
 
 final class DependencyCatalog implements DependencyProvider {
 
@@ -95,12 +103,72 @@ final class DependencyCatalog implements DependencyProvider {
         if (!fileName.startsWith(artifactId + "-" + version) || !fileName.endsWith(".jar")) {
             return null;
         }
+        DependencyDto pomDependency = dependencyFromAdjacentPom(versionPath, artifactId, version);
+        if (pomDependency != null) {
+            return pomDependency;
+        }
         String groupId = groupId(artifactPath.getParent());
         if (groupId == null) {
             return null;
         }
         String packageName = groupId + ":" + artifactId;
         return new DependencyDto(groupId, artifactId, version, packageName, "Java classpath", 0, "NONE", List.of());
+    }
+
+    private DependencyDto dependencyFromAdjacentPom(Path versionPath, String artifactId, String version) {
+        Path pom = versionPath.resolve(artifactId + "-" + version + ".pom");
+        if (!Files.isRegularFile(pom)) {
+            return null;
+        }
+        try (InputStream input = Files.newInputStream(pom)) {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
+            Element project = factory.newDocumentBuilder().parse(input).getDocumentElement();
+            String pomArtifactId = childText(project, "artifactId");
+            String pomGroupId = childText(project, "groupId");
+            String pomVersion = childText(project, "version");
+            Element parent = child(project, "parent");
+            if (pomGroupId == null && parent != null) {
+                pomGroupId = childText(parent, "groupId");
+            }
+            if (pomVersion == null && parent != null) {
+                pomVersion = childText(parent, "version");
+            }
+            if (!artifactId.equals(pomArtifactId)
+                    || !version.equals(pomVersion)
+                    || pomGroupId == null
+                    || pomGroupId.contains("${")) {
+                return null;
+            }
+            String packageName = pomGroupId + ":" + artifactId;
+            return new DependencyDto(
+                    pomGroupId, artifactId, version, packageName, "Adjacent Maven POM", 0, "NONE", List.of());
+        } catch (IOException | ParserConfigurationException | SAXException | IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private static String childText(Element parent, String name) {
+        Element child = child(parent, name);
+        return child == null ? null : BlankStrings.blankToNullTrimmed(child.getTextContent());
+    }
+
+    private static Element child(Element parent, String name) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (node instanceof Element element
+                    && (name.equals(element.getLocalName()) || name.equals(element.getNodeName()))) {
+                return element;
+            }
+        }
+        return null;
     }
 
     private String groupId(Path groupPath) {

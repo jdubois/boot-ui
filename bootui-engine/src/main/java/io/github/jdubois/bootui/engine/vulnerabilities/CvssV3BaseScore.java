@@ -45,9 +45,8 @@ import java.util.Map;
  * {@code CVSS:4.x} vectors, and callers fall back to the {@code database_specific.severity} label for those
  * advisories.
  *
- * <p>CVSS v2 vectors (unprefixed, e.g. {@code "AV:N/AC:L/Au:N/C:P/I:P/A:P"}) are likewise not scored: the
- * format was superseded in 2015 and zero occurrences were found across a 170-advisory sample of real
- * OSV.dev responses for popular Maven packages.
+ * <p>CVSS v2 vectors (unprefixed, e.g. {@code "AV:N/AC:L/Au:N/C:P/I:P/A:P"}) are not scored by this
+ * v3-specific implementation.
  */
 final class CvssV3BaseScore {
 

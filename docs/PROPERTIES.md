@@ -454,6 +454,8 @@ The Kafka panel is a dedicated, filterable view over the same producer/consumer 
 | `bootui.vulnerabilities.max-packages`        | `250`   | Maximum packages included in one OSV batch query.       |
 | `bootui.vulnerabilities.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
 | `bootui.vulnerabilities.osv-base-uri`        | `https://api.osv.dev` | Base URI of the OSV.dev API queried during a scan. Mainly useful for pointing scans at a local stub in tests. |
+| `bootui.vulnerabilities.epss-enabled`        | `true`  | Enrich CVE-aliased advisories with FIRST.org EPSS probability and percentile data during the user-initiated scan. EPSS failure never discards OSV results. |
+| `bootui.vulnerabilities.epss-base-uri`       | `https://api.first.org` | Base URI of the FIRST.org EPSS API queried during a scan. Mainly useful for pointing scans at a local stub in tests. |
 
 ### Heap Dump
 
