@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
 import io.github.jdubois.bootui.engine.graalvm.Coordinates;
 import io.github.jdubois.bootui.engine.graalvm.ReachabilityMetadataIndex;
 import io.github.jdubois.bootui.engine.graalvm.ReachabilityMetadataRepository;
+import io.github.jdubois.bootui.engine.web.BoundedBodyReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,6 +23,10 @@ import tools.jackson.databind.ObjectMapper;
  * {@link ReachabilityMetadataIndex#unavailable(String)} (or an empty index for HTTP 404). Keeping the
  * JSON library here (rather than in {@code bootui-engine}) lets the future Quarkus adapter use its own
  * Jackson 2 without forcing Spring Boot 4's {@code tools.jackson} stack onto the neutral engine.
+ *
+ * <p>Response bodies are bounded at {@link BoundedBodyReader#GRAALVM_METADATA_MAX_BYTES}: if the
+ * response exceeds that limit the fetch is treated as unavailable rather than silently accepting a
+ * truncated JSON document that a downstream parser would then accept as valid.
  */
 public final class HttpReachabilityMetadataRepository implements ReachabilityMetadataRepository {
 
@@ -33,6 +38,7 @@ public final class HttpReachabilityMetadataRepository implements ReachabilityMet
     private final ObjectMapper objectMapper;
     private final String indexBaseUrl;
     private final Duration requestTimeout;
+    private final int maxBodyBytes;
 
     public HttpReachabilityMetadataRepository() {
         this(DEFAULT_TIMEOUT);
@@ -52,10 +58,21 @@ public final class HttpReachabilityMetadataRepository implements ReachabilityMet
 
     HttpReachabilityMetadataRepository(
             HttpClient client, ObjectMapper objectMapper, String indexBaseUrl, Duration requestTimeout) {
+        this(client, objectMapper, indexBaseUrl, requestTimeout, BoundedBodyReader.GRAALVM_METADATA_MAX_BYTES);
+    }
+
+    /** Package-private constructor for testing with a custom byte limit. */
+    HttpReachabilityMetadataRepository(
+            HttpClient client,
+            ObjectMapper objectMapper,
+            String indexBaseUrl,
+            Duration requestTimeout,
+            int maxBodyBytes) {
         this.client = client;
         this.objectMapper = objectMapper;
         this.indexBaseUrl = indexBaseUrl;
         this.requestTimeout = requestTimeout;
+        this.maxBodyBytes = maxBodyBytes;
     }
 
     @Override
@@ -67,7 +84,7 @@ public final class HttpReachabilityMetadataRepository implements ReachabilityMet
                     .header("User-Agent", "BootUI GraalVM readiness")
                     .GET()
                     .build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = client.send(request, BoundedBodyReader.strictBodyHandler(maxBodyBytes));
             if (response.statusCode() == 404) {
                 return ReachabilityMetadataIndex.of(List.of());
             }
