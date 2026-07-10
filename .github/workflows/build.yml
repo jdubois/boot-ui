@@ -27,6 +27,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Check GitHub Action references
+        run: bash .github/scripts/check-action-references.sh
+
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v5
         with:
@@ -82,7 +85,7 @@ jobs:
 
       - name: Publish Java test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
           name: Java tests (Surefire)
           path: '**/target/surefire-reports/TEST-*.xml'
@@ -92,7 +95,7 @@ jobs:
 
       - name: Publish frontend unit test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
           name: Frontend unit tests (Vitest)
           path: bootui-ui/src/main/frontend/test-results/vitest-junit.xml
@@ -102,7 +105,7 @@ jobs:
 
       - name: Publish end-to-end test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
           name: End-to-end tests (Playwright)
           path: bootui-spring-sample-app/e2e/test-results/junit/results.xml
@@ -112,7 +115,7 @@ jobs:
 
       - name: Publish WebFlux end-to-end test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
           name: WebFlux end-to-end tests (Playwright)
           path: bootui-spring-sample-app/e2e/test-results-webflux/junit/results.xml
@@ -222,7 +225,7 @@ jobs:
 
       - name: Publish Quarkus end-to-end test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
           name: Quarkus end-to-end tests (Playwright)
           path: bootui-quarkus-sample-app/e2e/test-results/junit/results.xml

@@ -105,6 +105,32 @@ Use Prettier for the Vue app and Playwright tests:
 (cd bootui-spring-sample-app/e2e && npm run format)
 ```
 
+## GitHub Actions dependencies
+
+Remote GitHub Actions default to a full 40-character commit SHA with an inline release comment:
+
+```yaml
+uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+```
+
+The following explicitly trusted actions may instead use a mutable major-version tag:
+
+- GitHub: `actions/checkout`, `actions/configure-pages`, `actions/deploy-pages`, `actions/download-artifact`,
+  `actions/setup-java`, `actions/setup-node`, `actions/upload-artifact`, `actions/upload-pages-artifact`, and
+  `github/codeql-action`
+- Docker: `docker/build-push-action`, `docker/login-action`, `docker/metadata-action`, and
+  `docker/setup-buildx-action`
+
+New remote actions remain SHA-pinned unless this allowlist is deliberately extended. Local actions continue to use
+relative paths. Dependabot checks action references weekly: major tags receive compatible updates automatically,
+Dependabot proposes new major tags, and SHA-pinned actions receive pull requests for newer release SHAs.
+
+Run the policy check locally with:
+
+```bash
+bash .github/scripts/check-action-references.sh
+```
+
 ## Run the sample app
 
 ```bash
