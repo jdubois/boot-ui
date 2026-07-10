@@ -14,6 +14,13 @@ import org.springframework.boot.test.web.server.LocalServerPort;
  * adapter does (same panel ids/titles/order, same JSON shapes), just with
  * {@code platform: "spring-boot-reactive"} and the two panels with no reactive equivalent
  * (http-sessions, spring-security) reporting {@code available: false}.
+ *
+ * <p>Panel-access conformance properties: {@code bootui.panels.copilot.enabled=false} enables
+ * {@link AbstractBootUiApiConformanceTest#panelDisabledRequestIsRejectedWithCanonicalBody}; {@code
+ * bootui.panels.heap-dump.read-only=true} enables
+ * {@link AbstractBootUiApiConformanceTest#panelReadOnlyActionIsRejectedWithCanonicalBody}. Both are
+ * safe to set here because neither panel is in DATA_PANEL_ROOT_GETS and no other conformance test
+ * exercises them.</p>
  */
 @SpringBootTest(
         classes = BootUiWebfluxSampleApplication.class,
@@ -21,7 +28,9 @@ import org.springframework.boot.test.web.server.LocalServerPort;
         properties = {
             "spring.profiles.active=dev",
             "bootui.show-banner=false",
-            "bootui.overrides-file=target/bootui-conformance-overrides.properties"
+            "bootui.overrides-file=target/bootui-conformance-overrides.properties",
+            "bootui.panels.copilot.enabled=false",
+            "bootui.panels.heap-dump.read-only=true"
         })
 class WebFluxApiConformanceTest extends AbstractBootUiApiConformanceTest {
 

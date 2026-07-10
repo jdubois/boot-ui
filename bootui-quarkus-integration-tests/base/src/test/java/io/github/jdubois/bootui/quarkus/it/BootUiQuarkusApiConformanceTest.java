@@ -13,6 +13,12 @@ import java.net.URL;
  * adapters answer the exact same {@code /bootui/api/**} contract, so the shared Vue UI binds to one
  * stable shape. {@code @QuarkusTest} boots in {@code LaunchMode.TEST}, so the console's build steps are
  * registered (they are gated off only in production) and the engine-backed endpoints are live.</p>
+ *
+ * <p>Panel-access conformance properties are in {@code application.properties}:
+ * {@code bootui.panels.copilot.enabled=false} enables
+ * {@link AbstractBootUiApiConformanceTest#panelDisabledRequestIsRejectedWithCanonicalBody}; {@code
+ * bootui.panels.heap-dump.read-only=true} enables
+ * {@link AbstractBootUiApiConformanceTest#panelReadOnlyActionIsRejectedWithCanonicalBody}.</p>
  */
 @QuarkusTest
 class BootUiQuarkusApiConformanceTest extends AbstractBootUiApiConformanceTest {

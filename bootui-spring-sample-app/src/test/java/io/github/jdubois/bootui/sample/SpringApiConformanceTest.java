@@ -13,6 +13,13 @@ import org.springframework.boot.test.web.server.LocalServerPort;
  * <p>This is the behavior safety net for the Quarkus refactor: it must stay green at every step of the
  * Phase 0 in-place refactor, and the Quarkus sample app will later run the very same contract so both
  * platforms keep serving one stable {@code /bootui/api/**} shape to the shared Vue UI.
+ *
+ * <p>Panel-access conformance properties: {@code bootui.panels.copilot.enabled=false} enables
+ * {@link AbstractBootUiApiConformanceTest#panelDisabledRequestIsRejectedWithCanonicalBody}; {@code
+ * bootui.panels.heap-dump.read-only=true} enables
+ * {@link AbstractBootUiApiConformanceTest#panelReadOnlyActionIsRejectedWithCanonicalBody}. Both are
+ * safe to set here because neither panel is in DATA_PANEL_ROOT_GETS and no other conformance test
+ * exercises them.</p>
  */
 @SpringBootTest(
         classes = BootUiSampleApplication.class,
@@ -21,7 +28,9 @@ import org.springframework.boot.test.web.server.LocalServerPort;
             "spring.profiles.active=dev",
             "spring.docker.compose.enabled=false",
             "bootui.show-banner=false",
-            "bootui.overrides-file=target/bootui-conformance-overrides.properties"
+            "bootui.overrides-file=target/bootui-conformance-overrides.properties",
+            "bootui.panels.copilot.enabled=false",
+            "bootui.panels.heap-dump.read-only=true"
         })
 class SpringApiConformanceTest extends AbstractBootUiApiConformanceTest {
 
