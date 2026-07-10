@@ -99,6 +99,20 @@ npm install
 npm test
 ```
 
+### Panel metadata workflow
+
+Backend panel metadata (`id`, manifest title/order, action capability, and guarded
+API prefixes) is centrally tracked in
+`bootui-engine/src/main/java/io/github/jdubois/bootui/engine/panel/BootUiPanels.java`.
+The Vue route list remains the independent source of truth for sidebar titles,
+groups, and navigation order.
+
+When adding or renaming a panel, update `BootUiPanels`, `routes.js`, the conformance
+manifests, and the directly related docs. When moving a sidebar entry, update
+`routes.js` and the docs without reordering the backend manifest. CI validates
+that the backend catalog, UI routes, conformance manifests, and
+`docs/FEATURES.md` stay aligned.
+
 Run the browser end-to-end suite when you change the UI, browser-facing API responses, or sample-app behavior:
 
 ```bash

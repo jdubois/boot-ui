@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -25,6 +27,21 @@ public record McpTool(
         String panelId,
         boolean action,
         Function<McpArguments, Object> handler) {
+
+    public McpTool {
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(description, "description");
+        Objects.requireNonNull(schema, "schema");
+        Objects.requireNonNull(panelId, "panelId");
+        Objects.requireNonNull(handler, "handler");
+
+        BootUiPanels.Panel panel = BootUiPanels.byId(panelId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown BootUI panel id for MCP tool: " + panelId));
+        if (action && !panel.actionCapable()) {
+            throw new IllegalArgumentException(
+                    "MCP action tool " + name + " must reference an action-capable panel: " + panelId);
+        }
+    }
 
     /** Invokes the tool handler with the supplied normalized arguments. */
     public Object invoke(McpArguments arguments) {

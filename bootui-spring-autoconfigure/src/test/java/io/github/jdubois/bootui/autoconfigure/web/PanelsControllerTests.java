@@ -24,57 +24,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 class PanelsControllerTests {
 
-    private static final List<String> PANEL_IDS = List.of(
-            BootUiPanels.OVERVIEW,
-            BootUiPanels.HEALTH,
-            BootUiPanels.HTTP_SESSIONS,
-            BootUiPanels.METRICS,
-            BootUiPanels.LIVE_MEMORY,
-            BootUiPanels.JVM_TUNING,
-            BootUiPanels.HEAP_DUMP,
-            BootUiPanels.THREADS,
-            BootUiPanels.MEMORY,
-            BootUiPanels.STARTUP,
-            BootUiPanels.GRAALVM,
-            BootUiPanels.CONFIG,
-            BootUiPanels.PROFILE_DIFF,
-            BootUiPanels.LOGGERS,
-            BootUiPanels.BEANS,
-            BootUiPanels.CONDITIONS,
-            BootUiPanels.MAPPINGS,
-            BootUiPanels.SPRING_SECURITY,
-            BootUiPanels.SECURITY,
-            BootUiPanels.SECURITY_LOGS,
-            BootUiPanels.PENTESTING,
-            BootUiPanels.SCHEDULED,
-            BootUiPanels.DATABASE_CONNECTION_POOLS,
-            BootUiPanels.DATA,
-            BootUiPanels.HIBERNATE,
-            BootUiPanels.CACHE,
-            BootUiPanels.AI,
-            BootUiPanels.TRACES,
-            BootUiPanels.LOG_TAIL,
-            BootUiPanels.EXCEPTIONS,
-            BootUiPanels.HTTP_EXCHANGES,
-            BootUiPanels.HTTP_PROBE,
-            BootUiPanels.ARCHITECTURE,
-            BootUiPanels.VULNERABILITIES,
-            BootUiPanels.DEVTOOLS,
-            BootUiPanels.DEV_SERVICES,
-            BootUiPanels.COPILOT,
-            BootUiPanels.CLAUDE_CODE,
-            BootUiPanels.FLYWAY,
-            BootUiPanels.LIQUIBASE,
-            BootUiPanels.GITHUB,
-            BootUiPanels.REST_API,
-            BootUiPanels.SPRING,
-            BootUiPanels.CRAC,
-            BootUiPanels.SQL_TRACE,
-            BootUiPanels.REST_CLIENT_TRACE,
-            BootUiPanels.MCP_SERVER,
-            BootUiPanels.ACTIVITY,
-            BootUiPanels.EMAIL,
-            BootUiPanels.KAFKA);
+    private static final List<String> PANEL_IDS =
+            BootUiPanels.all().stream().map(BootUiPanels.Panel::id).toList();
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {
@@ -84,7 +35,6 @@ class PanelsControllerTests {
                     new PanelsController(context, context.getEnvironment(), new BootUiProperties());
             MockMvc mvc = standaloneSetup(controller).build();
 
-            assertThat(BootUiPanels.all()).extracting(BootUiPanels.Panel::id).containsExactlyElementsOf(PANEL_IDS);
             assertThat(controller.panels().platform()).isEqualTo(PanelsReport.PLATFORM_SPRING_BOOT);
             assertThat(controller.panels().panels()).extracting(PanelDto::id).containsExactlyElementsOf(PANEL_IDS);
 
