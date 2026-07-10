@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -36,6 +38,33 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     private static final String DEFAULT_EXPECTED_PANELS =
             "/io/github/jdubois/bootui/conformance/expected-panels-spring.json";
+
+    private static final String CONTENT_SECURITY_POLICY = "Content-Security-Policy";
+
+    private static final String CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+            + " img-src 'self' data:; font-src 'self' data:; connect-src 'self';"
+            + " object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
+    private static final Map<String, String> COMMON_SECURITY_HEADERS = Map.of(
+            CONTENT_SECURITY_POLICY,
+            CSP,
+            "X-Content-Type-Options",
+            "nosniff",
+            "X-Frame-Options",
+            "DENY",
+            "Referrer-Policy",
+            "strict-origin-when-cross-origin",
+            "Permissions-Policy",
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()");
+
+    private static final String NO_STORE = "no-store, must-revalidate";
+
+    private static final String IMMUTABLE = "public, max-age=31536000, immutable";
+
+    private static final String NO_CACHE = "no-cache";
+
+    private static final Pattern BUILT_ASSET =
+            Pattern.compile("(?:src|href)=\"\\./(assets/[^\"]+-[A-Za-z0-9_-]{8,}\\.[^\"]+)\"");
 
     /**
      * Panels whose primary data lives at a plain {@code GET /bootui/api/<id>} and must answer 200 with
@@ -235,6 +264,53 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(rejected.json().path("error").asText())
                 .as("cross-site 403 body must carry the canonical LocalhostGuard message")
                 .isEqualTo("BootUI rejected a cross-site request to a state-changing endpoint.");
+        assertSecurityHeaders(rejected, NO_STORE, true);
+    }
+
+    @Test
+    void securityHeadersCoverShellAndHashedAssets() {
+        Response shell = probe().get("/bootui/");
+        assertThat(shell.status()).as("GET /bootui/ status").isEqualTo(200);
+        assertThat(shell.contentType()).as("GET /bootui/ content-type").containsIgnoringCase("text/html");
+        assertSecurityHeaders(shell, NO_CACHE, true);
+
+        Matcher asset = BUILT_ASSET.matcher(shell.body());
+        assertThat(asset.find())
+                .as("packaged index.html must reference a content-hashed asset: %s", shell.body())
+                .isTrue();
+        Response builtAsset = probe().get("/bootui/" + asset.group(1));
+        assertThat(builtAsset.status()).as("GET packaged hashed asset status").isEqualTo(200);
+        assertSecurityHeaders(builtAsset, IMMUTABLE, false);
+
+        Response missingHashedAsset = probe().get("/bootui/assets/missing-C2x2BcDS.js");
+        assertThat(missingHashedAsset.status())
+                .as("GET missing hashed-looking asset status")
+                .isEqualTo(404);
+        assertSecurityHeaders(missingHashedAsset, NO_CACHE, true);
+    }
+
+    @Test
+    void securityHeadersCoverApiErrorsStreamsAndDownloads() {
+        Response api = probe().get("/bootui/api/overview");
+        assertThat(api.status()).as("GET overview status").isEqualTo(200);
+        assertSecurityHeaders(api, NO_STORE, true);
+
+        Response error = probe().get("/bootui/api/this-route-does-not-exist");
+        assertThat(error.status()).as("unmatched BootUI API route status").isEqualTo(404);
+        assertSecurityHeaders(error, NO_STORE, true);
+
+        Response stream = probe().getStreaming("/bootui/api/log-tail/stream");
+        assertThat(stream.status()).as("GET log-tail SSE stream status").isEqualTo(200);
+        assertThat(stream.contentType()).as("GET log-tail SSE content-type").containsIgnoringCase("text/event-stream");
+        assertSecurityHeaders(stream, NO_STORE, true);
+
+        BootUiHttpProbe downloadProbe = probe();
+        Response download = downloadProbe.post("/bootui/api/threads/download", stateChangingHeaders(downloadProbe));
+        assertThat(download.status()).as("POST thread-dump download status").isEqualTo(200);
+        assertThat(download.headerValues("Content-Disposition"))
+                .as("download must have one attachment disposition")
+                .containsExactly("attachment; filename=\"thread-dump.txt\"");
+        assertSecurityHeaders(download, NO_STORE, true);
     }
 
     @Test
@@ -689,6 +765,33 @@ public abstract class AbstractBootUiApiConformanceTest {
         probe.get("/bootui/api/overview");
         probe.cookie("XSRF-TOKEN").ifPresent(token -> headers.put("X-XSRF-TOKEN", token));
         return headers;
+    }
+
+    private void assertSecurityHeaders(Response response, String cacheControl, boolean expectPragma) {
+        COMMON_SECURITY_HEADERS.forEach((name, value) -> assertThat(response.headerValues(name))
+                .as("%s must be present exactly once", name)
+                .containsExactly(value));
+        assertThat(response.headerValues("Cache-Control"))
+                .as("Cache-Control must be present exactly once")
+                .containsExactly(cacheControl);
+        if (expectPragma) {
+            assertThat(response.headerValues("Pragma"))
+                    .as("Pragma must be present exactly once")
+                    .containsExactly("no-cache");
+        } else {
+            assertThat(response.headerValues("Pragma"))
+                    .as("immutable assets must not carry a conflicting Pragma")
+                    .isEmpty();
+        }
+    }
+
+    private boolean loggersAvailable() {
+        for (JsonNode panel : probe().get("/bootui/api/panels").json().get("panels")) {
+            if ("loggers".equals(panel.path("id").asText(null))) {
+                return panel.path("available").asBoolean(false);
+            }
+        }
+        return false;
     }
 
     private void assertPanelShape(ExpectedPanel expectedPanel, JsonNode panel) {

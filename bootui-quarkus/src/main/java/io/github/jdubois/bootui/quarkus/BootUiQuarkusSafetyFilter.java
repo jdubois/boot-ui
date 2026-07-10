@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.engine.safety.BootUiSecurityHeaders;
 import io.github.jdubois.bootui.engine.safety.CidrRange;
 import io.github.jdubois.bootui.engine.safety.ContainerGatewayDetector;
 import io.github.jdubois.bootui.engine.safety.GatewayTrust;
@@ -106,10 +107,13 @@ public class BootUiQuarkusSafetyFilter {
     }
 
     void handle(RoutingContext rc) {
-        if (!isBootUiRequest(bootUiRelativePath(rc.normalizedPath()))) {
+        String relativePath = bootUiRelativePath(rc.normalizedPath());
+        if (!isBootUiRequest(relativePath)) {
             rc.next();
             return;
         }
+
+        rc.addHeadersEndHandler(ignored -> applySecurityHeaders(rc.response(), relativePath));
 
         LocalhostGuardDecision decision = guard.decide(toGuardRequest(rc), buildConfig());
 
@@ -123,6 +127,23 @@ public class BootUiQuarkusSafetyFilter {
             warnTrustedGatewayOnce(allow.trustedGateway());
         }
         rc.next();
+    }
+
+    /**
+     * Applies the BootUI security-header policy immediately before Vert.x writes the response headers, so
+     * host filters have already contributed their policy and both passing and rejected responses are covered.
+     */
+    private void applySecurityHeaders(HttpServerResponse response, String relativePath) {
+        int statusCode = response.getStatusCode();
+        if (BootUiSecurityHeaders.removesPragma(relativePath, API_PATH, statusCode)) {
+            response.headers().remove(BootUiSecurityHeaders.PRAGMA);
+        }
+        BootUiSecurityHeaders.headersFor(relativePath, API_PATH, statusCode).forEach((name, value) -> {
+            if (BootUiSecurityHeaders.overridesExisting(name)
+                    || !response.headers().contains(name)) {
+                response.headers().set(name, value);
+            }
+        });
     }
 
     /**

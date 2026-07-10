@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.safety.BootUiSecurityHeaders;
 import io.quarkus.test.QuarkusProdModeTest;
 import java.util.Map;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -62,6 +63,9 @@ class BootUiQuarkusProdShellGuardBootTest {
         assertThat(response.status())
                 .as("GET /bootui/ must be a plain 404 in production, not the static shell's index.html")
                 .isEqualTo(404);
+        assertThat(response.header(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY))
+                .isEqualTo(BootUiSecurityHeaders.CSP_VALUE);
+        assertThat(response.header(BootUiSecurityHeaders.CACHE_CONTROL)).isEqualTo(BootUiSecurityHeaders.NO_CACHE);
     }
 
     @Test
@@ -81,6 +85,14 @@ class BootUiQuarkusProdShellGuardBootTest {
         assertThat(response.status())
                 .as("GET /bootui/index.html must be a plain 404 in production, not the shell asset")
                 .isEqualTo(404);
+    }
+
+    @Test
+    void productionHashedLookingAsset404IsNotImmutable() {
+        Response response = probe().get("/bootui/assets/missing-C2x2BcDS.js");
+        assertThat(response.status()).isEqualTo(404);
+        assertThat(response.header(BootUiSecurityHeaders.CACHE_CONTROL)).isEqualTo(BootUiSecurityHeaders.NO_CACHE);
+        assertThat(response.header(BootUiSecurityHeaders.PRAGMA)).isEqualTo(BootUiSecurityHeaders.PRAGMA_NO_CACHE);
     }
 
     @Test

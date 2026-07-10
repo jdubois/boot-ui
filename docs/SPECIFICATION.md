@@ -128,6 +128,43 @@ and packaged asset:
 bootui.path=/bootui
 ```
 
+### 4.2.1 Browser response-header policy
+
+Every active adapter applies the same framework-neutral baseline to `/bootui`, `/bootui/**`, and `/bootui/api/**`,
+including shell and asset responses, API errors, localhost/panel-policy rejections, SSE streams, and downloads:
+
+| Header | BootUI baseline |
+| --- | --- |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'` |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | Disables accelerometer, camera, geolocation, gyroscope, magnetometer, microphone, payment, and USB access. |
+
+The CSP deliberately excludes `unsafe-eval`. `style-src 'unsafe-inline'` is currently required by Bootstrap/Vue style
+attributes, while `data:` is limited to images and fonts for the generated icon assets. `base-uri 'self'` permits only
+the same-origin `<base>` tag BootUI injects when a host application has a servlet context path or Quarkus root path.
+
+BootUI treats cache semantics separately by response class:
+
+- `/bootui/api` and `/bootui/api/**`, including JSON, errors, SSE, and downloads: `Cache-Control: no-store,
+  must-revalidate` plus `Pragma: no-cache`.
+- Successfully served content-hashed files under `/bootui/assets/`: `Cache-Control: public, max-age=31536000,
+  immutable`, with no
+  conflicting `Pragma`.
+- The SPA shell, favicon, unhashed/missing assets, and other BootUI responses: `Cache-Control: no-cache` plus
+  `Pragma: no-cache`.
+
+Cache directives are owned by BootUI because they are part of each response class's safety contract. The other headers
+are baseline defaults: an existing host-provided value is preserved, and a host filter that runs later may replace the
+baseline with its own stronger policy. Headers are set rather than appended, so the clean adapter path emits one value
+per policy header.
+
+Quarkus' production-dark 404 responses carry the same baseline and path-appropriate cache directive without exposing
+the shell or API. The Vite development server remains compatible because it serves the development document and HMR
+client itself; only proxied backend `/bootui/api/**` responses carry these headers, and response CSP headers do not set
+the policy of the Vite document.
+
 ### 4.3 Startup banner integration
 
 When BootUI is enabled, the application startup output should include:

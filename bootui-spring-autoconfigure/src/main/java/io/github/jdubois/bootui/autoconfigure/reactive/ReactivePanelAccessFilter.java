@@ -26,11 +26,11 @@ public class ReactivePanelAccessFilter extends AbstractReactiveBootUiFilter impl
 
     /**
      * Matches the servlet filter's {@code FilterRegistrationBean} order
-     * ({@code Integer.MIN_VALUE + 1}), one after {@link ReactiveLocalhostOnlyFilter}.
+     * ({@code Integer.MIN_VALUE + 2}), one after {@link ReactiveLocalhostOnlyFilter}.
      */
     @Override
     public int getOrder() {
-        return Integer.MIN_VALUE + 1;
+        return Integer.MIN_VALUE + 2;
     }
 
     @Override

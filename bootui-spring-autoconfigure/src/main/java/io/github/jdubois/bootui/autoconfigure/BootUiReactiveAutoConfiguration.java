@@ -30,6 +30,7 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLogTailController
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveOtelTraceIdProvider;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactivePanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityEventTraceRegistry;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityHeadersFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
@@ -357,6 +358,11 @@ public class BootUiReactiveAutoConfiguration {
         String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
         String contextPath = environment.getProperty("server.servlet.context-path", "");
         return scheme + "://localhost:" + port + contextPath + properties.getPath();
+    }
+
+    @Bean
+    public ReactiveSecurityHeadersFilter bootUiReactiveSecurityHeadersFilter(BootUiProperties properties) {
+        return new ReactiveSecurityHeadersFilter(properties);
     }
 
     @Bean

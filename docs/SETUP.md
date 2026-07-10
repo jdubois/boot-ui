@@ -418,6 +418,8 @@ BootUI is intended for local development only. By default it:
 
 - Activates in `AUTO` mode only for the `dev` / `local` profiles or DevTools.
 - Rejects non-loopback requests.
+- Applies one cross-framework security-header policy to the whole `/bootui/**` surface, with no-store caching for APIs,
+  streams, and downloads and immutable caching only for successfully served content-hashed assets.
 - Permits `/bootui/**` through Spring Security when Spring Security is present, with a startup warning, so the local
   console remains directly reachable while the loopback-only filter still applies.
 - Masks secret-like configuration values.
