@@ -63,8 +63,8 @@ rendering already covered by Spring's e2e suite — performs the action end to e
 
 ## Prerequisites
 
-1. **A supported JDK (17 or 21).** The Quarkus sample is wired into the Maven reactor only on JDK 17/21
-   (see the root `pom.xml` `quarkus-sample-app` profile); on newer JDKs it is skipped and cannot be built.
+1. **A supported JDK (17, 21 or 25).** The sample app stays in the Maven reactor on every JDK, but
+   Hibernate ORM augmentation is disabled on JDK 26+ (see `bootui-quarkus-sample-app/pom.xml`).
 2. **Docker or Podman running.** Quarkus Dev Services starts a throwaway PostgreSQL container at boot.
 3. **The BootUI artifacts installed locally**, so `quarkus:dev` can resolve the `bootui-quarkus`
    extension:
