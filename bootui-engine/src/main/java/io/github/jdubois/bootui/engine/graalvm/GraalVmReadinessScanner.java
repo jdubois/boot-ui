@@ -191,7 +191,11 @@ public final class GraalVmReadinessScanner {
         GraalVmMetadata metadata = new GraalVmMetadata(
                 GraalVmClassPredicates.reflectionCandidateTypeNames(classes),
                 GraalVmClassPredicates.serializationCandidateTypeNames(classes),
-                GraalVmMetadata.DEFAULT_RESOURCE_GLOBS);
+                GraalVmClassPredicates.nativeMethodTypeNames(classes),
+                GraalVmMetadata.DEFAULT_RESOURCE_GLOBS,
+                hasReviewFinding(results, "GRAAL-PROXY-001"),
+                hasReviewFinding(results, "GRAAL-REFLECT-005"),
+                hasReviewFinding(results, "GRAAL-FFM-001"));
 
         GraalVmReadinessReport report = report(
                 "SCANNED",
@@ -283,7 +287,7 @@ public final class GraalVmReadinessScanner {
         int dependenciesWithoutMetadata =
                 (int) dependencies.stream().filter(dep -> !dep.shipsMetadata()).count();
         GraalVmMetadataSummaryDto metadataSummary = new GraalVmMetadataSummaryDto(
-                metadata.reflectionTypes().size(),
+                metadata.reflectionEntryCount(),
                 metadata.serializationTypes().size(),
                 metadata.resourceGlobs().size());
         return new GraalVmReadinessReport(
@@ -321,6 +325,11 @@ public final class GraalVmReadinessScanner {
                         || GraalVmCheckSupport.ERROR.equals(result.status()))
                 .sorted(IMPORTANCE_ORDER)
                 .toList();
+    }
+
+    private static boolean hasReviewFinding(List<GraalVmFindingDto> results, String id) {
+        return results.stream()
+                .anyMatch(result -> id.equals(result.id()) && GraalVmCheckSupport.REVIEW.equals(result.status()));
     }
 
     /** Result of one scan: the report served to the panel plus the metadata scaffold candidates. */

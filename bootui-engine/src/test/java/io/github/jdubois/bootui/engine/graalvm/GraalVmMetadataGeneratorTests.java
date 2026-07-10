@@ -14,7 +14,11 @@ class GraalVmMetadataGeneratorTests {
         GraalVmMetadata metadata = new GraalVmMetadata(
                 List.of("com.example.Person", "com.example.Order"),
                 List.of("com.example.Person"),
-                List.of("application*.properties"));
+                List.of("com.example.NativeAccess"),
+                List.of("application*.properties"),
+                true,
+                true,
+                true);
 
         String json = generator.generate(metadata);
 
@@ -29,24 +33,37 @@ class GraalVmMetadataGeneratorTests {
                 .contains("\"allDeclaredConstructors\": true")
                 .contains("\"allDeclaredMethods\": true")
                 .contains("\"allDeclaredFields\": true");
-        assertThat(json).contains("\"serialization\"");
+        assertThat(json).doesNotContain("\"serialization\"");
+        assertThat(json).contains("\"serializable\": true");
+        assertThat(json).contains("\"type\": \"com.example.NativeAccess\"");
+        assertThat(json).contains("\"jniAccessible\": true");
         assertThat(json).contains("\"resources\"");
         assertThat(json).contains("{\"glob\": \"application*.properties\"}");
+        assertThat(json).contains("\"foreign\": {");
+        assertThat(json).contains("\"downcalls\": []");
+        assertThat(json).contains("\"upcalls\": []");
+        assertThat(json).contains("\"directUpcalls\": []");
+        assertThat(json).contains("Dynamic proxy calls were detected");
+        assertThat(json).contains("Unsafe.allocateInstance calls were detected");
+        assertThat(json).contains("FFM Linker usage was detected");
     }
 
     @Test
     void rendersEmptyArraysWhenCandidateListsAreEmpty() {
-        String json = generator.generate(new GraalVmMetadata(List.of(), List.of(), List.of()));
+        String json = generator.generate(
+                new GraalVmMetadata(List.of(), List.of(), List.of(), List.of(), false, false, false));
 
         assertBalanced(json);
         assertThat(json).contains("\"reflection\": []");
-        assertThat(json).contains("\"serialization\": []");
+        assertThat(json).doesNotContain("\"serialization\"");
         assertThat(json).contains("\"resources\": []");
+        assertThat(json).doesNotContain("\"foreign\"");
     }
 
     @Test
     void escapesSpecialCharactersInTypeNames() {
-        String json = generator.generate(new GraalVmMetadata(List.of("com.example.Weird\"\\\n"), List.of(), List.of()));
+        String json = generator.generate(new GraalVmMetadata(
+                List.of("com.example.Weird\"\\\n"), List.of(), List.of(), List.of(), false, false, false));
 
         assertThat(json).contains("com.example.Weird\\\"\\\\\\n");
     }

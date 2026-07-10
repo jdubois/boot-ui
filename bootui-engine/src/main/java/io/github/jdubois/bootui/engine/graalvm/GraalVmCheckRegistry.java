@@ -25,6 +25,8 @@ final class GraalVmCheckRegistry {
             new NativeAccessCheck(),
             new NativeMethodCheck(),
             new RuntimeClassGenerationCheck(),
+            new SystemJavaCompilerCheck(),
+            new ScriptEngineUsageCheck(),
             new RuntimeClasspathScanningCheck(),
             new RuntimeSingletonRegistrationCheck(),
             new RuntimeInstanceSupplierCheck(),
