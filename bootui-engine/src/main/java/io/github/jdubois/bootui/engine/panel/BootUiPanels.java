@@ -1,15 +1,20 @@
 package io.github.jdubois.bootui.engine.panel;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Shared registry for the panels exposed by the browser UI and protected by the
- * BootUI API access filters.
+ * Framework-neutral backend catalog for the panels exposed by BootUI.
+ *
+ * <p>This catalog owns backend metadata and manifest order. The Vue route list remains the source of
+ * truth for sidebar groups and navigation order; cross-module consistency tests keep the two surfaces
+ * aligned without making the engine depend on the UI.</p>
  */
 public final class BootUiPanels {
 
@@ -125,6 +130,17 @@ public final class BootUiPanels {
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));
     private static final Set<String> IDS = Set.copyOf(BY_ID.keySet());
 
+    static {
+        Set<String> apiPrefixes = new HashSet<>();
+        for (Panel panel : PANELS) {
+            for (String apiPrefix : panel.apiPrefixes()) {
+                if (!apiPrefixes.add(apiPrefix)) {
+                    throw new IllegalStateException("Duplicate panel API prefix: " + apiPrefix);
+                }
+            }
+        }
+    }
+
     private BootUiPanels() {}
 
     public static List<Panel> all() {
@@ -152,7 +168,27 @@ public final class BootUiPanels {
         }
 
         public Panel {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(apiPrefixes, "apiPrefixes");
+            if (id.isBlank()) {
+                throw new IllegalArgumentException("Panel id must not be blank");
+            }
+            if (title.isBlank()) {
+                throw new IllegalArgumentException("Panel title must not be blank");
+            }
             apiPrefixes = List.copyOf(apiPrefixes);
+            if (actionCapable && apiPrefixes.isEmpty()) {
+                throw new IllegalArgumentException("Action-capable panel " + id + " must declare an API prefix");
+            }
+            for (String apiPrefix : apiPrefixes) {
+                if (apiPrefix == null || !apiPrefix.startsWith("/") || apiPrefix.endsWith("/")) {
+                    throw new IllegalArgumentException("Panel " + id + " has invalid API prefix: " + apiPrefix);
+                }
+            }
+            if (Set.copyOf(apiPrefixes).size() != apiPrefixes.size()) {
+                throw new IllegalArgumentException("Panel " + id + " declares duplicate API prefixes");
+            }
         }
 
         public boolean matchesApiPath(String apiRelativePath) {
