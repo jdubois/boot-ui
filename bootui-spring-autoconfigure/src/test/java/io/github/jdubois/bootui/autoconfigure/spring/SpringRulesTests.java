@@ -274,6 +274,18 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.http.reactiveclient.connector", "reactor"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        SpringRuleResultDto mongoSession =
+                rule.evaluate(context(env().withProperty("spring.session.mongodb.collection-name", "sessions"))
+                        .build());
+        assertThat(mongoSession.status()).isEqualTo("VIOLATION");
+        assertThat(mongoSession.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("org.mongodb:mongodb-spring-session");
         // server.servlet.encoding.mapping is deliberately NOT in the rename list (still works as-is).
         assertThat(rule.evaluate(context(env().withProperty("server.servlet.encoding.mapping", "*.html"))
                                 .build())
@@ -440,6 +452,10 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("logging.level.root", "ALL"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
         assertThat(rule.evaluate(context(env().withProperty("logging.level.org.springframework", "INFO"))
                                 .build())
                         .status())
@@ -509,6 +525,80 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void namedHttpServiceClientTimeoutsAreRecognized() {
+        HttpClientTimeoutsUnsetRule rule = new HttpClientTimeoutsUnsetRule();
+
+        SpringRuleResultDto complete = rule.evaluate(
+                context(env().withProperty("spring.http.serviceclient.inventory.base-url", "https://inventory.example")
+                                .withProperty("spring.http.serviceclient.inventory.connect-timeout", "2s")
+                                .withProperty("spring.http.serviceclient.inventory.read-timeout", "5s"))
+                        .restClientBeanPresent(true)
+                        .build());
+        assertThat(complete.status()).isEqualTo("PASS");
+
+        SpringRuleResultDto incomplete = rule.evaluate(
+                context(env().withProperty("spring.http.serviceclient.inventory.base-url", "https://inventory.example")
+                                .withProperty("spring.http.serviceclient.inventory.connect-timeout", "2s"))
+                        .restClientBeanPresent(true)
+                        .build());
+        assertThat(incomplete.status()).isEqualTo("VIOLATION");
+        assertThat(incomplete.sampleViolations()).singleElement().asString().contains("inventory", "read-timeout");
+
+        SpringRuleResultDto inheritedGlobal = rule.evaluate(context(env().withProperty(
+                                "spring.http.clients.connect-timeout", "2s")
+                        .withProperty("spring.http.serviceclient.inventory.base-url", "https://inventory.example")
+                        .withProperty("spring.http.serviceclient.inventory.read-timeout", "5s"))
+                .restClientBeanPresent(true)
+                .build());
+        assertThat(inheritedGlobal.status()).isEqualTo("PASS");
+    }
+
+    @Test
+    void explicitlyReviewedHikariPoolSizeTenDoesNotFlagVirtualThreads() {
+        ConnectionPoolSmallForVirtualThreadsRule rule = new ConnectionPoolSmallForVirtualThreadsRule();
+
+        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
+                                .hikariDataSourcePresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true")
+                                        .withProperty("spring.datasource.hikari.maximum-pool-size", "10"))
+                                .hikariDataSourcePresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void jackson2DefaultsCompatibilityModeIsFlagged() {
+        Jackson2DefaultsCompatibilityRule rule = new Jackson2DefaultsCompatibilityRule();
+
+        assertThat(rule.evaluate(context(env().withProperty("spring.jackson.use-jackson2-defaults", "true"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
+    }
+
+    @Test
+    void inMemoryR2dbcUrlIsFlaggedOnlyForProductionLikeProfiles() {
+        InMemoryR2dbcInProductionRule rule = new InMemoryR2dbcInProductionRule();
+        MockEnvironment prod = env().withProperty("spring.r2dbc.url", "r2dbc:h2:mem:///orders");
+        prod.setActiveProfiles("prod");
+
+        assertThat(rule.evaluate(context(prod).build()).status()).isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.r2dbc.url", "r2dbc:h2:mem:///orders"))
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+
+        MockEnvironment durable = env().withProperty("spring.r2dbc.url", "r2dbc:postgresql://db/orders");
+        durable.setActiveProfiles("production");
+        assertThat(rule.evaluate(context(durable).build()).status()).isEqualTo("PASS");
     }
 
     // ── SPRING-WEB-006 ───────────────────────────────────────────────────────────

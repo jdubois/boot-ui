@@ -118,7 +118,7 @@ final class QuarkusAppChecks {
                             + " build — Dev Services only runs during augmentation/dev/test, never in a"
                             + " LaunchMode.NORMAL packaged JAR or native executable — but its presence usually"
                             + " means leftover or copy-pasted config that should be cleaned up.",
-                    s.prodProfileKeys().size(),
+                    1,
                     List.of("%prod devservices.enabled=true"),
                     "Remove the unused %prod devservices override; it does not start containers in production"
                             + " but can confuse readers of the config.",
@@ -225,8 +225,11 @@ final class QuarkusAppChecks {
                             + " the job, causing duplicate work in a scaled-out deployment.",
                     s.scheduledCount(),
                     List.of(s.scheduledCount() + " @Scheduled method(s), no clustered scheduler"),
-                    "Use the Quartz extension with quarkus.quartz.clustered=true, or confirm single-instance"
-                            + " deployment.",
+                    "For multi-instance deployment, use the Quartz extension with"
+                            + " quarkus.quartz.clustered=true, select a persistent JDBC store"
+                            + " (quarkus.quartz.store-type=jdbc-tx or jdbc-cmt), configure its datasource, and"
+                            + " install the matching Quartz database schema (for example with Flyway). Otherwise"
+                            + " confirm single-instance deployment.",
                     SCHEDULER_GUIDE));
         }
         if (s.prodProfileKeys().isEmpty()) {
@@ -275,7 +278,7 @@ final class QuarkusAppChecks {
                     "QA-WEB-004",
                     "Graceful shutdown timeout never configured",
                     "Web",
-                    "LOW",
+                    "INFO",
                     "Neither quarkus.shutdown.timeout nor quarkus.http.shutdown.timeout is set. Quarkus's"
                             + " graceful shutdown is opt-in: with no timeout configured, the application exits"
                             + " immediately on SIGTERM instead of draining in-flight requests.",

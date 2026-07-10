@@ -16,7 +16,8 @@ import java.util.List;
  * @param singletonCount number of {@code @Singleton} app beans
  * @param requestScopedCount number of {@code @RequestScoped} app beans
  * @param dependentScopedCount number of explicit {@code @Dependent} app beans
- * @param mutableAppScopedFields {@code @ApplicationScoped} bean fields that are public or non-final (shared mutable state)
+ * @param mutableAppScopedFields mutable {@code @ApplicationScoped} bean fields, excluding known immutable final
+ *     value types (shared mutable state)
  * @param configPropertyCount number of {@code @ConfigProperty} injection sites
  * @param endpointCount discovered JAX-RS endpoint methods
  * @param defaultScopeResourceCount JAX-RS resources with no explicit CDI scope
@@ -49,9 +50,8 @@ import java.util.List;
  * @param virtualThreadSynchronizedCount {@code @RunOnVirtualThread} sites that are also {@code synchronized}
  *     (a class-level {@code @RunOnVirtualThread} counts every {@code synchronized} method in that class)
  * @param jdkMajorVersion the build JDK's major version (0 if undetermined)
- * @param mutableSingletonFields {@code @Singleton} bean fields that are public or non-final (shared mutable
- *     state, the same risk as {@link #mutableAppScopedFields()} since a {@code @Singleton} is also one
- *     instance shared across threads)
+ * @param mutableSingletonFields mutable {@code @Singleton} bean fields, excluding known immutable final value
+ *     types (the same shared-state risk as {@link #mutableAppScopedFields()})
  * @param legacySchemaGenerationPropertyUsed whether the deprecated {@code quarkus.hibernate-orm.database.generation}
  *     property (or a profile/named-persistence-unit variant) is used instead of the current
  *     {@code quarkus.hibernate-orm.schema-management.strategy}

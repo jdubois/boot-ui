@@ -3,10 +3,14 @@ package io.github.jdubois.bootui.autoconfigure.spring;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
 import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
 
 /**
@@ -108,6 +112,23 @@ record SpringContext(
         } catch (RuntimeException ex) {
             return false;
         }
+    }
+
+    Set<String> propertyNamesWithPrefix(String prefix) {
+        if (!(environment instanceof ConfigurableEnvironment configurable)) {
+            return Set.of();
+        }
+        Set<String> names = new LinkedHashSet<>();
+        for (var source : configurable.getPropertySources()) {
+            if (source instanceof EnumerablePropertySource<?> enumerable) {
+                for (String name : enumerable.getPropertyNames()) {
+                    if (name.startsWith(prefix)) {
+                        names.add(name);
+                    }
+                }
+            }
+        }
+        return Set.copyOf(names);
     }
 
     boolean isVirtualThreadsEnabled() {

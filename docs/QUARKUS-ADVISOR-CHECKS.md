@@ -35,10 +35,11 @@ in dev/test only (skipped in `NORMAL`/production); profile keys are read live. M
 ## CDI
 
 ### QA-CDI-001 - Shared mutable state on @ApplicationScoped bean (MEDIUM)
-`@ApplicationScoped` beans are single instances shared across threads; public or non-final fields (other
-than injected dependencies — `@Inject`/`@ConfigProperty`/`@RestClient` fields are excluded) hold
-unsynchronised shared state. Make fields `private final`, or move per-request state to a `@RequestScoped`
-bean.
+`@ApplicationScoped` beans are single instances shared across threads; non-final fields and public final
+mutable references (other than injected dependencies — `@Inject`/`@ConfigProperty`/`@RestClient` fields are
+excluded) hold unsynchronised shared state. Public final primitives, strings, boxed primitives, numbers,
+UUIDs, time values, and enums are immutable values and are not flagged. Make mutable fields `private final`
+or expose an immutable value, or move per-request state to a `@RequestScoped` bean.
 
 ### QA-CDI-002 - Public mutable field on a JAX-RS resource (MEDIUM)
 JAX-RS resources default to `@Singleton`, so a public non-final (non-static) field is process-wide shared
@@ -49,8 +50,8 @@ fresh instance per request and carries no shared-state risk, so it is excluded f
 
 ### QA-CDI-003 - Shared mutable state on a @Singleton bean (MEDIUM)
 `@Singleton` beans are a single instance shared across threads, exactly like `@ApplicationScoped` — the same
-unsynchronised-shared-state risk applies to public or non-final fields (other than injected dependencies).
-Make fields `private final`, or move per-request state to a `@RequestScoped` bean.
+unsynchronised-shared-state rule and immutable-value exclusions as QA-CDI-001 apply. Make mutable fields
+`private final`, expose an immutable value, or move per-request state to a `@RequestScoped` bean.
 
 ## Config
 
@@ -92,8 +93,11 @@ unrelated guard elsewhere in the app does not suppress a finding on a genuinely 
 
 ### QA-SCH-001 - Scheduled tasks without a clustered scheduler (LOW)
 `@Scheduled` methods run on every instance; without a clustered scheduler each replica fires the job,
-causing duplicate work in a scaled-out deployment. Use the Quartz extension with
-`quarkus.quartz.clustered=true`, or confirm single-instance deployment.
+causing duplicate work in a scaled-out deployment. For clustering, use the Quartz extension with
+`quarkus.quartz.clustered=true`, select a persistent JDBC store with
+`quarkus.quartz.store-type=jdbc-tx` or `jdbc-cmt`, configure the Quartz datasource (the default datasource is
+used when none is named), and install the database-specific Quartz schema, for example through Flyway.
+Otherwise confirm single-instance deployment.
 
 ## Profiles
 
@@ -157,10 +161,11 @@ so a slow/hanging remote service is normally bounded; this override removes that
 override to keep Quarkus's 15s/30s defaults, or set a specific, bounded timeout appropriate for the remote
 service.
 
-### QA-WEB-004 - Graceful shutdown timeout never configured (LOW)
+### QA-WEB-004 - Graceful shutdown timeout never configured (INFO)
 Neither `quarkus.shutdown.timeout` nor `quarkus.http.shutdown.timeout` is set anywhere. Quarkus's graceful
-shutdown is opt-in — with no timeout configured at all, the application exits immediately on `SIGTERM`
-instead of draining in-flight requests. This is a distinct, lower-severity case from QA-WEB-002 (which fires
+shutdown is opt-in and disabled by default — with no timeout configured at all, the application exits
+immediately on `SIGTERM` instead of draining in-flight requests. Because this is Quarkus's documented default,
+it is informational rather than a configuration error. This is distinct from QA-WEB-002 (which fires
 only when the timeout is explicitly disabled via `=0`); the two are mutually exclusive; see the
 [lifecycle guide](https://quarkus.io/guides/lifecycle#graceful-shutdown). Set `quarkus.shutdown.timeout` to a
 positive duration (e.g. `10s`) so in-flight requests can drain before shutdown.

@@ -211,7 +211,9 @@ class QuarkusAppScannerTest {
         s.prodDevServices = true;
         s.prodProfileKeys = List.of("%prod.x.devservices.enabled");
         SpringReport r = scan(s);
-        assertThat(find(r, "QA-PROD-001").severity()).isEqualTo("LOW");
+        SpringRuleResultDto finding = find(r, "QA-PROD-001");
+        assertThat(finding.severity()).isEqualTo("LOW");
+        assertThat(finding.violationCount()).isOne();
     }
 
     @Test
@@ -262,7 +264,10 @@ class QuarkusAppScannerTest {
         s.jdbcDatasource = true;
         s.datasourceMaxSizeConfigured = false;
         SpringReport r = scan(s);
-        assertThat(find(r, "QA-DB-001").severity()).isEqualTo("LOW");
+        SpringRuleResultDto finding = find(r, "QA-DB-001");
+        assertThat(finding.severity()).isEqualTo("LOW");
+        assertThat(finding.description()).contains("defaults to a max pool size of 50");
+        assertThat(finding.sampleViolations()).singleElement().asString().contains("Agroal default: 50");
     }
 
     @Test
@@ -319,7 +324,12 @@ class QuarkusAppScannerTest {
     void scheduledWithoutClusteringIsFlagged() {
         Snap firing = new Snap();
         firing.scheduled = 1;
-        assertThat(find(scan(firing), "QA-SCH-001").severity()).isEqualTo("LOW");
+        SpringRuleResultDto finding = find(scan(firing), "QA-SCH-001");
+        assertThat(finding.severity()).isEqualTo("LOW");
+        assertThat(finding.recommendation())
+                .contains("store-type=jdbc-tx or jdbc-cmt")
+                .contains("datasource")
+                .contains("schema");
 
         Snap clustered = new Snap();
         clustered.scheduled = 1;
@@ -372,7 +382,7 @@ class QuarkusAppScannerTest {
         Snap s = new Snap();
         s.shutdownTimeoutConfigured = false;
         SpringReport r = scan(s);
-        assertThat(find(r, "QA-WEB-004").severity()).isEqualTo("LOW");
+        assertThat(find(r, "QA-WEB-004").severity()).isEqualTo("INFO");
         assertThat(find(r, "QA-WEB-002")).isNull();
     }
 

@@ -364,7 +364,10 @@ final class DebugOrTraceLoggingRule extends AbstractSpringRule {
         }
         for (String logger : VERBOSE_LOGGERS) {
             String level = context.firstProperty("logging.level." + logger);
-            if (level != null && ("debug".equalsIgnoreCase(level) || "trace".equalsIgnoreCase(level))) {
+            if (level != null
+                    && ("debug".equalsIgnoreCase(level)
+                            || "trace".equalsIgnoreCase(level)
+                            || "all".equalsIgnoreCase(level))) {
                 findings.add("logging.level." + logger + "=" + level
                         + " emits verbose framework logging that can leak internals and slow the application.");
             }
@@ -449,6 +452,12 @@ final class RemovedOrRenamedPropertyRule extends AbstractSpringRule {
             new String[] {"spring.http.client.read-timeout", "renamed to spring.http.clients.read-timeout"},
             new String[] {"spring.http.client.redirects", "renamed to spring.http.clients.redirects"},
             new String[] {"spring.http.client.ssl.bundle", "renamed to spring.http.clients.ssl.bundle"},
+            new String[] {"spring.http.reactiveclient.connect-timeout", "renamed to spring.http.clients.connect-timeout"
+            },
+            new String[] {"spring.http.reactiveclient.connector", "renamed to spring.http.clients.reactive.connector"},
+            new String[] {"spring.http.reactiveclient.read-timeout", "renamed to spring.http.clients.read-timeout"},
+            new String[] {"spring.http.reactiveclient.redirects", "renamed to spring.http.clients.redirects"},
+            new String[] {"spring.http.reactiveclient.ssl.bundle", "renamed to spring.http.clients.ssl.bundle"},
             // --- spring.data.mongodb.* connection keys -> spring.mongodb.* (spring-boot-mongodb).
             // Only these 13 connection-related keys moved; spring.data.mongodb.auto-index-creation,
             // .field-naming-strategy, .gridfs.*, and .representation.big-decimal are unrelated
@@ -481,7 +490,12 @@ final class RemovedOrRenamedPropertyRule extends AbstractSpringRule {
             new String[] {"spring.session.redis.namespace", "renamed to spring.session.data.redis.namespace"},
             new String[] {"spring.session.redis.repository-type", "renamed to spring.session.data.redis.repository-type"
             },
-            new String[] {"spring.session.redis.save-mode", "renamed to spring.session.data.redis.save-mode"});
+            new String[] {"spring.session.redis.save-mode", "renamed to spring.session.data.redis.save-mode"},
+            // --- MongoDB-backed Spring Session moved out of Spring Boot 4 ------------------------
+            new String[] {
+                "spring.session.mongodb.collection-name",
+                "removed with Boot's MongoDB session auto-configuration; migrate to org.mongodb:mongodb-spring-session"
+            });
 
     RemovedOrRenamedPropertyRule() {
         super(new SpringRuleDefinition(
@@ -554,6 +568,32 @@ final class ConfigOnNotFoundIgnoreRule extends AbstractSpringRule {
         if (value != null && "ignore".equalsIgnoreCase(value)) {
             return violation("spring.config.on-not-found=ignore silently skips missing config imports instead of"
                     + " failing fast.");
+        }
+        return pass();
+    }
+}
+
+final class Jackson2DefaultsCompatibilityRule extends AbstractSpringRule {
+
+    Jackson2DefaultsCompatibilityRule() {
+        super(new SpringRuleDefinition(
+                "SPRING-CONFIG-006",
+                "Remove the temporary Jackson 2 defaults compatibility mode",
+                SpringCategory.CONFIGURATION,
+                "LOW",
+                "spring.jackson.use-jackson2-defaults=true makes Jackson 3 retain Spring Boot's former Jackson 2"
+                        + " defaults. It is useful during migration, but can hide serialization changes that still"
+                        + " need to be reviewed before the compatibility mode is removed.",
+                "Add serialization compatibility tests, migrate affected payloads explicitly, then remove"
+                        + " spring.jackson.use-jackson2-defaults=true.",
+                "https://docs.spring.io/spring-boot/reference/features/json.html"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        if (context.isPropertyTrue("spring.jackson.use-jackson2-defaults")) {
+            return violation("spring.jackson.use-jackson2-defaults=true keeps Jackson 2-compatible defaults on"
+                    + " Jackson 3 and should remain a temporary migration aid.");
         }
         return pass();
     }
@@ -770,8 +810,8 @@ final class ConnectionPoolSmallForVirtualThreadsRule extends AbstractSpringRule 
                 "Connection pool may bottleneck virtual threads",
                 SpringCategory.PERFORMANCE,
                 "LOW",
-                "Virtual threads are enabled while the HikariCP connection pool keeps a small (default)"
-                        + " maximum size, so many virtual threads can contend for few database connections.",
+                "Virtual threads are enabled while HikariCP is left at its unreviewed default maximum pool size"
+                        + " of 10, so many virtual threads can contend for few database connections.",
                 "Review spring.datasource.hikari.maximum-pool-size against the expected concurrency, and"
                         + " size it for the database rather than the (now cheap) thread count.",
                 "https://docs.spring.io/spring-boot/reference/data/sql.html"));
@@ -782,13 +822,10 @@ final class ConnectionPoolSmallForVirtualThreadsRule extends AbstractSpringRule 
         if (!context.isVirtualThreadsEnabled() || !context.hikariDataSourcePresent()) {
             return pass();
         }
-        Integer maxPoolSize = context.firstIntegerProperty("spring.datasource.hikari.maximum-pool-size");
-        int effective = maxPoolSize != null ? maxPoolSize : DEFAULT_HIKARI_POOL_SIZE;
-        if (effective <= DEFAULT_HIKARI_POOL_SIZE) {
-            String configured =
-                    maxPoolSize != null ? String.valueOf(maxPoolSize) : "default " + DEFAULT_HIKARI_POOL_SIZE;
-            return violation("Virtual threads are enabled but the HikariCP maximum pool size is " + configured
-                    + "; review whether it matches the database's capacity rather than the now-cheap thread count.");
+        if (!context.hasProperty("spring.datasource.hikari.maximum-pool-size")) {
+            return violation("Virtual threads are enabled but HikariCP maximum-pool-size is unset, leaving the"
+                    + " unreviewed default of " + DEFAULT_HIKARI_POOL_SIZE
+                    + "; size the pool for the database's capacity rather than the now-cheap thread count.");
         }
         return pass();
     }
@@ -1064,12 +1101,13 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
                 "Set HTTP client timeouts",
                 SpringCategory.WEB,
                 "INFO",
-                "A RestClient, WebClient, or RestTemplate bean is defined but no global HTTP client timeouts"
-                        + " are set (spring.http.clients.connect-timeout / read-timeout — the same property"
-                        + " namespace configures both imperative clients and the reactive WebClient in Spring"
-                        + " Boot 4), so a slow or unresponsive dependency can block indefinitely.",
-                "Set spring.http.clients.connect-timeout and spring.http.clients.read-timeout (or configure"
-                        + " timeouts per client) so outbound calls fail fast.",
+                "A RestClient, WebClient, or RestTemplate bean is defined but neither complete global timeout"
+                        + " defaults nor complete named HTTP service-client timeouts are configured. The client then"
+                        + " relies on implementation-specific defaults that may not match the dependency's latency"
+                        + " budget.",
+                "Set spring.http.clients.connect-timeout and spring.http.clients.read-timeout globally, or set"
+                        + " both spring.http.serviceclient.<name>.connect-timeout and .read-timeout for every named"
+                        + " HTTP service client.",
                 "https://docs.spring.io/spring-boot/reference/io/rest-client.html"));
     }
 
@@ -1086,13 +1124,35 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
         if (connectSet && readSet) {
             return pass();
         }
+        var namedProperties = context.propertyNamesWithPrefix("spring.http.serviceclient.");
+        var clientNames = namedProperties.stream()
+                .map(name -> name.substring("spring.http.serviceclient.".length()))
+                .filter(name -> name.contains("."))
+                .map(name -> name.substring(0, name.indexOf('.')))
+                .distinct()
+                .sorted()
+                .toList();
+        if (!clientNames.isEmpty()) {
+            List<String> incomplete = clientNames.stream()
+                    .filter(name -> !(connectSet
+                                    || context.hasProperty("spring.http.serviceclient." + name + ".connect-timeout"))
+                            || !(readSet || context.hasProperty("spring.http.serviceclient." + name + ".read-timeout")))
+                    .toList();
+            if (incomplete.isEmpty()) {
+                return pass();
+            }
+            return violation(incomplete.stream()
+                    .map(name -> "Named HTTP service client '" + name
+                            + "' does not set both connect-timeout and read-timeout.")
+                    .toList());
+        }
         if (!connectSet && !readSet) {
             return violation("An HTTP client bean is defined but neither spring.http.clients.connect-timeout nor"
-                    + " spring.http.clients.read-timeout is set.");
+                    + " spring.http.clients.read-timeout is set, and no named service client supplies both.");
         }
         String missing = connectSet ? "spring.http.clients.read-timeout" : "spring.http.clients.connect-timeout";
         return violation("An HTTP client bean is defined but " + missing
-                + " is not set, so outbound calls can still block indefinitely.");
+                + " is not set, leaving timeout behavior to the underlying client implementation.");
     }
 }
 
@@ -1412,6 +1472,42 @@ final class InMemoryDatasourceInProductionRule extends AbstractSpringRule {
                 return violation("spring.datasource.url=" + url + " targets an in-memory database while a"
                         + " production-like profile is active.");
             }
+        }
+        return pass();
+    }
+}
+
+final class InMemoryR2dbcInProductionRule extends AbstractSpringRule {
+
+    private static final List<String> IN_MEMORY_URL_MARKERS =
+            List.of("r2dbc:h2:mem:", "r2dbc:pool:h2:mem:", "r2dbc:hsqldb:mem:", "r2dbc:pool:hsqldb:mem:");
+
+    InMemoryR2dbcInProductionRule() {
+        super(new SpringRuleDefinition(
+                "SPRING-DATA-002",
+                "Do not run production R2DBC on an in-memory database",
+                SpringCategory.PERSISTENCE,
+                "MEDIUM",
+                "A production-like profile is active while spring.r2dbc.url points at an in-process in-memory"
+                        + " database, so data disappears on restart and cannot be shared across instances.",
+                "Point spring.r2dbc.url at a durable database server for production-like profiles; reserve"
+                        + " in-memory R2DBC URLs for tests and local development.",
+                "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.r2dbc.embedded"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        if (!context.isProductionProfileActive()) {
+            return skipped("No production-like profile is active, so an in-memory R2DBC database is expected in"
+                    + " tests and local development.");
+        }
+        String url = context.firstProperty("spring.r2dbc.url");
+        if (url == null) {
+            return pass();
+        }
+        String normalized = url.toLowerCase(Locale.ROOT);
+        if (IN_MEMORY_URL_MARKERS.stream().anyMatch(normalized::startsWith)) {
+            return violation("Production-like profile uses in-memory R2DBC URL " + url + ".");
         }
         return pass();
     }

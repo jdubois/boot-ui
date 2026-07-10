@@ -99,14 +99,14 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-CONFIG-002 - Disable global debug or trace logging
 
 - **Severity**: LOW (MEDIUM when a production-like profile is active)
-- **Detects**: Detects debug=true or trace=true, or broad root/web/sql/org.springframework/org.hibernate loggers set to DEBUG or TRACE, which enable verbose framework logging that can leak internal details or slow down the application.
+- **Detects**: Detects debug=true or trace=true, or broad root/web/sql/org.springframework/org.hibernate loggers set to DEBUG, TRACE, or ALL, which enable verbose framework logging that can leak internal details or slow down the application.
 - **Recommendation**: Remove the debug/trace flags and configure logging levels only for narrow packages that need them.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/logging.html>
 
 ### SPRING-CONFIG-003 - Remove renamed or deleted Spring Boot 4 properties
 
 - **Severity**: MEDIUM
-- **Detects**: Detects configuration keys that were renamed or removed in Spring Boot 4 and therefore no longer take effect, which can silently change behaviour after an upgrade. The curated set (individually source-verified against Spring Boot 4.1.0, 41 keys) covers: common server.undertow.* keys (Undertow was removed entirely); server.error.* (renamed to spring.web.error.*); server.servlet.encoding.* except .mapping, which still works (renamed to spring.servlet.encoding.*); spring.http.client.* (renamed to spring.http.clients.*, with .factory moving to .imperative.factory); spring.data.mongodb.* connection keys such as .host/.uri/.username (renamed to spring.mongodb.*; unrelated Spring Data settings like .gridfs.* and .auto-index-creation stay under spring.data.mongodb and are not flagged); management.tracing.enabled (renamed to management.tracing.export.enabled); and spring.session.redis.* (renamed to spring.session.data.redis.*). spring.dao.exceptiontranslation.enabled is deliberately **not** included: despite Spring Boot's own deprecation metadata suggesting a rename to spring.persistence.exceptiontranslation.enabled, DataSourceTransactionManagerAutoConfiguration still reads the old key directly and it remains fully functional - the "replacement" is an unrelated property gating JPA repository exception translation.
+- **Detects**: Detects configuration keys that were renamed or removed in Spring Boot 4 and therefore no longer take effect, which can silently change behaviour after an upgrade. The curated set (individually source-verified against Spring Boot 4.1.0, 47 keys) covers: common server.undertow.* keys (Undertow was removed entirely); server.error.* (renamed to spring.web.error.*); server.servlet.encoding.* except .mapping, which still works (renamed to spring.servlet.encoding.*); spring.http.client.* and spring.http.reactiveclient.* (renamed to spring.http.clients.*, including the imperative/reactive factory keys); spring.data.mongodb.* connection keys such as .host/.uri/.username (renamed to spring.mongodb.*; unrelated Spring Data settings like .gridfs.* and .auto-index-creation stay under spring.data.mongodb and are not flagged); management.tracing.enabled (renamed to management.tracing.export.enabled); spring.session.redis.* (renamed to spring.session.data.redis.*); and spring.session.mongodb.collection-name, whose Boot-managed MongoDB session auto-configuration was removed when support moved to the MongoDB-maintained `org.mongodb:mongodb-spring-session` artifact. spring.dao.exceptiontranslation.enabled is deliberately **not** included: despite Spring Boot's own deprecation metadata suggesting a rename to spring.persistence.exceptiontranslation.enabled, DataSourceTransactionManagerAutoConfiguration still reads the old key directly and it remains fully functional - the "replacement" is an unrelated property gating JPA repository exception translation.
 - **Recommendation**: Update each key to its Spring Boot 4 equivalent (the spring-boot-properties-migrator module lists the replacements at startup) and remove keys for dropped features.
 - **Learn more**: <https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide>
 
@@ -123,6 +123,13 @@ The panel is always available (a Spring application context always exists). Bean
 - **Detects**: spring.config.on-not-found=ignore makes Spring silently skip imported configuration files that are missing, so a typo or a misplaced file can ship without any error.
 - **Recommendation**: Remove spring.config.on-not-found=ignore (the default fails fast) and use the optional: prefix only on the specific imports that are genuinely optional.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/external-config.html>
+
+### SPRING-CONFIG-006 - Remove the temporary Jackson 2 defaults compatibility mode
+
+- **Severity**: LOW
+- **Detects**: `spring.jackson.use-jackson2-defaults=true` configures Jackson 3 with Spring Boot's former Jackson 2 defaults. This is a useful migration escape hatch, but leaving it enabled indefinitely can hide serialization changes that still need explicit review.
+- **Recommendation**: Add serialization compatibility tests, migrate affected payloads explicitly, then remove `spring.jackson.use-jackson2-defaults=true`.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/json.html>
 
 ## Profiles and environment
 
@@ -173,7 +180,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-PERF-004 - Connection pool may bottleneck virtual threads
 
 - **Severity**: LOW
-- **Detects**: Virtual threads are enabled while the HikariCP connection pool keeps a small (default) maximum size, so many virtual threads can contend for few database connections.
+- **Detects**: Virtual threads are enabled while `spring.datasource.hikari.maximum-pool-size` is unset, leaving HikariCP's unreviewed default of 10 connections. An explicitly configured value of 10 is treated as reviewed and does not trigger the rule; the advisor does not second-guess a pool size chosen for the database's actual capacity.
 - **Recommendation**: Review spring.datasource.hikari.maximum-pool-size against the expected concurrency, and size it for the database rather than the (now cheap) thread count.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html>
 
@@ -231,8 +238,8 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WEB-005 - Set HTTP client timeouts
 
 - **Severity**: INFO
-- **Detects**: A RestClient, WebClient, or RestTemplate bean is defined but one or both global HTTP client timeouts are unset (spring.http.clients.connect-timeout / read-timeout - the same property namespace configures both imperative clients and the reactive WebClient in Spring Boot 4), so a slow or unresponsive dependency can block indefinitely.
-- **Recommendation**: Set spring.http.clients.connect-timeout and spring.http.clients.read-timeout (or configure timeouts per client) so outbound calls fail fast.
+- **Detects**: A RestClient, WebClient, or RestTemplate bean is defined but neither both global timeout defaults (`spring.http.clients.connect-timeout` / `read-timeout`) nor both timeouts for every configured named HTTP service client (`spring.http.serviceclient.<name>.connect-timeout` / `read-timeout`) are present. Without a complete pair, behavior falls back to implementation-specific client defaults that may not match the dependency's latency budget.
+- **Recommendation**: Set both global timeout defaults, or configure both timeout properties for every named HTTP service client.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/io/rest-client.html>
 
 ### SPRING-WEB-006 - Configure forwarded-headers handling behind a proxy
@@ -264,6 +271,13 @@ The panel is always available (a Spring application context always exists). Bean
 - **Detects**: A production-like profile is active while spring.datasource.url points at an in-process, in-memory database (an H2 jdbc:h2:mem: or HSQLDB jdbc:hsqldb:mem: URL, or a Derby jdbc:derby:memory: URL). These engines keep their data only in the JVM heap of a single instance: a restart, redeploy, or crash silently discards everything, and the data is invisible to any other instance in a multi-instance deployment. A file-backed embedded URL (for example jdbc:h2:file:) is not flagged.
 - **Recommendation**: Point spring.datasource.url at a durable, shared database server (PostgreSQL, MySQL, SQL Server, ...) for any production-like profile. Reserve the in-memory engines for tests and local development.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.datasource.embedded>
+
+### SPRING-DATA-002 - Do not run production R2DBC on an in-memory database
+
+- **Severity**: MEDIUM
+- **Detects**: A production-like profile is active while `spring.r2dbc.url` points at an in-process H2 or HSQLDB in-memory database. The data disappears on restart and cannot be shared across application instances. Durable server URLs and non-production profiles are not flagged.
+- **Recommendation**: Point `spring.r2dbc.url` at a durable database server for production-like profiles; reserve in-memory R2DBC URLs for tests and local development.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.r2dbc.embedded>
 
 ## Actuator and management
 
@@ -317,15 +331,15 @@ Both rules in this category are `SKIPPED` unconditionally on a servlet (Spring M
 
 ## Rule summary
 
-The Spring Advisor ships **39 curated rules** across eight categories. By declared default severity: **0 CRITICAL**, **1 HIGH**, **19 MEDIUM**, **10 LOW**, **9 INFO**. Context-aware rules can raise SPRING-JPA-001, SPRING-MGMT-001, and SPRING-MGMT-002 to HIGH, and SPRING-MGMT-004 to CRITICAL; SPRING-CONFIG-002 can raise from LOW to MEDIUM.
+The Spring Advisor ships **41 curated rules** across eight categories. By declared default severity: **0 CRITICAL**, **1 HIGH**, **20 MEDIUM**, **11 LOW**, **9 INFO**. Context-aware rules can raise SPRING-JPA-001, SPRING-MGMT-001, and SPRING-MGMT-002 to HIGH, and SPRING-MGMT-004 to CRITICAL; SPRING-CONFIG-002 can raise from LOW to MEDIUM.
 
 | Category | Rules |
 | --- | --- |
 | Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-009 |
-| Configuration | SPRING-CONFIG-001 ... SPRING-CONFIG-005 |
+| Configuration | SPRING-CONFIG-001 ... SPRING-CONFIG-006 |
 | Profiles and environment | SPRING-PROFILE-001 ... SPRING-PROFILE-003 |
 | Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-006, SPRING-CACHE-001 |
 | Web and HTTP | SPRING-WEB-001 ... SPRING-WEB-007 |
-| Data and persistence | SPRING-JPA-001, SPRING-DATA-001 |
+| Data and persistence | SPRING-JPA-001, SPRING-DATA-001, SPRING-DATA-002 |
 | Actuator and management | SPRING-MGMT-001 ... SPRING-MGMT-004 |
 | Reactive (WebFlux only) | SPRING-REACTIVE-001, SPRING-REACTIVE-002 |
