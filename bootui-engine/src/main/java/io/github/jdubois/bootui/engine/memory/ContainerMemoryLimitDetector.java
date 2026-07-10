@@ -16,23 +16,28 @@ final class ContainerMemoryLimitDetector {
     private static final List<Path> STANDARD_CGROUP_LIMIT_FILES =
             List.of(Path.of("/sys/fs/cgroup/memory.max"), Path.of("/sys/fs/cgroup/memory/memory.limit_in_bytes"));
 
-    private final List<Path> limitFiles;
+    private static final List<Path> STANDARD_CGROUP_CURRENT_FILES =
+            List.of(Path.of("/sys/fs/cgroup/memory.current"), Path.of("/sys/fs/cgroup/memory/memory.usage_in_bytes"));
 
-    private ContainerMemoryLimitDetector(List<Path> limitFiles) {
+    private final List<Path> limitFiles;
+    private final List<Path> currentFiles;
+
+    ContainerMemoryLimitDetector(List<Path> limitFiles, List<Path> currentFiles) {
         this.limitFiles = List.copyOf(limitFiles);
+        this.currentFiles = List.copyOf(currentFiles);
     }
 
     static ContainerMemoryLimitDetector standard() {
-        return new ContainerMemoryLimitDetector(STANDARD_CGROUP_LIMIT_FILES);
+        return new ContainerMemoryLimitDetector(STANDARD_CGROUP_LIMIT_FILES, STANDARD_CGROUP_CURRENT_FILES);
     }
 
     static ContainerMemoryLimitDetector disabled() {
-        return new ContainerMemoryLimitDetector(List.of());
+        return new ContainerMemoryLimitDetector(List.of(), List.of());
     }
 
     OptionalLong detectLimit() {
         for (Path limitFile : limitFiles) {
-            OptionalLong limit = readLimit(limitFile);
+            OptionalLong limit = readValue(limitFile);
             if (limit.isPresent()) {
                 return limit;
             }
@@ -40,14 +45,24 @@ final class ContainerMemoryLimitDetector {
         return OptionalLong.empty();
     }
 
-    private OptionalLong readLimit(Path limitFile) {
-        if (!Files.isRegularFile(limitFile)) {
+    OptionalLong detectCurrentUsage() {
+        for (Path currentFile : currentFiles) {
+            OptionalLong current = readValue(currentFile);
+            if (current.isPresent()) {
+                return current;
+            }
+        }
+        return OptionalLong.empty();
+    }
+
+    private OptionalLong readValue(Path file) {
+        if (!Files.isRegularFile(file)) {
             return OptionalLong.empty();
         }
         try {
-            return parseLimit(Files.readString(limitFile));
+            return parseLimit(Files.readString(file));
         } catch (IOException ex) {
-            log.log(Level.DEBUG, "Could not read cgroup memory limit from " + limitFile, ex);
+            log.log(Level.DEBUG, "Could not read cgroup memory value from " + file, ex);
             return OptionalLong.empty();
         }
     }

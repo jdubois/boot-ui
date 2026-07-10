@@ -400,6 +400,34 @@ final class MissingHeapSizingInContainerRule extends AbstractMemoryRule {
     }
 }
 
+final class ContainerSupportDisabledRule extends AbstractMemoryRule {
+
+    ContainerSupportDisabledRule() {
+        super(new MemoryRuleDefinition(
+                "MEM-GC-007",
+                "JVM container awareness is explicitly disabled",
+                MemoryCategory.GC_CONFIGURATION,
+                "HIGH",
+                "Detects -XX:-UseContainerSupport while a cgroup memory limit is visible. Container support is enabled by default on supported JDKs; disabling it makes JVM ergonomics use host-level memory and CPU information instead of container constraints, which can oversize the heap and JVM worker pools.",
+                "Remove -XX:-UseContainerSupport so heap, GC, JIT, and common-pool ergonomics respect the container limits; use explicit -Xmx/-XX:MaxRAMPercentage and -XX:ActiveProcessorCount only when deliberate overrides are required.",
+                "https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html"));
+    }
+
+    @Override
+    io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
+        MemoryData memory = context.memory();
+        if (memory.containerMemoryLimitBytes() == null) {
+            return skipped("No container memory limit was detected.");
+        }
+        if (memory.hasJvmArgument("-XX:-UseContainerSupport")) {
+            return violation("-XX:-UseContainerSupport is set despite a detected cgroup memory limit of "
+                    + MemoryFormat.bytes(memory.containerMemoryLimitBytes())
+                    + "; JVM ergonomics may size against the host and exceed the container.");
+        }
+        return pass();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Threads
 // ---------------------------------------------------------------------------
@@ -781,10 +809,10 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
     CommittedFootprintNearContainerLimitRule() {
         super(new MemoryRuleDefinition(
                 "MEM-FOOTPRINT-001",
-                "Committed native footprint is close to the container limit",
+                "Configured JVM memory leaves little container headroom",
                 MemoryCategory.NATIVE_MEMORY,
                 "HIGH",
-                "Estimates the JVM's committed native-memory budget (committed heap, committed non-heap such as Metaspace and code cache, direct buffers, and an approximate thread-stack reservation) against the detected container memory limit. When this estimate approaches the limit the container can be OOM-killed by the kernel even though the heap alone looks healthy. The estimate is approximate and excludes some JVM/native overhead (GC structures, JIT, native libraries).",
+                "Estimates the JVM's configured memory envelope (maximum heap, currently committed non-heap such as Metaspace and code cache, direct-buffer capacity, and approximate thread-stack reservations) against the detected container limit. Using maximum rather than currently committed heap exposes configurations that leave too little native headroom before the heap grows. The estimate is conservative but incomplete: it excludes GC structures, JIT working memory, native libraries, and non-NIO native allocations.",
                 "Lower -Xmx/-XX:MaxRAMPercentage, reduce thread counts or direct-buffer use, or raise the container memory limit so the total committed footprint keeps headroom.",
                 "https://docs.oracle.com/en/java/javase/21/troubleshoot/diagnostic-tools.html"));
     }
@@ -797,20 +825,20 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
             return skipped("No container memory limit was detected.");
         }
         long stacks = (long) context.threads().total() * context.runtime().threadStackBytes();
-        long footprint = Math.max(0, memory.heapCommitted())
+        long configuredFootprint = Math.max(0, memory.heapMax())
                 + Math.max(0, memory.nonHeapCommitted())
                 + Math.max(0, memory.directBufferCapacity())
                 + Math.max(0, stacks);
-        if (MemoryFormat.percentOf(footprint, limit) >= THRESHOLD_PERCENT) {
-            int percent = MemoryFormat.percentOf(footprint, limit);
-            return violation("Estimated committed footprint " + MemoryFormat.bytes(footprint) + " is " + percent
-                    + "% of the container memory limit " + MemoryFormat.bytes(limit) + " (committed heap "
-                    + MemoryFormat.bytes(memory.heapCommitted()) + " + committed non-heap "
+        if (MemoryFormat.percentOf(configuredFootprint, limit) >= THRESHOLD_PERCENT) {
+            int percent = MemoryFormat.percentOf(configuredFootprint, limit);
+            return violation("Configured JVM memory envelope " + MemoryFormat.bytes(configuredFootprint) + " is "
+                    + percent + "% of the container memory limit " + MemoryFormat.bytes(limit) + " (maximum heap "
+                    + MemoryFormat.bytes(memory.heapMax()) + " + committed non-heap "
                     + MemoryFormat.bytes(memory.nonHeapCommitted()) + " + direct buffers "
                     + MemoryFormat.bytes(memory.directBufferCapacity()) + " + ~"
                     + context.threads().total()
                     + " thread stacks " + MemoryFormat.bytes(stacks)
-                    + "); the container risks an out-of-memory kill.");
+                    + "); too little headroom remains for untracked native memory.");
         }
         return pass();
     }
@@ -932,7 +960,7 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
         }
         long alignment = parseObjectAlignmentBytes(memory.inputArguments());
         long boundary = alignment * COMPRESSED_OOPS_HEAP_PER_ALIGNMENT_BYTE;
-        long upperBound = boundary + boundary / 2;
+        long upperBound = boundary + boundary / 4;
         if (heapMax > boundary && heapMax <= upperBound) {
             return violation("Max heap " + MemoryFormat.bytes(heapMax) + " is just above the ~"
                     + MemoryFormat.bytes(boundary) + " compressed-oops boundary"
@@ -1306,9 +1334,8 @@ final class ContainerMemoryPressureRule extends AbstractMemoryRule {
 final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
 
     /**
-     * Oracle's historical JVM ergonomics documentation defines a "server-class machine" as one with
-     * 2+ CPUs and at least ~2 GiB of memory; below that threshold Serial GC is the JVM's own correct
-     * default choice, not a misconfiguration. See the class-level {@code learnMoreUrl}.
+     * JDK 17, 21, and 25 select G1 ergonomically on a server-class machine (2+ CPUs and roughly 2 GiB
+     * of memory); below that threshold Serial GC remains an expected default.
      */
     private static final long SERVER_CLASS_MEMORY_THRESHOLD_BYTES = 2 * MemoryFormat.GIGABYTE;
 
@@ -1320,7 +1347,7 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
                 "LOW",
                 "Detects the Serial GC collector (bean names 'Copy' and/or 'MarkSweepCompact') running on a JVM with two or more available processors and roughly 2 GiB or more of memory (container limit, else total physical memory). Serial GC is single-threaded and is JVM ergonomics' own correct default below Oracle's historical 'server-class machine' threshold (fewer than 2 CPUs, or less than ~2 GiB of memory) -- so this rule does not fire in that region. Above both thresholds, staying on Serial GC underutilises multi-core hosts and causes long STW pauses at scale.",
                 "Switch to G1 (-XX:+UseG1GC), ZGC (-XX:+UseZGC), or Parallel GC (-XX:+UseParallelGC) to use all available cores, unless binary size or footprint constraints explicitly require Serial.",
-                "https://docs.oracle.com/javase/8/docs/technotes/guides/vm/server-class.html"));
+                "https://openjdk.org/jeps/248"));
     }
 
     @Override
@@ -1530,7 +1557,7 @@ final class HighSwapUtilizationRule extends AbstractMemoryRule {
                 + Math.max(0, context.memory().nonHeapCommitted())
                 + Math.max(0, context.memory().directBufferCapacity())
                 + Math.max(0, stacks);
-        long freePhysical = readFreePhysical(context);
+        long freePhysical = context.runtime().freePhysicalMemoryBytes();
         if (freePhysical >= 0 && footprint <= freePhysical) {
             // JVM likely fits in RAM; high swap may be from other processes.
             return pass();
@@ -1540,68 +1567,48 @@ final class HighSwapUtilizationRule extends AbstractMemoryRule {
                 + MemoryFormat.bytes(footprint)
                 + " exceeds free physical memory; the JVM may be partially swapped out.");
     }
-
-    private static long readFreePhysical(MemoryContext context) {
-        // com.sun.management.OperatingSystemMXBean.getFreePhysicalMemorySize() is collected via the
-        // same JMX path as the swap stats; approximate it from the OS bean via JMX attribute.
-        try {
-            javax.management.MBeanServer server = java.lang.management.ManagementFactory.getPlatformMBeanServer();
-            javax.management.ObjectName name = new javax.management.ObjectName("java.lang:type=OperatingSystem");
-            Object value = server.getAttribute(name, "FreePhysicalMemorySize");
-            if (value instanceof Number n) {
-                return n.longValue();
-            }
-        } catch (Exception | Error ignored) {
-            // attribute may not exist on non-HotSpot JVMs
-        }
-        return -1;
-    }
 }
 
 // ---------------------------------------------------------------------------
-// GC configuration (single-pause outlier)
+// GC configuration (latest-event duration)
 // ---------------------------------------------------------------------------
 
-final class GcPauseLatencyOutlierRule extends AbstractMemoryRule {
+final class GcEventDurationOutlierRule extends AbstractMemoryRule {
 
     private static final long PAUSE_THRESHOLD_MILLIS = 1_000L;
 
-    GcPauseLatencyOutlierRule() {
-        super(
-                new MemoryRuleDefinition(
-                        "MEM-GC-006",
-                        "Most recent GC pause was an outlier",
-                        MemoryCategory.GC_CONFIGURATION,
-                        "MEDIUM",
-                        "Reads the duration of the single most recent garbage collection via"
-                                + " com.sun.management.GarbageCollectorMXBean.getLastGcInfo() and flags when that one pause"
-                                + " exceeds " + PAUSE_THRESHOLD_MILLIS + " ms. This complements the lifetime and recent"
-                                + " GC-overhead-ratio checks (MEM-GC-002/MEM-GC-003): a JVM can stay well under those ratio"
-                                + " thresholds on average while still hiding one catastrophic outlier pause, and a single"
-                                + " long stop-the-world pause can itself cause a request-latency spike or health-check"
-                                + " timeout even when overall GC overhead looks healthy. This is a single-sample reading"
-                                + " taken fresh on every scan, not a cross-scan trend.",
-                        "Capture GC logs (-Xlog:gc*:file=gc.log:time,level,tags) around the outlier and check the reported"
-                                + " cause; consider a lower-pause-target collector (G1's -XX:MaxGCPauseMillis, ZGC, or"
-                                + " Shenandoah) or reduce the allocation/promotion rate that triggered the long pause.",
-                        "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/GarbageCollectorMXBean.html"));
+    GcEventDurationOutlierRule() {
+        super(new MemoryRuleDefinition(
+                "MEM-GC-006",
+                "Most recently completed GC event was long",
+                MemoryCategory.GC_CONFIGURATION,
+                "MEDIUM",
+                "Compares GcInfo.endTime across collector beans to identify the garbage-collection event that"
+                        + " actually completed most recently, then flags when its duration exceeds "
+                        + PAUSE_THRESHOLD_MILLIS + " ms. GcInfo duration is elapsed collection time and is not"
+                        + " necessarily a stop-the-world pause for concurrent collectors. This complements the"
+                        + " lifetime and recent GC-overhead-ratio checks (MEM-GC-002/MEM-GC-003): a JVM can stay"
+                        + " under those ratio thresholds while still reporting a long collection event. This is"
+                        + " a single-sample reading taken fresh on every scan, not a cross-scan trend.",
+                "Capture unified GC logs (-Xlog:gc*:file=gc.log:time,level,tags) and inspect the event's phases"
+                        + " and cause before tuning heap size, allocation rate, or collector pause goals.",
+                "https://docs.oracle.com/en/java/javase/21/docs/api/jdk.management/com/sun/management/GcInfo.html"));
     }
 
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
-        long pauseMillis = context.runtime().lastGcPauseMillis();
-        if (pauseMillis < 0) {
-            return skipped("The most recent GC pause duration is not available (requires a HotSpot JVM and at"
+        long durationMillis = context.runtime().lastGcDurationMillis();
+        if (durationMillis < 0) {
+            return skipped("The most recent GC event duration is not available (requires a HotSpot JVM and at"
                     + " least one collection since JVM start).");
         }
-        if (pauseMillis < PAUSE_THRESHOLD_MILLIS) {
+        if (durationMillis < PAUSE_THRESHOLD_MILLIS) {
             return pass();
         }
-        String collectorName = context.runtime().lastGcPauseCollectorName();
+        String collectorName = context.runtime().lastGcCollectorName();
         String collectorNote = collectorName != null && !collectorName.isBlank() ? " (" + collectorName + ")" : "";
-        return violation("The most recent GC pause took " + pauseMillis + " ms" + collectorNote
-                + ", a single-pause outlier at or above the " + PAUSE_THRESHOLD_MILLIS
-                + " ms threshold; this can cause a latency spike independent of average GC overhead.");
+        return violation("The most recently completed GC event took " + durationMillis + " ms" + collectorNote
+                + ", at or above the " + PAUSE_THRESHOLD_MILLIS + " ms threshold.");
     }
 }
 

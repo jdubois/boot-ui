@@ -333,8 +333,8 @@ record MemoryContext(
      * memory, thread, or heap-content snapshots: JVM uptime, cumulative GC time/count, the pending
      * finalization backlog, the parsed {@code -Xms}/{@code -Xss} sizes used by the native-memory
      * and GC-overhead rules, OS-level metrics (available processors, physical memory, swap space,
-     * and the UseCompressedOops VM option), and the single most recent GC pause duration/collector
-     * (used by MEM-GC-006's outlier-pause rule) collected once per scan for GC and footprint
+     * and the UseCompressedOops VM option), and the single most recently completed GC event's
+     * duration/collector (used by MEM-GC-006) collected once per scan for GC and footprint
      * heuristics.
      */
     record RuntimeData(
@@ -349,15 +349,16 @@ record MemoryContext(
             long totalSwapSpaceBytes,
             Boolean useCompressedOops,
             long totalPhysicalMemoryBytes,
-            long lastGcPauseMillis,
-            String lastGcPauseCollectorName) {
+            long lastGcDurationMillis,
+            String lastGcCollectorName,
+            long freePhysicalMemoryBytes) {
 
         static final long DEFAULT_THREAD_STACK_BYTES = 1024L * 1024;
 
         /**
          * Backward-compatible constructor for callers that predate the total-physical-memory
-         * reading (MEM-GC-004's server-class-machine ergonomics skip) and the last-GC-pause reading
-         * (MEM-GC-006's pause-latency outlier rule). Both default to "unknown"/"unavailable" (-1) so
+         * reading (MEM-GC-004's server-class-machine ergonomics skip), the latest-GC-event reading
+         * (MEM-GC-006), and free physical memory (MEM-FOOTPRINT-004). They default to unavailable so
          * existing behavior is preserved when these newer fields are not supplied.
          */
         RuntimeData(
@@ -384,7 +385,43 @@ record MemoryContext(
                     useCompressedOops,
                     -1,
                     -1,
-                    null);
+                    null,
+                    -1);
+        }
+
+        /**
+         * Backward-compatible constructor for callers that predate collection of free physical
+         * memory in the runtime snapshot.
+         */
+        RuntimeData(
+                long uptimeMillis,
+                long gcCollectionTimeMillis,
+                long gcCollectionCount,
+                int objectPendingFinalizationCount,
+                long initialHeapBytes,
+                long threadStackBytes,
+                int availableProcessors,
+                long freeSwapSpaceBytes,
+                long totalSwapSpaceBytes,
+                Boolean useCompressedOops,
+                long totalPhysicalMemoryBytes,
+                long lastGcDurationMillis,
+                String lastGcCollectorName) {
+            this(
+                    uptimeMillis,
+                    gcCollectionTimeMillis,
+                    gcCollectionCount,
+                    objectPendingFinalizationCount,
+                    initialHeapBytes,
+                    threadStackBytes,
+                    availableProcessors,
+                    freeSwapSpaceBytes,
+                    totalSwapSpaceBytes,
+                    useCompressedOops,
+                    totalPhysicalMemoryBytes,
+                    lastGcDurationMillis,
+                    lastGcCollectorName,
+                    -1);
         }
 
         static RuntimeData empty() {

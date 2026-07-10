@@ -1,6 +1,6 @@
 # Memory advisor checks
 
-The Memory panel runs a fixed, on-demand ruleset against the host JVM's **live management beans**. It takes a read-only snapshot of heap and memory-pool usage, garbage-collector and class-loading counters, a thread census, a handful of process-level scalars (uptime, cumulative GC time, pending finalizers, parsed `-Xms`/`-Xss`), and an optional class histogram, then evaluates a curated set of memory-health checks. It never mutates the JVM, forces a heap dump on page load, intercepts live traffic, or surfaces secrets.
+The Memory panel runs a fixed, on-demand ruleset against the host JVM's **live management beans**. It takes a read-only snapshot of heap and memory-pool usage, garbage-collector and class-loading counters, a thread census, process-level scalars (uptime, cumulative GC time, pending finalizers, parsed `-Xms`/`-Xss`, physical memory, and swap), and an optional class histogram, then evaluates a curated set of memory-health checks. Rules read only this immutable snapshot; they never perform their own JMX or filesystem I/O. The advisor never mutates the JVM, forces a heap dump on page load, intercepts live traffic, or surfaces secrets.
 
 Most checks are single-snapshot heuristics, while the recent-GC check compares the current scan with the previous scan and heap-pressure checks prefer post-histogram heap readings when available. Snapshot and lifetime counters can still be skewed by transient garbage, startup spikes, or past bursts, so several findings are explicit prompts to confirm with a second reading, the Live Memory panel, or a profiler rather than verdicts. The right remediation still depends on the application's workload, heap sizing, and deployment topology.
 
@@ -12,7 +12,7 @@ The panel is always available (the JVM always exposes memory and thread beans). 
 
 ## Known limitations
 
-- **Container-limit detection assumes the process's cgroup is the container root.** Every container-aware check (MEM-FOOTPRINT-001/002/003/004, MEM-GC-001, MEM-GC-004, MEM-POOL-004) reads fixed root-level cgroup paths (for example `/sys/fs/cgroup/memory.max`), which is correct under the default modern Docker/Kubernetes setup where the process's own cgroup **is** the container root. It is not correct under `--cgroupns=host` or some older/nested container runtimes, where the process's actual cgroup lives elsewhere in the hierarchy; in that situation these hardcoded root paths silently read as "no container memory limit detected" instead of a reported error, which is a silent false negative across every container-aware rule above. A full fix would resolve the process's own cgroup path via `/proc/self/cgroup` and `/proc/self/mountinfo` rather than assuming the root path; this is a known gap, not yet implemented.
+- **Container-limit detection assumes the process's cgroup is the container root.** Every container-aware check (MEM-FOOTPRINT-001/002/003/004, MEM-GC-001/004/007, MEM-POOL-004) uses one shared detector for the fixed root-level cgroup limit/current paths (for example `/sys/fs/cgroup/memory.max`). This is correct under the default modern Docker/Kubernetes setup where the process's own cgroup **is** the container root. It is not correct under `--cgroupns=host` or some older/nested container runtimes, where the process's actual cgroup lives elsewhere in the hierarchy; in that situation these paths read as "no container memory limit detected." A full fix would resolve the process's cgroup path via `/proc/self/cgroup` and `/proc/self/mountinfo`; no supported public JVM API exposes HotSpot's internal cgroup metrics.
 
 ## Severity scale
 
@@ -50,7 +50,7 @@ The panel is always available (the JVM always exposes memory and thread beans). 
 ### MEM-HEAP-004 - Max heap is just above the compressed-oops threshold
 
 - **Severity**: INFO
-- **Detects**: A max heap just above the boundary where the JVM disables compressed ordinary object pointers, after which 64-bit references take more space and a heap just over the boundary can hold fewer live objects than one capped just below it. The boundary defaults to ~32 GiB but scales with -XX:ObjectAlignmentInBytes. The rule reads the live `UseCompressedOops` VM option via HotSpot JMX when available, falling back to the input-arguments heuristic on non-HotSpot JVMs; it is skipped for ZGC and when compressed oops are disabled.
+- **Detects**: A max heap in the narrow 25% window just above the boundary where the JVM disables compressed ordinary object pointers, after which 64-bit references take more space and a heap just over the boundary can hold fewer live objects than one capped just below it. The documented boundary is `4 GiB * ObjectAlignmentInBytes` (32 GiB at the default 8-byte alignment), so the default warning window is above 32 GiB through 40 GiB; deliberately larger heaps such as 47 GiB are not described as "just above." The rule reads the live `UseCompressedOops` VM option via HotSpot JMX when available, falling back to the input-arguments heuristic on non-HotSpot JVMs; it is skipped for ZGC and when compressed oops are disabled.
 - **Recommendation**: Either cap the heap just below the compressed-oops boundary, or grow it well past this range (and scale out) when a larger heap is genuinely required.
 - **Learn more**: <https://wiki.openjdk.org/display/HotSpot/CompressedOops>
 
@@ -77,11 +77,11 @@ The panel is always available (the JVM always exposes memory and thread beans). 
 
 ## Native memory
 
-### MEM-FOOTPRINT-001 - Committed native footprint is close to the container limit
+### MEM-FOOTPRINT-001 - Configured JVM memory leaves little container headroom
 
 - **Severity**: HIGH
-- **Detects**: Estimates the JVM's committed native-memory budget (committed heap, committed non-heap such as Metaspace and code cache, direct buffers, and an approximate thread-stack reservation) against the detected container memory limit. When this estimate approaches the limit the container can be OOM-killed by the kernel even though the heap alone looks healthy. The estimate is approximate and excludes some JVM/native overhead (GC structures, JIT, native libraries).
-- **Recommendation**: Lower -Xmx/-XX:MaxRAMPercentage, reduce thread counts or direct-buffer use, or raise the container memory limit so the total committed footprint keeps headroom.
+- **Detects**: Estimates the configured JVM memory envelope (maximum heap, currently committed non-heap such as Metaspace and code cache, direct-buffer capacity, and an approximate thread-stack reservation) against the detected container limit. At 90% or more, the configuration leaves too little room for native memory as the heap grows. Using maximum rather than currently committed heap catches unsafe sizing before that memory is committed. The estimate is conservative but incomplete: it excludes GC structures, JIT working memory, native libraries, and non-NIO native allocations.
+- **Recommendation**: Lower -Xmx/-XX:MaxRAMPercentage, reduce thread counts or direct-buffer use, or raise the container memory limit so the configured envelope keeps native headroom.
 - **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/diagnostic-tools.html>
 
 ### MEM-FOOTPRINT-002 - Platform thread stacks reserve a large amount of native memory
@@ -101,7 +101,7 @@ The panel is always available (the JVM always exposes memory and thread beans). 
 ### MEM-FOOTPRINT-004 - High swap utilization while JVM footprint exceeds free physical memory
 
 - **Severity**: MEDIUM
-- **Detects**: Reads swap space statistics from the platform `OperatingSystemMXBean` (HotSpot: `com.sun.management.OperatingSystemMXBean`) and flags when used swap is at least 50% of total swap AND the estimated JVM committed footprint (heap + non-heap + direct buffers + thread-stack reservation) exceeds free physical memory. This combination strongly suggests the JVM is partially swapped out, which causes latency spikes on heap access. The check is skipped on platforms where swap statistics are unavailable.
+- **Detects**: Uses swap and free-physical-memory values collected once with the rest of the runtime snapshot, and flags when used swap is at least 50% of total swap AND the estimated JVM committed footprint (heap + non-heap + direct buffers + thread-stack reservation) exceeds free physical memory. This combination suggests the JVM may be partially swapped out. The check is skipped where these operating-system MXBean values are unavailable.
 - **Recommendation**: Reduce the JVM's committed footprint (lower -Xmx, reduce thread count, tune direct-buffer use) or add physical memory; avoid large heaps on hosts with active swap.
 - **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/diagnostic-tools.html>
 
@@ -168,7 +168,7 @@ The panel is always available (the JVM always exposes memory and thread beans). 
 ### MEM-GC-002 - Cumulative GC time is a large share of uptime
 
 - **Severity**: MEDIUM
-- **Detects**: Compares total **stop-the-world** time spent in garbage collection since JVM start against the JVM uptime. Concurrent-cycle beans (ZGC Cycles, Shenandoah Cycles, G1 Concurrent GC) are excluded from the time sum because their concurrent phases run while the application is executing; including them would inflate "overhead" for apps that deliberately chose a concurrent collector. A high lifetime ratio is a classic sign of an undersized heap or an excessive allocation rate. This is a cumulative average and can be skewed by a one-off startup spike, so corroborate with live GC metrics.
+- **Detects**: After at least 10 minutes of uptime, flags when total **stop-the-world** collection time is at least 10% of JVM uptime. Concurrent-cycle beans (ZGC Cycles, Shenandoah Cycles, G1 Concurrent GC) are excluded because their concurrent phases run while the application executes. No collector-independent universal threshold exists, so the rule retains this conservative review threshold rather than tuning it from anecdotal application sizes. The cumulative average can be skewed by startup, so corroborate it with recent GC metrics.
 - **Recommendation**: Increase the heap (-Xmx/-XX:MaxRAMPercentage), reduce the allocation rate, or review the collector choice if GC consistently consumes this much time.
 - **Learn more**: <https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html>
 
@@ -182,9 +182,9 @@ The panel is always available (the JVM always exposes memory and thread beans). 
 ### MEM-GC-004 - Serial GC selected on a multi-core system
 
 - **Severity**: LOW
-- **Detects**: The Serial GC collector (GarbageCollectorMXBean names "Copy" and/or "MarkSweepCompact") running on a JVM with two or more available processors **and** roughly 2 GiB or more of memory (the detected container memory limit, else total physical memory). Oracle's historical JVM ergonomics documentation defines a "server-class machine" as 2+ CPUs and ~2 GiB+ of memory; below that threshold Serial GC is the JVM's own correct ergonomic default, not a misconfiguration, so the rule does not fire there — this avoids false positives on small containers (for example 2 vCPUs with a 512 MiB–1 GiB memory limit) that legitimately get Serial GC by ergonomics. Above both thresholds, staying on Serial GC underutilises multi-core hosts and causes long STW pauses.
+- **Detects**: The Serial GC collector (GarbageCollectorMXBean names "Copy" and/or "MarkSweepCompact") running on a JVM with two or more available processors **and** roughly 2 GiB or more of memory (the detected container memory limit, else total physical memory). On supported JDK 17/21/25 releases, G1 is selected ergonomically for server-class machines while Serial remains expected in constrained environments, so the rule avoids false positives on small containers. Above both thresholds, explicitly or unexpectedly staying on Serial underutilises multi-core hosts and causes long stop-the-world pauses.
 - **Recommendation**: Switch to G1 (-XX:+UseG1GC), ZGC (-XX:+UseZGC), or Parallel GC (-XX:+UseParallelGC) to use all available cores, unless binary size or footprint constraints explicitly require Serial.
-- **Learn more**: <https://docs.oracle.com/javase/8/docs/technotes/guides/vm/server-class.html>
+- **Learn more**: <https://openjdk.org/jeps/248>
 
 ### MEM-GC-005 - G1 Full GC occurred between scans
 
@@ -193,12 +193,19 @@ The panel is always available (the JVM always exposes memory and thread beans). 
 - **Recommendation**: Increase -Xmx or tune -XX:G1HeapRegionSize to reduce humongous allocations; consider -XX:G1ReservePercent and -XX:InitiatingHeapOccupancyPercent to give G1 more headroom for concurrent marking.
 - **Learn more**: <https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html>
 
-### MEM-GC-006 - Most recent GC pause was an outlier
+### MEM-GC-006 - Most recently completed GC event was long
 
 - **Severity**: MEDIUM
-- **Detects**: Reads the duration of the single most recent garbage collection via `com.sun.management.GarbageCollectorMXBean.getLastGcInfo()` and flags when that one pause exceeds 1000 ms. This complements the lifetime and recent GC-overhead-*ratio* checks (MEM-GC-002/MEM-GC-003): a JVM can stay well under those ratio thresholds on average while still hiding one catastrophic outlier pause, and a single long stop-the-world pause can itself cause a request-latency spike or health-check timeout even when overall GC overhead looks healthy. This is a single-sample reading taken fresh on every scan, not a cross-scan trend, so it is skipped when no collection has happened yet or on non-HotSpot JVMs without this MXBean extension.
-- **Recommendation**: Capture GC logs (-Xlog:gc*:file=gc.log:time,level,tags) around the outlier and check the reported cause; consider a lower-pause-target collector (G1's -XX:MaxGCPauseMillis, ZGC, or Shenandoah) or reduce the allocation/promotion rate that triggered the long pause.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/GarbageCollectorMXBean.html>
+- **Detects**: Reads each HotSpot collector bean's `getLastGcInfo()`, compares `GcInfo.endTime` values on their shared JVM-uptime time base, and evaluates the event that actually completed most recently. It flags when that event's duration is at least 1000 ms. Duration is elapsed collection time and is not necessarily a stop-the-world pause for a concurrent collector, so the finding deliberately says "GC event" rather than "pause." This is a fresh single-sample reading, not a cross-scan trend.
+- **Recommendation**: Capture unified GC logs (`-Xlog:gc*:file=gc.log:time,level,tags`) and inspect the event's phases and cause before tuning heap size, allocation rate, or collector pause goals.
+- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/jdk.management/com/sun/management/GcInfo.html>
+
+### MEM-GC-007 - JVM container awareness is explicitly disabled
+
+- **Severity**: HIGH
+- **Detects**: A visible cgroup memory limit together with `-XX:-UseContainerSupport`. Container support defaults to enabled on JDK 17/21/25; disabling it makes JVM ergonomics use host-level memory and CPU information, which can oversize the heap, GC/JIT worker pools, and common pools relative to the container and lead to throttling or an abrupt cgroup OOM kill.
+- **Recommendation**: Remove `-XX:-UseContainerSupport` so JVM ergonomics respect container limits. Use explicit `-Xmx`/`-XX:MaxRAMPercentage` and `-XX:ActiveProcessorCount` only for deliberate overrides.
+- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html>
 
 ### MEM-HEAP-005 - Initial and maximum heap differ for a low-latency collector
 
@@ -274,7 +281,7 @@ Heap-content checks require a class histogram, which is collected only on an exp
 ### MEM-CLASS-001 - Very large number of loaded classes with little unloading
 
 - **Severity**: INFO
-- **Detects**: A high loaded-class count combined with little or no class unloading, which can indicate a classloader leak or runaway dynamic class generation and pressures Metaspace. A large class count that is matched by active unloading is treated as a legitimately large application instead. Caveat: the threshold is not framework-neutral in practice — frameworks that generate proxy/lambda/configuration classes at runtime (for example Spring Boot's CGLIB/JDK dynamic proxies, autoconfiguration, and lambda forms) structurally load more classes than an equivalent application built with a framework that does most of this at build time (for example Quarkus); two applications of the same real size can sit at very different distances from this threshold purely because of framework style, not application growth or a leak.
+- **Detects**: At least 50,000 currently loaded classes with less than 1% as many unloads, which can indicate a classloader leak or runaway dynamic class generation and pressures Metaspace. No OpenJDK/Oracle source defines a universally healthy class count, so this remains an INFO-level review heuristic and was not retuned from anecdotal application sizes. Frameworks that generate proxies and configuration classes at runtime can structurally load more classes than build-time-oriented frameworks; compare repeated readings and Metaspace pressure rather than treating the count alone as proof of a leak.
 - **Recommendation**: If the application does not legitimately use this many classes, look for classloader leaks (redeploys, scripting, proxy generation).
 - **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshoot-class-loading.html>
 

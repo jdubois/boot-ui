@@ -19,8 +19,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryUsage;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -47,12 +45,6 @@ final class MemoryCollector {
 
     private static final int MAX_HISTOGRAM_CLASSES = 200;
 
-    private static final List<Path> CGROUP_LIMIT_FILES =
-            List.of(Path.of("/sys/fs/cgroup/memory.max"), Path.of("/sys/fs/cgroup/memory/memory.limit_in_bytes"));
-
-    private static final List<Path> CGROUP_CURRENT_FILES =
-            List.of(Path.of("/sys/fs/cgroup/memory.current"), Path.of("/sys/fs/cgroup/memory/memory.usage_in_bytes"));
-
     @FunctionalInterface
     interface HistogramSource {
         /** Returns the raw {@code GC.class_histogram} output, or {@code null} when unavailable. */
@@ -61,6 +53,7 @@ final class MemoryCollector {
 
     private final ThreadDumpReportSupplier threadReportSupplier;
     private final HistogramSource histogramSource;
+    private final ContainerMemoryLimitDetector containerMemoryDetector;
 
     @FunctionalInterface
     interface ThreadDumpReportSupplier {
@@ -68,8 +61,16 @@ final class MemoryCollector {
     }
 
     MemoryCollector(ThreadDumpReportSupplier threadReportSupplier, HistogramSource histogramSource) {
+        this(threadReportSupplier, histogramSource, ContainerMemoryLimitDetector.standard());
+    }
+
+    MemoryCollector(
+            ThreadDumpReportSupplier threadReportSupplier,
+            HistogramSource histogramSource,
+            ContainerMemoryLimitDetector containerMemoryDetector) {
         this.threadReportSupplier = threadReportSupplier;
         this.histogramSource = histogramSource;
+        this.containerMemoryDetector = containerMemoryDetector;
     }
 
     MemoryContext collect() {
@@ -193,9 +194,9 @@ final class MemoryCollector {
             gcNames.add(gc.getName());
         }
 
-        OptionalLong containerLimitValue = detectContainerLimit();
+        OptionalLong containerLimitValue = containerMemoryDetector.detectLimit();
         Long containerLimit = containerLimitValue.isPresent() ? containerLimitValue.getAsLong() : null;
-        OptionalLong containerCurrentValue = detectContainerCurrentUsage();
+        OptionalLong containerCurrentValue = containerMemoryDetector.detectCurrentUsage();
         Long containerCurrent = containerCurrentValue.isPresent() ? containerCurrentValue.getAsLong() : null;
 
         return new MemoryData(
@@ -277,9 +278,10 @@ final class MemoryCollector {
         int availableProcessors = ManagementFactory.getOperatingSystemMXBean().getAvailableProcessors();
         long freeSwap = readOsBeanLong("FreeSwapSpaceSize");
         long totalSwap = readOsBeanLong("TotalSwapSpaceSize");
+        long freePhysicalMemory = readOsBeanLong("FreePhysicalMemorySize");
         long totalPhysicalMemory = readOsBeanLong("TotalPhysicalMemorySize");
         Boolean useCompressedOops = readVmOptionBoolean("UseCompressedOops");
-        LastGcPause lastGcPause = readLastGcPause();
+        LastGcEvent lastGcEvent = readLastGcEvent();
 
         return new RuntimeData(
                 gc.uptimeMillis(),
@@ -293,49 +295,53 @@ final class MemoryCollector {
                 totalSwap,
                 useCompressedOops,
                 totalPhysicalMemory,
-                lastGcPause.millis(),
-                lastGcPause.collectorName());
+                lastGcEvent.durationMillis(),
+                lastGcEvent.collectorName(),
+                freePhysicalMemory);
     }
 
     /**
-     * The duration and originating collector of the single most recent garbage collection (MEM-GC-006's
-     * outlier-pause rule). {@link #unavailable()} on a non-HotSpot JVM or before any collection has run.
+     * A collector's latest event on the shared JVM-uptime time base exposed by {@code GcInfo}.
      */
-    private record LastGcPause(long millis, String collectorName) {
-        static LastGcPause unavailable() {
-            return new LastGcPause(-1, null);
+    record LastGcEventCandidate(long endTimeMillis, long durationMillis, String collectorName) {}
+
+    /**
+     * The duration and originating collector of the single most recently completed garbage collection.
+     */
+    record LastGcEvent(long durationMillis, String collectorName) {
+        static LastGcEvent unavailable() {
+            return new LastGcEvent(-1, null);
         }
     }
 
     /**
-     * Reads the duration of the single most recent garbage collection across all collectors via the
-     * HotSpot-specific {@code com.sun.management.GarbageCollectorMXBean.getLastGcInfo()} extension,
-     * keeping the longest pause (and its collector name) when more than one collector has run since
-     * the JVM started. Unlike the generic scalar reads elsewhere in this class, this directly uses the
-     * {@code com.sun.management} types (there is no generic string-keyed JMX attribute for the
-     * composite "last GC info" value); the whole lookup is wrapped so a non-HotSpot JVM degrades to
-     * {@link LastGcPause#unavailable()} instead of failing this (or any other) scan.
+     * Reads each collector bean's latest event and compares {@code GcInfo.endTime}, whose JVM-uptime
+     * time base is shared across beans. Comparing durations would select the longest historical event,
+     * not the event that actually completed most recently.
      */
-    private static LastGcPause readLastGcPause() {
+    private static LastGcEvent readLastGcEvent() {
         try {
-            long longestDurationMillis = -1;
-            String longestCollectorName = null;
+            List<LastGcEventCandidate> candidates = new ArrayList<>();
             for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
                 if (bean instanceof com.sun.management.GarbageCollectorMXBean sunBean) {
                     com.sun.management.GcInfo info = sunBean.getLastGcInfo();
-                    if (info != null && info.getDuration() > longestDurationMillis) {
-                        longestDurationMillis = info.getDuration();
-                        longestCollectorName = bean.getName();
+                    if (info != null) {
+                        candidates.add(new LastGcEventCandidate(info.getEndTime(), info.getDuration(), bean.getName()));
                     }
                 }
             }
-            return longestDurationMillis >= 0
-                    ? new LastGcPause(longestDurationMillis, longestCollectorName)
-                    : LastGcPause.unavailable();
+            return latestGcEvent(candidates);
         } catch (RuntimeException | LinkageError ex) {
             // com.sun.management is a HotSpot extension; degrade gracefully on other JVMs.
-            return LastGcPause.unavailable();
+            return LastGcEvent.unavailable();
         }
+    }
+
+    static LastGcEvent latestGcEvent(List<LastGcEventCandidate> candidates) {
+        return candidates.stream()
+                .max(Comparator.comparingLong(LastGcEventCandidate::endTimeMillis))
+                .map(candidate -> new LastGcEvent(candidate.durationMillis(), candidate.collectorName()))
+                .orElseGet(LastGcEvent::unavailable);
     }
 
     private static List<HeapClassHistogramEntryDto> parseHistogram(String raw) {
@@ -492,48 +498,6 @@ final class MemoryCollector {
         } catch (NumberFormatException ex) {
             return -1;
         }
-    }
-
-    private static OptionalLong detectContainerLimit() {
-        for (Path file : CGROUP_LIMIT_FILES) {
-            if (!Files.isRegularFile(file)) {
-                continue;
-            }
-            try {
-                String value = Files.readString(file).trim();
-                if (value.isEmpty() || "max".equals(value)) {
-                    continue;
-                }
-                long parsed = Long.parseLong(value);
-                if (parsed > 0 && parsed < Long.MAX_VALUE / 2) {
-                    return OptionalLong.of(parsed);
-                }
-            } catch (RuntimeException | java.io.IOException ex) {
-                // best-effort detection; ignore unreadable cgroup files
-            }
-        }
-        return OptionalLong.empty();
-    }
-
-    private static OptionalLong detectContainerCurrentUsage() {
-        for (Path file : CGROUP_CURRENT_FILES) {
-            if (!Files.isRegularFile(file)) {
-                continue;
-            }
-            try {
-                String value = Files.readString(file).trim();
-                if (value.isEmpty() || "max".equals(value)) {
-                    continue;
-                }
-                long parsed = Long.parseLong(value);
-                if (parsed > 0 && parsed < Long.MAX_VALUE / 2) {
-                    return OptionalLong.of(parsed);
-                }
-            } catch (RuntimeException | java.io.IOException ex) {
-                // best-effort detection; ignore unreadable cgroup files
-            }
-        }
-        return OptionalLong.empty();
     }
 
     /**
