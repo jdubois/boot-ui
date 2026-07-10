@@ -52,8 +52,8 @@ Ollama is optional: the chat endpoint returns a clear "AI unavailable" response 
 BootUI activates automatically under `quarkus:dev` (development launch mode). In a packaged production run
 (`java -jar`, NORMAL launch mode) the console stays dark by design — there is no runtime flag to force it on.
 
-> Run from source on **JDK 17 or 21**: Hibernate ORM's ByteBuddy enhancement cannot augment newer class
-> files, so `quarkus:dev` fails on JDK 22+. The Docker image below sidesteps this by building inside JDK 21.
+> Run from source on **JDK 17, 21 or 25**: Hibernate ORM's ByteBuddy enhancement cannot augment JDK 26+
+> class files. The Docker image below sidesteps this by building inside JDK 21.
 
 When run from source this way, this app's spans are also exported over OTLP/HTTP to the Spring sample app's
 BootUI (`quarkus.otel.exporter.otlp.endpoint` in `application.properties`, defaulting to

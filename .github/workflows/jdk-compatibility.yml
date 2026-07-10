@@ -24,6 +24,7 @@ jobs:
   compatibility:
     name: Focused compatibility (Java ${{ matrix.java }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -39,12 +40,14 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: maven
 
-      - name: Build and test shared engine + both adapters
-        # Focused coverage for Java 21/25: compile and run tests for core/engine plus
-        # Spring and Quarkus adapter modules, while avoiding browser suites.
+      - name: Build and test shared engine + adapters
+        # Focused coverage for Java 21/25: run the servlet, reactive and Quarkus
+        # conformance suites while avoiding browser and optional-extension suites.
+        # Select the Quarkus base module directly because selecting its aggregator
+        # does not include child modules in a Maven -pl build.
         run: >
           ./mvnw -T 1C -B -ntp
-          -pl bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-sample-app,bootui-quarkus,bootui-quarkus-deployment,bootui-quarkus-integration-tests
+          -pl bootui-spring-sample-app,bootui-spring-webflux-sample-app,bootui-quarkus-integration-tests/base
           -am test
 
       - name: Exercise Quarkus sample app augmentation
