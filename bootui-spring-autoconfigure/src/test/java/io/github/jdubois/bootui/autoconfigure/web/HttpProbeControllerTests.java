@@ -34,7 +34,7 @@ class HttpProbeControllerTests {
         HttpProbeService service = mock(HttpProbeService.class);
         when(service.probe(any(HttpProbeRequest.class)))
                 .thenReturn(new HttpProbeResponse(
-                        200, "OK", Map.of("content-type", "application/json"), "{\"ok\":true}", 12L, null));
+                        200, "OK", Map.of("content-type", "application/json"), "{\"ok\":true}", 12L, null, false));
         MockMvc mvc = standaloneSetup(new HttpProbeController(service)).build();
 
         mvc.perform(post("/bootui/api/http-probe")
@@ -53,7 +53,7 @@ class HttpProbeControllerTests {
     void errorDtoFromServiceIsReturnedAsHttp200() throws Exception {
         HttpProbeService service = mock(HttpProbeService.class);
         when(service.probe(any(HttpProbeRequest.class)))
-                .thenReturn(new HttpProbeResponse(0, "Error", Map.of(), null, 3L, "Connection refused"));
+                .thenReturn(new HttpProbeResponse(0, "Error", Map.of(), null, 3L, "Connection refused", false));
         MockMvc mvc = standaloneSetup(new HttpProbeController(service)).build();
 
         mvc.perform(post("/bootui/api/http-probe")
