@@ -28,7 +28,7 @@
     "vite": "8.1.4",
     "vite-plugin-checker": "^0.14.4",
     "vitest": "4.1.10",
-    "vue-tsc": "^3.3.6"
+    "vue-tsc": "^3.3.7"
   },
   "overrides": {
     "@xmldom/xmldom": "0.8.13"
