@@ -39,7 +39,7 @@
         <!-- 3.33 LTS targets Java 17/21/25, matching this repo's java.version. Bump as needed. -->
         <quarkus.platform.version>3.33.2.1</quarkus.platform.version>
         <!-- Align with the Quarkus platform above: quarkus-langchain4j 1.11.2 targets Quarkus 3.33.2. -->
-        <quarkus-langchain4j.version>1.11.2</quarkus-langchain4j.version>
+        <quarkus-langchain4j.version>1.12.0</quarkus-langchain4j.version>
     </properties>
 
     <dependencyManagement>
