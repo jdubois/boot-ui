@@ -76,11 +76,12 @@ Load-bearing rules:
 
 - Java 17 (compiler `release` 17, `-parameters`). Maven Wrapper (`./mvnw`), Maven 3.9.16; do not require a system Maven.
 - Spring Boot 4.1.x (`spring-boot.version` in root `pom.xml`; currently 4.1.0).
-- Quarkus 3.33.x LTS (`quarkus.platform.version` in the Quarkus modules; currently 3.33.2.1).
+- Quarkus 3.37.x for the extension and integration suites (`quarkus.platform.version` in the root `pom.xml`; currently
+  3.37.1). The Quarkus sample app has a separate platform pin aligned with its Quarkus LangChain4j dependency.
 - Published Maven coordinates use `com.julien-dubois.bootui:*`; Java packages remain `io.github.jdubois.bootui.*`.
 - Node.js / npm for the packaged Vue app are downloaded automatically by the `frontend-maven-plugin` (`node.version` /
   `npm.version` in root `pom.xml`); do not add a manual Node install step for the Maven build.
-- **JDK caveat for the Quarkus sample app:** Hibernate ORM's build-time ByteBuddy enhancement (via the Quarkus 3.33
+- **JDK caveat for the Quarkus sample app:** Hibernate ORM's build-time ByteBuddy enhancement (via its pinned Quarkus
   platform) cannot read class files newer than the JDKs that platform supports (17, 21 and 25). So `bootui-quarkus-sample-app`
   stays in the always-on reactor (so IDEs such as IntelliJ import it on any JDK), but its Hibernate/Quarkus build-time
   augmentation is gated: a `skip-quarkus-build-on-unsupported-jdk` profile (`<jdk>[26,)</jdk>`) in the module's own pom

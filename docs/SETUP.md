@@ -292,6 +292,7 @@ Activity (over a rebuilt reactive streaming/capture layer). The following panels
 - **Security** (the advisor) and the raw **Spring Security** panel — not yet ported: both key off the servlet
   `SecurityFilterChain` bean, which a reactive Spring Security setup never registers (it registers a
   `WebFilterChainProxy` instead); a `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned.
+- **REST Client** — not yet ported: the standalone panel is only available on the Spring MVC (servlet) adapter.
 - **MCP Server** — not yet ported: the tool catalog is hard-wired to the servlet panel controllers.
 
 For the authoritative, per-panel detail and the reasoning behind each gap, see [Features](FEATURES.md) and
@@ -306,7 +307,8 @@ BootUI engine.
 ### Prerequisites
 
 - Java 17 or later
-- A Quarkus application (built and tested against Quarkus 3.33.x LTS)
+- A Quarkus application (built and tested against the version pinned by the root `pom.xml`'s
+  `quarkus.platform.version` property; currently `3.37.1`)
 - Maven or Gradle (or their local wrappers)
 
 ### Add the extension

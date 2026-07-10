@@ -26,7 +26,8 @@
         unsupported JDK stays green. On a supported JDK the app builds and augments normally; run/demo it with
         `./mvnw -pl bootui-quarkus-sample-app -am install` (or `quarkus:dev`) on a JDK 17/21/25.
 
-        Versions below (Quarkus platform, LangChain4j) track the `bootui-quarkus` extension.
+        Versions below (Quarkus platform, LangChain4j) stay aligned with each other for demo compatibility and are
+        independent of the published extension's platform property in the root pom.
     -->
 
     <properties>

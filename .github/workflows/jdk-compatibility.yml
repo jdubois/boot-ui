@@ -1,0 +1,56 @@
+name: JDK compatibility (21/25)
+
+# Keeps Java 17 as the full CI-equivalent/build-release baseline (build.yml + release.yml),
+# while adding focused compatibility checks on newer supported JDKs for every PR/push and
+# a weekly scheduled run.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Every Monday at 07:05 UTC.
+    - cron: '5 7 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    name: Focused compatibility (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Build and test shared engine + adapters
+        # Focused coverage for Java 21/25: run the servlet, reactive and Quarkus
+        # conformance suites while avoiding browser and optional-extension suites.
+        # Select the Quarkus base module directly because selecting its aggregator
+        # does not include child modules in a Maven -pl build.
+        run: >
+          ./mvnw -T 1C -B -ntp
+          -pl bootui-spring-sample-app,bootui-spring-webflux-sample-app,bootui-quarkus-integration-tests/base
+          -am test
+
+      - name: Exercise Quarkus sample app augmentation
+        # Ensures Quarkus build-time augmentation runs on supported JDKs (17/21/25) and
+        # catches ByteBuddy/build-plugin regressions without running browser tests.
+        run: ./mvnw -T 1C -B -ntp -pl bootui-quarkus-sample-app -am -DskipTests install

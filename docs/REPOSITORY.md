@@ -2,11 +2,31 @@
 
 ## Modules
 
-- `bootui-spring-boot-starter`: dependency to add to your app.
-- `bootui-spring-autoconfigure`: Spring Boot auto-configuration, REST controllers, and safety filter.
-- `bootui-ui`: Vue 3 frontend packaged into the starter at `META-INF/resources/bootui/`.
 - `bootui-core`: shared DTOs, secret masking, and core helpers.
-- `bootui-spring-sample-app`: demo and integration sample app used for screenshots and Playwright coverage.
+- `bootui-engine`: framework-neutral services/advisors and SPI ports.
+- `bootui-spring-autoconfigure`: Spring MVC/WebFlux adapter (auto-configuration, endpoints, safety).
+- `bootui-spring-boot-starter`: Spring MVC starter dependency.
+- `bootui-spring-boot-starter-reactive`: Spring WebFlux starter dependency.
+- `bootui-ui`: Vue 3 frontend packaged into `META-INF/resources/bootui/`.
+- `bootui-conformance`: shared HTTP contract suite and golden panel manifests for all adapters.
+- `bootui-spring-sample-app`: Spring MVC sample app + Playwright e2e coverage.
+- `bootui-spring-webflux-sample-app`: Spring WebFlux sample app.
+- `bootui-quarkus`: Quarkus runtime adapter.
+- `bootui-quarkus-deployment`: Quarkus build-time wiring module.
+- `bootui-quarkus-integration-tests`: Quarkus `@QuarkusTest` suites.
+- `bootui-quarkus-sample-app`: Quarkus sample app.
+
+## Compatibility version source of truth
+
+Spring Boot and Quarkus compatibility references for the published adapters should follow the root `pom.xml` properties:
+
+- `spring-boot.version`
+- `quarkus.platform.version`
+
+When these are updated, refresh matching documentation references in the same pull request (`README.md`,
+`docs/SETUP.md`, `docs/FEATURES.md`, and `.github/copilot-instructions.md`).
+The non-published Quarkus sample app keeps a separate platform pin aligned with its Quarkus LangChain4j dependency;
+that demo-specific pin is not the public compatibility version.
 
 ## Documentation website
 

@@ -46,7 +46,7 @@ gracefully when optional infrastructure is missing.
 On Quarkus the Overview panel is fully available. Its scoring *dashboard* is rendered entirely in the browser:
 the shell aggregates each advisor's own scan/report endpoints (only those whose panels are available on Quarkus
 contribute) and computes the same combined score, so no backend dashboard service is involved. The shared shell
-chrome around every panel — the header application name, framework and version (for example "Quarkus 3.33"), Java
+chrome around every panel — the header application name, framework and version (for example "Quarkus 3.37"), Java
 version, active profiles, and the active/disabled status — is populated by the same framework-neutral
 `GET /bootui/api/overview` endpoint that both adapters expose for the shell.
 
