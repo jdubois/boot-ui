@@ -89,14 +89,19 @@ includes up to a handful of sample mapped members plus a remediation link.
   `QuarkusHibernatePropertyLookup`, so a global batch-fetch size configured with the native Quarkus property name is
   read back correctly and this rule does not false-positive.
 
-### HIB-FETCH-005 - @Lob attributes should be loaded lazily
+### HIB-FETCH-005 - Enhanced @Lob attributes should be loaded lazily
 
 - **Severity**: MEDIUM
-- **Inspects**: persistent attributes annotated with `@Lob`.
-- **Fires when**: a `@Lob` attribute does not declare `@Basic(fetch = FetchType.LAZY)`.
+- **Inspects**: persistent attributes annotated with `@Lob` on bytecode-enhanced entities.
+- **Fires when**: enhancement is available and a `@Lob` attribute does not declare
+  `@Basic(fetch = FetchType.LAZY)`.
 - **Why it matters**: large CLOB/BLOB payloads are read for every entity hydration unless lazy loading is requested.
-- **Recommendation**: annotate `@Lob` fields with `@Basic(fetch = FetchType.LAZY)`; lazy loading of non-association
-  attributes requires Hibernate's bytecode enhancer to actually defer the SQL.
+- **Recommendation**: on enhanced entities, annotate infrequently accessed `@Lob` fields with
+  `@Basic(fetch = FetchType.LAZY)`.
+- **Enhancement requirement**: Hibernate ORM 7 requires bytecode enhancement to honor lazy basic attributes. This rule
+  deliberately does not recommend `@Basic(fetch = LAZY)` when enhancement is unavailable; HIB-FETCH-007 instead reports
+  existing ineffective lazy-basic declarations. Quarkus enhances entities at build time, while Spring applications must
+  configure enhancement explicitly.
 
 ### HIB-FETCH-006 - Collection associations should not declare @Fetch(JOIN)
 
@@ -107,6 +112,15 @@ includes up to a handful of sample mapped members plus a remediation link.
   products.
 - **Recommendation**: prefer `@Fetch(FetchMode.SELECT)` or `SUBSELECT` for collections, and request `JOIN FETCH` only in
   the specific queries that need the graph.
+
+### HIB-FETCH-007 - Lazy basic attributes require bytecode enhancement
+
+- **Severity**: MEDIUM
+- **Inspects**: attributes declaring `@Basic(fetch = FetchType.LAZY)` and the owning entity's enhancement state.
+- **Fires when**: a lazy basic attribute belongs to an entity that is not bytecode enhanced.
+- **Why it matters**: without enhancement, Hibernate cannot intercept access to a basic field and the requested lazy
+  column loading is ineffective.
+- **Recommendation**: enable Hibernate bytecode enhancement, or remove the misleading `LAZY` declaration.
 
 ## Identifiers
 
@@ -235,9 +249,8 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Fires when**: an enum attribute omits `@Enumerated` and therefore relies on JPA's default ordinal storage.
 - **Why it matters**: default ordinal persistence is easy to enable accidentally, and reordering enum constants changes the
   stored meaning unless the ordinal values are treated as a stable schema contract.
-- **Recommendation**: declare the mapping explicitly. Use `@Enumerated(EnumType.STRING)`, a database-native enum type, an
-  explicit converter with stable database codes, or an intentional `@Enumerated(EnumType.ORDINAL)` mapping backed by
-  append-only enum ordering plus a lookup/description table or database constraint.
+- **Recommendation**: use `@Enumerated(EnumType.STRING)`, a database-native enum type, or an explicit converter with
+  stable database codes.
 
 ### HIB-MAP-004 - Many-to-many associations should not cascade remove
 
@@ -393,12 +406,16 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Severity**: INFO
 - **Inspects**: `@ManyToOne` and owning `@OneToOne` join columns against the leading columns of `@Index` declarations in
   the entity's `@Table` mapping.
-- **Fires when**: a foreign-key association's join column is not the leading column of any JPA-declared `@Index`.
+- **Fires when**: Hibernate/Jakarta schema management is set to a schema-creating mode (`create`, `create-only`,
+  `create-drop`, `drop-and-create`, or `update`), an association declares an explicit join-column name, and that column
+  is not the leading column of any JPA-declared `@Index`.
 - **Why it matters**: databases do not always index foreign keys automatically. An unindexed foreign key forces full table
   scans when joining the association or when deleting parent rows for constraint and cascade checks, which can lead to
   lock contention and deadlocks.
 - **Recommendation**: declare an `@Index` in `@Table` with the foreign-key column as the leading column. If you manage the
   schema with Flyway/Liquibase, ensure the index exists in your migrations.
+- **Noise controls**: inferred join-column names are skipped because a physical naming strategy can rewrite them, and
+  migration-managed schemas are skipped because JPA annotations cannot prove whether the migration created an index.
 
 ### HIB-MAP-020 - Unidirectional @OneToMany with @JoinColumn issues extra UPDATE statements
 
@@ -411,6 +428,25 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: make the association bidirectional with `@ManyToOne` on the child and `@OneToMany(mappedBy=...)` on
   the parent so the child's foreign key is written in the `INSERT`. A read-only `@JoinColumn(insertable=false,
   updatable=false)` is exempt.
+
+### HIB-MAP-021 - Legacy @Where restrictions should be migrated
+
+- **Severity**: MEDIUM
+- **Inspects**: entity and persistent-attribute annotations by name, without linking the optional Hibernate 6 type.
+- **Fires when**: `org.hibernate.annotations.Where` or `WhereJoinTable` is present.
+- **Why it matters**: Hibernate deprecated these annotations in ORM 6.3 and removed them in ORM 7, so mappings must be
+  migrated before or during an ORM 7 upgrade.
+- **Recommendation**: use `@SQLRestriction` / `@SQLJoinTableRestriction`, or Hibernate's `@SoftDelete` for supported
+  soft-delete mappings.
+
+### HIB-MAP-022 - Explicit ordinal enum mappings should be reviewed
+
+- **Severity**: INFO
+- **Inspects**: enum attributes declaring `@Enumerated(EnumType.ORDINAL)`.
+- **Fires when**: ordinal storage is explicit, so the mapping is intentional but still carries a schema-evolution risk.
+- **Why it matters**: inserting or reordering enum constants changes the meaning of existing numeric values.
+- **Recommendation**: prefer `STRING`, a database-native enum, or a stable-code converter. Keep `ORDINAL` only when
+  append-only ordering is an explicit schema contract.
 
 ## Entity design
 
@@ -532,6 +568,11 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 ## Query
 
+All HIB-QUERY rules currently inspect Spring Data repository metadata. Quarkus/Panache does not expose equivalent
+runtime repository/query metadata with enough fidelity to evaluate these rules reliably, so they remain unavailable on
+Quarkus rather than guessing from Panache method names or generated bytecode. Mapping, identifier, fetching, configuration,
+and caching rules still run on Quarkus against the live JPA metamodel.
+
 ### HIB-QUERY-001 - @Modifying queries should clear or flush the persistence context
 
 - **Severity**: HIGH
@@ -614,16 +655,16 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 ### HIB-CONFIG-001 - Open Session in View should be disabled
 
-- **Severity**: MEDIUM (HIGH when a production-like profile is active)
-- **Inspects**: `spring.jpa.open-in-view` and active Spring profiles.
-- **Fires when**: the property is `true` or absent, matching Spring Boot's default for web applications.
+- **Severity**: INFO when inferred from Spring Boot's absent-property default; MEDIUM for explicit `true`; HIGH for
+  explicit `true` under a production-like profile
+- **Inspects**: adapter-provided servlet applicability, `spring.jpa.open-in-view`, and active Spring profiles.
+- **Fires when**: the application is a Spring servlet web application and the property is `true` or absent, matching
+  Spring Boot's servlet default.
 - **Why it matters**: lazy loading after the service transaction has completed can hide missing fetch plans and move data
   access into the web layer.
 - **Recommendation**: set `spring.jpa.open-in-view=false` and fetch data inside transactional service boundaries.
-- **Note**: the Spring panel's SPRING-JPA-001 checks the same property and mirrors this same production-profile
-  escalation, but additionally skips when no JPA `EntityManagerFactory` or servlet web context is present - a
-  framework-specific guard this framework-neutral rule cannot reproduce. Both are kept so each panel reports the
-  finding for its own domain.
+- **Applicability**: the Spring adapter supplies the servlet-context signal to the framework-neutral engine. Reactive,
+  non-web, and Quarkus applications skip this rule; Quarkus has no Open Session in View mechanism.
 
 ### HIB-CONFIG-003 - Lazy loading outside transactions should stay disabled
 
@@ -849,3 +890,12 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: `READ_ONLY` throws when Hibernate detects state changes and silently misses updates from other
   transactions on the same entity.
 - **Recommendation**: switch to `READ_WRITE` or `NONSTRICT_READ_WRITE` for mutable entities.
+
+### HIB-CACHE-003 - Immutable cached entities should use READ_ONLY
+
+- **Severity**: INFO
+- **Inspects**: entity-level Hibernate `@Immutable` and `@Cache(usage=...)`.
+- **Fires when**: an immutable cached entity uses `READ_WRITE`, `NONSTRICT_READ_WRITE`, or `TRANSACTIONAL`.
+- **Why it matters**: Hibernate documents `READ_ONLY` as the simplest, safest, and best-performing strategy for immutable
+  entities; mutable strategies add coordination overhead for updates the mapping forbids.
+- **Recommendation**: use `@Cache(usage = READ_ONLY)`, or remove `@Immutable` if the entity is expected to change.

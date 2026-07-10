@@ -14,6 +14,8 @@ public record HibernateEntityModel(String name, Class<?> javaType, List<Hibernat
     private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
     private static final String CACHE = "org.hibernate.annotations.Cache";
     private static final String CACHEABLE = "jakarta.persistence.Cacheable";
+    private static final String PERSISTENT_ATTRIBUTE_INTERCEPTABLE =
+            "org.hibernate.engine.spi.PersistentAttributeInterceptable";
 
     public HibernateEntityModel {
         attributes = List.copyOf(attributes);
@@ -64,6 +66,14 @@ public record HibernateEntityModel(String name, Class<?> javaType, List<Hibernat
 
     boolean hasDynamicUpdate() {
         return annotationInHierarchy("org.hibernate.annotations.DynamicUpdate") != null;
+    }
+
+    boolean isImmutable() {
+        return annotationInHierarchy("org.hibernate.annotations.Immutable") != null;
+    }
+
+    boolean isBytecodeEnhanced() {
+        return javaType != null && implementsInterface(javaType, PERSISTENT_ATTRIBUTE_INTERCEPTABLE);
     }
 
     String inheritanceStrategy() {
@@ -149,12 +159,26 @@ public record HibernateEntityModel(String name, Class<?> javaType, List<Hibernat
         if (javaType == null) {
             return false;
         }
+
         try {
             Method method = javaType.getMethod(name, parameterTypes);
             return method.getDeclaringClass() != Object.class;
         } catch (NoSuchMethodException ex) {
             return false;
         }
+    }
+
+    private static boolean implementsInterface(Class<?> type, String interfaceName) {
+        Class<?> current = type;
+        while (current != null) {
+            for (Class<?> candidate : current.getInterfaces()) {
+                if (interfaceName.equals(candidate.getName()) || implementsInterface(candidate, interfaceName)) {
+                    return true;
+                }
+            }
+            current = current.getSuperclass();
+        }
+        return false;
     }
 
     private static boolean hasAnnotation(AnnotatedElement element, String typeName) {

@@ -11,6 +11,7 @@ final class HibernateRuleRegistry {
             new MultipleBagCollectionRule(),
             new MissingBatchFetchRule(),
             new LobLazyFetchRule(),
+            new LazyBasicWithoutEnhancementRule(),
             new CollectionFetchJoinAnnotationRule(),
             // Identifiers
             new IdentityIdentifierRule(),
@@ -24,6 +25,7 @@ final class HibernateRuleRegistry {
             new UnidirectionalOneToManyRule(),
             new ManyToManyListRule(),
             new OrdinalEnumRule(),
+            new ExplicitOrdinalEnumRule(),
             new ManyToManyRemoveCascadeRule(),
             new ManyToOneRemoveCascadeRule(),
             new OneToOneWithoutMapsIdRule(),
@@ -40,6 +42,7 @@ final class HibernateRuleRegistry {
             new LazyOneToOneEnhancementRule(),
             new NonOwningOneToOneEnhancementRule(),
             new MissingForeignKeyIndexRule(),
+            new LegacyWhereAnnotationRule(),
             new UnidirectionalOneToManyJoinColumnRule(),
 
             // Entity design
@@ -83,7 +86,8 @@ final class HibernateRuleRegistry {
 
             // Caching
             new CacheAssociationCoverageRule(),
-            new ReadOnlyCacheOnWritableEntityRule());
+            new ReadOnlyCacheOnWritableEntityRule(),
+            new ImmutableEntityCacheStrategyRule());
 
     private HibernateRuleRegistry() {}
 

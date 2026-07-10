@@ -56,13 +56,14 @@ import org.junit.jupiter.api.Test;
 
 class HibernateScannerTests {
 
-    private static final int RULE_COUNT = 69;
+    private static final int RULE_COUNT = 73;
     private static final String AFFECTED_HIBERNATE_VERSION = "7.3.9.Final";
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
     void scanReportsHibernateMappingAndConfigurationFindings() {
         TestEnvironment environment = new TestEnvironment()
+                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true")
                 .withProperty("spring.jpa.hibernate.ddl-auto", "update")
                 .withProperty("spring.jpa.open-in-view", "true");
         HibernateScanner scanner = scanner(environment, ProblemOrder.class);
@@ -240,8 +241,8 @@ class HibernateScannerTests {
                         "HIB-CONFIG-015",
                         "HIB-FETCH-003",
                         "HIB-FETCH-004",
-                        "HIB-FETCH-005",
                         "HIB-FETCH-006",
+                        "HIB-FETCH-007",
                         "HIB-ID-002",
                         "HIB-ID-003",
                         "HIB-ID-004",
@@ -938,7 +939,7 @@ class HibernateScannerTests {
         @Enumerated(EnumType.STRING)
         Status status;
 
-        @Enumerated(EnumType.ORDINAL)
+        @Enumerated(EnumType.STRING)
         Status stableOrdinalStatus;
 
         @Convert(converter = StatusCodeConverter.class)

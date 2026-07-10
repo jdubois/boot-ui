@@ -21,6 +21,8 @@ import java.util.function.Supplier;
  */
 public final class HibernateScanner {
 
+    public static final String OPEN_IN_VIEW_APPLICABLE_PROPERTY = "bootui.internal.hibernate.open-in-view-applicable";
+
     private static final String ANALYZER = "BootUI Hibernate Advisor";
     private static final String DISCLAIMER =
             "Heuristic Hibernate/JPA mapping rules run against the host application's mapped entities only. "

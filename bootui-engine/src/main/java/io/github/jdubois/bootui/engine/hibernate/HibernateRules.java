@@ -708,7 +708,7 @@ final class OrdinalEnumRule extends AbstractHibernateRule {
                 HibernateCategory.MAPPING,
                 "MEDIUM",
                 "Detects enum attributes that omit @Enumerated and therefore rely on JPA's ORDINAL default.",
-                "Declare the enum mapping explicitly: use STRING, a database-native enum type, a stable converter/code, or an intentional ORDINAL mapping backed by append-only enum ordering and a lookup table or database constraint.",
+                "Declare the enum mapping explicitly. Prefer STRING, a database-native enum type, or a converter with stable database codes.",
                 "https://vladmihalcea.com/the-best-way-to-map-an-enum-type-with-jpa-and-hibernate/"));
     }
 
@@ -730,6 +730,36 @@ final class OrdinalEnumRule extends AbstractHibernateRule {
     }
 }
 
+final class ExplicitOrdinalEnumRule extends AbstractHibernateRule {
+
+    ExplicitOrdinalEnumRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-MAP-022",
+                "Explicit ordinal enum mappings should be reviewed",
+                HibernateCategory.MAPPING,
+                "INFO",
+                "Detects enum attributes explicitly mapped with @Enumerated(ORDINAL).",
+                "Prefer STRING, a database-native enum type, or a converter with stable database codes. Keep ORDINAL only when append-only enum ordering is an explicit schema contract.",
+                "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                Annotation enumerated = attribute.enumeratedAnnotation();
+                if (attribute.isEnumAttribute()
+                        && enumerated != null
+                        && "ORDINAL".equals(attribute.annotationValueName(enumerated, "value"))) {
+                    details.add(attribute.description() + " explicitly uses EnumType.ORDINAL.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
 final class OpenInViewRule extends AbstractHibernateRule {
 
     OpenInViewRule() {
@@ -739,25 +769,16 @@ final class OpenInViewRule extends AbstractHibernateRule {
                         "Open Session in View should be disabled",
                         HibernateCategory.CONFIGURATION,
                         "MEDIUM",
-                        "Detects spring.jpa.open-in-view=true, including Spring Boot's default when the property is not set.",
+                        "Detects spring.jpa.open-in-view=true in servlet applications, including Spring Boot's servlet default when the property is not set.",
                         "Set spring.jpa.open-in-view=false and fetch data inside transactional service boundaries.",
                         "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-in-view"));
     }
 
-    /**
-     * Also checked by SPRING-JPA-001 ({@code OpenSessionInViewEnabledRule}) in the Spring Application
-     * Advisor, which additionally skips when no JPA {@code EntityManagerFactory} or servlet web
-     * context is present — a guard this rule cannot reproduce, since "is this a servlet web
-     * application" is a framework-specific concept the framework-neutral engine cannot see (and on
-     * Quarkus, which has no Open-Session-in-View mechanism at all, the property lookup below simply
-     * never reports it enabled, so the rule is already inert there without needing that guard). Both
-     * rules are kept deliberately: they serve two independently-browsable UI panels (Hibernate vs.
-     * Spring), and the {@link HibernateContext#isProductionProfileActive()} escalation below is
-     * mirrored from SPRING-JPA-001 so the two panels report the same severity for the same
-     * misconfiguration.
-     */
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (!context.isOpenInViewApplicable()) {
+            return skipped("Open Session in View is not applicable outside a Spring servlet web application.");
+        }
         Boolean value = context.booleanProperty("spring.jpa.open-in-view");
         if (Boolean.FALSE.equals(value)) {
             return pass();
@@ -766,7 +787,9 @@ final class OpenInViewRule extends AbstractHibernateRule {
                 ? "spring.jpa.open-in-view is not set and defaults to enabled, keeping a persistence context open"
                         + " for the entire web request."
                 : "spring.jpa.open-in-view=true keeps a persistence context open for the entire web request.";
-        String severity = context.isProductionProfileActive() ? HibernateRuleSupport.HIGH : HibernateRuleSupport.MEDIUM;
+        String severity = value == null
+                ? HibernateRuleSupport.INFO
+                : context.isProductionProfileActive() ? HibernateRuleSupport.HIGH : HibernateRuleSupport.MEDIUM;
         return violation(severity, detail);
     }
 }
@@ -1300,12 +1323,12 @@ final class LobLazyFetchRule extends AbstractHibernateRule {
         super(
                 new HibernateRuleDefinition(
                         "HIB-FETCH-005",
-                        "@Lob attributes should be loaded lazily",
+                        "Enhanced @Lob attributes should be loaded lazily",
                         HibernateCategory.FETCHING,
                         "MEDIUM",
-                        "Detects @Lob attributes that do not declare @Basic(fetch=LAZY), so they are loaded with every entity hydration.",
-                        "Annotate @Lob fields with @Basic(fetch = FetchType.LAZY) so large CLOB/BLOB payloads load only when accessed; bytecode enhancement is required for non-association lazy loading to actually defer the SQL.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#basic-binary"));
+                        "Detects @Lob attributes that remain eager on entities where Hibernate bytecode enhancement can honor @Basic(fetch=LAZY).",
+                        "On bytecode-enhanced entities, annotate infrequently accessed @Lob attributes with @Basic(fetch = FetchType.LAZY). Without enhancement, do not add the annotation: Hibernate cannot defer the column load.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-basics-lazy"));
     }
 
     @Override
@@ -1313,9 +1336,41 @@ final class LobLazyFetchRule extends AbstractHibernateRule {
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
-                if (attribute.isLob() && !attribute.hasBasicLazy()) {
+                if (attribute.isLob() && !attribute.hasBasicLazy() && context.isHibernateEnhancementEnabled(entity)) {
                     details.add(attribute.description()
                             + " is annotated with @Lob but does not declare @Basic(fetch = LAZY).");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class LazyBasicWithoutEnhancementRule extends AbstractHibernateRule {
+
+    LazyBasicWithoutEnhancementRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-FETCH-007",
+                        "Lazy basic attributes require bytecode enhancement",
+                        HibernateCategory.FETCHING,
+                        "MEDIUM",
+                        "Detects @Basic(fetch=LAZY) attributes on entities where Hibernate bytecode enhancement is not available.",
+                        "Enable Hibernate bytecode enhancement so lazy basic attributes can defer their columns, or remove the ineffective LAZY declaration.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-basics-lazy"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            if (context.isHibernateEnhancementEnabled(entity)) {
+                continue;
+            }
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.hasBasicLazy()) {
+                    details.add(attribute.description()
+                            + " declares @Basic(fetch = LAZY), but the entity is not bytecode enhanced.");
                 }
             }
         }
@@ -2120,6 +2175,33 @@ final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateRule {
     }
 }
 
+final class ImmutableEntityCacheStrategyRule extends AbstractHibernateRule {
+
+    ImmutableEntityCacheStrategyRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-CACHE-003",
+                        "Immutable cached entities should use READ_ONLY",
+                        HibernateCategory.CACHING,
+                        "INFO",
+                        "Detects @Immutable entities using a mutable second-level cache concurrency strategy.",
+                        "Use @Cache(usage = READ_ONLY) for immutable entities, or remove @Immutable if the entity is expected to change.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-entity-cache-mapping"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            String usage = entity.hibernateCacheUsageName();
+            if (entity.isImmutable() && usage != null && !"READ_ONLY".equals(usage) && !"NONE".equals(usage)) {
+                details.add(entity.name() + " is @Immutable but uses @Cache(usage=" + usage + ").");
+            }
+        }
+        return violation(details);
+    }
+}
+
 final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateRule {
 
     FailOnPaginationOverCollectionFetchRule() {
@@ -2267,6 +2349,10 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
     @SuppressWarnings("java:S1872")
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (!context.managesSchemaIndexes()) {
+            return skipped(
+                    "Schema indexes are not managed by Hibernate; migration-managed indexes cannot be verified from JPA annotations.");
+        }
         List<String> details = new ArrayList<>();
         List<String> unresolved = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
@@ -2319,19 +2405,20 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
         Annotation joinColumn = attribute.joinColumnAnnotation();
         if (joinColumn != null) {
             String name = attribute.annotationStringValue(joinColumn, "name");
-            columns.add(normalizeColumn(name, attribute.name()));
+            if (name != null && !name.isBlank()) {
+                columns.add(normalizeIdentifier(name));
+            }
             return columns;
         }
         Annotation joinColumns = attribute.annotation("jakarta.persistence.JoinColumns");
         if (joinColumns != null) {
             for (String name : joinColumnsNames(joinColumns)) {
-                columns.add(normalizeColumn(name, attribute.name()));
+                if (name != null && !name.isBlank()) {
+                    columns.add(normalizeIdentifier(name));
+                }
             }
-            if (!columns.isEmpty()) {
-                return columns;
-            }
+            return columns;
         }
-        columns.add(snakeCase(attribute.name()) + "_id");
         return columns;
     }
 
@@ -2351,13 +2438,6 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
         return names;
     }
 
-    private String normalizeColumn(String declaredName, String attributeName) {
-        if (declaredName != null && !declaredName.isBlank()) {
-            return declaredName.trim().toLowerCase(Locale.ROOT);
-        }
-        return snakeCase(attributeName) + "_id";
-    }
-
     private Set<String> leadingIndexColumns(Class<?> javaType) {
         Set<String> leading = new HashSet<>();
         Class<?> current = javaType;
@@ -2375,7 +2455,7 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
                         if (columnList == null || columnList.isBlank()) {
                             continue;
                         }
-                        String first = columnList.split(",")[0].trim().toLowerCase(Locale.ROOT);
+                        String first = normalizeIndexColumn(columnList.split(",")[0]);
                         if (!first.isEmpty()) {
                             leading.add(first);
                         }
@@ -2389,20 +2469,51 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
         return leading;
     }
 
-    private String snakeCase(String name) {
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < name.length(); i++) {
-            char ch = name.charAt(i);
-            if (Character.isUpperCase(ch)) {
-                if (builder.length() > 0) {
-                    builder.append('_');
+    private String normalizeIndexColumn(String column) {
+        return normalizeIdentifier(column.replaceFirst("(?i)\\s+(ASC|DESC)\\s*$", ""));
+    }
+
+    private String normalizeIdentifier(String identifier) {
+        String normalized = identifier.trim();
+        if ((normalized.startsWith("\"") && normalized.endsWith("\""))
+                || (normalized.startsWith("`") && normalized.endsWith("`"))
+                || (normalized.startsWith("[") && normalized.endsWith("]"))) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        return normalized.toLowerCase(Locale.ROOT);
+    }
+}
+
+final class LegacyWhereAnnotationRule extends AbstractHibernateRule {
+
+    private static final String WHERE = "org.hibernate.annotations.Where";
+    private static final String WHERE_JOIN_TABLE = "org.hibernate.annotations.WhereJoinTable";
+
+    LegacyWhereAnnotationRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-MAP-021",
+                "Legacy @Where restrictions should be migrated",
+                HibernateCategory.MAPPING,
+                "MEDIUM",
+                "Detects Hibernate @Where and @WhereJoinTable mappings, deprecated in ORM 6.3 and removed in ORM 7.",
+                "Replace static restrictions with @SQLRestriction/@SQLJoinTableRestriction, or use @SoftDelete for supported soft-delete mappings.",
+                "https://docs.jboss.org/hibernate/orm/7.0/migration-guide/migration-guide.html"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            if (entity.annotationInHierarchy(WHERE) != null || entity.annotationInHierarchy(WHERE_JOIN_TABLE) != null) {
+                details.add(entity.name() + " uses a legacy @Where restriction.");
+            }
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.annotation(WHERE) != null || attribute.annotation(WHERE_JOIN_TABLE) != null) {
+                    details.add(attribute.description() + " uses a legacy @Where restriction.");
                 }
-                builder.append(Character.toLowerCase(ch));
-            } else {
-                builder.append(ch);
             }
         }
-        return builder.toString();
+        return violation(details);
     }
 }
 

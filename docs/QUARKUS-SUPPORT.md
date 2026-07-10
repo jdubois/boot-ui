@@ -304,6 +304,8 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
   Spring's `BufferingApplicationStartup`, only coarse boot totals — so it is reported *not applicable*, not
   *not yet*, alongside GraalVM/CRaC).
 - **Different security/data stacks:** `Spring Security`, `Spring Data` (Quarkus uses Elytron/OIDC and Panache).
+- **Hibernate advisor query rules:** mapping/configuration rules run against Quarkus' JPA metamodel, but HIB-QUERY rules
+  remain unavailable because Panache exposes no reliable runtime equivalent of Spring Data repository query metadata.
 - **Servlet-only / low value on a reactive stack:** `HTTP Sessions`.
 - **Superseded or moot:** `GraalVM` readiness (Quarkus is native-first with its own build), `CRaC` (native focus makes
   it niche), `DevTools` (**Implemented as `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
