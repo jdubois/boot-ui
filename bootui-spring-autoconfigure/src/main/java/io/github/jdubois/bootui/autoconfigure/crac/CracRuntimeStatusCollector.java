@@ -24,12 +24,14 @@ final class CracRuntimeStatusCollector {
 
     private static final String CHECKPOINT_TO_PREFIX = "-XX:CRaCCheckpointTo=";
     private static final String RESTORE_FROM_PREFIX = "-XX:CRaCRestoreFrom=";
+    private static final String EXIT_PROPERTY = "spring.context.exit";
 
     private final Environment environment;
     private final Supplier<List<String>> jvmArgumentsSupplier;
     private final ClassPresenceCheck classPresenceCheck;
     private final Supplier<CracRuntimeInventory> inventorySupplier;
     private final Supplier<String> actualCheckpointPropertySupplier;
+    private final Supplier<String> actualExitPropertySupplier;
 
     CracRuntimeStatusCollector(Environment environment) {
         this(environment, CracRuntimeInventory::empty);
@@ -56,7 +58,8 @@ final class CracRuntimeStatusCollector {
                 jvmArgumentsSupplier,
                 classPresenceCheck,
                 inventorySupplier,
-                defaultActualCheckpointPropertySupplier());
+                defaultSpringPropertySupplier("spring.context.checkpoint"),
+                defaultSpringPropertySupplier(EXIT_PROPERTY));
     }
 
     /**
@@ -70,11 +73,28 @@ final class CracRuntimeStatusCollector {
             ClassPresenceCheck classPresenceCheck,
             Supplier<CracRuntimeInventory> inventorySupplier,
             Supplier<String> actualCheckpointPropertySupplier) {
+        this(
+                environment,
+                jvmArgumentsSupplier,
+                classPresenceCheck,
+                inventorySupplier,
+                actualCheckpointPropertySupplier,
+                defaultSpringPropertySupplier(EXIT_PROPERTY));
+    }
+
+    CracRuntimeStatusCollector(
+            Environment environment,
+            Supplier<List<String>> jvmArgumentsSupplier,
+            ClassPresenceCheck classPresenceCheck,
+            Supplier<CracRuntimeInventory> inventorySupplier,
+            Supplier<String> actualCheckpointPropertySupplier,
+            Supplier<String> actualExitPropertySupplier) {
         this.environment = environment;
         this.jvmArgumentsSupplier = jvmArgumentsSupplier;
         this.classPresenceCheck = classPresenceCheck;
         this.inventorySupplier = inventorySupplier;
         this.actualCheckpointPropertySupplier = actualCheckpointPropertySupplier;
+        this.actualExitPropertySupplier = actualExitPropertySupplier;
     }
 
     CracRuntimeStatusDto collect() {
@@ -82,14 +102,15 @@ final class CracRuntimeStatusCollector {
         boolean cracCapableJvm = CRAC_IMPL_MARKERS.stream().anyMatch(classPresenceCheck::isPresent);
         String jvmName = jvmName();
         boolean checkpointOnRefresh = checkpointOnRefresh();
+        boolean exitOnRefresh = isOnRefresh(safeProperty(actualExitPropertySupplier));
 
         List<String> jvmArguments = safeJvmArguments();
         String checkpointTo = argumentValue(jvmArguments, CHECKPOINT_TO_PREFIX);
         String restoreFrom = argumentValue(jvmArguments, RESTORE_FROM_PREFIX);
         List<String> cracJvmArgs = cracArguments(jvmArguments);
 
-        String summary = summary(cracApiPresent, cracCapableJvm, checkpointOnRefresh, checkpointTo);
-        List<String> restoreCaveats = restoreCaveats(checkpointOnRefresh);
+        String summary = summary(cracApiPresent, cracCapableJvm, checkpointOnRefresh, exitOnRefresh, checkpointTo);
+        List<String> restoreCaveats = restoreCaveats(checkpointOnRefresh, exitOnRefresh);
         return new CracRuntimeStatusDto(
                 cracApiPresent,
                 cracCapableJvm,
@@ -108,8 +129,13 @@ final class CracRuntimeStatusCollector {
      * freezes it into the image, and any connection pool must be reachable both when the checkpoint is
      * taken and when it is restored. These are review prompts, not detected failures.
      */
-    private List<String> restoreCaveats(boolean checkpointOnRefresh) {
+    private List<String> restoreCaveats(boolean checkpointOnRefresh, boolean exitOnRefresh) {
         List<String> caveats = new ArrayList<>();
+        if (exitOnRefresh) {
+            caveats.add("spring.context.exit=onRefresh is active. Spring will run the same lifecycle stop phase used "
+                    + "before a checkpoint and then exit without creating a CRaC image. Use this dry-run mode on a "
+                    + "regular JDK to find shutdown/lifecycle issues before attempting a real checkpoint.");
+        }
         if (checkpointOnRefresh) {
             caveats.add("Configuration is frozen into the checkpoint. Environment variables, system properties, and "
                     + "the active Spring profile are read when the checkpoint is taken, not when it is restored; "
@@ -153,22 +179,22 @@ final class CracRuntimeStatusCollector {
      * #environmentClaimsCheckpointOnRefresh()} for the check that detects that specific mismatch.
      */
     private boolean checkpointOnRefresh() {
-        return isOnRefresh(safeActualCheckpointProperty());
+        return isOnRefresh(safeProperty(actualCheckpointPropertySupplier));
     }
 
     /**
      * Whether the Spring Boot {@link Environment} reports {@code spring.context.checkpoint=onRefresh}
      * (for example from {@code application.yml} or an OS environment variable). This does NOT mean an
      * automatic checkpoint will actually be taken — see {@link #checkpointOnRefresh()} — it exists only
-     * to detect and warn about that common mismatch in {@link #restoreCaveats(boolean)}.
+     * to detect and warn about that common mismatch in {@link #restoreCaveats(boolean, boolean)}.
      */
     private boolean environmentClaimsCheckpointOnRefresh() {
         return environment != null && isOnRefresh(environment.getProperty("spring.context.checkpoint"));
     }
 
-    private String safeActualCheckpointProperty() {
+    private static String safeProperty(Supplier<String> supplier) {
         try {
-            return actualCheckpointPropertySupplier == null ? null : actualCheckpointPropertySupplier.get();
+            return supplier == null ? null : supplier.get();
         } catch (RuntimeException ex) {
             return null;
         }
@@ -213,10 +239,18 @@ final class CracRuntimeStatusCollector {
     }
 
     private static String summary(
-            boolean cracApiPresent, boolean cracCapableJvm, boolean checkpointOnRefresh, String checkpointTo) {
+            boolean cracApiPresent,
+            boolean cracCapableJvm,
+            boolean checkpointOnRefresh,
+            boolean exitOnRefresh,
+            String checkpointTo) {
+        if (exitOnRefresh) {
+            return "spring.context.exit=onRefresh is active: Spring will exercise the checkpoint lifecycle stop phase "
+                    + "and exit without writing a checkpoint image. This is a safe dry run that works on a regular JDK.";
+        }
         if (!cracApiPresent) {
-            return "The org.crac API is not on the classpath; add the org.crac:crac dependency (bundled with "
-                    + "spring-boot-starter) to use Coordinated Restore at Checkpoint.";
+            return "The org.crac API is not on the classpath; add the org.crac:crac dependency (its version is "
+                    + "managed by the Spring Boot BOM) to use Coordinated Restore at Checkpoint.";
         }
         if (!cracCapableJvm) {
             return "The org.crac API is present but this JVM has no CRaC implementation, so checkpointing is a no-op. "
@@ -253,10 +287,10 @@ final class CracRuntimeStatusCollector {
      * consults a JVM system property or a classpath {@code spring.properties} file, never the Spring
      * Boot {@link Environment}.
      */
-    private static Supplier<String> defaultActualCheckpointPropertySupplier() {
+    private static Supplier<String> defaultSpringPropertySupplier(String name) {
         return () -> {
             try {
-                return SpringProperties.getProperty("spring.context.checkpoint");
+                return SpringProperties.getProperty(name);
             } catch (RuntimeException | LinkageError ex) {
                 return null;
             }

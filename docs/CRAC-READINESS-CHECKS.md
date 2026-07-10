@@ -16,9 +16,10 @@ stays compact and reviewable; adding a new check means adding one focused class 
 
 The runtime-status section (always read-only) reports:
 
-- whether the [`org.crac`](https://crac.org/) API is on the classpath (`org.crac.Core` marker),
+- whether the application-facing [`org.crac`](https://crac.org/) compatibility API is on the classpath
+  (`org.crac.Core` marker),
 - whether the running JVM is a CRaC-capable JDK (such as Azul Zulu CRaC or BellSoft Liberica), detected via the real CRaC
-  implementation (`jdk.crac.Core`) rather than the no-op shim that ships with stock JDKs,
+  implementation (`jdk.crac.Core` or `javax.crac.Core`) rather than the no-op shim that ships with stock JDKs,
 - whether automatic checkpoint-on-refresh is actually active. Spring Framework's `DefaultLifecycleProcessor` only honors
   `spring.context.checkpoint=onRefresh` through `org.springframework.core.SpringProperties` — a JVM system property
   (`-Dspring.context.checkpoint=onRefresh`) or a classpath `spring.properties` file — **never** the Spring Boot
@@ -26,6 +27,8 @@ The runtime-status section (always read-only) reports:
   BootUI reads the property the same way Spring Framework does, and separately checks whether the Boot `Environment` also
   claims the property is set; if the Environment says one thing and the real property says another, a restore caveat
   flags the mismatch,
+- whether `spring.context.exit=onRefresh` is active. This runs the same lifecycle stop phase and exits without creating a
+  checkpoint, so it is a safe dry run on a regular JDK before using CRIU,
 - any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments, read from the `RuntimeMXBean` input arguments
   (the same source the JVM Tuning panel uses),
 - and any *checkpoint &amp; restore caveats* worth reviewing before a checkpoint: a reminder that CRaC freezes
@@ -46,12 +49,14 @@ without an extra application dependency. The advisor is available only when Arch
 package is resolvable from the running application. If no classes can be imported, the panel degrades to a stable, empty
 report with an explanatory reason rather than failing.
 
-Three checks are different: `CRAC-POOL-001`, `CRAC-CACHE-001`, and `CRAC-LIFECYCLE-002`. Connection pools, cache
+Four checks also consume live runtime context: `CRAC-POOL-001`, `CRAC-CACHE-001`, `CRAC-SCHED-001`, and
+`CRAC-LIFECYCLE-002`. Connection pools, cache
 managers, and classpath dependency presence are either contributed by Spring Boot auto-configuration or are a
-runtime/dependency signal rather than something visible in the application's own base package, so those three checks
+runtime/dependency signal rather than something visible in the application's own base package, so those checks
 read a small read-only runtime inventory — pooled clients (JDBC `DataSource`s, plus R2DBC/Redis/RabbitMQ/Kafka/
 Mongo/Cassandra/JMS connection factories and similar), Spring `CacheManager`s backed by local/in-heap storage, and
-whether `org.crac:crac` is on the classpath — instead of imported bytecode. They still trigger only on demand and never
+whether `org.crac:crac` is on the classpath, plus whether checkpoint-on-refresh is active — instead of imported bytecode.
+They still trigger only on demand and never
 open, close, or checkpoint anything. Every other check, including `CRAC-POOL-002` (unmanaged HTTP/RPC clients), inspects
 imported application bytecode like the rest of the catalogue.
 
@@ -71,8 +76,8 @@ Severity reflects the worst plausible impact if the finding is real, not the lik
 - **CRITICAL** — a construct with the most severe checkpoint/restore impact if the finding is real. No active CRaC check
   currently emits this severity.
 - **HIGH** — a construct that typically blocks a clean checkpoint or leaks/duplicates state across restore (open OS
-  resources, direct network sockets, unmanaged HTTP/RPC clients, connection pools with an open connection, frozen random
-  state, captured secrets).
+  resources, direct network sockets, unmanaged HTTP/RPC clients, connection pools with an open connection, predictable
+  random state, captured secrets).
 - **MEDIUM** — a construct that often misbehaves across restore unless handled (unmanaged threads/pools, fixed-rate
   scheduled tasks that may burst after restore, captured wall-clock time, captured environment/system configuration, a
   missing `org.crac:crac` dependency).
@@ -117,16 +122,12 @@ a handful of sample detail lines.
   checkpoint: a pooled connection that is still open when `spring.context.checkpoint=onRefresh` fires holds an OS socket
   that CRaC refuses to snapshot, so the checkpoint aborts with `CheckpointOpenSocketException`. The backing service must
   also be reachable both when the checkpoint is taken and when it is restored.
-- **Recommendation**: ensure no pooled connection is open at checkpoint time — let the pool drain to zero idle
-  connections (for example `spring.datasource.hikari.minimum-idle=0`) — and keep the database/cache reachable at both
-  checkpoint and restore. Take the checkpoint after the context refreshes but before traffic opens a connection. Do not
-  assume the pool closes itself for CRaC: check whether your specific pool/client library has adopted
-  `org.crac.Resource` natively. As of today, most common pools — including HikariCP and Lettuce, Spring Boot's default
-  JDBC pool and Redis client — do **not** ship this out of the box (a search of both projects' source for
-  `org.crac.Resource` returns no matches as of this writing), so unless you have verified otherwise for your library's
-  current version, plan to register your own `org.crac.Resource` wrapper around the `DataSource`/connection factory bean
-  to close and reopen it around the checkpoint. An in-memory profile (such as H2 with no network socket) avoids the
-  problem entirely.
+- **Recommendation**: ensure no pooled connection is open at checkpoint time and keep the database/cache reachable at
+  checkpoint and restore. HikariCP itself does not implement `org.crac.Resource`, but Spring Boot 3.2+ supplies
+  `HikariCheckpointRestoreLifecycle` when `org.crac:crac` is present. Set
+  `spring.datasource.hikari.allow-pool-suspension=true`: Boot then suspends new borrows, evicts connections, waits for
+  closure, and resumes after restore. For other pools/clients, verify the exact version's native support or register an
+  `org.crac.Resource` wrapper.
 
 ### CRAC-POOL-002 — HTTP/RPC clients hold sockets and threads that must be released at checkpoint
 
@@ -146,6 +147,16 @@ a handful of sample detail lines.
   `org.crac.Resource.beforeCheckpoint()` callback and rebuild it in `afterRestore()`, or hold it in a Spring
   `Lifecycle`/`SmartLifecycle` bean so the framework stops it before the checkpoint.
 
+### CRAC-POOL-003 — Spring HTTP client fields require a restore-aware transport
+
+- **Severity**: MEDIUM
+- **Inspects**: fields of type Spring `RestClient` or `WebClient`.
+- **Fires when**: an unmanaged application class holds one of these facades. The facade itself may share
+  framework-managed resources, so this is deliberately not a HIGH-severity assertion that every field owns a socket.
+- **Recommendation**: verify the underlying `ClientHttpRequestFactory`, Reactor Netty `ConnectionProvider`, and event-loop
+  lifecycle. Prefer a Spring-managed `ReactorResourceFactory` with non-global resources or another lifecycle-managed
+  connector; otherwise close/recreate the transport owner around checkpoint/restore.
+
 ## Caches
 
 ### CRAC-CACHE-001 — In-memory caches may hold stale entries after restore
@@ -162,6 +173,11 @@ a handful of sample detail lines.
   are not reported here.
 - **Recommendation**: clear or refresh time-sensitive local caches in an `org.crac.Resource.afterRestore()` callback, or
   use restore-aware expiry, so a restored process does not serve data captured at checkpoint time.
+
+Hazelcast is intentionally not excluded by type: BootUI cannot reliably distinguish an embedded member from a remote
+client from the `CacheManager` bean type. Hazelcast has no currently verified CRaC lifecycle hooks in its public core
+source. Client mode is safer because it can reconnect to an existing cluster; an embedded member must explicitly
+quiesce/leave and rejoin, and restoring multiple copies of one member checkpoint risks duplicate identity/topology state.
 
 ## Resources
 
@@ -205,14 +221,18 @@ a handful of sample detail lines.
 ### CRAC-THREAD-001 — Threads or executor pools created outside the Spring lifecycle
 
 - **Severity**: MEDIUM
-- **Inspects**: threads, timers, and executor pools created directly (`new Thread` / `Timer` / `ThreadPoolExecutor`, or
-  the `Executors` factory methods).
+- **Inspects**: threads, timers, and executor pools created directly (`new Thread` / `Timer` / `ThreadPoolExecutor`,
+  `Executors` factories, `Thread.startVirtualThread()`, and `Thread.ofVirtual()` / `Thread.ofPlatform()` builders when
+  they call `start(...)` or escape as a `ThreadFactory`).
 - **Fires when**: an application class creates one of those directly outside a managed CRaC lifecycle. CRIU (which CRaC
   is built on) freezes *every* OS thread in the process to take a checkpoint — no thread "keeps running through" it, and
   none is skipped. The actual risk is in what happens just *before* that freeze: Spring stops `SmartLifecycle` beans
   gracefully before the checkpoint is even requested, so managed background work reaches a quiescent, consistent state
   first. A raw thread or executor has no such hook, so CRIU captures it abruptly mid-execution — in whatever state it
   happens to be in at that instant — which risks deadlocks, stale locks, or inconsistent state on restore.
+- **Does not fire when**: a builder only creates an `unstarted(...)` thread object. That is ordinary heap state, not a
+  running unmanaged thread. Virtual threads executing native or pinned work still need to quiesce; JDK 24's JEP 491
+  reduces `synchronized` pinning but does not make arbitrary running work lifecycle-managed.
 - **Exempt when**: the call site is inside `beforeCheckpoint`/`afterRestore`/`start`/`stop` on a class that already
   implements `org.crac.Resource`, `org.springframework.context.Lifecycle`, or `org.springframework.context.SmartLifecycle`
   — restarting the pool from `afterRestore()`/`start()` on a managed class is the recommended pattern and is not
@@ -225,13 +245,14 @@ a handful of sample detail lines.
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Scheduled` methods that explicitly declare `fixedRate` or `fixedRateString`.
-- **Fires when**: a method is annotated this way. Fixed-rate scheduling computes each execution from a fixed wall-clock
+- **Fires when**: a method is annotated this way **and** the running application is not configured for
+  `spring.context.checkpoint=onRefresh`. Fixed-rate scheduling computes each execution from a fixed wall-clock
   point rather than the end of the previous run, so [on-demand checkpoint/restore of an already-running
   application](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html#_on_demand_checkpointrestore_of_a_running_application)
   can leave a long idle gap between the checkpoint and a later restore; every execution missed during that gap fires
   back-to-back immediately after restore. This risk is specific to on-demand checkpoint/restore of a running
-  application — automatic checkpoint/restore at startup (`spring.context.checkpoint=onRefresh`) takes the checkpoint
-  before the scheduler starts and is not affected.
+  application. Automatic checkpoint/restore at startup takes the checkpoint before `Lifecycle.start()` and before
+  `ContextRefreshedEvent`, so the scheduler has not started and this check is suppressed.
 - **Recommendation**: if a catch-up burst after restore is not the behavior you want, switch to `fixedDelay` (or a cron
   expression), which Spring schedules relative to the end of the previous execution rather than a fixed wall-clock
   point, so a checkpoint/restore gap does not queue up missed runs.
@@ -264,23 +285,25 @@ a handful of sample detail lines.
 
 ## Randomness
 
-### CRAC-RANDOM-001 — Random/SecureRandom state is frozen into the checkpoint
+### CRAC-RANDOM-001 — Predictable random state is frozen into the checkpoint
 
 - **Severity**: HIGH
-- **Inspects**: fields, static or instance, of type `java.util.Random` or `java.security.SecureRandom`. Idiomatic Spring
-  code rarely uses a *static* PRNG field — the dominant pattern is a singleton-bean *instance* field, such as a
-  `@Component`-injected `SecureRandom` — but a checkpoint snapshots every object reachable from GC roots, not just
-  static state, so an instance field is captured just as completely as a static one.
-- **Fires when**: such a field exists. A checkpoint freezes whatever internal state the generator holds at that moment
-  into the image, whether the field is static or an ordinary singleton-bean field. A JDK built for CRaC already
-  auto-reseeds a no-arg, never-explicitly-seeded `SecureRandom` on restore, so plain `new SecureRandom()` usage is
-  commonly safe there without any code change — but this is not guaranteed on every CRaC-capable platform, so confirm
-  your target JDK/runtime's actual behavior before relying on it. An explicitly-seeded `SecureRandom`, or a plain
-  `java.util.Random`, keeps its frozen state across restore in every case and needs its own fix.
-- **Recommendation**: for an explicitly-seeded `SecureRandom` or a plain `Random`, re-seed or recreate the generator in
-  an `org.crac.Resource.afterRestore()` callback, or avoid caching a shared instance so a fresh generator is created per
-  restored process. For a no-arg `SecureRandom`, verify your target JDK/runtime re-seeds it automatically on restore
-  before treating this as a non-issue.
+- **Inspects**: fields of type `java.util.Random` (including subclasses), plus `SecureRandom(byte[])` construction and
+  `SecureRandom.setSeed(...)` calls.
+- **Fires when**: predictable generator state or explicit seeding would be copied into every process restored from one
+  checkpoint.
+- **Recommendation**: recreate/reseed deterministic generators with process-specific state in `afterRestore()`. For
+  security-sensitive values, use an unseeded standard `SecureRandom`.
+
+### CRAC-RANDOM-002 — SecureRandom restore-time reseeding depends on the target CRaC JDK
+
+- **Severity**: INFO
+- **Inspects**: fields of type `java.security.SecureRandom`.
+- **Fires when**: a cached `SecureRandom` exists. Supported Azul/BellSoft CRaC JDKs automatically reseed standard no-arg,
+  never-explicitly-seeded instances after restore, so this is a target-runtime verification prompt rather than an
+  unjustified HIGH finding. Custom security providers may not participate in those JDK hooks.
+- **Recommendation**: use a current supported CRaC JDK, avoid explicit seeds, and verify the exact JDK/provider with a
+  real checkpoint/restore test. Explicit seeding is still reported by `CRAC-RANDOM-001`.
 
 ## Secrets
 
@@ -289,21 +312,22 @@ a handful of sample detail lines.
 - **Severity**: HIGH
 - **Inspects**: fields, static or instance, that capture a secret — a field whose name looks like a secret (`token`,
   `password`, `secret`, `api key`, `credential`, `private key`) holding a `String`, `char[]`, or `byte[]`, or a field
-  holding cryptographic key material (`javax.crypto.SecretKey`, `java.security.PrivateKey`, `KeyStore`, `KeyPair`)
-  regardless of name.
+  holding cryptographic key material (`javax.crypto.SecretKey`, `java.security.PrivateKey`, `KeyStore`, `KeyPair`,
+  `SSLContext`, `KeyManager`, or `TrustManager`) regardless of name.
 - **Fires when**: such a field exists. A secret loaded at startup — whether into a static field or a singleton bean's
   instance field, such as an `@Value`-injected credential — is baked into the checkpoint image and shipped with every
   restored process, so rotation no longer takes effect and the snapshot leaks the value.
-- **Recommendation**: load secrets lazily at runtime (or refresh them in an `org.crac.Resource.afterRestore()` callback)
-  instead of caching them in a field, so a checkpoint never freezes a credential.
+- **Recommendation**: load secrets lazily, or wipe and rebuild key/trust managers and initialized `SSLContext`s in an
+  `org.crac.Resource.afterRestore()` callback. Treat checkpoint files as sensitive artifacts: anyone who can pull an
+  image containing them may be able to recover private keys or TLS session material.
 
 ## Lifecycle
 
-### CRAC-LIFECYCLE-001 — No org.crac.Resource implementations were found
+### CRAC-LIFECYCLE-001 — No CRaC Resource implementations were found
 
 - **Severity**: INFO
-- **Inspects**: whether the application implements `org.crac.Resource`.
-- **Fires when**: no application class implements `org.crac.Resource`. These callbacks let components release and
+- **Inspects**: whether the application implements current `org.crac.Resource` or legacy `javax.crac.Resource`.
+- **Fires when**: no application class implements either Resource API. These callbacks let components release and
   re-acquire stateful resources around a checkpoint; an application with none usually relies entirely on Spring lifecycle
   handling.
 - **Recommendation**: if the application owns resources that Spring does not manage (custom sockets, native handles,
@@ -317,10 +341,23 @@ a handful of sample detail lines.
   classpath, read from the live runtime inventory rather than imported bytecode — the same mechanism `CRAC-POOL-001` and
   `CRAC-CACHE-001` use, since classpath presence is a runtime/dependency signal, not something visible in any one class's
   bytecode.
-- **Fires when**: the dependency is absent. A Spring Boot application on a CRaC-enabled JVM does not strictly need this
-  dependency to take an automatic checkpoint, but without it no application class can implement `org.crac.Resource`, so
-  it cannot hook `beforeCheckpoint()`/`afterRestore()` to release and reacquire resources, re-seed randomness, or refresh
-  secrets around a checkpoint — the fix every other resource/random/secret finding in this rule set recommends.
+- **Fires when**: the dependency is absent. Spring Boot's checkpoint/restore lifecycle auto-configuration is conditional
+  on `org.crac.Resource`, even when the CRaC-enabled JVM exposes its vendor implementation as `javax.crac` or `jdk.crac`.
 - **Recommendation**: add the `org.crac:crac` dependency (its version is managed by the Spring Boot BOM) so application
-  classes can implement `org.crac.Resource` and register with `Core.getGlobalContext().register(...)` to participate in
-  checkpoint/restore.
+  classes and Spring Boot integrations can register `org.crac.Resource` callbacks. BootUI probes `javax.crac.Core`
+  (BellSoft) and `jdk.crac.Core` (Azul) separately as JVM capability markers; applications should depend on the
+  vendor-neutral `org.crac` compatibility API.
+
+## Generated container assets
+
+The generated `Dockerfile-crac` uses the CRIU engine's least-privilege container baseline:
+`--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE`. `CHECKPOINT_RESTORE` requires Linux kernel 5.9 or newer. BootUI does
+not add `SYS_ADMIN` or default to `--privileged`; upgrade an incompatible kernel/container runtime instead. A privileged
+run is only a last-resort diagnosis on an isolated disposable development machine, never production or a shared host.
+
+CRIU/kernel compatibility must be validated on the same host family used for deployment. macOS and Windows cannot create
+the deployable CRIU image; use `-Dspring.context.exit=onRefresh` there to exercise Spring's lifecycle stop phase, then run
+the real checkpoint/restore test on supported Linux. JVM/GC/heap/CPU feature choices and already-read startup configuration
+are frozen when the checkpoint is created. The generated entrypoint therefore applies `JAVA_OPTS` only to
+`-XX:CRaCCheckpointTo`; change those flags by deleting and regenerating the checkpoint, not by appending flags to
+`-XX:CRaCRestoreFrom`.

@@ -58,17 +58,22 @@ final class CracDockerfileGenerator {
                 # It assumes a single-module Spring Boot application built with %2$s.
                 #
                 # CRaC snapshots a fully warmed-up JVM process to disk and restores it in tens of
-                # milliseconds. It only works on Linux and needs a CRaC-enabled JDK plus elevated
-                # container privileges (CRIU) to take and restore the checkpoint. The companion
+                # milliseconds. The CRIU engine needs Linux kernel 5.9 or newer plus the narrowly
+                # scoped CHECKPOINT_RESTORE and SYS_PTRACE capabilities. The companion
                 # checkpoint-and-run.sh entrypoint (generated alongside this file and expected at the
                 # project root) takes the checkpoint on the first start and restores it afterwards.
                 #
-                # Build and run (CRIU needs extra privileges; the named volume keeps the checkpoint
+                # Build and run (the named volume keeps the checkpoint
                 # between restarts, and -p publishes the port so the app is reachable from the host):
                 #   docker build -f Dockerfile-crac -t %1$s .
                 #   docker run --rm -p 8080:8080 \\
-                #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \\
+                #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE \\
                 #     -v %1$s-crac:/opt/crac/checkpoint %1$s
+                #
+                # Do not add SYS_ADMIN by default. On a host too old to expose CHECKPOINT_RESTORE,
+                # upgrade the Linux kernel/container runtime. For a one-off compatibility diagnosis
+                # only, --privileged is a last resort on an isolated disposable development machine;
+                # never use that fallback in production or on a shared host.
 
                 # Build stage (a plain JDK is enough; CRaC only matters at runtime).
                 FROM eclipse-temurin:21-jdk-noble AS build
@@ -124,7 +129,7 @@ final class CracDockerfileGenerator {
                 #
                 # On the first start no checkpoint exists yet, so the app is launched with
                 # `spring.context.checkpoint=onRefresh`: Spring boots the application context,
-                # closes CRaC-aware resources (the Hikari pool, the Lettuce/Redis client, ...),
+                # runs checkpoint lifecycle callbacks (Hikari requires allow-pool-suspension=true),
                 # and the JVM writes a full process image into $CRAC_CHECKPOINT_DIR before CRIU
                 # terminates the process. Every subsequent start simply restores that image,
                 # which brings the application back in a few tens of milliseconds.
@@ -135,6 +140,10 @@ final class CracDockerfileGenerator {
 
                 CRAC_CHECKPOINT_DIR="${CRAC_CHECKPOINT_DIR:-/opt/crac/checkpoint}"
                 APP_JAR="${APP_JAR:-/app/app.jar}"
+                # JVM flags are applied only while creating the checkpoint. They become part of the
+                # saved JVM and cannot be changed by adding flags to the restore command; regenerate
+                # the checkpoint whenever JAVA_OPTS changes.
+                JAVA_OPTS="${JAVA_OPTS:-}"
 
                 mkdir -p "$CRAC_CHECKPOINT_DIR"
 
@@ -149,7 +158,7 @@ final class CracDockerfileGenerator {
                 # here is expected. Inspect the directory rather than the exit code to decide
                 # whether the checkpoint succeeded.
                 set +e
-                java -XX:CRaCCheckpointTo="$CRAC_CHECKPOINT_DIR" \\
+                java $JAVA_OPTS -XX:CRaCCheckpointTo="$CRAC_CHECKPOINT_DIR" \\
                   -Dspring.context.checkpoint=onRefresh \\
                   -jar "$APP_JAR"
                 checkpoint_status=$?
@@ -157,8 +166,8 @@ final class CracDockerfileGenerator {
 
                 if [ -z "$(ls -A "$CRAC_CHECKPOINT_DIR" 2>/dev/null)" ]; then
                   echo "[crac] Checkpoint creation failed (exit code $checkpoint_status). See the log above." >&2
-                  echo "[crac] CRaC needs a CRaC-enabled JDK on Linux and CRIU privileges (run the container" >&2
-                  echo "[crac] with --privileged or the CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN capabilities)." >&2
+                  echo "[crac] CRIU needs Linux kernel 5.9+ and the CHECKPOINT_RESTORE/SYS_PTRACE capabilities." >&2
+                  echo "[crac] Upgrade an incompatible host/runtime; do not add SYS_ADMIN as a default workaround." >&2
                   exit "$checkpoint_status"
                 fi
 

@@ -11,8 +11,7 @@
 # milliseconds. The checkpoint is kept in the `crac-checkpoint` named volume so it
 # survives `down`/`up` cycles (delete the volume to force a fresh checkpoint).
 #
-# CRaC only works on a Linux host: CRIU snapshots and restores the live process,
-# which is why the `app` service runs privileged.
+# The CRIU engine needs Linux kernel 5.9+ and two narrowly scoped capabilities.
 #
 # Running the sample app against a real PostgreSQL + Redis under CRaC is possible
 # but needs extra care (those services must be up both when the checkpoint is
@@ -24,11 +23,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile-crac
-    # CRIU needs broad privileges to checkpoint and restore the JVM process. A
-    # narrower set (cap_add: CHECKPOINT_RESTORE, SYS_PTRACE, SYS_ADMIN and
-    # security_opt: seccomp:unconfined) works on most hosts; `privileged` is the
-    # most portable choice for a local demo.
-    privileged: true
+    cap_add:
+      - CHECKPOINT_RESTORE
+      - SYS_PTRACE
     environment:
       SERVER_PORT: 8080
       # Run the "dev" profile as an *active* profile (the image already defaults

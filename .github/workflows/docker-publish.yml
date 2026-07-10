@@ -225,7 +225,7 @@ jobs:
             dockerfile: Dockerfile-crac
             # CRaC needs CRIU privileges and a checkpoint volume (see docker-compose-crac.yml).
             # The first start takes the checkpoint and then restores, so allow extra time.
-            run_args: '--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN -v bootui-smoke-crac-checkpoint:/opt/crac/checkpoint'
+            run_args: '--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE -v bootui-smoke-crac-checkpoint:/opt/crac/checkpoint'
             health_timeout: '240'
             ready_url: /actuator/health
             ready_match: '"status":"UP"'
