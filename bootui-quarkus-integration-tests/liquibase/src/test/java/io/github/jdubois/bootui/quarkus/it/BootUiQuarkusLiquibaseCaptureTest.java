@@ -82,6 +82,19 @@ class BootUiQuarkusLiquibaseCaptureTest {
     }
 
     @Test
+    void updateRequiresExplicitConfirmationWithoutMutatingTheDatabase() {
+        Response response = probe().request("POST", "/bootui/api/liquibase/update", JSON_HEADERS, "{}");
+
+        assertThat(response.status()).as("POST /update without confirm status").isEqualTo(400);
+        assertThat(response.isJson())
+                .as("POST /update without confirm content-type")
+                .isTrue();
+        assertThat(response.json().path("status").asText()).isEqualTo("blocked");
+        assertThat(response.json().path("message").asText())
+                .isEqualTo("Action requires confirm=true because it mutates the application database.");
+    }
+
+    @Test
     void updateIsANoOpWhenAlreadyUpToDate() {
         Response update = probe().request("POST", "/bootui/api/liquibase/update", JSON_HEADERS, "{\"confirm\":true}");
         assertThat(update.status()).as("POST /update status").isEqualTo(200);

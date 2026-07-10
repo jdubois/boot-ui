@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import java.net.URL;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -25,6 +26,8 @@ import org.junit.jupiter.api.Test;
  */
 @QuarkusTest
 class BootUiQuarkusFlywayCaptureTest {
+
+    private static final Map<String, String> JSON_HEADERS = Map.of("Content-Type", "application/json");
 
     @TestHTTPResource
     URL baseUrl;
@@ -81,6 +84,19 @@ class BootUiQuarkusFlywayCaptureTest {
         assertThat(flyway.path("available").asBoolean(false))
                 .as("the flyway panel is available when quarkus-flyway is present")
                 .isTrue();
+    }
+
+    @Test
+    void migrateRequiresExplicitConfirmationWithoutMutatingTheDatabase() {
+        Response response = probe().request("POST", "/bootui/api/flyway/migrate", JSON_HEADERS, "{}");
+
+        assertThat(response.status()).as("POST /migrate without confirm status").isEqualTo(400);
+        assertThat(response.isJson())
+                .as("POST /migrate without confirm content-type")
+                .isTrue();
+        assertThat(response.json().path("status").asText()).isEqualTo("blocked");
+        assertThat(response.json().path("message").asText())
+                .isEqualTo("Action requires confirm=true because it mutates the application database.");
     }
 
     private static JsonNode firstDatabase(JsonNode root) {
