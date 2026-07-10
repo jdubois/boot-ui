@@ -21,13 +21,35 @@ participating you are expected to uphold this code.
 ## Project layout
 
 ```
-bootui-core/                  Shared DTOs and helpers
-bootui-spring-autoconfigure/         Auto-configuration, REST controllers, safety filter
-bootui-spring-boot-starter/   Drop-in starter that pulls in everything
-bootui-ui/                    Vue 3 SPA bundled into META-INF/resources/bootui
-bootui-spring-sample-app/            Reference Spring Boot 4 app that demos the starter
-docs/                         Specification and roadmap
+bootui-core/                        Shared DTOs, secret masking, and core helpers
+bootui-engine/                      Framework-neutral services/advisors and SPI ports
+bootui-spring-autoconfigure/        Spring MVC + WebFlux adapter (auto-config, endpoints, safety)
+bootui-spring-boot-starter/         Spring MVC starter
+bootui-spring-boot-starter-reactive/ Spring WebFlux starter
+bootui-ui/                          Vue 3 SPA bundled into META-INF/resources/bootui
+bootui-conformance/                 Shared HTTP contract suite + golden manifests for all adapters
+bootui-spring-sample-app/           Reference Spring MVC app + Playwright e2e
+bootui-spring-webflux-sample-app/   Reference Spring WebFlux app
+bootui-quarkus/                     Quarkus runtime adapter
+bootui-quarkus-deployment/          Quarkus deployment/build-time wiring
+bootui-quarkus-integration-tests/   Quarkus @QuarkusTest suites
+bootui-quarkus-sample-app/          Reference Quarkus app
+docs/                               Public documentation source (VuePress)
 ```
+
+## Keeping framework-version references in sync
+
+Use the root Maven properties as the source of truth for the published adapters and public compatibility documentation:
+
+```bash
+./mvnw -q -DforceStdout help:evaluate -Dexpression=spring-boot.version
+./mvnw -q -DforceStdout help:evaluate -Dexpression=quarkus.platform.version
+```
+
+When updating compatibility text in docs (README, `docs/SETUP.md`, `docs/FEATURES.md`,
+`.github/copilot-instructions.md`), reference those properties and refresh any explicit version strings in the same PR.
+The non-published Quarkus sample app keeps a separate platform pin aligned with its Quarkus LangChain4j dependency; do
+not treat that demo-specific pin as the public compatibility version.
 
 ## Build
 
@@ -77,6 +99,20 @@ npm install
 npm test
 ```
 
+### Panel metadata workflow
+
+Backend panel metadata (`id`, manifest title/order, action capability, and guarded
+API prefixes) is centrally tracked in
+`bootui-engine/src/main/java/io/github/jdubois/bootui/engine/panel/BootUiPanels.java`.
+The Vue route list remains the independent source of truth for sidebar titles,
+groups, and navigation order.
+
+When adding or renaming a panel, update `BootUiPanels`, `routes.js`, the conformance
+manifests, and the directly related docs. When moving a sidebar entry, update
+`routes.js` and the docs without reordering the backend manifest. CI validates
+that the backend catalog, UI routes, conformance manifests, and
+`docs/FEATURES.md` stay aligned.
+
 Run the browser end-to-end suite when you change the UI, browser-facing API responses, or sample-app behavior:
 
 ```bash
@@ -103,6 +139,32 @@ Use Prettier for the Vue app and Playwright tests:
 ```bash
 (cd bootui-ui/src/main/frontend && npm run format)
 (cd bootui-spring-sample-app/e2e && npm run format)
+```
+
+## GitHub Actions dependencies
+
+Remote GitHub Actions default to a full 40-character commit SHA with an inline release comment:
+
+```yaml
+uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+```
+
+The following explicitly trusted actions may instead use a mutable major-version tag:
+
+- GitHub: `actions/checkout`, `actions/configure-pages`, `actions/deploy-pages`, `actions/download-artifact`,
+  `actions/setup-java`, `actions/setup-node`, `actions/upload-artifact`, `actions/upload-pages-artifact`, and
+  `github/codeql-action`
+- Docker: `docker/build-push-action`, `docker/login-action`, `docker/metadata-action`, and
+  `docker/setup-buildx-action`
+
+New remote actions remain SHA-pinned unless this allowlist is deliberately extended. Local actions continue to use
+relative paths. Dependabot checks action references weekly: major tags receive compatible updates automatically,
+Dependabot proposes new major tags, and SHA-pinned actions receive pull requests for newer release SHAs.
+
+Run the policy check locally with:
+
+```bash
+bash .github/scripts/check-action-references.sh
 ```
 
 ## Run the sample app

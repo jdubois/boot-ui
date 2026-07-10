@@ -53,6 +53,7 @@ test.describe.serial('Email view', () => {
     await expect(drawer).toBeVisible()
     await expect(drawer.getByRole('heading', {name: 'Attachments'})).toBeVisible()
     await expect(drawer).toContainText('invoice-1042.pdf')
+    await expect(page.frameLocator('iframe.email-html-frame').locator('body')).toContainText('order #1042 has shipped')
 
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)

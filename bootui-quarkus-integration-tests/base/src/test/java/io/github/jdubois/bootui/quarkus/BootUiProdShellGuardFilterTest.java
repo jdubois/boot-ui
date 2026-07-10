@@ -8,9 +8,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.engine.safety.BootUiSecurityHeaders;
 import io.quarkus.runtime.LaunchMode;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfigBuilder;
+import io.vertx.core.MultiMap;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.ext.web.RoutingContext;
 import java.util.Map;
@@ -42,6 +44,8 @@ class BootUiProdShellGuardFilterTest {
         filter.handle(rc);
 
         verify(resp).setStatusCode(404);
+        verify(resp).putHeader(BootUiSecurityHeaders.CACHE_CONTROL, BootUiSecurityHeaders.NO_CACHE);
+        verify(resp).putHeader(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY, BootUiSecurityHeaders.CSP_VALUE);
         verify(resp).end();
         verify(rc, never()).next();
     }
@@ -194,6 +198,7 @@ class BootUiProdShellGuardFilterTest {
 
     private static RoutingContext mockRequest(String path) {
         HttpServerResponse response = mock(HttpServerResponse.class, RETURNS_SELF);
+        when(response.headers()).thenReturn(MultiMap.caseInsensitiveMultiMap());
 
         RoutingContext rc = mock(RoutingContext.class);
         when(rc.normalizedPath()).thenReturn(path);

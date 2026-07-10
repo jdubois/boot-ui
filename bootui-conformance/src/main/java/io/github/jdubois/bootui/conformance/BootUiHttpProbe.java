@@ -12,8 +12,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Minimal, framework-neutral HTTP client used by the conformance suite. Built on the JDK
@@ -57,6 +62,32 @@ public final class BootUiHttpProbe {
         return request("GET", path, headers, null);
     }
 
+    /**
+     * Starts a streaming GET and closes the body immediately after the response headers arrive.
+     *
+     * <p>This is intended for SSE conformance checks: waiting for the complete body would block forever
+     * by design.</p>
+     */
+    public Response getStreaming(String path) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(30))
+                .GET()
+                .build();
+        try {
+            HttpResponse<java.io.InputStream> response =
+                    client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            try (java.io.InputStream ignored = response.body()) {
+                return response(response, "");
+            }
+        } catch (IOException ex) {
+            throw new IllegalStateException("HTTP request failed: " + request.uri(), ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("HTTP request interrupted: " + request.uri(), ex);
+        }
+    }
+
     /** POST an empty body to {@code path} (relative to the base URL) with the supplied headers. */
     public Response post(String path, Map<String, String> headers) {
         return request("POST", path, headers, "");
@@ -93,10 +124,7 @@ public final class BootUiHttpProbe {
     private Response send(HttpRequest request) {
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            return new Response(
-                    response.statusCode(),
-                    response.headers().firstValue("content-type").orElse(""),
-                    response.body());
+            return response(response, response.body());
         } catch (IOException ex) {
             throw new IllegalStateException("HTTP request failed: " + request.uri(), ex);
         } catch (InterruptedException ex) {
@@ -105,15 +133,49 @@ public final class BootUiHttpProbe {
         }
     }
 
+    private static Response response(HttpResponse<?> response, String body) {
+        Map<String, List<String>> headers = response.headers().map().entrySet().stream()
+                .filter(entry -> !entry.getValue().isEmpty())
+                .collect(Collectors.toMap(
+                        entry -> entry.getKey().toLowerCase(Locale.ROOT),
+                        entry -> List.copyOf(entry.getValue()),
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+        return new Response(
+                response.statusCode(),
+                response.headers().firstValue("content-type").orElse(""),
+                body,
+                Collections.unmodifiableMap(headers));
+    }
+
     private static String stripTrailingSlash(String value) {
         return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
     }
 
-    /** A captured HTTP response: status code, content-type header, and the raw body. */
-    public record Response(int status, String contentType, String body) {
+    /** A captured HTTP response: status code, content-type header, raw body, and response headers. */
+    public record Response(int status, String contentType, String body, Map<String, List<String>> headers) {
+
+        /** Backward-compatible constructor that uses an empty header map. */
+        public Response(int status, String contentType, String body) {
+            this(status, contentType, body, Map.of());
+        }
 
         public boolean isJson() {
             return contentType != null && contentType.toLowerCase().contains("json");
+        }
+
+        /**
+         * Returns the first value of the named response header (case-insensitive), or {@code null}
+         * when the header is absent.
+         */
+        public String header(String name) {
+            List<String> values = headerValues(name);
+            return values.isEmpty() ? null : values.get(0);
+        }
+
+        /** Returns every value of the named response header, preserving duplicates for parity checks. */
+        public List<String> headerValues(String name) {
+            return name == null ? List.of() : headers.getOrDefault(name.toLowerCase(Locale.ROOT), List.of());
         }
 
         /** Parse the body as JSON, failing with a descriptive error if it is not valid JSON. */

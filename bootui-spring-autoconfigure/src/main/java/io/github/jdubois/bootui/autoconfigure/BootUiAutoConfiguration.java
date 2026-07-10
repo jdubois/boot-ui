@@ -33,6 +33,7 @@ import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
+import io.github.jdubois.bootui.autoconfigure.safety.SecurityHeadersFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
@@ -486,6 +487,11 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
+    public SecurityHeadersFilter bootUiSecurityHeadersFilter(BootUiProperties properties) {
+        return new SecurityHeadersFilter(properties);
+    }
+
+    @Bean
     public LocalhostOnlyFilter bootUiLocalhostOnlyFilter(BootUiProperties properties) {
         // The filter constructs its own (framework-neutral, engine-owned) ContainerGatewayDetector so it
         // can auto-trust the container default gateway per bootui.trust-container-gateway.
@@ -635,11 +641,21 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
+    public FilterRegistrationBean<SecurityHeadersFilter> bootUiSecurityHeadersFilterRegistration(
+            SecurityHeadersFilter filter, BootUiProperties properties) {
+        FilterRegistrationBean<SecurityHeadersFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.addUrlPatterns(properties.getPath() + "/*", properties.getApiPath() + "/*");
+        registration.setOrder(Integer.MIN_VALUE);
+        registration.setName("bootUiSecurityHeadersFilter");
+        return registration;
+    }
+
+    @Bean
     public FilterRegistrationBean<LocalhostOnlyFilter> bootUiLocalhostOnlyFilterRegistration(
             LocalhostOnlyFilter filter, BootUiProperties properties) {
         FilterRegistrationBean<LocalhostOnlyFilter> registration = new FilterRegistrationBean<>(filter);
         registration.addUrlPatterns(properties.getPath() + "/*", properties.getApiPath() + "/*");
-        registration.setOrder(Integer.MIN_VALUE);
+        registration.setOrder(Integer.MIN_VALUE + 1);
         registration.setName("bootUiLocalhostOnlyFilter");
         return registration;
     }
@@ -649,7 +665,7 @@ public class BootUiAutoConfiguration {
             PanelAccessFilter filter, BootUiProperties properties) {
         FilterRegistrationBean<PanelAccessFilter> registration = new FilterRegistrationBean<>(filter);
         registration.addUrlPatterns(properties.getApiPath() + "/*");
-        registration.setOrder(Integer.MIN_VALUE + 1);
+        registration.setOrder(Integer.MIN_VALUE + 2);
         registration.setName("bootUiPanelAccessFilter");
         return registration;
     }
@@ -669,7 +685,7 @@ public class BootUiAutoConfiguration {
         FilterRegistrationBean<ConsoleActivityFilter> registration =
                 new FilterRegistrationBean<>(new ConsoleActivityFilter(properties, tracker));
         registration.addUrlPatterns(properties.getPath() + "/*", properties.getApiPath() + "/*");
-        registration.setOrder(Integer.MIN_VALUE + 2);
+        registration.setOrder(Integer.MIN_VALUE + 3);
         registration.setName("bootUiConsoleActivityFilter");
         return registration;
     }

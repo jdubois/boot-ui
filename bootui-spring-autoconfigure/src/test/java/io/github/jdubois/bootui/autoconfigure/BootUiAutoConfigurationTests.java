@@ -22,6 +22,7 @@ import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceCon
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceInterceptor;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
+import io.github.jdubois.bootui.autoconfigure.safety.SecurityHeadersFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
@@ -91,6 +92,7 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(BootUiAutoConfiguration.class)
                         .hasSingleBean(LocalhostOnlyFilter.class)
                         .hasSingleBean(PanelAccessFilter.class)
+                        .hasSingleBean(SecurityHeadersFilter.class)
                         .hasSingleBean(ConfigOverrideService.class)
                         .hasSingleBean(DevToolsBridge.class)
                         .hasSingleBean(DevToolsController.class)
@@ -303,6 +305,7 @@ class BootUiAutoConfigurationTests {
             assertEagerBean(beanFactory, LocalhostOnlyFilter.class);
             assertEagerBean(beanFactory, LogTailController.class);
             assertEagerBean(beanFactory, PanelAccessFilter.class);
+            assertEagerBean(beanFactory, SecurityHeadersFilter.class);
         });
     }
 

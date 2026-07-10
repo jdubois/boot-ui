@@ -184,7 +184,7 @@ effectively inert until origins are configured. If cross-origin access is intend
 > [quarkusio/quarkus#34718](https://github.com/quarkusio/quarkus/issues/34718). Direct inspection of the
 > current `CORSFilter.isOriginAllowedByRegex` shows `pattern.matcher(origin).matches()` — Java's `.matches()`
 > requires a full match of the entire input string, not `.find()` — and issue #34718 was fixed in Quarkus
-> 3.3.0, long before this project's Quarkus 3.33 target. The bypass the rule warned about no longer applies
+> 3.3.0, long before this project's current Quarkus line. The bypass the rule warned about no longer applies
 > to any Quarkus version this project supports, so the rule was removed rather than re-worded; preferring
 > literal origins over regex (and anchoring any regex you do use) remains sound general advice, just not
 > something this advisor asserts a specific exploitable mechanism for. The rule id is retired and will not be
