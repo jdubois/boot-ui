@@ -25,6 +25,7 @@
     </properties>
 
     <dependencies>
+        <!-- Test-only access to the typed backend panel catalog for fixture consistency checks. -->
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-engine</artifactId>

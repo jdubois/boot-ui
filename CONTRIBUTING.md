@@ -79,13 +79,16 @@ npm test
 
 ### Panel metadata workflow
 
-Panel id/title/group/order/action-capable metadata is centrally tracked in:
+Backend panel metadata (`id`, manifest title/order, action capability, and guarded
+API prefixes) is centrally tracked in
+`bootui-engine/src/main/java/io/github/jdubois/bootui/engine/panel/BootUiPanels.java`.
+The Vue route list remains the independent source of truth for sidebar titles,
+groups, and navigation order.
 
-- `bootui-conformance/src/main/resources/io/github/jdubois/bootui/conformance/panel-catalog.json`
-
-When adding, renaming, or moving a panel, update that catalog first, then update
-the affected implementation files (`routes.js`, `BootUiPanels`, and any docs). CI
-now validates that the catalog, backend panel registry, conformance manifests, and
+When adding or renaming a panel, update `BootUiPanels`, `routes.js`, the conformance
+manifests, and the directly related docs. When moving a sidebar entry, update
+`routes.js` and the docs without reordering the backend manifest. CI validates
+that the backend catalog, UI routes, conformance manifests, and
 `docs/FEATURES.md` stay aligned.
 
 Run the browser end-to-end suite when you change the UI, browser-facing API responses, or sample-app behavior:
