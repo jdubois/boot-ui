@@ -4,7 +4,6 @@ import io.github.jdubois.bootui.engine.graalvm.Coordinates;
 import io.github.jdubois.bootui.engine.graalvm.ReachabilityMetadataIndex;
 import io.github.jdubois.bootui.engine.graalvm.ReachabilityMetadataRepository;
 import io.github.jdubois.bootui.engine.web.BoundedBodyReader;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -85,18 +84,14 @@ public final class HttpReachabilityMetadataRepository implements ReachabilityMet
                     .header("User-Agent", "BootUI GraalVM readiness")
                     .GET()
                     .build();
-            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<String> response = client.send(request, BoundedBodyReader.strictBodyHandler(maxBodyBytes));
             if (response.statusCode() == 404) {
                 return ReachabilityMetadataIndex.of(List.of());
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 return ReachabilityMetadataIndex.unavailable("HTTP " + response.statusCode());
             }
-            String body;
-            try (InputStream stream = response.body()) {
-                body = BoundedBodyReader.readString(stream, maxBodyBytes);
-            }
-            return parse(body);
+            return parse(response.body());
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             return ReachabilityMetadataIndex.unavailable("interrupted");

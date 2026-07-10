@@ -4,7 +4,6 @@ import io.github.jdubois.bootui.core.dto.HttpProbeRequest;
 import io.github.jdubois.bootui.core.dto.HttpProbeResponse;
 import io.github.jdubois.bootui.spi.ServerPortSupplier;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -82,13 +81,10 @@ public class HttpProbeService {
             applyHeaders(builder, request == null ? null : request.headers());
             builder.method(method, requestBodyPublisher(method, request == null ? null : request.body()));
 
-            HttpResponse<InputStream> response =
-                    httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<BoundedBodyReader.BoundedRead> response = httpClient.send(
+                    builder.build(), BoundedBodyReader.boundedBodyHandler(maxBodyBytes, StandardCharsets.UTF_8));
             long durationMs = System.currentTimeMillis() - start;
-            BoundedBodyReader.BoundedRead read;
-            try (InputStream body = response.body()) {
-                read = BoundedBodyReader.readBounded(body, maxBodyBytes, StandardCharsets.UTF_8);
-            }
+            BoundedBodyReader.BoundedRead read = response.body();
             return new HttpProbeResponse(
                     response.statusCode(),
                     statusText(response.statusCode()),

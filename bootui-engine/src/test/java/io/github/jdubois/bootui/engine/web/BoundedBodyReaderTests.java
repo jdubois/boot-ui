@@ -2,12 +2,21 @@ package io.github.jdubois.bootui.engine.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIOException;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
+import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Flow;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -18,6 +27,94 @@ import org.junit.jupiter.api.Test;
  * {@link BoundedBodyReader#readString}.
  */
 class BoundedBodyReaderTests {
+
+    private static final HttpResponse.ResponseInfo RESPONSE_INFO = new HttpResponse.ResponseInfo() {
+        @Override
+        public int statusCode() {
+            return 200;
+        }
+
+        @Override
+        public HttpHeaders headers() {
+            return HttpHeaders.of(Map.of(), (name, value) -> true);
+        }
+
+        @Override
+        public HttpClient.Version version() {
+            return HttpClient.Version.HTTP_1_1;
+        }
+    };
+
+    // ── HTTP body handlers ────────────────────────────────────────────────────
+
+    @Test
+    void boundedBodyHandler_truncatesAndCancelsUpstream() {
+        HttpResponse.BodySubscriber<BoundedBodyReader.BoundedRead> subscriber =
+                BoundedBodyReader.boundedBodyHandler(5).apply(RESPONSE_INFO);
+        TestSubscription subscription = subscribe(subscriber);
+
+        subscriber.onNext(List.of(ByteBuffer.wrap("hello!".getBytes(StandardCharsets.UTF_8))));
+
+        assertThat(subscriber.getBody().toCompletableFuture().join())
+                .isEqualTo(new BoundedBodyReader.BoundedRead("hello", true));
+        assertThat(subscription.cancelled).isTrue();
+    }
+
+    @Test
+    void boundedBodyHandler_exactLimitWaitsForCompletion() {
+        HttpResponse.BodySubscriber<BoundedBodyReader.BoundedRead> subscriber =
+                BoundedBodyReader.boundedBodyHandler(5).apply(RESPONSE_INFO);
+        TestSubscription subscription = subscribe(subscriber);
+
+        subscriber.onNext(List.of(ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))));
+
+        assertThat(subscriber.getBody().toCompletableFuture()).isNotDone();
+        assertThat(subscription.requested).isEqualTo(2);
+
+        subscriber.onComplete();
+
+        assertThat(subscriber.getBody().toCompletableFuture().join())
+                .isEqualTo(new BoundedBodyReader.BoundedRead("hello", false));
+        assertThat(subscription.cancelled).isFalse();
+    }
+
+    @Test
+    void strictBodyHandler_rejectsOversizedBodyAndCancelsUpstream() {
+        HttpResponse.BodySubscriber<String> subscriber =
+                BoundedBodyReader.strictBodyHandler(5).apply(RESPONSE_INFO);
+        TestSubscription subscription = subscribe(subscriber);
+
+        subscriber.onNext(List.of(ByteBuffer.wrap("hello!".getBytes(StandardCharsets.UTF_8))));
+
+        assertThatThrownBy(() -> subscriber.getBody().toCompletableFuture().join())
+                .hasRootCauseInstanceOf(IOException.class)
+                .hasRootCauseMessage("Response body exceeds 5 bytes");
+        assertThat(subscription.cancelled).isTrue();
+    }
+
+    @Test
+    void strictBodyHandler_combinesChunksUnderLimit() {
+        HttpResponse.BodySubscriber<String> subscriber =
+                BoundedBodyReader.strictBodyHandler(10).apply(RESPONSE_INFO);
+        subscribe(subscriber);
+
+        subscriber.onNext(List.of(
+                ByteBuffer.wrap("hel".getBytes(StandardCharsets.UTF_8)),
+                ByteBuffer.wrap("lo".getBytes(StandardCharsets.UTF_8))));
+        subscriber.onComplete();
+
+        assertThat(subscriber.getBody().toCompletableFuture().join()).isEqualTo("hello");
+    }
+
+    @Test
+    void bodyHandlersRejectInvalidLimits() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> BoundedBodyReader.boundedBodyHandler(0))
+                .withMessageContaining("maxBytes");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> BoundedBodyReader.strictBodyHandler(Integer.MAX_VALUE))
+                .withMessageContaining("maxBytes");
+    }
 
     // ── readBounded ───────────────────────────────────────────────────────────
 
@@ -203,6 +300,28 @@ class BoundedBodyReaderTests {
 
     private static InputStream stream(byte[] data) {
         return new ByteArrayInputStream(data);
+    }
+
+    private static <T> TestSubscription subscribe(HttpResponse.BodySubscriber<T> subscriber) {
+        TestSubscription subscription = new TestSubscription();
+        subscriber.onSubscribe(subscription);
+        return subscription;
+    }
+
+    private static final class TestSubscription implements Flow.Subscription {
+
+        private long requested;
+        private boolean cancelled;
+
+        @Override
+        public void request(long n) {
+            requested += n;
+        }
+
+        @Override
+        public void cancel() {
+            cancelled = true;
+        }
     }
 
     /**

@@ -1,11 +1,17 @@
 package io.github.jdubois.bootui.engine.web;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
+import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Flow;
 
 /**
  * Shared bounded-reading primitive for all BootUI outbound HTTP integrations.
@@ -26,19 +32,17 @@ import java.util.Arrays;
  *       Never silently truncates data that a parser would then accept as valid JSON.</li>
  * </ol>
  *
- * <p>Both methods use {@link InputStream#readNBytes(int)} internally, which reads at most the
- * requested number of bytes and returns as soon as that budget is consumed or the stream ends —
- * it does <em>not</em> buffer the full response first.
+ * <p>The matching {@link HttpResponse.BodyHandler} methods should be preferred with the JDK HTTP
+ * client. They keep the request incomplete until the bounded body has been consumed, preserving
+ * {@link java.net.http.HttpRequest.Builder#timeout(java.time.Duration) request-timeout} enforcement.
+ * In contrast, {@link HttpResponse.BodyHandlers#ofInputStream()} returns the response as soon as the
+ * headers arrive, so the request timeout no longer bounds subsequent blocking reads from that stream.
  *
- * <p>To use with the JDK {@code HttpClient}, switch {@code BodyHandlers.ofString()} to
- * {@code BodyHandlers.ofInputStream()} and wrap the body in a try-with-resources:
+ * <p>Use the strict handler for required JSON:
  * <pre>{@code
- * HttpResponse<InputStream> response =
- *         client.send(request, HttpResponse.BodyHandlers.ofInputStream());
- * try (InputStream body = response.body()) {
- *     String text = BoundedBodyReader.readString(body, MAX_BYTES, StandardCharsets.UTF_8);
- *     // parse text as JSON …
- * }
+ * HttpResponse<String> response =
+ *         client.send(request, BoundedBodyReader.strictBodyHandler(MAX_BYTES));
+ * // parse response.body() as JSON …
  * }</pre>
  *
  * <h2>Per-client byte budgets</h2>
@@ -84,6 +88,45 @@ public final class BoundedBodyReader {
 
     private BoundedBodyReader() {}
 
+    // ── JDK HTTP client body handlers ─────────────────────────────────────────
+
+    /**
+     * Returns a body handler that consumes at most {@code maxBytes} bytes and records whether the
+     * response was truncated. The subscriber cancels the upstream response as soon as it observes one
+     * byte beyond the limit.
+     */
+    public static HttpResponse.BodyHandler<BoundedRead> boundedBodyHandler(int maxBytes, Charset charset) {
+        validateArguments(maxBytes, charset);
+        return responseInfo -> new LimitingBodySubscriber<>(
+                maxBytes, (body, oversized) -> new BoundedRead(new String(body, charset), oversized));
+    }
+
+    /** UTF-8 variant of {@link #boundedBodyHandler(int, Charset)}. */
+    public static HttpResponse.BodyHandler<BoundedRead> boundedBodyHandler(int maxBytes) {
+        return boundedBodyHandler(maxBytes, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Returns a body handler that rejects responses larger than {@code maxBytes}. The subscriber
+     * cancels the upstream response as soon as it observes one byte beyond the limit and completes
+     * exceptionally with an {@link IOException}; required JSON is therefore never silently
+     * truncated.
+     */
+    public static HttpResponse.BodyHandler<String> strictBodyHandler(int maxBytes, Charset charset) {
+        validateArguments(maxBytes, charset);
+        return responseInfo -> new LimitingBodySubscriber<>(maxBytes, (body, oversized) -> {
+            if (oversized) {
+                throw oversized(maxBytes);
+            }
+            return new String(body, charset);
+        });
+    }
+
+    /** UTF-8 variant of {@link #strictBodyHandler(int, Charset)}. */
+    public static HttpResponse.BodyHandler<String> strictBodyHandler(int maxBytes) {
+        return strictBodyHandler(maxBytes, StandardCharsets.UTF_8);
+    }
+
     // ── truncating mode (probe use) ───────────────────────────────────────────
 
     /**
@@ -105,6 +148,7 @@ public final class BoundedBodyReader {
      * @throws IOException if reading from the stream fails
      */
     public static BoundedRead readBounded(InputStream is, int maxBytes, Charset charset) throws IOException {
+        validateArguments(maxBytes, charset);
         byte[] buf = is.readNBytes(maxBytes + 1);
         boolean truncated = buf.length > maxBytes;
         byte[] data = truncated ? Arrays.copyOf(buf, maxBytes) : buf;
@@ -138,9 +182,10 @@ public final class BoundedBodyReader {
      * @throws IOException if the response exceeds {@code maxBytes} bytes or if reading fails
      */
     public static String readString(InputStream is, int maxBytes, Charset charset) throws IOException {
+        validateArguments(maxBytes, charset);
         byte[] buf = is.readNBytes(maxBytes + 1);
         if (buf.length > maxBytes) {
-            throw new IOException("Response body exceeds " + maxBytes + " bytes");
+            throw oversized(maxBytes);
         }
         return new String(buf, charset);
     }
@@ -161,18 +206,110 @@ public final class BoundedBodyReader {
      */
     public record BoundedRead(String body, boolean truncated) {}
 
-    // ── unchecked wrapper (for use in lambdas) ────────────────────────────────
+    private static void validateArguments(int maxBytes, Charset charset) {
+        if (maxBytes <= 0 || maxBytes == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("maxBytes must be between 1 and " + (Integer.MAX_VALUE - 1));
+        }
+        if (charset == null) {
+            throw new IllegalArgumentException("charset must not be null");
+        }
+    }
 
-    /**
-     * Reads at most {@code maxBytes} bytes from {@code is}; throws {@link UncheckedIOException} if
-     * reading fails or the response is oversized. Intended for use in lambdas that cannot declare
-     * checked exceptions.
-     */
-    public static String readStringUnchecked(InputStream is, int maxBytes) {
-        try {
-            return readString(is, maxBytes);
-        } catch (IOException ex) {
-            throw new UncheckedIOException(ex);
+    private static IOException oversized(int maxBytes) {
+        return new IOException("Response body exceeds " + maxBytes + " bytes");
+    }
+
+    @FunctionalInterface
+    private interface BodyDecoder<T> {
+        T decode(byte[] body, boolean oversized) throws IOException;
+    }
+
+    private static final class LimitingBodySubscriber<T> implements HttpResponse.BodySubscriber<T> {
+
+        private static final int COPY_BUFFER_SIZE = 8192;
+
+        private final int maxBytes;
+        private final BodyDecoder<T> decoder;
+        private final ByteArrayOutputStream body = new ByteArrayOutputStream();
+        private final CompletableFuture<T> result = new CompletableFuture<>();
+
+        private Flow.Subscription subscription;
+        private boolean completed;
+
+        private LimitingBodySubscriber(int maxBytes, BodyDecoder<T> decoder) {
+            this.maxBytes = maxBytes;
+            this.decoder = decoder;
+        }
+
+        @Override
+        public CompletionStage<T> getBody() {
+            return result;
+        }
+
+        @Override
+        public void onSubscribe(Flow.Subscription subscription) {
+            if (this.subscription != null) {
+                subscription.cancel();
+                return;
+            }
+            this.subscription = subscription;
+            subscription.request(1);
+        }
+
+        @Override
+        public void onNext(List<ByteBuffer> buffers) {
+            if (completed) {
+                return;
+            }
+            for (ByteBuffer buffer : buffers) {
+                int available = maxBytes - body.size();
+                int accepted = Math.min(available, buffer.remaining());
+                copy(buffer, accepted);
+                if (buffer.hasRemaining()) {
+                    complete(true);
+                    return;
+                }
+            }
+            subscription.request(1);
+        }
+
+        @Override
+        public void onError(Throwable throwable) {
+            if (!completed) {
+                completed = true;
+                result.completeExceptionally(throwable);
+            }
+        }
+
+        @Override
+        public void onComplete() {
+            complete(false);
+        }
+
+        private void copy(ByteBuffer source, int byteCount) {
+            byte[] copyBuffer = new byte[Math.min(COPY_BUFFER_SIZE, byteCount)];
+            int remaining = byteCount;
+            while (remaining > 0) {
+                int chunkSize = Math.min(copyBuffer.length, remaining);
+                source.get(copyBuffer, 0, chunkSize);
+                body.write(copyBuffer, 0, chunkSize);
+                remaining -= chunkSize;
+            }
+        }
+
+        private void complete(boolean oversized) {
+            if (completed) {
+                return;
+            }
+            completed = true;
+            if (oversized) {
+                subscription.cancel();
+            }
+            try {
+                result.complete(decoder.decode(body.toByteArray(), oversized));
+            } catch (IOException ex) {
+                result.completeExceptionally(ex);
+            }
         }
     }
 }
