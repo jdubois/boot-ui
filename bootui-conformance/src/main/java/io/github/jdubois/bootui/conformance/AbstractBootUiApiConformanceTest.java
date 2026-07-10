@@ -39,13 +39,9 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     /**
      * Panels whose primary data lives at a plain {@code GET /bootui/api/<id>} and must answer 200 with
-     * JSON whenever the manifest reports them available — this includes the advisor panels that serve a
-     * meaningful unscanned root report (hibernate, security, spring). Panels whose primary data lives at a
-     * sub-path (database-connection-pools, data, ai, log-tail, flyway, liquibase), scan-first advisor panels
-     * whose root GET is exercised through a {@code POST /scan} (architecture, rest-api, pentesting,
-     * vulnerabilities) or that are not applicable on every adapter (graalvm, crac), and action-first panels
-     * (heap-dump, http-probe) are intentionally excluded: they are exercised by adapter-specific tests
-     * instead of this cross-adapter contract.
+     * JSON whenever the manifest reports them available and enabled. Scan-first and action-capable panels
+     * remain safe to include because their root GETs only return the current report/state; this inventory
+     * never invokes a scan, network call, file capture, or other mutation.
      */
     private static final Set<String> DATA_PANEL_ROOT_GETS = Set.of(
             "overview",
@@ -53,37 +49,56 @@ public abstract class AbstractBootUiApiConformanceTest {
             "metrics",
             "live-memory",
             "jvm-tuning",
+            "heap-dump",
             "threads",
             "memory",
             "startup",
+            "graalvm",
             "config",
             "profile-diff",
             "loggers",
             "beans",
             "conditions",
             "mappings",
+            "spring-security",
             "scheduled",
             "hibernate",
             "security",
+            "pentesting",
             "spring",
             "cache",
+            "exceptions",
             "http-exchanges",
             "security-logs",
             "http-sessions",
             "traces",
+            "architecture",
+            "rest-api",
+            "vulnerabilities",
             "dev-services",
             "devtools",
             "github",
+            "crac",
+            "sql-trace",
+            "rest-client-trace",
             "mcp-server",
             "email",
             "kafka",
             "activity");
 
     /** Panels whose primary data lives at a nested path instead of the root {@code GET /bootui/api/<id>}. */
-    private static final Map<String, String> NESTED_GET_PATHS = Map.of(
-            "flyway", "/bootui/api/flyway/migrations",
-            "liquibase", "/bootui/api/liquibase/changesets",
-            "database-connection-pools", "/bootui/api/database-connection-pools/pools");
+    private static final Map<String, String> NESTED_GET_PATHS = Map.ofEntries(
+            Map.entry("data", "/bootui/api/data/repositories"),
+            Map.entry("ai", "/bootui/api/ai/overview"),
+            Map.entry("log-tail", "/bootui/api/log-tail/recent"),
+            Map.entry("copilot", "/bootui/api/copilot/dashboard"),
+            Map.entry("claude-code", "/bootui/api/claude-code/dashboard"),
+            Map.entry("flyway", "/bootui/api/flyway/migrations"),
+            Map.entry("liquibase", "/bootui/api/liquibase/changesets"),
+            Map.entry("database-connection-pools", "/bootui/api/database-connection-pools/pools"));
+
+    /** Panels that intentionally have no safe GET because their API is an action form. */
+    private static final Set<String> ACTION_ONLY_PANELS = Set.of("http-probe");
 
     /**
      * Action-capable panels whose mutating endpoint requires an explicit {@code {"confirm":true}} body; the
@@ -157,7 +172,9 @@ public abstract class AbstractBootUiApiConformanceTest {
         List<String> failures = new ArrayList<>();
         for (JsonNode panel : manifest.json().get("panels")) {
             String id = panel.path("id").asText(null);
-            if (!DATA_PANEL_ROOT_GETS.contains(id) || !panel.path("available").asBoolean(false)) {
+            if (!DATA_PANEL_ROOT_GETS.contains(id)
+                    || !panel.path("available").asBoolean(false)
+                    || !panel.path("enabled").asBoolean(true)) {
                 continue;
             }
             Response response = probe().get("/bootui/api/" + id);
@@ -171,6 +188,24 @@ public abstract class AbstractBootUiApiConformanceTest {
         if (!failures.isEmpty()) {
             fail("Available panels whose primary GET regressed: " + failures);
         }
+    }
+
+    @Test
+    void endpointInventoryCoversEveryManifestPanel() {
+        JsonNode panels = probe().get("/bootui/api/panels").json().get("panels");
+        List<String> missing = new ArrayList<>();
+        panels.forEach(panel -> {
+            String id = panel.path("id").asText(null);
+            if (!DATA_PANEL_ROOT_GETS.contains(id)
+                    && !NESTED_GET_PATHS.containsKey(id)
+                    && !ACTION_ONLY_PANELS.contains(id)) {
+                missing.add(id);
+            }
+        });
+
+        assertThat(missing)
+                .as("every manifest panel must declare its safe primary GET or be explicitly action-only")
+                .isEmpty();
     }
 
     @Test
@@ -254,7 +289,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         // mirroring the BootUI SPA, a priming GET makes the Spring adapter mint its XSRF-TOKEN cookie
         // (via CsrfCookieFilter), which is echoed back as the X-XSRF-TOKEN header; the Quarkus adapter
         // sets no such cookie and lets the same-origin write through, so the identical flow runs on both.
-        assertThat(isPanelAvailableInLiveManifest("loggers"))
+        assertThat(isPanelUsableInLiveManifest("loggers"))
                 .as("both adapters ship the Loggers panel, so its write path must be exercisable")
                 .isTrue();
 
@@ -292,19 +327,14 @@ public abstract class AbstractBootUiApiConformanceTest {
         // Test environments should configure at least one panel as disabled so this test always exercises
         // the gate; the recommended setting is bootui.panels.copilot.enabled=false (copilot is present on
         // every adapter, is not in DATA_PANEL_ROOT_GETS, and disabling it does not affect other tests).
-        JsonNode panels = probe().get("/bootui/api/panels").json().get("panels");
-        String disabledId = null;
-        for (JsonNode panel : panels) {
-            if (!panel.path("enabled").asBoolean(true)) {
-                disabledId = panel.path("id").asText(null);
-                break;
-            }
-        }
-        assumeTrue(
-                disabledId != null,
-                "No panel is configured as disabled in this environment; "
-                        + "add bootui.panels.copilot.enabled=false to the conformance test properties "
-                        + "to exercise the panel-disabled gate on all adapters.");
+        String disabledId = "copilot";
+        JsonNode panel = panelFromLiveManifest(disabledId);
+        assertThat(panel)
+                .as("the manifest must contain the configured disabled panel")
+                .isNotNull();
+        assertThat(panel.path("enabled").asBoolean(true))
+                .as("conformance fixtures must set bootui.panels.copilot.enabled=false")
+                .isFalse();
 
         Response response = probe().get("/bootui/api/" + disabledId);
         assertThat(response.status())
@@ -323,6 +353,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(body.path("reason").isTextual())
                 .as("disabled-panel 403 body.reason must be a non-null string")
                 .isTrue();
+        assertThat(body.path("reason").asText()).isEqualTo("Panel is disabled via bootui.panels.copilot.enabled=false");
     }
 
     @Test
@@ -333,11 +364,12 @@ public abstract class AbstractBootUiApiConformanceTest {
         // The heap-dump panel's POST /capture action is the well-known action path used here; test
         // environments should add bootui.panels.heap-dump.read-only=true to the conformance test properties.
         JsonNode heapDumpPanel = panelFromLiveManifest("heap-dump");
-        assumeTrue(
-                heapDumpPanel != null && heapDumpPanel.path("readOnly").asBoolean(false),
-                "heap-dump panel is not configured read-only in this environment; "
-                        + "add bootui.panels.heap-dump.read-only=true to the conformance test properties "
-                        + "to exercise the read-only gate on all adapters.");
+        assertThat(heapDumpPanel)
+                .as("the manifest must contain the configured read-only panel")
+                .isNotNull();
+        assertThat(heapDumpPanel.path("readOnly").asBoolean(false))
+                .as("conformance fixtures must set bootui.panels.heap-dump.read-only=true")
+                .isTrue();
 
         BootUiHttpProbe probe = probe();
         Map<String, String> headers = stateChangingHeaders(probe);
@@ -358,6 +390,8 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(body.path("reason").isTextual())
                 .as("read-only-panel 403 body.reason must be a non-null string")
                 .isTrue();
+        assertThat(body.path("reason").asText())
+                .isEqualTo("Panel is read-only via bootui.panels.heap-dump.read-only=true");
     }
 
     @Test
@@ -368,13 +402,16 @@ public abstract class AbstractBootUiApiConformanceTest {
         // /scan returns 200 JSON with a non-null scan.status and a numeric scannedAt timestamp,
         // proving the analysis actually ran rather than returning a cached no-op.
         assumeTrue(
-                isPanelAvailableInLiveManifest("architecture"),
-                "architecture panel is not available in this environment");
+                isPanelUsableInLiveManifest("architecture"), "architecture panel is not available in this environment");
 
         // 1. Initial GET – scan.status must be a string (typically NOT_SCANNED, but any status is valid).
         Response initial = probe().get("/bootui/api/architecture");
-        assertThat(initial.status()).as("GET /bootui/api/architecture initial status").isEqualTo(200);
-        assertThat(initial.isJson()).as("GET /bootui/api/architecture content-type").isTrue();
+        assertThat(initial.status())
+                .as("GET /bootui/api/architecture initial status")
+                .isEqualTo(200);
+        assertThat(initial.isJson())
+                .as("GET /bootui/api/architecture content-type")
+                .isTrue();
         assertThat(initial.json().path("scan").path("status").isTextual())
                 .as("GET /bootui/api/architecture scan.status must be a string before any scan")
                 .isTrue();
@@ -383,8 +420,12 @@ public abstract class AbstractBootUiApiConformanceTest {
         BootUiHttpProbe probe = probe();
         Map<String, String> headers = stateChangingHeaders(probe);
         Response scanResponse = probe.request("POST", "/bootui/api/architecture/scan", headers, "");
-        assertThat(scanResponse.status()).as("POST /bootui/api/architecture/scan status").isEqualTo(200);
-        assertThat(scanResponse.isJson()).as("POST /bootui/api/architecture/scan content-type").isTrue();
+        assertThat(scanResponse.status())
+                .as("POST /bootui/api/architecture/scan status")
+                .isEqualTo(200);
+        assertThat(scanResponse.isJson())
+                .as("POST /bootui/api/architecture/scan content-type")
+                .isTrue();
         JsonNode scanned = scanResponse.json();
         assertThat(scanned.path("scan").path("status").isTextual())
                 .as("POST /bootui/api/architecture/scan scan.status must be a string")
@@ -402,12 +443,16 @@ public abstract class AbstractBootUiApiConformanceTest {
         // dependencies array (the local classpath inventory). The scan.status value is unasserted because
         // both adapters may pre-populate it differently (e.g. NOT_SCANNED vs DISABLED when OSV is off).
         assumeTrue(
-                isPanelAvailableInLiveManifest("vulnerabilities"),
+                isPanelUsableInLiveManifest("vulnerabilities"),
                 "vulnerabilities panel is not available in this environment");
 
         Response response = probe().get("/bootui/api/vulnerabilities");
-        assertThat(response.status()).as("GET /bootui/api/vulnerabilities status").isEqualTo(200);
-        assertThat(response.isJson()).as("GET /bootui/api/vulnerabilities content-type").isTrue();
+        assertThat(response.status())
+                .as("GET /bootui/api/vulnerabilities status")
+                .isEqualTo(200);
+        assertThat(response.isJson())
+                .as("GET /bootui/api/vulnerabilities content-type")
+                .isTrue();
         JsonNode report = response.json();
         assertThat(report.path("scan").isObject())
                 .as("$.scan must be an object")
@@ -433,9 +478,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         // behaviour. This test validates that: the root response has the expected shape (total, beans
         // array, page metadata), limit=1 returns at most 1 bean, and a query that matches nothing returns
         // total=0 with an empty array.
-        assumeTrue(
-                isPanelAvailableInLiveManifest("beans"),
-                "beans panel is not available in this environment");
+        assumeTrue(isPanelUsableInLiveManifest("beans"), "beans panel is not available in this environment");
 
         // Root GET — shape contract.
         Response root = probe().get("/bootui/api/beans");
@@ -461,10 +504,15 @@ public abstract class AbstractBootUiApiConformanceTest {
 
         // Query filter: a value that cannot match any bean name should return an empty page.
         Response noMatch = probe().get("/bootui/api/beans?q=conformanceprobexyz123notabean");
-        assertThat(noMatch.status()).as("GET /bootui/api/beans?q=<nonexistent> status").isEqualTo(200);
-        assertThat(noMatch.json().path("total").asInt())
-                .as("GET /bootui/api/beans?q=<nonexistent> total must be 0")
+        assertThat(noMatch.status())
+                .as("GET /bootui/api/beans?q=<nonexistent> status")
+                .isEqualTo(200);
+        assertThat(noMatch.json().path("page").path("matched").asInt())
+                .as("GET /bootui/api/beans?q=<nonexistent> page.matched must be 0")
                 .isZero();
+        assertThat(noMatch.json().path("beans").isEmpty())
+                .as("GET /bootui/api/beans?q=<nonexistent> beans must be empty")
+                .isTrue();
     }
 
     @Test
@@ -473,9 +521,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         // and the Quarkus adapter (JBoss LogManager). The engine LoggersService owns the sort/filter/page
         // logic; this test validates that both adapters honour the limit param and return the expected
         // response shape (loggers array, page metadata).
-        assumeTrue(
-                isPanelAvailableInLiveManifest("loggers"),
-                "loggers panel is not available in this environment");
+        assumeTrue(isPanelUsableInLiveManifest("loggers"), "loggers panel is not available in this environment");
 
         // Root GET — shape contract.
         Response root = probe().get("/bootui/api/loggers");
@@ -491,14 +537,18 @@ public abstract class AbstractBootUiApiConformanceTest {
 
         // Pagination: limit=1 must return at most 1 logger.
         Response limited = probe().get("/bootui/api/loggers?limit=1");
-        assertThat(limited.status()).as("GET /bootui/api/loggers?limit=1 status").isEqualTo(200);
+        assertThat(limited.status())
+                .as("GET /bootui/api/loggers?limit=1 status")
+                .isEqualTo(200);
         assertThat(limited.json().path("loggers").size())
                 .as("GET /bootui/api/loggers?limit=1 must return at most 1 logger")
                 .isLessThanOrEqualTo(1);
 
         // Query filter: a query that cannot match any logger name should return an empty page.
         Response noMatch = probe().get("/bootui/api/loggers?q=conformanceprobexyz123notalogger");
-        assertThat(noMatch.status()).as("GET /bootui/api/loggers?q=<nonexistent> status").isEqualTo(200);
+        assertThat(noMatch.status())
+                .as("GET /bootui/api/loggers?q=<nonexistent> status")
+                .isEqualTo(200);
         assertThat(noMatch.json().path("loggers").size())
                 .as("GET /bootui/api/loggers?q=<nonexistent> must return an empty list")
                 .isZero();
@@ -510,14 +560,14 @@ public abstract class AbstractBootUiApiConformanceTest {
         // covers three endpoints that existing root-GET coverage misses: DELETE /traces (returns 204 No
         // Content), GET /traces/{id} for an unknown id (returns 404), and the list response shape
         // (enabled boolean + traces array). All three status codes are part of the shared contract.
-        assumeTrue(
-                isPanelAvailableInLiveManifest("traces"),
-                "traces panel is not available in this environment");
+        assumeTrue(isPanelUsableInLiveManifest("traces"), "traces panel is not available in this environment");
 
         // 1. GET /traces — shape contract.
         Response listResponse = probe().get("/bootui/api/traces");
         assertThat(listResponse.status()).as("GET /bootui/api/traces status").isEqualTo(200);
-        assertThat(listResponse.isJson()).as("GET /bootui/api/traces content-type").isTrue();
+        assertThat(listResponse.isJson())
+                .as("GET /bootui/api/traces content-type")
+                .isTrue();
         JsonNode report = listResponse.json();
         assertThat(report.path("traces").isArray())
                 .as("$.traces must be an array")
@@ -533,6 +583,9 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(clearResponse.status())
                 .as("DELETE /bootui/api/traces must return 204 No Content")
                 .isEqualTo(204);
+        assertThat(clearResponse.body())
+                .as("DELETE /bootui/api/traces response body")
+                .isEmpty();
 
         // 3. GET /traces/{unknown} — must return 404 for an unrecognised trace id.
         Response detailResponse = probe().get("/bootui/api/traces/conformance-probe-unknown-trace-id-xyz");
@@ -548,18 +601,21 @@ public abstract class AbstractBootUiApiConformanceTest {
         // skipped when the live manifest reports it unavailable (capability not on the classpath, not
         // configured, etc.) rather than failing, so the test remains green on any adapter combination.
         JsonNode panelsArray = probe().get("/bootui/api/panels").json().get("panels");
-        Map<String, Boolean> availability = new java.util.LinkedHashMap<>();
+        Map<String, PanelState> panelStates = new java.util.LinkedHashMap<>();
         if (panelsArray != null) {
-            panelsArray.forEach(panel ->
-                    availability.put(panel.path("id").asText(null), panel.path("available").asBoolean(false)));
+            panelsArray.forEach(panel -> panelStates.put(
+                    panel.path("id").asText(null),
+                    new PanelState(
+                            panel.path("available").asBoolean(false),
+                            panel.path("enabled").asBoolean(true))));
         }
 
         List<String> failures = new ArrayList<>();
         for (Map.Entry<String, String> entry : NESTED_GET_PATHS.entrySet()) {
             String panelId = entry.getKey();
             String path = entry.getValue();
-            if (!availability.getOrDefault(panelId, false)) {
-                // Panel not available on this adapter / in this environment — skip explicitly.
+            if (!panelStates.getOrDefault(panelId, PanelState.UNUSABLE).usable()) {
+                // Panel not available or explicitly disabled on this adapter / environment.
                 continue;
             }
             Response response = probe().get(path);
@@ -582,10 +638,13 @@ public abstract class AbstractBootUiApiConformanceTest {
         // engine FlywayService / LiquibaseService. Both adapters must fire this gate identically.
         // Panels are skipped when unavailable (optional dependency not on the classpath).
         JsonNode panelsArray = probe().get("/bootui/api/panels").json().get("panels");
-        Map<String, Boolean> availability = new java.util.LinkedHashMap<>();
+        Map<String, PanelState> panelStates = new java.util.LinkedHashMap<>();
         if (panelsArray != null) {
-            panelsArray.forEach(panel ->
-                    availability.put(panel.path("id").asText(null), panel.path("available").asBoolean(false)));
+            panelsArray.forEach(panel -> panelStates.put(
+                    panel.path("id").asText(null),
+                    new PanelState(
+                            panel.path("available").asBoolean(false),
+                            panel.path("enabled").asBoolean(true))));
         }
 
         BootUiHttpProbe probe = probe();
@@ -595,7 +654,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         for (Map.Entry<String, String> entry : CONFIRMATION_ACTION_PATHS.entrySet()) {
             String panelId = entry.getKey();
             String path = entry.getValue();
-            if (!availability.getOrDefault(panelId, false)) {
+            if (!panelStates.getOrDefault(panelId, PanelState.UNUSABLE).usable()) {
                 continue; // not available on this adapter / environment
             }
             // Send without confirm=true — the engine must return 400 before touching the database.
@@ -605,8 +664,11 @@ public abstract class AbstractBootUiApiConformanceTest {
                         + " (expected 400)");
             } else if (!response.isJson()) {
                 failures.add(panelId + " POST " + path + " 400 body is not JSON");
-            } else if (isNull(response.json().path("message"))) {
-                failures.add(panelId + " POST " + path + " 400 body.message is missing");
+            } else if (!"blocked".equals(response.json().path("status").asText())) {
+                failures.add(panelId + " POST " + path + " 400 body.status is not 'blocked'");
+            } else if (!"Action requires confirm=true because it mutates the application database."
+                    .equals(response.json().path("message").asText())) {
+                failures.add(panelId + " POST " + path + " 400 body.message is not canonical");
             }
         }
         if (!failures.isEmpty()) {
@@ -623,6 +685,7 @@ public abstract class AbstractBootUiApiConformanceTest {
     private Map<String, String> stateChangingHeaders(BootUiHttpProbe probe) {
         Map<String, String> headers = new java.util.LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
+        headers.put("Origin", baseUrl());
         probe.get("/bootui/api/overview");
         probe.cookie("XSRF-TOKEN").ifPresent(token -> headers.put("X-XSRF-TOKEN", token));
         return headers;
@@ -696,9 +759,11 @@ public abstract class AbstractBootUiApiConformanceTest {
      * Returns {@code true} when the live manifest reports the named panel as available
      * ({@code available: true}) on the currently-booted adapter.
      */
-    private boolean isPanelAvailableInLiveManifest(String id) {
+    private boolean isPanelUsableInLiveManifest(String id) {
         JsonNode panel = panelFromLiveManifest(id);
-        return panel != null && panel.path("available").asBoolean(false);
+        return panel != null
+                && panel.path("available").asBoolean(false)
+                && panel.path("enabled").asBoolean(true);
     }
 
     private List<ExpectedPanel> loadExpectedPanels() {
@@ -739,4 +804,13 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     /** Expected manifest entry: the contract a platform promises for one panel. */
     protected record ExpectedPanel(String id, String title, boolean actionCapable) {}
+
+    private record PanelState(boolean available, boolean enabled) {
+
+        private static final PanelState UNUSABLE = new PanelState(false, false);
+
+        private boolean usable() {
+            return available && enabled;
+        }
+    }
 }

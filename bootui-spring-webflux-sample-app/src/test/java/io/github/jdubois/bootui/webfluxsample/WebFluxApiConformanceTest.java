@@ -19,8 +19,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
  * {@link AbstractBootUiApiConformanceTest#panelDisabledRequestIsRejectedWithCanonicalBody}; {@code
  * bootui.panels.heap-dump.read-only=true} enables
  * {@link AbstractBootUiApiConformanceTest#panelReadOnlyActionIsRejectedWithCanonicalBody}. Both are
- * safe to set here because neither panel is in DATA_PANEL_ROOT_GETS and no other conformance test
- * exercises them.</p>
+ * safe to set here because safe-GET coverage skips disabled panels and never invokes heap-dump
+ * actions.</p>
  */
 @SpringBootTest(
         classes = BootUiWebfluxSampleApplication.class,
@@ -30,7 +30,9 @@ import org.springframework.boot.test.web.server.LocalServerPort;
             "bootui.show-banner=false",
             "bootui.overrides-file=target/bootui-conformance-overrides.properties",
             "bootui.panels.copilot.enabled=false",
-            "bootui.panels.heap-dump.read-only=true"
+            "bootui.panels.heap-dump.read-only=true",
+            "bootui.heap-dump.capture-enabled=false",
+            "bootui.claude-code.enabled=OFF"
         })
 class WebFluxApiConformanceTest extends AbstractBootUiApiConformanceTest {
 
