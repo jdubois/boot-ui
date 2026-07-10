@@ -115,7 +115,7 @@ jobs:
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
         with:
           name: WebFlux end-to-end tests (Playwright)
-          path: bootui-spring-sample-app/e2e/test-results/junit/results-webflux.xml
+          path: bootui-spring-sample-app/e2e/test-results-webflux/junit/results.xml
           reporter: jest-junit
           fail-on-error: false
           fail-on-empty: false
@@ -138,6 +138,7 @@ jobs:
           name: playwright-report-webflux
           path: |
             bootui-spring-sample-app/e2e/playwright-report-webflux/
+            bootui-spring-sample-app/e2e/test-results-webflux/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -150,7 +151,7 @@ jobs:
             **/target/surefire-reports/TEST-*.xml
             bootui-ui/src/main/frontend/test-results/vitest-junit.xml
             bootui-spring-sample-app/e2e/test-results/junit/results.xml
-            bootui-spring-sample-app/e2e/test-results/junit/results-webflux.xml
+            bootui-spring-sample-app/e2e/test-results-webflux/junit/results.xml
           if-no-files-found: ignore
           retention-days: 7
 

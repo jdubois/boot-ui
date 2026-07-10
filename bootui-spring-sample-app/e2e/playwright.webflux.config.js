@@ -26,11 +26,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
+  outputDir: 'test-results-webflux',
   reporter: process.env.CI
     ? [
         ['list'],
         ['html', {open: 'never', outputFolder: 'playwright-report-webflux'}],
-        ['junit', {outputFile: 'test-results/junit/results-webflux.xml'}]
+        ['junit', {outputFile: 'test-results-webflux/junit/results.xml'}]
       ]
     : 'list',
   timeout: 60_000,
