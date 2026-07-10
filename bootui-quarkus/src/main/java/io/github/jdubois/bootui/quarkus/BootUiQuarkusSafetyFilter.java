@@ -113,8 +113,7 @@ public class BootUiQuarkusSafetyFilter {
             return;
         }
 
-        // Apply security headers to all BootUI responses (including 403 rejections below).
-        applySecurityHeaders(rc.response(), relativePath);
+        rc.addHeadersEndHandler(ignored -> applySecurityHeaders(rc.response(), relativePath));
 
         LocalhostGuardDecision decision = guard.decide(toGuardRequest(rc), buildConfig());
 
@@ -131,22 +130,20 @@ public class BootUiQuarkusSafetyFilter {
     }
 
     /**
-     * Applies the BootUI security-header policy to the response. Called before the guard check so the
-     * headers are present on both 403 rejections and passing responses, at parity with the Spring adapters'
-     * {@code SecurityHeadersFilter}.
+     * Applies the BootUI security-header policy immediately before Vert.x writes the response headers, so
+     * host filters have already contributed their policy and both passing and rejected responses are covered.
      */
     private void applySecurityHeaders(HttpServerResponse response, String relativePath) {
-        response.putHeader(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY, BootUiSecurityHeaders.CSP_VALUE);
-        response.putHeader(BootUiSecurityHeaders.X_CONTENT_TYPE_OPTIONS, BootUiSecurityHeaders.NOSNIFF);
-        response.putHeader(BootUiSecurityHeaders.X_FRAME_OPTIONS, BootUiSecurityHeaders.DENY);
-        response.putHeader(
-                BootUiSecurityHeaders.REFERRER_POLICY, BootUiSecurityHeaders.STRICT_ORIGIN_WHEN_CROSS_ORIGIN);
-
-        String cacheControl = BootUiSecurityHeaders.cacheControl(relativePath, API_PATH);
-        response.putHeader(BootUiSecurityHeaders.CACHE_CONTROL, cacheControl);
-        if (BootUiSecurityHeaders.shouldSetPragma(cacheControl)) {
-            response.putHeader(BootUiSecurityHeaders.PRAGMA, BootUiSecurityHeaders.PRAGMA_NO_CACHE);
+        int statusCode = response.getStatusCode();
+        if (BootUiSecurityHeaders.removesPragma(relativePath, API_PATH, statusCode)) {
+            response.headers().remove(BootUiSecurityHeaders.PRAGMA);
         }
+        BootUiSecurityHeaders.headersFor(relativePath, API_PATH, statusCode).forEach((name, value) -> {
+            if (BootUiSecurityHeaders.overridesExisting(name)
+                    || !response.headers().contains(name)) {
+                response.headers().set(name, value);
+            }
+        });
     }
 
     /**

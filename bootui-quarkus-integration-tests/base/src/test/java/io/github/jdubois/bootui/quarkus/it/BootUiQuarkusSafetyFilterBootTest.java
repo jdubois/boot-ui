@@ -123,6 +123,9 @@ class BootUiQuarkusSafetyFilterBootTest {
         assertThat(response.header(BootUiSecurityHeaders.REFERRER_POLICY))
                 .as("Referrer-Policy must be set")
                 .isEqualTo(BootUiSecurityHeaders.STRICT_ORIGIN_WHEN_CROSS_ORIGIN);
+        assertThat(response.header(BootUiSecurityHeaders.PERMISSIONS_POLICY))
+                .as("Permissions-Policy must be set")
+                .isEqualTo(BootUiSecurityHeaders.PERMISSIONS_POLICY_VALUE);
         assertThat(response.header(BootUiSecurityHeaders.CACHE_CONTROL))
                 .as("Cache-Control must be set")
                 .isNotNull();

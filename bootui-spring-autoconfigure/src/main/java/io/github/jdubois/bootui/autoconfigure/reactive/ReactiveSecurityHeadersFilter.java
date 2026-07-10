@@ -2,9 +2,10 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.engine.safety.BootUiSecurityHeaders;
+import java.util.function.Supplier;
 import org.springframework.core.Ordered;
-import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
@@ -42,22 +43,50 @@ public class ReactiveSecurityHeadersFilter extends AbstractReactiveBootUiFilter 
 
     @Override
     protected Mono<Void> doFilterInternal(ServerWebExchange exchange, WebFilterChain chain) {
-        applyHeaders(exchange.getRequest(), exchange.getResponse());
-        return chain.filter(exchange);
+        String path = pathWithinApplication(exchange.getRequest());
+        ServerHttpResponse response = new SecurityHeadersResponse(exchange.getResponse(), path);
+        return chain.filter(exchange.mutate().response(response).build());
     }
 
-    private void applyHeaders(ServerHttpRequest request, ServerHttpResponse response) {
-        response.getHeaders().set(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY, BootUiSecurityHeaders.CSP_VALUE);
-        response.getHeaders().set(BootUiSecurityHeaders.X_CONTENT_TYPE_OPTIONS, BootUiSecurityHeaders.NOSNIFF);
-        response.getHeaders().set(BootUiSecurityHeaders.X_FRAME_OPTIONS, BootUiSecurityHeaders.DENY);
-        response.getHeaders()
-                .set(BootUiSecurityHeaders.REFERRER_POLICY, BootUiSecurityHeaders.STRICT_ORIGIN_WHEN_CROSS_ORIGIN);
+    private void applyHeaders(ServerHttpResponse response, String path) {
+        int statusCode = response.getStatusCode() == null
+                ? 200
+                : response.getStatusCode().value();
+        if (BootUiSecurityHeaders.removesPragma(path, properties.getApiPath(), statusCode)) {
+            response.getHeaders().remove(BootUiSecurityHeaders.PRAGMA);
+        }
+        BootUiSecurityHeaders.headersFor(path, properties.getApiPath(), statusCode)
+                .forEach((name, value) -> {
+                    if (BootUiSecurityHeaders.overridesExisting(name)
+                            || !response.getHeaders().containsHeader(name)) {
+                        response.getHeaders().set(name, value);
+                    }
+                });
+    }
 
-        String path = pathWithinApplication(request);
-        String cacheControl = BootUiSecurityHeaders.cacheControl(path, properties.getApiPath());
-        response.getHeaders().set(BootUiSecurityHeaders.CACHE_CONTROL, cacheControl);
-        if (BootUiSecurityHeaders.shouldSetPragma(cacheControl)) {
-            response.getHeaders().set(BootUiSecurityHeaders.PRAGMA, BootUiSecurityHeaders.PRAGMA_NO_CACHE);
+    /**
+     * Re-applies BootUI's cache policy after every downstream commit callback. Host security callbacks can
+     * therefore replace the baseline, while no later callback can leave conflicting cache semantics.
+     */
+    private final class SecurityHeadersResponse extends ServerHttpResponseDecorator {
+
+        private final String path;
+
+        private SecurityHeadersResponse(ServerHttpResponse delegate, String path) {
+            super(delegate);
+            this.path = path;
+            super.beforeCommit(this::applyPolicy);
+        }
+
+        @Override
+        public void beforeCommit(Supplier<? extends Mono<Void>> action) {
+            super.beforeCommit(action);
+            super.beforeCommit(this::applyPolicy);
+        }
+
+        private Mono<Void> applyPolicy() {
+            applyHeaders(this, path);
+            return Mono.empty();
         }
     }
 }

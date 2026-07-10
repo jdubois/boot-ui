@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.engine.safety.BootUiSecurityHeaders;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.vertx.http.runtime.filters.Filters;
 import io.vertx.ext.web.RoutingContext;
@@ -46,6 +47,8 @@ public class BootUiProdShellGuardFilter {
 
     private static final String BASE_PATH = "/bootui";
 
+    private static final String API_PATH = BASE_PATH + "/api";
+
     /**
      * Run early, before route dispatch (including the static-resource route), matching
      * {@link BootUiQuarkusSafetyFilter}'s priority. The exact value relative to the other BootUI filters
@@ -88,7 +91,17 @@ public class BootUiProdShellGuardFilter {
 
         String relativePath = QuarkusRootPath.stripPrefix(path, QuarkusRootPath.normalize(rootPath()));
         if (isBootUiPath(relativePath)) {
-            rc.response().setStatusCode(404).end();
+            rc.response().setStatusCode(404);
+            if (BootUiSecurityHeaders.removesPragma(relativePath, API_PATH, 404)) {
+                rc.response().headers().remove(BootUiSecurityHeaders.PRAGMA);
+            }
+            BootUiSecurityHeaders.headersFor(relativePath, API_PATH, 404).forEach((name, value) -> {
+                if (BootUiSecurityHeaders.overridesExisting(name)
+                        || !rc.response().headers().contains(name)) {
+                    rc.response().putHeader(name, value);
+                }
+            });
+            rc.response().end();
             return;
         }
         rc.next();

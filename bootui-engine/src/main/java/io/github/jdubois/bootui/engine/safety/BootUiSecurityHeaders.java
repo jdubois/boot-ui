@@ -1,12 +1,18 @@
 package io.github.jdubois.bootui.engine.safety;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.regex.Pattern;
+
 /**
  * Defines the BootUI response-header policy applied by each adapter's thin binding.
  *
  * <p>Security headers are applied to <em>all</em> responses on the BootUI surface ({@code /bootui} and
  * {@code /bootui/api/**}) including 403 rejections from the localhost guard and panel-access filter.
  * Cache-control headers are differentiated by response class: API responses are never cached, content-hashed
- * static assets are cached indefinitely, and the SPA shell is revalidated on every request.</p>
+ * successfully served static assets are cached indefinitely, and the SPA shell and error responses are
+ * revalidated on every request.</p>
  *
  * <p>This class is pure Java with no framework or transport dependencies, so it is safe to use in the Spring
  * Boot (servlet and reactive) and Quarkus adapters without triggering the engine boundary check.</p>
@@ -21,10 +27,13 @@ package io.github.jdubois.bootui.engine.safety;
  *       older browsers that do not support {@code frame-ancestors}).</li>
  *   <li>{@code Referrer-Policy: strict-origin-when-cross-origin} — sends origin only on cross-origin
  *       requests, suppresses the referrer on downgrade.</li>
- *   <li>{@code Cache-Control} — see {@link #cacheControl(String, String)}.</li>
+ *   <li>{@code Permissions-Policy} — disables browser capabilities the local console never uses.</li>
+ *   <li>{@code Cache-Control} — see {@link #cacheControl(String, String, int)}.</li>
  * </ul>
  */
 public final class BootUiSecurityHeaders {
+
+    private static final Pattern HASHED_ASSET = Pattern.compile("(?:^|/)assets/[^/]+-[A-Za-z0-9_-]{8,}\\.[^/]+$");
 
     // -----------------------------------------------------------------------
     // Header names
@@ -41,6 +50,9 @@ public final class BootUiSecurityHeaders {
 
     /** Header name: referrer control. */
     public static final String REFERRER_POLICY = "Referrer-Policy";
+
+    /** Header name: browser capability restrictions. */
+    public static final String PERMISSIONS_POLICY = "Permissions-Policy";
 
     /** Header name: cache control. */
     public static final String CACHE_CONTROL = "Cache-Control";
@@ -67,7 +79,7 @@ public final class BootUiSecurityHeaders {
      */
     public static final String CSP_VALUE = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
             + " img-src 'self' data:; font-src 'self' data:; connect-src 'self';"
-            + " object-src 'none'; frame-ancestors 'none'";
+            + " object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
     /** {@code X-Content-Type-Options} value. */
     public static final String NOSNIFF = "nosniff";
@@ -77,6 +89,10 @@ public final class BootUiSecurityHeaders {
 
     /** {@code Referrer-Policy} value. */
     public static final String STRICT_ORIGIN_WHEN_CROSS_ORIGIN = "strict-origin-when-cross-origin";
+
+    /** Browser capabilities that BootUI does not use and therefore denies on its document. */
+    public static final String PERMISSIONS_POLICY_VALUE =
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()";
 
     /**
      * {@code Cache-Control} for API responses: do not cache, do not serve stale content.
@@ -105,7 +121,7 @@ public final class BootUiSecurityHeaders {
     // -----------------------------------------------------------------------
 
     /**
-     * Returns the appropriate {@code Cache-Control} value for the given request path.
+     * Returns the appropriate {@code Cache-Control} value for the given request path and response status.
      *
      * <p>The {@code path} is the full request path relative to the servlet context root or Quarkus
      * root-path (not stripped of the BootUI prefix). The {@code apiPath} is the configured
@@ -113,21 +129,59 @@ public final class BootUiSecurityHeaders {
      *
      * <ul>
      *   <li>API paths ({@code path} equals {@code apiPath} or starts with {@code apiPath + "/"}) → {@link #NO_STORE}</li>
-     *   <li>Hashed asset paths (path contains {@code /assets/}) → {@link #IMMUTABLE}</li>
+     *   <li>Successfully served Vite-style hashed asset paths under {@code /assets/} → {@link #IMMUTABLE}</li>
      *   <li>Everything else (SPA shell, error pages) → {@link #NO_CACHE}</li>
      * </ul>
      */
-    public static String cacheControl(String path, String apiPath) {
+    public static String cacheControl(String path, String apiPath, int statusCode) {
         if (path == null) {
             return NO_CACHE;
         }
         if (apiPath != null && (path.equals(apiPath) || path.startsWith(apiPath + "/"))) {
             return NO_STORE;
         }
-        if (path.contains("/assets/")) {
+        if (isCacheableAssetStatus(statusCode) && HASHED_ASSET.matcher(path).find()) {
             return IMMUTABLE;
         }
         return NO_CACHE;
+    }
+
+    /**
+     * Returns the complete canonical header set for a BootUI response path.
+     *
+     * <p>Adapters use this map as their only source of header names and values. Cache headers are included
+     * according to the response class; {@code Pragma} is intentionally absent for immutable assets.</p>
+     */
+    public static Map<String, String> headersFor(String path, String apiPath, int statusCode) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put(CONTENT_SECURITY_POLICY, CSP_VALUE);
+        headers.put(X_CONTENT_TYPE_OPTIONS, NOSNIFF);
+        headers.put(X_FRAME_OPTIONS, DENY);
+        headers.put(REFERRER_POLICY, STRICT_ORIGIN_WHEN_CROSS_ORIGIN);
+        headers.put(PERMISSIONS_POLICY, PERMISSIONS_POLICY_VALUE);
+
+        String cacheControl = cacheControl(path, apiPath, statusCode);
+        headers.put(CACHE_CONTROL, cacheControl);
+        if (shouldSetPragma(cacheControl)) {
+            headers.put(PRAGMA, PRAGMA_NO_CACHE);
+        }
+        return Collections.unmodifiableMap(headers);
+    }
+
+    /**
+     * Returns whether BootUI must own an existing response header value.
+     *
+     * <p>Cache directives are response-class semantics, not optional defense-in-depth, so adapters replace
+     * them. Other security headers are baseline defaults: an already-present host policy wins, and a host
+     * filter that runs later may replace BootUI's value.</p>
+     */
+    public static boolean overridesExisting(String headerName) {
+        return CACHE_CONTROL.equalsIgnoreCase(headerName) || PRAGMA.equalsIgnoreCase(headerName);
+    }
+
+    /** Returns whether an existing legacy no-cache pragma must be removed for this response path. */
+    public static boolean removesPragma(String path, String apiPath, int statusCode) {
+        return !shouldSetPragma(cacheControl(path, apiPath, statusCode));
     }
 
     /**
@@ -139,11 +193,15 @@ public final class BootUiSecurityHeaders {
      * for them. All other BootUI cache-control values ({@link #NO_STORE} and {@link #NO_CACHE})
      * are paired with {@code Pragma: no-cache}.</p>
      *
-     * @param cacheControl the value returned by {@link #cacheControl(String, String)}
+     * @param cacheControl the value returned by {@link #cacheControl(String, String, int)}
      * @return {@code true} if {@code Pragma: no-cache} should be added alongside
      */
     public static boolean shouldSetPragma(String cacheControl) {
         return !IMMUTABLE.equals(cacheControl);
+    }
+
+    private static boolean isCacheableAssetStatus(int statusCode) {
+        return (statusCode >= 200 && statusCode < 300) || statusCode == 304;
     }
 
     private BootUiSecurityHeaders() {}

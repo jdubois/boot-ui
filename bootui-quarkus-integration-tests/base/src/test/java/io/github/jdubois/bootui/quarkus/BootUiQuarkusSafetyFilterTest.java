@@ -8,9 +8,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.engine.safety.BootUiSecurityHeaders;
 import io.github.jdubois.bootui.engine.safety.ContainerGatewayDetector;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfigBuilder;
+import io.vertx.core.Handler;
+import io.vertx.core.MultiMap;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
@@ -100,6 +103,50 @@ class BootUiQuarkusSafetyFilterTest {
     }
 
     // --- end-to-end binding (mocked Vert.x) --------------------------------------------------------
+
+    @Test
+    void finalHeadersPreserveHostSecurityPolicyAndOwnCacheSemantics() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/overview", "127.0.0.1", "localhost:8080", null, null);
+        MultiMap headers = rc.response().headers();
+        headers.set(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY, "default-src 'none'");
+        headers.set(BootUiSecurityHeaders.CACHE_CONTROL, "public");
+
+        newFilter(Map.of()).handle(rc);
+        runHeadersEndHandler(rc);
+
+        assertThat(headers.getAll(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY))
+                .containsExactly("default-src 'none'");
+        assertThat(headers.getAll(BootUiSecurityHeaders.CACHE_CONTROL)).containsExactly(BootUiSecurityHeaders.NO_STORE);
+    }
+
+    @Test
+    void finalHeadersRemoveConflictingPragmaFromImmutableAssets() {
+        RoutingContext rc =
+                mockRequest("GET", "/bootui/assets/index-C2x2BcDS.js", "127.0.0.1", "localhost:8080", null, null);
+        MultiMap headers = rc.response().headers();
+        headers.set(BootUiSecurityHeaders.PRAGMA, BootUiSecurityHeaders.PRAGMA_NO_CACHE);
+
+        newFilter(Map.of()).handle(rc);
+        runHeadersEndHandler(rc);
+
+        assertThat(headers.get(BootUiSecurityHeaders.CACHE_CONTROL)).isEqualTo(BootUiSecurityHeaders.IMMUTABLE);
+        assertThat(headers.contains(BootUiSecurityHeaders.PRAGMA)).isFalse();
+    }
+
+    @Test
+    void missingHashedAssetIsNotCachedAsImmutable() {
+        RoutingContext rc =
+                mockRequest("GET", "/bootui/assets/missing-C2x2BcDS.js", "127.0.0.1", "localhost:8080", null, null);
+        when(rc.response().getStatusCode()).thenReturn(404);
+
+        newFilter(Map.of()).handle(rc);
+        runHeadersEndHandler(rc);
+
+        assertThat(rc.response().headers().get(BootUiSecurityHeaders.CACHE_CONTROL))
+                .isEqualTo(BootUiSecurityHeaders.NO_CACHE);
+        assertThat(rc.response().headers().get(BootUiSecurityHeaders.PRAGMA))
+                .isEqualTo(BootUiSecurityHeaders.PRAGMA_NO_CACHE);
+    }
 
     @Test
     void rejectsNonLoopbackPeerAndIgnoresForwardedHeaders() {
@@ -327,12 +374,20 @@ class BootUiQuarkusSafetyFilterTest {
         when(request.getHeader("Sec-Fetch-Site")).thenReturn(secFetchSite);
 
         HttpServerResponse response = mock(HttpServerResponse.class, RETURNS_SELF);
+        when(response.headers()).thenReturn(MultiMap.caseInsensitiveMultiMap());
+        when(response.getStatusCode()).thenReturn(200);
 
         RoutingContext rc = mock(RoutingContext.class);
         when(rc.normalizedPath()).thenReturn(path);
         when(rc.request()).thenReturn(request);
         when(rc.response()).thenReturn(response);
         return rc;
+    }
+
+    private static void runHeadersEndHandler(RoutingContext context) {
+        ArgumentCaptor<Handler<Void>> handler = ArgumentCaptor.captor();
+        verify(context).addHeadersEndHandler(handler.capture());
+        handler.getValue().handle(null);
     }
 
     private static void assertRejected(HttpServerResponse response, String expectedMessageFragment) {

@@ -1,9 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.safety;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.engine.safety.BootUiSecurityHeaders;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
@@ -119,11 +122,31 @@ class SecurityHeadersFilterTests {
     }
 
     @Test
-    void hashedAssetGetsImmutableCacheControl() throws Exception {
+    void unhashedAssetIsRevalidated() throws Exception {
         MockHttpServletResponse response = applyFilter("/bootui/assets/index-abc123.js");
+
+        assertThat(response.getHeader(BootUiSecurityHeaders.CACHE_CONTROL)).isEqualTo(BootUiSecurityHeaders.NO_CACHE);
+    }
+
+    @Test
+    void contentHashedAssetGetsImmutableCacheControl() throws Exception {
+        MockHttpServletResponse response = applyFilter("/bootui/assets/index-C2x2BcDS.js");
 
         assertThat(response.getHeader(BootUiSecurityHeaders.CACHE_CONTROL)).isEqualTo(BootUiSecurityHeaders.IMMUTABLE);
         assertThat(response.getHeader(BootUiSecurityHeaders.PRAGMA)).isNull();
+    }
+
+    @Test
+    void missingHashedAssetIsNotCachedAsImmutable() throws Exception {
+        MockHttpServletRequest request = request("GET", "/bootui/assets/missing-C2x2BcDS.js");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (downstreamRequest, downstreamResponse) -> {
+            ((HttpServletResponse) downstreamResponse).setStatus(404);
+        });
+
+        assertThat(response.getHeader(BootUiSecurityHeaders.CACHE_CONTROL)).isEqualTo(BootUiSecurityHeaders.NO_CACHE);
+        assertThat(response.getHeader(BootUiSecurityHeaders.PRAGMA)).isEqualTo(BootUiSecurityHeaders.PRAGMA_NO_CACHE);
     }
 
     @Test
@@ -155,6 +178,41 @@ class SecurityHeadersFilterTests {
         assertThat(response.getHeader(BootUiSecurityHeaders.CACHE_CONTROL)).isEqualTo(BootUiSecurityHeaders.NO_STORE);
     }
 
+    @Test
+    void preservesExistingHostSecurityPolicyButOwnsCacheSemantics() throws Exception {
+        MockHttpServletRequest request = request("GET", "/bootui/api/overview");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (downstreamRequest, downstreamResponse) -> {
+            HttpServletResponse httpResponse = (HttpServletResponse) downstreamResponse;
+            httpResponse.setStatus(201);
+            assertThat(httpResponse.containsHeader(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY))
+                    .as("BootUI's baseline must not make a downstream host writer skip its policy")
+                    .isFalse();
+            httpResponse.addHeader(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY, "default-src 'none'");
+            httpResponse.setHeader(BootUiSecurityHeaders.CACHE_CONTROL, "public");
+        });
+
+        assertThat(response.getHeaders(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY))
+                .containsExactly("default-src 'none'");
+        assertThat(response.getHeaders(BootUiSecurityHeaders.CACHE_CONTROL))
+                .containsExactly(BootUiSecurityHeaders.NO_STORE);
+    }
+
+    @Test
+    void thrownHashedAssetResponseIsNotCachedAsImmutable() {
+        MockHttpServletRequest request = request("GET", "/bootui/assets/index-C2x2BcDS.js");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThatThrownBy(() -> filter.doFilter(request, response, (downstreamRequest, downstreamResponse) -> {
+                    throw new ServletException("render failed");
+                }))
+                .isInstanceOf(ServletException.class);
+
+        assertThat(response.getHeader(BootUiSecurityHeaders.CACHE_CONTROL)).isEqualTo(BootUiSecurityHeaders.NO_CACHE);
+        assertThat(response.getHeader(BootUiSecurityHeaders.PRAGMA)).isEqualTo(BootUiSecurityHeaders.PRAGMA_NO_CACHE);
+    }
+
     // --- helpers ---------------------------------------------------------------------------
 
     private MockHttpServletResponse applyFilter(String path) throws Exception {
@@ -172,6 +230,8 @@ class SecurityHeadersFilterTests {
         assertThat(response.getHeader(BootUiSecurityHeaders.X_FRAME_OPTIONS)).isEqualTo(BootUiSecurityHeaders.DENY);
         assertThat(response.getHeader(BootUiSecurityHeaders.REFERRER_POLICY))
                 .isEqualTo(BootUiSecurityHeaders.STRICT_ORIGIN_WHEN_CROSS_ORIGIN);
+        assertThat(response.getHeader(BootUiSecurityHeaders.PERMISSIONS_POLICY))
+                .isEqualTo(BootUiSecurityHeaders.PERMISSIONS_POLICY_VALUE);
         assertThat(response.getHeader(BootUiSecurityHeaders.CACHE_CONTROL)).isNotNull();
     }
 
