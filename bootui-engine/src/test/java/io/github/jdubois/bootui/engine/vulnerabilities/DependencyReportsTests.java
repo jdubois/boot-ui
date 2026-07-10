@@ -260,4 +260,16 @@ class DependencyReportsTests {
         assertThat(dependency.vulnerabilityCount()).isEqualTo(1);
         assertThat(dependency.highestSeverity()).isEqualTo("HIGH");
     }
+
+    @Test
+    void scanCandidatesDeduplicatesPackageVersionsBeforeApplyingTheLimit() {
+        DependencyDto first = dependency("org.example", "first", "1.0.0");
+        DependencyDto duplicate = dependency("org.example", "first", "1.0.0");
+        DependencyDto second = dependency("org.example", "second", "2.0.0");
+
+        assertThat(DependencyReports.scanCandidates(List.of(first, duplicate, second), 2))
+                .containsExactly(first, second);
+        assertThat(DependencyReports.scanCandidateCount(List.of(first, duplicate, second)))
+                .isEqualTo(2);
+    }
 }

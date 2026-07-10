@@ -372,7 +372,7 @@ onMounted(loadDependencies)
                         <span v-else-if="vulnerability.fixedVersions.length" class="small text-muted">
                           already on a fixed version (&ge; {{ vulnerability.fixedVersions.join(', ') }})
                         </span>
-                        <span v-else class="small text-muted fst-italic">No fix published yet</span>
+                        <span v-else class="small text-muted fst-italic">No fixed version reported by OSV</span>
                         <span v-if="vulnerability.dismissed" class="badge text-bg-light border">Dismissed</span>
                         <button
                           :disabled="dismissLoading"
