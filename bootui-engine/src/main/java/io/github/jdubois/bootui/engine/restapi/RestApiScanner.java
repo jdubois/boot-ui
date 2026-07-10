@@ -30,8 +30,10 @@ public final class RestApiScanner {
             "Heuristic, project-agnostic REST API design rules run against the host application's own controllers "
                     + "only. These checks complement, but do not replace, an API design review or contract testing. "
                     + "Security concerns (CORS, authentication, authorization) are covered by the Security Advisor.";
-    /** Rules tied to Spring-only types (RFC 9457 ProblemDetail) with no JAX-RS equivalent; skipped on JAX-RS. */
-    private static final Set<String> SPRING_ONLY_RULE_IDS = Set.of("RAPI-ERR-003", "RAPI-ERR-006");
+    /** Rules tied to Spring's RFC 9457 convenience types; skipped when the model contains only JAX-RS resources. */
+    private static final Set<String> SPRING_PROBLEM_DETAIL_RULE_IDS = Set.of("RAPI-ERR-003", "RAPI-ERR-006");
+
+    private static final Set<String> SPRING_DATA_PAGINATION_RULE_IDS = Set.of("RAPI-PAGE-002");
 
     private static final Comparator<RestApiRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (RestApiRuleResultDto result) -> SeverityOrder.rank(result.severity()))
@@ -166,11 +168,20 @@ public final class RestApiScanner {
                 results);
     }
 
-    private static RestApiRuleResultDto evaluate(RestApiRule rule, RestApiContext context) {
+    static RestApiRuleResultDto evaluate(RestApiRule rule, RestApiContext context) {
         RestApiRuleDefinition definition = rule.definition();
-        if (context.jaxRs() && SPRING_ONLY_RULE_IDS.contains(definition.id())) {
+        if (context.jaxRs() && SPRING_PROBLEM_DETAIL_RULE_IDS.contains(definition.id())) {
             return RestApiRuleSupport.skipped(
-                    definition, "Not applicable on JAX-RS: Spring ProblemDetail (RFC 9457) types are not available.");
+                    definition,
+                    "Not applicable on JAX-RS: RFC 9457 is framework-neutral, but this rule specifically detects"
+                            + " Spring ProblemDetail/ErrorResponse return types; the current model cannot reliably"
+                            + " identify equivalent JAX-RS problem-details payloads.");
+        }
+        if (context.jaxRs() && SPRING_DATA_PAGINATION_RULE_IDS.contains(definition.id())) {
+            return RestApiRuleSupport.skipped(
+                    definition,
+                    "Not applicable on JAX-RS: this rule specifically compares Spring Data Pageable inputs with"
+                            + " Page/Slice outputs.");
         }
         return rule.evaluate(context);
     }

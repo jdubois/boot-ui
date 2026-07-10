@@ -92,6 +92,7 @@ final class RestApiHandlerModelBuilder {
             "post",
             "register",
             "edit");
+    private static final Set<String> NON_MUTATING_METHOD_PREFIXES = Set.of("postprocess", "putaside", "patchversion");
 
     private static final List<String> MAPPING_ANNOTATIONS = List.of(
             Types.GET_MAPPING,
@@ -123,7 +124,7 @@ final class RestApiHandlerModelBuilder {
     private static final Set<String> OFFSET_LIMIT_PARAM_NAMES = Set.of("offset", "limit");
     private static final Set<String> CURSOR_PARAM_NAMES = Set.of("cursor", "after", "before");
 
-    /** Header name (case-insensitive) recognised by the IETF HTTPAPI Idempotency-Key draft. */
+    /** Header name (case-insensitive) recognised by the expired IETF HTTPAPI Idempotency-Key draft. */
     private static final String IDEMPOTENCY_KEY_HEADER_NAME = "idempotency-key";
 
     private static final List<String> JAXRS_METHOD_ANNOTATIONS = List.of(
@@ -444,7 +445,7 @@ final class RestApiHandlerModelBuilder {
             }
         }
 
-        boolean stateChanging = startsWithWord(method.getName(), STATE_CHANGING_PREFIXES);
+        boolean stateChanging = nameLooksStateChanging(method.getName());
         String lowerName = method.getName().toLowerCase(Locale.ROOT);
         boolean findAll = lowerName.startsWith("findall")
                 || lowerName.startsWith("getall")
@@ -614,9 +615,9 @@ final class RestApiHandlerModelBuilder {
         boolean returnsVoid = "void".equals(returnTypeName) || "java.lang.Void".equals(returnTypeName);
         boolean hasResponseParam =
                 methodOpt.map(RestApiHandlerModelBuilder::hasResponseParameter).orElse(false);
-        // No JAX-RS equivalent of Spring's ProblemDetail/@ResponseStatus exists, so those two fields are
-        // always false/empty here; RAPI-ERR-003/RAPI-ERR-006 are Spring-only rules (see SPRING_ONLY_RULE_IDS
-        // in RestApiScanner) and never evaluate JAX-RS-derived exception handlers.
+        // Spring's ProblemDetail/@ResponseStatus types do not exist on JAX-RS, so those two fields are
+        // always false/empty here. RFC 9457 itself is framework-neutral, but the bounded model cannot
+        // reliably prove that an arbitrary JAX-RS payload implements the problem-details schema.
         boolean catchesExceptionOrThrowable =
                 "java.lang.Exception".equals(exceptionType) || "java.lang.Throwable".equals(exceptionType);
         exceptionHandlers.add(new ExceptionHandlerModel(
@@ -849,7 +850,7 @@ final class RestApiHandlerModelBuilder {
         String responseStatusValue = responseStatusValue(method, type);
         boolean declaresBroadThrows = declaresBroadThrows(method);
         boolean hasOperation = hasOperationAnnotation(method);
-        boolean stateChanging = startsWithWord(method.getName(), STATE_CHANGING_PREFIXES);
+        boolean stateChanging = nameLooksStateChanging(method.getName());
         String lowerName = method.getName().toLowerCase(Locale.ROOT);
         boolean findAll = lowerName.startsWith("findall")
                 || lowerName.startsWith("getall")
@@ -1170,6 +1171,14 @@ final class RestApiHandlerModelBuilder {
         }
         String name = type.getName();
         return SIMPLE_BODY_TYPES.contains(name) || SCALAR_TYPES.contains(name) || UNTYPED_TYPES.contains(name);
+    }
+
+    private static boolean nameLooksStateChanging(String methodName) {
+        String lower = methodName.toLowerCase(Locale.ROOT);
+        if (NON_MUTATING_METHOD_PREFIXES.stream().anyMatch(lower::startsWith)) {
+            return false;
+        }
+        return startsWithWord(methodName, STATE_CHANGING_PREFIXES);
     }
 
     /**

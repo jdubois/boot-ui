@@ -378,14 +378,13 @@ last report, and dismissing a rule persists to `.bootui/boot-ui.yml` exactly as 
 ### REST API
 
 The REST API panel runs a curated, zero-config ruleset against the host application's own web layer
-(`@RestController` / `@Controller` handler methods) at runtime. Like the Architecture panel, it detects the
-application's base package from the `@SpringBootApplication` configuration, imports the compiled controllers from that
-package with ArchUnit's `ClassFileImporter` (bounded to the application's own classes), and derives a read-only handler
+(`@RestController` / `@Controller` handler methods on Spring or JAX-RS resources on Quarkus) at runtime. Like the
+Architecture panel, it imports the compiled handlers from bounded application base packages and derives a read-only
 model — HTTP method(s), path(s), parameters and their annotations, return type, `produces`/`consumes`, validation flags,
-and declared throws. It then evaluates 36 universally-sensible REST best-practice rules across eight categories: routing
+and declared throws. It then evaluates 53 REST best-practice rules across eight categories: routing
 and HTTP-method mapping, resource naming, status codes and responses, input validation and binding, DTO and payload
 contracts, pagination, versioning and content negotiation, and error handling and documentation. The `RAPI-DOC-*`
-documentation rules only run when springdoc-openapi is on the host classpath.
+documentation rules only run when Swagger or MicroProfile OpenAPI annotations are on the host classpath.
 
 The advisor deliberately avoids security concerns (CORS, authentication, authorization), which remain owned by the
 Security panel. The scan runs on demand and caches the last report; each rule is registered with a stable

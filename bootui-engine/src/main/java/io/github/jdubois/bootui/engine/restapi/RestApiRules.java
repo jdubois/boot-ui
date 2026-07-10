@@ -78,7 +78,7 @@ final class RestApiRuleHelp {
             "https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html";
     static final String IDEMPOTENCY_KEY_DOCS =
             "https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/";
-    static final String DEPRECATION_DOCS = "https://www.rfc-editor.org/rfc/rfc8594.html";
+    static final String DEPRECATION_DOCS = "https://www.rfc-editor.org/rfc/rfc9745.html";
     static final String RETRY_AFTER_DOCS = "https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3";
 
     private static final Pattern VERSION_SEGMENT = Pattern.compile("v\\d+", Pattern.CASE_INSENSITIVE);
@@ -511,8 +511,9 @@ final class StateChangingHandlersNotOnGetRule extends AbstractRestApiRule {
                 "State-changing handlers are not mapped to GET",
                 RestApiCategory.ROUTING,
                 "HIGH",
-                "GET must be safe and idempotent. A create/update/delete-style handler mapped to GET can be triggered"
-                        + " by crawlers, prefetching, or caching.",
+                "GET must be safe and idempotent. A create/update/delete/save-style handler mapped to GET can be"
+                        + " triggered by crawlers, prefetching, or caching. Ambiguous HTTP-verb prefixes such as"
+                        + " postProcess, putAside, and patchVersion are deliberately not treated as mutations.",
                 "Map state-changing operations to POST/PUT/PATCH/DELETE instead of GET.",
                 RestApiRuleHelp.REST_GUIDELINES));
     }
@@ -1220,9 +1221,11 @@ final class ReturnPagedTypeRule extends AbstractRestApiRule {
                 "Pageable handlers return a paged type",
                 RestApiCategory.PAGINATION,
                 "LOW",
-                "A handler that accepts a Pageable but returns a raw List/array discards the paging metadata (total"
-                        + " elements, total pages) that Page or Slice would carry.",
-                "Return Page or Slice when the handler accepts a Pageable, so paging metadata reaches the client.",
+                "A Spring handler that accepts Spring Data Pageable but returns a raw List/array discards the paging"
+                        + " metadata (total elements, total pages) that Page or Slice would carry. This Spring-specific"
+                        + " type relationship has no reliably detectable JAX-RS equivalent in the current model.",
+                "On Spring, return Page or Slice when the handler accepts Pageable, so paging metadata reaches the"
+                        + " client. On JAX-RS, document and return an explicit pagination envelope.",
                 RestApiRuleHelp.PAGINATION_DOCS));
     }
 
@@ -1970,11 +1973,11 @@ final class BroadExceptionHandlerRule extends AbstractRestApiRule {
                 "Broad @ExceptionHandler should not collapse all errors to one status",
                 RestApiCategory.ERROR_HANDLING,
                 "LOW",
-                "@ExceptionHandler(Exception.class) or Throwable is the only exception handler present (so every"
-                        + " error — validation, not-found, server fault — collapses to one status), or it maps to a"
-                        + " fixed non-5xx status. A broad catch-all mapped to a 5xx status (RFC 9110 §15.6.1) that"
-                        + " coexists with specific handlers for other exception types is a deliberate, correct"
-                        + " last-resort fallback and is not flagged.",
+                "@ExceptionHandler(Exception.class) or Throwable is the only exception handler declared by its class"
+                        + " (so that advice/mapper collapses every error it handles to one status), or it maps to a"
+                        + " fixed non-5xx status. The comparison is per declaring class, not application-wide. A broad"
+                        + " catch-all mapped to a 5xx status (RFC 9110 §15.6.1) that coexists in the same class with"
+                        + " specific handlers is a deliberate last-resort fallback and is not flagged.",
                 "Catch specific exception types and map each to its appropriate status (e.g. 400, 404, 409), and"
                         + " keep any Exception/Throwable catch-all as a last-resort fallback mapped to a 5xx status.",
                 RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
@@ -2002,8 +2005,9 @@ final class BroadExceptionHandlerRule extends AbstractRestApiRule {
                     && !RestApiRuleHelp.SERVER_ERROR_STATUS_NAMES.contains(handler.responseStatusValue());
             if (isSoleHandlerInClass) {
                 violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName()
-                        + " catches Exception/Throwable and is the only exception handler present, so all errors"
-                        + " collapse to one status");
+                        + " catches Exception/Throwable and is the only exception handler declared by "
+                        + simpleName(handler.declaringClassName()) + ", so that mapper collapses all handled errors"
+                        + " to one status");
             } else if (mapsToNonServerErrorStatus) {
                 violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName()
                         + " catches Exception/Throwable and maps it to a fixed non-5xx status ("
@@ -2112,9 +2116,9 @@ final class IdempotencyKeyOnCreationEndpointsRule extends AbstractRestApiRule {
                 RestApiCategory.VALIDATION,
                 "INFO",
                 "A POST creation endpoint has no client-supplied Idempotency-Key header, so a client cannot safely"
-                        + " retry the request after a network failure without risking a duplicate resource. The"
-                        + " Idempotency-Key HTTP header is still an IETF HTTPAPI working-group Internet-Draft, but it"
-                        + " formalises a pattern already used by Stripe, PayPal, and Azure.",
+                        + " retry the request after a network failure without risking a duplicate resource."
+                        + " draft-ietf-httpapi-idempotency-key-header expired in April 2026 without becoming an RFC,"
+                        + " but the header remains a useful de-facto convention implemented by major payment APIs.",
                 "Worth a design review: accept an Idempotency-Key header (@RequestHeader/@HeaderParam) and"
                         + " de-duplicate retried requests by that key for non-idempotent creation endpoints.",
                 RestApiRuleHelp.IDEMPOTENCY_KEY_DOCS));
@@ -2140,11 +2144,11 @@ final class DeprecatedEndpointsSignalDeprecationRule extends AbstractRestApiRule
                 "INFO",
                 "A handler (or its declaring class) is annotated @Deprecated but has no accompanying"
                         + " @Operation(deprecated = true). @Deprecated only communicates to compile-time Java"
-                        + " consumers; HTTP clients calling the endpoint directly need an out-of-band signal (RFC"
-                        + " 8594 Sunset header, or the still-draft Deprecation header).",
+                        + " consumers; HTTP clients need an OpenAPI deprecation marker and can also receive the"
+                        + " standardized Deprecation response header defined by RFC 9745.",
                 "Add @Operation(deprecated = true) alongside @Deprecated so the generated OpenAPI document signals"
-                        + " deprecation to HTTP clients, and consider RFC 8594's Sunset header for a concrete"
-                        + " retirement date.",
+                        + " deprecation, and consider RFC 9745's Deprecation header plus RFC 8594's Sunset header for"
+                        + " runtime notice and a concrete retirement date.",
                 RestApiRuleHelp.DEPRECATION_DOCS));
     }
 
@@ -2174,7 +2178,8 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
                         + " retry. This is a weak, advisory signal: an imperatively-set header cannot be detected by"
                         + " static analysis, so treat this as a reminder rather than a confirmed defect.",
                 "Set a Retry-After header (RFC 9110 §10.2.3) alongside 429 (RFC 6585 §4) or 503 responses so"
-                        + " clients know when to retry.",
+                        + " clients know when to retry. For quota visibility, RateLimit and RateLimit-Policy are"
+                        + " complementary fields from an active IETF HTTPAPI Internet-Draft, not an RFC.",
                 RestApiRuleHelp.RETRY_AFTER_DOCS));
     }
 
@@ -2187,12 +2192,14 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
                         + " with no statically-visible Retry-After header");
             }
         }
+
         for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
             if (THROTTLING_STATUS_NAMES.contains(handler.responseStatusValue())) {
                 violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName() + " maps to "
                         + handler.responseStatusValue() + " with no statically-visible Retry-After header");
             }
         }
+
         return RestApiRuleSupport.fromViolations(definition(), violations);
     }
 
