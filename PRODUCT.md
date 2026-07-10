@@ -32,9 +32,8 @@ It is a framework-neutral visualization and explanation layer over each runtime'
 context — not an APM, not production monitoring, not a hosted dashboard.
 
 Secondary goals: cut time spent debugging auto-configuration and configuration; help developers onboard onto
-unfamiliar services; give an IDE-agnostic surface for runtime insight; make Actuator data readable and
-actionable; and act as an extensible platform where Spring ecosystem libraries (and BootUI's own advisors) add
-panels.
+unfamiliar services; give an IDE-agnostic surface for runtime insight; make runtime diagnostics readable and
+actionable; and act as an extensible platform where framework integrations and BootUI's own advisors add panels.
 
 Success looks like: a developer opens `/bootui`, and within a couple of minutes understands their app's
 profiles, wiring, config, health, and risks well enough to act — without leaving their normal workflow, and
@@ -45,7 +44,7 @@ without BootUI ever leaking a secret, calling the network unprompted, or staying
 **Polished, modern, confident.** BootUI is a craft demonstration: a tool that advises Spring and Quarkus developers on
 architecture, security, and performance has to *look* like it was built by someone who holds those standards. It
 should feel like best-in-class developer tooling (the Linear / Stripe / Raycast tier), translated into the
-Spring world — calm, precise, and quietly authoritative.
+application developer's world — calm, precise, and quietly authoritative.
 
 - **Voice:** expert and direct. Explains, never lectures. States findings plainly ("1 violation found"),
   recommends a concrete fix, and gets out of the way.

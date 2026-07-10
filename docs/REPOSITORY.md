@@ -18,13 +18,15 @@
 
 ## Compatibility version source of truth
 
-Spring Boot and Quarkus compatibility references should follow the root `pom.xml` properties:
+Spring Boot and Quarkus compatibility references for the published adapters should follow the root `pom.xml` properties:
 
 - `spring-boot.version`
 - `quarkus.platform.version`
 
 When these are updated, refresh matching documentation references in the same pull request (`README.md`,
 `docs/SETUP.md`, `docs/FEATURES.md`, and `.github/copilot-instructions.md`).
+The non-published Quarkus sample app keeps a separate platform pin aligned with its Quarkus LangChain4j dependency;
+that demo-specific pin is not the public compatibility version.
 
 ## Documentation website
 
