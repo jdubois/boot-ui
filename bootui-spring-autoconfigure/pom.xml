@@ -112,8 +112,8 @@
             <artifactId>spring-kafka</artifactId>
             <!-- Explicit version override: the spring-boot-dependencies BOM currently manages a
                  version affected by a header-mapper trusted-package-matching deserialization
-                 advisory; 3.3.16 is the patched release on the 3.3.x line. -->
-            <version>3.3.16</version>
+                 advisory; 4.1.0 is the patched release on the 3.3.x line. -->
+            <version>4.1.0</version>
             <optional>true</optional>
         </dependency>
         <dependency>
