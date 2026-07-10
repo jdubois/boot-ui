@@ -1,5 +1,7 @@
 node_modules/
 playwright-report/
+playwright-report-webflux/
 test-results/
+test-results-webflux/
 blob-report/
 playwright/.cache/

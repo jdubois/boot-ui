@@ -53,12 +53,12 @@ flow) exposed by the sample app:
 **reactive** `bootui-spring-webflux-sample-app` (Netty/`DispatcherHandler`) instead of the servlet sample
 app above. It proves the shell boots, reports `platform: "spring-boot-reactive"`, a representative sample
 of ported panels render, and the panels with no reactive equivalent yet (HTTP Sessions, Spring Security,
-MCP Server, Live Activity) explain why through the real sidebar/alert UI - it does not re-verify
+MCP Server, REST Client) explain why through the real sidebar/alert UI - it does not re-verify
 per-panel behavior already covered by the shared `bootui-conformance` suite
 (`WebFluxApiConformanceTest`) and the table above. Run it with its own config:
 
 ```bash
-npx playwright test --config=playwright.webflux.config.js
+npm run test:webflux
 ```
 
 It boots `bootui-spring-webflux-sample-app` via `./mvnw spring-boot:run` on port 8081 (same

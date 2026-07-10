@@ -214,6 +214,46 @@ class HttpProbeServiceTests {
         assertThat(response.body()).contains("custom=forwarded").doesNotContain("host=evil.example.com");
     }
 
+    // ── truncation ────────────────────────────────────────────────────────────
+
+    @Test
+    void responseUnderLimitNotTruncated() {
+        respondWith("/small", 200, "small-body");
+
+        HttpProbeResponse response = service.probe(new HttpProbeRequest("GET", "/small", null, null));
+
+        assertThat(response.body()).isEqualTo("small-body");
+        assertThat(response.truncated()).isFalse();
+    }
+
+    @Test
+    void responseOverLimitIsTruncatedAndFlagSet() throws Exception {
+        // Build a service with a very small limit so the test doesn't need a 1 MiB response.
+        int limit = 5;
+        HttpProbeService tinyLimit =
+                new HttpProbeService(() -> server.getAddress().getPort(), limit);
+        // Respond with exactly limit+1 bytes to trigger truncation.
+        String longBody = "ABCDEF"; // 6 bytes > limit of 5
+        respondWith("/big", 200, longBody);
+
+        HttpProbeResponse response = tinyLimit.probe(new HttpProbeRequest("GET", "/big", null, null));
+
+        assertThat(response.body()).isEqualTo("ABCDE"); // first 5 bytes
+        assertThat(response.truncated()).isTrue();
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.error()).isNull();
+    }
+
+    @Test
+    void errorResponseHasTruncatedFalse() throws Exception {
+        int closed = closedPort();
+        HttpProbeService refused = new HttpProbeService(() -> closed);
+
+        HttpProbeResponse response = refused.probe(new HttpProbeRequest("GET", "/", null, null));
+
+        assertThat(response.truncated()).isFalse();
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private void respondWith(String path, int status, String body) {

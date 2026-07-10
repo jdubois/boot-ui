@@ -75,6 +75,11 @@ jobs:
         working-directory: bootui-spring-sample-app/e2e
         run: npm test
 
+      - name: Run WebFlux Playwright end-to-end tests
+        if: ${{ !cancelled() }}
+        working-directory: bootui-spring-sample-app/e2e
+        run: npm run test:webflux
+
       - name: Publish Java test report
         if: ${{ !cancelled() }}
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
@@ -105,6 +110,16 @@ jobs:
           fail-on-error: false
           fail-on-empty: false
 
+      - name: Publish WebFlux end-to-end test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
+        with:
+          name: WebFlux end-to-end tests (Playwright)
+          path: bootui-spring-sample-app/e2e/test-results-webflux/junit/results.xml
+          reporter: jest-junit
+          fail-on-error: false
+          fail-on-empty: false
+
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -113,6 +128,17 @@ jobs:
           path: |
             bootui-spring-sample-app/e2e/playwright-report/
             bootui-spring-sample-app/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload WebFlux Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-webflux
+          path: |
+            bootui-spring-sample-app/e2e/playwright-report-webflux/
+            bootui-spring-sample-app/e2e/test-results-webflux/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -125,6 +151,7 @@ jobs:
             **/target/surefire-reports/TEST-*.xml
             bootui-ui/src/main/frontend/test-results/vitest-junit.xml
             bootui-spring-sample-app/e2e/test-results/junit/results.xml
+            bootui-spring-sample-app/e2e/test-results-webflux/junit/results.xml
           if-no-files-found: ignore
           retention-days: 7
 
