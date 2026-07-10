@@ -5,8 +5,10 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitCallTarget;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
+import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
@@ -255,19 +257,21 @@ final class SerializationCheck implements GraalVmCheck {
 
 /**
  * Flags native access: calls to {@code System.loadLibrary} / {@code Runtime.loadLibrary} /
- * {@code Runtime.load} and dependencies on {@code sun.misc.Unsafe} / {@code jdk.internal.misc.Unsafe}.
- * Native code and {@code Unsafe} usage frequently need extra native-image configuration.
+ * {@code Runtime.load} and unsupported {@code Unsafe} class-definition operations. Ordinary Unsafe
+ * memory access is supported by Native Image and must not be reported as a blanket JNI concern.
  */
 final class NativeAccessCheck extends AbstractArchUnitGraalVmCheck {
+
+    private static final Set<String> UNSUPPORTED_UNSAFE_OPERATIONS = Set.of("defineClass", "defineAnonymousClass");
 
     NativeAccessCheck() {
         super(new GraalVmCheckDefinition(
                 "GRAAL-NATIVE-001",
-                "Native access (JNI / Unsafe) may need native-image configuration",
+                "Native libraries or unsupported Unsafe operations need native-image review",
                 GraalVmCategory.NATIVE_ACCESS,
                 "LOW",
-                "Detects loading of native libraries (System.loadLibrary, Runtime.load) and use of sun.misc.Unsafe / jdk.internal.misc.Unsafe, which often require JNI or extra native-image configuration.",
-                "Confirm the native libraries are available to the native image and add JNI configuration if needed; prefer supported APIs over Unsafe.",
+                "Detects loading of native libraries (System.loadLibrary, Runtime.load) and unsupported Unsafe class-definition operations. Ordinary Unsafe memory access is supported by Native Image and is intentionally not flagged.",
+                "Confirm loaded native libraries are available to the native image and add JNI configuration where needed; replace Unsafe runtime class definition with build-time generation.",
                 "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/JNI/"));
     }
 
@@ -282,15 +286,13 @@ final class NativeAccessCheck extends AbstractArchUnitGraalVmCheck {
                         String owner = target.getOwner().getName();
                         String name = target.getName();
                         boolean loadLibrary = "loadLibrary".equals(name) || "load".equals(name);
-                        return loadLibrary && ("java.lang.System".equals(owner) || "java.lang.Runtime".equals(owner));
+                        if (loadLibrary && ("java.lang.System".equals(owner) || "java.lang.Runtime".equals(owner))) {
+                            return true;
+                        }
+                        return ("sun.misc.Unsafe".equals(owner) || "jdk.internal.misc.Unsafe".equals(owner))
+                                && UNSUPPORTED_UNSAFE_OPERATIONS.contains(name);
                     }
                 })
-                .orShould()
-                .dependOnClassesThat()
-                .haveFullyQualifiedName("sun.misc.Unsafe")
-                .orShould()
-                .dependOnClassesThat()
-                .haveFullyQualifiedName("jdk.internal.misc.Unsafe")
                 .as("Classes should not use native access without native-image configuration");
     }
 }
@@ -565,7 +567,7 @@ final class BuildTimeInitializationCheck extends AbstractArchUnitGraalVmCheck {
         super(
                 new GraalVmCheckDefinition(
                         "GRAAL-INIT-001",
-                        "Static initializer I/O or thread starts may break build-time initialization",
+                        "Build-time-initialized classes must not perform static I/O or start threads",
                         GraalVmCategory.BUILD_TIME_INIT,
                         "LOW",
                         "Detects static initializers that perform file I/O (java.io file streams or filesystem-touching java.nio.file.Files calls) or start threads/processes directly. Since GraalVM 21.3+ classes are run-time-initialized by default, this only applies when the class is explicitly initialized at build time via the native-image --initialize-at-build-time flag. Spring AOT is one way to arrive at that configuration (it can compute and pass the flag for Spring-managed classes on the application's behalf), but the flag itself — not Spring AOT — is the actual mechanism native-image reads, so this also applies to build-time initialization configured directly or by other means.",
@@ -707,6 +709,69 @@ final class RuntimeClassGenerationCheck extends AbstractArchUnitGraalVmCheck {
     }
 }
 
+/** Flags attempts to obtain the JDK compiler, which is unavailable in a native executable. */
+final class SystemJavaCompilerCheck extends AbstractArchUnitGraalVmCheck {
+
+    SystemJavaCompilerCheck() {
+        super(new GraalVmCheckDefinition(
+                "GRAAL-JDK-001",
+                "The system Java compiler is unavailable in native images",
+                GraalVmCategory.CLASS_GENERATION,
+                "HIGH",
+                "Detects ToolProvider.getSystemJavaCompiler(), which requests a runtime Java compiler. Native images contain ahead-of-time compiled application code and do not provide javac at run time.",
+                "Compile or generate code during the application build and include the resulting classes in the native image; do not compile Java source inside the running application.",
+                "https://www.graalvm.org/jdk25/reference-manual/native-image/metadata/Compatibility/"));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(
+                        new DescribedPredicate<JavaMethodCall>("ToolProvider.getSystemJavaCompiler() is called") {
+                            @Override
+                            public boolean test(JavaMethodCall call) {
+                                MethodCallTarget target = call.getTarget();
+                                return "javax.tools.ToolProvider"
+                                                .equals(target.getOwner().getName())
+                                        && "getSystemJavaCompiler".equals(target.getName());
+                            }
+                        })
+                .as("Classes should not request a runtime Java compiler in a native image");
+    }
+}
+
+/** Flags JSR-223 engine discovery, which depends on runtime service loading and dynamic execution. */
+final class ScriptEngineUsageCheck extends AbstractArchUnitGraalVmCheck {
+
+    ScriptEngineUsageCheck() {
+        super(new GraalVmCheckDefinition(
+                "GRAAL-JDK-002",
+                "JSR-223 script engines require native-image-specific support",
+                GraalVmCategory.CLASS_GENERATION,
+                "HIGH",
+                "Detects construction of ScriptEngineManager. JSR-223 discovers engines with ServiceLoader and engines generally load or generate executable code dynamically, which a closed-world native image cannot assume is available.",
+                "Remove runtime scripting, replace it with statically compiled application logic, or validate a specific engine's documented Native Image integration and register all of its service, resource, reflection, and native requirements.",
+                "https://www.graalvm.org/jdk25/reference-manual/native-image/metadata/Compatibility/"));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callConstructorWhere(
+                        new DescribedPredicate<JavaConstructorCall>(
+                                "a javax.script.ScriptEngineManager is constructed") {
+                            @Override
+                            public boolean test(JavaConstructorCall call) {
+                                return "javax.script.ScriptEngineManager"
+                                        .equals(call.getTarget().getOwner().getName());
+                            }
+                        })
+                .as("Classes should not discover script engines without a validated native-image integration");
+    }
+}
+
 /**
  * Flags static initializers that capture environment- or time-sensitive state ({@code System.getenv},
  * current time, {@code java.time} {@code now()}, default {@code Locale}/{@code TimeZone},
@@ -724,7 +789,7 @@ final class BuildTimeStateCaptureCheck extends AbstractArchUnitGraalVmCheck {
         super(
                 new GraalVmCheckDefinition(
                         "GRAAL-INIT-002",
-                        "Static initializer captures build-machine state",
+                        "Build-time-initialized classes must not capture build-machine state",
                         GraalVmCategory.BUILD_TIME_INIT,
                         "LOW",
                         "Detects static initializers that read environment- or time-sensitive state (System.getenv/getProperty, current time, java.time now(), default Locale/TimeZone, InetAddress, Random/SecureRandom seeds, UUID.randomUUID). Since GraalVM 21.3+ classes are run-time-initialized by default, this is only a concern when the class is explicitly initialized at build time via the native-image --initialize-at-build-time flag. Spring AOT is one way to arrive at that configuration (it can compute and pass the flag for Spring-managed classes on the application's behalf), but the flag itself — not Spring AOT — is the actual mechanism native-image reads, so this also applies to build-time initialization configured directly or by other means.",
@@ -930,6 +995,9 @@ final class RuntimeInstanceSupplierCheck extends AbstractArchUnitGraalVmCheck {
                                 "a bean instance supplier is registered programmatically") {
                             @Override
                             public boolean test(JavaMethodCall call) {
+                                if (call.getOriginOwner().getName().endsWith("__BeanDefinitions")) {
+                                    return false;
+                                }
                                 MethodCallTarget target = call.getTarget();
                                 String name = target.getName();
                                 String ownerName = target.getOwner().getName();
@@ -954,21 +1022,29 @@ final class RuntimeInstanceSupplierCheck extends AbstractArchUnitGraalVmCheck {
 }
 
 /**
- * Flags {@code @Profile} or {@code @ConditionalOnProperty} on {@code @Configuration} /
- * {@code @Component} classes or {@code @Bean} methods. Spring AOT evaluates these conditions once at
- * build time; if the active profiles or properties differ between the AOT build and runtime, the
- * conditioned beans may be unexpectedly absent or present in the native image.
+ * Flags environment-sensitive conditions on application configuration and bean methods. Spring AOT
+ * evaluates these conditions at build time. Deliberate {@code @AutoConfiguration} classes are
+ * excluded because condition-driven auto-configuration is the framework's intended AOT model.
  */
 final class SpringAotConditionedBeansCheck implements GraalVmCheck {
 
     private static final GraalVmCheckDefinition DEFINITION = new GraalVmCheckDefinition(
             "SPRING-AOT-003",
-            "@Profile / @ConditionalOnProperty freezes profile/property selection at AOT build time",
+            "Environment-sensitive bean conditions freeze selection at AOT build time",
             GraalVmCategory.SPRING_AOT,
             "MEDIUM",
-            "Detects @Profile or @ConditionalOnProperty on @Configuration/@Component classes or @Bean methods. Spring AOT evaluates these conditions once at build time; if the active profiles or application properties differ between the AOT build and the production runtime, the conditioned beans may be unexpectedly absent or present in the native image.",
+            "Detects @Profile, @ConditionalOnProperty, custom @Conditional, or @ConditionalOnExpression on application configuration/components and @Bean methods. Spring AOT evaluates these conditions at build time; deliberate @AutoConfiguration classes are excluded.",
             "Ensure the profiles and properties active during the AOT build (native-image compilation) match the intended production configuration, or restructure the configuration to use explicit build-time selection rather than runtime conditions.",
-            "https://docs.spring.io/spring-boot/reference/packaging/native-image/introducing-graalvm-native-images.html");
+            "https://docs.spring.io/spring-framework/reference/core/aot.html");
+
+    private static final GraalVmCheckDefinition EXPRESSION_DEFINITION = new GraalVmCheckDefinition(
+            "SPRING-AOT-003",
+            "@ConditionalOnExpression is evaluated early during AOT processing",
+            GraalVmCategory.SPRING_AOT,
+            "HIGH",
+            "@ConditionalOnExpression is evaluated during AOT processing and a bean reference in its SpEL expression can initialize that bean too early, before post-processing such as configuration-properties binding.",
+            "Replace bean-referencing SpEL with property/class conditions that Spring AOT can evaluate without instantiating beans. If the expression is unavoidable, ensure it references no beans and uses build-time-stable inputs.",
+            "https://docs.spring.io/spring-boot/api/java/org/springframework/boot/autoconfigure/condition/ConditionalOnExpression.html");
 
     private static final List<String> SPRING_COMPONENT_ANNOTATIONS = List.of(
             "org.springframework.context.annotation.Configuration",
@@ -980,9 +1056,15 @@ final class SpringAotConditionedBeansCheck implements GraalVmCheck {
 
     private static final List<String> CONDITION_ANNOTATIONS = List.of(
             "org.springframework.context.annotation.Profile",
-            "org.springframework.boot.autoconfigure.condition.ConditionalOnProperty");
+            "org.springframework.context.annotation.Conditional",
+            "org.springframework.boot.autoconfigure.condition.ConditionalOnProperty",
+            "org.springframework.boot.autoconfigure.condition.ConditionalOnExpression");
 
     private static final String BEAN_ANNOTATION = "org.springframework.context.annotation.Bean";
+    private static final String AUTO_CONFIGURATION = "org.springframework.boot.autoconfigure.AutoConfiguration";
+    private static final String CONDITIONAL_ON_EXPRESSION =
+            "org.springframework.boot.autoconfigure.condition.ConditionalOnExpression";
+    private static final String CONDITIONAL = "org.springframework.context.annotation.Conditional";
 
     @Override
     public GraalVmCheckDefinition definition() {
@@ -994,22 +1076,28 @@ final class SpringAotConditionedBeansCheck implements GraalVmCheck {
         try {
             List<String> samples = new ArrayList<>();
             int count = 0;
+            boolean expressionFound = false;
             for (JavaClass javaClass : context.classes()) {
+                boolean autoConfiguration = javaClass.isAnnotatedWith(AUTO_CONFIGURATION);
+                boolean classExpressionReferencesBean = expressionReferencesBean(javaClass);
                 if (hasAnyAnnotation(javaClass, SPRING_COMPONENT_ANNOTATIONS)
-                        && hasAnyAnnotation(javaClass, CONDITION_ANNOTATIONS)) {
+                        && ((!autoConfiguration && hasRelevantCondition(javaClass)) || classExpressionReferencesBean)) {
                     count++;
+                    expressionFound |= classExpressionReferencesBean;
                     if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
                         samples.add(GraalVmCheckSupport.detail(
-                                javaClass.getName() + " is a Spring component with a profile/property condition"));
+                                javaClass.getName() + " is a Spring component with an AOT-time condition"));
                     }
                 }
                 for (JavaMethod method : javaClass.getMethods()) {
                     if (method.isAnnotatedWith(BEAN_ANNOTATION)
-                            && hasAnyMethodAnnotation(method, CONDITION_ANNOTATIONS)) {
+                            && ((!autoConfiguration && hasRelevantCondition(method))
+                                    || expressionReferencesBean(method))) {
                         count++;
+                        expressionFound |= expressionReferencesBean(method);
                         if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
                             samples.add(GraalVmCheckSupport.detail(javaClass.getName() + "." + method.getName()
-                                    + " @Bean method has a profile/property condition"));
+                                    + " @Bean method has an AOT-time condition"));
                         }
                     }
                 }
@@ -1017,7 +1105,7 @@ final class SpringAotConditionedBeansCheck implements GraalVmCheck {
             if (count == 0) {
                 return GraalVmCheckSupport.ok(DEFINITION);
             }
-            return GraalVmCheckSupport.review(DEFINITION, count, samples);
+            return GraalVmCheckSupport.review(expressionFound ? EXPRESSION_DEFINITION : DEFINITION, count, samples);
         } catch (RuntimeException | LinkageError ex) {
             return GraalVmCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
         }
@@ -1025,7 +1113,7 @@ final class SpringAotConditionedBeansCheck implements GraalVmCheck {
 
     private static boolean hasAnyAnnotation(JavaClass javaClass, List<String> annotationNames) {
         for (String annotation : annotationNames) {
-            if (javaClass.isAnnotatedWith(annotation)) {
+            if (javaClass.isAnnotatedWith(annotation) || javaClass.isMetaAnnotatedWith(annotation)) {
                 return true;
             }
         }
@@ -1035,6 +1123,53 @@ final class SpringAotConditionedBeansCheck implements GraalVmCheck {
     private static boolean hasAnyMethodAnnotation(JavaMethod method, List<String> annotationNames) {
         for (String annotation : annotationNames) {
             if (method.isAnnotatedWith(annotation)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasRelevantCondition(JavaClass javaClass) {
+        return hasAnyAnnotation(javaClass, CONDITION_ANNOTATIONS) || hasCustomConditional(javaClass.getAnnotations());
+    }
+
+    private static boolean hasRelevantCondition(JavaMethod method) {
+        return hasAnyMethodAnnotation(method, CONDITION_ANNOTATIONS) || hasCustomConditional(method.getAnnotations());
+    }
+
+    private static boolean hasCustomConditional(Iterable<? extends JavaAnnotation<?>> annotations) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            String name = annotation.getRawType().getName();
+            if (!name.startsWith("org.springframework.boot.autoconfigure.condition.")
+                    && annotation.getRawType().isMetaAnnotatedWith(CONDITIONAL)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean expressionReferencesBean(JavaClass javaClass) {
+        return javaClass
+                .tryGetAnnotationOfType(CONDITIONAL_ON_EXPRESSION)
+                .flatMap(annotation -> annotation.get("value"))
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .map(SpringAotConditionedBeansCheck::containsBeanReference)
+                .orElse(false);
+    }
+
+    private static boolean expressionReferencesBean(JavaMethod method) {
+        return method.tryGetAnnotationOfType(CONDITIONAL_ON_EXPRESSION)
+                .flatMap(annotation -> annotation.get("value"))
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .map(SpringAotConditionedBeansCheck::containsBeanReference)
+                .orElse(false);
+    }
+
+    private static boolean containsBeanReference(String expression) {
+        for (int i = 0; i < expression.length() - 1; i++) {
+            if (expression.charAt(i) == '@' && Character.isJavaIdentifierStart(expression.charAt(i + 1))) {
                 return true;
             }
         }

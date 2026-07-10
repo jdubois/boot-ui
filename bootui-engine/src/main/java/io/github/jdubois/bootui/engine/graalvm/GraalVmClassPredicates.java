@@ -17,8 +17,11 @@ final class GraalVmClassPredicates {
 
     private static final String SERIALIZABLE = "java.io.Serializable";
     private static final String RECORD = "java.lang.Record";
-    private static final List<String> ENTITY_ANNOTATIONS =
-            List.of("jakarta.persistence.Entity", "javax.persistence.Entity");
+    private static final List<String> ENTITY_ANNOTATIONS = List.of(
+            "jakarta.persistence.Entity",
+            "javax.persistence.Entity",
+            "jakarta.persistence.MappedSuperclass",
+            "javax.persistence.MappedSuperclass");
 
     private GraalVmClassPredicates() {}
 
@@ -34,16 +37,16 @@ final class GraalVmClassPredicates {
     }
 
     /**
-     * Concrete application types that classically need reflection metadata in a native image:
-     * records, serializable types, and JPA entities. The set is ordered and de-duplicated by name.
+     * Application types that classically need reflection metadata in a native image: concrete
+     * records and serializable types, plus JPA entities and mapped superclasses (including abstract
+     * persistence base types). The set is ordered and de-duplicated by name.
      */
     static List<String> reflectionCandidateTypeNames(JavaClasses classes) {
         Set<String> names = new LinkedHashSet<>();
         for (JavaClass javaClass : classes) {
-            if (!isConcreteType(javaClass)) {
-                continue;
-            }
-            if (javaClass.isAssignableTo(RECORD) || javaClass.isAssignableTo(SERIALIZABLE) || isEntity(javaClass)) {
+            if (isPersistenceType(javaClass)
+                    || (isConcreteType(javaClass)
+                            && (javaClass.isAssignableTo(RECORD) || javaClass.isAssignableTo(SERIALIZABLE)))) {
                 names.add(javaClass.getName());
             }
         }
@@ -58,7 +61,18 @@ final class GraalVmClassPredicates {
         return List.copyOf(names);
     }
 
-    private static boolean isEntity(JavaClass javaClass) {
+    static List<String> nativeMethodTypeNames(JavaClasses classes) {
+        Set<String> names = new LinkedHashSet<>();
+        for (JavaClass javaClass : classes) {
+            if (javaClass.getMethods().stream()
+                    .anyMatch(method -> method.getModifiers().contains(JavaModifier.NATIVE))) {
+                names.add(javaClass.getName());
+            }
+        }
+        return List.copyOf(names);
+    }
+
+    private static boolean isPersistenceType(JavaClass javaClass) {
         for (String annotation : ENTITY_ANNOTATIONS) {
             if (javaClass.isAnnotatedWith(annotation)) {
                 return true;

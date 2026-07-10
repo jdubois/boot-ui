@@ -36,7 +36,7 @@ class GraalVmReadinessScannerTests {
         assertThat(report.classesAnalyzed()).isZero();
         assertThat(report.findings()).isEmpty();
         assertThat(report.basePackages()).containsExactly(FIXTURES);
-        assertThat(report.metadata().resourceEntries()).isEqualTo(3);
+        assertThat(report.metadata().resourceEntries()).isEqualTo(5);
         assertThat(report.metadata().reflectionEntries()).isZero();
         assertThat(report.warnings()).isEmpty();
     }
@@ -84,10 +84,14 @@ class GraalVmReadinessScannerTests {
         assertThat(report.findingsFound()).isEqualTo(report.findings().size());
 
         assertThat(result.metadata().reflectionTypes())
-                .contains(FIXTURES + ".SerializableModel", FIXTURES + ".PersonRecord");
+                .contains(
+                        FIXTURES + ".SerializableModel", FIXTURES + ".PersonRecord", FIXTURES + ".AbstractMappedBase");
         assertThat(result.metadata().serializationTypes()).contains(FIXTURES + ".SerializableModel");
+        assertThat(result.metadata().jniTypes()).contains(FIXTURES + ".NativeMethodHolder");
+        assertThat(result.metadata().proxyCallsDetected()).isTrue();
+        assertThat(result.metadata().unsafeAllocationDetected()).isTrue();
         assertThat(report.metadata().reflectionEntries())
-                .isEqualTo(result.metadata().reflectionTypes().size());
+                .isEqualTo(result.metadata().reflectionEntryCount());
     }
 
     @Test

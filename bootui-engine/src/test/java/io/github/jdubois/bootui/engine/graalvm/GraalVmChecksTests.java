@@ -7,26 +7,34 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ActiveSerializer;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AnnotationReader;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.AutoConfigurationExpression;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CglibProxyGenerator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ClassGraphScanner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ClasspathScanner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CleanComponent;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.CompilerUser;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.CustomConditionedConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.DeepReflector;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.DevOnlyConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.DynamicClassLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.DynamicMBeanUser;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.ExpressionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FieldMetadataReader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FieldValueAccessor;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FilesMetadataInitializer;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.InstanceSupplierRegistrar;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.IntentionalAutoConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.JmxUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.MessagesLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.MethodHandleUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.NativeMethodHolder;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.PropertyExpressionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ProxyClassFactory;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ReflectionsScanner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.RuntimeClassGenerator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.RuntimeSingletonRegistrar;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.Sample__BeanDefinitions;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.ScriptEngineUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SecondaryContextCreator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SecurityProviderRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ServiceConsumer;
@@ -37,8 +45,13 @@ import io.github.jdubois.bootui.engine.graalvm.fixtures.StaticInitializerCompone
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SupplierBeanDefiner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.UnrelatedSupplierHolder;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.UnsafeAllocator;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Positive and negative coverage for each curated readiness check in isolation. */
 class GraalVmChecksTests {
@@ -55,6 +68,10 @@ class GraalVmChecksTests {
     private GraalVmFindingDto evaluate(GraalVmCheck check, Class<?>... classes) {
         JavaClasses imported = new ClassFileImporter().importClasses(classes);
         return check.evaluate(new GraalVmContext(imported, List.of("io.github.jdubois.bootui")));
+    }
+
+    private GraalVmFindingDto evaluate(GraalVmCheck check, JavaClasses classes) {
+        return check.evaluate(new GraalVmContext(classes, List.of("synthetic")));
     }
 
     @Test
@@ -93,6 +110,12 @@ class GraalVmChecksTests {
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(evaluate(new UnsafeAllocateInstanceCheck(), CleanComponent.class)
                         .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void nativeAccessCheckDoesNotFlagSupportedUnsafeMemoryOrAllocationApis() {
+        assertThat(evaluate(new NativeAccessCheck(), UnsafeAllocator.class).status())
                 .isEqualTo("OK");
     }
 
@@ -247,6 +270,9 @@ class GraalVmChecksTests {
         assertThat(evaluate(new RuntimeInstanceSupplierCheck(), UnrelatedSupplierHolder.class)
                         .status())
                 .isEqualTo("OK");
+        assertThat(evaluate(new RuntimeInstanceSupplierCheck(), Sample__BeanDefinitions.class)
+                        .status())
+                .isEqualTo("OK");
     }
 
     @Test
@@ -259,6 +285,46 @@ class GraalVmChecksTests {
         assertThat(evaluate(new SpringAotConditionedBeansCheck(), CleanComponent.class)
                         .status())
                 .isEqualTo("OK");
+    }
+
+    @Test
+    void springAotConditionedBeansCheckTreatsExpressionsAsHighAndIgnoresAutoConfiguration() {
+        GraalVmFindingDto finding = evaluate(new SpringAotConditionedBeansCheck(), ExpressionConfiguration.class);
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(finding.severity()).isEqualTo("HIGH");
+        assertThat(evaluate(new SpringAotConditionedBeansCheck(), PropertyExpressionConfiguration.class)
+                        .severity())
+                .isEqualTo("MEDIUM");
+        assertThat(evaluate(new SpringAotConditionedBeansCheck(), IntentionalAutoConfiguration.class)
+                        .status())
+                .isEqualTo("OK");
+        assertThat(evaluate(new SpringAotConditionedBeansCheck(), AutoConfigurationExpression.class)
+                        .severity())
+                .isEqualTo("HIGH");
+    }
+
+    @Test
+    void springAotConditionedBeansCheckDetectsCustomComposedConditions() {
+        GraalVmFindingDto finding =
+                evaluate(new SpringAotConditionedBeansCheck(), CustomConditionedConfiguration.class);
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void systemJavaCompilerCheckDetectsRuntimeCompilerLookup() {
+        GraalVmFindingDto finding = evaluate(new SystemJavaCompilerCheck(), CompilerUser.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-JDK-001");
+        assertThat(finding.severity()).isEqualTo("HIGH");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+    }
+
+    @Test
+    void scriptEngineUsageCheckDetectsEngineDiscovery() {
+        GraalVmFindingDto finding = evaluate(new ScriptEngineUsageCheck(), ScriptEngineUser.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-JDK-002");
+        assertThat(finding.severity()).isEqualTo("HIGH");
+        assertThat(finding.status()).isEqualTo("REVIEW");
     }
 
     @Test
@@ -348,5 +414,52 @@ class GraalVmChecksTests {
         assertThat(finding.severity()).isEqualTo("LOW");
         assertThat(finding.category()).isEqualTo(GraalVmCategory.NATIVE_ACCESS.label());
         assertThat(finding.status()).isEqualTo("OK");
+    }
+
+    @Test
+    void foreignFunctionCheckDetectsLinkerDependencyOnJava17(@TempDir Path directory) throws IOException {
+        Path classFile = directory.resolve("synthetic/FfmUser.class");
+        Files.createDirectories(classFile.getParent());
+        writeFfmFixture(classFile);
+
+        GraalVmFindingDto finding =
+                evaluate(new ForeignFunctionUsageCheck(), new ClassFileImporter().importPath(directory));
+
+        assertThat(finding.id()).isEqualTo("GRAAL-FFM-001");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(finding.occurrenceCount()).isPositive();
+    }
+
+    private static void writeFfmFixture(Path classFile) throws IOException {
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(classFile))) {
+            out.writeInt(0xCAFEBABE);
+            out.writeShort(0);
+            out.writeShort(61);
+            out.writeShort(7);
+            writeUtf8(out, "synthetic/FfmUser");
+            out.writeByte(7);
+            out.writeShort(1);
+            writeUtf8(out, "java/lang/Object");
+            out.writeByte(7);
+            out.writeShort(3);
+            writeUtf8(out, "linker");
+            writeUtf8(out, "Ljava/lang/foreign/Linker;");
+            out.writeShort(0x0021);
+            out.writeShort(2);
+            out.writeShort(4);
+            out.writeShort(0);
+            out.writeShort(1);
+            out.writeShort(0x0001);
+            out.writeShort(5);
+            out.writeShort(6);
+            out.writeShort(0);
+            out.writeShort(0);
+            out.writeShort(0);
+        }
+    }
+
+    private static void writeUtf8(DataOutputStream out, String value) throws IOException {
+        out.writeByte(1);
+        out.writeUTF(value);
     }
 }
