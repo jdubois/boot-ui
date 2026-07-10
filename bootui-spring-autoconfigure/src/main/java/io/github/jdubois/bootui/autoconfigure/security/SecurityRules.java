@@ -242,13 +242,39 @@ final class BasicAuthWithoutTlsRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.isProductionProfileActive() || context.isTlsConfigured()) {
+        if (!context.isProductionProfileActive()) {
             return pass();
         }
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.hasFilter("BasicAuthenticationFilter")) {
+            if (chain.hasFilter("BasicAuthenticationFilter") && !context.isTlsConfiguredFor(chain)) {
                 details.add(chain.describe() + " authenticates with HTTP Basic while no TLS is configured.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class FormLoginWithoutTlsRule extends AbstractSecurityRule {
+
+    FormLoginWithoutTlsRule() {
+        super(
+                new SecurityRuleDefinition(
+                        "SEC-AUTH-010",
+                        "Form login should run only over HTTPS",
+                        SecurityCategory.AUTHENTICATION,
+                        "HIGH",
+                        "Detects an interactive form-login chain while no server-side TLS, HTTPS redirect, or forwarded-header strategy is configured. Submitting credentials over HTTP exposes them to passive network observers and active interception.",
+                        "Enforce HTTPS via server.ssl.* (or a forwarded-headers strategy when TLS terminates upstream) for every formLogin() chain.",
+                        "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#transmit-passwords-only-over-tls-or-other-strong-transport"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (chain.hasFilter("UsernamePasswordAuthenticationFilter") && !context.isTlsConfiguredFor(chain)) {
+                details.add(chain.describe() + " accepts form credentials while no TLS is configured.");
             }
         }
         return violation(details);
@@ -500,11 +526,11 @@ final class CsrfGloballyDisabledRule extends AbstractSecurityRule {
     CsrfGloballyDisabledRule() {
         super(new SecurityRuleDefinition(
                 "SEC-CSRF-002",
-                "CSRF should not be disabled without stateless authentication",
+                "CSRF protection should stay on for HTTP Basic authentication",
                 SecurityCategory.CSRF,
                 "MEDIUM",
-                "Detects chains with no CsrfFilter and no bearer-token (stateless) authentication to justify the removal.",
-                "Disable CSRF only when the chain is stateless (e.g. bearer tokens); otherwise keep the CsrfFilter.",
+                "Detects an HTTP Basic chain with no CsrfFilter. Basic authentication is stateless, but browsers automatically resend its credentials, so state-changing requests remain vulnerable to CSRF.",
+                "Keep CSRF protection enabled for browser-reachable HTTP Basic endpoints, or use bearer credentials that browsers do not attach automatically.",
                 "https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html"));
     }
 
@@ -512,12 +538,9 @@ final class CsrfGloballyDisabledRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.isStateful()) {
-                continue; // covered by SEC-CSRF-001
-            }
-            boolean stateless = chain.hasFilterContaining("BearerTokenAuthenticationFilter");
-            if (!chain.hasFilter("CsrfFilter") && !stateless) {
-                details.add(chain.describe() + " disables CSRF but is not a stateless token API.");
+            if (!chain.isStateful() && chain.hasFilter("BasicAuthenticationFilter") && !chain.hasFilter("CsrfFilter")) {
+                details.add(chain.describe()
+                        + " disables CSRF for HTTP Basic; browsers automatically resend Basic credentials.");
             }
         }
         return violation(details);
@@ -579,7 +602,7 @@ final class SessionCookieSecureRule extends AbstractSecurityRule {
         if ("false".equalsIgnoreCase(String.valueOf(value))) {
             return violation(List.of("server.servlet.session.cookie.secure is explicitly false."));
         }
-        if (value == null && context.isProductionProfileActive()) {
+        if (value == null && context.isProductionProfileActive() && context.hasStatefulChain()) {
             return violation(
                     List.of("server.servlet.session.cookie.secure is not set while a production profile is active."));
         }
@@ -667,10 +690,10 @@ final class BearerTokenStatefulRule extends AbstractSecurityRule {
         super(
                 new SecurityRuleDefinition(
                         "SEC-SESSION-006",
-                        "Bearer token authentication chains should be stateless",
+                        "Bearer-token authentication chains should be stateless",
                         SecurityCategory.SESSION,
                         "HIGH",
-                        "Detects a chain with both a Bearer token filter (stateless) and session management filters (stateful).",
+                        "Detects a chain with both a bearer-token filter (stateless) and session management filters (stateful).",
                         "Configure sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS) to avoid creating HTTP sessions for REST API calls.",
                         "https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-stateless"));
     }
@@ -680,7 +703,7 @@ final class BearerTokenStatefulRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
             if (chain.hasFilterContaining("BearerTokenAuthenticationFilter") && chain.isStateful()) {
-                details.add(chain.describe() + " accepts Bearer tokens but also maintains stateful sessions.");
+                details.add(chain.describe() + " accepts bearer tokens but also maintains stateful sessions.");
             }
         }
         return violation(details);
@@ -825,7 +848,7 @@ final class FrameOptionsRule extends AbstractSecurityRule {
         for (FilterChainModel chain : context.chains()) {
             if (chain.headerWriterFilterPresent()
                     && !chain.hasHeaderWriterContaining("XFrameOptions")
-                    && !chain.hasHeaderWriterContaining("ContentSecurityPolicy")) {
+                    && !chain.hasCspDirective("frame-ancestors")) {
                 details.add(chain.describe() + " emits no X-Frame-Options or frame-ancestors header.");
             }
         }
@@ -1536,10 +1559,6 @@ final class JwtAudienceValidationRule extends AbstractSecurityRule {
         if (!issuerBased) {
             return pass();
         }
-        String audiences = context.firstProperty("spring.security.oauth2.resourceserver.jwt.audiences");
-        if (audiences != null) {
-            return pass();
-        }
         if (!context.oauth2TokenValidatorTypes().isEmpty()) {
             // A custom OAuth2TokenValidator bean (including a DelegatingOAuth2TokenValidator that
             // composes an audience check alongside the default issuer/timestamp validators) may
@@ -1561,6 +1580,35 @@ final class JwtAudienceValidationRule extends AbstractSecurityRule {
         return violation(
                 List.of(
                         "Resource server uses issuer/JWK validation; confirm a custom audience (aud) validator is registered."));
+    }
+}
+
+final class InsecureJwtMetadataUrlRule extends AbstractSecurityRule {
+
+    InsecureJwtMetadataUrlRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-OAUTH-004",
+                "JWT issuer and JWK endpoints should use HTTPS",
+                SecurityCategory.OAUTH2,
+                "HIGH",
+                "Detects an issuer-uri or jwk-set-uri that uses plain HTTP. Discovery metadata or signing keys fetched without transport authentication can be modified by an active network attacker.",
+                "Use HTTPS issuer and JWK endpoints with certificate validation enabled; reserve HTTP endpoints for isolated test environments.",
+                "https://www.rfc-editor.org/rfc/rfc8414.html#section-3.3"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        addIfInsecureUrl(context, details, "spring.security.oauth2.resourceserver.jwt.issuer-uri");
+        addIfInsecureUrl(context, details, "spring.security.oauth2.resourceserver.jwt.jwk-set-uri");
+        return violation(details);
+    }
+
+    private static void addIfInsecureUrl(SecurityContext context, List<String> details, String key) {
+        String value = context.firstProperty(key);
+        if (value != null && value.toLowerCase(Locale.ROOT).startsWith("http://")) {
+            details.add(key + " uses plain HTTP.");
+        }
     }
 }
 

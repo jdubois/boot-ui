@@ -99,6 +99,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Register a real UserDetailsService, AuthenticationProvider, or external identity provider before running in production; do not rely on the console-logged generated password.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/spring-security.html>
 
+### SEC-AUTH-010 - Form login should run only over HTTPS
+
+- **Severity**: HIGH
+- **Detects**: Detects an interactive form-login chain while no server-side TLS, HTTPS redirect, or forwarded-header strategy is configured. Passwords submitted over HTTP are visible to passive network observers and active intermediaries.
+- **Recommendation**: Enforce HTTPS via server.ssl.* (or a forwarded-headers strategy when TLS terminates upstream) for every formLogin() chain.
+- **Learn more**: <https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#transmit-passwords-only-over-tls-or-other-strong-transport>
+
 ## Authorization
 
 ### SEC-AUTHZ-001 - Every filter chain should enforce authorization
@@ -145,11 +152,11 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Keep CSRF enabled for browser, cookie, or session authenticated chains; only disable it for stateless token APIs.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html>
 
-### SEC-CSRF-002 - CSRF should not be disabled without stateless authentication
+### SEC-CSRF-002 - CSRF protection should stay on for HTTP Basic authentication
 
 - **Severity**: MEDIUM
-- **Detects**: Detects chains with no CsrfFilter and no bearer-token (stateless) authentication to justify the removal.
-- **Recommendation**: Disable CSRF only when the chain is stateless (e.g. bearer tokens); otherwise keep the CsrfFilter.
+- **Detects**: Detects a stateless HTTP Basic chain with no CsrfFilter. Statelessness alone does not remove CSRF risk when a browser automatically resends the username and password on cross-site requests.
+- **Recommendation**: Keep CSRF protection enabled for browser-reachable HTTP Basic endpoints, or use bearer credentials that browsers do not attach automatically.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html>
 
 ## Session management
@@ -164,7 +171,7 @@ includes up to a handful of sample details plus a remediation link.
 ### SEC-SESSION-002 - Session cookie should set the Secure flag
 
 - **Severity**: MEDIUM
-- **Detects**: Detects server.servlet.session.cookie.secure=false, or unset while a production profile is active.
+- **Detects**: Detects server.servlet.session.cookie.secure=false, or unset while a production profile is active and at least one filter chain actually uses HTTP sessions. An explicit false remains a finding even when current chains are stateless because it is an unsafe host-level setting.
 - **Recommendation**: Set server.servlet.session.cookie.secure=true so the session cookie is only sent over HTTPS.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
@@ -189,10 +196,10 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Set server.servlet.session.timeout to a bounded value appropriate for the application's risk profile.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
-### SEC-SESSION-006 - Bearer token authentication chains should be stateless
+### SEC-SESSION-006 - Bearer-token authentication chains should be stateless
 
 - **Severity**: HIGH
-- **Detects**: Detects a chain with both a Bearer token filter (stateless) and session management filters (stateful).
+- **Detects**: Detects a chain with both a bearer-token filter (stateless) and session management filters (stateful).
 - **Recommendation**: Configure sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS) to avoid creating HTTP sessions for REST API calls.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-stateless>
 
@@ -229,7 +236,7 @@ includes up to a handful of sample details plus a remediation link.
 ### SEC-HEAD-002 - X-Frame-Options (clickjacking protection) should stay enabled
 
 - **Severity**: HIGH
-- **Detects**: Detects chains whose header writers omit X-Frame-Options / frame-ancestors protection.
+- **Detects**: Detects chains whose header writers omit X-Frame-Options and whose enforcing Content-Security-Policy does not contain a frame-ancestors directive. An unrelated CSP writer, or a report-only CSP, does not provide clickjacking protection.
 - **Recommendation**: Keep the default XFrameOptionsHeaderWriter (DENY/SAMEORIGIN) or a frame-ancestors CSP instead of disabling frame options globally.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-frame-options>
 
@@ -410,7 +417,7 @@ custom source is never misreported as verified-safe.
 ### SEC-OAUTH-002 - Validate the JWT audience claim
 
 - **Severity**: MEDIUM (INFO when a custom OAuth2TokenValidator or a custom JwtDecoder is present)
-- **Detects**: Notes that issuer-based resource servers do not validate the aud claim unless a custom OAuth2TokenValidator bean (including one composed via DelegatingOAuth2TokenValidator) or a custom JwtDecoder is registered; either is reported as an INFO advisory because it may already validate the claim.
+- **Detects**: Notes that issuer-based resource servers do not validate the aud claim unless a custom OAuth2TokenValidator bean (including one composed via DelegatingOAuth2TokenValidator) or a custom JwtDecoder is registered; either is reported as an INFO advisory because it may already validate the claim. The removed `spring.security.oauth2.resourceserver.jwt.audiences` property is deliberately ignored on Spring Security 7 and cannot suppress this finding.
 - **Recommendation**: Add an audience OAuth2TokenValidator to the JwtDecoder so tokens minted for other resource servers are rejected.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-validation>
 
@@ -420,6 +427,13 @@ custom source is never misreported as verified-safe.
 - **Detects**: Detects a resource server pinned to a static public key (public-key-location) with no issuer or JWK set URI.
 - **Recommendation**: Use a jwk-set-uri / issuer-uri so signing keys can rotate, rather than a single embedded public key.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html>
+
+### SEC-OAUTH-004 - JWT issuer and JWK endpoints should use HTTPS
+
+- **Severity**: HIGH
+- **Detects**: Detects `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri` using plain HTTP. Discovery metadata or signing keys fetched without transport authentication can be modified by an active network attacker.
+- **Recommendation**: Use HTTPS issuer and JWK endpoints with certificate validation enabled; reserve HTTP endpoints for isolated test environments.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc8414.html#section-3.3>
 
 ## Configuration hygiene
 

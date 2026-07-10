@@ -311,6 +311,7 @@ final class SecurityScanner {
                 headerWriters.hstsMaxAgeSeconds(),
                 headerWriters.hstsIncludeSubdomains(),
                 headerWriters.cspPolicyDirectives(),
+                headerWriters.cspReportOnly(),
                 authorizationRuleShadowed,
                 rememberMeKeyLength);
     }
@@ -474,9 +475,13 @@ final class SecurityScanner {
      * via the same reflection helper used for {@link #bcryptStrength(Object)}).
      */
     private record HeaderWriterInfo(
-            List<String> names, Long hstsMaxAgeSeconds, Boolean hstsIncludeSubdomains, String cspPolicyDirectives) {}
+            List<String> names,
+            Long hstsMaxAgeSeconds,
+            Boolean hstsIncludeSubdomains,
+            String cspPolicyDirectives,
+            Boolean cspReportOnly) {}
 
-    private static final HeaderWriterInfo NO_HEADER_WRITERS = new HeaderWriterInfo(List.of(), null, null, null);
+    private static final HeaderWriterInfo NO_HEADER_WRITERS = new HeaderWriterInfo(List.of(), null, null, null, null);
 
     private static HeaderWriterInfo detectHeaderWriters(List<Filter> filters) {
         for (Filter filter : filters) {
@@ -488,6 +493,7 @@ final class SecurityScanner {
             Long hstsMaxAgeSeconds = null;
             Boolean hstsIncludeSubdomains = null;
             String cspPolicyDirectives = null;
+            Boolean cspReportOnly = null;
             if (writers instanceof Iterable<?> iterable) {
                 for (Object writer : iterable) {
                     if (writer == null) {
@@ -505,10 +511,14 @@ final class SecurityScanner {
                     } else if (simpleName.contains("ContentSecurityPolicy")
                             && readField(writer, "policyDirectives") instanceof String directives) {
                         cspPolicyDirectives = directives;
+                        if (readField(writer, "reportOnly") instanceof Boolean reportOnly) {
+                            cspReportOnly = reportOnly;
+                        }
                     }
                 }
             }
-            return new HeaderWriterInfo(names, hstsMaxAgeSeconds, hstsIncludeSubdomains, cspPolicyDirectives);
+            return new HeaderWriterInfo(
+                    names, hstsMaxAgeSeconds, hstsIncludeSubdomains, cspPolicyDirectives, cspReportOnly);
         }
         return NO_HEADER_WRITERS;
     }
