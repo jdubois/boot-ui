@@ -196,6 +196,9 @@ function clearForm() {
 
         <div>
           <h6>Body</h6>
+          <div v-if="response.truncated" class="alert alert-warning mb-2 py-1 small">
+            <i class="bi bi-scissors me-1"></i>Response body was truncated at the configured byte limit.
+          </div>
           <pre class="bg-body-tertiary border rounded p-3 mb-0"><code>{{
               formattedResponseBody || '(empty response body)'
             }}</code></pre>
