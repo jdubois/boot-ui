@@ -110,9 +110,8 @@
         <dependency>
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
-            <!-- Explicit version override: the spring-boot-dependencies BOM currently manages a
-                 version affected by a header-mapper trusted-package-matching deserialization
-                 advisory; 4.1.0 is the patched release on the 3.3.x line. -->
+            <!-- Explicit Spring Kafka 4.1 override aligned with the Spring Boot 4.1 / Spring
+                 Framework 7 baseline. -->
             <version>4.1.0</version>
             <optional>true</optional>
         </dependency>
