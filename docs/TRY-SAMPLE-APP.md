@@ -78,7 +78,7 @@ Checkpoint) for near-instant restarts. It only works on a **Linux** host, needs 
 
 ```bash
 docker run --rm -p 8080:8080 \
-  --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE \
+  --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
   -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
   -v bootui-sample-app-crac:/opt/crac/checkpoint \
   jdubois/bootui-sample-app-crac
