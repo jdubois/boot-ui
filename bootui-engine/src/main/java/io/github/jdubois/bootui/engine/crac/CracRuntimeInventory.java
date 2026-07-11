@@ -20,13 +20,18 @@ import java.util.List;
  *     when none are present
  * @param cacheManagerBeans human-readable {@code beanName : TypeName} entries for detected cache
  *     manager beans backed by local, in-heap storage, empty when none are present
- * @param cracApiPresent whether {@code org.crac:crac} (org.crac.Core/org.crac.Resource) is present on
- *     the application's classpath; defaults to {@code true} in every convenience constructor and in
- *     {@link #empty()} so that a collection failure or an unavailable runtime never spuriously reports
- *     the dependency as missing
+ * @param cracApiPresent whether the application-facing {@code org.crac:crac} compatibility API is
+ *     present on the application's classpath; defaults to {@code true} in every convenience
+ *     constructor and in {@link #empty()} so that a collection failure or an unavailable runtime never
+ *     spuriously reports the dependency as missing
+ * @param checkpointOnRefresh whether Spring Framework will take an automatic checkpoint immediately
+ *     after context refresh; used to suppress checks that apply only to on-demand checkpoints
  */
 public record CracRuntimeInventory(
-        List<String> connectionPoolBeans, List<String> cacheManagerBeans, boolean cracApiPresent) {
+        List<String> connectionPoolBeans,
+        List<String> cacheManagerBeans,
+        boolean cracApiPresent,
+        boolean checkpointOnRefresh) {
 
     public CracRuntimeInventory {
         connectionPoolBeans = connectionPoolBeans == null ? List.of() : List.copyOf(connectionPoolBeans);
@@ -34,14 +39,19 @@ public record CracRuntimeInventory(
     }
 
     public CracRuntimeInventory(List<String> connectionPoolBeans, List<String> cacheManagerBeans) {
-        this(connectionPoolBeans, cacheManagerBeans, true);
+        this(connectionPoolBeans, cacheManagerBeans, true, false);
+    }
+
+    public CracRuntimeInventory(
+            List<String> connectionPoolBeans, List<String> cacheManagerBeans, boolean cracApiPresent) {
+        this(connectionPoolBeans, cacheManagerBeans, cracApiPresent, false);
     }
 
     public CracRuntimeInventory(List<String> connectionPoolBeans) {
-        this(connectionPoolBeans, List.of(), true);
+        this(connectionPoolBeans, List.of(), true, false);
     }
 
     public static CracRuntimeInventory empty() {
-        return new CracRuntimeInventory(List.of(), List.of(), true);
+        return new CracRuntimeInventory(List.of(), List.of(), true, false);
     }
 }

@@ -75,7 +75,10 @@ abstract class AbstractArchUnitCracCheck implements CracCheck {
 final class ManagedLifecycleCallSites {
 
     private static final Set<String> MANAGED_TYPES = Set.of(
-            "org.crac.Resource", "org.springframework.context.Lifecycle", "org.springframework.context.SmartLifecycle");
+            "org.crac.Resource",
+            "javax.crac.Resource",
+            "org.springframework.context.Lifecycle",
+            "org.springframework.context.SmartLifecycle");
 
     private static final Set<String> MANAGED_CALLBACK_METHODS =
             Set.of("beforeCheckpoint", "afterRestore", "start", "stop");
@@ -257,13 +260,16 @@ final class UnmanagedThreadCheck extends AbstractArchUnitCracCheck {
             "newWorkStealingPool",
             "newVirtualThreadPerTaskExecutor");
 
+    private static final Set<String> THREAD_BUILDER_TYPES =
+            Set.of("java.lang.Thread$Builder$OfVirtual", "java.lang.Thread$Builder$OfPlatform");
+
     UnmanagedThreadCheck() {
         super(new CracCheckDefinition(
                 "CRAC-THREAD-001",
                 "Threads or executor pools created outside the Spring lifecycle",
                 CracCategory.THREADS,
                 "MEDIUM",
-                "Detects threads, timers, and executor pools created directly (new Thread/Timer/ThreadPoolExecutor or Executors factory methods) outside a managed checkpoint/restore lifecycle. CRIU (which CRaC is built on) freezes every OS thread to take a checkpoint, so an unmanaged thread is not gracefully stopped first the way a Spring-managed SmartLifecycle bean is — it is captured abruptly mid-execution, in whatever state it happens to be in, which risks deadlocks, stale locks, or inconsistent state after restore.",
+                "Detects threads, timers, and executor pools created directly (new Thread/Timer/ThreadPoolExecutor, Thread.ofVirtual()/ofPlatform() builders that start threads or escape as factories, Thread.startVirtualThread(), or Executors factory methods) outside a managed checkpoint/restore lifecycle. Constructing an unstarted thread object is not reported. CRIU freezes every OS thread to take a checkpoint, so an unmanaged running thread is not gracefully quiesced first the way a Spring-managed SmartLifecycle bean is.",
                 "Drive background work through Spring (e.g. @Async, TaskExecutor/TaskScheduler beans, @Scheduled) so the lifecycle stops it gracefully before checkpoint, or register an org.crac.Resource that quiesces the pool in beforeCheckpoint() and restarts it in afterRestore(). A call to restart the pool from inside afterRestore()/start() on a class that implements org.crac.Resource or Spring Lifecycle is the recommended pattern and is not flagged.",
                 "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html"));
     }
@@ -282,6 +288,12 @@ final class UnmanagedThreadCheck extends AbstractArchUnitCracCheck {
                         String owner = target.getOwner().getName();
                         String name = target.getName();
                         if ("<init>".equals(name) && THREAD_TYPES.contains(owner)) {
+                            return true;
+                        }
+                        if ("java.lang.Thread".equals(owner) && "startVirtualThread".equals(name)) {
+                            return true;
+                        }
+                        if (THREAD_BUILDER_TYPES.contains(owner) && ("start".equals(name) || "factory".equals(name))) {
                             return true;
                         }
                         return "java.util.concurrent.Executors".equals(owner) && EXECUTOR_FACTORIES.contains(name);
@@ -421,21 +433,19 @@ final class OpenResourceFieldCheck implements CracCheck {
 }
 
 /**
- * Flags {@link java.util.Random} / {@link java.security.SecureRandom} fields, static or instance.
- * Idiomatic Spring code rarely uses a static PRNG field — the dominant pattern is a singleton-bean
- * instance field (a {@code @Component}-injected {@code SecureRandom}) — but a checkpoint snapshots
- * every object reachable from GC roots, not just static state, so an instance field is captured just as
- * completely as a static one.
+ * Flags {@link java.util.Random} fields and explicit {@link java.security.SecureRandom} seeding. A
+ * plain {@code Random} retains its state after restore, while explicitly seeding {@code SecureRandom}
+ * defeats the CRaC JDK's restore-time reseeding support.
  */
 final class RandomFieldCheck implements CracCheck {
 
     private static final CracCheckDefinition DEFINITION = new CracCheckDefinition(
             "CRAC-RANDOM-001",
-            "Random/SecureRandom state is frozen into the checkpoint",
+            "Predictable random state is frozen into the checkpoint",
             CracCategory.RANDOMNESS,
             "HIGH",
-            "Detects fields (static or instance) of type java.util.Random or java.security.SecureRandom. A checkpoint freezes whatever internal state the generator holds at that moment into the image, whether the field is static or an ordinary singleton-bean field.",
-            "A JDK built for CRaC already auto-reseeds a no-arg, never-explicitly-seeded SecureRandom on restore, so plain `new SecureRandom()` usage is commonly safe there without any code change — but confirm your target JDK/runtime actually implements that behavior before relying on it, since it is not guaranteed on every CRaC-capable platform. An explicitly-seeded SecureRandom, or a plain java.util.Random, keeps its frozen state across restore in every case and needs its own fix: re-seed or recreate it in an org.crac.Resource.afterRestore() callback, or avoid caching a shared instance so a fresh generator is created per restored process.",
+            "Detects fields (static or instance) of type java.util.Random, plus SecureRandom(byte[]) construction and SecureRandom.setSeed(...) calls. A checkpoint freezes a plain Random's predictable internal state. Explicitly seeding SecureRandom also prevents a CRaC-enabled JDK from treating it as a never-explicitly-seeded generator that can be safely reseeded after restore.",
+            "Replace java.util.Random with an unseeded SecureRandom for security-sensitive values. If deterministic randomness is intentional, recreate or reseed it with process-specific state in an org.crac.Resource.afterRestore() callback. Do not explicitly seed SecureRandom unless the seed is refreshed after every restore.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
     @Override
@@ -450,7 +460,76 @@ final class RandomFieldCheck implements CracCheck {
             int count = 0;
             for (JavaClass javaClass : context.classes()) {
                 for (JavaField field : javaClass.getFields()) {
-                    if (field.getRawType().isAssignableTo("java.util.Random")) {
+                    JavaClass type = field.getRawType();
+                    if (type.isAssignableTo("java.util.Random") && !type.isAssignableTo("java.security.SecureRandom")) {
+                        count++;
+                        if (samples.size() < CracCheckSupport.maxSampleOccurrences()) {
+                            samples.add(CracCheckSupport.detail(
+                                    javaClass.getName() + "." + field.getName() + " : " + type.getName()));
+                        }
+                    }
+                }
+                for (JavaCodeUnit codeUnit : javaClass.getCodeUnits()) {
+                    for (JavaCall<?> call : codeUnit.getCallsFromSelf()) {
+                        CodeUnitCallTarget target = call.getTarget();
+                        if (isExplicitSecureRandomSeed(target)) {
+                            count++;
+                            if (samples.size() < CracCheckSupport.maxSampleOccurrences()) {
+                                samples.add(CracCheckSupport.detail(javaClass.getName() + "." + codeUnit.getName()
+                                        + "() explicitly seeds SecureRandom"));
+                            }
+                        }
+                    }
+                }
+            }
+            if (count == 0) {
+                return CracCheckSupport.ok(DEFINITION);
+            }
+            return CracCheckSupport.review(DEFINITION, count, samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return CracCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
+    }
+
+    private static boolean isExplicitSecureRandomSeed(CodeUnitCallTarget target) {
+        if (!"java.security.SecureRandom".equals(target.getOwner().getName())) {
+            return false;
+        }
+        return ("<init>".equals(target.getName())
+                        && !target.getRawParameterTypes().isEmpty())
+                || "setSeed".equals(target.getName());
+    }
+}
+
+/**
+ * Reports cached {@link java.security.SecureRandom} instances separately from predictable random
+ * state. Supported CRaC JDKs reseed no-arg, never-explicitly-seeded instances after restore, so this
+ * is an informational target-runtime verification rather than a high-severity finding.
+ */
+final class SecureRandomFieldCheck implements CracCheck {
+
+    private static final CracCheckDefinition DEFINITION = new CracCheckDefinition(
+            "CRAC-RANDOM-002",
+            "SecureRandom restore-time reseeding depends on the target CRaC JDK",
+            CracCategory.RANDOMNESS,
+            "INFO",
+            "Detects fields (static or instance) of type java.security.SecureRandom. Current supported CRaC JDKs reseed no-arg, never-explicitly-seeded SecureRandom instances after restore, so caching one is not by itself a HIGH-severity defect. Explicit seeding is reported separately by CRAC-RANDOM-001.",
+            "Use a current supported CRaC JDK and keep SecureRandom unseeded so its restore-time reseeding hook remains effective. Confirm the behavior with an actual checkpoint/restore test for the exact JDK build you deploy.",
+            "https://github.com/CRaC/docs");
+
+    @Override
+    public CracCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public CracFindingDto evaluate(CracContext context) {
+        try {
+            List<String> samples = new ArrayList<>();
+            int count = 0;
+            for (JavaClass javaClass : context.classes()) {
+                for (JavaField field : javaClass.getFields()) {
+                    if (field.getRawType().isAssignableTo("java.security.SecureRandom")) {
                         count++;
                         if (samples.size() < CracCheckSupport.maxSampleOccurrences()) {
                             samples.add(CracCheckSupport.detail(javaClass.getName() + "." + field.getName() + " : "
@@ -485,8 +564,8 @@ final class CapturedSecretFieldCheck implements CracCheck {
             "Secrets captured in fields are frozen into the checkpoint",
             CracCategory.SECRETS,
             "HIGH",
-            "Detects fields (static or instance) that capture a secret: a field whose name looks like a secret (token, password, secret, api key, credential, private key) holding a String, char[], or byte[], or a field holding cryptographic key material (SecretKey, PrivateKey, KeyStore, KeyPair) regardless of name. A checkpoint snapshots every object reachable from GC roots, so a credential cached in a singleton bean's instance field (e.g. an @Value-injected secret) is captured into the image exactly like a static field would be.",
-            "Load secrets lazily at runtime (or refresh them in an org.crac.Resource.afterRestore() callback) instead of caching them in a field, so a checkpoint never freezes a credential.",
+            "Detects fields (static or instance) that capture a secret: a field whose name looks like a secret (token, password, secret, api key, credential, private key) holding a String, char[], or byte[], or a field holding cryptographic key material (SecretKey, PrivateKey, KeyStore, KeyPair, SSLContext, KeyManager, or TrustManager) regardless of name. A checkpoint snapshots every object reachable from GC roots, so credentials and initialized TLS material cached in a singleton bean are captured into the image exactly like static fields.",
+            "Load secrets lazily at runtime, or rebuild the key/trust material and SSLContext in an org.crac.Resource.afterRestore() callback, instead of freezing credentials into the checkpoint image.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
     private static final Pattern SECRET_NAME =
@@ -495,7 +574,15 @@ final class CapturedSecretFieldCheck implements CracCheck {
     private static final Set<String> SECRET_TYPES = Set.of("java.lang.String", "char[]", "byte[]", "[C", "[B");
 
     private static final Set<String> KEY_TYPES = Set.of(
-            "javax.crypto.SecretKey", "java.security.PrivateKey", "java.security.KeyStore", "java.security.KeyPair");
+            "javax.crypto.SecretKey",
+            "java.security.PrivateKey",
+            "java.security.KeyStore",
+            "java.security.KeyPair",
+            "javax.net.ssl.SSLContext",
+            "javax.net.ssl.KeyManager",
+            "javax.net.ssl.TrustManager",
+            "[Ljavax.net.ssl.KeyManager;",
+            "[Ljavax.net.ssl.TrustManager;");
 
     @Override
     public CracCheckDefinition definition() {
@@ -545,19 +632,18 @@ final class CapturedSecretFieldCheck implements CracCheck {
 }
 
 /**
- * Reports whether the application registers any {@code org.crac.Resource} implementations. CRaC
- * relies on these callbacks to release and re-acquire stateful resources around a checkpoint; an
- * application with none typically still has work to do before it can checkpoint cleanly.
+ * Reports whether the application registers any current {@code org.crac.Resource} or legacy {@code
+ * javax.crac.Resource} implementations.
  */
 final class ResourceRegistrationCheck implements CracCheck {
 
     private static final CracCheckDefinition DEFINITION = new CracCheckDefinition(
             "CRAC-LIFECYCLE-001",
-            "No org.crac.Resource implementations were found",
+            "No CRaC Resource implementations were found",
             CracCategory.LIFECYCLE,
             "INFO",
-            "Reports whether the application implements org.crac.Resource. These callbacks let components release and re-acquire stateful resources around a checkpoint; an application with none usually relies entirely on Spring lifecycle handling.",
-            "If the application owns resources that Spring does not manage (custom sockets, native handles, caches), implement org.crac.Resource and register it with Core.getGlobalContext().register(...) so it participates in checkpoint/restore.",
+            "Reports whether the application implements the current org.crac.Resource API or the legacy javax.crac.Resource API. These callbacks let components release and re-acquire stateful resources around a checkpoint; an application with none usually relies entirely on Spring lifecycle handling.",
+            "If the application owns resources that Spring does not manage (custom sockets, native handles, caches), prefer the current org.crac.Resource API and register the resource with Core.getGlobalContext().register(...) so it participates in checkpoint/restore.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
     @Override
@@ -570,7 +656,9 @@ final class ResourceRegistrationCheck implements CracCheck {
         try {
             List<String> implementers = new ArrayList<>();
             for (JavaClass javaClass : context.classes()) {
-                if (!javaClass.isInterface() && javaClass.isAssignableTo("org.crac.Resource")) {
+                if (!javaClass.isInterface()
+                        && (javaClass.isAssignableTo("org.crac.Resource")
+                                || javaClass.isAssignableTo("javax.crac.Resource"))) {
                     implementers.add(javaClass.getName());
                 }
             }
@@ -582,7 +670,7 @@ final class ResourceRegistrationCheck implements CracCheck {
                     1,
                     List.of(
                             CracCheckSupport.detail(
-                                    "No application class implements org.crac.Resource; resource handling relies on Spring lifecycle only.")));
+                                    "No application class implements org.crac.Resource or javax.crac.Resource; resource handling relies on Spring lifecycle only.")));
         } catch (RuntimeException | LinkageError ex) {
             return CracCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
         }
@@ -607,8 +695,8 @@ final class ConnectionPoolCheck implements CracCheck {
             "Connection pools must hold no open connection at checkpoint",
             CracCategory.POOLS,
             "HIGH",
-            "Detects live connection pools and pooled clients (JDBC DataSource, plus R2DBC/Redis/RabbitMQ/Kafka/Mongo/Cassandra/JMS connection factories and similar). A pooled connection that is still open when the checkpoint is taken holds an OS socket that CRaC refuses to snapshot, so the checkpoint aborts with CheckpointOpenSocketException. The backing service must also be reachable both when the checkpoint is taken and when it is restored.",
-            "Ensure no pooled connection is open at checkpoint time: let the pool drain to zero idle connections (for example spring.datasource.hikari.minimum-idle=0), and keep the database/cache reachable at both checkpoint and restore. Take the checkpoint after the context refreshes but before traffic opens a connection. Do not assume the pool closes itself for CRaC: check whether your specific pool/client library has adopted org.crac.Resource natively. As of today, most common pools (including HikariCP and Lettuce, Spring Boot's default JDBC pool and Redis client) do not ship this out of the box, so unless you have verified otherwise for your library's current version, plan to register your own org.crac.Resource wrapper around the DataSource/connection factory bean to close and reopen it around the checkpoint.",
+            "Detects live connection pools and pooled clients (JDBC DataSource, plus R2DBC/Redis/RabbitMQ/Kafka/Mongo/Cassandra/JMS connection factories and similar). A pooled connection that is still open when the checkpoint is taken holds an OS socket that CRaC refuses to snapshot, so the checkpoint aborts. Spring Boot provides a HikariCheckpointRestoreLifecycle wrapper for HikariCP when org.crac:crac is present; HikariCP itself does not implement org.crac.Resource.",
+            "For Spring Boot-managed HikariCP, set spring.datasource.hikari.allow-pool-suspension=true so Boot's checkpoint lifecycle suspends borrows, evicts connections, and resumes safely after restore; keep org.crac:crac on the classpath. For other pools and clients, verify current native CRaC support or register an org.crac.Resource wrapper that closes and recreates the pool. In every case, keep the backing service reachable at checkpoint and restore and test the exact library versions.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
     @Override
@@ -763,6 +851,11 @@ final class ScheduledFixedRateTaskCheck implements CracCheck {
     @Override
     public CracFindingDto evaluate(CracContext context) {
         try {
+            if (context.runtime().checkpointOnRefresh()) {
+                return CracCheckSupport.skipped(
+                        DEFINITION,
+                        "spring.context.checkpoint=onRefresh checkpoints before scheduled tasks start; this check applies only to on-demand checkpoints of a running application.");
+            }
             List<String> samples = new ArrayList<>();
             int count = 0;
             for (JavaClass javaClass : context.classes()) {
@@ -796,8 +889,8 @@ final class ScheduledFixedRateTaskCheck implements CracCheck {
 }
 
 /**
- * Reports whether the {@code org.crac:crac} API is present on the application's classpath. Without it
- * an application has no library to implement {@code org.crac.Resource} against, so it cannot hook
+ * Reports whether the application-facing {@code org.crac:crac} API is present on the classpath.
+ * When it is absent, an application has no library to implement {@code org.crac.Resource} against, so it cannot hook
  * {@code beforeCheckpoint()}/{@code afterRestore()} to release and reacquire resources, re-seed
  * randomness, or refresh secrets around a checkpoint - the fix every other resource/random/secret
  * finding in this rule set recommends.
@@ -813,8 +906,8 @@ final class CracDependencyCheck implements CracCheck {
             "The org.crac:crac API is not on the classpath",
             CracCategory.LIFECYCLE,
             "MEDIUM",
-            "Detects whether the org.crac:crac API (org.crac.Core / org.crac.Resource) is present on the application's classpath. A Spring Boot application on a CRaC-enabled JVM does not strictly need this dependency to take an automatic checkpoint, but without it no application class can implement org.crac.Resource, so it cannot hook beforeCheckpoint()/afterRestore() to release and reacquire resources, re-seed randomness, or refresh secrets around a checkpoint.",
-            "Add the org.crac:crac dependency (its version is managed by the Spring Boot BOM) so application classes can implement org.crac.Resource and register with Core.getGlobalContext().register(...) to participate in checkpoint/restore.",
+            "Detects whether the org.crac:crac compatibility API (org.crac.Core / org.crac.Resource) is present on the application's classpath. Spring Boot's checkpoint/restore auto-configuration is conditional on this API even when the CRaC-enabled JDK exposes its vendor implementation as javax.crac or jdk.crac.",
+            "Add org.crac:crac (its version is managed by the Spring Boot BOM) so application classes and Spring Boot integrations can register org.crac.Resource callbacks. Vendor packages such as javax.crac and jdk.crac are implementation details and are detected separately as JVM capability markers.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
     @Override
@@ -833,7 +926,7 @@ final class CracDependencyCheck implements CracCheck {
                     1,
                     List.of(
                             CracCheckSupport.detail(
-                                    "org.crac.Core is not on the classpath; no application class can implement org.crac.Resource.")));
+                                    "org.crac.Core is not on the classpath; Spring Boot CRaC lifecycle integrations cannot activate.")));
         } catch (RuntimeException | LinkageError ex) {
             return CracCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
         }
@@ -913,5 +1006,58 @@ final class UnmanagedHttpClientFieldCheck implements CracCheck {
             }
         }
         return false;
+    }
+}
+
+/**
+ * Flags Spring HTTP client facade fields as a lower-severity transport review. The facade itself may
+ * safely share framework-managed resources, so this must not claim that every injected client owns an
+ * unmanaged socket.
+ */
+final class SpringHttpClientFacadeFieldCheck implements CracCheck {
+
+    private static final CracCheckDefinition DEFINITION = new CracCheckDefinition(
+            "CRAC-POOL-003",
+            "Spring HTTP client fields require a restore-aware transport",
+            CracCategory.POOLS,
+            "MEDIUM",
+            "Detects fields of type Spring RestClient or WebClient outside a managed checkpoint/restore lifecycle. These immutable facades may use framework-managed shared resources, so the field alone is not proof of an open socket; the underlying ClientHttpRequestFactory, Reactor Netty ConnectionProvider, and event-loop resources determine CRaC readiness.",
+            "Verify that the client's underlying transport is closed before checkpoint and recreated after restore. Prefer a Spring-managed ReactorResourceFactory or another lifecycle-managed connector; otherwise wrap the transport owner in org.crac.Resource. Do not rebuild an injected facade unnecessarily when its shared transport is already managed.",
+            "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
+
+    private static final Set<String> CLIENT_TYPES = Set.of(
+            "org.springframework.web.client.RestClient", "org.springframework.web.reactive.function.client.WebClient");
+
+    @Override
+    public CracCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public CracFindingDto evaluate(CracContext context) {
+        try {
+            List<String> samples = new ArrayList<>();
+            int count = 0;
+            for (JavaClass javaClass : context.classes()) {
+                if (ManagedLifecycleCallSites.isManagedClass(javaClass)) {
+                    continue;
+                }
+                for (JavaField field : javaClass.getFields()) {
+                    if (CLIENT_TYPES.contains(field.getRawType().getName())) {
+                        count++;
+                        if (samples.size() < CracCheckSupport.maxSampleOccurrences()) {
+                            samples.add(CracCheckSupport.detail(javaClass.getName() + "." + field.getName() + " : "
+                                    + field.getRawType().getName()));
+                        }
+                    }
+                }
+            }
+            if (count == 0) {
+                return CracCheckSupport.ok(DEFINITION);
+            }
+            return CracCheckSupport.review(DEFINITION, count, samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return CracCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
     }
 }

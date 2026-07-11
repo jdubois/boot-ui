@@ -71,9 +71,11 @@ class CracReadinessScannerTests {
                         "CRAC-TIME-001",
                         "CRAC-CONFIG-001",
                         "CRAC-RANDOM-001",
+                        "CRAC-RANDOM-002",
                         "CRAC-SECRET-001",
                         "CRAC-SCHED-001",
-                        "CRAC-POOL-002");
+                        "CRAC-POOL-002",
+                        "CRAC-POOL-003");
         assertThat(report.findings().stream().map(CracFindingDto::severity).toList())
                 .isSortedAccordingTo(Comparator.comparingInt(SeverityOrder::rank));
         assertThat(report.severityCounts())
@@ -125,17 +127,23 @@ class CracReadinessScannerTests {
     }
 
     @Test
-    void scanFlagsInstanceFieldRandomAndSecretHolders() {
+    void scanSeparatesPredictableRandomFromUnseededSecureRandomAndFlagsSecrets() {
         CracReadinessScanner scanner = scanner(List.of(FIXTURES));
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
-        // CRAC-RANDOM-001/CRAC-SECRET-001 used to filter on the STATIC modifier; these fixtures use
-        // ordinary singleton-bean instance fields, the dominant real-world Spring pattern, and must
-        // still be flagged now that the static-only filter has been removed.
         assertThat(findingSamples(report, "CRAC-RANDOM-001"))
                 .anyMatch(sample -> sample.contains("InstanceRandomHolder"));
+        assertThat(findingSamples(report, "CRAC-RANDOM-001"))
+                .noneMatch(sample -> sample.contains("NoArgSecureRandomHolder"));
+        CracFindingDto secureRandom = report.findings().stream()
+                .filter(finding -> "CRAC-RANDOM-002".equals(finding.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(secureRandom.severity()).isEqualTo("INFO");
+        assertThat(secureRandom.sampleOccurrences()).anyMatch(sample -> sample.contains("NoArgSecureRandomHolder"));
         assertThat(findingSamples(report, "CRAC-SECRET-001"))
                 .anyMatch(sample -> sample.contains("InstanceSecretHolder"));
+        assertThat(findingSamples(report, "CRAC-SECRET-001")).anyMatch(sample -> sample.contains("SslSecretHolder"));
     }
 
     @Test
@@ -171,6 +179,19 @@ class CracReadinessScannerTests {
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
         assertThat(findingSamples(report, "CRAC-POOL-002")).anyMatch(sample -> sample.contains("HttpClientHolder"));
+    }
+
+    @Test
+    void scanFlagsSpringHttpClientFacadesAtReviewSeverity() {
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        CracFindingDto finding = report.findings().stream()
+                .filter(candidate -> "CRAC-POOL-003".equals(candidate.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+        assertThat(finding.sampleOccurrences()).anyMatch(sample -> sample.contains("SpringHttpClientHolder"));
     }
 
     @Test
@@ -248,6 +269,16 @@ class CracReadinessScannerTests {
         assertThat(pool.status()).isEqualTo("REVIEW");
         assertThat(pool.occurrenceCount()).isEqualTo(1);
         assertThat(pool.sampleOccurrences()).anyMatch(sample -> sample.contains("HikariDataSource"));
+    }
+
+    @Test
+    void scheduledCheckIsSuppressedForCheckpointOnRefresh() {
+        CracRuntimeInventory inventory = new CracRuntimeInventory(List.of(), List.of(), true, true);
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
+
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        assertThat(report.findings()).extracting(CracFindingDto::id).doesNotContain("CRAC-SCHED-001");
     }
 
     @Test

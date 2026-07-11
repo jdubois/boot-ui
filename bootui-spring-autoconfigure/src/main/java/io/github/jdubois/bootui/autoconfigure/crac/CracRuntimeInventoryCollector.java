@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.SpringProperties;
 import org.springframework.util.ClassUtils;
 
 /**
@@ -62,7 +63,7 @@ public final class CracRuntimeInventoryCollector {
     private static final String REDIS_CACHE_MANAGER_TYPE_NAME =
             "org.springframework.data.redis.cache.RedisCacheManager";
 
-    /** Fully-qualified name of the org.crac API's entry point, used only to test classpath presence. */
+    /** Application-facing org.crac compatibility API entry point. */
     private static final String CRAC_CORE_TYPE_NAME = "org.crac.Core";
 
     private CracRuntimeInventoryCollector() {}
@@ -77,9 +78,11 @@ public final class CracRuntimeInventoryCollector {
                     applicationContext,
                     List.of(CACHE_MANAGER_TYPE_NAME),
                     type -> NO_OP_CACHE_MANAGER_TYPE_NAME.equals(type.getName()) || isRedisCacheManager(type));
-            boolean cracApiPresent =
-                    ClassUtils.isPresent(CRAC_CORE_TYPE_NAME, CracRuntimeInventoryCollector.class.getClassLoader());
-            return new CracRuntimeInventory(poolBeans, cacheBeans, cracApiPresent);
+            ClassLoader classLoader = CracRuntimeInventoryCollector.class.getClassLoader();
+            boolean cracApiPresent = ClassUtils.isPresent(CRAC_CORE_TYPE_NAME, classLoader);
+            boolean checkpointOnRefresh =
+                    "onRefresh".equalsIgnoreCase(SpringProperties.getProperty("spring.context.checkpoint"));
+            return new CracRuntimeInventory(poolBeans, cacheBeans, cracApiPresent, checkpointOnRefresh);
         } catch (RuntimeException ex) {
             return CracRuntimeInventory.empty();
         }

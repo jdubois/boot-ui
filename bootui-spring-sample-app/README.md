@@ -311,8 +311,8 @@ without the ahead-of-time compilation a native image requires. The BootUI **CRaC
 panel (Runtime group) inspects this readiness; this section actually runs the
 sample app from a checkpoint.
 
-CRaC only works on a **Linux** host and needs a **CRaC-enabled JDK** (here
-BellSoft Liberica with CRaC) plus elevated container privileges, because
+CRaC's CRIU engine only works on a **Linux 5.9+** host and needs a **CRaC-enabled JDK** (here
+BellSoft Liberica with CRaC) plus the narrowly scoped `CHECKPOINT_RESTORE` and `SYS_PTRACE` capabilities, because
 [CRIU](https://criu.org/) — the tool that checkpoints and restores the live
 process — needs them. Ready-to-use Docker assets live at the repository root:
 
@@ -379,20 +379,22 @@ docker build -f Dockerfile-crac -t bootui-sample-crac .
 
 ### Without Docker Compose
 
-The `app` service must run with CRIU privileges, so a plain `docker run` needs
-`--privileged` (or, more narrowly,
-`--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN
---security-opt seccomp=unconfined`) and a volume for the checkpoint:
+The `app` service must run with CRIU's narrowly scoped capabilities and a volume for the checkpoint:
 
 ```bash
 docker build -f Dockerfile-crac -t bootui-sample-crac .
-docker run --rm --privileged -p 127.0.0.1:8080:8080 \
+docker run --rm --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE \
+  -p 127.0.0.1:8080:8080 \
   -e BOOTUI_ALLOW_NON_LOCALHOST=true \
   -v bootui-crac:/opt/crac/checkpoint bootui-sample-crac
 ```
 
 The same container takes the checkpoint on its first start and restores it on
 every later start, as long as the `bootui-crac` volume is reused.
+
+Do not add `SYS_ADMIN` or switch to `--privileged` as the default workaround for an incompatible host. Upgrade the Linux
+kernel/container runtime so `CHECKPOINT_RESTORE` is available. A privileged run is only a last-resort compatibility
+diagnosis on an isolated, disposable development machine — never production or a shared host.
 
 ### How the checkpoint is taken
 
@@ -416,7 +418,12 @@ resources directly.
 > freezes configuration into the checkpoint, this must be set on the first start.
 
 
-> **CRaC freezes configuration into the checkpoint.** Environment variables and
+> **CRaC freezes the JVM into the checkpoint.** JVM options, environment-derived configuration, system properties, and
+> CPU feature assumptions are established when the checkpoint is created. Heap/GC flags cannot be changed on a
+> restore-only start, and changing application configuration may have no effect when it was already read into the
+> checkpointed heap. Regenerate the checkpoint after changing JVM flags or startup configuration.
+>
+> Environment variables and
 > system properties are read when the checkpoint is taken, not when it is
 > restored. Set anything that influences the running app (such as
 > `BOOTUI_ALLOW_NON_LOCALHOST`) **before the first start**; changing it for a
@@ -431,16 +438,16 @@ backed by [`compose.yaml`](../compose.yaml)), two extra constraints apply becaus
 CRaC snapshots live OS resources:
 
 - **Both services must be reachable when the checkpoint is taken and when it is
-  restored.** HikariCP and the Lettuce Redis client reconnect on restore, so the
+  restored.** Spring Boot provides a `HikariCheckpointRestoreLifecycle` around HikariCP when `org.crac:crac` is present;
+  HikariCP itself does not implement CRaC callbacks. The Lettuce Redis client also needs its own verified lifecycle path.
+  The
   databases have to be up at both moments.
 - **No pooled connection may be open at checkpoint time.** CRaC aborts the
   checkpoint with `CheckpointOpenSocketException` if, for example, HikariCP still
-  holds an open PostgreSQL socket when `onRefresh` fires. Spring Boot closes
-  CRaC-aware resources (the Hikari pool, the Lettuce client) before the
-  checkpoint, but a pool configured to keep a minimum number of idle connections,
-  or any background task that re-opens one, will reintroduce an open socket and
-  fail the checkpoint. Keep such connections closed (for example, let the pool
-  drain to zero idle connections) until the checkpoint has been written.
+  holds an open PostgreSQL socket when `onRefresh` fires. Set
+  `spring.datasource.hikari.allow-pool-suspension=true`; Spring Boot's lifecycle then suspends new borrows, evicts
+  connections before checkpoint, and resumes the pool after restore. Without pool suspension, background work can borrow
+  a new connection while Boot is draining the pool.
 
 Because of these constraints the external-services path is intentionally left as
 an opt-in exercise rather than the default; start from the H2 setup above, then

@@ -12,6 +12,7 @@ import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.SpringProperties;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 
@@ -95,6 +96,17 @@ class CracRuntimeInventoryCollectorTests {
             // declares it, so from this module's classloader it is genuinely absent, exactly like an
             // application that has not added the dependency yet (see CRAC-LIFECYCLE-002).
             assertThat(inventory.cracApiPresent()).isFalse();
+        }
+    }
+
+    @Test
+    void reportsCheckpointOnRefreshFromTheSpringFrameworkProperty() {
+        SpringProperties.setProperty("spring.context.checkpoint", "onRefresh");
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            assertThat(CracRuntimeInventoryCollector.collect(context).checkpointOnRefresh())
+                    .isTrue();
+        } finally {
+            SpringProperties.setProperty("spring.context.checkpoint", null);
         }
     }
 

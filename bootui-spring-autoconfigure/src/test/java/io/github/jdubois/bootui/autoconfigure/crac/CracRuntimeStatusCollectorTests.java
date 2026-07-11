@@ -22,7 +22,7 @@ class CracRuntimeStatusCollectorTests {
         assertThat(status.cracCapableJvm()).isFalse();
         assertThat(status.checkpointOnRefresh()).isFalse();
         assertThat(status.checkpointTo()).isNull();
-        assertThat(status.summary()).contains("not on the classpath");
+        assertThat(status.summary()).contains("not on the classpath").contains("managed by the Spring Boot BOM");
     }
 
     @Test
@@ -147,5 +147,34 @@ class CracRuntimeStatusCollectorTests {
         CracRuntimeStatusDto status = collector.collect();
 
         assertThat(status.restoreCaveats()).noneMatch(caveat -> caveat.contains("SpringProperties"));
+    }
+
+    @Test
+    void surfacesExitOnRefreshAsCheckpointLifecycleDryRun() {
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                new MockEnvironment(),
+                List::of,
+                className -> false,
+                CracRuntimeInventory::empty,
+                () -> null,
+                () -> "onRefresh");
+
+        CracRuntimeStatusDto status = collector.collect();
+
+        assertThat(status.checkpointOnRefresh()).isFalse();
+        assertThat(status.summary()).contains("dry run").contains("without writing a checkpoint");
+        assertThat(status.restoreCaveats())
+                .anyMatch(caveat -> caveat.contains("spring.context.exit=onRefresh") && caveat.contains("regular JDK"));
+    }
+
+    @Test
+    void recognizesLegacyJavaxCracImplementationMarker() {
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                new MockEnvironment(), List::of, "javax.crac.Core"::equals, CracRuntimeInventory::empty, () -> null);
+
+        CracRuntimeStatusDto status = collector.collect();
+
+        assertThat(status.cracApiPresent()).isFalse();
+        assertThat(status.cracCapableJvm()).isTrue();
     }
 }
