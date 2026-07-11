@@ -393,8 +393,10 @@ public class BootUiReactiveAutoConfiguration {
 
     @Bean
     public ReactiveApiAuthenticationFilter bootUiReactiveApiAuthenticationFilter(
-            BootUiProperties properties, ApiTokenAuthenticator authenticator) {
-        return new ReactiveApiAuthenticationFilter(properties, authenticator);
+            BootUiProperties properties,
+            ApiTokenAuthenticator authenticator,
+            ReactiveLocalhostOnlyFilter localhostOnlyFilter) {
+        return new ReactiveApiAuthenticationFilter(properties, authenticator, localhostOnlyFilter);
     }
 
     @Bean

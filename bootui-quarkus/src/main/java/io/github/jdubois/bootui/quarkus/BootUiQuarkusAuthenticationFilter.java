@@ -11,7 +11,15 @@ import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.Config;
 
-/** Authenticates non-loopback requests to the BootUI API. */
+/**
+ * Authenticates non-loopback requests to the BootUI API.
+ *
+ * <p>Trust is delegated to {@link BootUiQuarkusSafetyFilter#isTrustedSource(String)} rather than
+ * re-derived here: a source already trusted via loopback, {@code bootui.trusted-proxies}, or
+ * {@code bootui.trust-container-gateway} is treated identically here, so operators who already opted
+ * into one of those trust mechanisms keep frictionless access instead of also being forced through the
+ * bearer-token/unlock flow.</p>
+ */
 @ApplicationScoped
 public class BootUiQuarkusAuthenticationFilter {
 
@@ -21,11 +29,14 @@ public class BootUiQuarkusAuthenticationFilter {
 
     private final Config config;
     private final ApiTokenAuthenticator authenticator;
+    private final BootUiQuarkusSafetyFilter safetyFilter;
 
     @Inject
-    public BootUiQuarkusAuthenticationFilter(Config config, ApiTokenAuthenticator authenticator) {
+    public BootUiQuarkusAuthenticationFilter(
+            Config config, ApiTokenAuthenticator authenticator, BootUiQuarkusSafetyFilter safetyFilter) {
         this.config = config;
         this.authenticator = authenticator;
+        this.safetyFilter = safetyFilter;
     }
 
     public void register(@Observes Filters filters) {
@@ -41,14 +52,15 @@ public class BootUiQuarkusAuthenticationFilter {
 
         HttpServerRequest request = rc.request();
         String remoteAddress = remoteAddress(request.remoteAddress());
+        boolean trustedSource = safetyFilter.isTrustedSource(remoteAddress);
         if (!authenticator.isAuthorized(
-                remoteAddress, request.getHeader("Authorization"), request.getHeader("Cookie"))) {
+                trustedSource, request.getHeader("Authorization"), request.getHeader("Cookie"))) {
             reject(rc.response());
             return;
         }
 
         if ("POST".equals(request.method().name()) && SESSION_PATH.equals(path)) {
-            if (!authenticator.isLoopback(remoteAddress)) {
+            if (!trustedSource) {
                 rc.response()
                         .putHeader(
                                 "Set-Cookie",

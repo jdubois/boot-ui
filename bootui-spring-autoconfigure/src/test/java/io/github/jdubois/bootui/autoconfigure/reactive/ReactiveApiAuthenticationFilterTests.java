@@ -21,8 +21,10 @@ class ReactiveApiAuthenticationFilterTests {
         return Mono.empty();
     };
 
-    private final ReactiveApiAuthenticationFilter filter =
-            new ReactiveApiAuthenticationFilter(new BootUiProperties(), new ApiTokenAuthenticator(TOKEN));
+    private final ReactiveApiAuthenticationFilter filter = new ReactiveApiAuthenticationFilter(
+            new BootUiProperties(),
+            new ApiTokenAuthenticator(TOKEN),
+            new ReactiveLocalhostOnlyFilter(new BootUiProperties()));
 
     @Test
     void loopbackApiRequestsDoNotRequireAuthentication() {
@@ -65,6 +67,19 @@ class ReactiveApiAuthenticationFilterTests {
                 exchange("GET", "/bootui/api/health", "10.0.0.5", null, "BOOTUI_SESSION=" + TOKEN);
 
         filter.filter(exchange, OK_CHAIN).block(Duration.ofSeconds(5));
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void sourcesTrustedViaTrustedProxiesDoNotRequireAuthentication() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.setTrustedProxies(new String[] {"10.0.0.0/24"});
+        ReactiveApiAuthenticationFilter trustedRangeFilter = new ReactiveApiAuthenticationFilter(
+                properties, new ApiTokenAuthenticator(TOKEN), new ReactiveLocalhostOnlyFilter(properties));
+        MockServerWebExchange exchange = exchange("GET", "/bootui/api/overview", "10.0.0.5", null, null);
+
+        trustedRangeFilter.filter(exchange, OK_CHAIN).block(Duration.ofSeconds(5));
 
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.OK);
     }

@@ -1,7 +1,5 @@
 package io.github.jdubois.bootui.engine.safety;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -11,9 +9,16 @@ import java.util.Base64;
  * Framework-neutral bearer-token authentication for non-loopback BootUI API requests.
  *
  * <p>A configured token is used verbatim. When none is configured, a 256-bit token is generated for
- * the lifetime of the application. Loopback callers bypass authentication; unknown and non-loopback
- * callers must present the token in either the {@code Authorization} header or BootUI's HTTP-only
+ * the lifetime of the application. Genuinely trusted callers bypass authentication; everyone else
+ * must present the token in either the {@code Authorization} header or BootUI's HTTP-only
  * browser-session cookie.</p>
+ *
+ * <p>This class deliberately does <strong>not</strong> derive its own notion of "trusted"/"loopback"
+ * from a raw peer address: that policy — including {@code bootui.trusted-proxies} and
+ * {@code bootui.trust-container-gateway} — is owned exclusively by {@link LocalhostGuard}. Callers
+ * must resolve {@link LocalhostGuard#isTrustedSource} (or reuse a {@link LocalhostGuardDecision.Allow}
+ * already computed for the same request) and pass the result in, so a deployment that already opted
+ * into a broader trust range gets identical, frictionless treatment here.</p>
  */
 public final class ApiTokenAuthenticator {
 
@@ -48,21 +53,15 @@ public final class ApiTokenAuthenticator {
         return allowNonLocalhost || trustedProxiesConfigured || trustContainerGateway;
     }
 
-    public boolean isAuthorized(String remoteAddress, String authorizationHeader, String cookieHeader) {
-        return isLoopback(remoteAddress)
+    /**
+     * @param trustedSource whether the caller's raw TCP peer is already a genuinely trusted source
+     *     under {@link LocalhostGuard} (loopback, a trusted range, or a trusted container gateway) —
+     *     never merely whether {@code bootui.allow-non-localhost} bypassed the source check
+     */
+    public boolean isAuthorized(boolean trustedSource, String authorizationHeader, String cookieHeader) {
+        return trustedSource
                 || matches(extractBearerToken(authorizationHeader))
                 || matches(extractSessionCookie(cookieHeader));
-    }
-
-    public boolean isLoopback(String remoteAddress) {
-        if (remoteAddress == null || remoteAddress.isBlank()) {
-            return false;
-        }
-        try {
-            return InetAddress.getByName(remoteAddress).isLoopbackAddress();
-        } catch (UnknownHostException e) {
-            return false;
-        }
     }
 
     public boolean generated() {

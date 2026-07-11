@@ -18,7 +18,10 @@ class ApiAuthenticationFilterTests {
 
     @BeforeEach
     void setUp() {
-        filter = new ApiAuthenticationFilter(new BootUiProperties(), new ApiTokenAuthenticator(TOKEN));
+        filter = new ApiAuthenticationFilter(
+                new BootUiProperties(),
+                new ApiTokenAuthenticator(TOKEN),
+                new LocalhostOnlyFilter(new BootUiProperties()));
     }
 
     @Test
@@ -62,6 +65,20 @@ class ApiAuthenticationFilterTests {
         assertThat(filter(request("GET", "/bootui/index.html", "10.0.0.5")).getStatus())
                 .isEqualTo(200);
         assertThat(filter(request("GET", "/api/users", "10.0.0.5")).getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void sourcesTrustedViaTrustedProxiesDoNotRequireAuthentication() throws Exception {
+        BootUiProperties properties = new BootUiProperties();
+        properties.setTrustedProxies(new String[] {"10.0.0.0/24"});
+        ApiAuthenticationFilter trustedRangeFilter = new ApiAuthenticationFilter(
+                properties, new ApiTokenAuthenticator(TOKEN), new LocalhostOnlyFilter(properties));
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        trustedRangeFilter.doFilter(
+                request("GET", "/bootui/api/overview", "10.0.0.5"), response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
     }
 
     private MockHttpServletResponse filter(MockHttpServletRequest request) throws Exception {

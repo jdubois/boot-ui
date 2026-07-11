@@ -8,12 +8,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
+import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfigBuilder;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.net.SocketAddress;
 import io.vertx.ext.web.RoutingContext;
+import java.util.Map;
 import org.eclipse.microprofile.config.Config;
 import org.junit.jupiter.api.Test;
 
@@ -22,8 +24,8 @@ class BootUiQuarkusAuthenticationFilterTest {
     private static final String TOKEN = "test-token";
 
     private final Config config = new SmallRyeConfigBuilder().build();
-    private final BootUiQuarkusAuthenticationFilter filter =
-            new BootUiQuarkusAuthenticationFilter(config, new ApiTokenAuthenticator(TOKEN));
+    private final BootUiQuarkusAuthenticationFilter filter = new BootUiQuarkusAuthenticationFilter(
+            config, new ApiTokenAuthenticator(TOKEN), new BootUiQuarkusSafetyFilter(config));
 
     @Test
     void loopbackApiRequestsDoNotRequireAuthentication() {
@@ -64,6 +66,22 @@ class BootUiQuarkusAuthenticationFilterTest {
         verify(context.response())
                 .putHeader("Set-Cookie", "BOOTUI_SESSION=test-token; Path=/bootui/api; HttpOnly; SameSite=Strict");
         verify(context.response()).setStatusCode(204);
+    }
+
+    @Test
+    void sourcesTrustedViaTrustedProxiesDoNotRequireAuthentication() {
+        Config trustedProxiesConfig = new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(Map.of("bootui.trusted-proxies", "10.0.0.0/24"), "test", 100))
+                .build();
+        BootUiQuarkusAuthenticationFilter trustedRangeFilter = new BootUiQuarkusAuthenticationFilter(
+                trustedProxiesConfig,
+                new ApiTokenAuthenticator(TOKEN),
+                new BootUiQuarkusSafetyFilter(trustedProxiesConfig));
+        RoutingContext context = context(HttpMethod.GET, "10.0.0.5", null, null);
+
+        trustedRangeFilter.handle(context);
+
+        verify(context).next();
     }
 
     private static RoutingContext context(
