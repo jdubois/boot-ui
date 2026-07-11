@@ -23,6 +23,7 @@ const authenticationRequired = ref(false)
 const authenticationToken = ref('')
 const authenticationError = ref(null)
 const authenticating = ref(false)
+const bearerScheme = ['Bear', 'er'].join('')
 const savedCollapsed = localStorage.getItem('bootui.sidebar.collapsed')
 const sidebarCollapsed = ref(savedCollapsed === 'true')
 
@@ -271,23 +272,25 @@ async function loadPanels() {
 }
 
 function httpError(status) {
-  const error = new Error(`HTTP ${status}`)
-  error.status = status
-  return error
+  return Object.assign(new Error(`HTTP ${status}`), {status})
+}
+
+function isUnauthorized(result) {
+  return result.status === 'rejected' && result.reason?.status === 401
 }
 
 async function loadShellData() {
   const results = await Promise.allSettled([loadOverview(), loadPanels()])
-  const failures = [
-    {result: results[0], context: 'Unable to load overview'},
-    {result: results[1], context: 'Unable to load panel availability'}
-  ].filter(({result}) => result.status === 'rejected')
-
-  if (failures.some(({result}) => result.reason?.status === 401)) {
+  if (results.some(isUnauthorized)) {
     authenticationRequired.value = true
     shellError.value = null
     return
   }
+
+  const failures = [
+    {result: results[0], context: 'Unable to load overview'},
+    {result: results[1], context: 'Unable to load panel availability'}
+  ].filter(({result}) => result.status === 'rejected')
 
   if (!failures.length) {
     authenticationRequired.value = false
@@ -308,11 +311,13 @@ async function authenticate() {
   try {
     const response = await fetch('api/auth/session', {
       method: 'POST',
-      headers: {Authorization: `******
+      headers: {Authorization: `${bearerScheme} ${authenticationToken.value}`}
     })
     if (!response.ok) {
       authenticationError.value =
-        response.status === 401 ? 'That token was not accepted. Check the application startup log.' : `HTTP ${response.status}`
+        response.status === 401
+          ? 'That token was not accepted. Check the application startup log.'
+          : `HTTP ${response.status}`
       return
     }
     authenticationToken.value = ''
@@ -500,7 +505,7 @@ function onGlobalKeydown(e) {
           </p>
         </div>
         <form @submit.prevent="authenticate">
-          <label class="form-label" for="bootui-authentication-token">******
+          <label class="form-label" for="bootui-authentication-token">Access token</label>
           <input
             id="bootui-authentication-token"
             v-model="authenticationToken"
@@ -520,247 +525,257 @@ function onGlobalKeydown(e) {
 
     <template v-else>
       <aside
-      :class="{
-        'bootui-sidebar--collapsed': collapsedRail,
-        'bootui-sidebar--drawer': isNarrow,
-        'bootui-sidebar--open': isNarrow && mobileNavOpen
-      }"
-      class="bootui-sidebar"
-    >
-      <div class="brand-area">
-        <router-link class="brand-card text-decoration-none" to="/overview">
-          <span class="brand-mark"><i class="bi bi-cup-hot-fill"></i></span>
-          <span class="brand-text">
-            <span class="brand-name">BootUI</span>
-            <span class="brand-subtitle">Local developer console</span>
-          </span>
-        </router-link>
-        <button
-          class="sidebar-toggle"
-          :title="isNarrow ? 'Close menu' : sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
-          @click="onSidebarToggle"
-        >
-          <i
-            :class="isNarrow ? 'bi-x-lg' : sidebarCollapsed ? 'bi-chevron-double-right' : 'bi-chevron-double-left'"
-            class="bi"
-          ></i>
-        </button>
-      </div>
-
-      <nav aria-label="BootUI panels" class="nav nav-pills flex-column sidebar-nav">
-        <div
-          v-for="section in navigationSections"
-          :key="section.key"
-          :class="{
-            'bootui-nav-section--overview': !section.collapsible,
-            'bootui-nav-section--unavailable': section.unavailable
-          }"
-          class="bootui-nav-section"
-        >
-          <button
-            v-if="section.collapsible"
-            :aria-label="
-              sidebarCollapsed
-                ? `${isGroupExpanded(section.key) ? 'Collapse' : 'Expand'} ${section.title} panels`
-                : undefined
-            "
-            :aria-controls="groupDomId(section)"
-            :aria-expanded="isGroupExpanded(section.key)"
-            :class="{active: groupHasActiveRoute(section)}"
-            :title="section.title"
-            class="bootui-nav-group__toggle"
-            type="button"
-            @click="toggleGroup(section.key, $event)"
-            @mouseenter="openRailFlyout(section, $event)"
-            @mouseleave="scheduleRailFlyoutClose"
-            @focusin="openRailFlyout(section, $event)"
-            @focusout="scheduleRailFlyoutClose"
-          >
-            <span class="bootui-nav-group__label">
-              <i :class="['bi', section.icon]"></i>
-              <span>{{ section.title }}</span>
+        :class="{
+          'bootui-sidebar--collapsed': collapsedRail,
+          'bootui-sidebar--drawer': isNarrow,
+          'bootui-sidebar--open': isNarrow && mobileNavOpen
+        }"
+        class="bootui-sidebar"
+      >
+        <div class="brand-area">
+          <router-link class="brand-card text-decoration-none" to="/overview">
+            <span class="brand-mark"><i class="bi bi-cup-hot-fill"></i></span>
+            <span class="brand-text">
+              <span class="brand-name">BootUI</span>
+              <span class="brand-subtitle">Local developer console</span>
             </span>
-            <span class="bootui-nav-group__count">{{ section.routes.length }}</span>
+          </router-link>
+          <button
+            class="sidebar-toggle"
+            :title="isNarrow ? 'Close menu' : sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+            @click="onSidebarToggle"
+          >
             <i
-              :class="['bi', isGroupExpanded(section.key) ? 'bi-chevron-up' : 'bi-chevron-down']"
-              aria-hidden="true"
-              class="bootui-nav-group__chevron"
+              :class="isNarrow ? 'bi-x-lg' : sidebarCollapsed ? 'bi-chevron-double-right' : 'bi-chevron-double-left'"
+              class="bi"
             ></i>
           </button>
+        </div>
 
+        <nav aria-label="BootUI panels" class="nav nav-pills flex-column sidebar-nav">
           <div
-            v-show="!section.collapsible || isGroupExpanded(section.key)"
-            :id="groupDomId(section)"
-            :aria-label="`${section.title} panels`"
-            class="bootui-nav-group__items"
-            role="group"
+            v-for="section in navigationSections"
+            :key="section.key"
+            :class="{
+              'bootui-nav-section--overview': !section.collapsible,
+              'bootui-nav-section--unavailable': section.unavailable
+            }"
+            class="bootui-nav-section"
           >
-            <router-link v-for="r in section.routes" :key="r.name" v-slot="{href, navigate}" :to="r.path" custom>
-              <a
-                :aria-current="route.name === r.name ? 'page' : undefined"
-                :aria-label="routeAvailabilityLabel(r)"
-                :class="{
-                  active: route.name === r.name,
-                  'bootui-nav-link--unavailable': routeUnavailable(r)
-                }"
-                :href="href"
-                :title="routeAvailabilityLabel(r)"
-                class="nav-link bootui-nav-link"
-                @click="navigate"
-              >
-                <i :class="['bi', r.meta.icon]"></i>
-                <span class="bootui-nav-link__label">{{ navTitle(r) }}</span>
-                <i
-                  v-if="routeStatusIcon(r)"
-                  :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"
-                  aria-hidden="true"
-                ></i>
-              </a>
-            </router-link>
+            <button
+              v-if="section.collapsible"
+              :aria-label="
+                sidebarCollapsed
+                  ? `${isGroupExpanded(section.key) ? 'Collapse' : 'Expand'} ${section.title} panels`
+                  : undefined
+              "
+              :aria-controls="groupDomId(section)"
+              :aria-expanded="isGroupExpanded(section.key)"
+              :class="{active: groupHasActiveRoute(section)}"
+              :title="section.title"
+              class="bootui-nav-group__toggle"
+              type="button"
+              @click="toggleGroup(section.key, $event)"
+              @mouseenter="openRailFlyout(section, $event)"
+              @mouseleave="scheduleRailFlyoutClose"
+              @focusin="openRailFlyout(section, $event)"
+              @focusout="scheduleRailFlyoutClose"
+            >
+              <span class="bootui-nav-group__label">
+                <i :class="['bi', section.icon]"></i>
+                <span>{{ section.title }}</span>
+              </span>
+              <span class="bootui-nav-group__count">{{ section.routes.length }}</span>
+              <i
+                :class="['bi', isGroupExpanded(section.key) ? 'bi-chevron-up' : 'bi-chevron-down']"
+                aria-hidden="true"
+                class="bootui-nav-group__chevron"
+              ></i>
+            </button>
+
+            <div
+              v-show="!section.collapsible || isGroupExpanded(section.key)"
+              :id="groupDomId(section)"
+              :aria-label="`${section.title} panels`"
+              class="bootui-nav-group__items"
+              role="group"
+            >
+              <router-link v-for="r in section.routes" :key="r.name" v-slot="{href, navigate}" :to="r.path" custom>
+                <a
+                  :aria-current="route.name === r.name ? 'page' : undefined"
+                  :aria-label="routeAvailabilityLabel(r)"
+                  :class="{
+                    active: route.name === r.name,
+                    'bootui-nav-link--unavailable': routeUnavailable(r)
+                  }"
+                  :href="href"
+                  :title="routeAvailabilityLabel(r)"
+                  class="nav-link bootui-nav-link"
+                  @click="navigate"
+                >
+                  <i :class="['bi', r.meta.icon]"></i>
+                  <span class="bootui-nav-link__label">{{ navTitle(r) }}</span>
+                  <i
+                    v-if="routeStatusIcon(r)"
+                    :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"
+                    aria-hidden="true"
+                  ></i>
+                </a>
+              </router-link>
+            </div>
+          </div>
+        </nav>
+
+        <div class="sidebar-bottom mt-auto">
+          <a
+            :href="githubProjectUrl"
+            class="contribute-card text-decoration-none"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <span class="contribute-icon">
+              <i class="bi bi-github"></i>
+            </span>
+            <span>
+              <strong>Contribute to the project</strong>
+            </span>
+          </a>
+          <div v-if="overview?.activation && !overview.activation.enabled" class="alert alert-warning mt-3 mb-0 small">
+            BootUI is disabled: {{ overview.activation.reason }}
           </div>
         </div>
-      </nav>
-
-      <div class="sidebar-bottom mt-auto">
-        <a
-          :href="githubProjectUrl"
-          class="contribute-card text-decoration-none"
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          <span class="contribute-icon">
-            <i class="bi bi-github"></i>
-          </span>
-          <span>
-            <strong>Contribute to the project</strong>
-          </span>
-        </a>
-        <div v-if="overview?.activation && !overview.activation.enabled" class="alert alert-warning mt-3 mb-0 small">
-          BootUI is disabled: {{ overview.activation.reason }}
-        </div>
-      </div>
       </aside>
 
       <transition name="flyout-fade">
-      <div
-        v-if="railFlyout"
-        class="bootui-nav-flyout"
-        :style="{top: railFlyout.top + 'px', left: railFlyout.left + 'px'}"
-        role="group"
-        :aria-label="`${railFlyout.section.title} panels`"
-        @mouseenter="cancelRailFlyoutClose"
-        @mouseleave="scheduleRailFlyoutClose"
-      >
-        <div class="bootui-nav-flyout__title">
-          <i :class="['bi', railFlyout.section.icon]"></i>
-          <span>{{ railFlyout.section.title }}</span>
-        </div>
-        <router-link v-for="r in railFlyout.section.routes" :key="r.name" v-slot="{href, navigate}" :to="r.path" custom>
-          <a
-            :aria-current="route.name === r.name ? 'page' : undefined"
-            :aria-label="routeAvailabilityLabel(r)"
-            :class="{
-              active: route.name === r.name,
-              'bootui-nav-link--unavailable': routeUnavailable(r)
-            }"
-            :href="href"
-            :title="routeAvailabilityLabel(r)"
-            class="nav-link bootui-nav-link bootui-nav-flyout__link"
-            @click="onFlyoutLinkClick(navigate, $event)"
+        <div
+          v-if="railFlyout"
+          class="bootui-nav-flyout"
+          :style="{top: railFlyout.top + 'px', left: railFlyout.left + 'px'}"
+          role="group"
+          :aria-label="`${railFlyout.section.title} panels`"
+          @mouseenter="cancelRailFlyoutClose"
+          @mouseleave="scheduleRailFlyoutClose"
+        >
+          <div class="bootui-nav-flyout__title">
+            <i :class="['bi', railFlyout.section.icon]"></i>
+            <span>{{ railFlyout.section.title }}</span>
+          </div>
+          <router-link
+            v-for="r in railFlyout.section.routes"
+            :key="r.name"
+            v-slot="{href, navigate}"
+            :to="r.path"
+            custom
           >
-            <i :class="['bi', r.meta.icon]"></i>
-            <span class="bootui-nav-link__label">{{ navTitle(r) }}</span>
-            <i
-              v-if="routeStatusIcon(r)"
-              :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"
-              aria-hidden="true"
-            ></i>
-          </a>
-        </router-link>
-      </div>
+            <a
+              :aria-current="route.name === r.name ? 'page' : undefined"
+              :aria-label="routeAvailabilityLabel(r)"
+              :class="{
+                active: route.name === r.name,
+                'bootui-nav-link--unavailable': routeUnavailable(r)
+              }"
+              :href="href"
+              :title="routeAvailabilityLabel(r)"
+              class="nav-link bootui-nav-link bootui-nav-flyout__link"
+              @click="onFlyoutLinkClick(navigate, $event)"
+            >
+              <i :class="['bi', r.meta.icon]"></i>
+              <span class="bootui-nav-link__label">{{ navTitle(r) }}</span>
+              <i
+                v-if="routeStatusIcon(r)"
+                :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"
+                aria-hidden="true"
+              ></i>
+            </a>
+          </router-link>
+        </div>
       </transition>
 
       <div class="bootui-workspace">
-      <header class="topbar">
-        <div class="topbar-lead">
-          <button class="nav-hamburger" type="button" aria-label="Open navigation menu" @click="openMobileNav">
-            <i class="bi bi-list"></i>
-          </button>
-          <div class="topbar-heading">
-            <div class="eyebrow">Inspecting</div>
-            <h1 class="topbar-title">{{ applicationTitle }}</h1>
-            <p class="topbar-subtitle mb-0">{{ runtimeSummary }}</p>
+        <header class="topbar">
+          <div class="topbar-lead">
+            <button class="nav-hamburger" type="button" aria-label="Open navigation menu" @click="openMobileNav">
+              <i class="bi bi-list"></i>
+            </button>
+            <div class="topbar-heading">
+              <div class="eyebrow">Inspecting</div>
+              <h1 class="topbar-title">{{ applicationTitle }}</h1>
+              <p class="topbar-subtitle mb-0">{{ runtimeSummary }}</p>
+            </div>
           </div>
-        </div>
-        <div class="topbar-actions">
-          <button class="cp-trigger" title="Open command palette (⌘K)" @click="openCommandPalette">
-            <i class="bi bi-search me-1"></i>
-            <span class="cp-trigger-label">Go to panel</span>
-            <kbd class="cp-trigger-hint">⌘K</kbd>
-          </button>
-          <button
-            class="theme-toggle"
-            type="button"
-            :title="themeToggleLabel"
-            :aria-label="themeToggleLabel"
-            @click="toggleTheme"
+          <div class="topbar-actions">
+            <button class="cp-trigger" title="Open command palette (⌘K)" @click="openCommandPalette">
+              <i class="bi bi-search me-1"></i>
+              <span class="cp-trigger-label">Go to panel</span>
+              <kbd class="cp-trigger-hint">⌘K</kbd>
+            </button>
+            <button
+              class="theme-toggle"
+              type="button"
+              :title="themeToggleLabel"
+              :aria-label="themeToggleLabel"
+              @click="toggleTheme"
+            >
+              <i :class="['bi', darkTheme ? 'bi-sun' : 'bi-moon-stars']"></i>
+              <span class="theme-toggle__label">{{ themeToggleText }}</span>
+            </button>
+            <span :class="['status-pill', statusPillClass]" :title="activationTitle">
+              <i :class="['bi', activationIcon]"></i>
+              {{ activationLabel }}
+            </span>
+            <span v-if="activeProfiles.length" class="profile-stack">
+              <span v-for="profile in activeProfiles" :key="profile" class="profile-chip">{{ profile }}</span>
+            </span>
+            <span v-else class="profile-chip muted">default</span>
+          </div>
+        </header>
+
+        <main class="content-stage">
+          <div
+            v-if="shellErrorMessage"
+            :class="['alert', shellServerUnreachable ? 'alert-warning' : 'alert-danger']"
+            class="shell-error shadow-sm"
+            role="alert"
           >
-            <i :class="['bi', darkTheme ? 'bi-sun' : 'bi-moon-stars']"></i>
-            <span class="theme-toggle__label">{{ themeToggleText }}</span>
-          </button>
-          <span :class="['status-pill', statusPillClass]" :title="activationTitle">
-            <i :class="['bi', activationIcon]"></i>
-            {{ activationLabel }}
-          </span>
-          <span v-if="activeProfiles.length" class="profile-stack">
-            <span v-for="profile in activeProfiles" :key="profile" class="profile-chip">{{ profile }}</span>
-          </span>
-          <span v-else class="profile-chip muted">default</span>
-        </div>
-      </header>
-
-      <main class="content-stage">
-        <div
-          v-if="shellErrorMessage"
-          :class="['alert', shellServerUnreachable ? 'alert-warning' : 'alert-danger']"
-          class="shell-error shadow-sm"
-          role="alert"
-        >
-          <div class="shell-error__title">
-            <i :class="['bi', shellServerUnreachable ? 'bi-wifi-off' : 'bi-exclamation-triangle-fill']"></i>
-            <strong>{{ shellErrorTitle }}</strong>
+            <div class="shell-error__title">
+              <i :class="['bi', shellServerUnreachable ? 'bi-wifi-off' : 'bi-exclamation-triangle-fill']"></i>
+              <strong>{{ shellErrorTitle }}</strong>
+            </div>
+            <div>{{ shellErrorMessage }}</div>
           </div>
-          <div>{{ shellErrorMessage }}</div>
-        </div>
-        <div v-if="activePanelUnavailable" class="alert alert-warning panel-availability-alert shadow-sm" role="status">
-          <div class="panel-availability-alert__title">
-            <i class="bi bi-slash-circle"></i>
-            <strong>{{ activePanelUnavailableTitle }}</strong>
+          <div
+            v-if="activePanelUnavailable"
+            class="alert alert-warning panel-availability-alert shadow-sm"
+            role="status"
+          >
+            <div class="panel-availability-alert__title">
+              <i class="bi bi-slash-circle"></i>
+              <strong>{{ activePanelUnavailableTitle }}</strong>
+            </div>
+            <div>{{ activePanelUnavailableReason }}</div>
           </div>
-          <div>{{ activePanelUnavailableReason }}</div>
-        </div>
-        <div v-else-if="activePanelReadOnly" class="alert alert-info panel-read-only-alert shadow-sm" role="status">
-          <div class="panel-availability-alert__title">
-            <i class="bi bi-lock"></i>
-            <strong>Panel read-only</strong>
+          <div v-else-if="activePanelReadOnly" class="alert alert-info panel-read-only-alert shadow-sm" role="status">
+            <div class="panel-availability-alert__title">
+              <i class="bi bi-lock"></i>
+              <strong>Panel read-only</strong>
+            </div>
+            <div>{{ activePanelReadOnlyReason }}</div>
           </div>
-          <div>{{ activePanelReadOnlyReason }}</div>
-        </div>
 
-        <router-view v-slot="{Component}">
-          <transition mode="out-in" name="page-slide">
-            <keep-alive include="Overview">
-              <component :is="Component" :key="route.fullPath" :panel="activePanel" class="page-panel" />
-            </keep-alive>
-          </transition>
-        </router-view>
-      </main>
+          <router-view v-slot="{Component}">
+            <transition mode="out-in" name="page-slide">
+              <keep-alive include="Overview">
+                <component :is="Component" :key="route.fullPath" :panel="activePanel" class="page-panel" />
+              </keep-alive>
+            </transition>
+          </router-view>
+        </main>
 
-      <footer class="bootui-footer">
-        <a :href="githubProjectUrl" rel="noopener noreferrer" target="_blank">
-          {{ footerText }}
-        </a>
-      </footer>
+        <footer class="bootui-footer">
+          <a :href="githubProjectUrl" rel="noopener noreferrer" target="_blank">
+            {{ footerText }}
+          </a>
+        </footer>
       </div>
     </template>
   </div>

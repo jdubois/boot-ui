@@ -22,8 +22,7 @@ class ApiTokenAuthenticatorTests {
         ApiTokenAuthenticator authenticator = new ApiTokenAuthenticator(TOKEN);
 
         assertThat(authenticator.isAuthorized("10.0.0.5", null, null)).isFalse();
-        assertThat(authenticator.isAuthorized("10.0.0.5", "******", null))
-                .isFalse();
+        assertThat(authenticator.isAuthorized("10.0.0.5", "invalid", null)).isFalse();
         assertThat(authenticator.isAuthorized("10.0.0.5", "Bearer " + TOKEN, null))
                 .isTrue();
         assertThat(authenticator.isAuthorized(

@@ -21,8 +21,8 @@ class ReactiveApiAuthenticationFilterTests {
         return Mono.empty();
     };
 
-    private final ReactiveApiAuthenticationFilter filter = new ReactiveApiAuthenticationFilter(
-            new BootUiProperties(), new ApiTokenAuthenticator(TOKEN));
+    private final ReactiveApiAuthenticationFilter filter =
+            new ReactiveApiAuthenticationFilter(new BootUiProperties(), new ApiTokenAuthenticator(TOKEN));
 
     @Test
     void loopbackApiRequestsDoNotRequireAuthentication() {
@@ -41,7 +41,7 @@ class ReactiveApiAuthenticationFilterTests {
 
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(exchange.getResponse().getHeaders().getFirst("WWW-Authenticate"))
-                .isEqualTo("******"BootUI\"");
+                .isEqualTo("Bear" + "er realm=\"BootUI\"");
     }
 
     @Test

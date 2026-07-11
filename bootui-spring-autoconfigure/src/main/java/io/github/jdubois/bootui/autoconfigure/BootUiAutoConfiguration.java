@@ -743,8 +743,7 @@ public class BootUiAutoConfiguration {
         };
     }
 
-    private static void logGeneratedTokenIfNeeded(
-            BootUiProperties properties, ApiTokenAuthenticator authenticator) {
+    private static void logGeneratedTokenIfNeeded(BootUiProperties properties, ApiTokenAuthenticator authenticator) {
         if (authenticator.generated() && remoteAccessConfigured(properties)) {
             log.info("BootUI bearer token for non-local API access: {}", authenticator.token());
         }

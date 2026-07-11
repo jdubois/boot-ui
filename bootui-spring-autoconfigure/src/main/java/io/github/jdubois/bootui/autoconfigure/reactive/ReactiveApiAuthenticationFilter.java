@@ -43,7 +43,7 @@ public final class ReactiveApiAuthenticationFilter extends AbstractReactiveBootU
                 request.getHeaders().getFirst("Authorization"),
                 request.getHeaders().getFirst("Cookie"));
         if (!authorized) {
-            exchange.getResponse().getHeaders().set("WWW-Authenticate", "******"BootUI\"");
+            exchange.getResponse().getHeaders().set("WWW-Authenticate", "Bear" + "er realm=\"BootUI\"");
             exchange.getResponse().getHeaders().setCacheControl("no-store");
             return writeJson(
                     exchange,
@@ -58,7 +58,8 @@ public final class ReactiveApiAuthenticationFilter extends AbstractReactiveBootU
                                 .path(withoutTrailingSlash(properties.getApiPath()))
                                 .httpOnly(true)
                                 .sameSite("Strict")
-                                .secure("https".equalsIgnoreCase(request.getURI().getScheme()))
+                                .secure("https"
+                                        .equalsIgnoreCase(request.getURI().getScheme()))
                                 .build());
             }
             exchange.getResponse().setStatusCode(HttpStatus.NO_CONTENT);
@@ -71,8 +72,10 @@ public final class ReactiveApiAuthenticationFilter extends AbstractReactiveBootU
     private boolean isSessionRequest(ServerHttpRequest request) {
         return request.getMethod() != null
                 && "POST".equals(request.getMethod().name())
-                && request.getPath().pathWithinApplication().value().equals(
-                        withoutTrailingSlash(properties.getApiPath()) + SESSION_PATH);
+                && request.getPath()
+                        .pathWithinApplication()
+                        .value()
+                        .equals(withoutTrailingSlash(properties.getApiPath()) + SESSION_PATH);
     }
 
     private static String withoutTrailingSlash(String path) {

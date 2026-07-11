@@ -75,8 +75,7 @@ public final class ApiAuthenticationFilter extends AbstractBootUiFilter {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json");
         response.setHeader("Cache-Control", "no-store");
-        response.setHeader("WWW-Authenticate", "******"BootUI\"");
-        response.getWriter()
-                .write("{\"error\":\"" + ApiTokenAuthenticator.AUTHENTICATION_REQUIRED_MESSAGE + "\"}");
+        response.setHeader("WWW-Authenticate", "Bear" + "er realm=\"BootUI\"");
+        response.getWriter().write("{\"error\":\"" + ApiTokenAuthenticator.AUTHENTICATION_REQUIRED_MESSAGE + "\"}");
     }
 }

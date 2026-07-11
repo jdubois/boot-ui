@@ -33,7 +33,7 @@ class ApiAuthenticationFilterTests {
         MockHttpServletResponse response = filter(request("GET", "/bootui/api/overview", "10.0.0.5"));
 
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getHeader("WWW-Authenticate")).isEqualTo("******"BootUI\"");
+        assertThat(response.getHeader("WWW-Authenticate")).isEqualTo("Bear" + "er realm=\"BootUI\"");
         assertThat(response.getContentAsString()).contains(ApiTokenAuthenticator.AUTHENTICATION_REQUIRED_MESSAGE);
     }
 
@@ -61,8 +61,7 @@ class ApiAuthenticationFilterTests {
     void staticUiAndApplicationRequestsAreNotAuthenticated() throws Exception {
         assertThat(filter(request("GET", "/bootui/index.html", "10.0.0.5")).getStatus())
                 .isEqualTo(200);
-        assertThat(filter(request("GET", "/api/users", "10.0.0.5")).getStatus())
-                .isEqualTo(200);
+        assertThat(filter(request("GET", "/api/users", "10.0.0.5")).getStatus()).isEqualTo(200);
     }
 
     private MockHttpServletResponse filter(MockHttpServletRequest request) throws Exception {

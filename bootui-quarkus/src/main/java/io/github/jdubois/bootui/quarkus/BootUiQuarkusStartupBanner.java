@@ -57,7 +57,8 @@ public class BootUiQuarkusStartupBanner {
     }
 
     private boolean remoteAccessConfigured() {
-        return config.getOptionalValue("bootui.allow-non-localhost", Boolean.class).orElse(false)
+        return config.getOptionalValue("bootui.allow-non-localhost", Boolean.class)
+                        .orElse(false)
                 || config.getOptionalValue("bootui.trusted-proxies", String.class)
                         .filter(value -> !value.isBlank())
                         .isPresent()

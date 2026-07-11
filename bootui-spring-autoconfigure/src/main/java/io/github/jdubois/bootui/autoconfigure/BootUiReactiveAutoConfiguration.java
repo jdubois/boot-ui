@@ -356,8 +356,7 @@ public class BootUiReactiveAutoConfiguration {
         };
     }
 
-    private static void logGeneratedTokenIfNeeded(
-            BootUiProperties properties, ApiTokenAuthenticator authenticator) {
+    private static void logGeneratedTokenIfNeeded(BootUiProperties properties, ApiTokenAuthenticator authenticator) {
         if (authenticator.generated()
                 && (properties.isAllowNonLocalhost()
                         || (properties.getTrustedProxies() != null && properties.getTrustedProxies().length > 0)

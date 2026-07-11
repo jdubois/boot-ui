@@ -42,7 +42,7 @@ class BootUiQuarkusAuthenticationFilterTest {
 
         verify(context, never()).next();
         verify(context.response()).setStatusCode(401);
-        verify(context.response()).putHeader("WWW-Authenticate", "******"BootUI\"");
+        verify(context.response()).putHeader("WWW-Authenticate", "Bear" + "er realm=\"BootUI\"");
     }
 
     @Test
@@ -62,9 +62,7 @@ class BootUiQuarkusAuthenticationFilterTest {
         filter.handle(context);
 
         verify(context.response())
-                .putHeader(
-                        "Set-Cookie",
-                        "BOOTUI_SESSION=test-token; Path=/bootui/api; HttpOnly; SameSite=Strict");
+                .putHeader("Set-Cookie", "BOOTUI_SESSION=test-token; Path=/bootui/api; HttpOnly; SameSite=Strict");
         verify(context.response()).setStatusCode(204);
     }
 

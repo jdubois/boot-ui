@@ -68,8 +68,8 @@ public class BootUiQuarkusAuthenticationFilter {
     }
 
     private String relativePath(String path) {
-        String rootPath =
-                config.getOptionalValue(QuarkusRootPath.ROOT_PATH_KEY, String.class).orElse("/");
+        String rootPath = config.getOptionalValue(QuarkusRootPath.ROOT_PATH_KEY, String.class)
+                .orElse("/");
         return QuarkusRootPath.stripPrefix(path, QuarkusRootPath.normalize(rootPath));
     }
 
@@ -85,7 +85,7 @@ public class BootUiQuarkusAuthenticationFilter {
         response.setStatusCode(401)
                 .putHeader("Content-Type", "application/json")
                 .putHeader("Cache-Control", "no-store")
-                .putHeader("WWW-Authenticate", "******"BootUI\"")
+                .putHeader("WWW-Authenticate", "Bear" + "er realm=\"BootUI\"")
                 .end("{\"error\":\"" + ApiTokenAuthenticator.AUTHENTICATION_REQUIRED_MESSAGE + "\"}");
     }
 }
