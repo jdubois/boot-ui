@@ -26,7 +26,7 @@ public class SampleAuditEntry {
     // Intentionally an unbounded String column to trigger HIB-MAP-013 (missing explicit length).
     private String summary;
 
-    // Intentionally @Lob without @Basic(fetch=LAZY) to trigger HIB-FETCH-005 (Lob loaded eagerly).
+    // Intentionally @Lob without @Basic(fetch=LAZY); HIB-FETCH-005 only fires when enhancement can honor LAZY.
     @Lob
     private String payload;
 
