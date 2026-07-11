@@ -350,10 +350,11 @@ quiesce/leave and rejoin, and restoring multiple copies of one member checkpoint
 
 ## Generated container assets
 
-The generated `Dockerfile-crac` uses the CRIU engine's least-privilege container baseline:
-`--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE`. `CHECKPOINT_RESTORE` requires Linux kernel 5.9 or newer. BootUI does
-not add `SYS_ADMIN` or default to `--privileged`; upgrade an incompatible kernel/container runtime instead. A privileged
-run is only a last-resort diagnosis on an isolated disposable development machine, never production or a shared host.
+The generated `Dockerfile-crac` uses
+`--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN`. `CHECKPOINT_RESTORE` requires Linux kernel 5.9
+or newer, while Docker's default `/proc` restrictions require `SYS_ADMIN` so CRIU can restore the checkpointed PID.
+Because `SYS_ADMIN` grants broad host access, run the generated image only for local development on an isolated machine,
+never production or a shared host.
 
 CRIU/kernel compatibility must be validated on the same host family used for deployment. macOS and Windows cannot create
 the deployable CRIU image; use `-Dspring.context.exit=onRefresh` there to exercise Spring's lifecycle stop phase, then run

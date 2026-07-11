@@ -4,8 +4,9 @@
 # the BootUI sample app.
 #
 # CRaC snapshots a fully warmed-up JVM process to disk and restores it in tens of
-# milliseconds. Its CRIU engine needs Linux kernel 5.9+ plus CHECKPOINT_RESTORE
-# and SYS_PTRACE to take and restore the checkpoint - see
+# milliseconds. Its CRIU engine needs Linux kernel 5.9+ plus CHECKPOINT_RESTORE,
+# SYS_PTRACE and (with Docker's default /proc restrictions) SYS_ADMIN to take and
+# restore the checkpoint - see
 # docker-compose-crac.yml and bootui-spring-sample-app/README.md.
 #
 # The sample app runs with its default "dev" profile, which uses an in-memory H2
@@ -24,7 +25,7 @@
 #
 #   docker build -f Dockerfile-crac -t bootui-sample-app-crac .
 #   docker run --rm -p 8080:8080 \
-#     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE \
+#     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -v bootui-sample-app-crac:/opt/crac/checkpoint bootui-sample-app-crac
 #   # then open http://localhost:8080/bootui
@@ -37,7 +38,7 @@
 # with Spring Boot's environment variables on the run that takes the checkpoint (they are frozen
 # into it):
 #   docker run --rm -p 8080:8080 \
-#     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE \
+#     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
 #     -v bootui-sample-app-crac:/opt/crac/checkpoint bootui-sample-app-crac

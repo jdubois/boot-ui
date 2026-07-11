@@ -11,7 +11,7 @@
 # milliseconds. The checkpoint is kept in the `crac-checkpoint` named volume so it
 # survives `down`/`up` cycles (delete the volume to force a fresh checkpoint).
 #
-# The CRIU engine needs Linux kernel 5.9+ and two narrowly scoped capabilities.
+# The CRIU engine needs Linux kernel 5.9+ and the capabilities listed below.
 #
 # Running the sample app against a real PostgreSQL + Redis under CRaC is possible
 # but needs extra care (those services must be up both when the checkpoint is
@@ -26,6 +26,8 @@ services:
     cap_add:
       - CHECKPOINT_RESTORE
       - SYS_PTRACE
+      # Docker otherwise prevents CRIU from restoring the checkpointed PID.
+      - SYS_ADMIN
     environment:
       SERVER_PORT: 8080
       # Run the "dev" profile as an *active* profile (the image already defaults
