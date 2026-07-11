@@ -41,7 +41,7 @@ class ReactiveApiAuthenticationFilterTests {
 
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(exchange.getResponse().getHeaders().getFirst("WWW-Authenticate"))
-                .isEqualTo("Bear" + "er realm=\"BootUI\"");
+                .isEqualTo(ApiTokenAuthenticator.AUTHENTICATION_CHALLENGE);
     }
 
     @Test

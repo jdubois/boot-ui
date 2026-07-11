@@ -42,7 +42,7 @@ class BootUiQuarkusAuthenticationFilterTest {
 
         verify(context, never()).next();
         verify(context.response()).setStatusCode(401);
-        verify(context.response()).putHeader("WWW-Authenticate", "Bear" + "er realm=\"BootUI\"");
+        verify(context.response()).putHeader("WWW-Authenticate", ApiTokenAuthenticator.AUTHENTICATION_CHALLENGE);
     }
 
     @Test

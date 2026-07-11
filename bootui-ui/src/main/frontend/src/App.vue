@@ -23,7 +23,7 @@ const authenticationRequired = ref(false)
 const authenticationToken = ref('')
 const authenticationError = ref(null)
 const authenticating = ref(false)
-const bearerScheme = ['Bear', 'er'].join('')
+const bearerScheme = 'Bearer'
 const savedCollapsed = localStorage.getItem('bootui.sidebar.collapsed')
 const sidebarCollapsed = ref(savedCollapsed === 'true')
 

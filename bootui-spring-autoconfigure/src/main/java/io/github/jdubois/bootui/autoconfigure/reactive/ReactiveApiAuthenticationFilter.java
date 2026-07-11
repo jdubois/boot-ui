@@ -43,7 +43,7 @@ public final class ReactiveApiAuthenticationFilter extends AbstractReactiveBootU
                 request.getHeaders().getFirst("Authorization"),
                 request.getHeaders().getFirst("Cookie"));
         if (!authorized) {
-            exchange.getResponse().getHeaders().set("WWW-Authenticate", "Bear" + "er realm=\"BootUI\"");
+            exchange.getResponse().getHeaders().set("WWW-Authenticate", ApiTokenAuthenticator.AUTHENTICATION_CHALLENGE);
             exchange.getResponse().getHeaders().setCacheControl("no-store");
             return writeJson(
                     exchange,

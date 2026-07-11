@@ -21,6 +21,7 @@ public final class ApiTokenAuthenticator {
     public static final String AUTHENTICATION_REQUIRED_MESSAGE = "BootUI authentication required";
 
     private static final String BEARER_PREFIX = "Bearer ";
+    public static final String AUTHENTICATION_CHALLENGE = BEARER_PREFIX + "realm=\"BootUI\"";
     private static final int TOKEN_BYTES = 32;
 
     private final String token;

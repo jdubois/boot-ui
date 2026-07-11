@@ -202,8 +202,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .configureClient()
                             .defaultHeader(
                                     "Authorization",
-                                    "Bear"
-                                            + "er "
+                                    "Bearer "
                                             + context.getBean(
                                                             io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
                                                                     .class)
@@ -251,8 +250,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .configureClient()
                             .defaultHeader(
                                     "Authorization",
-                                    "Bear"
-                                            + "er "
+                                    "Bearer "
                                             + context.getBean(
                                                             io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
                                                                     .class)
@@ -322,8 +320,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .configureClient()
                             .defaultHeader(
                                     "Authorization",
-                                    "Bear"
-                                            + "er "
+                                    "Bearer "
                                             + context.getBean(
                                                             io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
                                                                     .class)
@@ -386,8 +383,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .configureClient()
                             .defaultHeader(
                                     "Authorization",
-                                    "Bear"
-                                            + "er "
+                                    "Bearer "
                                             + context.getBean(
                                                             io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
                                                                     .class)
@@ -455,8 +451,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .configureClient()
                             .defaultHeader(
                                     "Authorization",
-                                    "Bear"
-                                            + "er "
+                                    "Bearer "
                                             + context.getBean(
                                                             io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
                                                                     .class)
@@ -492,8 +487,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .configureClient()
                             .defaultHeader(
                                     "Authorization",
-                                    "Bear"
-                                            + "er "
+                                    "Bearer "
                                             + context.getBean(
                                                             io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
                                                                     .class)
@@ -546,8 +540,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .configureClient()
                             .defaultHeader(
                                     "Authorization",
-                                    "Bear"
-                                            + "er "
+                                    "Bearer "
                                             + context.getBean(
                                                             io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
                                                                     .class)
@@ -629,8 +622,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .configureClient()
                             .defaultHeader(
                                     "Authorization",
-                                    "Bear"
-                                            + "er "
+                                    "Bearer "
                                             + context.getBean(
                                                             io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
                                                                     .class)
@@ -682,8 +674,7 @@ class BootUiReactiveAutoConfigurationTests {
                             .configureClient()
                             .defaultHeader(
                                     "Authorization",
-                                    "Bear"
-                                            + "er "
+                                    "Bearer "
                                             + context.getBean(
                                                             io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
                                                                     .class)

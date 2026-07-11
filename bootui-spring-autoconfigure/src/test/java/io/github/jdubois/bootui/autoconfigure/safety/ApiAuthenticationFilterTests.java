@@ -33,7 +33,7 @@ class ApiAuthenticationFilterTests {
         MockHttpServletResponse response = filter(request("GET", "/bootui/api/overview", "10.0.0.5"));
 
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getHeader("WWW-Authenticate")).isEqualTo("Bear" + "er realm=\"BootUI\"");
+        assertThat(response.getHeader("WWW-Authenticate")).isEqualTo(ApiTokenAuthenticator.AUTHENTICATION_CHALLENGE);
         assertThat(response.getContentAsString()).contains(ApiTokenAuthenticator.AUTHENTICATION_REQUIRED_MESSAGE);
     }
 
