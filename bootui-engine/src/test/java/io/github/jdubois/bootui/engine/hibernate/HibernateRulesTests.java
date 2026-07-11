@@ -3,16 +3,21 @@ package io.github.jdubois.bootui.engine.hibernate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
+import jakarta.persistence.Basic;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
@@ -29,7 +34,11 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.hibernate.annotations.Cache;
+import org.hibernate.annotations.CacheConcurrencyStrategy;
+import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.NaturalId;
+import org.hibernate.annotations.Where;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Persistable;
 
@@ -260,7 +269,9 @@ class HibernateRulesTests {
 
     @Test
     void openInViewRuleFlagsExplicitTrue() {
-        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.open-in-view", "true");
+        TestEnvironment environment = new TestEnvironment()
+                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true")
+                .withProperty("spring.jpa.open-in-view", "true");
 
         HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
 
@@ -270,17 +281,20 @@ class HibernateRulesTests {
 
     @Test
     void openInViewRuleFlagsUnsetBootDefault() {
-        TestEnvironment environment = new TestEnvironment();
+        TestEnvironment environment =
+                new TestEnvironment().withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true");
 
         HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.INFO);
     }
 
     @Test
     void openInViewRulePassesWhenExplicitlyDisabled() {
-        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.open-in-view", "false");
+        TestEnvironment environment = new TestEnvironment()
+                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true")
+                .withProperty("spring.jpa.open-in-view", "false");
 
         HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
 
@@ -289,13 +303,80 @@ class HibernateRulesTests {
 
     @Test
     void openInViewRuleEscalatesToHighInProduction() {
-        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.open-in-view", "true");
+        TestEnvironment environment = new TestEnvironment()
+                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true")
+                .withProperty("spring.jpa.open-in-view", "true");
         environment.setActiveProfiles("prod");
 
         HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+    }
+
+    @Test
+    void openInViewRuleSkipsOutsideServletApplications() {
+        TestEnvironment environment = new TestEnvironment()
+                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "false")
+                .withProperty("spring.jpa.open-in-view", "true");
+
+        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+    }
+
+    // --- HIB-FETCH-005 / HIB-FETCH-007 -------------------------------------
+
+    @Test
+    void lobLazyFetchRuleNeverRecommendsLazyWithoutEnhancement() {
+        HibernateRuleResultDto result =
+                new LobLazyFetchRule().evaluate(context(new TestEnvironment(), EagerLobEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void lobLazyFetchRuleRecommendsLazyWhenEnhancementIsEnabled() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("hibernate.enhancer.enableLazyInitialization", "true");
+
+        HibernateRuleResultDto result = new LobLazyFetchRule().evaluate(context(environment, EagerLobEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void lazyBasicRuleFlagsIneffectiveLazyAttributeWithoutEnhancement() {
+        HibernateRuleResultDto result =
+                new LazyBasicWithoutEnhancementRule().evaluate(context(new TestEnvironment(), LazyLobEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("not bytecode enhanced"));
+    }
+
+    @Test
+    void lazyBasicRulePassesWhenEnhancementIsEnabled() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("hibernate.enhancer.enableLazyInitialization", "true");
+
+        HibernateRuleResultDto result =
+                new LazyBasicWithoutEnhancementRule().evaluate(context(environment, LazyLobEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    // --- HIB-MAP-003 --------------------------------------------------------
+
+    @Test
+    void ordinalEnumRuleFlagsExplicitOrdinalAsInfo() {
+        HibernateRuleResultDto result =
+                new ExplicitOrdinalEnumRule().evaluate(context(new TestEnvironment(), ExplicitOrdinalEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.INFO);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("explicitly uses"));
     }
 
     // --- HIB-CONFIG-008 -----------------------------------------------------
@@ -433,20 +514,79 @@ class HibernateRulesTests {
 
     @Test
     void missingForeignKeyIndexRulePassesWhenInferredColumnLeadsIndex() {
+        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.hbm2ddl.auto", "create");
         HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(new TestEnvironment(), IndexedOwnerEntity.class));
+                new MissingForeignKeyIndexRule().evaluate(context(environment, IndexedOwnerEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
     @Test
     void missingForeignKeyIndexRuleFlagsWhenColumnIsNotLeadingIndexColumn() {
+        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.hbm2ddl.auto", "update");
         HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(new TestEnvironment(), NonLeadingIndexEntity.class));
+                new MissingForeignKeyIndexRule().evaluate(context(environment, NonLeadingIndexEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("customer_id"));
+    }
+
+    @Test
+    void missingForeignKeyIndexRuleSkipsMigrationManagedSchemas() {
+        HibernateRuleResultDto result =
+                new MissingForeignKeyIndexRule().evaluate(context(new TestEnvironment(), NonLeadingIndexEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+    }
+
+    @Test
+    void missingForeignKeyIndexRuleRecognizesJakartaDropAndCreate() {
+        TestEnvironment environment = new TestEnvironment()
+                .withProperty("jakarta.persistence.schema-generation.database.action", "drop-and-create");
+
+        HibernateRuleResultDto result =
+                new MissingForeignKeyIndexRule().evaluate(context(environment, NonLeadingIndexEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void missingForeignKeyIndexRuleSkipsImplicitJoinColumnNames() {
+        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.hbm2ddl.auto", "create");
+
+        HibernateRuleResultDto result =
+                new MissingForeignKeyIndexRule().evaluate(context(environment, ImplicitJoinColumnEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    // --- HIB-MAP-021 --------------------------------------------------------
+
+    @Test
+    void legacyWhereRuleFlagsRemovedWhereAnnotation() {
+        HibernateRuleResultDto result =
+                new LegacyWhereAnnotationRule().evaluate(context(new TestEnvironment(), LegacyWhereEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    // --- HIB-CACHE-003 ------------------------------------------------------
+
+    @Test
+    void immutableEntityCacheRuleFlagsMutableCacheStrategy() {
+        HibernateRuleResultDto result = new ImmutableEntityCacheStrategyRule()
+                .evaluate(context(new TestEnvironment(), ImmutableReadWriteCacheEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void immutableEntityCacheRulePassesForReadOnlyStrategy() {
+        HibernateRuleResultDto result = new ImmutableEntityCacheStrategyRule()
+                .evaluate(context(new TestEnvironment(), ImmutableReadOnlyCacheEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
     // --- HIB-MAP-010 --------------------------------------------------------
@@ -976,12 +1116,46 @@ class HibernateRulesTests {
     }
 
     @Entity
+    static class EagerLobEntity {
+        @Id
+        Long id;
+
+        @Lob
+        String payload;
+    }
+
+    @Entity
+    static class LazyLobEntity {
+        @Id
+        Long id;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        String payload;
+    }
+
+    enum TestStatus {
+        ACTIVE,
+        DISABLED
+    }
+
+    @Entity
+    static class ExplicitOrdinalEntity {
+        @Id
+        Long id;
+
+        @Enumerated(EnumType.ORDINAL)
+        TestStatus status;
+    }
+
+    @Entity
     @Table(indexes = @jakarta.persistence.Index(name = "idx_customer", columnList = "customer_id"))
     static class IndexedOwnerEntity {
         @Id
         Long id;
 
         @ManyToOne
+        @JoinColumn(name = "customer_id")
         Child customer;
     }
 
@@ -992,7 +1166,40 @@ class HibernateRulesTests {
         Long id;
 
         @ManyToOne
+        @JoinColumn(name = "customer_id")
         Child customer;
+    }
+
+    @Entity
+    static class ImplicitJoinColumnEntity {
+        @Id
+        Long id;
+
+        @ManyToOne
+        Child customer;
+    }
+
+    @Entity
+    @Where(clause = "deleted = false")
+    static class LegacyWhereEntity {
+        @Id
+        Long id;
+    }
+
+    @Entity
+    @Immutable
+    @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+    static class ImmutableReadWriteCacheEntity {
+        @Id
+        Long id;
+    }
+
+    @Entity
+    @Immutable
+    @Cache(usage = CacheConcurrencyStrategy.READ_ONLY)
+    static class ImmutableReadOnlyCacheEntity {
+        @Id
+        Long id;
     }
 
     @Entity

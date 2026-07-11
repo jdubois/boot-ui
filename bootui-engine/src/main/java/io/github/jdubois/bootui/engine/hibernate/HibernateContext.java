@@ -151,6 +151,28 @@ record HibernateContext(
                         "hibernate.bytecode.enhancer.enableLazyInitialization");
     }
 
+    boolean isHibernateEnhancementEnabled(HibernateEntityModel entity) {
+        return isHibernateEnhancementEnabled() || entity.isBytecodeEnhanced();
+    }
+
+    boolean isOpenInViewApplicable() {
+        return isPropertyTrue(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY);
+    }
+
+    boolean managesSchemaIndexes() {
+        String value = firstProperty(
+                "spring.jpa.hibernate.ddl-auto",
+                "spring.jpa.properties.hibernate.hbm2ddl.auto",
+                "hibernate.hbm2ddl.auto",
+                "jakarta.persistence.schema-generation.database.action");
+        return value != null
+                && ("create".equalsIgnoreCase(value)
+                        || "create-only".equalsIgnoreCase(value)
+                        || "create-drop".equalsIgnoreCase(value)
+                        || "drop-and-create".equalsIgnoreCase(value)
+                        || "update".equalsIgnoreCase(value));
+    }
+
     boolean isSqlLoggingEnabled() {
         if (isPropertyTrue("spring.jpa.show-sql", "hibernate.show_sql")) {
             return true;

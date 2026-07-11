@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRe
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
+import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernatePropertyLookup;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor;
@@ -398,13 +399,15 @@ public class BootUiEngineConfiguration {
         HibernateScanner bootUiHibernateScanner(
                 ObjectProvider<EntityManagerFactory> entityManagerFactories,
                 ObjectProvider<ListableBeanFactory> beanFactories,
-                Environment environment) {
+                Environment environment,
+                ApplicationContext applicationContext) {
             // Entity discovery (jakarta metamodel via the engine JpaMetamodelReader) + Spring-Data repository
             // discovery live in the adapter; the engine scanner reads config through a neutral property-lookup
             // + active-profiles seam and runs the metamodel walk only on demand (POST /scan).
             return HibernateScanner.using(
                     () -> SpringHibernateDiscovery.discover(entityManagerFactories, beanFactories),
-                    environment::getProperty,
+                    new SpringHibernatePropertyLookup(
+                            environment, SpringHibernatePropertyLookup.isServletWebApplication(applicationContext)),
                     () -> List.of(environment.getActiveProfiles()),
                     Clock.systemUTC());
         }

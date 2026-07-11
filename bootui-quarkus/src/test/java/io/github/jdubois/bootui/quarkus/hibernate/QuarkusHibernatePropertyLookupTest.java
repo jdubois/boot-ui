@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.quarkus.StubConfig;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -84,6 +85,8 @@ class QuarkusHibernatePropertyLookupTest {
         // assuming Spring Boot's enabled-by-default web behaviour.
         assertThat(lookup(Map.of()).apply("spring.jpa.open-in-view")).isEqualTo("false");
         assertThat(lookup(Map.of("spring.jpa.open-in-view", "true")).apply("spring.jpa.open-in-view"))
+                .isEqualTo("false");
+        assertThat(lookup(Map.of()).apply(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY))
                 .isEqualTo("false");
     }
 

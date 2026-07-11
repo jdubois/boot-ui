@@ -41,8 +41,6 @@ test.describe('Hibernate Advisor view', () => {
     await expect(page.getByText(/SampleOrder#details is an owning @OneToOne without @MapsId/)).toBeVisible()
     await expect(page.getByText('@NotFound(IGNORE) should be reviewed')).toBeVisible()
     await expect(page.getByText(/SampleOrder#customer uses @NotFound\(action=IGNORE\)/)).toBeVisible()
-    await expect(page.getByText('@Lob attributes should be loaded lazily')).toBeVisible()
-    await expect(page.getByText(/SampleAuditEntry#payload is annotated with @Lob/)).toBeVisible()
     await expect(page.getByText('BigDecimal columns should declare precision and scale')).toBeVisible()
     await expect(
       page.getByText(/SampleAuditEntry#amount is a BigDecimal column without explicit precision/)
@@ -54,5 +52,15 @@ test.describe('Hibernate Advisor view', () => {
     await expect(page.getByText('Native paged @Query must declare countQuery')).toBeVisible()
     await expect(page.getByText(/SampleOrderRepository#findPageNative/)).toBeVisible()
     await expect(page.getByRole('link', {name: 'Learn more'}).first()).toBeVisible()
+  })
+
+  test('does not recommend lazy basic loading without bytecode enhancement', async ({openView, page}) => {
+    await openView('hibernate', 'Hibernate')
+
+    await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
+
+    await expect(page.getByText('No Hibernate Advisor data yet')).toHaveCount(0, {timeout: 30_000})
+    await expect(page.getByText('Enhanced @Lob attributes should be loaded lazily')).toHaveCount(0)
+    await expect(page.getByText(/SampleAuditEntry#payload is annotated with @Lob/)).toHaveCount(0)
   })
 })

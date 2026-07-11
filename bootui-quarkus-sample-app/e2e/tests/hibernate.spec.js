@@ -33,4 +33,14 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     const fetchRow = page.locator('.list-group-item', {hasText: 'HIB-FETCH-001'})
     await expect(fetchRow).toContainText('Eager fetching should stay explicit and bounded')
   })
+
+  test('recommends lazy basic loading with bytecode enhancement', async ({openView, page}) => {
+    await openView('hibernate', 'Hibernate')
+
+    await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
+
+    const lobFetchRow = page.locator('.list-group-item', {hasText: 'HIB-FETCH-005'})
+    await expect(lobFetchRow).toContainText('Enhanced @Lob attributes should be loaded lazily', {timeout: 20_000})
+    await expect(lobFetchRow).toContainText('SampleAuditEntry#payload is annotated with @Lob')
+  })
 })

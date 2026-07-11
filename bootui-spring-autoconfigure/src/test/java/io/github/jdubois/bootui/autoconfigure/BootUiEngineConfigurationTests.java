@@ -42,6 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.mock.env.MockEnvironment;
 
@@ -116,7 +117,8 @@ class BootUiEngineConfigurationTests {
         when(beanFactories.getIfAvailable()).thenReturn(null);
 
         HibernateScanner scanner = new BootUiEngineConfiguration.HibernateAdvisorConfiguration()
-                .bootUiHibernateScanner(entityManagerFactories, beanFactories, environment);
+                .bootUiHibernateScanner(
+                        entityManagerFactories, beanFactories, environment, mock(ApplicationContext.class));
         HibernateReport report = scanner.scan();
 
         HibernateRuleResultDto ddlAuto = report.results().stream()

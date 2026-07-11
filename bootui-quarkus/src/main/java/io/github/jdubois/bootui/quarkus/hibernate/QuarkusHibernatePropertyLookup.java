@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus.hibernate;
 
+import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -165,6 +166,9 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
 
     @Override
     public String apply(String key) {
+        if (HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY.equals(key)) {
+            return "false";
+        }
         if (OPEN_IN_VIEW_KEY.equals(key)) {
             // Quarkus has no Open-Session-in-View; report its effective state so HIB-CONFIG-001 passes
             // rather than assuming Spring Boot's enabled-by-default.
