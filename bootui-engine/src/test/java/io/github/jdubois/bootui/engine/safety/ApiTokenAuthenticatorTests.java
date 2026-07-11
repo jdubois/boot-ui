@@ -10,33 +10,22 @@ class ApiTokenAuthenticatorTests {
     private static final String TOKEN = "test-token";
 
     @Test
-    void loopbackRequestsDoNotRequireAuthentication() {
+    void trustedSourcesDoNotRequireAuthentication() {
         ApiTokenAuthenticator authenticator = new ApiTokenAuthenticator(TOKEN);
 
-        assertThat(authenticator.isAuthorized("127.0.0.1", null, null)).isTrue();
-        assertThat(authenticator.isAuthorized("::1", null, null)).isTrue();
+        assertThat(authenticator.isAuthorized(true, null, null)).isTrue();
     }
 
     @Test
-    void nonLoopbackRequestsRequireTheBearerTokenOrSessionCookie() {
+    void untrustedSourcesRequireTheBearerTokenOrSessionCookie() {
         ApiTokenAuthenticator authenticator = new ApiTokenAuthenticator(TOKEN);
 
-        assertThat(authenticator.isAuthorized("10.0.0.5", null, null)).isFalse();
-        assertThat(authenticator.isAuthorized("10.0.0.5", "invalid", null)).isFalse();
-        assertThat(authenticator.isAuthorized("10.0.0.5", "Bearer " + TOKEN, null))
-                .isTrue();
+        assertThat(authenticator.isAuthorized(false, null, null)).isFalse();
+        assertThat(authenticator.isAuthorized(false, "invalid", null)).isFalse();
+        assertThat(authenticator.isAuthorized(false, "Bearer " + TOKEN, null)).isTrue();
         assertThat(authenticator.isAuthorized(
-                        "10.0.0.5", null, "other=value; " + ApiTokenAuthenticator.SESSION_COOKIE_NAME + "=" + TOKEN))
+                        false, null, "other=value; " + ApiTokenAuthenticator.SESSION_COOKIE_NAME + "=" + TOKEN))
                 .isTrue();
-    }
-
-    @Test
-    void malformedAddressesFailClosed() {
-        ApiTokenAuthenticator authenticator = new ApiTokenAuthenticator(TOKEN);
-
-        assertThat(authenticator.isAuthorized(null, null, null)).isFalse();
-        assertThat(authenticator.isAuthorized("", null, null)).isFalse();
-        assertThat(authenticator.isAuthorized("not-an-address", null, null)).isFalse();
     }
 
     @Test

@@ -26,11 +26,13 @@ public class ReactivePanelAccessFilter extends AbstractReactiveBootUiFilter impl
 
     /**
      * Matches the servlet filter's {@code FilterRegistrationBean} order
-     * ({@code Integer.MIN_VALUE + 2}), one after {@link ReactiveLocalhostOnlyFilter}.
+     * ({@code Integer.MIN_VALUE + 3}), one after {@link ReactiveApiAuthenticationFilter}
+     * ({@code Integer.MIN_VALUE + 2}). Must run after authentication so an unauthenticated remote
+     * caller gets a 401 rather than a 403 that would leak panel-availability information.
      */
     @Override
     public int getOrder() {
-        return Integer.MIN_VALUE + 2;
+        return Integer.MIN_VALUE + 3;
     }
 
     @Override

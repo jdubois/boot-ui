@@ -12,18 +12,39 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-/** Reactive authentication binding for non-loopback BootUI API requests. */
+/**
+ * Reactive authentication binding for non-loopback BootUI API requests.
+ *
+ * <p>Trust is delegated to {@link ReactiveLocalhostOnlyFilter#isTrustedSource(String)} rather than
+ * re-derived here: a source already trusted via loopback, {@code bootui.trusted-proxies}, or
+ * {@code bootui.trust-container-gateway} is treated identically here, so operators who already opted
+ * into one of those trust mechanisms keep frictionless access instead of also being forced through the
+ * bearer-token/unlock flow.</p>
+ */
 public final class ReactiveApiAuthenticationFilter extends AbstractReactiveBootUiFilter implements Ordered {
 
     private static final String SESSION_PATH = "/auth/session";
 
     private final ApiTokenAuthenticator authenticator;
+    private final ReactiveLocalhostOnlyFilter localhostOnlyFilter;
 
-    public ReactiveApiAuthenticationFilter(BootUiProperties properties, ApiTokenAuthenticator authenticator) {
+    public ReactiveApiAuthenticationFilter(
+            BootUiProperties properties,
+            ApiTokenAuthenticator authenticator,
+            ReactiveLocalhostOnlyFilter localhostOnlyFilter) {
         super(properties);
         this.authenticator = authenticator;
+        this.localhostOnlyFilter = localhostOnlyFilter;
     }
 
+    /**
+     * This filter keeps the {@code Integer.MIN_VALUE + 2} slot that {@link ReactivePanelAccessFilter}
+     * previously (and, briefly, also) used, which caused an unspecified-order collision between the
+     * two; {@link ReactivePanelAccessFilter} has since been bumped to {@code Integer.MIN_VALUE + 3} so
+     * this filter always runs <em>before</em> it, ensuring an unauthenticated remote caller gets a 401
+     * rather than leaking panel-availability information via a 403. See {@link
+     * ReactivePanelAccessFilter#getOrder()}.
+     */
     @Override
     public int getOrder() {
         return Integer.MIN_VALUE + 2;
@@ -37,9 +58,9 @@ public final class ReactiveApiAuthenticationFilter extends AbstractReactiveBootU
     @Override
     protected Mono<Void> doFilterInternal(ServerWebExchange exchange, WebFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
-        String remoteAddress = remoteAddress(request);
+        boolean trustedSource = localhostOnlyFilter.isTrustedSource(remoteAddress(request));
         boolean authorized = authenticator.isAuthorized(
-                remoteAddress,
+                trustedSource,
                 request.getHeaders().getFirst("Authorization"),
                 request.getHeaders().getFirst("Cookie"));
         if (!authorized) {
@@ -52,7 +73,7 @@ public final class ReactiveApiAuthenticationFilter extends AbstractReactiveBootU
         }
 
         if (isSessionRequest(request)) {
-            if (!authenticator.isLoopback(remoteAddress)) {
+            if (!trustedSource) {
                 exchange.getResponse()
                         .addCookie(ResponseCookie.from(ApiTokenAuthenticator.SESSION_COOKIE_NAME, authenticator.token())
                                 .path(withoutTrailingSlash(properties.getApiPath()))

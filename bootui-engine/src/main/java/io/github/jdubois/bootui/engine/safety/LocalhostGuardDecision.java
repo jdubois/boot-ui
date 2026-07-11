@@ -26,12 +26,19 @@ public sealed interface LocalhostGuardDecision permits LocalhostGuardDecision.Al
     /**
      * The request is permitted.
      *
+     * @param trustedSource whether the raw TCP peer itself was genuinely trusted (loopback, a
+     *     configured trusted range, or a trusted container gateway) as opposed to being let through
+     *     solely because {@link LocalhostGuardConfig#allowNonLocalhost()} bypassed the source check
+     *     entirely. Other BootUI protections (such as bearer-token authentication for non-loopback API
+     *     callers) key off this narrower signal rather than "the guard allowed it", since the
+     *     allow-non-localhost bypass is deliberately meant to still require those additional layers.
      * @param trustedViaGateway whether trust was granted because the source matched an auto-detected
      *     container gateway (rather than loopback, a trusted range, or the allow-non-localhost bypass)
      * @param trustedGateway the matched container gateway address when {@code trustedViaGateway} is
      *     {@code true}, otherwise {@code null}
      */
-    record Allow(boolean trustedViaGateway, InetAddress trustedGateway) implements LocalhostGuardDecision {}
+    record Allow(boolean trustedSource, boolean trustedViaGateway, InetAddress trustedGateway)
+            implements LocalhostGuardDecision {}
 
     /**
      * The request is rejected.

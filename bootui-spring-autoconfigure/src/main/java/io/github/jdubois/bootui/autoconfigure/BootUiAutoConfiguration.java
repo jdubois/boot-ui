@@ -507,8 +507,8 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public ApiAuthenticationFilter bootUiApiAuthenticationFilter(
-            BootUiProperties properties, ApiTokenAuthenticator authenticator) {
-        return new ApiAuthenticationFilter(properties, authenticator);
+            BootUiProperties properties, ApiTokenAuthenticator authenticator, LocalhostOnlyFilter localhostOnlyFilter) {
+        return new ApiAuthenticationFilter(properties, authenticator, localhostOnlyFilter);
     }
 
     @Bean
