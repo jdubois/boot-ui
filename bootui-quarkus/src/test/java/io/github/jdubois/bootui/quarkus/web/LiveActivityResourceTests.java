@@ -134,7 +134,15 @@ class LiveActivityResourceTests {
             // historical page is being browsed.
             assertThat(result.available()).isEqualTo(expectedLive.available());
             assertThat(result.typeCounts()).isEqualTo(expectedLive.typeCounts());
-            assertThat(result.kpis()).isEqualTo(expectedLive.kpis());
+            // heapUsedBytes is sampled live at call time via ManagementFactory, so it can drift by a few
+            // bytes between these two independent mergedReport() invocations. Compare everything else
+            // exactly and only sanity-check the live heap samples.
+            assertThat(result.kpis())
+                    .usingRecursiveComparison()
+                    .ignoringFields("heapUsedBytes", "heapMaxBytes")
+                    .isEqualTo(expectedLive.kpis());
+            assertThat(result.kpis().heapUsedBytes()).isNotNull().isPositive();
+            assertThat(result.kpis().heapMaxBytes()).isNotNull().isPositive();
             assertThat(result.sources()).isEqualTo(expectedLive.sources());
             assertThat(result.warnings()).isEqualTo(expectedLive.warnings());
         } finally {
