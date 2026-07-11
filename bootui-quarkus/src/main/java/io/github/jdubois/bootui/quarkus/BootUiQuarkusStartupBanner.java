@@ -57,14 +57,15 @@ public class BootUiQuarkusStartupBanner {
     }
 
     private boolean remoteAccessConfigured() {
-        return config.getOptionalValue("bootui.allow-non-localhost", Boolean.class)
-                        .orElse(false)
-                || config.getOptionalValue("bootui.trusted-proxies", String.class)
+        return ApiTokenAuthenticator.remoteAccessConfigured(
+                config.getOptionalValue("bootui.allow-non-localhost", Boolean.class)
+                        .orElse(false),
+                config.getOptionalValue("bootui.trusted-proxies", String.class)
                         .filter(value -> !value.isBlank())
-                        .isPresent()
-                || !"OFF"
+                        .isPresent(),
+                !"OFF"
                         .equalsIgnoreCase(config.getOptionalValue("bootui.trust-container-gateway", String.class)
-                                .orElse("OFF"));
+                                .orElse("OFF")));
     }
 
     private String rootPath() {

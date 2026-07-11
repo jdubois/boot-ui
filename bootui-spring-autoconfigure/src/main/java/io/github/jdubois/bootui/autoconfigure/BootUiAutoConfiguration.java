@@ -750,9 +750,10 @@ public class BootUiAutoConfiguration {
     }
 
     private static boolean remoteAccessConfigured(BootUiProperties properties) {
-        return properties.isAllowNonLocalhost()
-                || (properties.getTrustedProxies() != null && properties.getTrustedProxies().length > 0)
-                || properties.getTrustContainerGateway() != BootUiProperties.Mode.OFF;
+        return ApiTokenAuthenticator.remoteAccessConfigured(
+                properties.isAllowNonLocalhost(),
+                properties.getTrustedProxies() != null && properties.getTrustedProxies().length > 0,
+                properties.getTrustContainerGateway() != BootUiProperties.Mode.OFF);
     }
 
     static String buildStartupUrl(Environment environment, BootUiProperties properties) {

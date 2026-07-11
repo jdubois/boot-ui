@@ -358,9 +358,10 @@ public class BootUiReactiveAutoConfiguration {
 
     private static void logGeneratedTokenIfNeeded(BootUiProperties properties, ApiTokenAuthenticator authenticator) {
         if (authenticator.generated()
-                && (properties.isAllowNonLocalhost()
-                        || (properties.getTrustedProxies() != null && properties.getTrustedProxies().length > 0)
-                        || properties.getTrustContainerGateway() != BootUiProperties.Mode.OFF)) {
+                && ApiTokenAuthenticator.remoteAccessConfigured(
+                        properties.isAllowNonLocalhost(),
+                        properties.getTrustedProxies() != null && properties.getTrustedProxies().length > 0,
+                        properties.getTrustContainerGateway() != BootUiProperties.Mode.OFF)) {
             log.info("BootUI bearer token for non-local API access: {}", authenticator.token());
         }
     }

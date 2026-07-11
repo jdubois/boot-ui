@@ -43,6 +43,11 @@ public final class ApiTokenAuthenticator {
         }
     }
 
+    public static boolean remoteAccessConfigured(
+            boolean allowNonLocalhost, boolean trustedProxiesConfigured, boolean trustContainerGateway) {
+        return allowNonLocalhost || trustedProxiesConfigured || trustContainerGateway;
+    }
+
     public boolean isAuthorized(String remoteAddress, String authorizationHeader, String cookieHeader) {
         return isLoopback(remoteAddress)
                 || matches(extractBearerToken(authorizationHeader))

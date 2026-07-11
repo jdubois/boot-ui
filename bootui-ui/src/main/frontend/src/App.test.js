@@ -184,7 +184,7 @@ describe('App remote authentication', () => {
         const requestUrl = String(url)
         if (requestUrl === 'api/auth/session') {
           expect(options.method).toBe('POST')
-          expect(options.headers.Authorization).toBe(['Bear', 'er startup-token'].join(''))
+          expect(options.headers.Authorization.split(' ')).toEqual(['Bearer', 'startup-token'])
           authenticated = true
           return Promise.resolve({ok: true, status: 204})
         }
