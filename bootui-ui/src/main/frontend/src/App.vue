@@ -19,6 +19,10 @@ const route = useRoute()
 const overview = ref(null)
 const panels = ref(null)
 const shellError = ref(null)
+const authenticationRequired = ref(false)
+const authenticationToken = ref('')
+const authenticationError = ref(null)
+const authenticating = ref(false)
 const savedCollapsed = localStorage.getItem('bootui.sidebar.collapsed')
 const sidebarCollapsed = ref(savedCollapsed === 'true')
 
@@ -256,14 +260,20 @@ const activeNavigationGroupKey = computed(() => {
 
 async function loadOverview() {
   const res = await fetch('api/overview')
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if (!res.ok) throw httpError(res.status)
   overview.value = await res.json()
 }
 
 async function loadPanels() {
   const res = await fetch('api/panels')
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if (!res.ok) throw httpError(res.status)
   panels.value = await res.json()
+}
+
+function httpError(status) {
+  const error = new Error(`HTTP ${status}`)
+  error.status = status
+  return error
 }
 
 async function loadShellData() {
@@ -273,7 +283,14 @@ async function loadShellData() {
     {result: results[1], context: 'Unable to load panel availability'}
   ].filter(({result}) => result.status === 'rejected')
 
+  if (failures.some(({result}) => result.reason?.status === 401)) {
+    authenticationRequired.value = true
+    shellError.value = null
+    return
+  }
+
   if (!failures.length) {
+    authenticationRequired.value = false
     shellError.value = null
     return
   }
@@ -282,6 +299,30 @@ async function loadShellData() {
     describeLoadError(/** @type {PromiseRejectedResult} */ (result).reason, context)
   )
   shellError.value = descriptions.find((description) => description.serverUnreachable) || descriptions[0]
+}
+
+async function authenticate() {
+  if (!authenticationToken.value || authenticating.value) return
+  authenticating.value = true
+  authenticationError.value = null
+  try {
+    const response = await fetch('api/auth/session', {
+      method: 'POST',
+      headers: {Authorization: `******
+    })
+    if (!response.ok) {
+      authenticationError.value =
+        response.status === 401 ? 'That token was not accepted. Check the application startup log.' : `HTTP ${response.status}`
+      return
+    }
+    authenticationToken.value = ''
+    authenticationRequired.value = false
+    await loadShellData()
+  } catch {
+    authenticationError.value = 'The application is not responding. Restart it and retry.'
+  } finally {
+    authenticating.value = false
+  }
 }
 
 function panelForRoute(r) {
@@ -448,7 +489,37 @@ function onGlobalKeydown(e) {
 
     <div v-if="isNarrow && mobileNavOpen" class="bootui-nav-backdrop" @click="closeMobileNav"></div>
 
-    <aside
+    <section v-if="authenticationRequired" class="authentication-gate" aria-labelledby="authentication-title">
+      <div class="authentication-card">
+        <span class="authentication-icon"><i class="bi bi-shield-lock"></i></span>
+        <div>
+          <div class="eyebrow">Remote access</div>
+          <h1 id="authentication-title">Unlock BootUI</h1>
+          <p>
+            This API requires authentication outside localhost. Copy the bearer token from the application startup log.
+          </p>
+        </div>
+        <form @submit.prevent="authenticate">
+          <label class="form-label" for="bootui-authentication-token">******
+          <input
+            id="bootui-authentication-token"
+            v-model="authenticationToken"
+            autocomplete="off"
+            autofocus
+            class="form-control"
+            type="password"
+          />
+          <div v-if="authenticationError" class="authentication-error" role="alert">{{ authenticationError }}</div>
+          <button :disabled="!authenticationToken || authenticating" class="btn authentication-submit" type="submit">
+            <span v-if="authenticating" aria-hidden="true" class="spinner-border spinner-border-sm"></span>
+            {{ authenticating ? 'Unlocking…' : 'Unlock console' }}
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <template v-else>
+      <aside
       :class="{
         'bootui-sidebar--collapsed': collapsedRail,
         'bootui-sidebar--drawer': isNarrow,
@@ -568,9 +639,9 @@ function onGlobalKeydown(e) {
           BootUI is disabled: {{ overview.activation.reason }}
         </div>
       </div>
-    </aside>
+      </aside>
 
-    <transition name="flyout-fade">
+      <transition name="flyout-fade">
       <div
         v-if="railFlyout"
         class="bootui-nav-flyout"
@@ -607,9 +678,9 @@ function onGlobalKeydown(e) {
           </a>
         </router-link>
       </div>
-    </transition>
+      </transition>
 
-    <div class="bootui-workspace">
+      <div class="bootui-workspace">
       <header class="topbar">
         <div class="topbar-lead">
           <button class="nav-hamburger" type="button" aria-label="Open navigation menu" @click="openMobileNav">
@@ -690,7 +761,8 @@ function onGlobalKeydown(e) {
           {{ footerText }}
         </a>
       </footer>
-    </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -761,6 +833,70 @@ function onGlobalKeydown(e) {
   /* Skeleton loaders */
   --bootui-skeleton-base: #e2e8f0;
   --bootui-skeleton-shine: #f1f5f9;
+}
+
+.authentication-gate {
+  align-items: center;
+  display: grid;
+  inset: 0;
+  justify-items: center;
+  padding: 2rem;
+  position: fixed;
+  z-index: 20;
+}
+
+.authentication-card {
+  background: var(--bootui-surface);
+  border: 1px solid var(--bootui-border);
+  border-radius: 1rem;
+  box-shadow: var(--bootui-shadow-md);
+  display: grid;
+  gap: 1.25rem;
+  max-width: 31rem;
+  padding: 2rem;
+  width: 100%;
+}
+
+.authentication-card h1 {
+  color: var(--bootui-text);
+  font-size: 1.75rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.authentication-card p {
+  color: var(--bootui-text-muted);
+  margin: 0;
+}
+
+.authentication-icon {
+  align-items: center;
+  background: var(--bootui-nav-hover-bg);
+  border-radius: 0.85rem;
+  color: var(--bootui-green);
+  display: inline-flex;
+  font-size: 1.5rem;
+  height: 3rem;
+  justify-content: center;
+  width: 3rem;
+}
+
+.authentication-error {
+  color: var(--bootui-danger-text);
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.authentication-submit {
+  background: var(--bootui-green);
+  color: #fff;
+  margin-top: 1rem;
+  width: 100%;
+}
+
+.authentication-submit:hover,
+.authentication-submit:focus-visible {
+  background: var(--bootui-green-dark);
+  color: #fff;
 }
 
 :global(:root[data-bootui-theme='dark']) {

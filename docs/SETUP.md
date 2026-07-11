@@ -384,13 +384,15 @@ flag:
 
 The request-time safety model is **identical to Spring Boot**: BootUI is loopback-only by default and shares the same
 `LocalhostGuard` (loopback-source trust, a `Host` allow-list as a DNS-rebinding defense, and cross-site-write / CSRF
-protection). The same opt-in keys apply, read live from MicroProfile `Config`:
+protection). Non-loopback API callers must additionally authenticate with the BootUI bearer token. The same opt-in keys
+apply, read live from MicroProfile `Config`:
 
 ```properties
 bootui.allow-non-localhost=false        # default: reject non-loopback callers
 bootui.allowed-hosts=localhost          # extra Host header values to accept
 bootui.trusted-proxies=172.16.0.0/12    # extra source ranges (e.g. a Docker gateway)
 bootui.trust-container-gateway=AUTO     # auto-trust the container gateway in dev containers
+# bootui.authentication.token=...       # optional stable token; otherwise generated at startup
 ```
 
 The [Running inside a Docker container](#running-inside-a-docker-container) guidance below applies to Quarkus too —
@@ -418,6 +420,8 @@ BootUI is intended for local development only. By default it:
 
 - Activates in `AUTO` mode only for the `dev` / `local` profiles or DevTools.
 - Rejects non-loopback requests.
+- Requires bearer-token authentication for non-loopback API requests whenever remote access is explicitly enabled;
+  localhost remains authentication-free.
 - Applies one cross-framework security-header policy to the whole `/bootui/**` surface, with no-store caching for APIs,
   streams, and downloads and immutable caching only for successfully served content-hashed assets.
 - Permits `/bootui/**` through Spring Security when Spring Security is present, with a startup warning, so the local

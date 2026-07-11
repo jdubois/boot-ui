@@ -42,6 +42,7 @@ import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
+import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
@@ -105,6 +106,13 @@ import org.eclipse.microprofile.config.Config;
  */
 @ApplicationScoped
 public class BootUiEngineProducer {
+
+    @Produces
+    @Singleton
+    ApiTokenAuthenticator apiTokenAuthenticator(Config config) {
+        return new ApiTokenAuthenticator(
+                config.getOptionalValue("bootui.authentication.token", String.class).orElse(null));
+    }
 
     /**
      * MicroProfile OpenAPI's {@code @Operation} annotation, brought onto the classpath by

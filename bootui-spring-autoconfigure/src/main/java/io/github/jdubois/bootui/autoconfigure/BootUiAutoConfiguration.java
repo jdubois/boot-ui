@@ -31,6 +31,7 @@ import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
+import io.github.jdubois.bootui.autoconfigure.safety.ApiAuthenticationFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.SecurityHeadersFilter;
@@ -43,6 +44,7 @@ import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.nio.file.Paths;
@@ -499,6 +501,17 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
+    public ApiTokenAuthenticator bootUiApiTokenAuthenticator(BootUiProperties properties) {
+        return new ApiTokenAuthenticator(properties.getAuthentication().getToken());
+    }
+
+    @Bean
+    public ApiAuthenticationFilter bootUiApiAuthenticationFilter(
+            BootUiProperties properties, ApiTokenAuthenticator authenticator) {
+        return new ApiAuthenticationFilter(properties, authenticator);
+    }
+
+    @Bean
     public BootUiStaticResourceConfigurer bootUiStaticResourceConfigurer(Environment environment) {
         return new BootUiStaticResourceConfigurer(environment);
     }
@@ -665,8 +678,18 @@ public class BootUiAutoConfiguration {
             PanelAccessFilter filter, BootUiProperties properties) {
         FilterRegistrationBean<PanelAccessFilter> registration = new FilterRegistrationBean<>(filter);
         registration.addUrlPatterns(properties.getApiPath() + "/*");
-        registration.setOrder(Integer.MIN_VALUE + 2);
+        registration.setOrder(Integer.MIN_VALUE + 3);
         registration.setName("bootUiPanelAccessFilter");
+        return registration;
+    }
+
+    @Bean
+    public FilterRegistrationBean<ApiAuthenticationFilter> bootUiApiAuthenticationFilterRegistration(
+            ApiAuthenticationFilter filter, BootUiProperties properties) {
+        FilterRegistrationBean<ApiAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.addUrlPatterns(properties.getApiPath() + "/*");
+        registration.setOrder(Integer.MIN_VALUE + 2);
+        registration.setName("bootUiApiAuthenticationFilter");
         return registration;
     }
 
@@ -685,7 +708,7 @@ public class BootUiAutoConfiguration {
         FilterRegistrationBean<ConsoleActivityFilter> registration =
                 new FilterRegistrationBean<>(new ConsoleActivityFilter(properties, tracker));
         registration.addUrlPatterns(properties.getPath() + "/*", properties.getApiPath() + "/*");
-        registration.setOrder(Integer.MIN_VALUE + 3);
+        registration.setOrder(Integer.MIN_VALUE + 4);
         registration.setName("bootUiConsoleActivityFilter");
         return registration;
     }
@@ -703,7 +726,7 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public ApplicationListener<ApplicationReadyEvent> bootUiStartupBanner(
-            BootUiProperties properties, Environment environment) {
+            BootUiProperties properties, Environment environment, ApiTokenAuthenticator authenticator) {
         return event -> {
             properties.getPanels().keySet().stream()
                     .filter(panelId -> !BootUiPanels.ids().contains(panelId))
@@ -712,10 +735,25 @@ public class BootUiAutoConfiguration {
                             panelId,
                             BootUiPanels.ids()));
             if (!properties.isShowBanner()) {
+                logGeneratedTokenIfNeeded(properties, authenticator);
                 return;
             }
             log.info("BootUI is available at {}", buildStartupUrl(environment, properties));
+            logGeneratedTokenIfNeeded(properties, authenticator);
         };
+    }
+
+    private static void logGeneratedTokenIfNeeded(
+            BootUiProperties properties, ApiTokenAuthenticator authenticator) {
+        if (authenticator.generated() && remoteAccessConfigured(properties)) {
+            log.info("BootUI bearer token for non-local API access: {}", authenticator.token());
+        }
+    }
+
+    private static boolean remoteAccessConfigured(BootUiProperties properties) {
+        return properties.isAllowNonLocalhost()
+                || (properties.getTrustedProxies() != null && properties.getTrustedProxies().length > 0)
+                || properties.getTrustContainerGateway() != BootUiProperties.Mode.OFF;
     }
 
     static String buildStartupUrl(Environment environment, BootUiProperties properties) {

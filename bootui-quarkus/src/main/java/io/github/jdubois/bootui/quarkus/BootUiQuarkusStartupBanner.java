@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
@@ -36,18 +37,33 @@ public class BootUiQuarkusStartupBanner {
 
     private final Config config;
     private final QuarkusServerPortSupplier portSupplier;
+    private final ApiTokenAuthenticator authenticator;
 
     @Inject
-    public BootUiQuarkusStartupBanner(Config config, QuarkusServerPortSupplier portSupplier) {
+    public BootUiQuarkusStartupBanner(
+            Config config, QuarkusServerPortSupplier portSupplier, ApiTokenAuthenticator authenticator) {
         this.config = config;
         this.portSupplier = portSupplier;
+        this.authenticator = authenticator;
     }
 
     void onStart(@Observes StartupEvent event) {
-        if (!showBanner(config)) {
-            return;
+        if (showBanner(config)) {
+            LOG.infof("BootUI is available at %s", buildStartupUrl(portSupplier.localServerPort(), rootPath()));
         }
-        LOG.infof("BootUI is available at %s", buildStartupUrl(portSupplier.localServerPort(), rootPath()));
+        if (authenticator.generated() && remoteAccessConfigured()) {
+            LOG.infof("BootUI bearer token for non-local API access: %s", authenticator.token());
+        }
+    }
+
+    private boolean remoteAccessConfigured() {
+        return config.getOptionalValue("bootui.allow-non-localhost", Boolean.class).orElse(false)
+                || config.getOptionalValue("bootui.trusted-proxies", String.class)
+                        .filter(value -> !value.isBlank())
+                        .isPresent()
+                || !"OFF"
+                        .equalsIgnoreCase(config.getOptionalValue("bootui.trust-container-gateway", String.class)
+                                .orElse("OFF"));
     }
 
     private String rootPath() {

@@ -68,6 +68,14 @@ class BootUiSpringSecurityAutoConfigurationTests {
     }
 
     @Test
+    void permitsAuthenticationSessionPostWithoutCsrfToken() {
+        ResponseEntity<Void> session =
+                client().post().uri("/bootui/api/auth/session").retrieve().toBodilessEntity();
+
+        assertThat(session.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
     void bootUiSecurityChainMatchesExactRootsAndDescendants() {
         assertThat(bootUiSecurityFilterChain.matches(request("/bootui"))).isTrue();
         assertThat(bootUiSecurityFilterChain.matches(request("/bootui/"))).isTrue();

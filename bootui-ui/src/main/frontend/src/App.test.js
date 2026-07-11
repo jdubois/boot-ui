@@ -165,6 +165,61 @@ describe('App sidebar navigation', () => {
   })
 })
 
+describe('App remote authentication', () => {
+  beforeEach(() => {
+    stubLocalStorage()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    restoreLocalStorage()
+    document.body.innerHTML = ''
+  })
+
+  it('unlocks the API with the token from the startup log', async () => {
+    let authenticated = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url, options = {}) => {
+        const requestUrl = String(url)
+        if (requestUrl === 'api/auth/session') {
+          expect(options.method).toBe('POST')
+          expect(options.headers.Authorization).toBe('******')
+          authenticated = true
+          return Promise.resolve({ok: true, status: 204})
+        }
+        if (!authenticated) {
+          return Promise.resolve({ok: false, status: 401})
+        }
+        if (requestUrl === 'api/overview') {
+          return Promise.resolve(
+            jsonResponse({
+              applicationName: 'bootui-sample',
+              javaVersion: '17',
+              activeProfiles: ['dev'],
+              activation: {enabled: true}
+            })
+          )
+        }
+        if (requestUrl === 'api/panels') {
+          return Promise.resolve(jsonResponse({platform: 'spring-boot', panels: []}))
+        }
+        return Promise.reject(new Error(`Unexpected fetch URL: ${requestUrl}`))
+      })
+    )
+
+    const {wrapper} = await mountApp()
+    expect(wrapper.find('#authentication-title').text()).toBe('Unlock BootUI')
+
+    await wrapper.find('#bootui-authentication-token').setValue('startup-token')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('#authentication-title').exists()).toBe(false)
+    expect(wrapper.text()).toContain('bootui-sample')
+  })
+})
+
 describe('App shell footer', () => {
   beforeEach(() => {
     stubLocalStorage()
