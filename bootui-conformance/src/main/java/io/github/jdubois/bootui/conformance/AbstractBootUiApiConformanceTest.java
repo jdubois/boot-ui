@@ -88,7 +88,6 @@ public abstract class AbstractBootUiApiConformanceTest {
             "loggers",
             "beans",
             "conditions",
-            "mappings",
             "spring-security",
             "scheduled",
             "hibernate",
@@ -120,6 +119,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             Map.entry("data", "/bootui/api/data/repositories"),
             Map.entry("ai", "/bootui/api/ai/overview"),
             Map.entry("log-tail", "/bootui/api/log-tail/recent"),
+            Map.entry("mappings", "/bootui/api/mappings/flat"),
             Map.entry("copilot", "/bootui/api/copilot/dashboard"),
             Map.entry("claude-code", "/bootui/api/claude-code/dashboard"),
             Map.entry("flyway", "/bootui/api/flyway/migrations"),
@@ -201,12 +201,13 @@ public abstract class AbstractBootUiApiConformanceTest {
         List<String> failures = new ArrayList<>();
         for (JsonNode panel : manifest.json().get("panels")) {
             String id = panel.path("id").asText(null);
-            if (!DATA_PANEL_ROOT_GETS.contains(id)
+            String path = DATA_PANEL_ROOT_GETS.contains(id) ? "/bootui/api/" + id : NESTED_GET_PATHS.get(id);
+            if (path == null
                     || !panel.path("available").asBoolean(false)
                     || !panel.path("enabled").asBoolean(true)) {
                 continue;
             }
-            Response response = probe().get("/bootui/api/" + id);
+            Response response = probe().get(path);
             if (response.status() != 200) {
                 failures.add(id + " -> HTTP " + response.status());
             } else if (!response.isJson()) {
