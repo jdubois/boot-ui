@@ -51,7 +51,8 @@ supported IDEs. Like any third-party skill, review its instructions before insta
 ## Connect an agent to the BootUI MCP server
 
 The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/api/mcp`. It is **disabled by default**
-(fail-closed) and, like the rest of BootUI, only reachable over the loopback interface.
+(fail-closed) and, like the rest of BootUI, only reachable over the loopback interface unless remote access is explicitly
+enabled and authenticated.
 
 1. **Run your app locally with BootUI active** (the `dev` / `local` profiles, or `spring-boot-devtools` on the
    classpath). See [Setup](SETUP.md).
@@ -72,9 +73,11 @@ The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/
    }
    ```
 
-   Replace `8080` with your application's port. No credentials are needed — the endpoint is exempt from BootUI's
-   browser-only CSRF token so non-browser MCP clients connect with a plain HTTP config, while `LocalhostOnlyFilter`'s
-   loopback, `Host` allow-list, and cross-site write defenses still apply.
+   Replace `8080` with your application's port. No credentials are needed on loopback — the endpoint is exempt from
+   BootUI's browser-only CSRF token so a local non-browser MCP client connects with a plain HTTP config, while the
+   loopback, `Host` allow-list, and cross-site write defenses still apply. If you explicitly enable non-loopback access,
+   configure the MCP client to send the value from `bootui.authentication.token` (or the token BootUI generated at
+   startup) in the standard `Authorization` bearer header.
 
 A `GET /bootui/api/mcp-server` status request returns the advertised tool list, which is handy for inspecting what an
 agent will see before you wire it up.

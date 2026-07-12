@@ -1440,7 +1440,7 @@ the advisors before proposing a fix and pull runtime diagnostics (a correlated l
 security logs, SQL traces, HTTP exchanges) while investigating an issue. The server is a JSON-RPC 2.0 endpoint at
 `POST /bootui/api/mcp`; human-readable status and the advertised tool list are available from
 `GET /bootui/api/mcp-server`. The server is disabled by default (fail-closed) and, like the rest of the BootUI API, only
-reachable over the loopback interface.
+reachable over the loopback interface unless remote access is explicitly enabled and authenticated.
 Enable it headlessly with `bootui.mcp.enabled=ON`, or use the prominent toggle at the top of this panel to turn it on
 or off **at runtime, overriding the `bootui.mcp.enabled` Spring Boot property** for the lifetime of the running
 application — the configured mode only sets the initial state, and the panel shows when the live state is an override.
@@ -1465,8 +1465,9 @@ absent) are simply not advertised. The server inherits BootUI's full safety mode
 - It is only ever live while BootUI is active, so it is never reachable in production.
 - The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host` allow-list, cross-site write protection). It
   is exempt from BootUI's SPA CSRF token (which only browsers can present) so non-browser MCP clients connect with a
-  plain HTTP config and no credentials, while `LocalhostOnlyFilter`'s cross-site defenses still block browser-driven
-  writes.
+  plain HTTP config and no credentials on loopback, while `LocalhostOnlyFilter`'s cross-site defenses still block
+  browser-driven writes. If non-loopback access is explicitly enabled, the client must send the configured or generated
+  BootUI bearer token like every other remote API caller.
 - Read tools require the backing panel to be enabled; action (`*_scan`) tools are additionally refused when the panel is
   read-only or `bootui.read-only=true`, returning a clear tool error instead of running.
 - Values pass through the same secret masking and `bootui.expose-values` mode as the REST API, and paginated reads are
@@ -1502,10 +1503,11 @@ live on Quarkus: `graalvm_scan` and `crac_scan` (both deliberately not applicabl
 
 ![BootUI MCP Server panel](./images/bootui-mcp-server.webp)
 
-This panel is **not yet ported for Spring Boot WebFlux**: the protocol core (`McpDispatcher`) is already
-framework-neutral, but the tool catalog (`BootUiMcpTools`) is hard-wired to the servlet panel controllers, so it
-cannot yet resolve the reactive panel surface. See [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the current
-status.
+On Spring Boot WebFlux the panel is available too. A reactive tool catalog binds the WebFlux-specific Live Activity,
+Exceptions, Security Logs, SQL Trace, and Log Tail controllers while reusing the shared controllers for the rest of the
+surface. It advertises the same tools as the servlet adapter except `security_scan`, because the Security advisor itself
+is not yet available on WebFlux. The JSON-RPC transport, runtime toggle, panel/read-only gating, payload/concurrency
+limits, and response envelopes are otherwise identical across all three adapters.
 
 ### DevTools
 

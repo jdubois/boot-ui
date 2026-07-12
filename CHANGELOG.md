@@ -7,6 +7,48 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-12
+
+Security and hardening release that adds authenticated remote API access, brings the MCP Server to Spring WebFlux,
+enforces bounded outbound HTTP responses, and completes another accuracy pass across every advisor.
+
+### Added
+
+- **Authenticated non-loopback API access on all three adapters.** Every non-loopback `/bootui/api/**` request now
+  requires a bearer token, while loopback use remains frictionless. BootUI generates and logs a 256-bit token once when
+  remote access is enabled without a configured `bootui.authentication.token`; callers can send it in the
+  `Authorization` header, and the browser can exchange it for an HttpOnly, `SameSite=Strict` cookie scoped to the BootUI
+  API (#608).
+- **MCP Server support on Spring WebFlux**, with a reactive tool catalog over the reactive Live Activity, Exceptions,
+  Security Logs, SQL Trace, and Log Tail controllers. The shared MCP core now validates protocol versions and JSON-RPC
+  envelopes, handles notifications and lifecycle methods correctly, bounds payload size and concurrent calls, and is
+  covered by the same conformance suite on Spring MVC, Spring WebFlux, and Quarkus. WebFlux advertises every applicable
+  tool except `security_scan`, whose backing advisor is not yet ported (#611, #612).
+- **A distributable BootUI agent skill** for GitHub Copilot and other skill-aware coding agents, covering installation,
+  runtime inspection, advisor scans, verification, and MCP setup (#611).
+- **Shared security-header policy** across Spring MVC, Spring WebFlux, and Quarkus, including CSP,
+  `X-Content-Type-Options`, `X-Frame-Options`, and HSTS where applicable (#582).
+- **Focused JDK 21 and 25 compatibility CI**, alongside the existing Java 17 build/release baseline (#579).
+
+### Changed
+
+- **All outbound HTTP integrations now enforce response-size budgets.** HTTP Probe returns a clear truncation signal;
+  pentesting probes, GraalVM metadata, OSV/EPSS, and GitHub clients reject oversized responses rather than buffering
+  unbounded remote content (#568).
+- **The shared API conformance suite now covers nested and action endpoints**, canonical access-denied responses,
+  pagination/filtering, scanner lifecycles, trace operations, and MCP behavior on every adapter. Backend panel metadata is
+  centralized in one validated catalog and checked against UI routes, manifests, guarded API prefixes, and
+  `docs/FEATURES.md` (#581, #583).
+- **Another full advisor accuracy pass** corrected false positives, stale platform assumptions, severity/rationale gaps,
+  and runtime heuristics across Architecture, Spring/Quarkus application, Hibernate, Memory, Security, REST API,
+  Pentesting, Vulnerabilities, GraalVM, and CRaC. New coverage includes REST response-contract checks, proxy-aware
+  architecture rules, current JVM/container memory heuristics, additional security configuration evidence, stricter
+  version comparison and OSV result handling, and expanded GraalVM/CRaC runtime checks (#597–#606).
+- **Release verification now smoke-tests all published distributions from Maven Central** — Spring MVC, Spring WebFlux,
+  and Quarkus — before committing and tagging a prepared release (#576).
+- **Dependencies updated**, including Quarkus 3.37.2, Spring Kafka 4.1.0, the Quarkus LangChain4j BOM, Vite, Prettier,
+  vue-tsc, Playwright, VuePress, and Sharp.
+
 ### Fixed
 
 - **REST Client panel now reports unavailable until a client is actually instrumented (Spring MVC).** The panel's
@@ -14,7 +56,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   — but that bean is registered unconditionally (it also backs Live Activity), so the check was always true and the
   panel showed up in the sidebar even for applications with no `RestClient`, `RestTemplate`, or `WebClient` ever
   built. Availability now mirrors the recorder's own "has anything been instrumented yet" signal, the same pattern
-  Kafka/Email/Cache already use.
+  Kafka/Email/Cache already use (#560).
+- **CRaC Docker publish smoke tests** now grant the capabilities CRIU needs to restore a checkpointed process and use the
+  corrected generated-image startup path (#607).
+- **WebFlux MCP availability and conformance expectations** now match the implemented reactive server, and nested
+  endpoint conformance checks no longer misclassify valid endpoint families (#612).
+- **Release pushes retry safely after a non-fast-forward update**, rebasing the release-only version commit before
+  recreating the tag instead of leaving a successfully published version untagged (#559).
 
 ## [1.11.0] - 2026-07-09
 
