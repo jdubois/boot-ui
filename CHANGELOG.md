@@ -47,7 +47,7 @@ enforces bounded outbound HTTP responses, and completes another accuracy pass ac
 - **Release verification now smoke-tests all published distributions from Maven Central** — Spring MVC, Spring WebFlux,
   and Quarkus — before committing and tagging a prepared release (#576).
 - **Dependencies updated**, including Quarkus 3.37.2, Spring Kafka 4.1.0, the Quarkus LangChain4j BOM, Vite, Prettier,
-  vue-tsc, Playwright, VuePress, and Sharp.
+  vue-tsc, Playwright, VuePress, Sharp, and the patched `js-yaml` 3.15.0 transitive dependency.
 
 ### Fixed
 
