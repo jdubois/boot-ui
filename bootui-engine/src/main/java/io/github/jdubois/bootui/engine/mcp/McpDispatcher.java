@@ -3,12 +3,15 @@ package io.github.jdubois.bootui.engine.mcp;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptGetResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.spi.McpPanelPolicy;
 import java.util.List;
+import java.util.concurrent.Semaphore;
 
 /**
  * Framework- and JSON-free core of the BootUI MCP server: it routes an already-parsed
@@ -20,34 +23,73 @@ import java.util.List;
  * calls {@link #dispatch(McpRequest)}, and renders the outcome back to JSON with its own
  * {@code ObjectMapper} (Jackson 3 on Spring Boot, Jackson 2 on Quarkus). The control flow here is a
  * one-to-one translation of the original Spring {@code BootUiMcpService} so both adapters answer
- * byte-identically: a refused gate / missing / unknown tool is an in-band {@link ToolCallError}
- * ({@code isError:true}); a tool handler throwing a {@link RuntimeException} becomes a JSON-RPC
- * {@link ProtocolError} ({@code -32603}); serialization of a successful payload (the only remaining
- * Jackson step) is performed and error-handled by the adapter codec.
+ * byte-identically: a refused panel gate is an in-band {@link ToolCallError} ({@code isError:true});
+ * malformed tool calls are JSON-RPC {@link ProtocolError}s; a tool handler throwing a
+ * {@link RuntimeException} becomes a JSON-RPC {@link ProtocolError} ({@code -32603}); serialization of
+ * a successful payload (the only remaining Jackson step) is performed and error-handled by the adapter
+ * codec.
  */
 public final class McpDispatcher {
 
     private final List<McpTool> tools;
+    private final List<McpPrompt> prompts;
     private final McpPanelPolicy policy;
     private final String serverVersion;
     private final String instructions;
     private final int maxResults;
+    private final Semaphore toolCallSemaphore;
 
     /**
      * @param tools the advertised tool catalog, in order (each adapter wires its own controllers /
      *     resources)
+     * @param prompts the advertised reusable prompt catalog
      * @param policy the per-panel enable / read-only gate behind {@code tools/call}
      * @param serverVersion the server version advertised in {@code initialize} ({@code null} → {@code "dev"})
      * @param instructions the framework-specific usage instructions advertised in {@code initialize}
      * @param maxResults the {@code bootui.mcp.max-results} cap applied to paged read tools (floored at 1)
+     * @param maxConcurrentCalls the maximum concurrent {@code tools/call} invocations (floored at 1)
      */
     public McpDispatcher(
-            List<McpTool> tools, McpPanelPolicy policy, String serverVersion, String instructions, int maxResults) {
+            List<McpTool> tools,
+            List<McpPrompt> prompts,
+            McpPanelPolicy policy,
+            String serverVersion,
+            String instructions,
+            int maxResults,
+            int maxConcurrentCalls) {
         this.tools = List.copyOf(tools);
+        this.prompts = List.copyOf(prompts);
         this.policy = policy;
         this.serverVersion = serverVersion == null ? "dev" : serverVersion;
         this.instructions = instructions;
         this.maxResults = Math.max(1, maxResults);
+        this.toolCallSemaphore = new Semaphore(Math.max(1, maxConcurrentCalls));
+    }
+
+    /**
+     * Backward-compatible constructor that uses the default concurrent call cap.
+     */
+    public McpDispatcher(
+            List<McpTool> tools, McpPanelPolicy policy, String serverVersion, String instructions, int maxResults) {
+        this(
+                tools,
+                List.of(),
+                policy,
+                serverVersion,
+                instructions,
+                maxResults,
+                McpProtocol.DEFAULT_MAX_CONCURRENT_CALLS);
+    }
+
+    /** Backward-compatible constructor without prompt templates. */
+    public McpDispatcher(
+            List<McpTool> tools,
+            McpPanelPolicy policy,
+            String serverVersion,
+            String instructions,
+            int maxResults,
+            int maxConcurrentCalls) {
+        this(tools, List.of(), policy, serverVersion, instructions, maxResults, maxConcurrentCalls);
     }
 
     /** The advertised tool catalog, in order. */
@@ -66,34 +108,38 @@ public final class McpDispatcher {
                     ? new NoResponse()
                     : new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_METHOD_MESSAGE);
         }
-        return switch (method) {
-            case "initialize" -> initialize(request);
-            case "ping" -> new PingResult();
-            case "tools/list" ->
-                new ToolsListResult(tools.stream().map(McpTool::describe).toList());
-            case "tools/call" -> callTool(request);
-            default ->
-                request.notification()
-                        ? new NoResponse()
-                        : new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + method);
-        };
+        McpDispatchOutcome outcome =
+                switch (method) {
+                    case "initialize" -> initialize(request);
+                    case "ping" -> new PingResult();
+                    case "tools/list" ->
+                        new ToolsListResult(
+                                tools.stream().map(McpTool::describe).toList());
+                    case "tools/call" -> callTool(request);
+                    case "prompts/list" -> new PromptsListResult(prompts);
+                    case "prompts/get" -> getPrompt(request);
+                    default -> new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + method);
+                };
+        return request.notification() ? new NoResponse() : outcome;
     }
 
     private McpDispatchOutcome initialize(McpRequest request) {
         String requested = request.requestedProtocolVersion();
-        String protocolVersion =
-                (requested == null || requested.isEmpty()) ? McpProtocol.DEFAULT_PROTOCOL_VERSION : requested;
-        return new InitializeResult(protocolVersion, McpProtocol.SERVER_NAME, serverVersion, instructions);
+        String negotiated = (requested == null || requested.isEmpty())
+                ? McpProtocol.DEFAULT_PROTOCOL_VERSION
+                : McpProtocol.KNOWN_VERSIONS.contains(requested) ? requested : McpProtocol.DEFAULT_PROTOCOL_VERSION;
+        return new InitializeResult(negotiated, McpProtocol.SERVER_NAME, serverVersion, instructions);
     }
 
     private McpDispatchOutcome callTool(McpRequest request) {
         String name = request.toolName();
         if (name == null || name.isEmpty()) {
-            return new ToolCallError(McpProtocol.MISSING_TOOL_NAME_MESSAGE);
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_TOOL_NAME_MESSAGE);
         }
+
         McpTool tool = findTool(name);
         if (tool == null) {
-            return new ToolCallError("Unknown tool: " + name);
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown tool: " + name);
         }
         if (!policy.isEnabled(tool.panelId())) {
             return new ToolCallError(policy.disabledReason(tool.panelId()));
@@ -104,8 +150,13 @@ public final class McpDispatcher {
         McpArguments arguments =
                 McpArguments.normalize(request.rawQuery(), request.rawLimit(), request.rawId(), maxResults);
         if (tool.schema() == McpToolSchema.ID && arguments.id() == null) {
-            return new ToolCallError(McpProtocol.MISSING_ID_ARGUMENT_MESSAGE);
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE);
         }
+        if (!toolCallSemaphore.tryAcquire()) {
+            return new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.RATE_LIMITED_MESSAGE);
+        }
+        // Permit acquired; the try/finally immediately below guarantees it is always released,
+        // since there is no code path between tryAcquire() and the try block.
         try {
             Object payload = tool.invoke(arguments);
             return new ToolCallResult(payload);
@@ -113,7 +164,21 @@ public final class McpDispatcher {
             // A tool handler failure becomes a JSON-RPC error (-32603), exactly as the original Spring
             // service reported a generic RuntimeException out of the tools/call switch.
             return new ProtocolError(McpProtocol.INTERNAL_ERROR, ex.getMessage());
+        } finally {
+            toolCallSemaphore.release();
         }
+    }
+
+    private McpDispatchOutcome getPrompt(McpRequest request) {
+        String name = request.toolName();
+        if (name == null || name.isEmpty()) {
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_PROMPT_NAME_MESSAGE);
+        }
+        return prompts.stream()
+                .filter(prompt -> prompt.name().equals(name))
+                .findFirst()
+                .<McpDispatchOutcome>map(PromptGetResult::new)
+                .orElseGet(() -> new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown prompt: " + name));
     }
 
     private McpTool findTool(String name) {

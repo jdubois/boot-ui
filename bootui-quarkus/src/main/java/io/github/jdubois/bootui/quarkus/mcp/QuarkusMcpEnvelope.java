@@ -10,11 +10,14 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptGetResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
+import io.github.jdubois.bootui.engine.mcp.McpPrompt;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequest;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptor;
@@ -27,17 +30,6 @@ import java.util.logging.Logger;
  * Quarkus (Jackson 2) JSON-RPC envelope codec for the BootUI MCP server — the byte-for-byte twin of
  * the Spring adapter's {@code BootUiMcpService}, over the same framework- and JSON-free engine
  * {@link McpDispatcher}.
- *
- * <p>It does only the irreducibly-Jackson part: parse a request node into a neutral
- * {@link McpRequest}, dispatch it, and render the {@link McpDispatchOutcome} back to JSON (echoing the
- * id, building each tool's input schema, and serializing the tool payload). All protocol decisions
- * (method routing, per-panel gating, tool lookup, argument capping, error codes and canonical
- * messages) live in the engine, so the two adapters answer identically.
- *
- * <p>Jackson 2 differences from the Jackson 3 twin: node text is read with {@code asText()} (not
- * {@code asString()}), and {@link ObjectMapper#writeValueAsString} throws the <em>checked</em>
- * {@link JsonProcessingException}, so the tool-result serialization catches it explicitly (a failure
- * is reported in-band as a {@code -32603} error, exactly like the Spring twin).
  */
 @Singleton
 public class QuarkusMcpEnvelope {
@@ -52,6 +44,15 @@ public class QuarkusMcpEnvelope {
         this.objectMapper = objectMapper;
     }
 
+    /** Parse raw request bytes into a Jackson node. */
+    public JsonNode readTree(byte[] body) {
+        try {
+            return objectMapper.readTree(body);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid JSON-RPC request", ex);
+        }
+    }
+
     /**
      * Handles a single JSON-RPC request or notification.
      *
@@ -59,9 +60,13 @@ public class QuarkusMcpEnvelope {
      */
     public JsonNode handle(JsonNode request) {
         if (request == null || !request.isObject()) {
-            return error(null, McpProtocol.INVALID_PARAMS, McpProtocol.MALFORMED_REQUEST_MESSAGE);
+            return error(null, McpProtocol.INVALID_REQUEST, McpProtocol.MALFORMED_REQUEST_MESSAGE);
         }
         JsonNode id = request.get("id");
+        JsonNode jsonrpc = request.get("jsonrpc");
+        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(jsonrpc.asText())) {
+            return error(id, McpProtocol.INVALID_REQUEST, "Request must include jsonrpc: \"2.0\"");
+        }
         McpDispatchOutcome outcome = dispatcher.dispatch(parse(request));
         return render(outcome, id);
     }
@@ -77,6 +82,7 @@ public class QuarkusMcpEnvelope {
     }
 
     private static McpRequest parse(JsonNode request) {
+        String jsonrpc = request.path("jsonrpc").asText();
         String method = request.path("method").asText();
         JsonNode id = request.get("id");
         boolean notification = id == null || id.isNull();
@@ -85,6 +91,7 @@ public class QuarkusMcpEnvelope {
         String toolName = params.path("name").asText();
         JsonNode arguments = params.get("arguments");
         return new McpRequest(
+                jsonrpc,
                 method,
                 notification,
                 requestedProtocolVersion,
@@ -120,8 +127,6 @@ public class QuarkusMcpEnvelope {
     }
 
     private JsonNode render(McpDispatchOutcome outcome, JsonNode id) {
-        // McpDispatchOutcome is sealed; instanceof patterns (not a switch type pattern) keep this on
-        // the project's Java 17 release level.
         if (outcome instanceof NoResponse) {
             return null;
         }
@@ -136,6 +141,12 @@ public class QuarkusMcpEnvelope {
         }
         if (outcome instanceof ToolsListResult r) {
             return result(id, renderToolsList(r));
+        }
+        if (outcome instanceof PromptsListResult r) {
+            return result(id, renderPromptsList(r));
+        }
+        if (outcome instanceof PromptGetResult r) {
+            return result(id, renderPrompt(r.prompt()));
         }
         if (outcome instanceof ToolCallError e) {
             return result(id, toolError(e.message()));
@@ -154,6 +165,9 @@ public class QuarkusMcpEnvelope {
         ObjectNode toolsCapability = JsonNodeFactory.instance.objectNode();
         toolsCapability.put("listChanged", false);
         capabilities.set("tools", toolsCapability);
+        ObjectNode promptsCapability = JsonNodeFactory.instance.objectNode();
+        promptsCapability.put("listChanged", false);
+        capabilities.set("prompts", promptsCapability);
         response.set("capabilities", capabilities);
 
         ObjectNode serverInfo = JsonNodeFactory.instance.objectNode();
@@ -173,16 +187,51 @@ public class QuarkusMcpEnvelope {
             node.put("name", tool.name());
             node.put("description", tool.description());
             node.set("inputSchema", schema(tool.schema()));
+            ObjectNode outputSchema = JsonNodeFactory.instance.objectNode();
+            outputSchema.put("type", tool.outputSchemaType());
+            outputSchema.put("description", tool.outputSchemaDescription());
+            node.set("outputSchema", outputSchema);
             array.add(node);
         }
         result.set("tools", array);
         return result;
     }
 
+    private static ObjectNode renderPromptsList(PromptsListResult list) {
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        ArrayNode array = JsonNodeFactory.instance.arrayNode();
+        for (McpPrompt prompt : list.prompts()) {
+            ObjectNode node = JsonNodeFactory.instance.objectNode();
+            node.put("name", prompt.name());
+            node.put("description", prompt.description());
+            node.set("arguments", JsonNodeFactory.instance.arrayNode());
+            array.add(node);
+        }
+        result.set("prompts", array);
+        return result;
+    }
+
+    private static ObjectNode renderPrompt(McpPrompt prompt) {
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        result.put("description", prompt.description());
+        ArrayNode messages = JsonNodeFactory.instance.arrayNode();
+        ObjectNode message = JsonNodeFactory.instance.objectNode();
+        message.put("role", "user");
+        ObjectNode content = JsonNodeFactory.instance.objectNode();
+        content.put("type", "text");
+        content.put("text", prompt.text());
+        message.set("content", content);
+        messages.add(message);
+        result.set("messages", messages);
+        return result;
+    }
+
     private JsonNode renderToolCall(JsonNode id, ToolCallResult call) {
+        JsonNode payloadNode;
         String text;
         try {
-            text = objectMapper.writeValueAsString(call.payload());
+            payloadNode = objectMapper.valueToTree(call.payload());
+            text = objectMapper.writeValueAsString(payloadNode);
         } catch (JsonProcessingException | RuntimeException ex) {
             LOG.log(Level.FINE, "BootUI MCP tool result serialization failed", ex);
             return error(id, McpProtocol.INTERNAL_ERROR, ex.getMessage());
@@ -194,6 +243,7 @@ public class QuarkusMcpEnvelope {
         textContent.put("text", text);
         content.add(textContent);
         result.set("content", content);
+        result.set("structuredContent", payloadNode);
         result.put("isError", false);
         return result(id, result);
     }
@@ -212,7 +262,7 @@ public class QuarkusMcpEnvelope {
 
     private static ObjectNode result(JsonNode id, JsonNode payload) {
         ObjectNode response = JsonNodeFactory.instance.objectNode();
-        response.put("jsonrpc", "2.0");
+        response.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         response.set("id", normalizeId(id));
         response.set("result", payload);
         return response;
@@ -220,7 +270,7 @@ public class QuarkusMcpEnvelope {
 
     private static ObjectNode error(JsonNode id, int code, String message) {
         ObjectNode response = JsonNodeFactory.instance.objectNode();
-        response.put("jsonrpc", "2.0");
+        response.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         response.set("id", normalizeId(id));
         ObjectNode err = JsonNodeFactory.instance.objectNode();
         err.put("code", code);

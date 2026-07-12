@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.mcp;
 
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
@@ -27,6 +28,7 @@ import io.github.jdubois.bootui.quarkus.web.TracesResource;
 import jakarta.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -88,7 +90,7 @@ public class QuarkusMcpTools {
                 availability,
                 action(
                         "architecture_scan",
-                        "Run the Architecture advisor and return layering/dependency findings to fix.",
+                        McpToolDescriptions.quarkus("architecture_scan"),
                         BootUiPanels.ARCHITECTURE,
                         args -> architecture.scan()));
         addIfAvailable(
@@ -96,7 +98,7 @@ public class QuarkusMcpTools {
                 availability,
                 action(
                         "spring_scan",
-                        "Run the Quarkus advisor and return Quarkus configuration/idiom findings to fix.",
+                        McpToolDescriptions.quarkus("spring_scan"),
                         BootUiPanels.SPRING,
                         args -> spring.scan()));
         addIfAvailable(
@@ -104,7 +106,7 @@ public class QuarkusMcpTools {
                 availability,
                 action(
                         "hibernate_scan",
-                        "Run the Hibernate advisor and return JPA/Hibernate mapping and query findings.",
+                        McpToolDescriptions.quarkus("hibernate_scan"),
                         BootUiPanels.HIBERNATE,
                         args -> hibernate.scan()));
         addIfAvailable(
@@ -112,7 +114,7 @@ public class QuarkusMcpTools {
                 availability,
                 action(
                         "memory_scan",
-                        "Run the Memory advisor (triggers a class histogram) and return memory findings.",
+                        McpToolDescriptions.quarkus("memory_scan"),
                         BootUiPanels.MEMORY,
                         args -> memory.scan()));
         addIfAvailable(
@@ -120,7 +122,7 @@ public class QuarkusMcpTools {
                 availability,
                 action(
                         "security_scan",
-                        "Run the Security advisor and return application security findings to fix.",
+                        McpToolDescriptions.quarkus("security_scan"),
                         BootUiPanels.SECURITY,
                         args -> security.scan()));
         addIfAvailable(
@@ -128,7 +130,7 @@ public class QuarkusMcpTools {
                 availability,
                 action(
                         "pentest_scan",
-                        "Run the Pentesting advisor and return probing-based security findings.",
+                        McpToolDescriptions.quarkus("pentest_scan"),
                         BootUiPanels.PENTESTING,
                         args -> pentesting.scan()));
         addIfAvailable(
@@ -136,7 +138,7 @@ public class QuarkusMcpTools {
                 availability,
                 action(
                         "rest_api_scan",
-                        "Run the REST API advisor and return REST resource/design findings to fix.",
+                        McpToolDescriptions.quarkus("rest_api_scan"),
                         BootUiPanels.REST_API,
                         args -> restApi.scan()));
 
@@ -146,9 +148,7 @@ public class QuarkusMcpTools {
                 availability,
                 limitRead(
                         "get_live_activity",
-                        "Return the correlated live activity feed: HTTP requests, SQL statements, exceptions, "
-                                + "and security events, grouped by request/trace so related signals (e.g. the "
-                                + "slow query or exception behind one HTTP request) are easy to spot together.",
+                        McpToolDescriptions.quarkus("get_live_activity"),
                         BootUiPanels.ACTIVITY,
                         args -> liveActivity.activity(args.limit(), null, null, null, null, null, null, null)));
         addIfAvailable(
@@ -156,7 +156,7 @@ public class QuarkusMcpTools {
                 availability,
                 read(
                         "get_exceptions",
-                        "List recent unhandled exceptions captured at runtime (most recent first).",
+                        McpToolDescriptions.quarkus("get_exceptions"),
                         BootUiPanels.EXCEPTIONS,
                         args -> exceptions.list()));
         addIfAvailable(
@@ -164,9 +164,7 @@ public class QuarkusMcpTools {
                 availability,
                 idRead(
                         "get_exception_detail",
-                        "Return full detail for one exception group by id: stack trace frames, causes, and "
-                                + "individual occurrences (request method/path/handler/thread/traceId). Use the "
-                                + "'id' from get_exceptions or get_live_activity.",
+                        McpToolDescriptions.quarkus("get_exception_detail"),
                         BootUiPanels.EXCEPTIONS,
                         args -> exceptions.detail(args.id())));
         addIfAvailable(
@@ -174,7 +172,7 @@ public class QuarkusMcpTools {
                 availability,
                 limitRead(
                         "get_security_logs",
-                        "List recent security audit events (authentication, authorization, etc.).",
+                        McpToolDescriptions.quarkus("get_security_logs"),
                         BootUiPanels.SECURITY_LOGS,
                         args -> securityLogs.logs(null, null, null, null, args.limit())));
         addIfAvailable(
@@ -182,7 +180,7 @@ public class QuarkusMcpTools {
                 availability,
                 read(
                         "get_sql_traces",
-                        "Return recently recorded SQL statements and timings from the SQL Trace recorder.",
+                        McpToolDescriptions.quarkus("get_sql_traces"),
                         BootUiPanels.SQL_TRACE,
                         args -> sqlTrace.trace()));
         addIfAvailable(
@@ -190,7 +188,7 @@ public class QuarkusMcpTools {
                 availability,
                 limitRead(
                         "get_traces",
-                        "Return recent distributed/local traces captured by BootUI.",
+                        McpToolDescriptions.quarkus("get_traces"),
                         BootUiPanels.TRACES,
                         args -> traces.list(args.limit())));
         addIfAvailable(
@@ -198,15 +196,15 @@ public class QuarkusMcpTools {
                 availability,
                 read(
                         "get_log_tail",
-                        "Return the most recent buffered application log lines.",
+                        McpToolDescriptions.quarkus("get_log_tail"),
                         BootUiPanels.LOG_TAIL,
-                        args -> logTail.recent()));
+                        args -> Map.of("entries", logTail.recent())));
         addIfAvailable(
                 registry,
                 availability,
                 limitRead(
                         "get_http_exchanges",
-                        "List recent HTTP request/response exchanges handled by the application.",
+                        McpToolDescriptions.quarkus("get_http_exchanges"),
                         BootUiPanels.HTTP_EXCHANGES,
                         args -> httpExchanges.exchanges(null, null, null, null, args.limit())));
 
@@ -216,7 +214,7 @@ public class QuarkusMcpTools {
                 availability,
                 read(
                         "get_overview",
-                        "Return the application overview: name, versions, profiles, and BootUI status.",
+                        McpToolDescriptions.quarkus("get_overview"),
                         BootUiPanels.OVERVIEW,
                         args -> overview.overview()));
         addIfAvailable(
@@ -224,7 +222,7 @@ public class QuarkusMcpTools {
                 availability,
                 read(
                         "get_health",
-                        "Return the aggregated application health tree (SmallRye Health).",
+                        McpToolDescriptions.quarkus("get_health"),
                         BootUiPanels.HEALTH,
                         args -> health.health()));
         addIfAvailable(
@@ -232,8 +230,7 @@ public class QuarkusMcpTools {
                 availability,
                 searchRead(
                         "get_config",
-                        "Return effective configuration properties (secret values masked). Optional 'query' "
-                                + "filters by property name/value.",
+                        McpToolDescriptions.quarkus("get_config"),
                         BootUiPanels.CONFIG,
                         args -> config.list(args.query(), null, false, null, args.limit())));
         addIfAvailable(
@@ -241,7 +238,7 @@ public class QuarkusMcpTools {
                 availability,
                 searchRead(
                         "get_beans",
-                        "List CDI beans. Optional 'query' filters by bean name or type.",
+                        McpToolDescriptions.quarkus("get_beans"),
                         BootUiPanels.BEANS,
                         args -> beans.beans(args.query(), null, null, args.limit())));
         addIfAvailable(
@@ -249,7 +246,7 @@ public class QuarkusMcpTools {
                 availability,
                 searchRead(
                         "get_mappings",
-                        "List request mappings (URL patterns to handlers). Optional 'query' filters them.",
+                        McpToolDescriptions.quarkus("get_mappings"),
                         BootUiPanels.MAPPINGS,
                         args -> mappings.flatMappings(args.query(), null, args.limit())));
 

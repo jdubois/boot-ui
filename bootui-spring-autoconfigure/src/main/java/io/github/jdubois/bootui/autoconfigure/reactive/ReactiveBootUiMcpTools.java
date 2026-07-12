@@ -1,25 +1,19 @@
-package io.github.jdubois.bootui.autoconfigure.mcp;
+package io.github.jdubois.bootui.autoconfigure.reactive;
 
-import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
-import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
-import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.BeansController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
-import io.github.jdubois.bootui.autoconfigure.web.LogTailController;
 import io.github.jdubois.bootui.autoconfigure.web.MappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
-import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
@@ -33,62 +27,50 @@ import java.util.function.Function;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
- * Builds the catalog of MCP tools exposed by the BootUI MCP server.
- *
- * <p>Tools are thin adapters over the existing BootUI controllers; they reuse the same services,
- * immutable {@code record} DTOs, {@code SecretMasker}/{@code expose-values} handling, and self-data
- * filtering, so the agent sees exactly the sanitized shape the browser UI sees. Each tool is bound
- * to a {@link BootUiPanels} id so the engine {@code McpDispatcher} can enforce per-panel
- * enable/read-only toggles. Argument normalization (the optional {@code query} filter and the
- * {@code bootui.mcp.max-results} cap on {@code limit}) is applied once by the engine, so each handler
- * simply reads {@link McpArguments#query()} / {@link McpArguments#limit()}.
+ * Reactive (WebFlux) MCP tool catalog: mirrors {@code BootUiMcpTools} but binds the handful of
+ * controller types whose implementations differ on WebFlux.
  */
-public class BootUiMcpTools {
+public class ReactiveBootUiMcpTools {
 
     private final List<McpTool> tools;
 
-    public BootUiMcpTools(
+    public ReactiveBootUiMcpTools(
             ObjectProvider<OverviewController> overview,
             ObjectProvider<HealthController> health,
             ObjectProvider<ConfigController> config,
             ObjectProvider<BeansController> beans,
             ObjectProvider<MappingsController> mappings,
-            ObjectProvider<ExceptionsController> exceptions,
-            ObjectProvider<LiveActivityController> liveActivity,
-            ObjectProvider<SecurityLogsController> securityLogs,
-            ObjectProvider<SqlTraceController> sqlTrace,
+            ObjectProvider<ReactiveExceptionsController> exceptions,
+            ObjectProvider<ReactiveLiveActivityController> liveActivity,
+            ObjectProvider<ReactiveSecurityLogsController> securityLogs,
+            ObjectProvider<ReactiveSqlTraceController> sqlTrace,
             ObjectProvider<TracesController> traces,
-            ObjectProvider<LogTailController> logTail,
+            ObjectProvider<ReactiveLogTailController> logTail,
             ObjectProvider<HttpExchangesController> httpExchanges,
             ObjectProvider<ArchitectureController> architecture,
             ObjectProvider<SpringController> spring,
             ObjectProvider<HibernateController> hibernate,
             ObjectProvider<MemoryController> memory,
-            ObjectProvider<SecurityController> security,
             ObjectProvider<PentestingController> pentesting,
             ObjectProvider<RestApiController> restApi,
             ObjectProvider<GraalVmController> graalvm,
             ObjectProvider<CracController> crac) {
-        // Resolve each (lazy) controller bean; conditionally-registered controllers (e.g. Hibernate,
-        // Spring Security) may be absent depending on the host app's classpath, so the matching tool is
-        // simply not advertised rather than failing the whole server.
         OverviewController overviewBean = overview.getIfAvailable();
         HealthController healthBean = health.getIfAvailable();
         ConfigController configBean = config.getIfAvailable();
         BeansController beansBean = beans.getIfAvailable();
         MappingsController mappingsBean = mappings.getIfAvailable();
-        ExceptionsController exceptionsBean = exceptions.getIfAvailable();
-        LiveActivityController liveActivityBean = liveActivity.getIfAvailable();
-        SecurityLogsController securityLogsBean = securityLogs.getIfAvailable();
-        SqlTraceController sqlTraceBean = sqlTrace.getIfAvailable();
+        ReactiveExceptionsController exceptionsBean = exceptions.getIfAvailable();
+        ReactiveLiveActivityController liveActivityBean = liveActivity.getIfAvailable();
+        ReactiveSecurityLogsController securityLogsBean = securityLogs.getIfAvailable();
+        ReactiveSqlTraceController sqlTraceBean = sqlTrace.getIfAvailable();
         TracesController tracesBean = traces.getIfAvailable();
-        LogTailController logTailBean = logTail.getIfAvailable();
+        ReactiveLogTailController logTailBean = logTail.getIfAvailable();
         HttpExchangesController httpExchangesBean = httpExchanges.getIfAvailable();
         ArchitectureController architectureBean = architecture.getIfAvailable();
         SpringController springBean = spring.getIfAvailable();
         HibernateController hibernateBean = hibernate.getIfAvailable();
         MemoryController memoryBean = memory.getIfAvailable();
-        SecurityController securityBean = security.getIfAvailable();
         PentestingController pentestingBean = pentesting.getIfAvailable();
         RestApiController restApiBean = restApi.getIfAvailable();
         GraalVmController graalvmBean = graalvm.getIfAvailable();
@@ -96,7 +78,6 @@ public class BootUiMcpTools {
 
         List<McpTool> registry = new ArrayList<>();
 
-        // --- Advisor tools (panel actions; refused when the backing panel is read-only) ---
         if (architectureBean != null) {
             registry.add(action(
                     "architecture_scan",
@@ -125,13 +106,6 @@ public class BootUiMcpTools {
                     BootUiPanels.MEMORY,
                     args -> memoryBean.scan()));
         }
-        if (securityBean != null) {
-            registry.add(action(
-                    "security_scan",
-                    McpToolDescriptions.spring("security_scan"),
-                    BootUiPanels.SECURITY,
-                    args -> securityBean.scan()));
-        }
         if (pentestingBean != null) {
             registry.add(action(
                     "pentest_scan",
@@ -158,7 +132,6 @@ public class BootUiMcpTools {
                     "crac_scan", McpToolDescriptions.spring("crac_scan"), BootUiPanels.CRAC, args -> cracBean.scan()));
         }
 
-        // --- Diagnostics / runtime read tools (panel reads; allowed when the panel is enabled) ---
         if (liveActivityBean != null) {
             registry.add(limitRead(
                     "get_live_activity",
@@ -214,7 +187,6 @@ public class BootUiMcpTools {
                     args -> httpExchangesBean.exchanges(null, null, null, null, args.limit())));
         }
 
-        // --- Core context read tools ---
         if (overviewBean != null) {
             registry.add(read(
                     "get_overview",
@@ -254,12 +226,10 @@ public class BootUiMcpTools {
         this.tools = List.copyOf(registry);
     }
 
-    /** Test/extensibility hook that builds the registry from an explicit tool list. */
-    BootUiMcpTools(List<McpTool> tools) {
+    ReactiveBootUiMcpTools(List<McpTool> tools) {
         this.tools = List.copyOf(tools);
     }
 
-    /** All tools in advertised order. */
     public List<McpTool> tools() {
         return tools;
     }

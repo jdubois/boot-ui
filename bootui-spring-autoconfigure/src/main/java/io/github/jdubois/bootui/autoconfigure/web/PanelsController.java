@@ -315,12 +315,11 @@ public class PanelsController {
     }
 
     private boolean mcpServerAvailable() {
-        return !isReactive();
+        return true;
     }
 
     private String mcpServerUnavailableReason() {
-        return "Not yet ported for Spring WebFlux: the MCP tool catalog is hard-wired to the servlet panel"
-                + " controllers, so it cannot yet resolve the reactive panel surface.";
+        return "MCP Server panel is not available.";
     }
 
     // RestClientTraceBackendConfiguration declares the RestClientTraceRecorder bean unconditionally (so
