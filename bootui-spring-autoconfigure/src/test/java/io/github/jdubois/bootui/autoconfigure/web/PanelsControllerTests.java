@@ -304,10 +304,9 @@ class PanelsControllerTests {
         // (reactive) ApplicationContext - the same shared PanelsController that BootUiReactiveAutoConfiguration
         // imports unmodified must detect it and (a) report the reactive platform discriminator and (b) mark the
         // panels that have no faithful reactive equivalent (HTTP Sessions), are not yet ported (Spring
-        // Security advisor, MCP Server), or are servlet-only by design (REST Client) as unavailable with
-        // a WebFlux-specific reason, instead of relying on incidental classpath presence. Live Activity is
-        // ported reactively (it merges signals already captured by other reactive/shared controllers), so it
-        // stays available here too.
+        // Security advisor), or are servlet-only by design (REST Client) as unavailable with a
+        // WebFlux-specific reason, instead of relying on incidental classpath presence. MCP Server and Live
+        // Activity are ported reactively, so they stay available here too.
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             context.refresh();
             PanelsController controller =
@@ -328,9 +327,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.SPRING_SECURITY) + ".unavailableReason")
                             .value(startsWith("Not yet ported for Spring WebFlux")))
                     .andExpect(jsonPath(panelPath(BootUiPanels.MCP_SERVER) + ".available")
-                            .value(false))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.MCP_SERVER) + ".unavailableReason")
-                            .value(startsWith("Not yet ported for Spring WebFlux")))
+                            .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".unavailableReason")
