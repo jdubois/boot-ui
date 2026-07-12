@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.ArrayList;
@@ -99,124 +100,116 @@ public class BootUiMcpTools {
         if (architectureBean != null) {
             registry.add(action(
                     "architecture_scan",
-                    "Run the Architecture advisor and return layering/dependency findings to fix.",
+                    McpToolDescriptions.spring("architecture_scan"),
                     BootUiPanels.ARCHITECTURE,
                     args -> architectureBean.scan()));
         }
         if (springBean != null) {
             registry.add(action(
                     "spring_scan",
-                    "Run the Spring advisor and return Spring configuration/bean findings to fix.",
+                    McpToolDescriptions.spring("spring_scan"),
                     BootUiPanels.SPRING,
                     args -> springBean.scan()));
         }
         if (hibernateBean != null) {
             registry.add(action(
                     "hibernate_scan",
-                    "Run the Hibernate advisor and return JPA/Hibernate mapping and query findings.",
+                    McpToolDescriptions.spring("hibernate_scan"),
                     BootUiPanels.HIBERNATE,
                     args -> hibernateBean.scan()));
         }
         if (memoryBean != null) {
             registry.add(action(
                     "memory_scan",
-                    "Run the Memory advisor (triggers a class histogram) and return memory findings.",
+                    McpToolDescriptions.spring("memory_scan"),
                     BootUiPanels.MEMORY,
                     args -> memoryBean.scan()));
         }
         if (securityBean != null) {
             registry.add(action(
                     "security_scan",
-                    "Run the Security advisor and return application security findings to fix.",
+                    McpToolDescriptions.spring("security_scan"),
                     BootUiPanels.SECURITY,
                     args -> securityBean.scan()));
         }
         if (pentestingBean != null) {
             registry.add(action(
                     "pentest_scan",
-                    "Run the Pentesting advisor and return probing-based security findings.",
+                    McpToolDescriptions.spring("pentest_scan"),
                     BootUiPanels.PENTESTING,
                     args -> pentestingBean.scan()));
         }
         if (restApiBean != null) {
             registry.add(action(
                     "rest_api_scan",
-                    "Run the REST API advisor and return REST controller/design findings to fix.",
+                    McpToolDescriptions.spring("rest_api_scan"),
                     BootUiPanels.REST_API,
                     args -> restApiBean.scan()));
         }
         if (graalvmBean != null) {
             registry.add(action(
                     "graalvm_scan",
-                    "Run the GraalVM readiness advisor (without the longer dependency scan) and return "
-                            + "native-image readiness findings.",
+                    McpToolDescriptions.spring("graalvm_scan"),
                     BootUiPanels.GRAALVM,
                     args -> graalvmBean.scan(false)));
         }
         if (cracBean != null) {
             registry.add(action(
-                    "crac_scan",
-                    "Run the CRaC readiness advisor and return checkpoint/restore readiness findings.",
-                    BootUiPanels.CRAC,
-                    args -> cracBean.scan()));
+                    "crac_scan", McpToolDescriptions.spring("crac_scan"), BootUiPanels.CRAC, args -> cracBean.scan()));
         }
 
         // --- Diagnostics / runtime read tools (panel reads; allowed when the panel is enabled) ---
         if (liveActivityBean != null) {
             registry.add(limitRead(
                     "get_live_activity",
-                    "Return the correlated live activity feed: HTTP requests, SQL statements, exceptions, "
-                            + "and security events, grouped by request/trace so related signals (e.g. the "
-                            + "slow query or exception behind one HTTP request) are easy to spot together.",
+                    McpToolDescriptions.spring("get_live_activity"),
                     BootUiPanels.ACTIVITY,
                     args -> liveActivityBean.activity(null, null, 0, args.limit(), null, null, null, 0)));
         }
         if (exceptionsBean != null) {
             registry.add(read(
                     "get_exceptions",
-                    "List recent unhandled exceptions captured at runtime (most recent first).",
+                    McpToolDescriptions.spring("get_exceptions"),
                     BootUiPanels.EXCEPTIONS,
                     args -> exceptionsBean.list()));
             registry.add(idRead(
                     "get_exception_detail",
-                    "Return full detail for one exception group by id: stack trace frames, causes, and "
-                            + "individual occurrences (request method/path/handler/thread/traceId). Use the "
-                            + "'id' from get_exceptions or get_live_activity.",
+                    McpToolDescriptions.spring("get_exception_detail"),
                     BootUiPanels.EXCEPTIONS,
                     args -> exceptionsBean.detail(args.id())));
         }
         if (securityLogsBean != null) {
             registry.add(limitRead(
                     "get_security_logs",
-                    "List recent security audit events (authentication, authorization, etc.).",
+                    McpToolDescriptions.spring("get_security_logs"),
                     BootUiPanels.SECURITY_LOGS,
                     args -> securityLogsBean.logs(null, null, null, null, args.limit())));
         }
         if (sqlTraceBean != null) {
             registry.add(read(
                     "get_sql_traces",
-                    "Return recently recorded SQL statements and timings from the SQL Trace recorder.",
+                    McpToolDescriptions.spring("get_sql_traces"),
                     BootUiPanels.SQL_TRACE,
                     args -> sqlTraceBean.trace()));
         }
         if (tracesBean != null) {
             registry.add(limitRead(
                     "get_traces",
-                    "Return recent distributed/local traces captured by BootUI.",
+                    McpToolDescriptions.spring("get_traces"),
                     BootUiPanels.TRACES,
                     args -> tracesBean.list(args.limit())));
         }
         if (logTailBean != null) {
             registry.add(read(
                     "get_log_tail",
-                    "Return the most recent buffered application log lines.",
+                    McpToolDescriptions.spring("get_log_tail"),
                     BootUiPanels.LOG_TAIL,
                     args -> Map.of("entries", logTailBean.recent())));
         }
         if (httpExchangesBean != null) {
             registry.add(limitRead(
                     "get_http_exchanges",
-                    "List recent HTTP request/response exchanges handled by the application.",
+                    McpToolDescriptions.spring("get_http_exchanges"),
                     BootUiPanels.HTTP_EXCHANGES,
                     args -> httpExchangesBean.exchanges(null, null, null, null, args.limit())));
         }
@@ -225,36 +218,35 @@ public class BootUiMcpTools {
         if (overviewBean != null) {
             registry.add(read(
                     "get_overview",
-                    "Return the application overview: name, versions, profiles, and BootUI status.",
+                    McpToolDescriptions.spring("get_overview"),
                     BootUiPanels.OVERVIEW,
                     args -> overviewBean.overview()));
         }
         if (healthBean != null) {
             registry.add(read(
                     "get_health",
-                    "Return the aggregated application health tree (Actuator health).",
+                    McpToolDescriptions.spring("get_health"),
                     BootUiPanels.HEALTH,
                     args -> healthBean.health()));
         }
         if (configBean != null) {
             registry.add(searchRead(
                     "get_config",
-                    "Return effective configuration properties (secret values masked). Optional 'query' "
-                            + "filters by property name/value.",
+                    McpToolDescriptions.spring("get_config"),
                     BootUiPanels.CONFIG,
                     args -> configBean.list(args.query(), null, false, null, args.limit())));
         }
         if (beansBean != null) {
             registry.add(searchRead(
                     "get_beans",
-                    "List Spring beans. Optional 'query' filters by bean name or type.",
+                    McpToolDescriptions.spring("get_beans"),
                     BootUiPanels.BEANS,
                     args -> beansBean.beans(args.query(), null, null, args.limit())));
         }
         if (mappingsBean != null) {
             registry.add(searchRead(
                     "get_mappings",
-                    "List request mappings (URL patterns to handlers). Optional 'query' filters them.",
+                    McpToolDescriptions.spring("get_mappings"),
                     BootUiPanels.MAPPINGS,
                     args -> mappingsBean.flatMappings(args.query(), null, args.limit())));
         }

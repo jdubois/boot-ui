@@ -13,4 +13,9 @@ public record McpToolDescriptor(String name, String description, McpToolSchema s
     public String outputSchemaType() {
         return "object";
     }
+
+    /** Human-readable guidance for the structured result. */
+    public String outputSchemaDescription() {
+        return "Structured BootUI result for " + name + ". Fields may evolve with the panel DTO contract.";
+    }
 }

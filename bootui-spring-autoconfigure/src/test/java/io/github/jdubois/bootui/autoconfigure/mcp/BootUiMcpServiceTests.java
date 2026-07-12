@@ -51,6 +51,9 @@ class BootUiMcpServiceTests {
         assertThat(response.path("result").path("serverInfo").path("version").asString())
                 .isEqualTo("1.2.3");
         assertThat(response.path("result").path("capabilities").has("tools")).isTrue();
+        assertThat(response.path("result").path("capabilities").has("prompts")).isTrue();
+        assertThat(response.path("result").path("instructions").asString())
+                .contains("get_overview", "do not modify code blindly", "may still contain sensitive data");
     }
 
     @Test
@@ -70,6 +73,30 @@ class BootUiMcpServiceTests {
         assertThat(toolsArray.get(0).path("name").asString()).isEqualTo("get_overview");
         assertThat(toolsArray.get(0).path("inputSchema").path("type").asString())
                 .isEqualTo("object");
+        assertThat(toolsArray.get(0).path("outputSchema").path("description").asString())
+                .contains("get_overview");
+    }
+
+    @Test
+    void promptsListAndGetExposeDiagnosticWorkflows() {
+        JsonNode list = service.handle(request("prompts/list", 3, null));
+
+        JsonNode prompts = list.path("result").path("prompts");
+        assertThat(prompts).hasSize(2);
+        assertThat(prompts.get(0).path("name").asString()).isEqualTo("diagnose_runtime_issue");
+        assertThat(prompts.get(0).path("arguments").isArray()).isTrue();
+        assertThat(prompts.get(0).path("arguments")).hasSize(0);
+
+        JsonNode prompt = service.handle(request("prompts/get", 4, params("name", "diagnose_runtime_issue")));
+        assertThat(prompt.path("result").path("messages").get(0).path("role").asString())
+                .isEqualTo("user");
+        assertThat(prompt.path("result")
+                        .path("messages")
+                        .get(0)
+                        .path("content")
+                        .path("text")
+                        .asString())
+                .contains("get_live_activity", "Separate observed evidence from hypotheses");
     }
 
     @Test
@@ -115,12 +142,11 @@ class BootUiMcpServiceTests {
     }
 
     @Test
-    void unknownToolReturnsInBandError() {
+    void unknownToolReturnsInvalidParamsError() {
         JsonNode response = service.handle(callRequest("does_not_exist", 7));
 
-        assertThat(response.path("result").path("isError").asBoolean()).isTrue();
-        assertThat(response.path("result").path("content").get(0).path("text").asString())
-                .contains("Unknown tool");
+        assertThat(response.path("error").path("code").asInt()).isEqualTo(-32602);
+        assertThat(response.path("error").path("message").asString()).contains("Unknown tool");
     }
 
     @Test

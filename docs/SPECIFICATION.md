@@ -1723,7 +1723,8 @@ Design rules:
   overriding the configured property for the lifetime of the running application. While disabled, JSON-RPC requests are
   refused in-band with a `server disabled` error.
 - **In-process and dependency-light.** Implemented as a hand-rolled JSON-RPC 2.0 server (`initialize`, `ping`,
-  `tools/list`, `tools/call`) served over the existing Spring MVC stack at `POST /bootui/api/mcp`, with a
+  `tools/list`, `tools/call`, `prompts/list`, `prompts/get`) served over the existing HTTP stack at
+  `POST /bootui/api/mcp`, with a
   `GET /bootui/api/mcp-server` status response for human inspection. The transport endpoint itself returns 405 to `GET`
   because BootUI does not offer a server-to-client SSE stream. No new runtime dependencies beyond what BootUI already ships.
   The Spring AI MCP server starter is intentionally not used because it targets Spring Boot 3.x.
@@ -1736,11 +1737,22 @@ Design rules:
   `get_mappings`). `get_live_activity` returns the same correlated feed as the Live Activity panel; `get_exception_detail`
   takes a required `id` argument and returns one exception group's full stack trace, causes, and occurrences. Tools whose
   backing controller is absent (conditional on classpath, e.g. Hibernate or Spring Security) are not advertised.
+- **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
+  relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
+  active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions
+  state intended use, ordering, bounded/snapshot semantics, and sensitive-data caveats. Output schemas identify the
+  corresponding structured BootUI result; the existing panel DTO remains the authoritative shape.
+- **Prompt surface.** `prompts/list` advertises two argument-free workflows: `diagnose_runtime_issue` for evidence-led
+  runtime diagnosis and `review_application` for a focused advisor review. `prompts/get` returns the selected workflow as
+  a user message. Both prompts require agents to distinguish evidence from hypotheses, avoid blind fixes, minimize active
+  scans, and include verification steps.
 - **Same safety model as the panels.** The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host`
   allow-list, cross-site write protection). The dispatcher enforces per-panel access: read tools require the backing
   panel to be enabled, action tools are additionally refused when the panel is read-only or `bootui.read-only=true`.
-  Values flow through the same secret masking and `bootui.expose-values` mode, and paginated reads are bounded by
-  `bootui.mcp.max-results`.
+  Configuration values flow through the same secret masking and `bootui.expose-values` mode, and paginated reads are
+  bounded by `bootui.mcp.max-results`. Application-controlled logs, SQL, traces, and exception messages cannot be
+  generically guaranteed secret-free, so initialization and tool guidance explicitly keep that data in the local
+  diagnostic context.
 
 ## 7. UX specification
 

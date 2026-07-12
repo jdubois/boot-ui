@@ -59,6 +59,8 @@ public final class McpProtocol {
     public static final String UNSUPPORTED_PROTOCOL_VERSION_MESSAGE = "Unsupported MCP-Protocol-Version";
     /** Reported in-band when a {@code tools/call} omits the tool name. */
     public static final String MISSING_TOOL_NAME_MESSAGE = "Missing tool name";
+    /** Returned when a {@code prompts/get} request omits the prompt name. */
+    public static final String MISSING_PROMPT_NAME_MESSAGE = "Missing prompt name";
     /** Reported in-band when a {@link McpToolSchema#ID} tool is called without a (non-blank) {@code id}. */
     public static final String MISSING_ID_ARGUMENT_MESSAGE = "Missing required argument: id";
     /** Fallback in-band tool-error text when a tool fails without a message. */

@@ -10,11 +10,14 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptGetResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
+import io.github.jdubois.bootui.engine.mcp.McpPrompt;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequest;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptor;
@@ -139,6 +142,12 @@ public class QuarkusMcpEnvelope {
         if (outcome instanceof ToolsListResult r) {
             return result(id, renderToolsList(r));
         }
+        if (outcome instanceof PromptsListResult r) {
+            return result(id, renderPromptsList(r));
+        }
+        if (outcome instanceof PromptGetResult r) {
+            return result(id, renderPrompt(r.prompt()));
+        }
         if (outcome instanceof ToolCallError e) {
             return result(id, toolError(e.message()));
         }
@@ -156,6 +165,9 @@ public class QuarkusMcpEnvelope {
         ObjectNode toolsCapability = JsonNodeFactory.instance.objectNode();
         toolsCapability.put("listChanged", false);
         capabilities.set("tools", toolsCapability);
+        ObjectNode promptsCapability = JsonNodeFactory.instance.objectNode();
+        promptsCapability.put("listChanged", false);
+        capabilities.set("prompts", promptsCapability);
         response.set("capabilities", capabilities);
 
         ObjectNode serverInfo = JsonNodeFactory.instance.objectNode();
@@ -177,10 +189,40 @@ public class QuarkusMcpEnvelope {
             node.set("inputSchema", schema(tool.schema()));
             ObjectNode outputSchema = JsonNodeFactory.instance.objectNode();
             outputSchema.put("type", tool.outputSchemaType());
+            outputSchema.put("description", tool.outputSchemaDescription());
             node.set("outputSchema", outputSchema);
             array.add(node);
         }
         result.set("tools", array);
+        return result;
+    }
+
+    private static ObjectNode renderPromptsList(PromptsListResult list) {
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        ArrayNode array = JsonNodeFactory.instance.arrayNode();
+        for (McpPrompt prompt : list.prompts()) {
+            ObjectNode node = JsonNodeFactory.instance.objectNode();
+            node.put("name", prompt.name());
+            node.put("description", prompt.description());
+            node.set("arguments", JsonNodeFactory.instance.arrayNode());
+            array.add(node);
+        }
+        result.set("prompts", array);
+        return result;
+    }
+
+    private static ObjectNode renderPrompt(McpPrompt prompt) {
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        result.put("description", prompt.description());
+        ArrayNode messages = JsonNodeFactory.instance.arrayNode();
+        ObjectNode message = JsonNodeFactory.instance.objectNode();
+        message.put("role", "user");
+        ObjectNode content = JsonNodeFactory.instance.objectNode();
+        content.put("type", "text");
+        content.put("text", prompt.text());
+        message.set("content", content);
+        messages.add(message);
+        result.set("messages", messages);
         return result;
     }
 

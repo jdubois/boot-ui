@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.engine.mcp;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptGetResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
@@ -30,6 +32,7 @@ import java.util.concurrent.Semaphore;
 public final class McpDispatcher {
 
     private final List<McpTool> tools;
+    private final List<McpPrompt> prompts;
     private final McpPanelPolicy policy;
     private final String serverVersion;
     private final String instructions;
@@ -39,6 +42,7 @@ public final class McpDispatcher {
     /**
      * @param tools the advertised tool catalog, in order (each adapter wires its own controllers /
      *     resources)
+     * @param prompts the advertised reusable prompt catalog
      * @param policy the per-panel enable / read-only gate behind {@code tools/call}
      * @param serverVersion the server version advertised in {@code initialize} ({@code null} → {@code "dev"})
      * @param instructions the framework-specific usage instructions advertised in {@code initialize}
@@ -47,12 +51,14 @@ public final class McpDispatcher {
      */
     public McpDispatcher(
             List<McpTool> tools,
+            List<McpPrompt> prompts,
             McpPanelPolicy policy,
             String serverVersion,
             String instructions,
             int maxResults,
             int maxConcurrentCalls) {
         this.tools = List.copyOf(tools);
+        this.prompts = List.copyOf(prompts);
         this.policy = policy;
         this.serverVersion = serverVersion == null ? "dev" : serverVersion;
         this.instructions = instructions;
@@ -65,7 +71,25 @@ public final class McpDispatcher {
      */
     public McpDispatcher(
             List<McpTool> tools, McpPanelPolicy policy, String serverVersion, String instructions, int maxResults) {
-        this(tools, policy, serverVersion, instructions, maxResults, McpProtocol.DEFAULT_MAX_CONCURRENT_CALLS);
+        this(
+                tools,
+                List.of(),
+                policy,
+                serverVersion,
+                instructions,
+                maxResults,
+                McpProtocol.DEFAULT_MAX_CONCURRENT_CALLS);
+    }
+
+    /** Backward-compatible constructor without prompt templates. */
+    public McpDispatcher(
+            List<McpTool> tools,
+            McpPanelPolicy policy,
+            String serverVersion,
+            String instructions,
+            int maxResults,
+            int maxConcurrentCalls) {
+        this(tools, List.of(), policy, serverVersion, instructions, maxResults, maxConcurrentCalls);
     }
 
     /** The advertised tool catalog, in order. */
@@ -92,6 +116,8 @@ public final class McpDispatcher {
                         new ToolsListResult(
                                 tools.stream().map(McpTool::describe).toList());
                     case "tools/call" -> callTool(request);
+                    case "prompts/list" -> new PromptsListResult(prompts);
+                    case "prompts/get" -> getPrompt(request);
                     default -> new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + method);
                 };
         return request.notification() ? new NoResponse() : outcome;
@@ -110,6 +136,7 @@ public final class McpDispatcher {
         if (name == null || name.isEmpty()) {
             return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_TOOL_NAME_MESSAGE);
         }
+
         McpTool tool = findTool(name);
         if (tool == null) {
             return new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown tool: " + name);
@@ -140,6 +167,18 @@ public final class McpDispatcher {
         } finally {
             toolCallSemaphore.release();
         }
+    }
+
+    private McpDispatchOutcome getPrompt(McpRequest request) {
+        String name = request.toolName();
+        if (name == null || name.isEmpty()) {
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_PROMPT_NAME_MESSAGE);
+        }
+        return prompts.stream()
+                .filter(prompt -> prompt.name().equals(name))
+                .findFirst()
+                .<McpDispatchOutcome>map(PromptGetResult::new)
+                .orElseGet(() -> new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown prompt: " + name));
     }
 
     private McpTool findTool(String name) {

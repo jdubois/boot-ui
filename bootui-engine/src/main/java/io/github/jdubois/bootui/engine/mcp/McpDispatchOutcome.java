@@ -10,8 +10,8 @@ import java.util.List;
  *
  * <ul>
  *   <li>{@link NoResponse} — a notification; the transport emits no body (HTTP 202).
- *   <li>{@link InitializeResult}/{@link PingResult}/{@link ToolsListResult}/{@link ToolCallResult} —
- *       a JSON-RPC {@code result} envelope.
+ *   <li>{@link InitializeResult}/{@link PingResult}/{@link ToolsListResult}/{@link PromptsListResult}/
+ *       {@link PromptGetResult}/{@link ToolCallResult} — a JSON-RPC {@code result} envelope.
  *   <li>{@link ToolCallError} — a {@code result} carrying {@code isError:true} (an in-band tool
  *       failure the agent can read).
  *   <li>{@link ProtocolError} — a JSON-RPC {@code error} envelope ({@code code}/{@code message}).
@@ -22,6 +22,8 @@ public sealed interface McpDispatchOutcome
                 McpDispatchOutcome.InitializeResult,
                 McpDispatchOutcome.PingResult,
                 McpDispatchOutcome.ToolsListResult,
+                McpDispatchOutcome.PromptsListResult,
+                McpDispatchOutcome.PromptGetResult,
                 McpDispatchOutcome.ToolCallResult,
                 McpDispatchOutcome.ToolCallError,
                 McpDispatchOutcome.ProtocolError {
@@ -49,6 +51,12 @@ public sealed interface McpDispatchOutcome
      * @param tools the advertised tool descriptors, in catalog order
      */
     record ToolsListResult(List<McpToolDescriptor> tools) implements McpDispatchOutcome {}
+
+    /** The {@code prompts/list} result. */
+    record PromptsListResult(List<McpPrompt> prompts) implements McpDispatchOutcome {}
+
+    /** The {@code prompts/get} result. */
+    record PromptGetResult(McpPrompt prompt) implements McpDispatchOutcome {}
 
     /**
      * A successful {@code tools/call}: the adapter serializes {@code payload} to a single text content

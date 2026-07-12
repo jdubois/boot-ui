@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptGetResult;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PromptsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
@@ -56,7 +58,13 @@ class McpDispatcherTests {
 
     private McpDispatcher dispatcher() {
         return new McpDispatcher(
-                List.of(overview, architecture, search, detail), policy, "1.2.3", "instructions text", 50, 20);
+                List.of(overview, architecture, search, detail),
+                List.of(new McpPrompt("diagnose", "Diagnose an issue.", "Inspect runtime evidence.")),
+                policy,
+                "1.2.3",
+                "instructions text",
+                50,
+                20);
     }
 
     @Test
@@ -103,6 +111,32 @@ class McpDispatcherTests {
         assertThat(result.tools().get(2).schema()).isEqualTo(McpToolSchema.QUERY_LIMIT);
         assertThat(result.tools().get(3).schema()).isEqualTo(McpToolSchema.ID);
         assertThat(result.tools().get(0).outputSchemaType()).isEqualTo("object");
+    }
+
+    @Test
+    void promptsListAdvertisesEveryPrompt() {
+        PromptsListResult result = (PromptsListResult) dispatcher().dispatch(method("prompts/list"));
+
+        assertThat(result.prompts()).extracting(McpPrompt::name).containsExactly("diagnose");
+    }
+
+    @Test
+    void promptsGetReturnsPrompt() {
+        McpDispatchOutcome outcome = dispatcher()
+                .dispatch(new McpRequest(JSONRPC, "prompts/get", false, null, "diagnose", null, null, null));
+
+        assertThat(outcome)
+                .isEqualTo(new PromptGetResult(
+                        new McpPrompt("diagnose", "Diagnose an issue.", "Inspect runtime evidence.")));
+    }
+
+    @Test
+    void promptsGetValidatesName() {
+        assertThat(dispatcher().dispatch(method("prompts/get")))
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_PROMPT_NAME_MESSAGE));
+        assertThat(dispatcher()
+                        .dispatch(new McpRequest(JSONRPC, "prompts/get", false, null, "unknown", null, null, null)))
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown prompt: unknown"));
     }
 
     @Test

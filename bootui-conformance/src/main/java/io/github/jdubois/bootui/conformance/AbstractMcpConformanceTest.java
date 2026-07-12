@@ -84,7 +84,9 @@ public abstract class AbstractMcpConformanceTest {
             JsonNode result = response.json().path("result");
             assertThat(result.path("protocolVersion").asText()).isEqualTo("2025-06-18");
             assertThat(result.path("capabilities").path("tools").isObject()).isTrue();
+            assertThat(result.path("capabilities").path("prompts").isObject()).isTrue();
             assertThat(result.path("serverInfo").path("name").asText()).isEqualTo("bootui");
+            assertThat(result.path("instructions").asText()).contains("get_overview", "sensitive data");
         } finally {
             disableMcp();
         }
@@ -175,6 +177,40 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(response.status()).isEqualTo(200);
             assertThat(response.json().path("result").isObject()).isTrue();
             assertThat(response.json().path("result").size()).isZero();
+        } finally {
+            disableMcp();
+        }
+    }
+
+    @Test
+    void testMcpPromptsWhenEnabled() {
+        assumeTrue(enableMcp());
+        try {
+            Response list = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prompts/list\"}");
+            JsonNode prompts = list.json().path("result").path("prompts");
+            assertThat(prompts.isArray()).isTrue();
+            assertThat(prompts).isNotEmpty();
+
+            String name = prompts.get(0).path("name").asText();
+            Response get = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"prompts/get\"," + "\"params\":{\"name\":\""
+                                    + name + "\"}}");
+            JsonNode result = get.json().path("result");
+            assertThat(result.path("description").isTextual()).isTrue();
+            assertThat(result.path("messages").get(0).path("role").asText()).isEqualTo("user");
+            assertThat(result.path("messages")
+                            .get(0)
+                            .path("content")
+                            .path("type")
+                            .asText())
+                    .isEqualTo("text");
         } finally {
             disableMcp();
         }
