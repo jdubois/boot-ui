@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.quarkus.web.TracesResource;
 import jakarta.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -200,7 +201,7 @@ public class QuarkusMcpTools {
                         "get_log_tail",
                         "Return the most recent buffered application log lines.",
                         BootUiPanels.LOG_TAIL,
-                        args -> logTail.recent()));
+                        args -> Map.of("entries", logTail.recent())));
         addIfAvailable(
                 registry,
                 availability,

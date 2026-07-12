@@ -140,33 +140,36 @@ class McpDispatcherTests {
     }
 
     @Test
-    void toolsCallWithIdSchemaAndMissingIdIsInBandError() {
+    void toolsCallWithIdSchemaAndMissingIdIsInvalidParams() {
         McpDispatchOutcome outcome = dispatcher().dispatch(call("get_exception_detail"));
 
-        assertThat(outcome).isEqualTo(new ToolCallError(McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
+        assertThat(outcome)
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
     }
 
     @Test
-    void toolsCallWithIdSchemaAndBlankIdIsInBandError() {
+    void toolsCallWithIdSchemaAndBlankIdIsInvalidParams() {
         McpDispatchOutcome outcome = dispatcher()
                 .dispatch(
                         new McpRequest(JSONRPC, "tools/call", false, null, "get_exception_detail", null, null, "   "));
 
-        assertThat(outcome).isEqualTo(new ToolCallError(McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
+        assertThat(outcome)
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
     }
 
     @Test
-    void missingToolNameIsInBandError() {
+    void missingToolNameIsInvalidParams() {
         McpDispatchOutcome outcome = dispatcher().dispatch(call(""));
 
-        assertThat(outcome).isEqualTo(new ToolCallError(McpProtocol.MISSING_TOOL_NAME_MESSAGE));
+        assertThat(outcome)
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_TOOL_NAME_MESSAGE));
     }
 
     @Test
-    void unknownToolIsInBandError() {
+    void unknownToolIsInvalidParams() {
         McpDispatchOutcome outcome = dispatcher().dispatch(call("does_not_exist"));
 
-        assertThat(outcome).isEqualTo(new ToolCallError("Unknown tool: does_not_exist"));
+        assertThat(outcome).isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown tool: does_not_exist"));
     }
 
     @Test
@@ -249,6 +252,14 @@ class McpDispatcherTests {
                 .dispatch(new McpRequest(JSONRPC, "notifications/initialized", true, null, null, null, null, null));
 
         assertThat(outcome).isInstanceOf(NoResponse.class);
+    }
+
+    @Test
+    void recognizedNotificationsProduceNoResponse() {
+        assertThat(dispatcher().dispatch(new McpRequest(JSONRPC, "ping", true, null, null, null, null, null)))
+                .isInstanceOf(NoResponse.class);
+        assertThat(dispatcher().dispatch(new McpRequest(JSONRPC, "tools/list", true, null, null, null, null, null)))
+                .isInstanceOf(NoResponse.class);
     }
 
     @Test

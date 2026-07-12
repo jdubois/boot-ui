@@ -1724,8 +1724,9 @@ Design rules:
   refused in-band with a `server disabled` error.
 - **In-process and dependency-light.** Implemented as a hand-rolled JSON-RPC 2.0 server (`initialize`, `ping`,
   `tools/list`, `tools/call`) served over the existing Spring MVC stack at `POST /bootui/api/mcp`, with a
-  `GET /bootui/api/mcp` status response for human inspection. No new runtime dependencies beyond what BootUI already
-  ships. The Spring AI MCP server starter is intentionally not used because it targets Spring Boot 3.x.
+  `GET /bootui/api/mcp-server` status response for human inspection. The transport endpoint itself returns 405 to `GET`
+  because BootUI does not offer a server-to-client SSE stream. No new runtime dependencies beyond what BootUI already ships.
+  The Spring AI MCP server starter is intentionally not used because it targets Spring Boot 3.x.
 - **Reuse, don't reimplement.** Each tool delegates to the same controller/service the REST API and panels use and
   returns the existing DTO records, so contracts stay stable and masked.
 - **Tool surface.** Advisor scans as action tools (`architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`,

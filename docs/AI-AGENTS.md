@@ -55,8 +55,8 @@ The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/
    browser-only CSRF token so non-browser MCP clients connect with a plain HTTP config, while `LocalhostOnlyFilter`'s
    loopback, `Host` allow-list, and cross-site write defenses still apply.
 
-A `GET /bootui/api/mcp` status request returns the advertised tool list, which is handy for inspecting what an agent will
-see before you wire it up.
+A `GET /bootui/api/mcp-server` status request returns the advertised tool list, which is handy for inspecting what an
+agent will see before you wire it up.
 
 ### Tools the agent can call
 

@@ -21,10 +21,11 @@ import java.util.concurrent.Semaphore;
  * calls {@link #dispatch(McpRequest)}, and renders the outcome back to JSON with its own
  * {@code ObjectMapper} (Jackson 3 on Spring Boot, Jackson 2 on Quarkus). The control flow here is a
  * one-to-one translation of the original Spring {@code BootUiMcpService} so both adapters answer
- * byte-identically: a refused gate / missing / unknown tool is an in-band {@link ToolCallError}
- * ({@code isError:true}); a tool handler throwing a {@link RuntimeException} becomes a JSON-RPC
- * {@link ProtocolError} ({@code -32603}); serialization of a successful payload (the only remaining
- * Jackson step) is performed and error-handled by the adapter codec.
+ * byte-identically: a refused panel gate is an in-band {@link ToolCallError} ({@code isError:true});
+ * malformed tool calls are JSON-RPC {@link ProtocolError}s; a tool handler throwing a
+ * {@link RuntimeException} becomes a JSON-RPC {@link ProtocolError} ({@code -32603}); serialization of
+ * a successful payload (the only remaining Jackson step) is performed and error-handled by the adapter
+ * codec.
  */
 public final class McpDispatcher {
 
@@ -83,17 +84,17 @@ public final class McpDispatcher {
                     ? new NoResponse()
                     : new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_METHOD_MESSAGE);
         }
-        return switch (method) {
-            case "initialize" -> initialize(request);
-            case "ping" -> new PingResult();
-            case "tools/list" ->
-                new ToolsListResult(tools.stream().map(McpTool::describe).toList());
-            case "tools/call" -> callTool(request);
-            default ->
-                request.notification()
-                        ? new NoResponse()
-                        : new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + method);
-        };
+        McpDispatchOutcome outcome =
+                switch (method) {
+                    case "initialize" -> initialize(request);
+                    case "ping" -> new PingResult();
+                    case "tools/list" ->
+                        new ToolsListResult(
+                                tools.stream().map(McpTool::describe).toList());
+                    case "tools/call" -> callTool(request);
+                    default -> new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + method);
+                };
+        return request.notification() ? new NoResponse() : outcome;
     }
 
     private McpDispatchOutcome initialize(McpRequest request) {
@@ -107,11 +108,11 @@ public final class McpDispatcher {
     private McpDispatchOutcome callTool(McpRequest request) {
         String name = request.toolName();
         if (name == null || name.isEmpty()) {
-            return new ToolCallError(McpProtocol.MISSING_TOOL_NAME_MESSAGE);
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_TOOL_NAME_MESSAGE);
         }
         McpTool tool = findTool(name);
         if (tool == null) {
-            return new ToolCallError("Unknown tool: " + name);
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown tool: " + name);
         }
         if (!policy.isEnabled(tool.panelId())) {
             return new ToolCallError(policy.disabledReason(tool.panelId()));
@@ -122,7 +123,7 @@ public final class McpDispatcher {
         McpArguments arguments =
                 McpArguments.normalize(request.rawQuery(), request.rawLimit(), request.rawId(), maxResults);
         if (tool.schema() == McpToolSchema.ID && arguments.id() == null) {
-            return new ToolCallError(McpProtocol.MISSING_ID_ARGUMENT_MESSAGE);
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE);
         }
         if (!toolCallSemaphore.tryAcquire()) {
             return new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.RATE_LIMITED_MESSAGE);

@@ -30,15 +30,9 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
-    void testMcpGetStatus() {
+    void testMcpGetRejectsUnsupportedSseStream() {
         Response response = probe().get("/bootui/api/mcp");
-        assertThat(response.status()).isEqualTo(200);
-        assertThat(response.isJson()).isTrue();
-        JsonNode json = response.json();
-        assertThat(json.path("enabled").isBoolean()).isTrue();
-        assertThat(json.path("server").asText()).isEqualTo("bootui");
-        assertThat(json.path("endpoint").asText()).isEqualTo("/bootui/api/mcp");
-        assertThat(json.path("toolCount").canConvertToInt()).isTrue();
+        assertThat(response.status()).isEqualTo(405);
     }
 
     @Test
@@ -131,6 +125,22 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testMcpRejectsUnsupportedProtocolVersionHeader() {
+        assumeTrue(enableMcp());
+        try {
+            Response response = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json", "MCP-Protocol-Version", "2099-01-01"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}");
+            assertThat(response.status()).isEqualTo(400);
+            assertThat(response.json().path("error").path("code").asInt()).isEqualTo(-32600);
+        } finally {
+            disableMcp();
+        }
+    }
+
+    @Test
     void testMcpToolsListWhenEnabled() {
         assumeTrue(enableMcp());
         try {
@@ -184,5 +194,32 @@ public abstract class AbstractMcpConformanceTest {
         } finally {
             disableMcp();
         }
+    }
+
+    @Test
+    void testRecognizedMcpNotificationReturns202() {
+        assumeTrue(enableMcp());
+        try {
+            Response response = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}");
+            assertThat(response.status()).isEqualTo(202);
+            assertThat(response.body()).isBlank();
+        } finally {
+            disableMcp();
+        }
+    }
+
+    @Test
+    void testDisabledMcpNotificationReturns202() {
+        Response response = probe().request(
+                        "POST",
+                        "/bootui/api/mcp",
+                        Map.of("Content-Type", "application/json"),
+                        "{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}");
+        assertThat(response.status()).isEqualTo(202);
+        assertThat(response.body()).isBlank();
     }
 }

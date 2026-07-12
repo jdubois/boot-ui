@@ -16,11 +16,11 @@ public final class McpProtocol {
     /** MCP protocol revision advertised when the client does not request a specific one. */
     public static final String DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 
-    /** Prior supported MCP protocol revision accepted during initialize negotiation. */
-    public static final String PRIOR_PROTOCOL_VERSION = "2025-03-26";
-
     /** Every protocol revision the BootUI MCP server understands. */
-    public static final Set<String> KNOWN_VERSIONS = Set.of(DEFAULT_PROTOCOL_VERSION, PRIOR_PROTOCOL_VERSION);
+    public static final Set<String> KNOWN_VERSIONS = Set.of(DEFAULT_PROTOCOL_VERSION);
+
+    /** HTTP header carrying the negotiated protocol revision on post-initialization requests. */
+    public static final String PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version";
 
     /** JSON-RPC version string required in every request. */
     public static final String JSONRPC_VERSION = "2.0";
@@ -55,6 +55,8 @@ public final class McpProtocol {
     /** Returned when the transport receives a batch request, which MCP Streamable HTTP forbids. */
     public static final String BATCH_NOT_SUPPORTED_MESSAGE =
             "JSON-RPC batch requests are not supported by MCP Streamable HTTP transport";
+    /** Returned when the HTTP protocol-version header names an unsupported revision. */
+    public static final String UNSUPPORTED_PROTOCOL_VERSION_MESSAGE = "Unsupported MCP-Protocol-Version";
     /** Reported in-band when a {@code tools/call} omits the tool name. */
     public static final String MISSING_TOOL_NAME_MESSAGE = "Missing tool name";
     /** Reported in-band when a {@link McpToolSchema#ID} tool is called without a (non-blank) {@code id}. */

@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -210,7 +211,7 @@ public class BootUiMcpTools {
                     "get_log_tail",
                     "Return the most recent buffered application log lines.",
                     BootUiPanels.LOG_TAIL,
-                    args -> logTailBean.recent()));
+                    args -> Map.of("entries", logTailBean.recent())));
         }
         if (httpExchangesBean != null) {
             registry.add(limitRead(

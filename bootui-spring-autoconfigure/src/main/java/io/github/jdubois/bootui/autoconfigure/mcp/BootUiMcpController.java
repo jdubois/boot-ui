@@ -7,11 +7,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
-import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Loopback HTTP transport for the BootUI MCP server (MCP "Streamable HTTP" style).
@@ -23,9 +23,8 @@ import tools.jackson.databind.node.ObjectNode;
  * is initialized from {@code bootui.mcp.enabled} and can be toggled at runtime from the MCP Server
  * panel via {@link McpServerState}.
  *
- * <p>The {@code GET} variant returns a small human-readable status document (tool count, endpoint,
- * enabled state) so the server can be sanity-checked with a browser or {@code curl} on the loopback
- * interface.
+ * <p>The {@code GET} variant returns 405 because BootUI does not offer a server-to-client SSE stream
+ * at this endpoint. Human-readable status is available from {@code /bootui/api/mcp-server}.
  */
 @RestController
 @RequestMapping("/bootui/api/mcp")
@@ -34,20 +33,23 @@ public class BootUiMcpController {
     private static final String PAYLOAD_LIMIT_MESSAGE = "Request payload exceeds limit";
 
     private final BootUiMcpService service;
-    private final BootUiMcpTools tools;
     private final McpServerState state;
     private final int maxPayloadBytes;
 
-    public BootUiMcpController(
-            BootUiMcpService service, BootUiMcpTools tools, McpServerState state, BootUiProperties properties) {
+    public BootUiMcpController(BootUiMcpService service, McpServerState state, BootUiProperties properties) {
         this.service = service;
-        this.tools = tools;
         this.state = state;
         this.maxPayloadBytes = Math.max(1, properties.getMcp().getMaxPayloadBytes());
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<String> rpc(@RequestBody byte[] requestBody) {
+    public ResponseEntity<String> rpc(
+            @RequestBody byte[] requestBody,
+            @RequestHeader(value = McpProtocol.PROTOCOL_VERSION_HEADER, required = false) String protocolVersion) {
+        if (protocolVersion != null && !McpProtocol.KNOWN_VERSIONS.contains(protocolVersion)) {
+            return json(
+                    400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.UNSUPPORTED_PROTOCOL_VERSION_MESSAGE));
+        }
         if (requestBody != null && requestBody.length > maxPayloadBytes) {
             return json(413, error(null, McpProtocol.PARSE_ERROR, PAYLOAD_LIMIT_MESSAGE));
         }
@@ -61,6 +63,9 @@ public class BootUiMcpController {
             return json(400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE));
         }
         if (!state.isEnabled()) {
+            if (isNotification(request)) {
+                return ResponseEntity.accepted().build();
+            }
             return json(200, disabledError(request));
         }
         JsonNode response = service.handle(request);
@@ -72,16 +77,8 @@ public class BootUiMcpController {
     }
 
     @GetMapping
-    public ResponseEntity<String> status() {
-        ObjectNode status = JsonNodeFactory.instance.objectNode();
-        status.put("server", BootUiMcpService.SERVER_NAME);
-        status.put("enabled", state.isEnabled());
-        status.put("transport", "http");
-        status.put("endpoint", "/bootui/api/mcp");
-        status.put("protocolVersion", BootUiMcpService.DEFAULT_PROTOCOL_VERSION);
-        status.put("toolCount", tools.tools().size());
-        tools.tools().forEach(tool -> status.withArray("tools").add(tool.name()));
-        return json(200, status);
+    public ResponseEntity<Void> getStream() {
+        return ResponseEntity.status(405).build();
     }
 
     /**
@@ -93,11 +90,19 @@ public class BootUiMcpController {
         return error(id, McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE);
     }
 
-    private static ObjectNode error(JsonNode id, int code, String message) {
-        ObjectNode response = JsonNodeFactory.instance.objectNode();
+    private static boolean isNotification(JsonNode request) {
+        return request != null
+                && request.isObject()
+                && !request.hasNonNull("id")
+                && McpProtocol.JSONRPC_VERSION.equals(request.path("jsonrpc").asString())
+                && !request.path("method").asString().isBlank();
+    }
+
+    private static tools.jackson.databind.node.ObjectNode error(JsonNode id, int code, String message) {
+        tools.jackson.databind.node.ObjectNode response = JsonNodeFactory.instance.objectNode();
         response.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         response.set("id", id == null ? JsonNodeFactory.instance.nullNode() : id);
-        ObjectNode error = JsonNodeFactory.instance.objectNode();
+        tools.jackson.databind.node.ObjectNode error = JsonNodeFactory.instance.objectNode();
         error.put("code", code);
         error.put("message", message == null ? "Error" : message);
         response.set("error", error);

@@ -62,9 +62,7 @@ class BootUiMcpAutoConfigurationTests {
                             .content(body))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.error.code").value(-32000));
-            mvc.perform(get("/bootui/api/mcp"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.enabled").value(false));
+            mvc.perform(get("/bootui/api/mcp")).andExpect(status().isMethodNotAllowed());
         });
     }
 
@@ -98,16 +96,13 @@ class BootUiMcpAutoConfigurationTests {
     }
 
     @Test
-    void statusEndpointReportsTools() {
+    void getTransportEndpointReturnsMethodNotAllowed() {
         webMvcRunner()
                 .withPropertyValues("bootui.enabled=ON", "bootui.mcp.enabled=ON")
                 .run(context -> {
                     MockMvc mvc = MockMvcBuilders.webAppContextSetup((WebApplicationContext) context)
                             .build();
-                    mvc.perform(get("/bootui/api/mcp"))
-                            .andExpect(status().isOk())
-                            .andExpect(jsonPath("$.server").value("bootui"))
-                            .andExpect(jsonPath("$.tools").isArray());
+                    mvc.perform(get("/bootui/api/mcp")).andExpect(status().isMethodNotAllowed());
                 });
     }
 

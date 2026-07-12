@@ -373,11 +373,8 @@ public class BootUiReactiveAutoConfiguration {
         @Bean
         @Lazy
         ReactiveBootUiMcpController bootUiReactiveMcpController(
-                BootUiMcpService service,
-                ReactiveBootUiMcpTools tools,
-                McpServerState state,
-                BootUiProperties properties) {
-            return new ReactiveBootUiMcpController(service, tools, state, properties);
+                BootUiMcpService service, McpServerState state, BootUiProperties properties) {
+            return new ReactiveBootUiMcpController(service, state, properties);
         }
 
         @Bean

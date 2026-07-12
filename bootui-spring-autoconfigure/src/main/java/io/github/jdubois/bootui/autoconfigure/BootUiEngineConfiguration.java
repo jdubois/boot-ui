@@ -463,7 +463,11 @@ public class BootUiEngineConfiguration {
      * an empty report when this backend is absent.
      */
     @Configuration(proxyBeanMethods = false)
-    @ConditionalOnClass(name = "org.springframework.boot.actuate.web.mappings.MappingsEndpoint")
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.boot.actuate.web.mappings.MappingsEndpoint",
+                "org.springframework.boot.webmvc.actuate.web.mappings.DispatcherServletMappingDescription"
+            })
     static class MappingsBackendConfiguration {
 
         @Bean

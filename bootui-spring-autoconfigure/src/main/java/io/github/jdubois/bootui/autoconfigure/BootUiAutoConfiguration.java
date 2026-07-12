@@ -435,8 +435,8 @@ public class BootUiAutoConfiguration {
         @Bean
         @Lazy
         BootUiMcpController bootUiMcpController(
-                BootUiMcpService service, BootUiMcpTools tools, McpServerState state, BootUiProperties properties) {
-            return new BootUiMcpController(service, tools, state, properties);
+                BootUiMcpService service, McpServerState state, BootUiProperties properties) {
+            return new BootUiMcpController(service, state, properties);
         }
     }
 

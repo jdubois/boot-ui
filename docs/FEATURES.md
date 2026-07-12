@@ -1438,8 +1438,9 @@ BootUI can expose its advisors and read-only diagnostics to local AI coding agen
 Code) through a local, opt-in [Model Context Protocol](https://modelcontextprotocol.io) server, so an agent can consult
 the advisors before proposing a fix and pull runtime diagnostics (a correlated live activity feed, exception detail,
 security logs, SQL traces, HTTP exchanges) while investigating an issue. The server is a JSON-RPC 2.0 endpoint at
-`POST /bootui/api/mcp` (a `GET /bootui/api/mcp` status request returns the advertised tool list for inspection); it is
-disabled by default (fail-closed) and, like the rest of the BootUI API, only reachable over the loopback interface.
+`POST /bootui/api/mcp`; human-readable status and the advertised tool list are available from
+`GET /bootui/api/mcp-server`. The server is disabled by default (fail-closed) and, like the rest of the BootUI API, only
+reachable over the loopback interface.
 Enable it headlessly with `bootui.mcp.enabled=ON`, or use the prominent toggle at the top of this panel to turn it on
 or off **at runtime, overriding the `bootui.mcp.enabled` Spring Boot property** for the lifetime of the running
 application — the configured mode only sets the initial state, and the panel shows when the live state is an override.
