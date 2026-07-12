@@ -293,7 +293,6 @@ Activity (over a rebuilt reactive streaming/capture layer). The following panels
   `SecurityFilterChain` bean, which a reactive Spring Security setup never registers (it registers a
   `WebFilterChainProxy` instead); a `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned.
 - **REST Client** — not yet ported: the standalone panel is only available on the Spring MVC (servlet) adapter.
-- **MCP Server** — not yet ported: the tool catalog is hard-wired to the servlet panel controllers.
 
 For the authoritative, per-panel detail and the reasoning behind each gap, see [Features](FEATURES.md) and
 [BootUI on Spring WebFlux](WEBFLUX-SUPPORT.md).
@@ -308,7 +307,7 @@ BootUI engine.
 
 - Java 17 or later
 - A Quarkus application (built and tested against the version pinned by the root `pom.xml`'s
-  `quarkus.platform.version` property; currently `3.37.1`)
+  `quarkus.platform.version` property; currently `3.37.2`)
 - Maven or Gradle (or their local wrappers)
 
 ### Add the extension

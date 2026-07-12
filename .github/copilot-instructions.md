@@ -77,7 +77,7 @@ Load-bearing rules:
 - Java 17 (compiler `release` 17, `-parameters`). Maven Wrapper (`./mvnw`), Maven 3.9.16; do not require a system Maven.
 - Spring Boot 4.1.x (`spring-boot.version` in root `pom.xml`; currently 4.1.0).
 - Quarkus 3.37.x for the extension and integration suites (`quarkus.platform.version` in the root `pom.xml`; currently
-  3.37.1). The Quarkus sample app has a separate platform pin aligned with its Quarkus LangChain4j dependency.
+  3.37.2). The Quarkus sample app has a separate platform pin aligned with its Quarkus LangChain4j dependency.
 - Published Maven coordinates use `com.julien-dubois.bootui:*`; Java packages remain `io.github.jdubois.bootui.*`.
 - Node.js / npm for the packaged Vue app are downloaded automatically by the `frontend-maven-plugin` (`node.version` /
   `npm.version` in root `pom.xml`); do not add a manual Node install step for the Maven build.
