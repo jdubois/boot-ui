@@ -199,6 +199,14 @@ class BootUiReactiveAutoConfigurationTests {
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .configureClient()
+                            .defaultHeader(
+                                    "Authorization",
+                                    "Bearer "
+                                            + context.getBean(
+                                                            io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
+                                                                    .class)
+                                                    .token())
                             .build();
                     // Fixture-backed test resource at META-INF/resources/bootui/index.html (see
                     // BootUiStaticResourceConfigurerTests for the servlet-side twin of this fixture).
@@ -239,6 +247,14 @@ class BootUiReactiveAutoConfigurationTests {
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .configureClient()
+                            .defaultHeader(
+                                    "Authorization",
+                                    "Bearer "
+                                            + context.getBean(
+                                                            io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
+                                                                    .class)
+                                                    .token())
                             .build();
                     // BootUiIndexController.INDEX_LOCATION resolves to the same
                     // META-INF/resources/bootui/index.html test fixture the static-asset tests use, so this is a
@@ -301,6 +317,14 @@ class BootUiReactiveAutoConfigurationTests {
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .configureClient()
+                            .defaultHeader(
+                                    "Authorization",
+                                    "Bearer "
+                                            + context.getBean(
+                                                            io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
+                                                                    .class)
+                                                    .token())
                             .build();
                     client.get()
                             .uri("/bootui/api/overview")
@@ -356,6 +380,14 @@ class BootUiReactiveAutoConfigurationTests {
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .configureClient()
+                            .defaultHeader(
+                                    "Authorization",
+                                    "Bearer "
+                                            + context.getBean(
+                                                            io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
+                                                                    .class)
+                                                    .token())
                             .build();
                     client.get()
                             .uri("/bootui/api/architecture")
@@ -416,6 +448,14 @@ class BootUiReactiveAutoConfigurationTests {
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .configureClient()
+                            .defaultHeader(
+                                    "Authorization",
+                                    "Bearer "
+                                            + context.getBean(
+                                                            io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
+                                                                    .class)
+                                                    .token())
                             .build();
                     client.get()
                             .uri("/bootui/api/overview")
@@ -444,6 +484,14 @@ class BootUiReactiveAutoConfigurationTests {
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .configureClient()
+                            .defaultHeader(
+                                    "Authorization",
+                                    "Bearer "
+                                            + context.getBean(
+                                                            io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
+                                                                    .class)
+                                                    .token())
                             .build();
                     client.post()
                             .uri("/bootui/api/pentesting/scan")
@@ -489,6 +537,14 @@ class BootUiReactiveAutoConfigurationTests {
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .configureClient()
+                            .defaultHeader(
+                                    "Authorization",
+                                    "Bearer "
+                                            + context.getBean(
+                                                            io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
+                                                                    .class)
+                                                    .token())
                             .build();
                     client.get()
                             .uri("/bootui/api/sql-trace")
@@ -563,6 +619,14 @@ class BootUiReactiveAutoConfigurationTests {
                 .withBean(ThrowingTestController.class)
                 .run(context -> {
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .configureClient()
+                            .defaultHeader(
+                                    "Authorization",
+                                    "Bearer "
+                                            + context.getBean(
+                                                            io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
+                                                                    .class)
+                                                    .token())
                             .build();
 
                     client.get()
@@ -607,6 +671,14 @@ class BootUiReactiveAutoConfigurationTests {
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .configureClient()
+                            .defaultHeader(
+                                    "Authorization",
+                                    "Bearer "
+                                            + context.getBean(
+                                                            io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator
+                                                                    .class)
+                                                    .token())
                             .build();
 
                     client.get()

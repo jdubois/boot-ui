@@ -232,6 +232,20 @@ public class BootUiQuarkusSafetyFilter {
     }
 
     /**
+     * Returns whether {@code remoteAddr} is a genuinely trusted source (loopback, a configured trusted
+     * range, or a trusted container gateway) under the same {@link LocalhostGuard} policy and
+     * once-resolved gateway snapshot this filter uses — <em>not</em> whether
+     * {@code bootui.allow-non-localhost} merely bypassed the check. Reused by
+     * {@link BootUiQuarkusAuthenticationFilter} so bearer-token authentication treats an already-trusted
+     * source (e.g. via {@code bootui.trusted-proxies} or {@code bootui.trust-container-gateway}) exactly
+     * as frictionlessly as this filter does, instead of re-deriving a narrower, drift-prone notion of
+     * "local".
+     */
+    boolean isTrustedSource(String remoteAddr) {
+        return guard.isTrustedSource(remoteAddr, buildConfig());
+    }
+
+    /**
      * Builds the per-request guard configuration from live MicroProfile config plus the once-resolved
      * gateway snapshot. When {@code bootui.trust-container-gateway} is {@code OFF} (the default) the
      * snapshot is empty and the guard never trusts a gateway.

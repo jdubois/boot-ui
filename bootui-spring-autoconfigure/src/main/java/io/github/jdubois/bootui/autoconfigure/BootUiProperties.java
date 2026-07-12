@@ -60,6 +60,10 @@ public class BootUiProperties {
      */
     private Mode trustContainerGateway = Mode.OFF;
     /**
+     * Authentication settings for non-loopback API callers.
+     */
+    private Authentication authentication = new Authentication();
+    /**
      * Mask secret-like configuration values.
      */
     private boolean maskSecrets = true;
@@ -238,6 +242,14 @@ public class BootUiProperties {
 
     public void setTrustContainerGateway(Mode trustContainerGateway) {
         this.trustContainerGateway = trustContainerGateway;
+    }
+
+    public Authentication getAuthentication() {
+        return authentication;
+    }
+
+    public void setAuthentication(Authentication authentication) {
+        this.authentication = authentication == null ? new Authentication() : authentication;
     }
 
     public boolean isMaskSecrets() {
@@ -2119,6 +2131,23 @@ public class BootUiProperties {
         public enum DataSourceMode {
             SHARED,
             DEDICATED
+        }
+    }
+
+    public static class Authentication {
+
+        /**
+         * Optional bearer token for non-loopback API access. When blank, BootUI generates one at
+         * startup.
+         */
+        private String token;
+
+        public String getToken() {
+            return token;
+        }
+
+        public void setToken(String token) {
+            this.token = token;
         }
     }
 

@@ -64,7 +64,8 @@ Make a running Spring Boot or Quarkus application understandable in minutes.
   way .NET Aspire's AppHost does.
 - Kubernetes workflow management.
 - Hosted dashboards.
-- Authentication and user management.
+- User accounts, roles, and identity-provider integration. BootUI uses one lightweight bearer token
+  for non-loopback API access; it is not an application user-management system.
 - Full APM/tracing replacement. BootUI's telemetry capture is dev-only, bounded in memory, and never forwards data
   anywhere.
 - Upgrade automation.
@@ -1606,6 +1607,7 @@ Initial properties:
 | `bootui.api-path`                            | `/bootui/api`                           | Internal API base path used by the safety filter; controllers currently serve `/bootui/api/**`.   |
 | `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                           |
 | `bootui.allowed-hosts`                       | _(empty)_                               | Extra `Host` header values accepted by the loopback filter (DNS-rebinding allow-list).            |
+| `bootui.authentication.token`                | _(generated)_                           | Access token required by non-loopback API callers. A generated token is logged once at startup when remote access is configured; configured tokens are never logged. |
 | `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                   |
 | `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                         |
 | `bootui.read-only`                           | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.                 |
@@ -1677,6 +1679,10 @@ Rules:
 
 - Bind to local development only.
 - Reject non-loopback requests by default.
+- When non-loopback access is explicitly enabled, leave the static SPA shell public but require a
+  bearer token for every `/bootui/api/**` request. Local loopback API requests require no token. The
+  SPA exchanges the startup token for an HTTP-only, same-site session cookie so SSE and downloads work;
+  programmatic clients use the standard HTTP bearer authorization scheme.
 - Validate the `Host` header against the built-in loopback names plus `bootui.allowed-hosts` to defend against
   DNS-rebinding attacks, and reject cross-site state-changing requests (via `Origin`/`Sec-Fetch-Site`) so mutating
   endpoints stay protected even when Spring Security is absent.

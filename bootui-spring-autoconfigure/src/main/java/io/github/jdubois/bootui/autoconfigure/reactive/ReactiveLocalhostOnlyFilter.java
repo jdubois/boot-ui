@@ -51,6 +51,20 @@ public class ReactiveLocalhostOnlyFilter extends AbstractReactiveBootUiFilter im
     }
 
     /**
+     * Returns whether {@code remoteAddr} is a genuinely trusted source (loopback, a configured trusted
+     * range, or a trusted container gateway) under the same {@link LocalhostGuard} policy and
+     * {@link LocalhostGuardConfigSupport} cache this filter uses — <em>not</em> whether
+     * {@code bootui.allow-non-localhost} merely bypassed the check. Reused by
+     * {@code ReactiveApiAuthenticationFilter} so bearer-token authentication treats an already-trusted
+     * source (e.g. via {@code bootui.trusted-proxies} or {@code bootui.trust-container-gateway}) exactly
+     * as frictionlessly as this filter does, instead of re-deriving a narrower, drift-prone notion of
+     * "local".
+     */
+    boolean isTrustedSource(String remoteAddr) {
+        return guard.isTrustedSource(remoteAddr, configSupport.buildConfig(log));
+    }
+
+    /**
      * Matches the servlet filter's {@code FilterRegistrationBean} order ({@code Integer.MIN_VALUE + 1}),
      * one after {@link ReactiveSecurityHeadersFilter}: WebFlux has no registration-level ordering, so
      * this is the sole ordering mechanism.

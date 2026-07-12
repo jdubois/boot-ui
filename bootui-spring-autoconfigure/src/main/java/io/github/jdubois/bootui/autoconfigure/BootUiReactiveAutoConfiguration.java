@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveActivitySignalFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveAgentSessionController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveApiAuthenticationFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiExceptionHandler;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiIndexController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResourceConfigurer;
@@ -42,6 +43,7 @@ import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
@@ -337,7 +339,7 @@ public class BootUiReactiveAutoConfiguration {
      */
     @Bean
     public ApplicationListener<ApplicationReadyEvent> bootUiStartupBanner(
-            BootUiProperties properties, Environment environment) {
+            BootUiProperties properties, Environment environment, ApiTokenAuthenticator authenticator) {
         return event -> {
             properties.getPanels().keySet().stream()
                     .filter(panelId -> !BootUiPanels.ids().contains(panelId))
@@ -346,10 +348,22 @@ public class BootUiReactiveAutoConfiguration {
                             panelId,
                             BootUiPanels.ids()));
             if (!properties.isShowBanner()) {
+                logGeneratedTokenIfNeeded(properties, authenticator);
                 return;
             }
             log.info("BootUI is available at {}", buildStartupUrl(environment, properties));
+            logGeneratedTokenIfNeeded(properties, authenticator);
         };
+    }
+
+    private static void logGeneratedTokenIfNeeded(BootUiProperties properties, ApiTokenAuthenticator authenticator) {
+        if (authenticator.generated()
+                && ApiTokenAuthenticator.remoteAccessConfigured(
+                        properties.isAllowNonLocalhost(),
+                        properties.getTrustedProxies() != null && properties.getTrustedProxies().length > 0,
+                        properties.getTrustContainerGateway() != BootUiProperties.Mode.OFF)) {
+            log.info("BootUI bearer token for non-local API access: {}", authenticator.token());
+        }
     }
 
     static String buildStartupUrl(Environment environment, BootUiProperties properties) {
@@ -370,6 +384,19 @@ public class BootUiReactiveAutoConfiguration {
         // Same rationale as LocalhostOnlyFilter: builds its own ContainerGatewayDetector so it can
         // auto-trust the container default gateway per bootui.trust-container-gateway.
         return new ReactiveLocalhostOnlyFilter(properties);
+    }
+
+    @Bean
+    public ApiTokenAuthenticator bootUiReactiveApiTokenAuthenticator(BootUiProperties properties) {
+        return new ApiTokenAuthenticator(properties.getAuthentication().getToken());
+    }
+
+    @Bean
+    public ReactiveApiAuthenticationFilter bootUiReactiveApiAuthenticationFilter(
+            BootUiProperties properties,
+            ApiTokenAuthenticator authenticator,
+            ReactiveLocalhostOnlyFilter localhostOnlyFilter) {
+        return new ReactiveApiAuthenticationFilter(properties, authenticator, localhostOnlyFilter);
     }
 
     @Bean

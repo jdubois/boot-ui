@@ -51,6 +51,7 @@ public class BootUiSpringSecurityAutoConfiguration {
         String otlpPattern = childSecurityPattern(properties.getApiPath(), "otlp");
         String mcpPattern = childSecurityEndpoint(properties.getApiPath(), "mcp");
         String mcpDescendantsPattern = childSecurityPattern(properties.getApiPath(), "mcp");
+        String authSessionPattern = childSecurityEndpoint(properties.getApiPath(), "auth/session");
         log.warn(
                 "BootUI detected Spring Security and is permitting unauthenticated access to {}; "
                         + "BootUI's localhost-only filter still rejects non-loopback callers unless "
@@ -62,7 +63,8 @@ public class BootUiSpringSecurityAutoConfiguration {
                 // clients (OpenTelemetry exporters, local AI agents) that cannot present BootUI's SPA
                 // CSRF token, so they are exempted here. They remain protected from cross-site writes by
                 // LocalhostOnlyFilter's loopback, Host allow-list, and Origin/Sec-Fetch-Site checks.
-                .csrf(csrf -> csrf.spa().ignoringRequestMatchers(otlpPattern, mcpPattern, mcpDescendantsPattern))
+                .csrf(csrf -> csrf.spa()
+                        .ignoringRequestMatchers(otlpPattern, mcpPattern, mcpDescendantsPattern, authSessionPattern))
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 .build();
     }

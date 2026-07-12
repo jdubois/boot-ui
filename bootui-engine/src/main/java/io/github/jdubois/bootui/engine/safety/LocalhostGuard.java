@@ -57,8 +57,16 @@ public final class LocalhostGuard {
 
     private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
 
-    /** Shared immutable allow result for non-gateway trust (loopback, range, or bypass). */
-    private static final Allow ALLOW_DIRECT = new Allow(false, null);
+    /** Shared immutable allow result for direct trust (loopback or a trusted range). */
+    private static final Allow ALLOW_DIRECT = new Allow(true, false, null);
+
+    /**
+     * Shared immutable allow result for the {@code bootui.allow-non-localhost} bypass, which skips the
+     * source check entirely rather than genuinely trusting the peer. {@link Allow#trustedSource()} is
+     * {@code false} here so callers that key additional protections (e.g. bearer-token authentication)
+     * off genuine source trust don't mistake the bypass for it.
+     */
+    private static final Allow ALLOW_BYPASS = new Allow(false, false, null);
 
     /**
      * Evaluates the local-only access policy for a single request.
@@ -68,7 +76,7 @@ public final class LocalhostGuard {
      */
     public LocalhostGuardDecision decide(LocalhostGuardRequest request, LocalhostGuardConfig config) {
         if (config.allowNonLocalhost()) {
-            return ALLOW_DIRECT;
+            return ALLOW_BYPASS;
         }
 
         Allow sourceTrust = trustedSource(request.remoteAddr(), config);
@@ -86,6 +94,21 @@ public final class LocalhostGuard {
         }
 
         return sourceTrust;
+    }
+
+    /**
+     * Returns whether {@code remoteAddr} is a genuinely trusted source under {@code config} — loopback,
+     * a configured trusted range, or a trusted container gateway — independent of
+     * {@link LocalhostGuardConfig#allowNonLocalhost()} and the Host allow-list / cross-site-write
+     * checks. This is the single source of truth other BootUI protections (such as
+     * {@code ApiTokenAuthenticator}'s bearer-token requirement for non-loopback API callers) should
+     * consult instead of re-deriving their own, narrower notion of "local" — so a deployment that
+     * opted into {@code bootui.trusted-proxies} or {@code bootui.trust-container-gateway} to get
+     * frictionless access from a non-loopback source gets that same frictionless treatment everywhere,
+     * not just past the {@link #decide} check.
+     */
+    public boolean isTrustedSource(String remoteAddr, LocalhostGuardConfig config) {
+        return trustedSource(remoteAddr, config) != null;
     }
 
     /**
@@ -135,7 +158,7 @@ public final class LocalhostGuard {
         if (!gateways.contains(address)) {
             return null;
         }
-        return new Allow(true, address);
+        return new Allow(true, true, address);
     }
 
     private static boolean isSafeMethod(String method) {
