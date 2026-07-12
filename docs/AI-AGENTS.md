@@ -27,6 +27,27 @@ grounded, machine-readable context from the *actually running* application:
 Because every tool reuses the same controllers and immutable DTOs as the browser UI, the agent sees exactly the masked,
 bounded shape a human would — never raw, unfiltered internals.
 
+## Install the BootUI agent skill
+
+BootUI ships an agent skill that teaches GitHub Copilot how to install and configure BootUI, inspect a running
+application, turn advisor findings into focused fixes, verify those fixes, and connect to the MCP server.
+
+With GitHub CLI 2.90 or later, inspect the skill before installing it:
+
+```bash
+gh skill preview jdubois/boot-ui bootui
+```
+
+Then install it for the current project:
+
+```bash
+gh skill install jdubois/boot-ui bootui
+```
+
+The skill works with Copilot cloud agent, Copilot CLI, the GitHub Copilot app, Copilot code review, and agent mode in
+supported IDEs. Like any third-party skill, review its instructions before installation. You can also copy
+`skills/bootui` into a project's `.github/skills` directory manually.
+
 ## Connect an agent to the BootUI MCP server
 
 The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/api/mcp`. It is **disabled by default**
