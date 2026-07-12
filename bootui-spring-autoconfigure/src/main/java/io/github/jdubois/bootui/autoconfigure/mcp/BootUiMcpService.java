@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.mcp;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpTools;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
@@ -12,8 +13,10 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequest;
+import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptor;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
@@ -68,10 +71,38 @@ public class BootUiMcpService {
 
     public BootUiMcpService(
             BootUiMcpTools tools, BootUiProperties properties, ObjectMapper objectMapper, String serverVersion) {
+        this(tools.tools(), properties, objectMapper, serverVersion);
+    }
+
+    public BootUiMcpService(
+            ReactiveBootUiMcpTools tools,
+            BootUiProperties properties,
+            ObjectMapper objectMapper,
+            String serverVersion) {
+        this(tools.tools(), properties, objectMapper, serverVersion);
+    }
+
+    private BootUiMcpService(
+            List<McpTool> tools, BootUiProperties properties, ObjectMapper objectMapper, String serverVersion) {
         this.objectMapper = objectMapper;
         int maxResults = Math.max(1, properties.getMcp().getMaxResults());
+        int maxConcurrentCalls = Math.max(1, properties.getMcp().getMaxConcurrentCalls());
         this.dispatcher = new McpDispatcher(
-                tools.tools(), new SpringMcpPanelPolicy(properties), serverVersion, INSTRUCTIONS, maxResults);
+                tools,
+                new SpringMcpPanelPolicy(properties),
+                serverVersion,
+                INSTRUCTIONS,
+                maxResults,
+                maxConcurrentCalls);
+    }
+
+    /** Parse raw request bytes into a Jackson node. */
+    public JsonNode readTree(byte[] body) {
+        try {
+            return objectMapper.readTree(body);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid JSON-RPC request", ex);
+        }
     }
 
     /**
@@ -81,14 +112,19 @@ public class BootUiMcpService {
      */
     public JsonNode handle(JsonNode request) {
         if (request == null || !request.isObject()) {
-            return error(null, McpProtocol.INVALID_PARAMS, McpProtocol.MALFORMED_REQUEST_MESSAGE);
+            return error(null, McpProtocol.INVALID_REQUEST, McpProtocol.MALFORMED_REQUEST_MESSAGE);
         }
         JsonNode id = request.get("id");
+        JsonNode jsonrpc = request.get("jsonrpc");
+        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(jsonrpc.asString())) {
+            return error(id, McpProtocol.INVALID_REQUEST, "Request must include jsonrpc: \"2.0\"");
+        }
         McpDispatchOutcome outcome = dispatcher.dispatch(parse(request));
         return render(outcome, id);
     }
 
     private static McpRequest parse(JsonNode request) {
+        String jsonrpc = request.path("jsonrpc").asString();
         String method = request.path("method").asString();
         JsonNode id = request.get("id");
         boolean notification = id == null || id.isNull();
@@ -97,6 +133,7 @@ public class BootUiMcpService {
         String toolName = params.path("name").asString();
         JsonNode arguments = params.get("arguments");
         return new McpRequest(
+                jsonrpc,
                 method,
                 notification,
                 requestedProtocolVersion,
@@ -185,6 +222,9 @@ public class BootUiMcpService {
             node.put("name", tool.name());
             node.put("description", tool.description());
             node.set("inputSchema", schema(tool.schema()));
+            ObjectNode outputSchema = JsonNodeFactory.instance.objectNode();
+            outputSchema.put("type", tool.outputSchemaType());
+            node.set("outputSchema", outputSchema);
             array.add(node);
         }
         result.set("tools", array);
@@ -192,9 +232,11 @@ public class BootUiMcpService {
     }
 
     private JsonNode renderToolCall(JsonNode id, ToolCallResult call) {
+        JsonNode payloadNode;
         String text;
         try {
-            text = objectMapper.writeValueAsString(call.payload());
+            payloadNode = objectMapper.valueToTree(call.payload());
+            text = objectMapper.writeValueAsString(payloadNode);
         } catch (RuntimeException ex) {
             log.debug("BootUI MCP tool result serialization failed", ex);
             return error(id, McpProtocol.INTERNAL_ERROR, ex.getMessage());
@@ -206,6 +248,7 @@ public class BootUiMcpService {
         textContent.put("text", text);
         content.add(textContent);
         result.set("content", content);
+        result.set("structuredContent", payloadNode);
         result.put("isError", false);
         return result(id, result);
     }
@@ -224,7 +267,7 @@ public class BootUiMcpService {
 
     private static ObjectNode result(JsonNode id, JsonNode payload) {
         ObjectNode response = JsonNodeFactory.instance.objectNode();
-        response.put("jsonrpc", "2.0");
+        response.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         response.set("id", normalizeId(id));
         response.set("result", payload);
         return response;
@@ -232,7 +275,7 @@ public class BootUiMcpService {
 
     private static ObjectNode error(JsonNode id, int code, String message) {
         ObjectNode response = JsonNodeFactory.instance.objectNode();
-        response.put("jsonrpc", "2.0");
+        response.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         response.set("id", normalizeId(id));
         ObjectNode err = JsonNodeFactory.instance.objectNode();
         err.put("code", code);

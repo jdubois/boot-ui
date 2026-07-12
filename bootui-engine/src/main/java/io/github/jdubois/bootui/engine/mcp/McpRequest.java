@@ -12,6 +12,7 @@ package io.github.jdubois.bootui.engine.mcp;
  * tool-specific concept: the {@code arguments.id} of an {@link McpToolSchema#ID} tool call (e.g. which
  * exception group to fetch detail for).
  *
+ * @param jsonrpc the top-level JSON-RPC version string (typically {@code "2.0"})
  * @param method the JSON-RPC method (possibly blank; the dispatcher decides what to do)
  * @param notification {@code true} when the request carried no id (no response is emitted)
  * @param requestedProtocolVersion the client {@code params.protocolVersion} for {@code initialize}
@@ -22,6 +23,7 @@ package io.github.jdubois.bootui.engine.mcp;
  * @param rawId the client {@code arguments.id} as parsed (may be {@code null}/blank/untrimmed)
  */
 public record McpRequest(
+        String jsonrpc,
         String method,
         boolean notification,
         String requestedProtocolVersion,

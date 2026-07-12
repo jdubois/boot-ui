@@ -1797,6 +1797,15 @@ public class BootUiProperties {
          */
         private int maxResults = 200;
 
+        /** Maximum request payload bytes; default 1MB. Requests exceeding this are rejected before parsing. */
+        private int maxPayloadBytes = 1 * 1024 * 1024;
+
+        /**
+         * Maximum number of concurrent MCP tool invocations; default 20. Excess requests get a
+         * JSON-RPC error immediately.
+         */
+        private int maxConcurrentCalls = 20;
+
         public Mode getEnabled() {
             return enabled;
         }
@@ -1811,6 +1820,22 @@ public class BootUiProperties {
 
         public void setMaxResults(int maxResults) {
             this.maxResults = maxResults;
+        }
+
+        public int getMaxPayloadBytes() {
+            return maxPayloadBytes;
+        }
+
+        public void setMaxPayloadBytes(int maxPayloadBytes) {
+            this.maxPayloadBytes = maxPayloadBytes;
+        }
+
+        public int getMaxConcurrentCalls() {
+            return maxConcurrentCalls;
+        }
+
+        public void setMaxConcurrentCalls(int maxConcurrentCalls) {
+            this.maxConcurrentCalls = maxConcurrentCalls;
         }
     }
 

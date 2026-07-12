@@ -10,6 +10,8 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
+import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
+import io.github.jdubois.bootui.autoconfigure.mcp.McpServerState;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
@@ -19,6 +21,9 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveActivitySignalFil
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveAgentSessionController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiExceptionHandler;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiIndexController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpServerController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpTools;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResourceConfigurer;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveClaudeCodeController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveCopilotController;
@@ -78,9 +83,11 @@ import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.ImportRuntimeHints;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.web.util.DisconnectedClientHelper;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Reactive (WebFlux) sibling of {@link BootUiAutoConfiguration}: activates BootUI on a Spring Boot 4
@@ -137,16 +144,6 @@ import org.springframework.web.util.DisconnectedClientHelper;
  * <p><strong>Not yet ported (need genuinely new reactive-native work, not mechanical reuse):</strong></p>
  *
  * <ul>
- *   <li><strong>Live Activity</strong> &mdash; aggregates several other signal sources including the
- *       servlet-only {@code ServletRequestHandledEvent}; deferred to a later increment.</li>
- *   <li><strong>MCP Server</strong> &mdash; {@code BootUiMcpController}/{@code McpServerController} are
- *       themselves framework-neutral, but {@code BootUiMcpTools}'s constructor is hard-wired to the
- *       servlet controller types ({@code ObjectProvider<ExceptionsController>},
- *       {@code ObjectProvider<SqlTraceController>}, etc.), so it cannot resolve the new
- *       {@code Reactive*Controller} beans above even now that they exist. Wiring the MCP beans here
- *       would either advertise tools that silently 404, or need {@code BootUiMcpTools} itself
- *       genericized (or a parallel reactive tools catalog); deferred pending that decision. See
- *       {@code docs/WEBFLUX-SUPPORT.md}.</li>
  *   <li><strong>Spring Security advisor and BootUI's own Security auto-configuration bypass</strong>
  *       &mdash; coupled to servlet Spring Security ({@code FilterChainProxy}, {@code HttpSecurity});
  *       needs a {@code ServerHttpSecurity}/{@code SecurityWebFilterChain} ruleset. (Security *Logs* is
@@ -282,6 +279,8 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveSqlTraceController.class.getName(),
             ReactiveSecurityLogsController.class.getName(),
             ReactiveLiveActivityController.class.getName(),
+            ReactiveBootUiMcpController.class.getName(),
+            ReactiveBootUiMcpServerController.class.getName(),
             EmailController.class.getName(),
             KafkaController.class.getName(),
             ReactiveCopilotController.class.getName(),
@@ -306,6 +305,87 @@ public class BootUiReactiveAutoConfiguration {
                 }
             }
         };
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnMissingBean(name = "bootUiReactiveMcpServerController")
+    static class ReactiveMcpConfiguration {
+
+        @Bean
+        McpServerState bootUiReactiveMcpServerState(BootUiProperties properties) {
+            return new McpServerState(properties.getMcp().getEnabled());
+        }
+
+        @Bean
+        @Lazy
+        ReactiveBootUiMcpTools bootUiReactiveMcpTools(
+                ObjectProvider<OverviewController> overview,
+                ObjectProvider<HealthController> health,
+                ObjectProvider<ConfigController> config,
+                ObjectProvider<BeansController> beans,
+                ObjectProvider<MappingsController> mappings,
+                ObjectProvider<ReactiveExceptionsController> exceptions,
+                ObjectProvider<ReactiveLiveActivityController> liveActivity,
+                ObjectProvider<ReactiveSecurityLogsController> securityLogs,
+                ObjectProvider<ReactiveSqlTraceController> sqlTrace,
+                ObjectProvider<TracesController> traces,
+                ObjectProvider<ReactiveLogTailController> logTail,
+                ObjectProvider<HttpExchangesController> httpExchanges,
+                ObjectProvider<ArchitectureController> architecture,
+                ObjectProvider<SpringController> spring,
+                ObjectProvider<HibernateController> hibernate,
+                ObjectProvider<MemoryController> memory,
+                ObjectProvider<PentestingController> pentesting,
+                ObjectProvider<RestApiController> restApi,
+                ObjectProvider<GraalVmController> graalvm,
+                ObjectProvider<CracController> crac) {
+            return new ReactiveBootUiMcpTools(
+                    overview,
+                    health,
+                    config,
+                    beans,
+                    mappings,
+                    exceptions,
+                    liveActivity,
+                    securityLogs,
+                    sqlTrace,
+                    traces,
+                    logTail,
+                    httpExchanges,
+                    architecture,
+                    spring,
+                    hibernate,
+                    memory,
+                    pentesting,
+                    restApi,
+                    graalvm,
+                    crac);
+        }
+
+        @Bean
+        @Lazy
+        BootUiMcpService bootUiReactiveMcpService(
+                ReactiveBootUiMcpTools tools, BootUiProperties properties, ObjectProvider<ObjectMapper> objectMapper) {
+            String version = BootUiReactiveAutoConfiguration.class.getPackage().getImplementationVersion();
+            return new BootUiMcpService(tools, properties, objectMapper.getIfAvailable(ObjectMapper::new), version);
+        }
+
+        @Bean
+        @Lazy
+        ReactiveBootUiMcpController bootUiReactiveMcpController(
+                BootUiMcpService service,
+                ReactiveBootUiMcpTools tools,
+                McpServerState state,
+                BootUiProperties properties) {
+            return new ReactiveBootUiMcpController(service, tools, state, properties);
+        }
+
+        @Bean
+        @Lazy
+        ReactiveBootUiMcpServerController bootUiReactiveMcpServerController(
+                McpServerState state, ReactiveBootUiMcpTools tools, BootUiProperties properties) {
+            return new ReactiveBootUiMcpServerController(state, tools, properties);
+        }
     }
 
     @Bean

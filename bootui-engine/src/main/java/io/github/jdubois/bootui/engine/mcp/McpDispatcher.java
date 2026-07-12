@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.spi.McpPanelPolicy;
 import java.util.List;
+import java.util.concurrent.Semaphore;
 
 /**
  * Framework- and JSON-free core of the BootUI MCP server: it routes an already-parsed
@@ -32,6 +33,7 @@ public final class McpDispatcher {
     private final String serverVersion;
     private final String instructions;
     private final int maxResults;
+    private final Semaphore toolCallSemaphore;
 
     /**
      * @param tools the advertised tool catalog, in order (each adapter wires its own controllers /
@@ -40,14 +42,29 @@ public final class McpDispatcher {
      * @param serverVersion the server version advertised in {@code initialize} ({@code null} → {@code "dev"})
      * @param instructions the framework-specific usage instructions advertised in {@code initialize}
      * @param maxResults the {@code bootui.mcp.max-results} cap applied to paged read tools (floored at 1)
+     * @param maxConcurrentCalls the maximum concurrent {@code tools/call} invocations (floored at 1)
      */
     public McpDispatcher(
-            List<McpTool> tools, McpPanelPolicy policy, String serverVersion, String instructions, int maxResults) {
+            List<McpTool> tools,
+            McpPanelPolicy policy,
+            String serverVersion,
+            String instructions,
+            int maxResults,
+            int maxConcurrentCalls) {
         this.tools = List.copyOf(tools);
         this.policy = policy;
         this.serverVersion = serverVersion == null ? "dev" : serverVersion;
         this.instructions = instructions;
         this.maxResults = Math.max(1, maxResults);
+        this.toolCallSemaphore = new Semaphore(Math.max(1, maxConcurrentCalls));
+    }
+
+    /**
+     * Backward-compatible constructor that uses the default concurrent call cap.
+     */
+    public McpDispatcher(
+            List<McpTool> tools, McpPanelPolicy policy, String serverVersion, String instructions, int maxResults) {
+        this(tools, policy, serverVersion, instructions, maxResults, McpProtocol.DEFAULT_MAX_CONCURRENT_CALLS);
     }
 
     /** The advertised tool catalog, in order. */
@@ -81,9 +98,10 @@ public final class McpDispatcher {
 
     private McpDispatchOutcome initialize(McpRequest request) {
         String requested = request.requestedProtocolVersion();
-        String protocolVersion =
-                (requested == null || requested.isEmpty()) ? McpProtocol.DEFAULT_PROTOCOL_VERSION : requested;
-        return new InitializeResult(protocolVersion, McpProtocol.SERVER_NAME, serverVersion, instructions);
+        String negotiated = (requested == null || requested.isEmpty())
+                ? McpProtocol.DEFAULT_PROTOCOL_VERSION
+                : McpProtocol.KNOWN_VERSIONS.contains(requested) ? requested : McpProtocol.DEFAULT_PROTOCOL_VERSION;
+        return new InitializeResult(negotiated, McpProtocol.SERVER_NAME, serverVersion, instructions);
     }
 
     private McpDispatchOutcome callTool(McpRequest request) {
@@ -106,6 +124,11 @@ public final class McpDispatcher {
         if (tool.schema() == McpToolSchema.ID && arguments.id() == null) {
             return new ToolCallError(McpProtocol.MISSING_ID_ARGUMENT_MESSAGE);
         }
+        if (!toolCallSemaphore.tryAcquire()) {
+            return new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.RATE_LIMITED_MESSAGE);
+        }
+        // Permit acquired; the try/finally immediately below guarantees it is always released,
+        // since there is no code path between tryAcquire() and the try block.
         try {
             Object payload = tool.invoke(arguments);
             return new ToolCallResult(payload);
@@ -113,6 +136,8 @@ public final class McpDispatcher {
             // A tool handler failure becomes a JSON-RPC error (-32603), exactly as the original Spring
             // service reported a generic RuntimeException out of the tools/call switch.
             return new ProtocolError(McpProtocol.INTERNAL_ERROR, ex.getMessage());
+        } finally {
+            toolCallSemaphore.release();
         }
     }
 

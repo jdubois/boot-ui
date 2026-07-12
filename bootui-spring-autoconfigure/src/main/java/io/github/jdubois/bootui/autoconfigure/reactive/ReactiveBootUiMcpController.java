@@ -1,6 +1,8 @@
-package io.github.jdubois.bootui.autoconfigure.mcp;
+package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
+import io.github.jdubois.bootui.autoconfigure.mcp.McpServerState;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -9,37 +11,26 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
-/**
- * Loopback HTTP transport for the BootUI MCP server (MCP "Streamable HTTP" style).
- *
- * <p>Clients POST JSON-RPC 2.0 requests to {@code /bootui/api/mcp} and receive JSON-RPC responses.
- * The endpoint lives under {@code /bootui/api} so it inherits {@code LocalhostOnlyFilter}'s loopback,
- * Host allow-list, and cross-site write defenses. The beans are always registered while BootUI is
- * active (dev contexts), but requests are only served while the server is enabled — the live state
- * is initialized from {@code bootui.mcp.enabled} and can be toggled at runtime from the MCP Server
- * panel via {@link McpServerState}.
- *
- * <p>The {@code GET} variant returns a small human-readable status document (tool count, endpoint,
- * enabled state) so the server can be sanity-checked with a browser or {@code curl} on the loopback
- * interface.
- */
+/** Reactive WebFlux transport for the BootUI MCP server. */
 @RestController
 @RequestMapping("/bootui/api/mcp")
-public class BootUiMcpController {
+public class ReactiveBootUiMcpController {
 
     private static final String PAYLOAD_LIMIT_MESSAGE = "Request payload exceeds limit";
 
     private final BootUiMcpService service;
-    private final BootUiMcpTools tools;
+    private final ReactiveBootUiMcpTools tools;
     private final McpServerState state;
     private final int maxPayloadBytes;
 
-    public BootUiMcpController(
-            BootUiMcpService service, BootUiMcpTools tools, McpServerState state, BootUiProperties properties) {
+    public ReactiveBootUiMcpController(
+            BootUiMcpService service, ReactiveBootUiMcpTools tools, McpServerState state, BootUiProperties properties) {
         this.service = service;
         this.tools = tools;
         this.state = state;
@@ -47,7 +38,24 @@ public class BootUiMcpController {
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<String> rpc(@RequestBody byte[] requestBody) {
+    public Mono<ResponseEntity<String>> rpc(@RequestBody byte[] requestBody) {
+        return Mono.fromCallable(() -> handle(requestBody)).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @GetMapping
+    public Mono<ResponseEntity<String>> status() {
+        ObjectNode status = JsonNodeFactory.instance.objectNode();
+        status.put("server", McpProtocol.SERVER_NAME);
+        status.put("enabled", state.isEnabled());
+        status.put("transport", "http");
+        status.put("endpoint", "/bootui/api/mcp");
+        status.put("protocolVersion", McpProtocol.DEFAULT_PROTOCOL_VERSION);
+        status.put("toolCount", tools.tools().size());
+        tools.tools().forEach(tool -> status.withArray("tools").add(tool.name()));
+        return Mono.just(json(200, status));
+    }
+
+    private ResponseEntity<String> handle(byte[] requestBody) {
         if (requestBody != null && requestBody.length > maxPayloadBytes) {
             return json(413, error(null, McpProtocol.PARSE_ERROR, PAYLOAD_LIMIT_MESSAGE));
         }
@@ -65,29 +73,11 @@ public class BootUiMcpController {
         }
         JsonNode response = service.handle(request);
         if (response == null) {
-            // Notification (no id) — acknowledge with 202 and no body.
             return ResponseEntity.accepted().build();
         }
         return json(200, response);
     }
 
-    @GetMapping
-    public ResponseEntity<String> status() {
-        ObjectNode status = JsonNodeFactory.instance.objectNode();
-        status.put("server", BootUiMcpService.SERVER_NAME);
-        status.put("enabled", state.isEnabled());
-        status.put("transport", "http");
-        status.put("endpoint", "/bootui/api/mcp");
-        status.put("protocolVersion", BootUiMcpService.DEFAULT_PROTOCOL_VERSION);
-        status.put("toolCount", tools.tools().size());
-        tools.tools().forEach(tool -> status.withArray("tools").add(tool.name()));
-        return json(200, status);
-    }
-
-    /**
-     * Builds a JSON-RPC error response indicating the server is disabled, preserving the request id
-     * when present so a compliant client can correlate it.
-     */
     private static JsonNode disabledError(JsonNode request) {
         JsonNode id = request != null && request.isObject() ? request.get("id") : null;
         return error(id, McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE);

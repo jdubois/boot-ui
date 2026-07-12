@@ -7,4 +7,10 @@ package io.github.jdubois.bootui.engine.mcp;
  * @param description human-readable description
  * @param schema input-schema shape the adapter renders to JSON Schema
  */
-public record McpToolDescriptor(String name, String description, McpToolSchema schema) {}
+public record McpToolDescriptor(String name, String description, McpToolSchema schema) {
+
+    /** BootUI tools always return structured JSON objects. */
+    public String outputSchemaType() {
+        return "object";
+    }
+}
