@@ -1440,7 +1440,7 @@ the advisors before proposing a fix and pull runtime diagnostics (a correlated l
 security logs, SQL traces, HTTP exchanges) while investigating an issue. The server is a JSON-RPC 2.0 endpoint at
 `POST /bootui/api/mcp`; human-readable status and the advertised tool list are available from
 `GET /bootui/api/mcp-server`. The server is disabled by default (fail-closed) and, like the rest of the BootUI API, only
-reachable over the loopback interface unless remote access is explicitly enabled and authenticated.
+reachable over the loopback interface unless non-loopback access is explicitly enabled, which requires authentication.
 Enable it headlessly with `bootui.mcp.enabled=ON`, or use the prominent toggle at the top of this panel to turn it on
 or off **at runtime, overriding the `bootui.mcp.enabled` Spring Boot property** for the lifetime of the running
 application — the configured mode only sets the initial state, and the panel shows when the live state is an override.

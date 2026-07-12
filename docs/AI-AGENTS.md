@@ -51,8 +51,8 @@ supported IDEs. Like any third-party skill, review its instructions before insta
 ## Connect an agent to the BootUI MCP server
 
 The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/api/mcp`. It is **disabled by default**
-(fail-closed) and, like the rest of BootUI, only reachable over the loopback interface unless remote access is explicitly
-enabled and authenticated.
+(fail-closed) and, like the rest of BootUI, only reachable over the loopback interface unless non-loopback access is
+explicitly enabled, which requires authentication.
 
 1. **Run your app locally with BootUI active** (the `dev` / `local` profiles, or `spring-boot-devtools` on the
    classpath). See [Setup](SETUP.md).
