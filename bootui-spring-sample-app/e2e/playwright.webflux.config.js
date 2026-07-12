@@ -9,7 +9,7 @@ import {defineConfig, devices} from '@playwright/test'
  * WebFlux/Netty sibling of the servlet `bootui-spring-sample-app` the default `playwright.config.js`
  * targets. This is deliberately a small smoke suite (one spec file), not a full per-panel port of the
  * servlet suite: its job is to prove the reactive adapter serves the same console shell and that the
- * panels that stay unavailable (HTTP Sessions, Spring Security, MCP Server, REST Client) surface their
+ * panels that stay unavailable (HTTP Sessions, Spring Security, REST Client) surface their
  * WebFlux-specific "unavailable" copy through the real UI, not to re-verify panel behavior already
  * covered by the shared conformance suite and the servlet e2e spec-per-panel coverage.
  *
