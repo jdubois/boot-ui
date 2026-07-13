@@ -351,8 +351,9 @@ quiesce/leave and rejoin, and restoring multiple copies of one member checkpoint
 ## Generated container assets
 
 The generated `Dockerfile-crac` uses
-`--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN`. `CHECKPOINT_RESTORE` requires Linux kernel 5.9
-or newer, while Docker's default `/proc` restrictions require `SYS_ADMIN` so CRIU can restore the checkpointed PID.
+`--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN --cap-add=NET_ADMIN`. `CHECKPOINT_RESTORE`
+requires Linux kernel 5.9 or newer, Docker's default `/proc` restrictions require `SYS_ADMIN` so CRIU can restore the
+checkpointed PID, and `NET_ADMIN` lets CRIU recreate the container's network interfaces.
 Because `SYS_ADMIN` grants broad host access, run the generated image only for local development on an isolated machine,
 never production or a shared host.
 
