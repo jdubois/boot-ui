@@ -84,8 +84,9 @@ class ReactiveBootUiChangeStreamTests {
     void emittedEventsCarryTheUpdateNameAndATimestamp() {
         ReactiveBootUiChangeStream stream = new ReactiveBootUiChangeStream("test", Duration.ofMillis(10L));
 
-        StepVerifier.create(stream.open())
+        StepVerifier.withVirtualTime(stream::open)
                 .then(stream::signal)
+                .thenAwait(Duration.ofMillis(10L))
                 .assertNext(event -> {
                     assertThat(event.event()).isEqualTo("update");
                     Map<String, Object> data = event.data();
