@@ -28,6 +28,8 @@ services:
       - SYS_PTRACE
       # Docker otherwise prevents CRIU from restoring the checkpointed PID.
       - SYS_ADMIN
+      # CRIU recreates the container's network interfaces during restore.
+      - NET_ADMIN
     environment:
       SERVER_PORT: 8080
       # Run the "dev" profile as an *active* profile (the image already defaults

@@ -312,7 +312,7 @@ panel (Runtime group) inspects this readiness; this section actually runs the
 sample app from a checkpoint.
 
 CRaC's CRIU engine only works on a **Linux 5.9+** host and needs a **CRaC-enabled JDK** (here
-BellSoft Liberica with CRaC) plus the `CHECKPOINT_RESTORE`, `SYS_PTRACE`, and `SYS_ADMIN` capabilities, because
+BellSoft Liberica with CRaC) plus the `CHECKPOINT_RESTORE`, `SYS_PTRACE`, `SYS_ADMIN`, and `NET_ADMIN` capabilities, because
 [CRIU](https://criu.org/) — the tool that checkpoints and restores the live
 process — needs them. Ready-to-use Docker assets live at the repository root:
 
@@ -383,7 +383,7 @@ The `app` service must run with CRIU's narrowly scoped capabilities and a volume
 
 ```bash
 docker build -f Dockerfile-crac -t bootui-sample-crac .
-docker run --rm --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
+docker run --rm --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN --cap-add=NET_ADMIN \
   -p 127.0.0.1:8080:8080 \
   -e BOOTUI_ALLOW_NON_LOCALHOST=true \
   -v bootui-crac:/opt/crac/checkpoint bootui-sample-crac
@@ -393,8 +393,9 @@ The same container takes the checkpoint on its first start and restores it on
 every later start, as long as the `bootui-crac` volume is reused.
 
 Docker's default `/proc` restrictions prevent CRIU from restoring the checkpointed PID without `SYS_ADMIN`, even when
-`CHECKPOINT_RESTORE` is available. `SYS_ADMIN` grants broad host access, so use this image only for local development on
-an isolated machine — never production or a shared host.
+`CHECKPOINT_RESTORE` is available, and recreating the container's network interfaces requires `NET_ADMIN`. `SYS_ADMIN`
+grants broad host access, so use this image only for local development on an isolated machine — never production or a
+shared host.
 
 ### How the checkpoint is taken
 
