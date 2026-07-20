@@ -15,17 +15,17 @@
   "dependencies": {
     "bootstrap": "5.3.8",
     "bootstrap-icons": "1.13.1",
-    "vue": "3.5.39",
-    "vue-router": "5.1.0"
+    "vue": "3.5.40",
+    "vue-router": "5.2.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "6.0.7",
+    "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "2.4.11",
     "fonteditor-core": "2.6.3",
     "jsdom": "29.1.1",
     "prettier": "3.9.5",
     "typescript": "^6.0.3",
-    "vite": "8.1.4",
+    "vite": "8.1.5",
     "vite-plugin-checker": "^0.14.4",
     "vitest": "4.1.10",
     "vue-tsc": "^3.3.7"
