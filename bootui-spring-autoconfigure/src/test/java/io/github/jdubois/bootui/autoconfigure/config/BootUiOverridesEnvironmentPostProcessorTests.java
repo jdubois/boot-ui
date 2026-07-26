@@ -7,7 +7,6 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.SpringApplication;
-import org.springframework.core.env.StandardEnvironment;
 import org.springframework.mock.env.MockEnvironment;
 
 class BootUiOverridesEnvironmentPostProcessorTests {
@@ -54,8 +53,8 @@ class BootUiOverridesEnvironmentPostProcessorTests {
     @Test
     void registersEmptySourceWhenFileMissing(@TempDir Path tmp) {
         Path file = tmp.resolve("does-not-exist.properties");
-        StandardEnvironment env = new StandardEnvironment();
-        env.getSystemProperties().put("bootui.overrides-file", file.toString());
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.overrides-file", file.toString());
 
         processor.postProcessEnvironment(env, new SpringApplication());
 
