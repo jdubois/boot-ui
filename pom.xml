@@ -74,7 +74,7 @@
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
         <frontend-maven-plugin.version>2.0.1</frontend-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
-        <native-build-tools-plugin.version>1.1.5</native-build-tools-plugin.version>
+        <native-build-tools-plugin.version>1.1.6</native-build-tools-plugin.version>
         <archunit.version>1.4.2</archunit.version>
         <central.autoPublish>true</central.autoPublish>
         <!--
@@ -92,7 +92,7 @@
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
         <palantir-java-format.version>2.94.0</palantir-java-format.version>
-        <spotless-maven-plugin.version>3.8.0</spotless-maven-plugin.version>
+        <spotless-maven-plugin.version>3.9.0</spotless-maven-plugin.version>
         <node.version>v24.18.0</node.version>
         <npm.version>11.17.0</npm.version>
     </properties>
