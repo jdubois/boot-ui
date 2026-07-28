@@ -5,6 +5,17 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    ignore:
+      # Quarkus LTS lines are not identifiable from Maven version metadata.
+      # Stay on the selected LTS line automatically; move to the next LTS manually.
+      - dependency-name: 'io.quarkus:*'
+        update-types:
+          - 'version-update:semver-minor'
+          - 'version-update:semver-major'
+      - dependency-name: 'io.quarkus.platform:*'
+        update-types:
+          - 'version-update:semver-minor'
+          - 'version-update:semver-major'
     groups:
       spring-boot:
         patterns:

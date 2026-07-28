@@ -307,7 +307,7 @@ BootUI engine.
 
 - Java 17 or later
 - A Quarkus application (built and tested against the version pinned by the root `pom.xml`'s
-  `quarkus.platform.version` property; currently `3.37.2`)
+  `quarkus.platform.version` property; currently `3.33.3` LTS)
 - Maven or Gradle (or their local wrappers)
 
 ### Add the extension
