@@ -16,6 +16,10 @@ updates:
         update-types:
           - 'version-update:semver-minor'
           - 'version-update:semver-major'
+      - dependency-name: 'io.quarkus.resteasy.reactive:*'
+        update-types:
+          - 'version-update:semver-minor'
+          - 'version-update:semver-major'
     groups:
       spring-boot:
         patterns:
