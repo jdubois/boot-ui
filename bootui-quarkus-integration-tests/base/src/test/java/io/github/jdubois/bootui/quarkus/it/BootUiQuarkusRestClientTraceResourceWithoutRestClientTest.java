@@ -45,7 +45,9 @@ class BootUiQuarkusRestClientTraceResourceWithoutRestClientTest {
                 restClientPanel = panel;
             }
         }
-        assertThat(restClientPanel).as("the REST Client panel is present in the manifest").isNotNull();
+        assertThat(restClientPanel)
+                .as("the REST Client panel is present in the manifest")
+                .isNotNull();
         assertThat(restClientPanel.path("available").asBoolean(true))
                 .as("the REST Client panel is unavailable when quarkus-rest-client is absent")
                 .isFalse();
@@ -57,7 +59,9 @@ class BootUiQuarkusRestClientTraceResourceWithoutRestClientTest {
     @Test
     void restClientTraceReportRendersUnavailableWithoutRestClientReactive() {
         Response report = probe().get("/bootui/api/rest-client-trace");
-        assertThat(report.status()).as("GET /bootui/api/rest-client-trace status").isEqualTo(200);
+        assertThat(report.status())
+                .as("GET /bootui/api/rest-client-trace status")
+                .isEqualTo(200);
         assertThat(report.isJson())
                 .as("GET /bootui/api/rest-client-trace content-type (%s)", report.contentType())
                 .isTrue();

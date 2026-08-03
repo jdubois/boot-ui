@@ -7,7 +7,7 @@ import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
 /**
  * Sample MicroProfile REST Client interface that makes outbound GET requests to the app's own
- * {@code /api/products} endpoint, so the REST Client panel has calls to display. BootUI's
+ * {@code /api/sample/products} endpoint, so the REST Client panel has calls to display. BootUI's
  * {@code QuarkusRestClientTraceListener} SPI hook automatically registers a
  * {@code QuarkusRestClientTraceFilter} on this client's proxy, capturing method, URI, status, and
  * duration into the shared {@code RestClientTraceRecorder}.
@@ -20,6 +20,6 @@ import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 public interface SampleApiClient {
 
     @GET
-    @Path("/api/products")
+    @Path("/api/sample/products")
     String listProducts(@QueryParam("size") int size);
 }

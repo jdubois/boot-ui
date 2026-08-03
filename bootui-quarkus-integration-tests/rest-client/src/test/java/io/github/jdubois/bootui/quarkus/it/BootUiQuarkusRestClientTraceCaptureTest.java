@@ -10,6 +10,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import java.net.URL;
 import java.util.Map;
+import org.acme.restclient.PingClient;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.junit.jupiter.api.Test;
 
@@ -67,8 +68,8 @@ class BootUiQuarkusRestClientTraceCaptureTest {
         assertThat(restClientPanel.path("available").asBoolean(false))
                 .as("the REST Client panel is available when quarkus-rest-client is present")
                 .isTrue();
-        assertThat(restClientPanel.path("actionCapable").asBoolean(false))
-                .as("the REST Client panel is action-capable (clear / recording toggle)")
+        assertThat(restClientPanel.path("enabled").asBoolean(false))
+                .as("the REST Client panel is enabled when quarkus-rest-client is present")
                 .isTrue();
     }
 
@@ -79,7 +80,9 @@ class BootUiQuarkusRestClientTraceCaptureTest {
         assertThat(pong).as("the call to PingResource succeeds").isEqualTo("pong-42");
 
         Response report = probe().get("/bootui/api/rest-client-trace");
-        assertThat(report.status()).as("GET /bootui/api/rest-client-trace status").isEqualTo(200);
+        assertThat(report.status())
+                .as("GET /bootui/api/rest-client-trace status")
+                .isEqualTo(200);
         assertThat(report.isJson())
                 .as("GET /bootui/api/rest-client-trace content-type (%s)", report.contentType())
                 .isTrue();
@@ -92,7 +95,9 @@ class BootUiQuarkusRestClientTraceCaptureTest {
         // At least one entry was captured.
         JsonNode entries = root.path("entries");
         assertThat(entries.isArray()).as("entries is an array").isTrue();
-        assertThat(entries.size()).as("at least one REST client call was captured").isGreaterThan(0);
+        assertThat(entries.size())
+                .as("at least one REST client call was captured")
+                .isGreaterThan(0);
 
         JsonNode firstEntry = entries.get(0);
         assertThat(firstEntry.path("method").asText(null))
@@ -117,16 +122,20 @@ class BootUiQuarkusRestClientTraceCaptureTest {
         // Make a call first to populate the buffer.
         pingClient.ping(1);
 
-        Response clearResponse =
-                probe().request("POST", "/bootui/api/rest-client-trace/clear", JSON_HEADERS, "{}");
+        Response clearResponse = probe().request("POST", "/bootui/api/rest-client-trace/clear", JSON_HEADERS, "{}");
         assertThat(clearResponse.status()).as("POST /clear status").isEqualTo(200);
         JsonNode cleared = clearResponse.json();
         // After clear, the buffer is empty (entries array is empty).
-        assertThat(cleared.path("entries").size()).as("buffer is empty after clear").isEqualTo(0);
+        assertThat(cleared.path("entries").size())
+                .as("buffer is empty after clear")
+                .isEqualTo(0);
     }
 
     @Test
     void restClientRecordingToggleStopsAndResumesCapture() {
+        // Trigger the client proxy build first so hasInstrumentedClient() returns true.
+        pingClient.ping(0);
+
         // Pause recording.
         Response pauseResponse =
                 probe().request("POST", "/bootui/api/rest-client-trace/recording", JSON_HEADERS, "{\"enabled\":false}");
@@ -138,7 +147,9 @@ class BootUiQuarkusRestClientTraceCaptureTest {
         // Resume recording.
         Response resumeResponse =
                 probe().request("POST", "/bootui/api/rest-client-trace/recording", JSON_HEADERS, "{\"enabled\":true}");
-        assertThat(resumeResponse.status()).as("POST /recording (resume) status").isEqualTo(200);
+        assertThat(resumeResponse.status())
+                .as("POST /recording (resume) status")
+                .isEqualTo(200);
         assertThat(resumeResponse.json().path("capturing").asBoolean(false))
                 .as("recording is true after resume (capturing field)")
                 .isTrue();

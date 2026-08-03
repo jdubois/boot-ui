@@ -33,8 +33,8 @@ public final class QuarkusRestClientTraceListener implements RestClientListener 
         } catch (Exception e) {
             // Never disrupt the application's REST client construction.
             java.util.logging.Logger.getLogger(QuarkusRestClientTraceListener.class.getName())
-                    .warning("BootUI: failed to register REST Client trace filter for "
-                            + serviceInterface.getName() + ": " + e.getMessage());
+                    .warning("BootUI: failed to register REST Client trace filter for " + serviceInterface.getName()
+                            + ": " + e.getMessage());
         }
     }
 }

@@ -63,10 +63,10 @@ import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
 import io.quarkus.deployment.builditem.DevServicesResultBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
+import io.quarkus.deployment.builditem.GeneratedServiceProviderBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
-import io.quarkus.deployment.builditem.GeneratedServiceProviderBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageProxyDefinitionBuildItem;
 import io.quarkus.deployment.pkg.builditem.CurateOutcomeBuildItem;
 import io.quarkus.maven.dependency.ResolvedDependency;
@@ -212,8 +212,7 @@ class BootUiQuarkusProcessor {
             "io.github.jdubois.bootui.quarkus.restclienttrace.QuarkusRestClientTraceListener";
 
     // The MicroProfile RestClientBuilder API class whose runtime presence signals quarkus-rest-client.
-    private static final String REST_CLIENT_BUILDER_CLASS =
-            "org.eclipse.microprofile.rest.client.RestClientBuilder";
+    private static final String REST_CLIENT_BUILDER_CLASS = "org.eclipse.microprofile.rest.client.RestClientBuilder";
 
     // Referenced by class name only: BootUiSqlTraceProducer @Produces an Alternative DataSource that wraps the
     // default Agroal pool, and imports io.agroal.*; the deployment classloader must never load it without a JDBC
@@ -1563,8 +1562,7 @@ class BootUiQuarkusProcessor {
                 QuarkusPanelAvailability.REST_CLIENT_TRACE_PRESENT_KEY, String.valueOf(present)));
         if (present) {
             serviceProviders.produce(new GeneratedServiceProviderBuildItem(
-                    "org.eclipse.microprofile.rest.client.spi.RestClientListener",
-                    REST_CLIENT_TRACE_LISTENER_CLASS));
+                    "org.eclipse.microprofile.rest.client.spi.RestClientListener", REST_CLIENT_TRACE_LISTENER_CLASS));
         }
     }
 

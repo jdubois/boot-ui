@@ -68,8 +68,7 @@ public class RestClientTraceResource {
     @Path("/recording")
     @Produces(MediaType.APPLICATION_JSON)
     public RestClientTraceReport recording(RestClientTraceRecordingRequest request) {
-        boolean enabled =
-                (request == null || request.enabled() == null) ? !recorder.isRecording() : request.enabled();
+        boolean enabled = (request == null || request.enabled() == null) ? !recorder.isRecording() : request.enabled();
         recorder.setRecording(enabled);
         return report();
     }

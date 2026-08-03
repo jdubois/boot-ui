@@ -473,8 +473,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(EMAIL_PRESENT_KEY, Boolean.class).orElse(false);
         this.kafkaPresent =
                 config.getOptionalValue(KAFKA_PRESENT_KEY, Boolean.class).orElse(false);
-        this.restClientTracePresent =
-                config.getOptionalValue(REST_CLIENT_TRACE_PRESENT_KEY, Boolean.class).orElse(false);
+        this.restClientTracePresent = config.getOptionalValue(REST_CLIENT_TRACE_PRESENT_KEY, Boolean.class)
+                .orElse(false);
         boolean securityPresent = config.getOptionalValue(SECURITY_LOGS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
         boolean eventsEnabled = config.getOptionalValue("quarkus.security.events.enabled", Boolean.class)

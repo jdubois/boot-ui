@@ -27,7 +27,6 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
-import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
@@ -40,6 +39,7 @@ import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
@@ -914,17 +914,17 @@ public class BootUiEngineProducer {
                 .orElse(true);
         int maxEntries = config.getOptionalValue("bootui.rest-client-trace.max-entries", Integer.class)
                 .orElse(200);
-        long slowCallThresholdMillis =
-                config.getOptionalValue("bootui.rest-client-trace.slow-call-threshold-ms", Long.class)
-                        .orElse(1000L);
+        long slowCallThresholdMillis = config.getOptionalValue(
+                        "bootui.rest-client-trace.slow-call-threshold-ms", Long.class)
+                .orElse(1000L);
         int maxUriLength = config.getOptionalValue("bootui.rest-client-trace.max-uri-length", Integer.class)
                 .orElse(2000);
-        int maxHeaderValueLength =
-                config.getOptionalValue("bootui.rest-client-trace.max-header-value-length", Integer.class)
-                        .orElse(200);
-        int chattyCallThreshold =
-                config.getOptionalValue("bootui.rest-client-trace.chatty-call-threshold", Integer.class)
-                        .orElse(5);
+        int maxHeaderValueLength = config.getOptionalValue(
+                        "bootui.rest-client-trace.max-header-value-length", Integer.class)
+                .orElse(200);
+        int chattyCallThreshold = config.getOptionalValue(
+                        "bootui.rest-client-trace.chatty-call-threshold", Integer.class)
+                .orElse(5);
         return new RestClientTraceRecorder(
                 enabled,
                 recording,

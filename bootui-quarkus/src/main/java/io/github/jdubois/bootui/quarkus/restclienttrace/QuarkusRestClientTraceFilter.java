@@ -67,8 +67,18 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
             headers = extractHeaders(requestContext);
         }
 
-        recorder.record(method, uriString, host, path, status, durationMillis, success, errorMessage, CLIENT_TYPE,
-                headers, thread);
+        recorder.record(
+                method,
+                uriString,
+                host,
+                path,
+                status,
+                durationMillis,
+                success,
+                errorMessage,
+                CLIENT_TYPE,
+                headers,
+                thread);
     }
 
     /** Extracts request headers as a name→value map (case-folded names, first value per header). */
