@@ -4,8 +4,8 @@ import static io.github.jdubois.bootui.engine.activity.ActivityTestFixtures.entr
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
 
@@ -19,7 +19,7 @@ class ActivityCaptureFactoryTests {
 
     /** Records every entry ever appended to it, in append order, ignoring query/prune/close. */
     private static final class RecordingStore implements ActivityStore {
-        final List<StoredActivityEntry> allAppended = new ArrayList<>();
+        final List<StoredActivityEntry> allAppended = new CopyOnWriteArrayList<>();
 
         @Override
         public void appendBatch(List<StoredActivityEntry> entries) {
@@ -82,7 +82,7 @@ class ActivityCaptureFactoryTests {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (!condition.getAsBoolean()) {
             if (System.nanoTime() > deadline) {
-                return;
+                throw new AssertionError("Condition was not met within " + timeout);
             }
             Thread.sleep(10);
         }

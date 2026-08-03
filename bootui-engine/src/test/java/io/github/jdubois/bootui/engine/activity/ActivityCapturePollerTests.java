@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
@@ -15,7 +15,7 @@ class ActivityCapturePollerTests {
 
     /** Records every entry ever appended to it, in append order, ignoring query/prune/close. */
     private static final class RecordingStore implements ActivityStore {
-        final List<StoredActivityEntry> allAppended = new ArrayList<>();
+        final List<StoredActivityEntry> allAppended = new CopyOnWriteArrayList<>();
 
         @Override
         public void appendBatch(List<StoredActivityEntry> entries) {
@@ -31,7 +31,7 @@ class ActivityCapturePollerTests {
     /** A store whose appendBatch throws on its first invocation only, to simulate a transient failure. */
     private static final class FlakyStore implements ActivityStore {
         final AtomicInteger callCount = new AtomicInteger();
-        final List<StoredActivityEntry> allAppended = new ArrayList<>();
+        final List<StoredActivityEntry> allAppended = new CopyOnWriteArrayList<>();
 
         @Override
         public void appendBatch(List<StoredActivityEntry> entries) {
@@ -163,7 +163,7 @@ class ActivityCapturePollerTests {
         FlakyStore store = new FlakyStore();
         ActivityCaptureCoordinator coordinator =
                 new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100);
-        List<ActivityEntryDto> feed = new ArrayList<>();
+        List<ActivityEntryDto> feed = new CopyOnWriteArrayList<>();
         feed.add(entry("1", "REQUEST", 1, "OK", "a"));
         try (ActivityCapturePoller poller = new ActivityCapturePoller(coordinator, () -> feed)) {
             poller.start(Duration.ofMillis(10));
@@ -183,7 +183,7 @@ class ActivityCapturePollerTests {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (!condition.getAsBoolean()) {
             if (System.nanoTime() > deadline) {
-                return;
+                throw new AssertionError("Condition was not met within " + timeout);
             }
             Thread.sleep(10);
         }

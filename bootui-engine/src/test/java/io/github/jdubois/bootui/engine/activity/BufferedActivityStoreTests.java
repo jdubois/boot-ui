@@ -257,7 +257,7 @@ class BufferedActivityStoreTests {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (!condition.getAsBoolean()) {
             if (System.nanoTime() > deadline) {
-                return;
+                throw new AssertionError("Condition was not met within " + timeout);
             }
             Thread.sleep(10);
         }

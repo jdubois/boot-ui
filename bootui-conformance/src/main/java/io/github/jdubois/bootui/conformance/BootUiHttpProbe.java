@@ -49,6 +49,7 @@ public final class BootUiHttpProbe {
                 .cookieHandler(cookieManager)
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NEVER)
+                .version(HttpClient.Version.HTTP_1_1)
                 .build();
     }
 
