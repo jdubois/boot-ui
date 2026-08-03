@@ -12,10 +12,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.csrf.CookieServerCsrfTokenRepository;
 import org.springframework.security.web.server.csrf.XorServerCsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.server.util.matcher.AndServerWebExchangeMatcher;
+import org.springframework.security.web.server.util.matcher.HttpMethodServerWebExchangeMatcher;
 import org.springframework.security.web.server.util.matcher.NegatedServerWebExchangeMatcher;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
 
@@ -69,6 +72,14 @@ public class BootUiReactiveSpringSecurityAutoConfiguration {
         String authSessionEndpoint = childSecurityEndpoint(properties.getApiPath(), "auth/session");
         var programmaticClientsMatcher = ServerWebExchangeMatchers.pathMatchers(
                 otlpPattern, mcpEndpoint, mcpDescendantsPattern, authSessionEndpoint);
+        // Require CSRF only for state-changing methods (POST/PUT/DELETE/PATCH) that are NOT
+        // going to a programmatic-client endpoint. This mirrors the servlet .spa().ignoringRequestMatchers()
+        // behavior: GET/HEAD/TRACE/OPTIONS are always excluded by the method check, and the listed
+        // programmatic-client paths are excluded regardless of method.
+        var csrfRequiredMatcher = new AndServerWebExchangeMatcher(
+                new HttpMethodServerWebExchangeMatcher(
+                        HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE, HttpMethod.PATCH),
+                new NegatedServerWebExchangeMatcher(programmaticClientsMatcher));
         return http.securityMatcher(ServerWebExchangeMatchers.pathMatchers(bootUiPatterns))
                 .authorizeExchange(exchanges -> exchanges.anyExchange().permitAll())
                 // SPA-compatible CSRF: store the token in a cookie (readable by the Vue SPA), and
@@ -76,8 +87,7 @@ public class BootUiReactiveSpringSecurityAutoConfiguration {
                 .csrf(csrf -> csrf.csrfTokenRepository(
                                 CookieServerCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(new XorServerCsrfTokenRequestAttributeHandler())
-                        .requireCsrfProtectionMatcher(
-                                new NegatedServerWebExchangeMatcher(programmaticClientsMatcher)))
+                        .requireCsrfProtectionMatcher(csrfRequiredMatcher))
                 .build();
     }
 
