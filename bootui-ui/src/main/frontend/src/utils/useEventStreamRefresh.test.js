@@ -190,3 +190,235 @@ describe('useEventStreamRefresh', () => {
     wrapper.unmount()
   })
 })
+
+describe('useEventStreamRefresh – connectionState', () => {
+  beforeEach(() => {
+    instances.length = 0
+    setVisibilityState('visible')
+    vi.useFakeTimers()
+    vi.stubGlobal('EventSource', MockEventSource)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('starts in connecting state and transitions to connected on open', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness('api/exceptions/stream', callback)
+
+    expect(api.connectionState.value).toBe('connecting')
+
+    latestSource().emit('open')
+    await nextTick()
+
+    expect(api.connectionState.value).toBe('connected')
+
+    wrapper.unmount()
+  })
+
+  it('sets paused when the tab is hidden', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness('api/exceptions/stream', callback)
+
+    latestSource().emit('open')
+    await nextTick()
+    expect(api.connectionState.value).toBe('connected')
+
+    setVisibilityState('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+
+    expect(api.connectionState.value).toBe('paused')
+
+    wrapper.unmount()
+  })
+
+  it('sets paused when auto-refresh is disabled', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness('api/exceptions/stream', callback)
+
+    latestSource().emit('open')
+    await nextTick()
+    expect(api.connectionState.value).toBe('connected')
+
+    api.autoRefresh.value = false
+    await nextTick()
+
+    expect(api.connectionState.value).toBe('paused')
+
+    wrapper.unmount()
+  })
+
+  it('sets unavailable when EventSource is not supported', async () => {
+    vi.stubGlobal('EventSource', undefined)
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness('api/exceptions/stream', callback)
+
+    expect(api.connectionState.value).toBe('unavailable')
+
+    wrapper.unmount()
+  })
+
+  it('transitions to reconnecting on first error and opens a new source after backoff', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness('api/exceptions/stream', callback)
+
+    const firstSource = latestSource()
+    firstSource.emit('open')
+    await nextTick()
+
+    firstSource.emit('error')
+    await nextTick()
+
+    expect(api.connectionState.value).toBe('reconnecting')
+    expect(firstSource.closed).toBe(true)
+    // No second source yet — waiting for backoff.
+    expect(instances.length).toBe(1)
+
+    // Advance past the first backoff window (1 s).
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(instances.length).toBe(2)
+    expect(latestSource().url).toBe('api/exceptions/stream')
+
+    wrapper.unmount()
+  })
+
+  it('closes existing source before opening a new one (no duplicate instances)', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {wrapper} = harness('api/exceptions/stream', callback)
+
+    const first = latestSource()
+    first.emit('error')
+    await nextTick()
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(first.closed).toBe(true)
+    expect(instances.length).toBe(2)
+
+    wrapper.unmount()
+  })
+
+  it('transitions to unavailable after MAX_RETRIES consecutive errors', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness('api/exceptions/stream', callback)
+
+    // Emit 5 consecutive errors on the same source without advancing time between them.
+    // Each error increments retryCount; on the 5th the state flips to unavailable.
+    const source = latestSource()
+    for (let i = 0; i < 5; i++) {
+      source.emit('error')
+      await nextTick()
+    }
+
+    expect(api.connectionState.value).toBe('unavailable')
+
+    wrapper.unmount()
+  })
+
+  it('resets retry count after stream stays stable', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness('api/exceptions/stream', callback)
+
+    // Cause one error and recover.
+    latestSource().emit('error')
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    latestSource().emit('open')
+    await nextTick()
+    expect(api.connectionState.value).toBe('connected')
+
+    // Advance past the stability window (5 s).
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    // Now trigger 5 more errors — if retries were reset the state should be reconnecting (not unavailable).
+    for (let i = 0; i < 4; i++) {
+      latestSource().emit('error')
+      await nextTick()
+      await vi.advanceTimersByTimeAsync(60_000)
+    }
+    expect(api.connectionState.value).toBe('reconnecting')
+
+    wrapper.unmount()
+  })
+
+  it('reconnects from unavailable state after the long delay', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness('api/exceptions/stream', callback)
+
+    const source = latestSource()
+    for (let i = 0; i < 5; i++) {
+      source.emit('error')
+      await nextTick()
+    }
+    expect(api.connectionState.value).toBe('unavailable')
+    const countBeforeLongDelay = instances.length
+
+    // Advance past the long delay (60 s) — the long-delay retry should open a new EventSource.
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(instances.length).toBeGreaterThan(countBeforeLongDelay)
+
+    wrapper.unmount()
+  })
+
+  it('coalesces rapid update events — no concurrent loads', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {wrapper} = harness('api/exceptions/stream', callback)
+
+    await flushPromises()
+    expect(callback).toHaveBeenCalledTimes(1)
+
+    const source = latestSource()
+    source.emit('open')
+    await nextTick()
+
+    // Fire two update ticks synchronously. The first triggers a load (inFlight=true);
+    // the second arrives before any microtasks run and is coalesced (load returns early).
+    source.emit('update')
+    source.emit('update')
+    await flushPromises()
+
+    // Only one additional load despite two ticks.
+    expect(callback).toHaveBeenCalledTimes(2)
+
+    wrapper.unmount()
+  })
+
+  it('clears all timers and closes the source on unmount', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {wrapper} = harness('api/exceptions/stream', callback)
+
+    const source = latestSource()
+    source.emit('error')
+    await nextTick()
+
+    // Unmount before the retry timer fires.
+    wrapper.unmount()
+    expect(source.closed).toBe(true)
+
+    // Advancing time must not open a new source.
+    const countAtUnmount = instances.length
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(instances.length).toBe(countAtUnmount)
+  })
+
+  it('transitions to reconnecting (not connecting) on retry', async () => {
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness('api/exceptions/stream', callback)
+
+    latestSource().emit('error')
+    await nextTick()
+    expect(api.connectionState.value).toBe('reconnecting')
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    // After the retry opens a new source the state should still be reconnecting until open fires.
+    expect(api.connectionState.value).toBe('reconnecting')
+
+    wrapper.unmount()
+  })
+})

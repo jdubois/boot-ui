@@ -13,6 +13,7 @@ import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
+import StreamStatusIndicator from './components/StreamStatusIndicator.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -190,7 +191,7 @@ function requestLabel(item) {
   return method ? `${method} ${path}` : path
 }
 
-const {autoRefresh, loading, load} = useEventStreamRefresh('api/exceptions/stream', fetchExceptions)
+const {autoRefresh, loading, load, connectionState} = useEventStreamRefresh('api/exceptions/stream', fetchExceptions)
 
 const route = useRoute()
 onMounted(() => {
@@ -226,6 +227,8 @@ onMounted(() => {
     </PanelHeader>
 
     <FlashBanner :message="banner" @dismiss="clear" />
+
+    <StreamStatusIndicator :connection-state="connectionState" @retry="load" />
 
     <PanelSkeleton v-if="loading && !report" />
 
