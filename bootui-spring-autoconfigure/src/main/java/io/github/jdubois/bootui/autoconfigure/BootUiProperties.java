@@ -144,6 +144,11 @@ public class BootUiProperties {
      */
     private Kafka kafka = new Kafka();
     /**
+     * JMS message capture settings, feeding the Live Activity stream's {@code MESSAGING} entries
+     * through the shared messaging recorder (the same one Kafka uses).
+     */
+    private Jms jms = new Jms();
+    /**
      * HTTP Sessions panel settings.
      */
     private HttpSessions httpSessions = new HttpSessions();
@@ -435,6 +440,14 @@ public class BootUiProperties {
 
     public void setKafka(Kafka kafka) {
         this.kafka = kafka == null ? new Kafka() : kafka;
+    }
+
+    public Jms getJms() {
+        return jms;
+    }
+
+    public void setJms(Jms jms) {
+        this.jms = jms == null ? new Jms() : jms;
     }
 
     public HttpSessions getHttpSessions() {
@@ -1329,6 +1342,35 @@ public class BootUiProperties {
 
         public void setMaxKeyLength(int maxKeyLength) {
             this.maxKeyLength = maxKeyLength;
+        }
+    }
+
+    /**
+     * JMS message capture settings, feeding the Live Activity stream's {@code MESSAGING} entries
+     * through the shared messaging recorder (the same one Kafka uses). JMS sends and listener
+     * deliveries appear alongside Kafka messages as {@code MESSAGING} entries in the activity feed.
+     *
+     * <p>This toggle is checked in addition to the shared recorder's own
+     * {@code bootui.kafka.enabled} toggle: both must be {@code true} for JMS sends/receives to be
+     * captured. The buffer size and key-capture settings are inherited from
+     * {@code bootui.kafka.max-entries} and {@code bootui.kafka.capture-key}.</p>
+     */
+    public static class Jms {
+
+        /**
+         * Whether BootUI captures {@link org.springframework.jms.core.JmsTemplate} sends and
+         * {@code @JmsListener} deliveries into the Live Activity stream as {@code MESSAGING}
+         * entries. When {@code false}, no JMS bean is post-processed. Only takes effect when
+         * {@code spring-jms} is on the classpath.
+         */
+        private boolean enabled = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 

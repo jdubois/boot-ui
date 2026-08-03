@@ -16,6 +16,8 @@ import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernatePropertyLookup;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
+import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.liquibase.SpringLiquibaseProvider;
@@ -770,6 +772,39 @@ public class BootUiEngineConfiguration {
         static KafkaConsumerCaptureBeanPostProcessor bootUiKafkaConsumerCaptureBeanPostProcessor(
                 ObjectProvider<KafkaActivityRecorder> recorderProvider) {
             return new KafkaConsumerCaptureBeanPostProcessor(recorderProvider);
+        }
+    }
+
+    /**
+     * The Live Activity JMS capture backend wires two Spring-specific post-processors needed by
+     * both servlet and reactive stacks, so it lives here in the shared engine configuration rather
+     * than under the servlet-only auto-configuration. The post-processors are method-level
+     * {@code @ConditionalOnClass}-guarded so a JMS-absent application never links
+     * {@code spring-jms} types.
+     *
+     * <p>JMS entries share the existing {@link KafkaActivityRecorder}: the recorder is a generic
+     * bounded messaging buffer with no Kafka-specific protocol semantics; the Kafka-named class is
+     * kept for backwards compatibility. The JMS BPPs request it via {@code ObjectProvider}, so the
+     * recorder is only created when at least one consumer is present. If the Kafka panel (and
+     * therefore the recorder) is disabled via {@code bootui.panels.kafka.enabled=false}, JMS
+     * capture is also silenced; {@code bootui.jms.enabled=false} disables only JMS capture while
+     * leaving Kafka capture active.</p>
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class JmsBackendConfiguration {
+
+        @Bean
+        @ConditionalOnClass(name = "org.springframework.jms.core.JmsTemplate")
+        static JmsProducerCaptureBeanPostProcessor bootUiJmsProducerCaptureBeanPostProcessor(
+                ObjectProvider<KafkaActivityRecorder> recorderProvider, BootUiProperties properties) {
+            return new JmsProducerCaptureBeanPostProcessor(recorderProvider, properties);
+        }
+
+        @Bean
+        @ConditionalOnClass(name = "org.springframework.jms.core.JmsTemplate")
+        static JmsListenerCaptureBeanPostProcessor bootUiJmsListenerCaptureBeanPostProcessor(
+                ObjectProvider<KafkaActivityRecorder> recorderProvider, BootUiProperties properties) {
+            return new JmsListenerCaptureBeanPostProcessor(recorderProvider, properties);
         }
     }
 

@@ -116,6 +116,24 @@
             <optional>true</optional>
         </dependency>
         <dependency>
+            <!-- spring-jms: JmsTemplate and AbstractJmsListenerContainerFactory for the JMS
+                 producer/consumer capture post-processors. Version is managed by the Spring Boot
+                 parent BOM (org.springframework:spring-jms). Optional so a JMS-absent application
+                 never links these types. -->
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jms</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <!-- jakarta.jms-api: the JMS 3.1 API types (Queue, Topic, Message, etc.) used by
+                 spring-jms. spring-jms declares this as a Gradle compileOnly dep but not in its
+                 published Maven POM, so we must add it explicitly here. Version is managed by
+                 the Spring Boot BOM. Optional to match spring-jms. -->
+            <groupId>jakarta.jms</groupId>
+            <artifactId>jakarta.jms-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
             <groupId>org.liquibase</groupId>
             <artifactId>liquibase-core</artifactId>
             <optional>true</optional>

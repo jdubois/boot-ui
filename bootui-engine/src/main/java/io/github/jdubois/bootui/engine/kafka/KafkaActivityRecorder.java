@@ -118,6 +118,58 @@ public final class KafkaActivityRecorder {
                 listenerId);
     }
 
+    /**
+     * Records a completed (successful or failed) JMS send. Maps the JMS destination to the
+     * {@code topic} field and the one-way hash of the JMS message ID (when available) to the
+     * {@code key} field; {@code partition} and {@code offset} are always {@code null} (Kafka-only
+     * concepts with no JMS analogue).
+     *
+     * <p>Duration is always known on the producer side for JMS because the send is synchronous:
+     * unlike a Kafka {@code ProducerListener} callback, the spring-jms interceptor wraps the
+     * {@code JmsTemplate.send()} call directly and can measure elapsed time.</p>
+     */
+    public void recordJmsProduce(
+            String destination, String messageId, Long durationMillis, boolean success, String errorMessage) {
+        record(
+                Direction.PRODUCE,
+                destination,
+                null,
+                null,
+                messageId,
+                durationMillis,
+                success,
+                errorMessage,
+                null,
+                null);
+    }
+
+    /**
+     * Records a completed (successful or failed) JMS message delivery. Maps the JMS destination to
+     * the {@code topic} field, the hashed message ID to the {@code key} field, the durable
+     * subscription or selector hint to the {@code groupId} field, and the listener bean name to the
+     * {@code listenerId} field; {@code partition} and {@code offset} are always {@code null}.
+     */
+    public void recordJmsConsume(
+            String destination,
+            String messageId,
+            Long durationMillis,
+            boolean success,
+            String errorMessage,
+            String subscriptionName,
+            String listenerId) {
+        record(
+                Direction.CONSUME,
+                destination,
+                null,
+                null,
+                messageId,
+                durationMillis,
+                success,
+                errorMessage,
+                subscriptionName,
+                listenerId);
+    }
+
     private void record(
             Direction direction,
             String topic,

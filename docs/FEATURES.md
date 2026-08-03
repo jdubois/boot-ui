@@ -170,6 +170,18 @@ top-level in the feed today (not yet nested under a correlated request). Capture
 Kafka integration is present and the panel is enabled, and can be tuned or disabled entirely via `bootui.kafka.enabled`,
 `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length` — see `docs/PROPERTIES.md`.
 
+When Spring JMS support is present (`spring-jms` on the classpath), BootUI also captures JMS producer and consumer
+activity into the same `MESSAGING` stream. Every `JmsTemplate` bean is wrapped via a CGLIB proxy that intercepts
+`send`/`convertAndSend` calls; every `AbstractJmsListenerContainerFactory` bean is similarly proxied so that each
+container it creates has its message listener wrapped by a `CapturingMessageListenerAdapter`. Both the proxy and the
+adapter compose with the application's existing converters, callbacks, and error handlers without replacing them.
+Each entry records the JMS destination name (extracted from the method argument, the `Destination` object's queue/topic
+name, or the template's configured default), direction, success/failure, duration (JMS sends are synchronous so duration
+is always available), and a one-way hash of the JMS message ID when available. **The message payload is never captured.**
+JMS entries reuse the `KafkaActivityRecorder` buffer and the same `MESSAGING` display as Kafka entries; the buffer size
+and key-hashing settings are inherited from `bootui.kafka.*`. An additional `bootui.jms.enabled=false` toggle
+disables only JMS capture without affecting Kafka. JMS capture is Spring-only — no Quarkus JMS equivalent is claimed.
+
 By default the stream is in-memory only, so history is lost on a restart and the feed can only show as far back as the
 small buffers behind it reach. Setting `bootui.activity.persistence.enabled=true` additionally buffers
 captured entries and flushes them to a SQL database over direct JDBC every `bootui.activity.persistence.flush-interval`

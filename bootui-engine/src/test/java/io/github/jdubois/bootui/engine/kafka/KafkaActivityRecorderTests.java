@@ -106,4 +106,72 @@ class KafkaActivityRecorderTests {
         assertThat(KafkaActivityRecorder.hashKey("42")).isNotEqualTo(KafkaActivityRecorder.hashKey("43"));
         assertThat(KafkaActivityRecorder.hashKey("42")).hasSize(16);
     }
+
+    // JMS-specific record methods — these delegate to the shared record() and appear identically
+    // in recent() alongside Kafka entries.
+
+    @Test
+    void jmsProduceIsRecordedWithNullPartitionAndOffset() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
+        recorder.recordJmsProduce("queue/Orders", null, 12L, true, null);
+
+        List<CapturedMessage> recent = recorder.recent();
+        assertThat(recent).hasSize(1);
+        CapturedMessage msg = recent.get(0);
+        assertThat(msg.direction()).isEqualTo(Direction.PRODUCE);
+        assertThat(msg.topic()).isEqualTo("queue/Orders");
+        assertThat(msg.partition()).isNull();
+        assertThat(msg.offset()).isNull();
+        assertThat(msg.key()).isNull(); // messageId was null
+        assertThat(msg.durationMillis()).isEqualTo(12L);
+        assertThat(msg.success()).isTrue();
+    }
+
+    @Test
+    void jmsProduceHashesMessageId() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
+        recorder.recordJmsProduce("orders", "ID:msg-123", 5L, true, null);
+
+        CapturedMessage msg = recorder.recent().get(0);
+        assertThat(msg.key())
+                .isNotNull()
+                .doesNotContain("ID:msg-123") // must be hashed
+                .isEqualTo(KafkaActivityRecorder.hashKey("ID:msg-123"));
+    }
+
+    @Test
+    void jmsConsumeIsRecordedWithSubscriptionNameAndListenerId() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
+        recorder.recordJmsConsume("topic/Events", "ID:evt-1", 7L, true, null, "my-sub", "ordersListener");
+
+        List<CapturedMessage> recent = recorder.recent();
+        assertThat(recent).hasSize(1);
+        CapturedMessage msg = recent.get(0);
+        assertThat(msg.direction()).isEqualTo(Direction.CONSUME);
+        assertThat(msg.topic()).isEqualTo("topic/Events");
+        assertThat(msg.groupId()).isEqualTo("my-sub");
+        assertThat(msg.listenerId()).isEqualTo("ordersListener");
+        assertThat(msg.durationMillis()).isEqualTo(7L);
+        assertThat(msg.success()).isTrue();
+    }
+
+    @Test
+    void jmsConsumeFailureIsRecorded() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
+        recorder.recordJmsConsume("orders", null, 3L, false, "delivery failed", null, "myFactory");
+
+        CapturedMessage msg = recorder.recent().get(0);
+        assertThat(msg.success()).isFalse();
+        assertThat(msg.errorMessage()).isEqualTo("delivery failed");
+    }
+
+    @Test
+    void jmsAndKafkaEntriesShareTheSameBuffer() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
+        recorder.recordProduce("kafka-topic", 0, "k1", 1L, true, null);
+        recorder.recordJmsProduce("jms-queue", null, 2L, true, null);
+
+        assertThat(recorder.recent()).hasSize(2);
+        assertThat(recorder.totalCaptured()).isEqualTo(2);
+    }
 }
