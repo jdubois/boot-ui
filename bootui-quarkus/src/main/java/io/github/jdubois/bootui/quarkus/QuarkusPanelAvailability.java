@@ -241,6 +241,16 @@ public class QuarkusPanelAvailability {
      */
     public static final String KAFKA_PRESENT_KEY = "bootui.internal.kafka-present";
 
+    /**
+     * Runtime-config key carrying the build-time REST Client Reactive presence decision. The deployment
+     * processor emits it (default {@code false}) only when the MicroProfile REST Client API class is present
+     * at runtime (i.e. {@code quarkus-rest-client} is on the classpath) and the launch mode is
+     * non-production; this bean reads it back to decide whether the REST Client Trace panel is lit up,
+     * mirroring {@link #KAFKA_PRESENT_KEY}. The recorder backing it ({@code RestClientTraceRecorder}) is
+     * produced unconditionally either way — this key only gates the panel's own <em>availability</em>.
+     */
+    public static final String REST_CLIENT_TRACE_PRESENT_KEY = "bootui.internal.rest-client-trace-present";
+
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
     private static final String HIBERNATE_ABSENT =
@@ -278,6 +288,11 @@ public class QuarkusPanelAvailability {
     private static final String KAFKA_ABSENT =
             "Not available: this application does not use Kafka messaging. Add the quarkus-messaging-kafka"
                     + " extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel.";
+
+    private static final String REST_CLIENT_TRACE_ABSENT =
+            "Not available: this application does not use Quarkus REST Client Reactive. Add the"
+                    + " quarkus-rest-client extension (with at least one @RegisterRestClient"
+                    + " interface) to enable the REST Client panel.";
 
     private static final String SQL_TRACE_ABSENT =
             "Not available: no JDBC datasource is on the classpath. Add a Quarkus JDBC datasource"
@@ -361,6 +376,7 @@ public class QuarkusPanelAvailability {
             Map.entry(BootUiPanels.DEV_SERVICES, DEV_SERVICES_ABSENT),
             Map.entry(BootUiPanels.EMAIL, EMAIL_ABSENT),
             Map.entry(BootUiPanels.KAFKA, KAFKA_ABSENT),
+            Map.entry(BootUiPanels.REST_CLIENT_TRACE, REST_CLIENT_TRACE_ABSENT),
             Map.entry(BootUiPanels.SQL_TRACE, SQL_TRACE_ABSENT),
             Map.entry(BootUiPanels.PROFILE_DIFF, PROFILE_DIFF_ABSENT),
             Map.entry(BootUiPanels.REST_API, REST_API_ABSENT),
@@ -415,6 +431,8 @@ public class QuarkusPanelAvailability {
 
     private final boolean kafkaPresent;
 
+    private final boolean restClientTracePresent;
+
     private final boolean securityLogsAvailable;
 
     private final List<String> githubAllowedApiHosts;
@@ -455,6 +473,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(EMAIL_PRESENT_KEY, Boolean.class).orElse(false);
         this.kafkaPresent =
                 config.getOptionalValue(KAFKA_PRESENT_KEY, Boolean.class).orElse(false);
+        this.restClientTracePresent =
+                config.getOptionalValue(REST_CLIENT_TRACE_PRESENT_KEY, Boolean.class).orElse(false);
         boolean securityPresent = config.getOptionalValue(SECURITY_LOGS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
         boolean eventsEnabled = config.getOptionalValue("quarkus.security.events.enabled", Boolean.class)
@@ -479,6 +499,7 @@ public class QuarkusPanelAvailability {
                 Map.entry(BootUiPanels.DEV_SERVICES, devServicesPresent),
                 Map.entry(BootUiPanels.EMAIL, emailPresent),
                 Map.entry(BootUiPanels.KAFKA, kafkaPresent),
+                Map.entry(BootUiPanels.REST_CLIENT_TRACE, restClientTracePresent),
                 Map.entry(BootUiPanels.SECURITY_LOGS, securityLogsAvailable),
                 Map.entry(BootUiPanels.SQL_TRACE, connectionPoolsPresent),
                 Map.entry(BootUiPanels.PROFILE_DIFF, profilesActive),

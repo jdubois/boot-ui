@@ -29,6 +29,8 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
@@ -145,6 +147,7 @@ public class LiveActivityResource {
     private final ActivityPersistenceSettings persistenceSettings;
     private final Instance<DataSource> dataSources;
     private final KafkaActivityRecorder kafkaRecorder;
+    private final RestClientTraceRecorder restClientTraceRecorder;
     private final SelfTelemetryClassifier selfClassifier;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
@@ -169,6 +172,7 @@ public class LiveActivityResource {
             ActivityPersistenceSettings persistenceSettings,
             Instance<DataSource> dataSources,
             KafkaActivityRecorder kafkaRecorder,
+            RestClientTraceRecorder restClientTraceRecorder,
             SelfTelemetryClassifier selfClassifier) {
         this.buffer = buffer;
         this.exposure = exposure;
@@ -184,6 +188,7 @@ public class LiveActivityResource {
         this.persistenceSettings = persistenceSettings;
         this.dataSources = dataSources;
         this.kafkaRecorder = kafkaRecorder;
+        this.restClientTraceRecorder = restClientTraceRecorder;
         this.selfClassifier = selfClassifier;
     }
 
@@ -296,6 +301,8 @@ public class LiveActivityResource {
         EmailsReport emailReport = emailReport();
         boolean emailAvailable = emailReport != null;
 
+        boolean restClientAvailable = panelAvailability.isPanelAvailable(BootUiPanels.REST_CLIENT_TRACE);
+
         LiveActivityReport report = assembler.report(
                 requests,
                 sql.entries(),
@@ -315,10 +322,13 @@ public class LiveActivityResource {
                 kafkaAvailable,
                 emailAvailable ? emailReport.messages() : List.<EmailMessageDto>of(),
                 emailAvailable,
-                // No Quarkus outbound REST-client capture seam exists yet either (see the same class
-                // Javadoc); restCallErrorRatePercent/restCallP95LatencyMs stay null.
-                List.of(),
-                false);
+                // Quarkus REST Client Reactive capture via QuarkusRestClientTraceListener SPI.
+                restClientAvailable
+                        ? restClientTraceRecorder
+                                .report(exposure.maskSecrets(), exposure.valueExposure())
+                                .entries()
+                        : List.<RestClientTraceEntryDto>of(),
+                restClientAvailable);
 
         // Adapter-side post-processing over the shared assembler's output — not a change to the engine's
         // own `profileable` default (which stays `false` for every entry it builds, unaffected by this

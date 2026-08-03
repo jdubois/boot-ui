@@ -1110,11 +1110,11 @@ programmatic `Scheduler.newJob()` jobs are not captured (annotation-discovered t
 
 ### REST Client
 
-The REST Client panel shows outbound HTTP calls your application recently made through Spring's own REST clients,
+The REST Client panel shows outbound HTTP calls your application recently made through Spring's own REST clients (Spring
+adapter) or through Quarkus REST Client Reactive `@RegisterRestClient` proxies (Quarkus adapter),
 captured without a third-party HTTP proxy library. When BootUI is active it customizes every auto-configured `RestClient`
-and `RestTemplate` with a shared `ClientHttpRequestInterceptor` (one instance per client type, so the recorded client
-label — `RestClient` or `RestTemplate` — is always correct) and every auto-configured `WebClient` with an
-`ExchangeFilterFunction`, recording each call's method, host, path, query string, response status, wall-clock duration,
+and `RestTemplate` with a shared `ClientHttpRequestInterceptor` (Spring) or hooks into every `@RegisterRestClient` proxy
+via the MicroProfile `RestClientListener` SPI (Quarkus), recording each call's method, host, path, query string, response status, wall-clock duration,
 success/failure, the client type, a trace id when one is active, the executing thread, and the call site in your own
 application code that issued it (when call-site capture is enabled — see below). A capture failure never disrupts the
 outbound call itself: both instrumentation points always let the request through and only best-effort record around it.
@@ -1170,13 +1170,18 @@ serving-thread-second correlation SQL statements use, and carry a deep link back
 above is not (yet) surfaced as a row-level badge in the merged stream the way SQL's N+1 suspicion is — it is visible only
 in this panel's own "Most frequent calls" table.
 
-**REST Client's dedicated panel is currently available on the Spring MVC (servlet) adapter only.** Its own
-push-updating `/stream` endpoint is built on the servlet-specific `SseEmitter`, so BootUI does not yet expose that full
-panel (with its pause/resume controls, retained-call table, and "Most frequent calls" grouping) on Spring WebFlux or
-Quarkus. However, the underlying outbound-call capture is now shared by both Spring adapters: a WebFlux application's
-own `WebClient` calls are captured and merged into **Live Activity** with the same trace-id-only correlation model that
-WebFlux already uses there for SQL/exceptions/security. Quarkus still has no outbound REST client capture pipeline of
-any kind yet, so both the dedicated panel and Live Activity REST entries remain unavailable on that adapter for now.
+**REST Client's dedicated panel is available on Spring MVC (servlet) and Quarkus adapters.** On Spring, client calls
+are intercepted via `RestClientCustomizer`/`RestTemplateCustomizer` hooks; on Quarkus, the MicroProfile
+`RestClientListener` SPI (`QuarkusRestClientTraceListener`, registered via `ServiceProviderBuildItem` when
+`quarkus-rest-client` is on the classpath) attaches a `QuarkusRestClientTraceFilter` on every
+`@RegisterRestClient` proxy. The same `RestClientTraceRecorder` backs both adapters, so the panel shape is identical.
+One fidelity difference on Quarkus: transport-level failures (network errors, connection timeouts) before an HTTP
+response is received are not captured — only calls that produce an HTTP status code appear in the panel — because
+`ClientResponseFilter` is not called for such failures. Spring's `RestClientTraceInterceptor` wraps the underlying
+transport and sees `IOException`s too. The Spring WebFlux (reactive) adapter captures `WebClient` calls via an
+`ExchangeFilterFunction` and merges them into **Live Activity**; its push-updating `/stream` endpoint is built on
+the servlet-specific `SseEmitter`, so the full standalone panel (with pause/resume controls) is currently only exposed
+on the Spring MVC (servlet) adapter, but WebFlux REST entries still appear in the merged Live Activity feed.
 
 ![BootUI REST Client panel](./images/bootui-rest-client-trace.webp)
 

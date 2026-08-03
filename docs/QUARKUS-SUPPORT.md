@@ -166,10 +166,9 @@ extension of the mechanism `App.vue` already uses, so the same UI build renders 
 > Activity, Log Tail, SQL Trace, Exceptions, Security Logs, Email, Kafka). **Action-capable panels behave identically to Spring**,
 > behind the shared `LocalhostGuard` write floor: Heap Dump (capture/analyze/delete/download), Threads (download), the
 > advisor scans, Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Traces
-> (clear), Email (clear), Kafka (clear), and the MCP Server toggle. Only **GraalVM**, **CRaC**, **Conditions**, **Startup Timeline**, **HTTP
-> Sessions**, **Spring Data**, **Spring Security**, and **DevTools** stay unavailable with a panel-specific
-> not-applicable reason (§5.5), plus **REST Client Trace**, which is Spring MVC only for now (see the Result note
-> below §5.5). The per-panel `**Implemented**` markers below and `docs/FEATURES.md` carry the authoritative, current
+> (clear), Email (clear), Kafka (clear), REST Client Reactive (clear + recording toggle), and the MCP Server toggle. Only **GraalVM**, **CRaC**, **Conditions**, **Startup Timeline**,
+> **HTTP Sessions**, **Spring Data**, **Spring Security**, and **DevTools** stay unavailable with a panel-specific
+> not-applicable reason (§5.5). The per-panel `**Implemented**` markers below and `docs/FEATURES.md` carry the authoritative, current
 > per-platform detail.
 
 ### 5.1 Ported as-is — framework-agnostic or same library (17)
@@ -311,12 +310,11 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
   it niche), `DevTools` (**Implemented as `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
   Spring-style DevTools restart/LiveReload to expose; the panel reports *not applicable* rather than *not yet*).
 
-**Result:** 41 of the 50 panels ship on Quarkus (17 ported as-is, 11 source-swapped, 10 capture-rebuilt, 3 replaced
-with a Quarkus-native panel), and 9 are dropped: 8 as *not applicable* (GraalVM, CRaC, Conditions, Startup
-Timeline, HTTP Sessions, Spring Data, Spring Security, DevTools) and 1 (REST Client Trace) as Spring-servlet-only
-for now — no comparable runtime interception seam yet for the Quarkus-native REST client. The Overview dashboard
-panel is available (its scoring dashboard renders client-side from the advisor endpoints, and the shell-chrome
-`GET /bootui/api/overview` endpoint is served on both adapters).
+**Result:** 42 of the 50 panels ship on Quarkus (17 ported as-is, 11 source-swapped, 10 capture-rebuilt, 3 replaced
+with a Quarkus-native panel, plus REST Client Reactive via the MicroProfile `RestClientListener` SPI), and 8 are
+dropped as *not applicable* (GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring
+Security, DevTools). The Overview dashboard panel is available (its scoring dashboard renders client-side from the
+advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
 ## 6. Activation & safety on Quarkus
 
@@ -509,7 +507,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Log Tail            | **done**    | Rebuild | Log tail model                   | `LogCaptureSource` → JBoss LogManager       |
 | Email               | **done**    | Rebuild | Email capture service            | CDI `@Observes SentMail` observer → quarkus-mailer |
 | Kafka               | **done**    | Rebuild | `KafkaActivityRecorder`          | SmallRye `Outgoing`/`IncomingInterceptor` (`Capability.KAFKA`-gated); same recorder as Live Activity |
-| REST Client         | spring-only | Drop    | —                                 | no comparable runtime interception seam yet for the Quarkus-native REST client; see `docs/PLAN.md` §3.4 |
+| REST Client         | **done**    | Adapt   | `RestClientTraceRecorder`        | MicroProfile `RestClientListener` SPI (`ServiceProviderBuildItem`-gated, not static META-INF/services) → `QuarkusRestClientTraceFilter`; class-presence gate on `RestClientBuilder` (no `REST_CLIENT_REACTIVE` `Capability` constant in Quarkus 3.x). **Fidelity note**: transport-level failures (network errors, connection timeouts) before an HTTP response is received are not captured; only calls that produce an HTTP status code appear in the panel (Spring's `RestClientTraceInterceptor` wraps the underlying transport and sees `IOException`s too). |
 | Spring              | **done**    | Replace | Scanning engine                  | new `Quarkus` advisor ruleset               |
 | Cache               | **done**    | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
 | Beans               | **done**    | Adapt   | Beans service                    | `BeanProvider` → Arc (build-time; low fidelity) |

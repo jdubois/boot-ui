@@ -288,9 +288,13 @@ Scope — new event types, roughly in priority order:
   standalone REST Client panel and, like Cache/Mail, a `REST_CLIENT` entry into the merged Live Activity feed —
   nesting as a `REQUEST` child via the same trace-id-then-thread join `SQL`/`CACHE`/`MAIL` use (see the `MAIL` bullet
   above for why `EXCEPTION`/`SECURITY` are not part of that list), and adding
-  `restCallErrorRatePercent`/`restCallP95LatencyMs` KPI tiles deep-linked to `/rest-client-trace`. Quarkus is out of
-  scope for now — like Cache, no comparable runtime interception seam exists yet for the Quarkus-native REST client
-  (see `docs/QUARKUS-SUPPORT.md`), so the Quarkus adapter reports the merged-stream slot unavailable.
+  `restCallErrorRatePercent`/`restCallP95LatencyMs` KPI tiles deep-linked to `/rest-client-trace`. Quarkus uses the
+  MicroProfile `RestClientListener` SPI (`QuarkusRestClientTraceListener`, registered via `ServiceProviderBuildItem`
+  when `quarkus-rest-client` is present) to attach a `QuarkusRestClientTraceFilter` on every
+  `@RegisterRestClient` proxy, feeding the same shared `RestClientTraceRecorder`; transport-level failures are a
+  known fidelity difference vs Spring (see `docs/QUARKUS-SUPPORT.md`).
+
+**Done** — Quarkus REST Client capture shipped (issue #653).
 
 Scope — enhancements on top of the shipped event types, generally cheaper than a new source and some of higher value:
 

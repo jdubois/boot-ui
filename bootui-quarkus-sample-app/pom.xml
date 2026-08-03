@@ -137,6 +137,14 @@
             <artifactId>quarkus-scheduler</artifactId>
         </dependency>
 
+        <!-- REST Client Reactive: drives the REST Client panel. The sample makes periodic outbound calls to the
+             httpbin.org-compatible echo endpoint (or a local stub so no real network is needed in tests), feeding
+             the shared RestClientTraceRecorder via the BootUI MicroProfile RestClientListener SPI hook. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-client</artifactId>
+        </dependency>
+
         <!-- Mailer: drives the Email panel. The sample runs the mailer in mock mode (see application.properties),
              so BootUI captures each outgoing message for the panel but nothing is ever handed to a real SMTP
              transport — no mail server (and no Docker) is required. -->
