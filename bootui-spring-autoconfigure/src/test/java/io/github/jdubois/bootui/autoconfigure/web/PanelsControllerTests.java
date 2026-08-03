@@ -303,10 +303,13 @@ class PanelsControllerTests {
         // GenericReactiveWebApplicationContext is the Spring Boot marker Spring uses for a genuine WebFlux
         // (reactive) ApplicationContext - the same shared PanelsController that BootUiReactiveAutoConfiguration
         // imports unmodified must detect it and (a) report the reactive platform discriminator and (b) mark the
-        // panels that have no faithful reactive equivalent (HTTP Sessions), are not yet ported (Spring
-        // Security advisor), or are servlet-only by design (REST Client) as unavailable with a
-        // WebFlux-specific reason, instead of relying on incidental classpath presence. MCP Server and Live
-        // Activity are ported reactively, so they stay available here too.
+        // panels that have no faithful reactive equivalent (HTTP Sessions) or are servlet-only by design (REST
+        // Client) as unavailable with a WebFlux-specific reason, instead of relying on incidental classpath
+        // presence. MCP Server and Live Activity are ported reactively, so they stay available here too.
+        // SPRING_SECURITY (the raw panel, not the advisor) is now ported to WebFlux via
+        // ReactiveSpringSecurityController, so in a reactive context without a WebFilterChainProxy bean it
+        // reports unavailable with the "no chains" reason (not the old "not yet ported" message), and in a
+        // context where WebFilterChainProxy is registered it reports available:true (tested separately).
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             context.refresh();
             PanelsController controller =
@@ -325,7 +328,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.SPRING_SECURITY) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.SPRING_SECURITY) + ".unavailableReason")
-                            .value(startsWith("Not yet ported for Spring WebFlux")))
+                            .value(startsWith("No reactive Spring Security filter chains are available")))
                     .andExpect(jsonPath(panelPath(BootUiPanels.MCP_SERVER) + ".available")
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
@@ -333,6 +336,28 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".unavailableReason")
                             .value("REST Client is only available on the Spring MVC (servlet) adapter"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.ACTIVITY) + ".available")
+                            .value(true));
+        }
+    }
+
+    @Test
+    void springSecurityPanelIsAvailableUnderWebFluxWhenWebFilterChainProxyBeanPresent() throws Exception {
+        // Verifies that the SPRING_SECURITY panel (the raw panel, not the Security advisor) reports
+        // available:true on a reactive WebFlux application context when a WebFilterChainProxy bean is
+        // registered. This mirrors the servlet-mode check that gates on FilterChainProxy bean presence.
+        try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
+            context.registerBean(
+                    "springSecurityFilterChainProxy",
+                    org.springframework.security.web.server.WebFilterChainProxy.class,
+                    () -> new org.springframework.security.web.server.WebFilterChainProxy(List.of()));
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties());
+            MockMvc mvc = standaloneSetup(controller).build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.SPRING_SECURITY) + ".available")
                             .value(true));
         }
     }

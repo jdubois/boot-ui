@@ -297,16 +297,24 @@ public class PanelsController {
     }
 
     private boolean springSecurityAvailable() {
-        return !isReactive()
-                && classPresent("org.springframework.security.web.SecurityFilterChain")
+        if (isReactive()) {
+            // On WebFlux, the security chain is a SecurityWebFilterChain managed by WebFilterChainProxy
+            // (org.springframework.security.web.server.WebFilterChainProxy), not the servlet
+            // FilterChainProxy. Both live in the same spring-security-web jar but are distinct types.
+            return classPresent("org.springframework.security.web.server.WebFilterChainProxy")
+                    && beanPresent("org.springframework.security.web.server.WebFilterChainProxy");
+        }
+        return classPresent("org.springframework.security.web.SecurityFilterChain")
                 && beanPresent("org.springframework.security.web.SecurityFilterChain");
     }
 
     private String springSecurityUnavailableReason() {
         if (isReactive()) {
-            return "Not yet ported for Spring WebFlux: this advisor analyzes the servlet"
-                    + " SecurityFilterChain/HttpSecurity configuration model, which has no reactive equivalent"
-                    + " wired here yet (a ServerHttpSecurity/SecurityWebFilterChain ruleset is planned).";
+            if (!classPresent("org.springframework.security.web.server.WebFilterChainProxy")) {
+                return "Spring Security not on the classpath";
+            }
+            return "No reactive Spring Security filter chains are available"
+                    + " (no SecurityWebFilterChain bean found)";
         }
         if (!classPresent("org.springframework.security.web.SecurityFilterChain")) {
             return "Spring Security not on the classpath";
