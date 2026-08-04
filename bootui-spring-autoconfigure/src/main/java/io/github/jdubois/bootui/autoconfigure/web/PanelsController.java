@@ -297,16 +297,25 @@ public class PanelsController {
     }
 
     private boolean springSecurityAvailable() {
-        return !isReactive()
-                && classPresent("org.springframework.security.web.SecurityFilterChain")
+        if (isReactive()) {
+            // Inspect actual application SecurityWebFilterChain beans rather than WebFilterChainProxy's
+            // private list. Exclude BootUI's own permit-all chain so the panel cannot make itself available.
+            return classPresent("org.springframework.security.web.server.SecurityWebFilterChain")
+                    && beanPresentExcluding(
+                            "org.springframework.security.web.server.SecurityWebFilterChain",
+                            "bootUiReactiveSecurityWebFilterChain");
+        }
+        return classPresent("org.springframework.security.web.SecurityFilterChain")
                 && beanPresent("org.springframework.security.web.SecurityFilterChain");
     }
 
     private String springSecurityUnavailableReason() {
         if (isReactive()) {
-            return "Not yet ported for Spring WebFlux: this advisor analyzes the servlet"
-                    + " SecurityFilterChain/HttpSecurity configuration model, which has no reactive equivalent"
-                    + " wired here yet (a ServerHttpSecurity/SecurityWebFilterChain ruleset is planned).";
+            if (!classPresent("org.springframework.security.web.server.SecurityWebFilterChain")) {
+                return "Spring Security not on the classpath";
+            }
+            return "No reactive Spring Security filter chains are available"
+                    + " (no SecurityWebFilterChain bean found)";
         }
         if (!classPresent("org.springframework.security.web.SecurityFilterChain")) {
             return "Spring Security not on the classpath";
@@ -407,6 +416,16 @@ public class PanelsController {
         }
     }
 
+    private boolean beanPresentExcluding(String className, String excludedBeanName) {
+        try {
+            Class<?> type = ClassUtils.forName(className, getClass().getClassLoader());
+            return Arrays.stream(applicationContext.getBeanNamesForType(type, true, false))
+                    .anyMatch(beanName -> !excludedBeanName.equals(beanName));
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
+    }
+
     private boolean hibernateAvailable() {
         return classPresent("org.hibernate.SessionFactory")
                 && classPresent("jakarta.persistence.EntityManagerFactory")
@@ -424,11 +443,15 @@ public class PanelsController {
     }
 
     private boolean securityAvailable() {
-        return classPresent("org.springframework.security.web.FilterChainProxy")
+        return !isReactive()
+                && classPresent("org.springframework.security.web.FilterChainProxy")
                 && beanPresent("org.springframework.security.web.FilterChainProxy");
     }
 
     private String securityUnavailableReason() {
+        if (isReactive()) {
+            return "Security Advisor is only available on the Spring MVC (servlet) adapter";
+        }
         if (!classPresent("org.springframework.security.web.FilterChainProxy")) {
             return "Spring Security not on the classpath";
         }

@@ -34,8 +34,8 @@ import java.util.Map;
  * correlation and thread attribution); the Spring WebFlux and Quarkus adapters feed this assembler the
  * shared signal sources they capture — HTTP requests, SQL trace, exceptions, security/audit events, cache
  * accesses, captured {@code @Scheduled} task executions, captured emails, optionally Kafka messaging, and
- * (on WebFlux) outbound REST client calls — which are merged into one reverse-chronological feed with JVM
- * heap and per-type KPIs.
+ * (on WebFlux and Quarkus) outbound REST client calls — which are merged into one reverse-chronological feed
+ * with JVM heap and per-type KPIs.
  *
  * <p>Inputs are already masked and self-filtered by their owning engine services before they reach this
  * shape, so the assembler only normalizes, severities, merges, correlates and caps.</p>
@@ -89,9 +89,8 @@ import java.util.Map;
  * <p><strong>Outbound REST client calls (the {@code REST_CLIENT} entry type / {@code restCallErrorRatePercent}
  * and {@code restCallP95LatencyMs} KPIs) follow that same trace-id-only correlation rule</strong>: the
  * servlet adapter's serving-thread fallback is intentionally not ported because neither Reactor nor Vert.x
- * has a thread-per-request model to correlate on. Only the Spring WebFlux adapter feeds these today; the
- * Quarkus adapter has no outbound REST capture seam yet, so it always calls {@link #report} with
- * {@code restAvailable=false}.</p>
+ * has a thread-per-request model to correlate on. Spring WebFlux and Quarkus both feed these from their
+ * framework-specific client interception seams.</p>
  */
 public final class LiveActivityAssembler {
 
@@ -157,8 +156,8 @@ public final class LiveActivityAssembler {
      *     shares that trace id, exactly like SQL/exceptions/security/cache above.
      * @param emailAvailable whether a mail sender is present and the Email Viewer panel is feeding
      * @param restEntries already-masked outbound REST client calls (newest-first), or {@code null}; ignored
-     *     unless {@code restAvailable}. Spring WebFlux can supply these from the shared recorder; Quarkus
-     *     currently has no outbound REST capture seam and therefore passes an empty list.
+     *     unless {@code restAvailable}. Spring WebFlux and Quarkus both supply these from the shared
+     *     recorder through their framework-specific interception seams.
      * @param restAvailable whether the REST-client source is present and feeding
      */
     public LiveActivityReport report(

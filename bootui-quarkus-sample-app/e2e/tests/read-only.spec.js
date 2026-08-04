@@ -39,10 +39,12 @@ test.describe('Read-only properties (Quarkus)', () => {
     const app = await startSampleApp({'bootui.read-only': 'true'})
 
     try {
+      await request.post(`${app.baseUrl}/api/sample/rest-client-capture`)
       const panels = await fetchPanels(request, app.baseUrl)
       const overviewPanel = panels.find((panel) => panel.id === 'overview')
       const probePanel = panels.find((panel) => panel.id === 'http-probe')
       const heapDumpPanel = panels.find((panel) => panel.id === 'heap-dump')
+      const restClientPanel = panels.find((panel) => panel.id === 'rest-client-trace')
 
       expect(overviewPanel?.readOnly).toBe(false)
       expect(probePanel).toMatchObject({
@@ -52,6 +54,12 @@ test.describe('Read-only properties (Quarkus)', () => {
       })
       expect(heapDumpPanel).toMatchObject({
         id: 'heap-dump',
+        readOnly: true,
+        readOnlyReason: 'BootUI is read-only via bootui.read-only=true'
+      })
+      expect(restClientPanel).toMatchObject({
+        id: 'rest-client-trace',
+        available: true,
         readOnly: true,
         readOnlyReason: 'BootUI is read-only via bootui.read-only=true'
       })
@@ -66,8 +74,19 @@ test.describe('Read-only properties (Quarkus)', () => {
       expect(heapDumpResponse.status()).toBe(403)
       await assertBlockedPanelAccess(heapDumpResponse, 'heap-dump', 'BootUI is read-only via bootui.read-only=true')
 
+      const restClientResponse = await request.post(`${app.baseUrl}/bootui/api/rest-client-trace/recording`, {
+        data: {enabled: false}
+      })
+      expect(restClientResponse.status()).toBe(403)
+      await assertBlockedPanelAccess(
+        restClientResponse,
+        'rest-client-trace',
+        'BootUI is read-only via bootui.read-only=true'
+      )
+
       await assertHttpProbeReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
       await assertHeapDumpReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
+      await assertRestClientReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
     } finally {
       await app.stop()
     }
@@ -161,6 +180,26 @@ async function assertHeapDumpReadOnly(page, baseUrl, reason) {
   await expect(page.locator('.panel-read-only-alert')).toContainText(reason)
   await expect(page.getByRole('button', {name: /Capture heap dump/})).toBeDisabled()
   await expect(page.getByRole('button', {name: 'Analyze live heap'})).toBeDisabled()
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ * @param {string} baseUrl
+ * @param {string} reason
+ */
+async function assertRestClientReadOnly(page, baseUrl, reason) {
+  await page.goto(`${baseUrl}/bootui/#/rest-client-trace`)
+  await expect(
+    page
+      .locator('main h2')
+      .filter({hasText: /^REST Client/})
+      .first()
+  ).toBeVisible()
+
+  await expect(page.locator('.panel-read-only-alert')).toContainText('Panel read-only')
+  await expect(page.locator('.panel-read-only-alert')).toContainText(reason)
+  await expect(page.getByRole('button', {name: 'Pause'})).toBeDisabled()
+  await expect(page.getByRole('button', {name: 'Clear'})).toBeDisabled()
 }
 
 /**

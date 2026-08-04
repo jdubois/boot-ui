@@ -39,6 +39,7 @@ import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
@@ -889,5 +890,54 @@ public class BootUiEngineProducer {
     @Singleton
     public DevServicesReportService devServicesReportService() {
         return new DevServicesReportService();
+    }
+
+    /**
+     * The REST Client Trace panel recorder. Produced <em>unconditionally</em> because it holds no
+     * {@code quarkus-rest-client-reactive} type: the MicroProfile {@code RestClientListener} that
+     * registers a {@code QuarkusRestClientTraceFilter} on each proxy is gated separately (see
+     * {@code BootUiQuarkusProcessor.registerRestClientTrace}). When no REST client has been instrumented yet,
+     * {@code RestClientTraceRecorder#hasInstrumentedClient()} returns {@code false} and the panel reports
+     * itself unavailable; recording and the panel manifest flag are driven by
+     * {@code QuarkusPanelAvailability.REST_CLIENT_TRACE_PRESENT_KEY}.
+     */
+    @Produces
+    @Singleton
+    public RestClientTraceRecorder restClientTraceRecorder(Config config, Instance<TraceIdProvider> traceIdProvider) {
+        boolean enabled = config.getOptionalValue("bootui.rest-client-trace.enabled", Boolean.class)
+                .orElse(true);
+        boolean recording = config.getOptionalValue("bootui.rest-client-trace.recording", Boolean.class)
+                .orElse(true);
+        boolean captureCallSite = config.getOptionalValue("bootui.rest-client-trace.capture-call-site", Boolean.class)
+                .orElse(true);
+        int maxEntries = config.getOptionalValue("bootui.rest-client-trace.max-entries", Integer.class)
+                .orElse(200);
+        long slowCallThresholdMillis = config.getOptionalValue(
+                        "bootui.rest-client-trace.slow-call-threshold-millis", Long.class)
+                .orElse(1000L);
+        int maxUriLength = config.getOptionalValue("bootui.rest-client-trace.max-uri-length", Integer.class)
+                .orElse(2000);
+        int maxHeaderValueLength = config.getOptionalValue(
+                        "bootui.rest-client-trace.max-header-value-length", Integer.class)
+                .orElse(200);
+        int chattyCallThreshold = config.getOptionalValue(
+                        "bootui.rest-client-trace.chatty-call-threshold", Integer.class)
+                .orElse(5);
+        // Quarkus capture is deliberately metadata-only: arbitrary request headers are never retained,
+        // even if the Spring-oriented capture-headers property is configured.
+        RestClientTraceRecorder recorder = new RestClientTraceRecorder(
+                enabled,
+                recording,
+                false,
+                captureCallSite,
+                maxEntries,
+                slowCallThresholdMillis,
+                maxUriLength,
+                maxHeaderValueLength,
+                chattyCallThreshold);
+        if (traceIdProvider.isResolvable()) {
+            recorder.setTraceIdProvider(traceIdProvider.get());
+        }
+        return recorder;
     }
 }

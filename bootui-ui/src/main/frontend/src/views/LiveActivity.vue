@@ -2,6 +2,7 @@
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
+import StreamStatusIndicator from './components/StreamStatusIndicator.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
@@ -118,7 +119,9 @@ async function loadActivity() {
 const {
   autoRefresh,
   loading,
-  load: refreshNow
+  load: refreshNow,
+  retryConnection,
+  connectionState
 } = useEventStreamRefresh('api/activity/stream', loadActivity, {
   enabled: manifestAvailable
 })
@@ -584,6 +587,8 @@ function clearFilters() {
     </PanelHeader>
 
     <FlashBanner :message="banner" @dismiss="clearBanner" />
+
+    <StreamStatusIndicator :connection-state="connectionState" @retry="retryConnection" />
 
     <div
       v-if="showDatabaseInfo && report && !persistent"

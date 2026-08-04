@@ -38,6 +38,7 @@
         <module>flyway</module>
         <module>liquibase</module>
         <module>datasource</module>
+        <module>rest-client</module>
         <module>prod-shell-guard</module>
     </modules>
 </project>

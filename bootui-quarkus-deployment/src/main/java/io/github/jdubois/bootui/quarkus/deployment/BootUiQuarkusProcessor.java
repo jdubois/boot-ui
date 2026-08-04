@@ -63,6 +63,7 @@ import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
 import io.quarkus.deployment.builditem.DevServicesResultBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
+import io.quarkus.deployment.builditem.GeneratedServiceProviderBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
@@ -200,6 +201,13 @@ class BootUiQuarkusProcessor {
 
     // The runtime type whose presence tells registerEmail that quarkus-mailer is on the application's classpath.
     private static final String REACTIVE_MAILER_CLASS = "io.quarkus.mailer.reactive.ReactiveMailer";
+
+    // The MicroProfile REST Client Listener that hooks BootUI's filter into every @RegisterRestClient proxy.
+    // Referenced by string name only so the deployment classloader never loads it in an app without
+    // quarkus-rest-client (it implements RestClientListener from microprofile-rest-client-api,
+    // which is absent when the REST Client extension is absent — R2).
+    private static final String REST_CLIENT_TRACE_LISTENER_CLASS =
+            "io.github.jdubois.bootui.quarkus.restclienttrace.QuarkusRestClientTraceListener";
 
     // Referenced by class name only: BootUiSqlTraceProducer @Produces an Alternative DataSource that wraps the
     // default Agroal pool, and imports io.agroal.*; the deployment classloader must never load it without a JDBC
@@ -1516,6 +1524,35 @@ class BootUiQuarkusProcessor {
                 runtimeDefaults,
                 QuarkusPanelAvailability.EMAIL_PRESENT_KEY,
                 EMAIL_CAPTURE_CLASS);
+    }
+
+    /**
+     * Conditionally registers the MicroProfile {@code RestClientListener} SPI implementation that hooks
+     * BootUI's {@code QuarkusRestClientTraceFilter} into every {@code @RegisterRestClient} proxy, and emits
+     * the {@code REST_CLIENT_TRACE_PRESENT_KEY} runtime default so the panel lights up in the manifest.
+     *
+     * <p>The listener imports the optional MicroProfile REST Client API, so this build step both omits its
+     * service-provider entry and excludes it from Arc discovery when the capability is absent (R2). The
+     * framework-neutral recorder and BootUI resource remain wired so an absent extension produces a clear
+     * unavailable report rather than a linkage failure.</p>
+     */
+    @BuildStep
+    void registerRestClientTrace(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<GeneratedServiceProviderBuildItem> serviceProviders,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL
+                && capabilities.isPresent(Capability.REST_CLIENT_REACTIVE);
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                QuarkusPanelAvailability.REST_CLIENT_TRACE_PRESENT_KEY, String.valueOf(present)));
+        if (!present) {
+            excludedTypes.produce(new ExcludedTypeBuildItem(REST_CLIENT_TRACE_LISTENER_CLASS));
+            return;
+        }
+        serviceProviders.produce(new GeneratedServiceProviderBuildItem(
+                "org.eclipse.microprofile.rest.client.spi.RestClientListener", REST_CLIENT_TRACE_LISTENER_CLASS));
     }
 
     /**

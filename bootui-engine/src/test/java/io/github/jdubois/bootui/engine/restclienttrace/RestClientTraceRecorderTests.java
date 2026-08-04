@@ -461,6 +461,28 @@ class RestClientTraceRecorderTests {
     }
 
     @Test
+    void acceptsTraceIdCapturedEarlierByAReactiveInterceptionBoundary() {
+        RestClientTraceRecorder recorder = recorder(true, 10, 100);
+        recorder.setTraceIdProvider(() -> "response-context");
+
+        recorder.record(
+                "GET",
+                "/orders",
+                "api.example.com",
+                "/orders",
+                200,
+                1,
+                true,
+                null,
+                "RestClient",
+                Map.of(),
+                "event-loop",
+                "request-context");
+
+        assertThat(recorder.recent().get(0).traceId()).isEqualTo("request-context");
+    }
+
+    @Test
     void usesNoTraceIdByDefault() {
         RestClientTraceRecorder recorder = recorder(true, 10, 100);
         record(recorder, "/orders");

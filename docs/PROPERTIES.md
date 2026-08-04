@@ -324,14 +324,14 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | ----------------------------------------------------- | ------- | ----------- |
 | `bootui.panels.rest-client-trace.enabled`             | `true`  | Show the REST Client panel and its captured outbound HTTP calls. |
 | `bootui.panels.rest-client-trace.read-only`           | `false` | Disable the Pause/Resume and Clear actions while keeping captured calls visible. |
-| `bootui.rest-client-trace.enabled`                    | `true`  | Instrument Spring's `RestClient`, `RestTemplate`, and `WebClient` beans to capture outbound HTTP calls. When `false`, no client customizer is registered. |
+| `bootui.rest-client-trace.enabled`                    | `true`  | Capture outbound calls from Spring's `RestClient`/`RestTemplate`/`WebClient` or Quarkus REST Client Reactive. When `false`, the recorder remains unavailable and retains no calls. |
 | `bootui.rest-client-trace.recording`                  | `true`  | Initial recording state. Recording can be paused and resumed at runtime from the panel without removing the client instrumentation. |
-| `bootui.rest-client-trace.capture-headers`            | `false` | Capture request headers alongside each call. Off by default because header values may be sensitive; when enabled, values are captured subject to truncation and masked at read/report time according to the live exposure policy. |
-| `bootui.rest-client-trace.capture-call-site`          | `true`  | Capture the first application stack frame that triggered each outbound call, shown per call and aggregated per group so chatty-call warnings point directly at the application code to inspect. |
+| `bootui.rest-client-trace.capture-headers`            | `false` | **Spring only:** capture bounded request headers and mask them at report time. Quarkus ignores this property and never reads or retains arbitrary headers, credentials, cookies, or tokens. |
+| `bootui.rest-client-trace.capture-call-site`          | `true`  | Capture the first application stack frame that triggered each outbound call, when available. Attribution is best-effort on Quarkus because reactive callbacks may run after the issuing stack has unwound. |
 | `bootui.rest-client-trace.max-entries`                | `200`   | Maximum number of outbound calls retained in the in-memory ring buffer. |
 | `bootui.rest-client-trace.slow-call-threshold-millis` | `1000`  | Calls at or above this many milliseconds are flagged as slow. Set to `0` to disable slow-call flagging. |
 | `bootui.rest-client-trace.max-uri-length`             | `2000`  | Maximum retained length of the request URI and path; longer values are truncated. |
-| `bootui.rest-client-trace.max-header-value-length`    | `200`   | Maximum retained length of a single captured header value. |
+| `bootui.rest-client-trace.max-header-value-length`    | `200`   | **Spring only:** maximum retained length of a captured header value. Quarkus captures no headers. |
 | `bootui.rest-client-trace.chatty-call-threshold`      | `5`     | Number of calls to the same method/host/path (with numeric and UUID path segments normalized) within the buffer before the group is flagged as a likely repeated-call access pattern (minimum `2`). |
 
 ### Live Activity

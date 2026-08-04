@@ -210,6 +210,21 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus REST Client Reactive, compile-only (provided): needed solely to compile
+             QuarkusRestClientTraceListener (implements org.eclipse.microprofile.rest.client.spi.RestClientListener)
+             and QuarkusRestClientTraceFilter (registers itself on RestClientBuilder). The deployment build step
+             (registerRestClientTrace) emits a generated service-provider entry only when the REST Client Reactive
+             capability is present and excludes the optional listener type otherwise, preventing it from being linked
+             from the indexed runtime JAR when quarkus-rest-client is absent.
+             provided scope is NOT transitive, so an application that does not add quarkus-rest-client never
+             gets the microprofile-rest-client-api on its classpath. When an app DOES add quarkus-rest-client,
+             the API is supplied (at the same quarkus-bom-managed version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-client</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Quarkus Scheduler, compile-only (provided): needed solely to compile the Live Activity
              scheduled-task-run capture observer (QuarkusScheduledTaskRunRecorder), which observes
              io.quarkus.scheduler.SuccessfulExecution / FailedExecution CDI events (fired by BaseScheduler

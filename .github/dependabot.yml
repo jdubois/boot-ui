@@ -4,6 +4,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       spring-boot:
@@ -19,6 +21,8 @@ updates:
     directory: /bootui-ui/src/main/frontend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       vue:
@@ -36,6 +40,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       vuepress:
@@ -48,6 +54,8 @@ updates:
     directory: /bootui-spring-sample-app/e2e
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       playwright:
@@ -59,6 +67,8 @@ updates:
     directory: /bootui-quarkus-sample-app/e2e
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       playwright:
@@ -72,4 +82,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10

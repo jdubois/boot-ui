@@ -144,6 +144,19 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void restClientPanelAvailabilityTracksTheOptionalCapability() {
+        PanelDto absent = manifestById().get(BootUiPanels.REST_CLIENT_TRACE);
+        assertThat(absent.available()).isFalse();
+        assertThat(absent.unavailableReason()).contains("quarkus-rest-client");
+
+        StubConfig capabilityPresent =
+                new StubConfig(Map.of(QuarkusPanelAvailability.REST_CLIENT_TRACE_PRESENT_KEY, "true"));
+        PanelDto available = manifestById(capabilityPresent).get(BootUiPanels.REST_CLIENT_TRACE);
+        assertThat(available.available()).isTrue();
+        assertThat(available.unavailableReason()).isNull();
+    }
+
+    @Test
     void hibernateIsUnavailableWithACapabilityHintWhenHibernateOrmIsAbsent() {
         // Default: bootui.internal.hibernate-present is unset, so the deployment processor never saw the
         // HIBERNATE_ORM capability. The panel must surface an honest capability hint, NOT the generic reason.
