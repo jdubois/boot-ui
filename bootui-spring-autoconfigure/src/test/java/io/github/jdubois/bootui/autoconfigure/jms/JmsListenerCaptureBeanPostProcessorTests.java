@@ -3,11 +3,13 @@ package io.github.jdubois.bootui.autoconfigure.jms;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor.CapturingMessageListenerAdapter;
+import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor.CapturingMessageListener;
+import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor.CapturingSessionAwareMessageListener;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
@@ -19,6 +21,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jms.config.DefaultJmsListenerContainerFactory;
+import org.springframework.jms.config.SimpleJmsListenerEndpoint;
+import org.springframework.jms.listener.AbstractMessageListenerContainer;
 import org.springframework.jms.listener.SessionAwareMessageListener;
 
 class JmsListenerCaptureBeanPostProcessorTests {
@@ -78,7 +82,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
         Message message = messageWithQueueDestination("orders");
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
-        CapturingMessageListenerAdapter adapter = new CapturingMessageListenerAdapter(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
 
         adapter.onMessage(message);
 
@@ -99,7 +103,8 @@ class JmsListenerCaptureBeanPostProcessorTests {
         Session session = mock(Session.class);
         @SuppressWarnings("unchecked")
         SessionAwareMessageListener<Message> delegate = mock(SessionAwareMessageListener.class);
-        CapturingMessageListenerAdapter adapter = new CapturingMessageListenerAdapter(delegate, recorder, "myFactory");
+        CapturingSessionAwareMessageListener adapter =
+                new CapturingSessionAwareMessageListener(delegate, recorder, "myFactory");
 
         adapter.onMessage(message, session);
 
@@ -119,14 +124,14 @@ class JmsListenerCaptureBeanPostProcessorTests {
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
         RuntimeException boom = new IllegalStateException("listener failed");
         org.mockito.Mockito.doThrow(boom).when(delegate).onMessage(message);
-        CapturingMessageListenerAdapter adapter = new CapturingMessageListenerAdapter(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
 
         assertThatThrownBy(() -> adapter.onMessage(message)).isSameAs(boom);
 
         assertThat(recorder.recent()).hasSize(1);
         CapturedMessage captured = recorder.recent().get(0);
         assertThat(captured.success()).isFalse();
-        assertThat(captured.errorMessage()).isEqualTo("listener failed");
+        assertThat(captured.errorMessage()).isEqualTo("IllegalStateException");
     }
 
     @Test
@@ -134,22 +139,23 @@ class JmsListenerCaptureBeanPostProcessorTests {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
         Message message = messageWithQueueDestination("orders");
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
-        CapturingMessageListenerAdapter adapter = new CapturingMessageListenerAdapter(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
 
         adapter.onMessage(message);
 
         // Delegate is invoked exactly once, not twice.
-        verify(delegate, org.mockito.Mockito.times(1)).onMessage(message);
+        verify(delegate, times(1)).onMessage(message);
     }
 
     @Test
-    void adaptersPreferSessionAwarePath() throws Exception {
+    void preservesSessionAwareDispatchPath() throws Exception {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
         Message message = messageWithQueueDestination("orders");
         Session session = mock(Session.class);
         @SuppressWarnings("unchecked")
         SessionAwareMessageListener<Message> delegate = mock(SessionAwareMessageListener.class);
-        CapturingMessageListenerAdapter adapter = new CapturingMessageListenerAdapter(delegate, recorder, "myFactory");
+        CapturingSessionAwareMessageListener adapter =
+                new CapturingSessionAwareMessageListener(delegate, recorder, "myFactory");
 
         // Container calls onMessage(msg, session) when the adapter implements SessionAwareMessageListener
         adapter.onMessage(message, session);
@@ -165,7 +171,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         Message message = messageWithQueueDestination("orders");
         when(message.getJMSMessageID()).thenReturn("ID:unique-message-id");
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
-        CapturingMessageListenerAdapter adapter = new CapturingMessageListenerAdapter(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
 
         adapter.onMessage(message);
 
@@ -179,11 +185,60 @@ class JmsListenerCaptureBeanPostProcessorTests {
         Message message = messageWithQueueDestination("orders");
         when(message.getJMSMessageID()).thenReturn(null);
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
-        CapturingMessageListenerAdapter adapter = new CapturingMessageListenerAdapter(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
 
         adapter.onMessage(message);
 
         assertThat(recorder.recent().get(0).key()).isNull();
+    }
+
+    @Test
+    void proxyWrapsTheListenerCreatedByTheFactoryWithoutChangingItsInterface() throws Exception {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        JmsListenerCaptureBeanPostProcessor postProcessor =
+                new JmsListenerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        DefaultJmsListenerContainerFactory factory = factoryWithMockConnection();
+        DefaultJmsListenerContainerFactory proxy =
+                (DefaultJmsListenerContainerFactory) postProcessor.postProcessAfterInitialization(factory, "myFactory");
+        jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
+        SimpleJmsListenerEndpoint endpoint = new SimpleJmsListenerEndpoint();
+        endpoint.setDestination("orders");
+        endpoint.setMessageListener(delegate);
+
+        AbstractMessageListenerContainer container = proxy.createListenerContainer(endpoint);
+
+        assertThat(container.getMessageListener())
+                .isInstanceOf(CapturingMessageListener.class)
+                .isNotInstanceOf(SessionAwareMessageListener.class);
+    }
+
+    @Test
+    void doesNotDoubleWrapAnAlreadyProcessedFactory() throws Exception {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        JmsListenerCaptureBeanPostProcessor postProcessor =
+                new JmsListenerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        DefaultJmsListenerContainerFactory factory = factoryWithMockConnection();
+
+        Object once = postProcessor.postProcessAfterInitialization(factory, "myFactory");
+        Object twice = postProcessor.postProcessAfterInitialization(once, "myFactory");
+
+        assertThat(twice).isSameAs(once);
+    }
+
+    @Test
+    void preservesErrorIdentityAndDoesNotExposeItsMessage() throws Exception {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        Message message = messageWithQueueDestination("orders?token=raw-secret");
+        jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
+        AssertionError failure = new AssertionError("payload-secret");
+        org.mockito.Mockito.doThrow(failure).when(delegate).onMessage(message);
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
+
+        assertThatThrownBy(() -> adapter.onMessage(message)).isSameAs(failure);
+
+        CapturedMessage captured = recorder.recent().get(0);
+        assertThat(captured.topic()).isEqualTo("orders?token=******");
+        assertThat(captured.errorMessage()).isEqualTo("AssertionError").doesNotContain("payload-secret");
     }
 
     // --- helpers ---

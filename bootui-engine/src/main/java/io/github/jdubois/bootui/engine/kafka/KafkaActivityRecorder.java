@@ -32,6 +32,12 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class KafkaActivityRecorder {
 
+    /** Messaging transport that produced the captured entry. */
+    public enum Protocol {
+        KAFKA,
+        JMS
+    }
+
     /** Whether a captured message was published or consumed. */
     public enum Direction {
         PRODUCE,
@@ -42,6 +48,7 @@ public final class KafkaActivityRecorder {
     public record CapturedMessage(
             long id,
             long timestamp,
+            Protocol protocol,
             Direction direction,
             String topic,
             Integer partition,
@@ -53,7 +60,8 @@ public final class KafkaActivityRecorder {
             String groupId,
             String listenerId) {}
 
-    private final boolean enabled;
+    private final boolean kafkaEnabled;
+    private final boolean jmsEnabled;
     private final boolean captureKey;
     private final int maxEntries;
     private final int maxKeyLength;
@@ -62,17 +70,33 @@ public final class KafkaActivityRecorder {
     private final Object lock = new Object();
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong totalCaptured = new AtomicLong();
+    private final AtomicLong totalKafkaCaptured = new AtomicLong();
+    private final AtomicLong totalJmsCaptured = new AtomicLong();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     public KafkaActivityRecorder(boolean enabled, boolean captureKey, int maxEntries, int maxKeyLength) {
-        this.enabled = enabled;
+        this(enabled, enabled, captureKey, maxEntries, maxKeyLength);
+    }
+
+    public KafkaActivityRecorder(
+            boolean kafkaEnabled, boolean jmsEnabled, boolean captureKey, int maxEntries, int maxKeyLength) {
+        this.kafkaEnabled = kafkaEnabled;
+        this.jmsEnabled = jmsEnabled;
         this.captureKey = captureKey;
         this.maxEntries = Math.max(1, maxEntries);
         this.maxKeyLength = Math.max(8, maxKeyLength);
     }
 
     public boolean isEnabled() {
-        return enabled;
+        return kafkaEnabled || jmsEnabled;
+    }
+
+    public boolean isKafkaEnabled() {
+        return kafkaEnabled;
+    }
+
+    public boolean isJmsEnabled() {
+        return jmsEnabled;
     }
 
     public boolean isCaptureKey() {
@@ -91,7 +115,20 @@ public final class KafkaActivityRecorder {
      */
     public void recordProduce(
             String topic, Integer partition, String key, Long durationMillis, boolean success, String errorMessage) {
-        record(Direction.PRODUCE, topic, partition, null, key, durationMillis, success, errorMessage, null, null);
+        if (kafkaEnabled) {
+            record(
+                    Protocol.KAFKA,
+                    Direction.PRODUCE,
+                    topic,
+                    partition,
+                    null,
+                    key,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    null,
+                    null);
+        }
     }
 
     /** Records a completed (successful or failed) {@code @KafkaListener} record delivery. */
@@ -105,17 +142,20 @@ public final class KafkaActivityRecorder {
             String errorMessage,
             String groupId,
             String listenerId) {
-        record(
-                Direction.CONSUME,
-                topic,
-                partition,
-                offset,
-                key,
-                durationMillis,
-                success,
-                errorMessage,
-                groupId,
-                listenerId);
+        if (kafkaEnabled) {
+            record(
+                    Protocol.KAFKA,
+                    Direction.CONSUME,
+                    topic,
+                    partition,
+                    offset,
+                    key,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    groupId,
+                    listenerId);
+        }
     }
 
     /**
@@ -130,17 +170,20 @@ public final class KafkaActivityRecorder {
      */
     public void recordJmsProduce(
             String destination, String messageId, Long durationMillis, boolean success, String errorMessage) {
-        record(
-                Direction.PRODUCE,
-                destination,
-                null,
-                null,
-                messageId,
-                durationMillis,
-                success,
-                errorMessage,
-                null,
-                null);
+        if (jmsEnabled) {
+            record(
+                    Protocol.JMS,
+                    Direction.PRODUCE,
+                    destination,
+                    null,
+                    null,
+                    messageId,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    null,
+                    null);
+        }
     }
 
     /**
@@ -157,20 +200,24 @@ public final class KafkaActivityRecorder {
             String errorMessage,
             String subscriptionName,
             String listenerId) {
-        record(
-                Direction.CONSUME,
-                destination,
-                null,
-                null,
-                messageId,
-                durationMillis,
-                success,
-                errorMessage,
-                subscriptionName,
-                listenerId);
+        if (jmsEnabled) {
+            record(
+                    Protocol.JMS,
+                    Direction.CONSUME,
+                    destination,
+                    null,
+                    null,
+                    messageId,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    subscriptionName,
+                    listenerId);
+        }
     }
 
     private void record(
+            Protocol protocol,
             Direction direction,
             String topic,
             Integer partition,
@@ -181,12 +228,10 @@ public final class KafkaActivityRecorder {
             String errorMessage,
             String groupId,
             String listenerId) {
-        if (!enabled) {
-            return;
-        }
         CapturedMessage entry = new CapturedMessage(
                 sequence.incrementAndGet(),
                 System.currentTimeMillis(),
+                protocol,
                 direction,
                 topic,
                 partition,
@@ -206,6 +251,11 @@ public final class KafkaActivityRecorder {
             }
         }
         totalCaptured.incrementAndGet();
+        if (protocol == Protocol.KAFKA) {
+            totalKafkaCaptured.incrementAndGet();
+        } else {
+            totalJmsCaptured.incrementAndGet();
+        }
         notifyListeners();
     }
 
@@ -220,6 +270,22 @@ public final class KafkaActivityRecorder {
 
     public long totalCaptured() {
         return totalCaptured.get();
+    }
+
+    public long totalKafkaCaptured() {
+        return totalKafkaCaptured.get();
+    }
+
+    public long totalJmsCaptured() {
+        return totalJmsCaptured.get();
+    }
+
+    /** Clears Kafka entries without removing JMS activity retained in the shared bounded buffer. */
+    public void clearKafka() {
+        synchronized (lock) {
+            buffer.removeIf(message -> message.protocol() == Protocol.KAFKA);
+        }
+        notifyListeners();
     }
 
     public void clear() {

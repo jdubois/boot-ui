@@ -22,14 +22,17 @@ public final class KafkaMessageDtos {
      * always {@code available}.
      */
     public static KafkaReport toReport(KafkaActivityRecorder recorder) {
-        var messages = recorder.recent().stream().map(KafkaMessageDtos::toDto).toList();
+        var messages = recorder.recent().stream()
+                .filter(message -> message.protocol() == KafkaActivityRecorder.Protocol.KAFKA)
+                .map(KafkaMessageDtos::toDto)
+                .toList();
         return new KafkaReport(
                 true,
                 null,
-                recorder.isEnabled(),
+                recorder.isKafkaEnabled(),
                 recorder.isCaptureKey(),
                 recorder.getMaxEntries(),
-                recorder.totalCaptured(),
+                recorder.totalKafkaCaptured(),
                 messages.size(),
                 messages);
     }

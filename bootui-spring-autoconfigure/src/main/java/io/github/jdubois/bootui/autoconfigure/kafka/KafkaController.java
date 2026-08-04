@@ -61,7 +61,7 @@ public class KafkaController {
     public void clear() {
         KafkaActivityRecorder recorder = recorderProvider.getIfAvailable();
         if (recorder != null) {
-            recorder.clear();
+            recorder.clearKafka();
         }
     }
 

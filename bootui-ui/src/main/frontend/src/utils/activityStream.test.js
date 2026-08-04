@@ -198,16 +198,21 @@ describe('deepLink', () => {
   })
 
   it('links a messaging entry to the Kafka panel filtered by topic', () => {
-    expect(deepLink({type: 'MESSAGING', summary: '→ orders.created [0]'})).toEqual({
+    expect(deepLink({type: 'MESSAGING', id: 'kafka-1', summary: '→ orders.created [0]'})).toEqual({
       path: '/kafka',
       query: {q: 'orders.created'},
       label: 'Open in Kafka'
     })
+
     expect(deepLink({type: 'MESSAGING', summary: '← orders.created'})).toEqual({
       path: '/kafka',
       query: {q: 'orders.created'},
       label: 'Open in Kafka'
     })
+  })
+
+  it('does not link JMS activity to the Kafka panel', () => {
+    expect(deepLink({type: 'MESSAGING', id: 'jms-2', summary: '→ orders'})).toBeNull()
   })
 
   it('links a messaging entry with no parsable topic to the Kafka panel without a filter', () => {

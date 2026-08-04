@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Protocol;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,7 @@ class KafkaActivityRecorderTests {
         List<CapturedMessage> recent = recorder.recent();
         assertThat(recent).hasSize(2);
         assertThat(recent.get(0).direction()).isEqualTo(Direction.CONSUME);
+        assertThat(recent.get(0).protocol()).isEqualTo(Protocol.KAFKA);
         assertThat(recent.get(0).groupId()).isEqualTo("orders-group");
         assertThat(recent.get(0).listenerId()).isEqualTo("ordersListener");
         assertThat(recent.get(0).offset()).isEqualTo(42L);
@@ -119,6 +121,7 @@ class KafkaActivityRecorderTests {
         assertThat(recent).hasSize(1);
         CapturedMessage msg = recent.get(0);
         assertThat(msg.direction()).isEqualTo(Direction.PRODUCE);
+        assertThat(msg.protocol()).isEqualTo(Protocol.JMS);
         assertThat(msg.topic()).isEqualTo("queue/Orders");
         assertThat(msg.partition()).isNull();
         assertThat(msg.offset()).isNull();
@@ -173,5 +176,36 @@ class KafkaActivityRecorderTests {
 
         assertThat(recorder.recent()).hasSize(2);
         assertThat(recorder.totalCaptured()).isEqualTo(2);
+        assertThat(recorder.totalKafkaCaptured()).isEqualTo(1);
+        assertThat(recorder.totalJmsCaptured()).isEqualTo(1);
+    }
+
+    @Test
+    void independentlyGatesKafkaAndJmsCapture() {
+        KafkaActivityRecorder jmsOnly = new KafkaActivityRecorder(false, true, true, 10, 200);
+        jmsOnly.recordProduce("kafka-topic", 0, "k1", 1L, true, null);
+        jmsOnly.recordJmsProduce("jms-queue", "ID:1", 2L, true, null);
+
+        assertThat(jmsOnly.recent())
+                .singleElement()
+                .extracting(CapturedMessage::protocol)
+                .isEqualTo(Protocol.JMS);
+        assertThat(jmsOnly.isEnabled()).isTrue();
+        assertThat(jmsOnly.isKafkaEnabled()).isFalse();
+        assertThat(jmsOnly.isJmsEnabled()).isTrue();
+    }
+
+    @Test
+    void clearingKafkaPreservesJmsEntries() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, true, 10, 200);
+        recorder.recordProduce("kafka-topic", 0, "k1", 1L, true, null);
+        recorder.recordJmsProduce("jms-queue", "ID:1", 2L, true, null);
+
+        recorder.clearKafka();
+
+        assertThat(recorder.recent())
+                .singleElement()
+                .extracting(CapturedMessage::protocol)
+                .isEqualTo(Protocol.JMS);
     }
 }

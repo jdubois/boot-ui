@@ -367,6 +367,21 @@ resolved per-`@KafkaListener` id); on Quarkus it carries the channel name. See [
 | `bootui.kafka.max-entries`           | `200`   | Maximum number of captured Kafka messages retained in the in-memory ring buffer.                               |
 | `bootui.kafka.max-key-length`        | `200`   | Maximum retained length of the key's hex-encoded hash (minimum `8`, effectively capped at `16`); longer hashes are truncated. |
 
+#### Live Activity JMS capture
+
+On Spring MVC and WebFlux, `spring-jms` activates metadata-only capture for application-owned `JmsTemplate` and
+`@JmsListener` container factories. JMS shares Kafka's bounded messaging buffer and hashing limits, but its enable switch
+is independent: disabling Kafka does not disable JMS. Destination names are control-character-stripped, length-bounded,
+and credential-like URI/user-info or `password`/`secret`/`token`/API-key assignments are masked before storage. Unknown
+provider-specific `Destination` implementations are not rendered because their `toString()` output can expose broker
+metadata. Raw message IDs, payloads, arbitrary headers/properties, and exception messages are never stored; when a
+`MessageCreator` or `MessagePostProcessor` exposes the provider-assigned message ID, only its SHA-256 hash is retained.
+Quarkus does not claim a JMS capture integration.
+
+| Property             | Default | Description                                                                                                           |
+| -------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
+| `bootui.jms.enabled` | `true`  | Capture Spring-managed JMS publish/consume activity into Live Activity when `spring-jms` and the JMS API are present. |
+
 #### Live Activity durable persistence
 
 Off by default: the merged stream stays in-memory-only, exactly as above. Setting

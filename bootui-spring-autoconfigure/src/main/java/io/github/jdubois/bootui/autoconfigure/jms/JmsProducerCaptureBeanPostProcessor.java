@@ -3,19 +3,21 @@ package io.github.jdubois.bootui.autoconfigure.jms;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import jakarta.jms.Destination;
-import jakarta.jms.JMSException;
-import jakarta.jms.Queue;
-import jakarta.jms.Topic;
+import jakarta.jms.Message;
 import java.lang.reflect.Method;
+import java.util.concurrent.atomic.AtomicReference;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.aop.framework.Advised;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.jms.core.JmsTemplate;
+import org.springframework.jms.core.MessageCreator;
+import org.springframework.jms.core.MessagePostProcessor;
 
 /**
  * Wraps every {@link JmsTemplate} bean with a CGLIB proxy after initialization so every
@@ -27,7 +29,7 @@ import org.springframework.jms.core.JmsTemplate;
  * <p>{@link JmsTemplate} has no {@code ProducerListener} equivalent, so a CGLIB proxy via
  * {@link ProxyFactory} is used instead: the proxy intercepts the public {@code send} and
  * {@code convertAndSend} methods by name, extracts the destination from the first argument (String
- * name → used as-is; {@code Destination} → queue/topic name extracted; no explicit destination →
+ * name → sanitized; {@code Destination} → queue/topic name extracted; no explicit destination →
  * the template's configured {@code defaultDestinationName}), and delegates to the original
  * template via {@link MethodInvocation#proceed()}. Because {@link ProxyFactory} delegates to the
  * original target, any {@code this.send()} call that {@code convertAndSend} makes internally goes
@@ -35,9 +37,9 @@ import org.springframework.jms.core.JmsTemplate;
  *
  * <p><strong>Only send metadata is captured, never the message payload.</strong> The JMS message
  * body is an arbitrary, potentially large and sensitive application object with no generic masking
- * strategy; only a one-way hash of the JMS message ID is retained as a correlation handle, when
- * the send completes successfully and the message ID is accessible, and only when {@code captureKey}
- * is enabled on the shared recorder. Duration is always measured since the send is synchronous —
+ * strategy; only a one-way hash of the JMS message ID is retained as a correlation handle when a
+ * {@code MessageCreator} or {@code MessagePostProcessor} exposes the created message, and only when
+ * {@code captureKey} is enabled on the shared recorder. Duration is always measured since the send is synchronous —
  * unlike Kafka's async {@code ProducerListener} callback where no start timestamp is available.
  * </p>
  *
@@ -67,7 +69,7 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
             return bean;
         }
         KafkaActivityRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null || !recorder.isEnabled()) {
+        if (recorder == null || !recorder.isJmsEnabled() || isAlreadyWrapped(template)) {
             return bean;
         }
         try {
@@ -82,6 +84,14 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
                     ex);
             return bean;
         }
+    }
+
+    private static boolean isAlreadyWrapped(Object bean) {
+        if (!(bean instanceof Advised advised)) {
+            return false;
+        }
+        return java.util.Arrays.stream(advised.getAdvisors())
+                .anyMatch(advisor -> advisor.getAdvice() instanceof JmsProducerCaptureInterceptor);
     }
 
     /**
@@ -101,20 +111,72 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
         @Override
         public Object invoke(MethodInvocation invocation) throws Throwable {
             String methodName = invocation.getMethod().getName();
-            if (!methodName.equals("send") && !methodName.equals("convertAndSend")) {
+            if (!isSendMethod(methodName)) {
                 return invocation.proceed();
             }
             String destination = extractDestinationName(invocation);
+            AtomicReference<Message> sentMessage = wrapMessageCallbacks(invocation);
             long start = System.nanoTime();
             try {
                 Object result = invocation.proceed();
                 long durationMillis = (System.nanoTime() - start) / 1_000_000L;
-                recorder.recordJmsProduce(destination, null, durationMillis, true, null);
+                String messageDestination = JmsCaptureMetadata.destination(sentMessage.get());
+                safeRecord(
+                        messageDestination == null ? destination : messageDestination,
+                        JmsCaptureMetadata.messageId(sentMessage.get()),
+                        durationMillis,
+                        true,
+                        null);
                 return result;
             } catch (Throwable ex) {
                 long durationMillis = (System.nanoTime() - start) / 1_000_000L;
-                recorder.recordJmsProduce(destination, null, durationMillis, false, ex.getMessage());
+                safeRecord(
+                        destination,
+                        JmsCaptureMetadata.messageId(sentMessage.get()),
+                        durationMillis,
+                        false,
+                        JmsCaptureMetadata.failureType(ex));
                 throw ex;
+            }
+        }
+
+        private static boolean isSendMethod(String methodName) {
+            return methodName.equals("send")
+                    || methodName.equals("convertAndSend")
+                    || methodName.equals("sendAndReceive")
+                    || methodName.equals("convertSendAndReceive");
+        }
+
+        private static AtomicReference<Message> wrapMessageCallbacks(MethodInvocation invocation) {
+            AtomicReference<Message> message = new AtomicReference<>();
+            Class<?>[] parameterTypes = invocation.getMethod().getParameterTypes();
+            Object[] arguments = invocation.getArguments();
+            for (int i = 0; i < parameterTypes.length; i++) {
+                if (MessageCreator.class.isAssignableFrom(parameterTypes[i])
+                        && arguments[i] instanceof MessageCreator delegate) {
+                    arguments[i] = (MessageCreator) session -> {
+                        Message created = delegate.createMessage(session);
+                        message.set(created);
+                        return created;
+                    };
+                } else if (MessagePostProcessor.class.isAssignableFrom(parameterTypes[i])
+                        && arguments[i] instanceof MessagePostProcessor delegate) {
+                    arguments[i] = (MessagePostProcessor) original -> {
+                        Message processed = delegate.postProcessMessage(original);
+                        message.set(processed);
+                        return processed;
+                    };
+                }
+            }
+            return message;
+        }
+
+        private void safeRecord(
+                String destination, String messageId, long durationMillis, boolean success, String errorMessage) {
+            try {
+                recorder.recordJmsProduce(destination, messageId, durationMillis, success, errorMessage);
+            } catch (RuntimeException ex) {
+                log.warn("BootUI could not capture an outgoing JMS message; leaving it untouched", ex);
             }
         }
 
@@ -124,12 +186,10 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
             Object[] args = invocation.getArguments();
             if (paramTypes.length > 0) {
                 if (paramTypes[0] == String.class) {
-                    // send(String, ...) / convertAndSend(String, ...)
-                    return (String) args[0];
+                    return JmsCaptureMetadata.sanitize((String) args[0]);
                 }
                 if (Destination.class.isAssignableFrom(paramTypes[0]) && args[0] instanceof Destination dest) {
-                    // send(Destination, ...) / convertAndSend(Destination, ...)
-                    return destinationNameOf(dest);
+                    return JmsCaptureMetadata.destination(dest);
                 }
             }
             // No destination argument: use the template's configured default destination name.
@@ -138,28 +198,13 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
             try {
                 String defaultName = target.getDefaultDestinationName();
                 if (defaultName != null) {
-                    return defaultName;
+                    return JmsCaptureMetadata.sanitize(defaultName);
                 }
                 Destination defaultDest = target.getDefaultDestination();
-                return defaultDest == null ? null : destinationNameOf(defaultDest);
+                return JmsCaptureMetadata.destination(defaultDest);
             } catch (RuntimeException ex) {
                 return null;
             }
-        }
-
-        private static String destinationNameOf(Destination destination) {
-            try {
-                if (destination instanceof Queue q) {
-                    return q.getQueueName();
-                }
-                if (destination instanceof Topic t) {
-                    return t.getTopicName();
-                }
-            } catch (JMSException ex) {
-                // Swallow: a JMS provider error while reading the destination name must not
-                // disrupt the captured send.
-            }
-            return destination.toString();
         }
     }
 }

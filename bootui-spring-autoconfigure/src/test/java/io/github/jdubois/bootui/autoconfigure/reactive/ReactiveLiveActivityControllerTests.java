@@ -571,7 +571,7 @@ class ReactiveLiveActivityControllerTests {
 
     @Test
     void mergedReportOmitsKafkaMessagesWhenKafkaPanelDisabled() {
-        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, false, true, 10, 50);
         kafka.recordProduce("orders", 0, "order-1", 1L, true, null);
 
         BootUiProperties properties = new BootUiProperties();
@@ -596,6 +596,38 @@ class ReactiveLiveActivityControllerTests {
                 new BootUiExposure(properties));
 
         assertThat(controller.mergedReport(0).entries()).isEmpty();
+    }
+
+    @Test
+    void mergedReportIncludesJmsMessagesWhenKafkaPanelDisabled() {
+        KafkaActivityRecorder messaging = new KafkaActivityRecorder(false, true, true, 10, 50);
+        messaging.recordJmsConsume("orders", "ID:1", 4L, true, null, null, "listener");
+
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.KAFKA).setEnabled(false);
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                provider(messaging),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        assertThat(controller.mergedReport(0).entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.id()).startsWith("jms-");
+            assertThat(entry.type()).isEqualTo("MESSAGING");
+        });
     }
 
     @Test

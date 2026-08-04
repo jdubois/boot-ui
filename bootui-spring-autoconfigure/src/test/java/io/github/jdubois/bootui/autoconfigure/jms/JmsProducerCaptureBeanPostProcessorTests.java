@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.autoconfigure.jms;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -16,6 +18,7 @@ import jakarta.jms.Message;
 import jakarta.jms.MessageProducer;
 import jakarta.jms.Queue;
 import jakarta.jms.Session;
+import jakarta.jms.TextMessage;
 import jakarta.jms.Topic;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -191,24 +194,112 @@ class JmsProducerCaptureBeanPostProcessorTests {
         assertThat(messages.get(0).direction()).isEqualTo(Direction.PRODUCE);
     }
 
+    @Test
+    void hashesTheProviderAssignedMessageIdForMessageCreatorSends() throws Exception {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor =
+                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsTemplate proxy = (JmsTemplate)
+                postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
+        TextMessage message = mock(TextMessage.class);
+        when(message.getJMSMessageID()).thenReturn("ID:provider-assigned");
+
+        proxy.send("orders", session -> message);
+
+        assertThat(recorder.recent().get(0).key())
+                .isNotNull()
+                .doesNotContain("ID:provider-assigned")
+                .hasSize(16);
+    }
+
+    @Test
+    void capturesTheMessageReturnedByAnApplicationPostProcessor() throws Exception {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        TextMessage converted = mock(TextMessage.class);
+        TextMessage processed = mock(TextMessage.class);
+        when(processed.getJMSMessageID()).thenReturn("ID:processed");
+        JmsProducerCaptureBeanPostProcessor postProcessor =
+                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsTemplate proxy = (JmsTemplate) postProcessor.postProcessAfterInitialization(
+                templateWithQueueSession("orders", converted), "jmsTemplate");
+
+        proxy.convertAndSend("orders", "payload", message -> processed);
+
+        assertThat(recorder.recent().get(0).key())
+                .isNotNull()
+                .doesNotContain("ID:processed")
+                .hasSize(16);
+    }
+
+    @Test
+    void sanitizesDestinationMetadataAndNeverFallsBackToProviderToString() throws Exception {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor =
+                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsTemplate proxy = (JmsTemplate)
+                postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
+        Destination providerDestination = mock(Destination.class);
+        when(providerDestination.toString()).thenThrow(new AssertionError("must not expose provider metadata"));
+
+        proxy.send("orders?password=raw-secret", session -> mock(Message.class));
+        proxy.send(providerDestination, session -> mock(Message.class));
+
+        assertThat(recorder.recent()).extracting(CapturedMessage::topic).contains("orders?password=******");
+        assertThat(recorder.recent()).extracting(CapturedMessage::topic).anyMatch(java.util.Objects::isNull);
+    }
+
+    @Test
+    void captureFailureNeverChangesSendBehavior() throws Exception {
+        KafkaActivityRecorder recorder = mock(KafkaActivityRecorder.class);
+        when(recorder.isJmsEnabled()).thenReturn(true);
+        doThrow(new IllegalStateException("capture failed"))
+                .when(recorder)
+                .recordJmsProduce(any(), any(), any(), org.mockito.ArgumentMatchers.eq(true), any());
+        JmsProducerCaptureBeanPostProcessor postProcessor =
+                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsTemplate proxy = (JmsTemplate)
+                postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
+
+        proxy.send("orders", session -> mock(Message.class));
+    }
+
+    @Test
+    void doesNotDoubleWrapAnAlreadyProcessedTemplate() throws Exception {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor =
+                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsTemplate template = templateWithQueueSession("orders");
+
+        Object once = postProcessor.postProcessAfterInitialization(template, "jmsTemplate");
+        Object twice = postProcessor.postProcessAfterInitialization(once, "jmsTemplate");
+
+        assertThat(twice).isSameAs(once);
+    }
+
     // --- helpers ---
 
     /** Builds a JmsTemplate backed by a mock ConnectionFactory that produces a working Session. */
     private static JmsTemplate templateWithQueueSession(String queueName) throws Exception {
+        return templateWithQueueSession(queueName, mock(TextMessage.class));
+    }
+
+    private static JmsTemplate templateWithQueueSession(String queueName, TextMessage convertedMessage)
+            throws Exception {
         jakarta.jms.ConnectionFactory cf = mock(jakarta.jms.ConnectionFactory.class);
         Connection connection = mock(Connection.class);
         Session session = mock(Session.class);
-        Queue queue = mock(Queue.class);
         Message message = mock(Message.class);
         MessageProducer producer = mock(MessageProducer.class);
 
         when(cf.createConnection()).thenReturn(connection);
         when(connection.createSession(false, Session.AUTO_ACKNOWLEDGE)).thenReturn(session);
-        when(session.createQueue(queueName)).thenReturn(queue);
-        when(queue.getQueueName()).thenReturn(queueName);
+        when(session.createQueue(anyString())).thenAnswer(invocation -> {
+            Queue queue = mock(Queue.class);
+            when(queue.getQueueName()).thenReturn(invocation.getArgument(0));
+            return queue;
+        });
         when(session.createProducer(any(Destination.class))).thenReturn(producer);
-        when(session.createTextMessage(any()))
-                .thenReturn((jakarta.jms.TextMessage) mock(jakarta.jms.TextMessage.class));
+        when(session.createTextMessage(any())).thenReturn(convertedMessage);
         when(session.createObjectMessage(any())).thenReturn(mock(jakarta.jms.ObjectMessage.class));
 
         JmsTemplate template = new JmsTemplate(cf);

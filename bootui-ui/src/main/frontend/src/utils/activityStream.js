@@ -169,6 +169,7 @@ export function deepLink(entry) {
     case 'MAIL':
       return entry.id ? {path: '/email', query: {id: entry.id}, label: 'Open in Email'} : null
     case 'MESSAGING': {
+      if ((entry.id || '').startsWith('jms-')) return null
       const needle = kafkaNeedle(entry.summary)
       return needle
         ? {path: '/kafka', query: {q: needle}, label: 'Open in Kafka'}

@@ -755,9 +755,10 @@ public class BootUiEngineConfiguration {
         @ConditionalOnMissingBean
         KafkaActivityRecorder bootUiKafkaActivityRecorder(BootUiProperties properties) {
             BootUiProperties.Kafka kafka = properties.getKafka();
-            boolean enabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.KAFKA);
+            boolean kafkaEnabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.KAFKA);
+            boolean jmsEnabled = properties.getJms().isEnabled() && properties.isPanelEnabled(BootUiPanels.ACTIVITY);
             return new KafkaActivityRecorder(
-                    enabled, kafka.isCaptureKey(), kafka.getMaxEntries(), kafka.getMaxKeyLength());
+                    kafkaEnabled, jmsEnabled, kafka.isCaptureKey(), kafka.getMaxEntries(), kafka.getMaxKeyLength());
         }
 
         @Bean
@@ -785,23 +786,23 @@ public class BootUiEngineConfiguration {
      * <p>JMS entries share the existing {@link KafkaActivityRecorder}: the recorder is a generic
      * bounded messaging buffer with no Kafka-specific protocol semantics; the Kafka-named class is
      * kept for backwards compatibility. The JMS BPPs request it via {@code ObjectProvider}, so the
-     * recorder is only created when at least one consumer is present. If the Kafka panel (and
-     * therefore the recorder) is disabled via {@code bootui.panels.kafka.enabled=false}, JMS
-     * capture is also silenced; {@code bootui.jms.enabled=false} disables only JMS capture while
-     * leaving Kafka capture active.</p>
+     * recorder is only created when at least one consumer is present. Kafka and JMS capture are
+     * independently gated inside that shared buffer: disabling the Kafka panel or
+     * {@code bootui.kafka.enabled} does not silence JMS, while {@code bootui.jms.enabled=false}
+     * disables only JMS capture.</p>
      */
     @Configuration(proxyBeanMethods = false)
     static class JmsBackendConfiguration {
 
         @Bean
-        @ConditionalOnClass(name = "org.springframework.jms.core.JmsTemplate")
+        @ConditionalOnClass(name = {"org.springframework.jms.core.JmsTemplate", "jakarta.jms.Message"})
         static JmsProducerCaptureBeanPostProcessor bootUiJmsProducerCaptureBeanPostProcessor(
                 ObjectProvider<KafkaActivityRecorder> recorderProvider, BootUiProperties properties) {
             return new JmsProducerCaptureBeanPostProcessor(recorderProvider, properties);
         }
 
         @Bean
-        @ConditionalOnClass(name = "org.springframework.jms.core.JmsTemplate")
+        @ConditionalOnClass(name = {"org.springframework.jms.core.JmsTemplate", "jakarta.jms.Message"})
         static JmsListenerCaptureBeanPostProcessor bootUiJmsListenerCaptureBeanPostProcessor(
                 ObjectProvider<KafkaActivityRecorder> recorderProvider, BootUiProperties properties) {
             return new JmsListenerCaptureBeanPostProcessor(recorderProvider, properties);

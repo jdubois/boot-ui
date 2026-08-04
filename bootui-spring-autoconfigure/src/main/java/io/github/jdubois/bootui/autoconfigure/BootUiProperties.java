@@ -1350,10 +1350,10 @@ public class BootUiProperties {
      * through the shared messaging recorder (the same one Kafka uses). JMS sends and listener
      * deliveries appear alongside Kafka messages as {@code MESSAGING} entries in the activity feed.
      *
-     * <p>This toggle is checked in addition to the shared recorder's own
-     * {@code bootui.kafka.enabled} toggle: both must be {@code true} for JMS sends/receives to be
-     * captured. The buffer size and key-capture settings are inherited from
-     * {@code bootui.kafka.max-entries} and {@code bootui.kafka.capture-key}.</p>
+     * <p>This toggle is independent from {@code bootui.kafka.enabled}; either transport can be
+     * captured while the other is disabled. The shared buffer size and message-ID hashing settings
+     * are inherited from {@code bootui.kafka.max-entries} and
+     * {@code bootui.kafka.capture-key}.</p>
      */
     public static class Jms {
 

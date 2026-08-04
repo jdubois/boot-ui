@@ -51,8 +51,9 @@ public final class KafkaActivityEntries {
         // durationMillis is already null for PRODUCE (the producer callback carries no send-start
         // timestamp); passed through as-is here.
         Long durationMs = message.durationMillis();
+        String idPrefix = message.protocol() == KafkaActivityRecorder.Protocol.JMS ? "jms-" : "kafka-";
         return new ActivityEntryDto(
-                "kafka-" + message.id(),
+                idPrefix + message.id(),
                 TYPE_MESSAGING,
                 message.timestamp(),
                 severity,

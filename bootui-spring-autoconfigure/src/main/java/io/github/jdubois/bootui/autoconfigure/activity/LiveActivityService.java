@@ -396,23 +396,21 @@ public class LiveActivityService {
         return runs.size() > cap ? runs.subList(0, cap) : runs;
     }
 
-    /**
-     * Loads recently captured Kafka messages from {@link KafkaActivityRecorder} directly. Gated on the
-     * dedicated {@code KAFKA} panel — like {@link #loadCache}/{@link #loadEmail} gate on their own domain
-     * panel — plus the recorder's own {@code bootui.kafka.enabled} toggle (folded into
-     * {@link KafkaActivityRecorder#isEnabled()} at construction).
-     */
+    /** Loads Kafka and JMS records from their shared bounded messaging buffer. */
     private List<CapturedMessage> loadKafka(List<String> sources) {
-        if (!properties.isPanelEnabled(BootUiPanels.KAFKA)) {
-            return List.of();
-        }
         KafkaActivityRecorder recorder = kafka == null ? null : kafka.getIfAvailable();
         if (recorder == null || !recorder.isEnabled()) {
             return List.of();
         }
-        List<CapturedMessage> messages = recorder.recent();
-        if (!messages.isEmpty()) {
+        boolean includeKafka = properties.isPanelEnabled(BootUiPanels.KAFKA) && recorder.isKafkaEnabled();
+        List<CapturedMessage> messages = recorder.recent().stream()
+                .filter(message -> message.protocol() == KafkaActivityRecorder.Protocol.JMS || includeKafka)
+                .toList();
+        if (messages.stream().anyMatch(message -> message.protocol() == KafkaActivityRecorder.Protocol.KAFKA)) {
             sources.add("Kafka");
+        }
+        if (messages.stream().anyMatch(message -> message.protocol() == KafkaActivityRecorder.Protocol.JMS)) {
+            sources.add("JMS");
         }
         return messages;
     }

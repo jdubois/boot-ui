@@ -64,7 +64,7 @@ class LiveActivityServiceTests {
     @Test
     void doesNotIncludeKafkaMessagesWhenKafkaPanelDisabled() {
         io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder =
-                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 10, 50);
+                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, false, true, 10, 50);
         recorder.recordProduce("orders", 0, "order-1", 0L, true, null);
 
         BootUiProperties properties = new BootUiProperties();
@@ -75,6 +75,23 @@ class LiveActivityServiceTests {
 
         assertThat(report.sources()).doesNotContain("Kafka");
         assertThat(report.entries()).noneMatch(e -> e.type().equals("MESSAGING"));
+    }
+
+    @Test
+    void includesJmsMessagesWhenKafkaPanelDisabled() {
+        io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(false, true, true, 10, 50);
+        recorder.recordJmsProduce("orders", "ID:1", 3L, true, null);
+
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.KAFKA).setEnabled(false);
+        LiveActivityReport report = serviceWithKafka(recorder, properties).report(null, null, 0, 0);
+
+        assertThat(report.sources()).contains("JMS").doesNotContain("Kafka");
+        assertThat(report.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.id()).startsWith("jms-");
+            assertThat(entry.type()).isEqualTo("MESSAGING");
+        });
     }
 
     @Test

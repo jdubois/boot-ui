@@ -683,6 +683,7 @@ class LiveActivityAssemblerTests {
                 new CapturedMessage(
                         1L,
                         3_000L,
+                        KafkaActivityRecorder.Protocol.KAFKA,
                         Direction.PRODUCE,
                         "orders",
                         0,
@@ -696,6 +697,7 @@ class LiveActivityAssemblerTests {
                 new CapturedMessage(
                         2L,
                         500L,
+                        KafkaActivityRecorder.Protocol.KAFKA,
                         Direction.CONSUME,
                         "orders",
                         1,
