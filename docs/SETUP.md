@@ -286,12 +286,13 @@ The [Running inside a Docker container](#running-inside-a-docker-container) guid
 
 The large majority of BootUI's panels are live on the reactive adapter, including every advisor scan except Security,
 plus Flyway/Liquibase, Database Connection Pools, Cache, SQL Trace, Log Tail, Security Logs, Exceptions, and Live
-Activity (over a rebuilt reactive streaming/capture layer). The following panels are not yet available:
+Activity (over a rebuilt reactive streaming/capture layer). The raw **Spring Security** panel is live whenever the
+application contributes a `SecurityWebFilterChain`, with path/method-only explanations clearly marked as best effort.
+The following panels are not yet available:
 
 - **HTTP Sessions** — not applicable: it is the servlet container's `HttpSession` API, with no reactive equivalent.
-- **Security** (the advisor) and the raw **Spring Security** panel — not yet ported: both key off the servlet
-  `SecurityFilterChain` bean, which a reactive Spring Security setup never registers (it registers a
-  `WebFilterChainProxy` instead); a `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned.
+- **Security** (the advisor) — not yet ported: its rules key off servlet `SecurityFilterChain` beans; a separate
+  `ServerHttpSecurity`/`SecurityWebFilterChain` advisor ruleset is planned.
 - **REST Client** — not yet ported: the standalone panel is only available on the Spring MVC (servlet) adapter.
 
 For the authoritative, per-panel detail and the reasoning behind each gap, see [Features](FEATURES.md) and

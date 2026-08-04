@@ -38,7 +38,6 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactivePanelAccessFilter
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityEventTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityHeadersFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityLogsController;
-import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
@@ -228,7 +227,6 @@ import tools.jackson.databind.ObjectMapper;
     ReactiveExceptionsController.class,
     ReactiveSqlTraceController.class,
     ReactiveSecurityLogsController.class,
-    ReactiveSpringSecurityController.class,
     ReactiveLiveActivityController.class,
     EmailController.class,
     KafkaController.class,
@@ -286,7 +284,6 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveExceptionsController.class.getName(),
             ReactiveSqlTraceController.class.getName(),
             ReactiveSecurityLogsController.class.getName(),
-            ReactiveSpringSecurityController.class.getName(),
             ReactiveLiveActivityController.class.getName(),
             ReactiveBootUiMcpController.class.getName(),
             ReactiveBootUiMcpServerController.class.getName(),

@@ -10,10 +10,10 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
  * Minimal reactive Spring Security configuration for the WebFlux sample application.
  *
  * <p>The BootUI permit-all chain ({@code BootUiReactiveSpringSecurityAutoConfiguration}) has
- * highest precedence and handles {@code /bootui/**}. This configuration defines the application's
- * own chains: a public "demo" API and a catch-all chain that requires authentication for everything
- * else — just enough to demonstrate a non-trivial reactive security setup that BootUI can inspect
- * via the Spring Security panel.</p>
+ * highest precedence and handles the exact {@code /bootui} root plus all descendants. This
+ * configuration defines the application's own catch-all chain: it permits the demo API and requires
+ * authentication for everything else — just enough to demonstrate a non-trivial reactive security
+ * setup that BootUI can inspect via the Spring Security panel.</p>
  */
 @Configuration
 @EnableWebFluxSecurity

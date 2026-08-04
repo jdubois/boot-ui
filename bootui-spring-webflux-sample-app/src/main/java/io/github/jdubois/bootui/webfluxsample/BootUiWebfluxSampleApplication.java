@@ -15,8 +15,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *
  * <p>Spring Security is included so that the Spring Security panel is available on WebFlux.
  * {@code BootUiReactiveSpringSecurityAutoConfiguration} registers a high-precedence permit-all
- * {@code SecurityWebFilterChain} for {@code /bootui/**} so BootUI itself is never blocked.
- * The application's own {@code SecurityConfiguration} defines the remaining chains.</p>
+ * {@code SecurityWebFilterChain} for the exact {@code /bootui} root and its descendants so BootUI
+ * itself is never blocked. The application's own {@code SecurityConfiguration} defines the
+ * remaining chain.</p>
  */
 @SpringBootApplication
 @EnableCaching

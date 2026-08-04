@@ -517,9 +517,9 @@ relabels the metrics ("Permission policies" in place of "Filter chains") — the
 ![BootUI Security panel — Quarkus Security](./images/bootui-quarkus-security.webp)
 
 This advisor is **not yet ported for Spring Boot WebFlux**: it analyzes the servlet `SecurityFilterChain` beans
-described above, and a reactive Spring Security setup registers a different bean type (`WebFilterChainProxy`) instead
-— so the panel reports unavailable with its existing "no filter chains available" reason rather than a bespoke
-WebFlux message. A `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as follow-up work. See
+described above, while a reactive Spring Security setup registers unrelated `SecurityWebFilterChain` beans behind a
+`WebFilterChainProxy` instead — so the panel reports unavailable with its existing "no filter chains available" reason
+rather than a bespoke WebFlux message. A `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as follow-up work. See
 [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the current status.
 
 ### Pentesting
@@ -1065,9 +1065,13 @@ meant to explain local security wiring without exposing credentials or replacing
 
 ![BootUI Spring Security panel](./images/bootui-spring-security.webp)
 
-This panel is **not yet ported for Spring Boot WebFlux**: it reads the servlet `SecurityFilterChain` bean chain, which a
-reactive application never registers (a reactive Spring Security setup registers a `WebFilterChainProxy`/
-`SecurityWebFilterChain` instead). See [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the current status.
+On **Spring Boot WebFlux**, the same panel reads ordered application `SecurityWebFilterChain` beans and lists their
+`WebFilter` pipelines. Chain matching remains fully non-blocking and uses each chain's public reactive matcher. Explain
+and annotation-endpoint authorization views use a sanitized path-and-method-only exchange: they never reuse the current
+request's headers, cookies, principal, session, body, or network metadata, and mark reduced results as best effort instead
+of guessing context-dependent rules. Functional `RouterFunction` routes are not listed. The compatibility
+`sessionManagementPresent` signal is labelled **Security context** on WebFlux and does not claim that `WebSession`
+persistence is configured. See [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the fidelity and safety details.
 
 ### Security Logs
 

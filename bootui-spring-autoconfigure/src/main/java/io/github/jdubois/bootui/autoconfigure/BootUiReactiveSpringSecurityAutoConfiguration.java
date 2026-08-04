@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -10,17 +11,23 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpMethod;
+import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.csrf.CookieServerCsrfTokenRepository;
-import org.springframework.security.web.server.csrf.XorServerCsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.server.csrf.CsrfToken;
+import org.springframework.security.web.server.csrf.CsrfWebFilter;
+import org.springframework.security.web.server.csrf.ServerCsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.server.util.matcher.AndServerWebExchangeMatcher;
-import org.springframework.security.web.server.util.matcher.HttpMethodServerWebExchangeMatcher;
 import org.springframework.security.web.server.util.matcher.NegatedServerWebExchangeMatcher;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
 
 /**
  * Opens BootUI's own routes inside reactive Spring Security (WebFlux) while keeping the
@@ -38,8 +45,8 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
  * rejects non-loopback callers unless {@code bootui.allow-non-localhost=true} is set.</p>
  */
 @AutoConfiguration(
-        afterName =
-                "org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration")
+        after = BootUiReactiveAutoConfiguration.class,
+        afterName = "org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration")
 @Conditional(BootUiActivationCondition.class)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
 @ConditionalOnClass(
@@ -47,12 +54,12 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
             "org.springframework.security.config.web.server.ServerHttpSecurity",
             "org.springframework.security.web.server.SecurityWebFilterChain"
         })
-@ConditionalOnBean(ServerHttpSecurity.class)
+@ConditionalOnBean(type = "org.springframework.security.config.web.server.ServerHttpSecurity")
 @EnableConfigurationProperties(BootUiProperties.class)
+@Import(ReactiveSpringSecurityController.class)
 public class BootUiReactiveSpringSecurityAutoConfiguration {
 
-    private static final Logger log =
-            LoggerFactory.getLogger(BootUiReactiveSpringSecurityAutoConfiguration.class);
+    private static final Logger log = LoggerFactory.getLogger(BootUiReactiveSpringSecurityAutoConfiguration.class);
 
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -72,22 +79,20 @@ public class BootUiReactiveSpringSecurityAutoConfiguration {
         String authSessionEndpoint = childSecurityEndpoint(properties.getApiPath(), "auth/session");
         var programmaticClientsMatcher = ServerWebExchangeMatchers.pathMatchers(
                 otlpPattern, mcpEndpoint, mcpDescendantsPattern, authSessionEndpoint);
-        // Require CSRF only for state-changing methods (POST/PUT/DELETE/PATCH) that are NOT
-        // going to a programmatic-client endpoint. This mirrors the servlet .spa().ignoringRequestMatchers()
-        // behavior: GET/HEAD/TRACE/OPTIONS are always excluded by the method check, and the listed
-        // programmatic-client paths are excluded regardless of method.
+        // Preserve Spring Security's own safe-method definition and exempt only the bounded
+        // programmatic-client paths. LocalhostGuard still runs outside Spring Security and rejects
+        // cross-site writes on every BootUI route.
         var csrfRequiredMatcher = new AndServerWebExchangeMatcher(
-                new HttpMethodServerWebExchangeMatcher(
-                        HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE, HttpMethod.PATCH),
-                new NegatedServerWebExchangeMatcher(programmaticClientsMatcher));
+                CsrfWebFilter.DEFAULT_CSRF_MATCHER, new NegatedServerWebExchangeMatcher(programmaticClientsMatcher));
         return http.securityMatcher(ServerWebExchangeMatchers.pathMatchers(bootUiPatterns))
                 .authorizeExchange(exchanges -> exchanges.anyExchange().permitAll())
-                // SPA-compatible CSRF: store the token in a cookie (readable by the Vue SPA), and
-                // exclude the programmatic endpoints that cannot present the token.
-                .csrf(csrf -> csrf.csrfTokenRepository(
-                                CookieServerCsrfTokenRepository.withHttpOnlyFalse())
-                        .csrfTokenRequestHandler(new XorServerCsrfTokenRequestAttributeHandler())
+                // The SPA echoes the raw XSRF-TOKEN cookie in X-XSRF-TOKEN. The XOR handler expects
+                // a masked browser-form token and rejects that cookie-to-header pattern, so use the
+                // plain request-attribute handler and force token materialization below.
+                .csrf(csrf -> csrf.csrfTokenRepository(CookieServerCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRequestHandler(new ServerCsrfTokenRequestAttributeHandler())
                         .requireCsrfProtectionMatcher(csrfRequiredMatcher))
+                .addFilterAfter(new CsrfCookieWebFilter(), SecurityWebFiltersOrder.CSRF)
                 .build();
     }
 
@@ -114,5 +119,21 @@ public class BootUiReactiveSpringSecurityAutoConfiguration {
         }
         return path;
     }
-}
 
+    /**
+     * Reactive equivalent of the servlet {@code CsrfCookieFilter}: subscribing to the cached token
+     * before continuing causes {@link CookieServerCsrfTokenRepository} to write the cookie on safe
+     * reads, so the SPA can echo it on its next state-changing request.
+     */
+    private static final class CsrfCookieWebFilter implements WebFilter {
+
+        @Override
+        public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+            Object attribute = exchange.getAttribute(CsrfToken.class.getName());
+            if (!(attribute instanceof Mono<?> token)) {
+                return chain.filter(exchange);
+            }
+            return token.then(Mono.defer(() -> chain.filter(exchange)));
+        }
+    }
+}

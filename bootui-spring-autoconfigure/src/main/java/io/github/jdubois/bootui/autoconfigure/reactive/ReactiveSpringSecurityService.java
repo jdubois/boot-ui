@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.SpringSecurityAuthDto;
 import io.github.jdubois.bootui.core.dto.SpringSecurityEndpointDto;
@@ -10,95 +11,98 @@ import io.github.jdubois.bootui.core.dto.SpringSecurityEndpointsReport;
 import io.github.jdubois.bootui.core.dto.SpringSecurityExplainDto;
 import io.github.jdubois.bootui.core.dto.SpringSecurityFilterChainDto;
 import io.github.jdubois.bootui.core.dto.SpringSecurityReport;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.URI;
+import java.security.Principal;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseCookie;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.codec.multipart.Part;
 import org.springframework.http.server.RequestPath;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.authorization.ReactiveAuthorizationManager;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.ReactiveUserDetailsService;
+import org.springframework.security.web.server.MatcherSecurityWebFilterChain;
 import org.springframework.security.web.server.SecurityWebFilterChain;
-import org.springframework.security.web.server.WebFilterChainProxy;
-import org.springframework.security.web.server.authorization.AuthorizationContext;
 import org.springframework.security.web.server.authorization.AuthorizationWebFilter;
-import org.springframework.security.web.server.util.matcher.MatcherSecurityWebFilterChain;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatcher;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.reactive.result.method.RequestMappingInfo;
 import org.springframework.web.reactive.result.method.annotation.RequestMappingHandlerMapping;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.ServerWebExchangeDecorator;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebSession;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Reactive (WebFlux) sibling of {@code SpringSecurityService}: maps {@link SecurityWebFilterChain}
- * / {@link WebFilterChainProxy} information into the existing Spring Security panel DTO contract.
+ * Non-blocking WebFlux sibling of {@code SpringSecurityService}. It maps ordered
+ * {@link SecurityWebFilterChain} beans into the existing raw Spring Security panel contract without
+ * reflecting into {@code WebFilterChainProxy} or blocking a Reactor Netty event-loop thread.
  *
- * <p>Reduced-fidelity notes:</p>
- * <ul>
- *   <li>Reactive filters are {@link WebFilter} beans, not {@code javax.servlet.Filter}; simple class
- *       names are reported faithfully in the filter list.</li>
- *   <li>The {@code explain} endpoint uses a best-effort stub {@link ServerWebExchange} that covers
- *       path- and method-based matchers ({@code PathPatternParserServerWebExchangeMatcher}). Matchers
- *       that inspect headers, cookies, or session state may produce inaccurate results;
- *       {@code bestEffort} is set whenever such access is detected.</li>
- *   <li>The {@code endpoints} listing uses the reactive {@link RequestMappingHandlerMapping} where
- *       available; authorization simulation targets the reactive {@link ReactiveAuthorizationManager}
- *       rather than the servlet {@code AuthorizationManager}.</li>
- *   <li>{@code sessionManagementPresent} detects reactive session-context filters
- *       ({@code WebSessionServerSecurityContextRepository} is embedded in the security context save
- *       filter, so it does not appear as a standalone filter name; instead the
- *       {@code SecurityContextServerWebExchangeWebFilter} is detected, which is always present on a
- *       secured reactive chain).</li>
- * </ul>
- *
- * <p>Read-only. Never surfaces credentials, signing keys, or session identifiers.</p>
+ * <p>The reactive API does not expose a chain's matcher or an {@link AuthorizationWebFilter}'s
+ * manager directly. This service uses bounded reflection for those two read-only metadata seams,
+ * but executes matching and authorization through the public reactive APIs. Unknown custom matcher
+ * descriptions are reduced to their type name so their {@code toString()} cannot disclose a
+ * configured header, token, or other sensitive value.</p>
  */
 class ReactiveSpringSecurityService {
 
+    private static final Logger log = LoggerFactory.getLogger(ReactiveSpringSecurityService.class);
     private static final Pattern AUTHORITIES_LIST = Pattern.compile("authorities=\\[([^\\]]*)\\]");
+    private static final Pattern HTTP_METHOD_TOKEN = Pattern.compile("[!#$%&'*+.^_`|~0-9A-Z-]+");
+    private static final String SPRING_MATCHER_PACKAGE = "org.springframework.security.web.server.util.matcher.";
+    private static final String CONFIGURED_USERNAME_PROPERTY = "spring.security.user.name";
 
-    private final ObjectProvider<WebFilterChainProxy> filterChainProxyProvider;
+    private final ObjectProvider<SecurityWebFilterChain> filterChainProvider;
     private final ObjectProvider<ReactiveAuthenticationManager> authManagerProvider;
     private final ObjectProvider<ReactiveUserDetailsService> userDetailsServiceProvider;
     private final ObjectProvider<RequestMappingHandlerMapping> handlerMappingProvider;
     private final Environment environment;
     private final BootUiExposure exposure;
     private final BootUiSelfDataFilter selfDataFilter;
+    private final SecretMasker masker = new SecretMasker();
 
     ReactiveSpringSecurityService(
-            ObjectProvider<WebFilterChainProxy> filterChainProxyProvider,
+            ObjectProvider<SecurityWebFilterChain> filterChainProvider,
             ObjectProvider<ReactiveAuthenticationManager> authManagerProvider,
             ObjectProvider<ReactiveUserDetailsService> userDetailsServiceProvider,
             ObjectProvider<RequestMappingHandlerMapping> handlerMappingProvider,
             Environment environment,
             BootUiProperties properties) {
         this(
-                filterChainProxyProvider,
+                filterChainProvider,
                 authManagerProvider,
                 userDetailsServiceProvider,
                 handlerMappingProvider,
@@ -108,14 +112,14 @@ class ReactiveSpringSecurityService {
     }
 
     ReactiveSpringSecurityService(
-            ObjectProvider<WebFilterChainProxy> filterChainProxyProvider,
+            ObjectProvider<SecurityWebFilterChain> filterChainProvider,
             ObjectProvider<ReactiveAuthenticationManager> authManagerProvider,
             ObjectProvider<ReactiveUserDetailsService> userDetailsServiceProvider,
             ObjectProvider<RequestMappingHandlerMapping> handlerMappingProvider,
             Environment environment,
             BootUiProperties properties,
             BootUiSelfDataFilter selfDataFilter) {
-        this.filterChainProxyProvider = filterChainProxyProvider;
+        this.filterChainProvider = filterChainProvider;
         this.authManagerProvider = authManagerProvider;
         this.userDetailsServiceProvider = userDetailsServiceProvider;
         this.handlerMappingProvider = handlerMappingProvider;
@@ -124,112 +128,97 @@ class ReactiveSpringSecurityService {
         this.selfDataFilter = selfDataFilter;
     }
 
-    public SpringSecurityReport security() {
-        WebFilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
-        if (proxy == null) {
-            return new SpringSecurityReport(false, List.of(), null);
-        }
-        List<SecurityWebFilterChain> chains = proxy.getWebFilterChains();
-        List<SpringSecurityFilterChainDto> chainDtos = new ArrayList<>(chains.size());
-        for (int i = 0; i < chains.size(); i++) {
-            SecurityWebFilterChain chain = chains.get(i);
-            if (!selfDataFilter.shouldIncludeSecurityChain(matcherDescription(chain))) {
-                continue;
+    Mono<SpringSecurityReport> security() {
+        return observeApplicationChains().map(chains -> {
+            if (chains.isEmpty()) {
+                return new SpringSecurityReport(false, List.of(), null);
             }
-            chainDtos.add(toChainDto(i, chain));
-        }
-        return new SpringSecurityReport(true, chainDtos, buildAuth());
+            List<SpringSecurityFilterChainDto> chainDtos =
+                    chains.stream().map(this::toChainDto).toList();
+            return new SpringSecurityReport(true, chainDtos, buildAuth());
+        });
     }
 
-    /**
-     * Best-effort explain: given an HTTP method and path, returns the first matching chain and its
-     * filter pipeline.
-     *
-     * <p>Uses a minimal stub {@link ServerWebExchange} covering path and method only. Matchers that
-     * read headers, cookies, or session attributes may not match correctly; {@code bestEffort} is set
-     * when such access is detected.</p>
-     */
-    public SpringSecurityExplainDto explain(String method, String path) {
-        WebFilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
-        if (proxy == null) {
-            return new SpringSecurityExplainDto(false, false, null, null, List.of());
-        }
-        if (!selfDataFilter.shouldIncludeSecurityEndpoint(List.of(path), null)) {
-            return new SpringSecurityExplainDto(
-                    false, false, null, "BootUI endpoints are hidden from this report", List.of());
-        }
-        ExplainExchange exchange = new ExplainExchange(method, path);
-        List<SecurityWebFilterChain> chains = proxy.getWebFilterChains();
-        for (int i = 0; i < chains.size(); i++) {
-            SecurityWebFilterChain chain = chains.get(i);
-            ServerWebExchangeMatcher matcher = exchangeMatcher(chain);
-            if (matcher == null) {
-                // Unknown chain type — report as catch-all best-effort match.
-                List<WebFilter> filters = filtersOf(chain);
-                return new SpringSecurityExplainDto(
-                        true, true, i, matcherDescription(chain), filterNames(filters));
+    Mono<SpringSecurityExplainDto> explain(String method, String path, ServerWebExchange templateExchange) {
+        return Mono.defer(() -> {
+            ExplainExchange exchange = new ExplainExchange(templateExchange, method, path, true);
+            if (!selfDataFilter.shouldIncludeSecurityEndpoint(List.of(exchange.path()), null)) {
+                return Mono.just(new SpringSecurityExplainDto(
+                        false, false, null, "BootUI endpoints are hidden from this report", List.of()));
             }
-            ServerWebExchangeMatcher.MatchResult result;
-            try {
-                result = matcher.matches(exchange).block();
-            } catch (Exception ex) {
-                return new SpringSecurityExplainDto(
-                        false,
-                        true,
-                        null,
-                        "Chain " + i + " matcher threw " + ex.getClass().getSimpleName()
-                                + " — requires more request context than available",
-                        List.of());
-            }
-            if (result != null && result.isMatch()) {
-                List<WebFilter> filters = filtersOf(chain);
-                return new SpringSecurityExplainDto(
-                        true,
-                        exchange.isBestEffort(),
-                        i,
-                        matcherDescription(chain),
-                        filterNames(filters));
-            }
-        }
-        return new SpringSecurityExplainDto(
-                false, exchange.isBestEffort(), null, "No chain matched", List.of());
+            return observeApplicationChains().flatMap(chains -> explain(chains, exchange));
+        });
     }
 
-    /**
-     * Lists all HTTP endpoints discovered via reactive {@link RequestMappingHandlerMapping} together
-     * with the Spring Security authorization rule applied to each one.
-     */
-    public SpringSecurityEndpointsReport endpoints() {
-        WebFilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
-        boolean springSecurityPresent = proxy != null;
-        List<RequestMappingHandlerMapping> handlerMappings =
-                handlerMappingProvider.stream().toList();
-        if (handlerMappings.isEmpty()) {
-            return new SpringSecurityEndpointsReport(springSecurityPresent, false, 0, List.of());
-        }
-
-        List<SecurityWebFilterChain> chains = springSecurityPresent ? proxy.getWebFilterChains() : List.of();
-        List<SpringSecurityEndpointDto> endpoints = new ArrayList<>();
-        for (RequestMappingHandlerMapping mapping : handlerMappings) {
-            Map<RequestMappingInfo, HandlerMethod> methods;
-            try {
-                methods = mapping.getHandlerMethods();
-            } catch (Exception ex) {
-                continue;
+    Mono<SpringSecurityEndpointsReport> endpoints(ServerWebExchange templateExchange) {
+        return observeApplicationChains().flatMap(chains -> {
+            boolean springSecurityPresent = !chains.isEmpty();
+            List<RequestMappingHandlerMapping> handlerMappings =
+                    handlerMappingProvider.stream().toList();
+            if (handlerMappings.isEmpty()) {
+                return Mono.just(new SpringSecurityEndpointsReport(springSecurityPresent, false, 0, List.of()));
             }
-            for (Map.Entry<RequestMappingInfo, HandlerMethod> entry : methods.entrySet()) {
-                endpoints.addAll(describeEndpoint(entry.getKey(), entry.getValue(), chains));
-            }
-        }
 
-        endpoints.sort(Comparator.comparing(SpringSecurityEndpointDto::pattern)
-                .thenComparing(SpringSecurityEndpointDto::method));
-        return new SpringSecurityEndpointsReport(springSecurityPresent, true, endpoints.size(), endpoints);
+            List<EndpointCandidate> candidates = new ArrayList<>();
+            for (RequestMappingHandlerMapping mapping : handlerMappings) {
+                for (Map.Entry<RequestMappingInfo, HandlerMethod> entry :
+                        mapping.getHandlerMethods().entrySet()) {
+                    candidates.addAll(describeEndpoints(entry.getKey(), entry.getValue()));
+                }
+            }
+
+            return Flux.fromIterable(candidates)
+                    .concatMap(candidate -> resolveEndpoint(candidate, chains, templateExchange))
+                    .collectList()
+                    .map(endpoints -> {
+                        endpoints.sort(Comparator.comparing(SpringSecurityEndpointDto::pattern)
+                                .thenComparing(SpringSecurityEndpointDto::method));
+                        return new SpringSecurityEndpointsReport(
+                                springSecurityPresent, true, endpoints.size(), endpoints);
+                    });
+        });
     }
 
-    private List<SpringSecurityEndpointDto> describeEndpoint(
-            RequestMappingInfo info, HandlerMethod handlerMethod, List<SecurityWebFilterChain> chains) {
-        Set<String> patterns = extractPatterns(info);
+    private Mono<SpringSecurityExplainDto> explain(List<ObservedChain> chains, ExplainExchange exchange) {
+        if (chains.isEmpty()) {
+            return Mono.just(new SpringSecurityExplainDto(false, false, null, null, List.of()));
+        }
+        return Flux.fromIterable(chains)
+                .concatMap(chain ->
+                        evaluateMatch(chain, exchange).map(evaluation -> new EvaluatedChain(chain, evaluation)))
+                .filter(evaluated -> evaluated.evaluation().matched()
+                        || evaluated.evaluation().errorType() != null)
+                .next()
+                .map(evaluated -> {
+                    MatchEvaluation evaluation = evaluated.evaluation();
+                    ObservedChain chain = evaluated.chain();
+                    if (evaluation.errorType() != null) {
+                        return new SpringSecurityExplainDto(
+                                false,
+                                true,
+                                null,
+                                "Chain " + chain.index() + " matcher threw " + evaluation.errorType()
+                                        + " - requires more request context than available",
+                                List.of());
+                    }
+                    return new SpringSecurityExplainDto(
+                            true,
+                            exchange.isBestEffort(),
+                            chain.index(),
+                            chain.matcher().description(),
+                            filterNames(chain.filters()));
+                })
+                .defaultIfEmpty(new SpringSecurityExplainDto(
+                        false, exchange.isBestEffort(), null, "No chain matched", List.of()));
+    }
+
+    private List<EndpointCandidate> describeEndpoints(RequestMappingInfo info, HandlerMethod handlerMethod) {
+        Set<String> patterns = info.getPatternsCondition().getPatterns().stream()
+                .map(org.springframework.web.util.pattern.PathPattern::getPatternString)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (patterns.isEmpty()) {
+            patterns.add("/**");
+        }
         Set<String> methods = info.getMethodsCondition().getMethods().stream()
                 .map(Enum::name)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -239,224 +228,362 @@ class ReactiveSpringSecurityService {
         String handler = handlerMethod.getBeanType().getSimpleName() + "#"
                 + handlerMethod.getMethod().getName();
 
-        List<SpringSecurityEndpointDto> result = new ArrayList<>();
+        List<EndpointCandidate> result = new ArrayList<>();
         for (String pattern : patterns) {
+            if (!selfDataFilter.shouldIncludeSecurityEndpoint(List.of(pattern), handler)) {
+                continue;
+            }
             for (String method : methods) {
-                if (!selfDataFilter.shouldIncludeSecurityEndpoint(List.of(pattern), handler)) {
-                    continue;
-                }
-                result.add(resolveEndpoint(method, pattern, handler, chains));
+                RepresentativePath representative = representativePath(pattern);
+                result.add(new EndpointCandidate(
+                        method, pattern, representative.path(), handler, representative.bestEffort()));
             }
         }
         return result;
     }
 
-    private Set<String> extractPatterns(RequestMappingInfo info) {
-        Set<String> patterns = new LinkedHashSet<>();
-        // Spring WebFlux 6.x+ uses PathPatternsRequestCondition as the primary condition.
-        // Fall back to getPatternsCondition() if it is non-null for older configurations.
-        if (info.getPathPatternsCondition() != null) {
-            info.getPathPatternsCondition().getPatterns().forEach(p -> patterns.add(p.getPatternString()));
-        } else if (info.getPatternsCondition() != null) {
-            info.getPatternsCondition().getPatterns().forEach(p -> patterns.add(p.getPatternString()));
-        }
-        if (patterns.isEmpty()) {
-            patterns.add("/**");
-        }
-        return patterns;
-    }
-
-    private SpringSecurityEndpointDto resolveEndpoint(
-            String method, String pattern, String handler, List<SecurityWebFilterChain> chains) {
+    private Mono<SpringSecurityEndpointDto> resolveEndpoint(
+            EndpointCandidate endpoint, List<ObservedChain> chains, ServerWebExchange templateExchange) {
         if (chains.isEmpty()) {
-            return new SpringSecurityEndpointDto(
-                    method,
-                    pattern,
-                    handler,
+            return Mono.just(endpointDto(
+                    endpoint,
                     false,
                     "unsecured",
                     List.of(),
                     null,
                     null,
                     "No Spring Security filter chains configured",
-                    false);
+                    endpoint.bestEffort()));
         }
-        ExplainExchange exchange = new ExplainExchange(method, pattern);
-        for (int i = 0; i < chains.size(); i++) {
-            SecurityWebFilterChain chain = chains.get(i);
-            ServerWebExchangeMatcher matcher = exchangeMatcher(chain);
-            boolean matches;
-            if (matcher == null) {
-                matches = true; // unknown chain type; treat as catch-all
-            } else {
-                try {
-                    ServerWebExchangeMatcher.MatchResult result = matcher.matches(exchange).block();
-                    matches = result != null && result.isMatch();
-                } catch (Exception ex) {
-                    return new SpringSecurityEndpointDto(
-                            method,
-                            pattern,
-                            handler,
-                            true,
-                            "unknown",
-                            List.of(),
-                            i,
-                            matcherDescription(chain),
-                            "Chain matcher threw " + ex.getClass().getSimpleName(),
-                            true);
-                }
-            }
-            if (matches) {
-                AuthorizationWebFilter authFilter = findAuthorizationFilter(chain);
-                if (authFilter == null) {
-                    return new SpringSecurityEndpointDto(
-                            method,
-                            pattern,
-                            handler,
-                            true,
-                            "unknown",
-                            List.of(),
-                            i,
-                            matcherDescription(chain),
-                            "Chain has no AuthorizationWebFilter",
-                            exchange.isBestEffort());
-                }
-                return classifyRule(method, pattern, handler, i, chain, authFilter, exchange);
-            }
-        }
-        return new SpringSecurityEndpointDto(
-                method,
-                pattern,
-                handler,
-                false,
-                "unsecured",
-                List.of(),
-                null,
-                null,
-                "No Spring Security filter chain matched",
-                exchange.isBestEffort());
+
+        ExplainExchange exchange =
+                new ExplainExchange(templateExchange, endpoint.method(), endpoint.representativePath(), true);
+        return Flux.fromIterable(chains)
+                .concatMap(chain ->
+                        evaluateMatch(chain, exchange).map(evaluation -> new EvaluatedChain(chain, evaluation)))
+                .filter(evaluated -> evaluated.evaluation().matched()
+                        || evaluated.evaluation().errorType() != null)
+                .next()
+                .flatMap(evaluated -> {
+                    ObservedChain chain = evaluated.chain();
+                    MatchEvaluation evaluation = evaluated.evaluation();
+                    if (evaluation.errorType() != null) {
+                        return Mono.just(endpointDto(
+                                endpoint,
+                                true,
+                                "unknown",
+                                List.of(),
+                                chain.index(),
+                                chain.matcher().description(),
+                                "Chain matcher threw " + evaluation.errorType(),
+                                true));
+                    }
+                    AuthorizationWebFilter authFilter = findAuthorizationFilter(chain);
+                    if (authFilter == null) {
+                        return Mono.just(endpointDto(
+                                endpoint,
+                                true,
+                                "unknown",
+                                List.of(),
+                                chain.index(),
+                                chain.matcher().description(),
+                                "Chain has no AuthorizationWebFilter",
+                                exchange.isBestEffort()));
+                    }
+                    ReactiveAuthorizationManager<ServerWebExchange> manager = authorizationManager(authFilter);
+                    if (manager == null) {
+                        return Mono.just(endpointDto(
+                                endpoint,
+                                true,
+                                "unknown",
+                                List.of(),
+                                chain.index(),
+                                chain.matcher().description(),
+                                "Authorization manager metadata is not exposed by this Spring Security version",
+                                true));
+                    }
+                    return classifyRule(endpoint, chain, manager, exchange);
+                })
+                .switchIfEmpty(Mono.just(endpointDto(
+                        endpoint,
+                        false,
+                        "unsecured",
+                        List.of(),
+                        null,
+                        null,
+                        "No Spring Security filter chain matched",
+                        exchange.isBestEffort())));
     }
 
-    private AuthorizationWebFilter findAuthorizationFilter(SecurityWebFilterChain chain) {
-        for (WebFilter filter : filtersOf(chain)) {
-            if (filter instanceof AuthorizationWebFilter af) {
-                return af;
+    private Mono<SpringSecurityEndpointDto> classifyRule(
+            EndpointCandidate endpoint,
+            ObservedChain chain,
+            ReactiveAuthorizationManager<ServerWebExchange> manager,
+            ExplainExchange exchange) {
+        return simulate(manager, anonymousAuth(), exchange).flatMap(anonymous -> {
+            if (anonymous.errorType() != null) {
+                return Mono.just(unknownRule(endpoint, chain, manager, anonymous.errorType()));
             }
+            if (Boolean.TRUE.equals(anonymous.granted())) {
+                return Mono.just(endpointDto(
+                        endpoint,
+                        true,
+                        "permitAll",
+                        List.of(),
+                        chain.index(),
+                        chain.matcher().description(),
+                        null,
+                        exchange.isBestEffort()));
+            }
+            return simulate(manager, authenticatedAuth(List.of()), exchange).flatMap(authenticated -> {
+                if (authenticated.errorType() != null) {
+                    return Mono.just(unknownRule(endpoint, chain, manager, authenticated.errorType()));
+                }
+                if (Boolean.TRUE.equals(authenticated.granted())) {
+                    return Mono.just(endpointDto(
+                            endpoint,
+                            true,
+                            "authenticated",
+                            List.of(),
+                            chain.index(),
+                            chain.matcher().description(),
+                            null,
+                            exchange.isBestEffort()));
+                }
+                return classifyAuthorities(endpoint, chain, manager, exchange);
+            });
+        });
+    }
+
+    private Mono<SpringSecurityEndpointDto> classifyAuthorities(
+            EndpointCandidate endpoint,
+            ObservedChain chain,
+            ReactiveAuthorizationManager<ServerWebExchange> manager,
+            ExplainExchange exchange) {
+        AuthoritySpec spec = extractAuthorities(manager);
+        if (spec == null || spec.authorities().isEmpty()) {
+            return Mono.just(endpointDto(
+                    endpoint,
+                    true,
+                    "custom",
+                    List.of(),
+                    chain.index(),
+                    chain.matcher().description(),
+                    "Managed by " + typeName(manager),
+                    exchange.isBestEffort()));
+        }
+        return simulate(manager, authenticatedAuth(spec.authorities()), exchange)
+                .map(authorityDecision -> {
+                    if (authorityDecision.errorType() != null) {
+                        return unknownRule(endpoint, chain, manager, authorityDecision.errorType());
+                    }
+                    if (!Boolean.TRUE.equals(authorityDecision.granted())) {
+                        return endpointDto(
+                                endpoint,
+                                true,
+                                "custom",
+                                List.of(),
+                                chain.index(),
+                                chain.matcher().description(),
+                                "Managed by " + typeName(manager),
+                                exchange.isBestEffort());
+                    }
+                    List<String> exposed = spec.authorities().stream()
+                            .map(authority -> spec.allRolePrefixed() && authority.startsWith("ROLE_")
+                                    ? authority.substring("ROLE_".length())
+                                    : authority)
+                            .toList();
+                    return endpointDto(
+                            endpoint,
+                            true,
+                            spec.allRolePrefixed() ? "hasRole" : "hasAuthority",
+                            exposed,
+                            chain.index(),
+                            chain.matcher().description(),
+                            null,
+                            exchange.isBestEffort());
+                });
+    }
+
+    private SpringSecurityEndpointDto unknownRule(
+            EndpointCandidate endpoint,
+            ObservedChain chain,
+            ReactiveAuthorizationManager<ServerWebExchange> manager,
+            String errorType) {
+        return endpointDto(
+                endpoint,
+                true,
+                "unknown",
+                List.of(),
+                chain.index(),
+                chain.matcher().description(),
+                "Authorization manager " + typeName(manager) + " threw " + errorType,
+                true);
+    }
+
+    private Mono<Simulation> simulate(
+            ReactiveAuthorizationManager<ServerWebExchange> manager,
+            Authentication authentication,
+            ExplainExchange exchange) {
+        return manager.authorize(Mono.just(authentication), exchange)
+                .map(result -> new Simulation(result.isGranted(), null))
+                .defaultIfEmpty(new Simulation(null, "EmptyAuthorizationResult"))
+                .onErrorResume(
+                        error -> Mono.just(new Simulation(null, error.getClass().getSimpleName())));
+    }
+
+    private Mono<MatchEvaluation> evaluateMatch(ObservedChain chain, ExplainExchange exchange) {
+        return chain.chain()
+                .matches(exchange)
+                .map(matched -> new MatchEvaluation(Boolean.TRUE.equals(matched), null))
+                .defaultIfEmpty(new MatchEvaluation(false, null))
+                .onErrorResume(error ->
+                        Mono.just(new MatchEvaluation(false, error.getClass().getSimpleName())));
+    }
+
+    private Mono<List<ObservedChain>> observeApplicationChains() {
+        List<IndexedChain> indexedChains = new ArrayList<>();
+        List<SecurityWebFilterChain> chains =
+                filterChainProvider.orderedStream().toList();
+        for (int index = 0; index < chains.size(); index++) {
+            SecurityWebFilterChain chain = chains.get(index);
+            MatcherInfo matcher = matcherInfo(chain);
+            if (selfDataFilter.shouldIncludeSecurityChain(matcher.description())) {
+                indexedChains.add(new IndexedChain(index, chain, matcher));
+            }
+        }
+        return Flux.fromIterable(indexedChains)
+                .concatMap(indexed -> indexed.chain()
+                        .getWebFilters()
+                        .collectList()
+                        .map(filters -> new ObservedChain(
+                                indexed.index(), indexed.chain(), indexed.matcher(), List.copyOf(filters))))
+                .collectList();
+    }
+
+    private SpringSecurityFilterChainDto toChainDto(ObservedChain chain) {
+        List<WebFilter> filters = chain.filters();
+        return new SpringSecurityFilterChainDto(
+                chain.index(),
+                chain.matcher().description(),
+                chain.matcher().type(),
+                filterNames(filters),
+                hasFilter(filters, "CsrfWebFilter"),
+                hasFilter(filters, "CorsWebFilter"),
+                hasFilter(filters, "SecurityContextServerWebExchangeWebFilter")
+                        || hasFilter(filters, "ReactorContextWebFilter"));
+    }
+
+    private MatcherInfo matcherInfo(SecurityWebFilterChain chain) {
+        if (chain instanceof MatcherSecurityWebFilterChain) {
+            Object value = readField(chain, "matcher");
+            if (value instanceof ServerWebExchangeMatcher matcher) {
+                return new MatcherInfo(describeMatcher(matcher, 0), typeName(matcher));
+            }
+        }
+        return new MatcherInfo("(custom chain: " + typeName(chain) + ")", typeName(chain));
+    }
+
+    private String describeMatcher(ServerWebExchangeMatcher matcher, int depth) {
+        if (depth >= 8) {
+            return typeName(matcher);
+        }
+        String className = matcher.getClass().getName();
+        String simpleName = matcher.getClass().getSimpleName();
+        if ("OrServerWebExchangeMatcher".equals(simpleName) || "AndServerWebExchangeMatcher".equals(simpleName)) {
+            Object nested = readField(matcher, "matchers");
+            if (nested instanceof Collection<?> matchers) {
+                String separator = "OrServerWebExchangeMatcher".equals(simpleName) ? " OR " : " AND ";
+                List<String> descriptions = matchers.stream()
+                        .filter(ServerWebExchangeMatcher.class::isInstance)
+                        .map(ServerWebExchangeMatcher.class::cast)
+                        .map(item -> describeMatcher(item, depth + 1))
+                        .toList();
+                if (!descriptions.isEmpty()) {
+                    return "(" + String.join(separator, descriptions) + ")";
+                }
+            }
+            return simpleName;
+        }
+        if ("NegatedServerWebExchangeMatcher".equals(simpleName)) {
+            Object nested = readField(matcher, "matcher");
+            if (nested instanceof ServerWebExchangeMatcher nestedMatcher) {
+                return "NOT " + describeMatcher(nestedMatcher, depth + 1);
+            }
+            return simpleName;
+        }
+        if (className.startsWith(SPRING_MATCHER_PACKAGE)
+                && ("PathPatternParserServerWebExchangeMatcher".equals(simpleName)
+                        || "MediaTypeServerWebExchangeMatcher".equals(simpleName)
+                        || "IpAddressServerWebExchangeMatcher".equals(simpleName))) {
+            return String.valueOf(matcher);
+        }
+        return className.startsWith(SPRING_MATCHER_PACKAGE) ? simpleName : "(custom matcher: " + className + ")";
+    }
+
+    private AuthorizationWebFilter findAuthorizationFilter(ObservedChain chain) {
+        return chain.filters().stream()
+                .filter(AuthorizationWebFilter.class::isInstance)
+                .map(AuthorizationWebFilter.class::cast)
+                .findFirst()
+                .orElse(null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private ReactiveAuthorizationManager<ServerWebExchange> authorizationManager(AuthorizationWebFilter filter) {
+        Object value = readField(filter, "authorizationManager");
+        if (value instanceof ReactiveAuthorizationManager<?> manager) {
+            return (ReactiveAuthorizationManager<ServerWebExchange>) manager;
         }
         return null;
     }
 
-    @SuppressWarnings("unchecked")
-    private SpringSecurityEndpointDto classifyRule(
-            String method,
-            String pattern,
-            String handler,
-            int chainIndex,
-            SecurityWebFilterChain chain,
-            AuthorizationWebFilter authFilter,
-            ExplainExchange exchange) {
-        ReactiveAuthorizationManager<AuthorizationContext> manager;
+    private AuthoritySpec extractAuthorities(Object manager) {
+        if (!manager.getClass().getName().startsWith("org.springframework.security.")) {
+            return null;
+        }
         try {
-            manager = (ReactiveAuthorizationManager<AuthorizationContext>) authFilter.getAuthorizationManager();
-        } catch (Exception ex) {
-            return new SpringSecurityEndpointDto(
-                    method,
-                    pattern,
-                    handler,
-                    true,
-                    "unknown",
-                    List.of(),
-                    chainIndex,
-                    matcherDescription(chain),
-                    "Could not access authorization manager: " + ex.getMessage(),
-                    exchange.isBestEffort());
-        }
-
-        boolean anonymousGranted = simulateReactive(manager, anonymousAuth(), exchange);
-        if (anonymousGranted) {
-            return new SpringSecurityEndpointDto(
-                    method,
-                    pattern,
-                    handler,
-                    true,
-                    "permitAll",
-                    List.of(),
-                    chainIndex,
-                    matcherDescription(chain),
-                    null,
-                    exchange.isBestEffort());
-        }
-
-        boolean authenticatedGranted = simulateReactive(manager, authenticatedAuth(List.of()), exchange);
-        if (authenticatedGranted) {
-            return new SpringSecurityEndpointDto(
-                    method,
-                    pattern,
-                    handler,
-                    true,
-                    "authenticated",
-                    List.of(),
-                    chainIndex,
-                    matcherDescription(chain),
-                    null,
-                    exchange.isBestEffort());
-        }
-
-        // Try to determine required roles from the manager's toString().
-        AuthoritySpec spec = extractAuthorities(manager);
-        if (spec != null && !spec.authorities().isEmpty()) {
-            boolean roleGranted = simulateReactive(manager, authenticatedAuth(spec.authorities()), exchange);
-            if (roleGranted) {
-                List<String> exposed = new ArrayList<>(spec.authorities().size());
-                String rule = spec.allRolePrefixed() ? "hasRole" : "hasAuthority";
-                for (String authority : spec.authorities()) {
-                    exposed.add(
-                            spec.allRolePrefixed() && authority.startsWith("ROLE_")
-                                    ? authority.substring("ROLE_".length())
-                                    : authority);
-                }
-                return new SpringSecurityEndpointDto(
-                        method,
-                        pattern,
-                        handler,
-                        true,
-                        rule,
-                        exposed,
-                        chainIndex,
-                        matcherDescription(chain),
-                        null,
-                        exchange.isBestEffort());
+            Method method = manager.getClass().getMethod("getAuthorities");
+            List<String> names = readAuthorityNames(method.invoke(manager));
+            if (names != null && !names.isEmpty()) {
+                return authoritySpec(names);
             }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            log.debug("Authorization manager {} does not expose getAuthorities()", typeName(manager));
         }
 
-        // No synthetic principal could obtain access — likely denyAll or custom manager.
-        boolean superGranted = simulateReactive(
-                manager, authenticatedAuth(List.of("ROLE_ADMIN", "ROLE_USER", "SCOPE_ADMIN")), exchange);
-        String rule = superGranted ? "custom" : "denyAll";
-        return new SpringSecurityEndpointDto(
-                method,
-                pattern,
-                handler,
-                true,
-                rule,
-                List.of(),
-                chainIndex,
-                matcherDescription(chain),
-                "Managed by " + manager.getClass().getSimpleName(),
-                exchange.isBestEffort());
+        Matcher matcher = AUTHORITIES_LIST.matcher(String.valueOf(manager));
+        if (!matcher.find()) {
+            return null;
+        }
+        List<String> names = Pattern.compile(",")
+                .splitAsStream(matcher.group(1))
+                .map(String::trim)
+                .filter(token -> !token.isEmpty())
+                .toList();
+        return names.isEmpty() ? null : authoritySpec(names);
     }
 
-    private boolean simulateReactive(
-            ReactiveAuthorizationManager<AuthorizationContext> manager,
-            Authentication authentication,
-            ServerWebExchange exchange) {
-        try {
-            AuthorizationContext context = new AuthorizationContext(exchange);
-            var result = manager.check(Mono.just(authentication), context).block();
-            return result != null && result.isGranted();
-        } catch (Exception ex) {
-            return false;
+    private AuthoritySpec authoritySpec(List<String> names) {
+        return new AuthoritySpec(names, names.stream().allMatch(authority -> authority.startsWith("ROLE_")));
+    }
+
+    private List<String> readAuthorityNames(Object value) {
+        if (!(value instanceof Collection<?> collection)) {
+            return null;
         }
+        List<String> names = new ArrayList<>(collection.size());
+        for (Object element : collection) {
+            if (element instanceof GrantedAuthority authority) {
+                String name = authority.getAuthority();
+                if (name != null) {
+                    names.add(name);
+                }
+            } else if (element instanceof CharSequence text) {
+                names.add(text.toString());
+            }
+        }
+        return names;
     }
 
     private Authentication anonymousAuth() {
@@ -467,128 +594,174 @@ class ReactiveSpringSecurityService {
     private Authentication authenticatedAuth(List<String> authorities) {
         List<SimpleGrantedAuthority> granted =
                 authorities.stream().map(SimpleGrantedAuthority::new).toList();
-        return UsernamePasswordAuthenticationToken.authenticated("bootui-explain", "n/a", granted);
-    }
-
-    private AuthoritySpec extractAuthorities(Object manager) {
-        String descriptor = String.valueOf(manager);
-        Matcher m = AUTHORITIES_LIST.matcher(descriptor);
-        if (m.find()) {
-            String[] tokens = m.group(1).split(",");
-            List<String> names = new ArrayList<>();
-            for (String token : tokens) {
-                String trimmed = token.trim();
-                if (!trimmed.isEmpty()) {
-                    names.add(trimmed);
-                }
-            }
-            if (!names.isEmpty()) {
-                return new AuthoritySpec(names, names.stream().allMatch(n -> n.startsWith("ROLE_")));
-            }
-        }
-        return null;
-    }
-
-    private SpringSecurityFilterChainDto toChainDto(int order, SecurityWebFilterChain chain) {
-        List<WebFilter> filters = filtersOf(chain);
-        return new SpringSecurityFilterChainDto(
-                order,
-                matcherDescription(chain),
-                matcherTypeName(chain),
-                filterNames(filters),
-                hasFilter(filters, "CsrfWebFilter"),
-                hasFilter(filters, "CorsWebFilter"),
-                // Reactive session management is handled by SecurityContextServerWebExchangeWebFilter
-                // (which persists the security context to the WebSession via
-                // WebSessionServerSecurityContextRepository). There is no separate
-                // SessionManagementWebFilter in the reactive chain, so we detect the presence of the
-                // security context save filter as the session-management signal.
-                hasFilter(filters, "SecurityContextServerWebExchangeWebFilter"));
-    }
-
-    private String matcherDescription(SecurityWebFilterChain chain) {
-        if (chain instanceof MatcherSecurityWebFilterChain mswfc) {
-            return mswfc.getExchangeMatcher().toString();
-        }
-        return "(custom chain: " + chain.getClass().getSimpleName() + ")";
-    }
-
-    private String matcherTypeName(SecurityWebFilterChain chain) {
-        if (chain instanceof MatcherSecurityWebFilterChain mswfc) {
-            return mswfc.getExchangeMatcher().getClass().getSimpleName();
-        }
-        return chain.getClass().getSimpleName();
-    }
-
-    private ServerWebExchangeMatcher exchangeMatcher(SecurityWebFilterChain chain) {
-        if (chain instanceof MatcherSecurityWebFilterChain mswfc) {
-            return mswfc.getExchangeMatcher();
-        }
-        return null;
-    }
-
-    private List<WebFilter> filtersOf(SecurityWebFilterChain chain) {
-        try {
-            List<WebFilter> filters = chain.getWebFilters().collectList().block();
-            return filters != null ? filters : List.of();
-        } catch (Exception ex) {
-            return List.of();
-        }
-    }
-
-    private List<String> filterNames(List<WebFilter> filters) {
-        return filters.stream().map(f -> f.getClass().getSimpleName()).toList();
-    }
-
-    private boolean hasFilter(List<WebFilter> filters, String simpleClassName) {
-        return filters.stream().anyMatch(f -> f.getClass().getSimpleName().equals(simpleClassName));
+        return UsernamePasswordAuthenticationToken.authenticated("bootui-explain", "not-exposed", granted);
     }
 
     private SpringSecurityAuthDto buildAuth() {
         List<String> providerTypes = authManagerProvider.stream()
-                .map(m -> m.getClass().getName())
+                .map(manager -> manager.getClass().getName())
                 .sorted()
                 .toList();
-        List<String> udsTypes = userDetailsServiceProvider.stream()
-                .map(u -> u.getClass().getName())
+        List<String> userDetailsTypes = userDetailsServiceProvider.stream()
+                .map(service -> service.getClass().getName())
                 .sorted()
                 .toList();
-        // spring.security.user.name is a username, not a secret; expose it to help developers
-        // identify the auto-configured user when no custom ReactiveUserDetailsService is wired.
-        String configuredUsername = null;
-        if (exposure.valueExposure() != ValueExposure.METADATA_ONLY) {
-            configuredUsername = environment.getProperty("spring.security.user.name");
-        }
-        return new SpringSecurityAuthDto(providerTypes, udsTypes, configuredUsername);
+        return new SpringSecurityAuthDto(providerTypes, userDetailsTypes, configuredUsername());
     }
+
+    private String configuredUsername() {
+        ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
+            return null;
+        }
+        String value = environment.getProperty(CONFIGURED_USERNAME_PROPERTY);
+        if (value == null
+                || valueExposure == ValueExposure.FULL
+                || !exposure.maskSecrets()
+                || !masker.shouldMask(CONFIGURED_USERNAME_PROPERTY, value)) {
+            return value;
+        }
+        return SecretMasker.MASKED_VALUE;
+    }
+
+    private List<String> filterNames(List<WebFilter> filters) {
+        return filters.stream().map(ReactiveSpringSecurityService::typeName).toList();
+    }
+
+    private boolean hasFilter(List<WebFilter> filters, String simpleClassName) {
+        return filters.stream().anyMatch(filter -> typeName(filter).equals(simpleClassName));
+    }
+
+    private static String typeName(Object value) {
+        String simpleName = value.getClass().getSimpleName();
+        return simpleName.isBlank() ? value.getClass().getName() : simpleName;
+    }
+
+    private static Object readField(Object target, String fieldName) {
+        Class<?> type = target.getClass();
+        while (type != null && type != Object.class) {
+            try {
+                Field field = type.getDeclaredField(fieldName);
+                if (!field.trySetAccessible()) {
+                    log.debug("Field {}.{} is not accessible", type.getName(), fieldName);
+                    return null;
+                }
+                return field.get(target);
+            } catch (NoSuchFieldException ignored) {
+                type = type.getSuperclass();
+            } catch (IllegalAccessException | RuntimeException exception) {
+                log.debug("Could not read field {}.{}", type.getName(), fieldName, exception);
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static RepresentativePath representativePath(String pattern) {
+        StringBuilder result = new StringBuilder(pattern.length());
+        boolean changed = false;
+        for (int index = 0; index < pattern.length(); index++) {
+            char current = pattern.charAt(index);
+            if (current == '{') {
+                int depth = 1;
+                while (++index < pattern.length() && depth > 0) {
+                    char nested = pattern.charAt(index);
+                    if (nested == '{') {
+                        depth++;
+                    } else if (nested == '}') {
+                        depth--;
+                    }
+                }
+                result.append("bootui");
+                changed = true;
+            } else if (current == '*') {
+                if (index + 1 < pattern.length() && pattern.charAt(index + 1) == '*') {
+                    index++;
+                    result.append("bootui/path");
+                } else {
+                    result.append("bootui");
+                }
+                changed = true;
+            } else if (current == '?') {
+                result.append('x');
+                changed = true;
+            } else {
+                result.append(current);
+            }
+        }
+        return new RepresentativePath(result.toString(), changed);
+    }
+
+    private SpringSecurityEndpointDto endpointDto(
+            EndpointCandidate endpoint,
+            boolean secured,
+            String rule,
+            List<String> roles,
+            Integer chainIndex,
+            String matcherDescription,
+            String description,
+            boolean bestEffort) {
+        return new SpringSecurityEndpointDto(
+                endpoint.method(),
+                endpoint.pattern(),
+                endpoint.handler(),
+                secured,
+                rule,
+                roles,
+                chainIndex,
+                matcherDescription,
+                description,
+                bestEffort);
+    }
+
+    private record MatcherInfo(String description, String type) {}
+
+    private record IndexedChain(int index, SecurityWebFilterChain chain, MatcherInfo matcher) {}
+
+    private record ObservedChain(
+            int index, SecurityWebFilterChain chain, MatcherInfo matcher, List<WebFilter> filters) {}
+
+    private record MatchEvaluation(boolean matched, String errorType) {}
+
+    private record EvaluatedChain(ObservedChain chain, MatchEvaluation evaluation) {}
+
+    private record Simulation(Boolean granted, String errorType) {}
 
     private record AuthoritySpec(List<String> authorities, boolean allRolePrefixed) {}
 
-    // ── Best-effort stub ServerWebExchange for explain / endpoint matching ────────
+    private record RepresentativePath(String path, boolean bestEffort) {}
+
+    private record EndpointCandidate(
+            String method, String pattern, String representativePath, String handler, boolean bestEffort) {}
 
     /**
-     * Minimal {@link ServerWebExchange} stub used for best-effort chain matching in the explain and
-     * endpoints methods.
-     *
-     * <p>Provides method and path to satisfy {@code PathPatternParserServerWebExchangeMatcher} (the
-     * most common reactive matcher). Any access to headers, cookies, session, or response marks
-     * {@code bestEffort=true} so the caller can communicate reduced confidence to the client.</p>
+     * A path/method-only exchange derived from the real request. It deliberately removes headers,
+     * cookies, principal, session, body, and remote-address state; touching any of those channels
+     * marks the result as best-effort rather than reusing potentially sensitive state from the
+     * developer's BootUI request.
      */
-    private static final class ExplainExchange implements ServerWebExchange {
+    private static final class ExplainExchange extends ServerWebExchangeDecorator {
 
-        private final ExplainHttpRequest request;
-        private boolean bestEffort;
+        private final AtomicBoolean bestEffort;
+        private final Map<String, Object> attributes = new ConcurrentHashMap<>();
+        private final ExplainRequest request;
+        private final String path;
 
-        ExplainExchange(String method, String path) {
-            this.request = new ExplainHttpRequest(method, path, this);
+        ExplainExchange(ServerWebExchange delegate, String method, String path, boolean initiallyBestEffort) {
+            super(delegate);
+            this.bestEffort = new AtomicBoolean(initiallyBestEffort);
+            HttpMethod httpMethod = parseMethod(method, bestEffort);
+            URI uri = parseUri(path);
+            this.path = uri.getRawPath();
+            this.request = new ExplainRequest(delegate.getRequest(), httpMethod, uri, bestEffort);
+        }
+
+        String path() {
+            return path;
         }
 
         boolean isBestEffort() {
-            return bestEffort || request.bestEffort;
-        }
-
-        void markBestEffort() {
-            this.bestEffort = true;
+            return bestEffort.get();
         }
 
         @Override
@@ -598,109 +771,94 @@ class ReactiveSpringSecurityService {
 
         @Override
         public ServerHttpResponse getResponse() {
-            bestEffort = true;
-            throw new UnsupportedOperationException("explain stub — no response");
+            bestEffort.set(true);
+            return super.getResponse();
         }
 
         @Override
         public Map<String, Object> getAttributes() {
-            return new java.util.concurrent.ConcurrentHashMap<>();
+            return attributes;
         }
 
         @Override
         public Mono<WebSession> getSession() {
-            bestEffort = true;
+            bestEffort.set(true);
             return Mono.empty();
         }
 
         @Override
-        public <T extends java.security.Principal> Mono<T> getPrincipal() {
+        public <T extends Principal> Mono<T> getPrincipal() {
+            bestEffort.set(true);
             return Mono.empty();
-        }
-
-        @Override
-        public Flux<org.springframework.http.codec.multipart.Part> getMultipartData() {
-            bestEffort = true;
-            return Flux.empty();
         }
 
         @Override
         public Mono<MultiValueMap<String, String>> getFormData() {
-            bestEffort = true;
+            bestEffort.set(true);
             return Mono.just(new LinkedMultiValueMap<>());
         }
 
         @Override
-        public org.springframework.context.i18n.LocaleContext getLocaleContext() {
-            return () -> Locale.getDefault();
+        public Mono<MultiValueMap<String, Part>> getMultipartData() {
+            bestEffort.set(true);
+            return Mono.just(new LinkedMultiValueMap<>());
         }
 
-        @Override
-        public org.springframework.web.server.i18n.LocaleContextResolver getLocaleContextResolver() {
-            bestEffort = true;
-            return null;
+        private static HttpMethod parseMethod(String method, AtomicBoolean bestEffort) {
+            if (method == null || method.isBlank()) {
+                return HttpMethod.GET;
+            }
+            if ("ANY".equalsIgnoreCase(method)) {
+                bestEffort.set(true);
+                return HttpMethod.GET;
+            }
+            String normalized = method.toUpperCase(Locale.ROOT);
+            if (!HTTP_METHOD_TOKEN.matcher(normalized).matches()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported HTTP method: " + method);
+            }
+            try {
+                return HttpMethod.valueOf(normalized);
+            } catch (IllegalArgumentException exception) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported HTTP method: " + method);
+            }
         }
 
-        @Override
-        public boolean isNotModified() {
-            return false;
-        }
-
-        @Override
-        public boolean checkNotModified(HttpHeaders headers) {
-            return false;
-        }
-
-        @Override
-        public boolean checkNotModified(String etag) {
-            return false;
-        }
-
-        @Override
-        public boolean checkNotModified(java.time.Instant lastModified) {
-            return false;
-        }
-
-        @Override
-        public boolean checkNotModified(String etag, java.time.Instant lastModified) {
-            return false;
-        }
-
-        @Override
-        public String transformUrl(String url) {
-            return url;
-        }
-
-        @Override
-        public void addUrlTransformer(java.util.function.Function<String, String> transformer) {
-            // no-op
-        }
-
-        @Override
-        public String getLogPrefix() {
-            return "";
+        private static URI parseUri(String path) {
+            String normalized = path == null || path.isBlank() ? "/" : (path.startsWith("/") ? path : "/" + path);
+            if (normalized.indexOf('\r') >= 0 || normalized.indexOf('\n') >= 0 || normalized.indexOf('#') >= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Path must be an HTTP request path");
+            }
+            try {
+                URI uri = URI.create("http://localhost" + normalized);
+                if (uri.getRawPath() == null || !uri.getRawPath().startsWith("/")) {
+                    throw new IllegalArgumentException("missing absolute path");
+                }
+                return uri;
+            } catch (IllegalArgumentException exception) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid HTTP request path", exception);
+            }
         }
     }
 
-    /**
-     * Minimal {@link ServerHttpRequest} stub covering path and method for best-effort explain.
-     */
-    private static final class ExplainHttpRequest implements ServerHttpRequest {
+    private static final class ExplainRequest extends ServerHttpRequestDecorator {
 
         private final HttpMethod method;
         private final URI uri;
         private final RequestPath path;
-        private final ExplainExchange parent;
-        boolean bestEffort;
+        private final AtomicBoolean bestEffort;
+        private final Map<String, Object> attributes = new ConcurrentHashMap<>();
 
-        ExplainHttpRequest(String methodStr, String pathStr, ExplainExchange parent) {
-            this.method = methodStr != null
-                    ? HttpMethod.valueOf(methodStr.toUpperCase(Locale.ROOT))
-                    : HttpMethod.GET;
-            String normalizedPath = pathStr != null ? (pathStr.startsWith("/") ? pathStr : "/" + pathStr) : "/";
-            this.uri = URI.create("http://localhost" + normalizedPath);
-            this.path = RequestPath.parse(this.uri, "");
-            this.parent = parent;
+        ExplainRequest(ServerHttpRequest delegate, HttpMethod method, URI uri, AtomicBoolean bestEffort) {
+            super(delegate);
+            this.method = method;
+            this.uri = uri;
+            this.path = RequestPath.parse(uri, "");
+            this.bestEffort = bestEffort;
+        }
+
+        @Override
+        public String getId() {
+            return "bootui-explain";
         }
 
         @Override
@@ -714,62 +872,55 @@ class ReactiveSpringSecurityService {
         }
 
         @Override
+        public Map<String, Object> getAttributes() {
+            return attributes;
+        }
+
+        @Override
         public RequestPath getPath() {
             return path;
         }
 
         @Override
-        public String getId() {
-            return "bootui-explain";
+        public MultiValueMap<String, String> getQueryParams() {
+            bestEffort.set(true);
+            return new LinkedMultiValueMap<>();
         }
 
         @Override
         public HttpHeaders getHeaders() {
-            bestEffort = true;
+            bestEffort.set(true);
             return HttpHeaders.EMPTY;
         }
 
         @Override
-        public MultiValueMap<String, String> getQueryParams() {
+        public MultiValueMap<String, HttpCookie> getCookies() {
+            bestEffort.set(true);
             return new LinkedMultiValueMap<>();
-        }
-
-        @Override
-        public MultiValueMap<String, ResponseCookie> getCookies() {
-            bestEffort = true;
-            return new LinkedMultiValueMap<>();
-        }
-
-        @Override
-        public java.net.InetSocketAddress getRemoteAddress() {
-            return null;
         }
 
         @Override
         public java.net.InetSocketAddress getLocalAddress() {
+            bestEffort.set(true);
             return null;
         }
 
         @Override
-        @org.springframework.lang.Nullable
+        public java.net.InetSocketAddress getRemoteAddress() {
+            bestEffort.set(true);
+            return null;
+        }
+
+        @Override
         public org.springframework.http.server.reactive.SslInfo getSslInfo() {
+            bestEffort.set(true);
             return null;
         }
 
         @Override
         public Flux<org.springframework.core.io.buffer.DataBuffer> getBody() {
-            parent.markBestEffort();
+            bestEffort.set(true);
             return Flux.empty();
-        }
-
-        @Override
-        public ServerHttpRequest.Builder mutate() {
-            throw new UnsupportedOperationException("explain stub — mutation not supported");
-        }
-
-        @Override
-        public MediaType getContentType() {
-            return null;
         }
     }
 }

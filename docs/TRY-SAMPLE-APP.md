@@ -114,9 +114,10 @@ docker run --rm -p 8081:8081 \
   jdubois/bootui-sample-app-webflux
 ```
 
-The large majority of panels work identically to the servlet image. **HTTP Sessions** stays not applicable (WebFlux has
-no `HttpSession`), and the **Security advisor**, the raw **Spring Security** panel, and standalone **REST Client** panel
-are not yet ported to the reactive stack — each reports its reason in the sidebar and the panel's own alert banner. See
+The large majority of panels work identically to the servlet image, and the raw **Spring Security** panel shows the
+sample's reactive `SecurityWebFilterChain` and `WebFilter` pipeline with clearly marked best-effort explanations.
+**HTTP Sessions** stays not applicable (WebFlux has no `HttpSession`); the **Security advisor** and standalone
+**REST Client** panel are not yet ported to the reactive stack. See
 [WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full current status.
 
 ## BootUI on Quarkus
