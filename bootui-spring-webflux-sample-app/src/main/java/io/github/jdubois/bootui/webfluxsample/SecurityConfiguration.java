@@ -33,7 +33,6 @@ public class SecurityConfiguration {
                         .authenticated())
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
-                .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .build();
     }
 }
