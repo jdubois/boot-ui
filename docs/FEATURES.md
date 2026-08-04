@@ -518,7 +518,7 @@ resource-server validation, and configuration hygiene. The report is framed as a
 intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
 [SECURITY-CHECKS.md](SECURITY-CHECKS.md) for the full rule catalogue and remediation links.
 
-The Security advisor supports **both** framework security stacks from the same panel, menu slot, and
+The Security advisor supports **all three** runtime security stacks from the same panel, menu slot, and
 `/bootui/api/security` report contract. On **Spring Boot** it analyses Spring Security — the `SecurityFilterChain` beans
 and security beans described above.
 
@@ -533,11 +533,10 @@ relabels the metrics ("Permission policies" in place of "Filter chains") — the
 
 ![BootUI Security panel — Quarkus Security](./images/bootui-quarkus-security.webp)
 
-This advisor is **not yet ported for Spring Boot WebFlux**: it analyzes the servlet `SecurityFilterChain` beans
-described above, while a reactive Spring Security setup registers unrelated `SecurityWebFilterChain` beans behind a
-`WebFilterChainProxy` instead — so the panel reports unavailable with its existing "no filter chains available" reason
-rather than a bespoke WebFlux message. A `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as follow-up work. See
-[docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the current status.
+On **Spring Boot WebFlux** it evaluates a dedicated 25-rule `SEC-RXF-*` catalogue over a framework-neutral observation
+of the application's `SecurityWebFilterChain` beans, reactive CORS/OAuth2 beans, and security-relevant configuration.
+The Spring adapter owns collection and excludes BootUI's own permit-all chain; the shared engine owns deterministic
+rule evaluation and never receives Spring types or secret values. See [WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md).
 
 ### Pentesting
 
@@ -1291,6 +1290,34 @@ dark in production); otherwise it reports a clear unavailable reason.
 
 ![BootUI Kafka panel](./images/bootui-kafka.webp)
 
+### RabbitMQ
+
+The RabbitMQ panel is a dedicated, filterable view over AMQP publish/consume capture that also feeds `MESSAGING` entries
+into Live Activity. On Spring, BootUI installs a `MessagePostProcessor` on every `RabbitTemplate` bean via the public
+`addBeforePublishPostProcessors` API and prepends a `MethodInterceptor` to every
+`AbstractRabbitListenerContainerFactory`'s advice chain — composing with, not replacing, any existing post-processors or
+advice. On Quarkus, it hooks SmallRye Reactive Messaging's `OutgoingInterceptor`/`IncomingInterceptor` SPI, so the same
+`RabbitActivityRecorder` is fed from either framework. Each row shows timestamp, direction (PUBLISH/CONSUME, with an
+icon), exchange, routing key, queue (consume side), processing duration (consume only — a publish's duration is not
+exposed without publisher confirms), and success/failure. Spring publishes are captured at the supported before-publish
+hook and therefore represent a publish attempt; Quarkus publish ack/nack and both consumer paths represent terminal
+outcomes. When `capture-correlation-id` is
+enabled (opt-in, default `false`), a truncated SHA-256 hash of the correlation ID is shown. **The message body/payload
+and arbitrary headers are never captured** — only bounded routing metadata, timing, and success/failure are retained;
+failure text is generic so framework exception messages cannot leak payload or credential data.
+
+Capture is on by default whenever a RabbitMQ integration is present and the panel is enabled, and is tuned via
+`bootui.rabbitmq.enabled`, `bootui.rabbitmq.capture-correlation-id`, `bootui.rabbitmq.max-entries`, and
+`bootui.rabbitmq.max-correlation-id-length` — see `docs/PROPERTIES.md`. The panel is available when a `RabbitTemplate`
+bean is present (e.g. `spring-rabbit` / `spring-boot-starter-amqp`); otherwise it reports a clear unavailable reason.
+
+On Quarkus the panel is identical, running over the same shared engine `RabbitActivityRecorder` and the same
+`/bootui/api/rabbitmq` contract (list/clear). The panel is available when `quarkus-messaging-rabbitmq` is on the
+classpath (and dark in production); otherwise it reports a
+clear unavailable reason.
+
+![BootUI RabbitMQ panel](./images/bootui-rabbitmq.webp)
+
 ### AI Usage
 
 The AI Usage panel summarizes Spring AI and LangChain4j activity collected from OpenTelemetry spans emitted by their
@@ -1534,9 +1561,9 @@ live on Quarkus: `graalvm_scan` and `crac_scan` (both deliberately not applicabl
 
 On Spring Boot WebFlux the panel is available too. A reactive tool catalog binds the WebFlux-specific Live Activity,
 Exceptions, Security Logs, SQL Trace, and Log Tail controllers while reusing the shared controllers for the rest of the
-surface. It advertises the same tools as the servlet adapter except `security_scan`, because the Security advisor itself
-is not yet available on WebFlux. The JSON-RPC transport, runtime toggle, panel/read-only gating, payload/concurrency
-limits, and response envelopes are otherwise identical across all three adapters.
+surface, including `security_scan` through the shared reactive advisor service. The JSON-RPC transport, runtime toggle,
+panel/read-only gating, payload/concurrency limits, and response envelopes are otherwise identical across all three
+adapters.
 
 ### DevTools
 

@@ -56,7 +56,10 @@ describe('HTTP Exchanges', () => {
     const wrapper = mount(HttpExchanges)
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith('api/http-exchanges?offset=0&limit=200', {})
+    expect(fetch).toHaveBeenCalledWith(
+      'api/http-exchanges?offset=0&limit=200',
+      expect.objectContaining({signal: expect.any(AbortSignal)})
+    )
     expect(wrapper.text()).toContain('HTTP Exchanges')
     expect(wrapper.text()).toContain('/api/orders?token=******&page=1')
     expect(wrapper.text()).toContain('201')
@@ -96,6 +99,9 @@ describe('HTTP Exchanges', () => {
     await vi.advanceTimersByTimeAsync(300)
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenLastCalledWith('api/http-exchanges?method=POST&statusClass=4xx&offset=0&limit=200', {})
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/http-exchanges?method=POST&statusClass=4xx&offset=0&limit=200',
+      expect.objectContaining({signal: expect.any(AbortSignal)})
+    )
   })
 })

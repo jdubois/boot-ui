@@ -20,6 +20,10 @@ export function toErrorMessage(error, fallback = 'Request failed') {
   return fallback
 }
 
+export function isAbortError(error) {
+  return error !== null && typeof error === 'object' && error.name === 'AbortError'
+}
+
 export function isServerUnreachableError(error) {
   const normalized = toErrorMessage(error, '').trim().toLowerCase()
   let end = normalized.length

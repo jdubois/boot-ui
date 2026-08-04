@@ -242,6 +242,15 @@ public class QuarkusPanelAvailability {
     public static final String KAFKA_PRESENT_KEY = "bootui.internal.kafka-present";
 
     /**
+     * Build-time config key written by the {@code registerRabbitCapture} build step to signal that
+     * {@code quarkus-messaging-rabbitmq} is present and the capture beans were wired; read back here
+     * (default {@code false}) only when SmallRye RabbitMQ metadata is present at build time and the launch
+     * mode is non-production; this bean reads it back to decide whether the dedicated RabbitMQ panel is lit
+     * up, mirroring {@link #KAFKA_PRESENT_KEY}.
+     */
+    public static final String RABBIT_PRESENT_KEY = "bootui.internal.rabbit-present";
+
+    /**
      * Runtime-config key carrying the build-time REST Client Reactive presence decision. The deployment
      * processor emits it (default {@code false}) only when the REST Client Reactive capability is present
      * and the launch mode is non-production. The recorder is produced unconditionally; the panel remains
@@ -252,7 +261,6 @@ public class QuarkusPanelAvailability {
 
     public static final String REST_CLIENT_TRACE_DISABLED =
             "REST Client capture is disabled via bootui.rest-client-trace.enabled=false";
-
     public static final String REST_CLIENT_TRACE_NOT_INSTRUMENTED =
             "No REST Client Reactive proxy has been instrumented yet.";
 
@@ -293,6 +301,10 @@ public class QuarkusPanelAvailability {
     private static final String KAFKA_ABSENT =
             "Not available: this application does not use Kafka messaging. Add the quarkus-messaging-kafka"
                     + " extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel.";
+
+    private static final String RABBIT_ABSENT =
+            "Not available: this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq"
+                    + " extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel.";
 
     private static final String REST_CLIENT_TRACE_ABSENT =
             "Not available: this application does not use Quarkus REST Client Reactive. Add the"
@@ -381,6 +393,7 @@ public class QuarkusPanelAvailability {
             Map.entry(BootUiPanels.DEV_SERVICES, DEV_SERVICES_ABSENT),
             Map.entry(BootUiPanels.EMAIL, EMAIL_ABSENT),
             Map.entry(BootUiPanels.KAFKA, KAFKA_ABSENT),
+            Map.entry(BootUiPanels.RABBITMQ, RABBIT_ABSENT),
             Map.entry(BootUiPanels.REST_CLIENT_TRACE, REST_CLIENT_TRACE_ABSENT),
             Map.entry(BootUiPanels.SQL_TRACE, SQL_TRACE_ABSENT),
             Map.entry(BootUiPanels.PROFILE_DIFF, PROFILE_DIFF_ABSENT),
@@ -436,6 +449,7 @@ public class QuarkusPanelAvailability {
 
     private final boolean kafkaPresent;
 
+    private final boolean rabbitPresent;
     private final boolean restClientTracePresent;
 
     private final boolean securityLogsAvailable;
@@ -478,6 +492,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(EMAIL_PRESENT_KEY, Boolean.class).orElse(false);
         this.kafkaPresent =
                 config.getOptionalValue(KAFKA_PRESENT_KEY, Boolean.class).orElse(false);
+        this.rabbitPresent =
+                config.getOptionalValue(RABBIT_PRESENT_KEY, Boolean.class).orElse(false);
         this.restClientTracePresent = config.getOptionalValue(REST_CLIENT_TRACE_PRESENT_KEY, Boolean.class)
                 .orElse(false);
         boolean securityPresent = config.getOptionalValue(SECURITY_LOGS_PRESENT_KEY, Boolean.class)
@@ -504,6 +520,7 @@ public class QuarkusPanelAvailability {
                 Map.entry(BootUiPanels.DEV_SERVICES, devServicesPresent),
                 Map.entry(BootUiPanels.EMAIL, emailPresent),
                 Map.entry(BootUiPanels.KAFKA, kafkaPresent),
+                Map.entry(BootUiPanels.RABBITMQ, rabbitPresent),
                 Map.entry(BootUiPanels.REST_CLIENT_TRACE, restClientTracePresent),
                 Map.entry(BootUiPanels.SECURITY_LOGS, securityLogsAvailable),
                 Map.entry(BootUiPanels.SQL_TRACE, connectionPoolsPresent),

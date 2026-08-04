@@ -8,8 +8,8 @@ import {expect, test} from '@playwright/test'
  * bootui-conformance suite (WebFluxApiConformanceTest) and the servlet e2e spec-per-panel coverage - the
  * same Vue bundle is served either way, so once one adapter's UI is proven, the remaining risk specific
  * to WebFlux is (a) the shell actually boots and reports the right platform, (b) a representative sample
- * of panels that ARE ported render correctly, and (c) the panels that stay unavailable on this adapter
- * (Security advisor and HTTP Sessions) surface their WebFlux-specific explanation through the real
+ * of panels that ARE ported render correctly, and (c) the panel that stays unavailable on this adapter
+ * (HTTP Sessions) surfaces its WebFlux-specific explanation through the real
  * sidebar/alert UI rather than just the JSON contract.
  */
 test.describe('BootUI on Spring WebFlux', () => {
@@ -45,6 +45,7 @@ test.describe('BootUI on Spring WebFlux', () => {
       {id: 'liquibase', heading: /Liquibase change sets/},
       {id: 'scheduled', heading: /Scheduled Tasks/},
       {id: 'pentesting', heading: /^Pentesting/},
+      {id: 'security', heading: /^Security/},
       {id: 'activity', heading: /Live Activity/},
       {id: 'mcp-server', heading: /^MCP Server/},
       {id: 'rest-client-trace', heading: /REST Client/}
@@ -118,6 +119,14 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(page.getByText(/Spring MVC mapping/)).toHaveCount(0)
   })
 
+  test('Security advisor runs the 25-rule reactive catalogue', async ({page}) => {
+    await page.goto('/bootui/#/security')
+    await expect(page.locator('.panel-availability-alert')).toHaveCount(0)
+    await page.getByRole('button', {name: 'Run security checks'}).click()
+    await expect(page.getByText('Scan complete', {exact: true})).toBeVisible({timeout: 15_000})
+    await expect(page.getByText('Rules evaluated').locator('..')).toContainText('25')
+  })
+
   test('REST Client records WebClient calls, streams updates, and protects actions with CSRF', async ({
     page,
     request
@@ -177,13 +186,6 @@ test.describe('BootUI on Spring WebFlux', () => {
 
   test('panels with no reactive equivalent yet explain why in the sidebar and panel alert', async ({page}) => {
     await page.goto('/bootui/')
-
-    const securityAdvisorLink = page.locator('aside .nav-link').filter({hasText: /^Security$/})
-    await expect(securityAdvisorLink).toHaveClass(/bootui-nav-link--unavailable/)
-    await expect(securityAdvisorLink).toHaveAttribute(
-      'title',
-      /Security Advisor is only available on the Spring MVC \(servlet\) adapter/
-    )
 
     const httpSessionsLink = page.locator('aside .nav-link', {hasText: 'HTTP Sessions'})
     await expect(httpSessionsLink).toHaveClass(/bootui-nav-link--unavailable/)

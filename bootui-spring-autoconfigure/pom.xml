@@ -134,6 +134,14 @@
             <optional>true</optional>
         </dependency>
         <dependency>
+            <groupId>org.springframework.amqp</groupId>
+            <artifactId>spring-rabbit</artifactId>
+            <!-- Optional: only compiled against and activated when spring-boot-starter-amqp
+                 (which provides spring-rabbit) is on the classpath; the BPP beans are gated
+                 on @ConditionalOnClass(RabbitTemplate) so they never wire in its absence. -->
+            <optional>true</optional>
+        </dependency>
+        <dependency>
             <groupId>org.liquibase</groupId>
             <artifactId>liquibase-core</artifactId>
             <optional>true</optional>

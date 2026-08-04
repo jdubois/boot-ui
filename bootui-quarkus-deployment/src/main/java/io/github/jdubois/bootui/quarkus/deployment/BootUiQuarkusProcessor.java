@@ -191,6 +191,15 @@ class BootUiQuarkusProcessor {
     private static final String KAFKA_CONSUMER_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.kafka.QuarkusKafkaConsumerCapture";
 
+    // Referenced by class name only: QuarkusRabbitProducerCapture/QuarkusRabbitConsumerCapture observe
+    // SmallRye RabbitMQ types, so the deployment classloader must never load them while augmenting an
+    // application without quarkus-messaging-rabbitmq. The RABBITMQ capability gate registers them only
+    // when present.
+    private static final String RABBIT_PRODUCER_CAPTURE_CLASS =
+            "io.github.jdubois.bootui.quarkus.rabbit.QuarkusRabbitProducerCapture";
+    private static final String RABBIT_CONSUMER_CAPTURE_CLASS =
+            "io.github.jdubois.bootui.quarkus.rabbit.QuarkusRabbitConsumerCapture";
+
     private static final String SCHEDULED_TASK_RUN_RECORDER_CLASS =
             "io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskRunRecorder";
 
@@ -202,6 +211,14 @@ class BootUiQuarkusProcessor {
 
     // The runtime type whose presence tells registerEmail that quarkus-mailer is on the application's classpath.
     private static final String REACTIVE_MAILER_CLASS = "io.quarkus.mailer.reactive.ReactiveMailer";
+
+    // The runtime type whose presence tells registerRabbitCapture that quarkus-messaging-rabbitmq is on the
+    // application's classpath. There is no dedicated RABBITMQ Capability constant in Quarkus core, so we gate
+    // on a SmallRye RabbitMQ connector class, matching the Email-panel pattern. The provided-scope
+    // quarkus-messaging-rabbitmq dependency adds this class transitively, but only when the application
+    // itself declares that extension — the provided scope is not transitive (R2).
+    private static final String INCOMING_RABBITMQ_METADATA_CLASS =
+            "io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata";
 
     // The MicroProfile REST Client Listener that hooks BootUI's filter into every @RegisterRestClient proxy.
     // Referenced by string name only so the deployment classloader never loads it in an app without
@@ -1446,6 +1463,35 @@ class BootUiQuarkusProcessor {
                 QuarkusPanelAvailability.KAFKA_PRESENT_KEY,
                 KAFKA_PRODUCER_CAPTURE_CLASS,
                 KAFKA_CONSUMER_CAPTURE_CLASS);
+    }
+
+    /**
+     * Class-presence-gated registration of the Live Activity RabbitMQ capture interceptors (R2). Mirrors
+     * {@link #registerKafkaCapture} exactly, except there is no dedicated {@code RABBITMQ}
+     * {@link io.quarkus.deployment.Capability} constant in Quarkus core, so the gate uses the runtime class
+     * presence of {@link #INCOMING_RABBITMQ_METADATA_CLASS} — the same pattern
+     * {@link #registerEmail} uses for the absence of a MAILER capability. The always-produced
+     * {@link io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder} (see
+     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) simply stays empty when no capture
+     * interceptor is wired, so both the RabbitMQ panel and {@code LiveActivityResource} render no messages
+     * / {@code MESSAGING} entries until {@code quarkus-messaging-rabbitmq} is added.
+     */
+    @BuildStep
+    void registerRabbitCapture(
+            LaunchModeBuildItem launchMode,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL
+                && QuarkusClassLoader.isClassPresentAtRuntime(INCOMING_RABBITMQ_METADATA_CLASS);
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.RABBIT_PRESENT_KEY,
+                RABBIT_PRODUCER_CAPTURE_CLASS,
+                RABBIT_CONSUMER_CAPTURE_CLASS);
     }
 
     /**

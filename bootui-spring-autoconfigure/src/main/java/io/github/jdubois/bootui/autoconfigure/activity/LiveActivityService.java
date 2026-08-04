@@ -31,6 +31,7 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
@@ -84,6 +85,7 @@ public class LiveActivityService {
     private final ObjectProvider<CacheActivityRecorder> cacheActivity;
     private final ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns;
     private final ObjectProvider<KafkaActivityRecorder> kafka;
+    private final ObjectProvider<RabbitActivityRecorder> rabbit;
     private final BootUiProperties properties;
 
     public LiveActivityService(
@@ -99,6 +101,7 @@ public class LiveActivityService {
             ObjectProvider<CacheActivityRecorder> cacheActivity,
             ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
             ObjectProvider<KafkaActivityRecorder> kafka,
+            ObjectProvider<RabbitActivityRecorder> rabbit,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
@@ -112,6 +115,7 @@ public class LiveActivityService {
         this.cacheActivity = cacheActivity;
         this.scheduledTaskRuns = scheduledTaskRuns;
         this.kafka = kafka;
+        this.rabbit = rabbit;
         this.properties = properties;
     }
 
@@ -137,6 +141,7 @@ public class LiveActivityService {
         List<CacheActivityEvent> cache = loadCache(sources);
         List<ScheduledTaskRunStore.Run> scheduledRuns = loadScheduledTaskRuns(sources);
         List<CapturedMessage> kafkaMessages = loadKafka(sources);
+        List<RabbitActivityRecorder.CapturedMessage> rabbitMessages = loadRabbit(sources);
 
         List<RequestAnchor> anchors = buildAnchors(requests);
         Map<String, RequestAnchor> anchorsById = new HashMap<>();
@@ -212,6 +217,9 @@ public class LiveActivityService {
         }
         for (CapturedMessage message : kafkaMessages) {
             all.add(toKafkaEntry(message));
+        }
+        for (RabbitActivityRecorder.CapturedMessage message : rabbitMessages) {
+            all.add(toRabbitEntry(message));
         }
         if (requests != null) {
             int nPlusOneThreshold = properties.getActivity().getNPlusOneThreshold();
@@ -415,6 +423,27 @@ public class LiveActivityService {
         return messages;
     }
 
+    /**
+     * Loads recently captured RabbitMQ messages from {@link RabbitActivityRecorder} directly. Gated on the
+     * dedicated {@code RABBITMQ} panel — like {@link #loadKafka} gates on its own domain panel — plus the
+     * recorder's own {@code bootui.rabbitmq.enabled} toggle (folded into
+     * {@link RabbitActivityRecorder#isEnabled()} at construction).
+     */
+    private List<RabbitActivityRecorder.CapturedMessage> loadRabbit(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.RABBITMQ)) {
+            return List.of();
+        }
+        RabbitActivityRecorder recorder = rabbit == null ? null : rabbit.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return List.of();
+        }
+        List<RabbitActivityRecorder.CapturedMessage> messages = recorder.recent();
+        if (!messages.isEmpty()) {
+            sources.add("RabbitMQ");
+        }
+        return messages;
+    }
+
     private ActivityEntryDto toRequestEntry(
             HttpExchangeDto exchange, String servingThread, String securedPrincipal, boolean sqlNPlusOneSuspected) {
         long timestamp =
@@ -557,6 +586,15 @@ public class LiveActivityService {
      */
     private ActivityEntryDto toKafkaEntry(CapturedMessage message) {
         return KafkaActivityEntries.toEntry(message);
+    }
+
+    /**
+     * Maps a captured RabbitMQ message to a flat {@code MESSAGING} entry, delegating to the shared,
+     * framework-neutral {@link io.github.jdubois.bootui.engine.rabbit.RabbitActivityEntries#toEntry} so
+     * the Quarkus adapter renders every RabbitMQ entry byte-for-byte identically.
+     */
+    private ActivityEntryDto toRabbitEntry(RabbitActivityRecorder.CapturedMessage message) {
+        return io.github.jdubois.bootui.engine.rabbit.RabbitActivityEntries.toEntry(message);
     }
 
     private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, String parentId) {

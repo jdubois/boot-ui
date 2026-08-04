@@ -2,7 +2,10 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpTools;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController;
+import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -59,6 +62,8 @@ class BootUiReactiveSpringSecurityAutoConfigurationTests {
                     assertThat(context)
                             .hasNotFailed()
                             .hasBean("bootUiReactiveSecurityWebFilterChain")
+                            .hasSingleBean(ReactiveSecurityAdvisorService.class)
+                            .hasSingleBean(ReactiveSecurityController.class)
                             .hasSingleBean(ReactiveSpringSecurityController.class);
                     client(context.getSourceApplicationContext())
                             .get()
@@ -77,7 +82,13 @@ class BootUiReactiveSpringSecurityAutoConfigurationTests {
     @Test
     void permitsOnlyTheBootUiRootAndDescendantsAheadOfApplicationSecurity() {
         runner.run(context -> {
-            assertThat(context).hasNotFailed().hasSingleBean(ReactiveSpringSecurityController.class);
+            assertThat(context)
+                    .hasNotFailed()
+                    .hasSingleBean(ReactiveSpringSecurityController.class)
+                    .hasSingleBean(ReactiveSecurityController.class);
+            assertThat(context.getBean(ReactiveBootUiMcpTools.class).tools())
+                    .extracting("name")
+                    .contains("security_scan");
             WebTestClient client = client(context.getSourceApplicationContext());
 
             client.get()
@@ -126,6 +137,40 @@ class BootUiReactiveSpringSecurityAutoConfigurationTests {
 
             client.get().uri("/protected").exchange().expectStatus().isUnauthorized();
             client.get().uri("/bootui-not").exchange().expectStatus().isUnauthorized();
+        });
+    }
+
+    @Test
+    void scansTheApplicationChainWithTheReactiveRuleCatalogue() {
+        runner.run(context -> {
+            WebTestClient client = client(context.getSourceApplicationContext());
+            EntityExchangeResult<byte[]> result = client.get()
+                    .uri("/bootui/api/security")
+                    .exchange()
+                    .expectStatus()
+                    .isOk()
+                    .expectBody()
+                    .jsonPath("$.scan.status")
+                    .isEqualTo("NOT_SCANNED")
+                    .returnResult();
+            ResponseCookie csrfCookie = result.getResponseCookies().getFirst("XSRF-TOKEN");
+            assertThat(csrfCookie).isNotNull();
+
+            client.post()
+                    .uri("/bootui/api/security/scan")
+                    .header(HttpHeaders.ORIGIN, "http://localhost")
+                    .header("X-XSRF-TOKEN", csrfCookie.getValue())
+                    .cookie(csrfCookie.getName(), csrfCookie.getValue())
+                    .exchange()
+                    .expectStatus()
+                    .isOk()
+                    .expectBody()
+                    .jsonPath("$.scan.status")
+                    .isEqualTo("SCANNED")
+                    .jsonPath("$.filterChainsAnalyzed")
+                    .isEqualTo(1)
+                    .jsonPath("$.rulesEvaluated")
+                    .isEqualTo(25);
         });
     }
 

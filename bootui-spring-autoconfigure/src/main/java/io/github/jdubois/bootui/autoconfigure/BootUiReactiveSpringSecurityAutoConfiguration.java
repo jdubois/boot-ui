@@ -1,8 +1,16 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController;
+import io.github.jdubois.bootui.autoconfigure.security.SpringReactiveSecurityObservationCollector;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
+import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityScanner;
+import java.time.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -56,10 +64,23 @@ import reactor.core.publisher.Mono;
         })
 @ConditionalOnBean(type = "org.springframework.security.config.web.server.ServerHttpSecurity")
 @EnableConfigurationProperties(BootUiProperties.class)
-@Import(ReactiveSpringSecurityController.class)
+@Import({ReactiveSpringSecurityController.class, ReactiveSecurityController.class})
 public class BootUiReactiveSpringSecurityAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(BootUiReactiveSpringSecurityAutoConfiguration.class);
+
+    @Bean
+    @ConditionalOnMissingBean
+    ReactiveSecurityAdvisorService bootUiReactiveSecurityAdvisorService(
+            ObjectProvider<SecurityWebFilterChain> filterChains,
+            ObjectProvider<ListableBeanFactory> beanFactories,
+            org.springframework.core.env.Environment environment,
+            DismissedRulesStore dismissedRules) {
+        SpringReactiveSecurityObservationCollector collector =
+                new SpringReactiveSecurityObservationCollector(filterChains, beanFactories, environment);
+        return new ReactiveSecurityAdvisorService(
+                ReactiveSecurityScanner.using(collector::collect, Clock.systemUTC()), dismissedRules);
+    }
 
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)

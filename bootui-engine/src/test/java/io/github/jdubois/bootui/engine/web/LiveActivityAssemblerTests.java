@@ -61,6 +61,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         ActivityEntryDto request = entry(report, "req-1");
@@ -99,6 +101,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
@@ -124,6 +128,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -159,6 +165,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
@@ -189,6 +197,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "sql-10").parentId()).isEqualTo("req-1");
@@ -213,6 +223,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 emails,
@@ -247,6 +259,8 @@ class LiveActivityAssemblerTests {
                 0,
                 List.of(),
                 false,
+                List.of(),
+                false,
                 emails,
                 true,
                 List.of(),
@@ -273,6 +287,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -313,6 +329,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(securityEntry(report).severity()).isEqualTo("WARN");
@@ -337,6 +355,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -367,6 +387,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -403,6 +425,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "req-1").securedPrincipal()).isEqualTo("bob");
@@ -425,6 +449,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -456,6 +482,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -499,6 +527,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.kpis().cacheHitRatioPercent()).isNull();
@@ -528,6 +558,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 2,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -563,6 +595,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 2,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 emails,
@@ -605,6 +639,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "req-1").sqlNPlusOneSuspected()).isTrue();
@@ -632,6 +668,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -665,6 +703,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -727,6 +767,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.entries()).extracting(ActivityEntryDto::id).containsExactly("kafka-1", "sql-10");
@@ -757,6 +799,8 @@ class LiveActivityAssemblerTests {
                 0,
                 recorder.recent(),
                 true,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -792,6 +836,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(entry(report, "exc-e1").parentId()).isEqualTo("sched-1");
@@ -817,6 +863,8 @@ class LiveActivityAssemblerTests {
                 scheduled,
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -850,6 +898,8 @@ class LiveActivityAssemblerTests {
                 scheduled,
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -893,6 +943,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         ActivityEntryDto ok = entry(report, "sched-1");
@@ -931,6 +983,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.sources()).doesNotContain("scheduled-tasks");
@@ -964,6 +1018,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 false,
                 List.of(),
+                false,
+                List.of(),
                 false);
 
         assertThat(report.entries()).hasSize(2);
@@ -989,6 +1045,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -1029,6 +1087,8 @@ class LiveActivityAssemblerTests {
                 false,
                 List.of(),
                 false,
+                List.of(),
+                false,
                 List.of(rest(7, "GET", "api.example.com", "/users", 200, 75L, true, null, false, null)),
                 true);
         assertThat(entry(missingTraceReport, "rest-7").parentId()).isNull();
@@ -1048,6 +1108,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),
@@ -1082,6 +1144,8 @@ class LiveActivityAssemblerTests {
                 false,
                 List.of(),
                 false,
+                List.of(),
+                false,
                 rest,
                 true);
 
@@ -1104,6 +1168,8 @@ class LiveActivityAssemblerTests {
                 List.of(),
                 "UP",
                 0,
+                List.of(),
+                false,
                 List.of(),
                 false,
                 List.of(),

@@ -20,6 +20,7 @@ import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +52,7 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<SpringController> spring,
             ObjectProvider<HibernateController> hibernate,
             ObjectProvider<MemoryController> memory,
+            ObjectProvider<ReactiveSecurityAdvisorService> security,
             ObjectProvider<PentestingController> pentesting,
             ObjectProvider<RestApiController> restApi,
             ObjectProvider<GraalVmController> graalvm,
@@ -71,6 +73,7 @@ public class ReactiveBootUiMcpTools {
         SpringController springBean = spring.getIfAvailable();
         HibernateController hibernateBean = hibernate.getIfAvailable();
         MemoryController memoryBean = memory.getIfAvailable();
+        ReactiveSecurityAdvisorService securityBean = security.getIfAvailable();
         PentestingController pentestingBean = pentesting.getIfAvailable();
         RestApiController restApiBean = restApi.getIfAvailable();
         GraalVmController graalvmBean = graalvm.getIfAvailable();
@@ -105,6 +108,13 @@ public class ReactiveBootUiMcpTools {
                     McpToolDescriptions.spring("memory_scan"),
                     BootUiPanels.MEMORY,
                     args -> memoryBean.scan()));
+        }
+        if (securityBean != null) {
+            registry.add(action(
+                    "security_scan",
+                    McpToolDescriptions.spring("security_scan"),
+                    BootUiPanels.SECURITY,
+                    args -> securityBean.scan()));
         }
         if (pentestingBean != null) {
             registry.add(action(

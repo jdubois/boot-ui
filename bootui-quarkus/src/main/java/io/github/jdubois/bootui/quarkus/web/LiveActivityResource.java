@@ -30,6 +30,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
@@ -146,6 +147,7 @@ public class LiveActivityResource {
     private final ActivityPersistenceSettings persistenceSettings;
     private final Instance<DataSource> dataSources;
     private final KafkaActivityRecorder kafkaRecorder;
+    private final RabbitActivityRecorder rabbitRecorder;
     private final RestClientTraceRecorder restClientTraceRecorder;
     private final SelfTelemetryClassifier selfClassifier;
     private final HttpExchangesService exchanges = new HttpExchangesService();
@@ -171,6 +173,7 @@ public class LiveActivityResource {
             ActivityPersistenceSettings persistenceSettings,
             Instance<DataSource> dataSources,
             KafkaActivityRecorder kafkaRecorder,
+            RabbitActivityRecorder rabbitRecorder,
             RestClientTraceRecorder restClientTraceRecorder,
             SelfTelemetryClassifier selfClassifier) {
         this.buffer = buffer;
@@ -187,6 +190,7 @@ public class LiveActivityResource {
         this.persistenceSettings = persistenceSettings;
         this.dataSources = dataSources;
         this.kafkaRecorder = kafkaRecorder;
+        this.rabbitRecorder = rabbitRecorder;
         this.restClientTraceRecorder = restClientTraceRecorder;
         this.selfClassifier = selfClassifier;
     }
@@ -297,6 +301,9 @@ public class LiveActivityResource {
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
         boolean kafkaAvailable = kafkaRecorder.isEnabled();
+        boolean rabbitAvailable = panelAvailability.isPanelAvailable(BootUiPanels.RABBITMQ)
+                && panelAvailability.isPanelEnabled(BootUiPanels.RABBITMQ)
+                && rabbitRecorder.isEnabled();
         EmailsReport emailReport = emailReport();
         boolean emailAvailable = emailReport != null;
 
@@ -319,6 +326,8 @@ public class LiveActivityResource {
                 limit,
                 kafkaAvailable ? kafkaRecorder.recent() : List.of(),
                 kafkaAvailable,
+                rabbitAvailable ? rabbitRecorder.recent() : List.of(),
+                rabbitAvailable,
                 emailAvailable ? emailReport.messages() : List.<EmailMessageDto>of(),
                 emailAvailable,
                 // Quarkus REST Client Reactive capture via QuarkusRestClientTraceListener SPI.
@@ -388,8 +397,10 @@ public class LiveActivityResource {
                 combined(
                         combined(
                                 combined(
-                                        combined(buffer::subscribe, scheduledTaskRunStore::subscribe),
-                                        kafkaRecorder::subscribe),
+                                        combined(
+                                                combined(buffer::subscribe, scheduledTaskRunStore::subscribe),
+                                                kafkaRecorder::subscribe),
+                                        rabbitRecorder::subscribe),
                                 emailChangeSource()),
                         restClientChangeSource()));
     }

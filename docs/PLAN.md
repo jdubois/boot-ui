@@ -214,7 +214,7 @@ Scope — new event types, roughly in priority order:
   resolved cache to an internal, non-public `AbstractCache` type, so a Spring-style decorator implementing only the
   public `Cache` interface would fail with a `ClassCastException`; there is no comparable runtime interception seam, so
   the Quarkus adapter continues to report `cacheHitRatioPercent: null` (see `docs/QUARKUS-SUPPORT.md`).
-- **Messaging (Kafka/RabbitMQ/JMS) publish and consume — Kafka shipped (both adapters).** The highest-value new-instrumentation
+- **Messaging (Kafka/RabbitMQ) publish and consume — Kafka and RabbitMQ shipped (both adapters).** The highest-value new-instrumentation
   candidate after mail and
   REST calls: async messaging is exactly where a Telescope/Aspire-style console helps most, since message flow is
   otherwise invisible outside the debugger. As scoped below, this landed **Kafka-first**: a `KafkaActivityRecorder`
@@ -225,8 +225,8 @@ Scope — new event types, roughly in priority order:
   like Cache/Mail/REST Client, a `MESSAGING` entry into the merged Live Activity feed (topic, partition, offset, a hash
   of the key, direction, success/failure, consumer group id, listener id, duration).
   Message values/payloads are never captured (out of scope by design, sidestepping the payload-masking problem
-  entirely). Controlled by `bootui.kafka.*` (see `docs/PROPERTIES.md`). RabbitMQ remains a later, separately-scoped
-  follow-up. **Spring JMS has now shipped**: `JmsProducerCaptureBeanPostProcessor` wraps every `JmsTemplate` bean via a
+  entirely). Controlled by `bootui.kafka.*` (see `docs/PROPERTIES.md`). **Spring JMS has now shipped**:
+  `JmsProducerCaptureBeanPostProcessor` wraps every `JmsTemplate` bean via a
   CGLIB proxy to intercept `send`/`convertAndSend` calls, and `JmsListenerCaptureBeanPostProcessor` wraps every
   `AbstractJmsListenerContainerFactory` to intercept `createListenerContainer()` and wrap the returned container's
   listener with a matching plain or session-aware capture adapter, preserving its original dispatch path. Both reuse the
@@ -234,7 +234,8 @@ Scope — new event types, roughly in priority order:
   partition/offset) and `MESSAGING` entry type; the existing `bootui.kafka.*` buffer settings apply without coupling the
   transport enable switches. `bootui.jms.enabled=false` disables only JMS capture without touching Kafka, and the Kafka
   panel filters/clears Kafka records only. Gated on both `JmsTemplate` and the Jakarta JMS API,
-  pass-through/fail-open, no Quarkus JMS equivalent claimed. The **Quarkus port (SmallRye Reactive Messaging) has now shipped**, reusing the same
+  pass-through/fail-open, no Quarkus JMS equivalent claimed. The **Quarkus Kafka port (SmallRye Reactive Messaging) has
+  now shipped**, reusing the same
   `KafkaActivityRecorder` and the same `bootui.kafka.*` keys/defaults: because Quarkus applications use SmallRye's
   `@Incoming`/`@Outgoing` channel model rather than `spring-kafka`'s imperative templates, the capture point is
   SmallRye's `OutgoingInterceptor`/`IncomingInterceptor` SPI, implemented by two `@ApplicationScoped` interceptors
@@ -244,14 +245,36 @@ Scope — new event types, roughly in priority order:
   (in-memory/RabbitMQ/JMS) channels, pass-through/fail-open, and set the lowest interceptor precedence so an
   application's own channel interceptor always wins. `LiveActivityResource` merges the captured `MESSAGING` entries into
   the feed adapter-side (top-level, no request correlation) via the shared `KafkaActivityEntries` mapping, so both
-  adapters render byte-identical entries. Unlike the other items above,
-  this was a materially bigger investment: Kafka,
-  RabbitMQ, and JMS are three unrelated client APIs (no single "messaging" abstraction to intercept once). Kafka and
-  Spring JMS have now shipped; RabbitMQ remains a separately-scoped follow-up. Each uses the same
-  `KafkaActivityRecorder` (reusing the `MESSAGING` entry type and `bootui.kafka.*` buffer settings) with a
-  `@ConditionalOnClass`-gated `BeanPostProcessor` in the Spring adapter, following the same optional-dependency/fail-closed
-  pattern as Hibernate/Cache/Flyway/Liquibase — the interceptor lives in the adapter, never statically imported by the
-  framework-neutral engine.
+  adapters render byte-identical entries. **RabbitMQ has also shipped on both
+  adapters** via a parallel `RabbitActivityRecorder` (`bootui-engine`) fed on Spring by
+  `RabbitProducerCaptureBeanPostProcessor` (`addBeforePublishPostProcessors` on every `RabbitTemplate` bean,
+  composing with any existing post-processors) and `RabbitConsumerCaptureBeanPostProcessor` (prepends a
+  `MethodInterceptor` to every `AbstractRabbitListenerContainerFactory`'s advice chain, composing with existing
+  advice, timing the `onMessage(Message)` invocation); on Quarkus it uses the same SmallRye
+  `OutgoingInterceptor`/`IncomingInterceptor` SPI as the Kafka capture
+  (`QuarkusRabbitProducerCapture`/`QuarkusRabbitConsumerCapture`), capability-gated on `IncomingRabbitMQMetadata`
+  class presence via a `registerRabbitCapture` deployment build-step (production-dark, R2), exactly like
+  Hibernate/Cache/Flyway. Both adapters capture direction, exchange, routing key, queue, success/failure, timing,
+  and (opt-in via `bootui.rabbitmq.capture-correlation-id=true`, default `false`) a hashed correlation ID —
+  never the message body, arbitrary headers, or raw exception messages. Both SmallRye capture pairs are the sole importers
+  of their connector-specific metadata types, are excluded from bean discovery when their extension is absent, are
+  pass-through/fail-open, and use the lowest interceptor precedence so an application's own channel interceptor wins.
+  `LiveActivityResource` merges both recorders' `MESSAGING` entries into the feed adapter-side (top-level, no request
+  correlation), preserving the same wire shape across adapters. Kafka, RabbitMQ, and JMS are three unrelated client APIs,
+  so each keeps an adapter-specific interception seam; Spring JMS reuses Kafka's protocol-tagged bounded recorder while
+  RabbitMQ has its own recorder because it also backs the dedicated RabbitMQ panel.
+  Interception itself is more invasive than any existing capture source: it means wrapping the app's own messaging beans
+  (a `BeanPostProcessor`, mirroring the existing HTTP Exchanges repository wrapper) or registering interceptor/advice
+  hooks, so pass-through-by-default and fail-open wrapping are non-negotiable design constraints, and message bodies
+  need their own bounding/masking design (arbitrary, potentially large application payloads, unlike a SQL statement or
+  HTTP header). On Quarkus, the interception point was different in kind, not just in wiring: Quarkus applications
+  typically use SmallRye Reactive Messaging (`@Incoming`/`@Outgoing` channels) rather than Spring's imperative
+  `spring-kafka`/`spring-rabbit` templates, so the Quarkus capture is a per-adapter interceptor pair rather than the
+  thinner Cache/Flyway provider seams — closer to the Beans panel's `BeanProvider` split (CDI vs. Spring bean
+  introspection) in spirit, though the shared, framework-neutral recorders and entry mappings keep the engine seam intact.
+  The panel-registration plumbing itself (an unconditional recorder `@Produces` bean
+  plus the capability-gated interceptor beans) follows the existing optional-dependency template with a single
+  build step per optional connector, which also lights up the standalone Kafka and RabbitMQ panels on both adapters.
 - **Captured email — ✅ Shipped (both adapters).** The standalone Email panel (§3.3) already captured every outgoing
   message via the shared, framework-neutral `EmailCaptureService`; this item only adds a `MAIL` entry to the merged Live
   Activity feed, so — like Cache and Scheduled Task runs — it needed no new capture instrumentation, just a read of an
@@ -347,7 +370,7 @@ For each feature above, the following must move together, consistent with the ex
 | Bean/dependency graph or correlation bloating the bundle          | 3.1, 3.2   | Medium | Bounded rendering, lightweight visualization, and lazy-loaded panels.                                     |
 | Silently swallowing application mail                              | 3.3        | Medium | Pass-through by default; "dev trap" mode strictly opt-in.                                                 |
 | Over-broad or noisy new Live Activity event types (e.g. cache operations) | 3.4 | Medium | Explicit opt-in wiring by bean/class presence, bounded buffers, masked payloads/hashed cache keys. |
-| Messaging capture's added optional-dependency surface (Kafka/RabbitMQ/JMS clients), invasive interception of app-owned messaging beans, and a per-adapter capture design (SmallRye Reactive Messaging on Quarkus vs. imperative templates on Spring) | 3.4 | High | Kafka shipped on **both adapters** with classpath/capability gating identical to Hibernate/Cache/Flyway/Liquibase, pass-through-by-default fail-open wrapping, and no message-value/payload capture at all (metadata-only, sidestepping body masking); Spring wraps `KafkaTemplate`/listener beans while Quarkus uses SmallRye's `OutgoingInterceptor`/`IncomingInterceptor` SPI feeding the same `KafkaActivityRecorder`. JMS now ships on Spring with independently gated, protocol-tagged entries in that bounded recorder; RabbitMQ remains a separate follow-up. |
+| Messaging capture's added optional-dependency surface (Kafka/RabbitMQ/JMS clients), invasive interception of app-owned messaging beans, and a per-adapter capture design (SmallRye Reactive Messaging on Quarkus vs. imperative templates on Spring) | 3.4 | High | Kafka and RabbitMQ shipped on **both adapters**, and JMS on Spring, with classpath/capability gating identical to Hibernate/Cache/Flyway/Liquibase, pass-through/fail-open wrapping, bounded metadata-only buffers, and no message-value/payload capture. |
 | Scope creep beyond this merged feature set                        | all        | High   | Treat this list as the maximum near-term surface; move further ideas to a later plan.                     |
 
 ## 6. Validation checklist

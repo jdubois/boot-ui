@@ -153,6 +153,11 @@ public class BootUiProperties {
      */
     private Jms jms = new Jms();
     /**
+     * RabbitMQ (AMQP) message capture settings, feeding the Live Activity stream's
+     * {@code MESSAGING} entries.
+     */
+    private Rabbitmq rabbitmq = new Rabbitmq();
+    /**
      * HTTP Sessions panel settings.
      */
     private HttpSessions httpSessions = new HttpSessions();
@@ -452,6 +457,14 @@ public class BootUiProperties {
 
     public void setJms(Jms jms) {
         this.jms = jms == null ? new Jms() : jms;
+    }
+
+    public Rabbitmq getRabbitmq() {
+        return rabbitmq;
+    }
+
+    public void setRabbitmq(Rabbitmq rabbitmq) {
+        this.rabbitmq = rabbitmq == null ? new Rabbitmq() : rabbitmq;
     }
 
     public HttpSessions getHttpSessions() {
@@ -1375,6 +1388,74 @@ public class BootUiProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+    }
+
+    /**
+     * RabbitMQ (AMQP) message capture settings, feeding the Live Activity stream's
+     * {@code MESSAGING} entries (exactly like {@link Kafka}).
+     */
+    public static class Rabbitmq {
+
+        /**
+         * Whether BootUI captures {@code RabbitTemplate} publishes and
+         * {@code @RabbitListener} deliveries into the Live Activity stream as
+         * {@code MESSAGING} entries. When {@code false}, no {@code RabbitTemplate}/listener
+         * container factory bean is post-processed. Only takes effect when
+         * {@code spring-boot-starter-amqp} (and thus {@code spring-rabbit}) is on the
+         * classpath.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Whether the AMQP correlation ID is retained (as a short SHA-256 hash, truncated to
+         * {@link #maxCorrelationIdLength}) alongside each captured entry. Off by default since
+         * correlation IDs in AMQP messages can carry business-sensitive identifiers (order IDs,
+         * user IDs, etc.). When enabled, only the hash is stored — never the raw value.
+         */
+        private boolean captureCorrelationId = false;
+
+        /**
+         * Maximum number of captured messages retained in the in-memory ring buffer.
+         */
+        private int maxEntries = 200;
+
+        /**
+         * Maximum retained length of a captured correlation ID hash; longer hashes are
+         * truncated.
+         */
+        private int maxCorrelationIdLength = 16;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isCaptureCorrelationId() {
+            return captureCorrelationId;
+        }
+
+        public void setCaptureCorrelationId(boolean captureCorrelationId) {
+            this.captureCorrelationId = captureCorrelationId;
+        }
+
+        public int getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public int getMaxCorrelationIdLength() {
+            return maxCorrelationIdLength;
+        }
+
+        public void setMaxCorrelationIdLength(int maxCorrelationIdLength) {
+            this.maxCorrelationIdLength = maxCorrelationIdLength;
         }
     }
 

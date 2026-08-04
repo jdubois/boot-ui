@@ -13,11 +13,11 @@ import org.springframework.boot.test.web.server.LocalServerPort;
  * <p>Proves the reactive adapter serves the exact same {@code /bootui/api/**} contract the servlet
  * adapter does (same panel ids/titles/order, same JSON shapes), just with
  * {@code platform: "spring-boot-reactive"} and the adapter-specific unavailable panels reported
- * honestly by the manifest. The raw Spring Security panel
- * ({@code spring-security}) is now live on WebFlux via
+ * honestly by the manifest. The raw Spring Security panel ({@code spring-security}) is live via
  * {@link io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController} and
- * reports {@code available: true} since the sample app includes {@code spring-boot-starter-security}
- * and registers a {@code SecurityWebFilterChain}.</p>
+ * the Security advisor ({@code security}) is live via the reactive advisor ruleset; both report
+ * {@code available: true} because the sample app registers an application
+ * {@code SecurityWebFilterChain}.</p>
  *
  * <p>Panel-access conformance properties: {@code bootui.panels.copilot.enabled=false} enables
  * {@link AbstractBootUiApiConformanceTest#panelDisabledRequestIsRejectedWithCanonicalBody}; {@code

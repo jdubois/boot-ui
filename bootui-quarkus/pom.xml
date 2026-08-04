@@ -210,6 +210,20 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus Messaging RabbitMQ extension, compile-only (provided): needed solely to compile the optional
+             Live Activity RabbitMQ capture interceptors (QuarkusRabbitProducerCapture / QuarkusRabbitConsumerCapture),
+             which implement SmallRye Reactive Messaging's OutgoingInterceptor / IncomingInterceptor SPI and read
+             io.smallrye.reactive.messaging.rabbitmq.* metadata into the shared RabbitActivityRecorder.
+             provided scope is NOT transitive, so an application that depends on this extension but does not add
+             quarkus-messaging-rabbitmq never gets io.smallrye.reactive.messaging.rabbitmq on its classpath, and the
+             class-presence-gated build step (registerRabbitCapture) excludes the interceptors that would reference
+             them (R2). When an app DOES add quarkus-messaging-rabbitmq, the API is supplied by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-messaging-rabbitmq</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Quarkus REST Client Reactive, compile-only (provided): needed solely to compile
              QuarkusRestClientTraceListener (implements org.eclipse.microprofile.rest.client.spi.RestClientListener)
              and QuarkusRestClientTraceFilter (registers itself on RestClientBuilder). The deployment build step

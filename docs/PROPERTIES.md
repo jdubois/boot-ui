@@ -193,6 +193,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Services        | Cache                     | `cache`                     | `bootui.panels.cache.enabled`                     | `bootui.panels.cache.read-only`           |
 | Services        | Email                     | `email`                     | `bootui.panels.email.enabled`                     | `bootui.panels.email.read-only`           |
 | Services        | Kafka                     | `kafka`                     | `bootui.panels.kafka.enabled`                     | `bootui.panels.kafka.read-only`           |
+| Services        | RabbitMQ                  | `rabbitmq`                  | `bootui.panels.rabbitmq.enabled`                  | `bootui.panels.rabbitmq.read-only`    |
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
@@ -370,7 +371,8 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 
 The Live Activity panel reuses the HTTP Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, Cache,
 Scheduled Tasks, and Email sources, so disabling any of those panels through their own `bootui.panels.*` toggles also
-removes them from the stream (Kafka capture has its own separate `bootui.kafka.*` toggle — see below). The panel itself is
+removes them from the stream (Kafka and RabbitMQ capture have separate `bootui.kafka.*` / `bootui.rabbitmq.*` toggles —
+see below). The panel itself is
 read-only. A request whose correlated SQL trips `bootui.activity.n-plus-one-threshold` is flagged with a red **N+1**
 badge both in the main stream row and in its profile drawer (the same threshold, so the two views never disagree); the
 drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-trace.capture-call-site` is enabled.
@@ -413,6 +415,21 @@ Quarkus does not claim a JMS capture integration.
 | Property             | Default | Description                                                                                                           |
 | -------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
 | `bootui.jms.enabled` | `true`  | Capture Spring-managed JMS publish/consume activity into Live Activity when `spring-jms` and the JMS API are present. |
+
+#### Live Activity RabbitMQ capture
+
+When RabbitMQ support is present, BootUI captures publish/consume activity as `MESSAGING` entries. Spring composes with
+application-owned `RabbitTemplate` before-publish processors and listener-factory advice; Quarkus uses SmallRye Reactive
+Messaging RabbitMQ interceptors. Message bodies and arbitrary headers are never captured. Routing metadata is bounded,
+correlation IDs are omitted by default and stored only as a SHA-256 hash when explicitly enabled, and failure details are
+generic so exception messages cannot leak payload or credential data.
+
+| Property                                         | Default | Description |
+| ------------------------------------------------ | ------- | ----------- |
+| `bootui.rabbitmq.enabled`                        | `true`  | Capture RabbitMQ publish/consume activity when the framework integration is present. |
+| `bootui.rabbitmq.capture-correlation-id`         | `false` | Capture a SHA-256 hash of the AMQP correlation ID; the raw value is never retained. |
+| `bootui.rabbitmq.max-entries`                    | `200`   | Maximum captured messages retained in the bounded in-memory buffer. |
+| `bootui.rabbitmq.max-correlation-id-length`      | `16`    | Maximum retained hex characters from the correlation-ID hash (minimum `8`, maximum `64`). |
 
 #### Live Activity durable persistence
 
@@ -487,6 +504,17 @@ The Kafka panel is a dedicated, filterable view over the same producer/consumer 
 | -------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bootui.panels.kafka.enabled`   | `true`  | Show the Kafka panel when a Kafka integration is present (`KafkaTemplate` on Spring, or `quarkus-messaging-kafka` with a configured channel on Quarkus). |
 | `bootui.panels.kafka.read-only` | `false` | Disable the clear action while keeping captured messages visible.                                                                                  |
+
+### RabbitMQ
+
+The RabbitMQ panel is a dedicated view over the same bounded capture that feeds Live Activity. On Spring it is available
+when a `RabbitTemplate` bean exists; on Quarkus it is available when `quarkus-messaging-rabbitmq` is present in dev/test
+mode. The `bootui.rabbitmq.*` properties above tune both surfaces.
+
+| Property                          | Default | Description |
+| --------------------------------- | ------- | ----------- |
+| `bootui.panels.rabbitmq.enabled`  | `true`  | Show the RabbitMQ panel when the adapter detects RabbitMQ support. |
+| `bootui.panels.rabbitmq.read-only`| `false` | Disable the clear action while keeping captured messages visible. |
 
 ### Exceptions
 

@@ -29,6 +29,7 @@ import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -108,6 +109,7 @@ public class LiveActivityController {
             ObjectProvider<CacheActivityRecorder> cacheActivity,
             ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
             ObjectProvider<KafkaActivityRecorder> kafkaActivityRecorder,
+            ObjectProvider<RabbitActivityRecorder> rabbitActivityRecorder,
             ObjectProvider<EmailCaptureService> emailCaptureService,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
@@ -126,6 +128,7 @@ public class LiveActivityController {
                 cacheActivity,
                 scheduledTaskRuns,
                 kafkaActivityRecorder,
+                rabbitActivityRecorder,
                 properties);
         this.correlator = new LiveActivityCorrelator(
                 httpExchanges,
@@ -162,6 +165,10 @@ public class LiveActivityController {
         KafkaActivityRecorder kafkaRecorder = kafkaActivityRecorder.getIfAvailable();
         if (kafkaRecorder != null) {
             unsubscribers.add(kafkaRecorder.subscribe(changeStream::signal));
+        }
+        RabbitActivityRecorder rabbitRecorder = rabbitActivityRecorder.getIfAvailable();
+        if (rabbitRecorder != null) {
+            unsubscribers.add(rabbitRecorder.subscribe(changeStream::signal));
         }
         EmailCaptureService emailCapture = emailCaptureService.getIfAvailable();
         if (emailCapture != null) {

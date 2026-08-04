@@ -52,6 +52,8 @@ const PANEL_HEADINGS = {
   'http-probe': /HTTP Probe/,
   'rest-client-trace': /^REST Client/,
   email: /^Email/,
+  kafka: /^Kafka/,
+  rabbitmq: /^RabbitMQ/,
   architecture: /^Architecture/,
   'rest-api': /^REST API/,
   spring: /^Quarkus/,

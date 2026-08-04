@@ -79,6 +79,7 @@ const panelOrder = [
   ['http-probe', 'HTTP Probe'],
   ['email', 'Email'],
   ['kafka', 'Kafka'],
+  ['rabbitmq', 'RabbitMQ'],
   ['architecture', 'Architecture'],
   ['rest-api', 'REST API'],
   ['mcp-server', 'MCP Server'],
@@ -2649,6 +2650,80 @@ const kafka = {
   messages: kafkaMessages
 }
 
+const rabbitMessages = [
+  {
+    id: 2054,
+    timestamp: nowMillis - 75 * 1000,
+    direction: 'CONSUME',
+    exchange: 'orders',
+    routingKey: 'orders.created',
+    queue: 'fulfillment.orders',
+    durationMillis: 11,
+    success: true,
+    errorMessage: null,
+    correlationId: '8b7dcf11a43190de'
+  },
+  {
+    id: 2053,
+    timestamp: nowMillis - 82 * 1000,
+    direction: 'PUBLISH',
+    exchange: 'orders',
+    routingKey: 'orders.created',
+    queue: null,
+    durationMillis: null,
+    success: true,
+    errorMessage: null,
+    correlationId: '8b7dcf11a43190de'
+  },
+  {
+    id: 2052,
+    timestamp: nowMillis - 3.5 * 60 * 1000,
+    direction: 'PUBLISH',
+    exchange: 'shipping',
+    routingKey: 'shipment.dispatched',
+    queue: null,
+    durationMillis: null,
+    success: true,
+    errorMessage: null,
+    correlationId: 'c03a1d74e58f2469'
+  },
+  {
+    id: 2051,
+    timestamp: nowMillis - 5 * 60 * 1000,
+    direction: 'CONSUME',
+    exchange: 'inventory',
+    routingKey: 'inventory.reserved',
+    queue: 'warehouse.inventory',
+    durationMillis: 19,
+    success: false,
+    errorMessage: 'Message processing failed',
+    correlationId: '197d3b608aee4f21'
+  },
+  {
+    id: 2050,
+    timestamp: nowMillis - 5.5 * 60 * 1000,
+    direction: 'PUBLISH',
+    exchange: 'inventory',
+    routingKey: 'inventory.reserved',
+    queue: null,
+    durationMillis: null,
+    success: true,
+    errorMessage: null,
+    correlationId: '197d3b608aee4f21'
+  }
+]
+
+const rabbit = {
+  available: true,
+  unavailableReason: null,
+  capturing: true,
+  captureCorrelationIdEnabled: true,
+  maxEntries: 200,
+  totalCaptured: 3841,
+  total: rabbitMessages.length,
+  messages: rabbitMessages
+}
+
 const restClientTraceEntries = [
   {
     id: 42,
@@ -3826,6 +3901,16 @@ const screenshots = [
       await page.locator('.badge.text-bg-danger').waitFor()
     }
   ],
+  [
+    'rabbitmq',
+    'RabbitMQ',
+    'bootui-rabbitmq.webp',
+    async (page) => {
+      await page.getByText('orders.created').first().waitFor()
+      await page.locator('.badge.text-bg-danger').waitFor()
+      await page.getByRole('link', {name: /^RabbitMQ/}).scrollIntoViewIfNeeded()
+    }
+  ],
   ['architecture', 'Architecture', 'bootui-architecture.webp', waitForText('Packages should be free of cycles')],
   ['rest-api', 'REST API', 'bootui-rest-api.webp', waitForText("Don't expose JPA entities in responses")],
   ['spring', 'Spring', 'bootui-spring.webp', waitForText('Prefer RestClient over RestTemplate')],
@@ -4421,6 +4506,7 @@ async function handleApiRoute(route) {
     )
   if (endpoint === 'email') return fulfillJson(route, email)
   if (endpoint === 'kafka') return fulfillJson(route, kafka)
+  if (endpoint === 'rabbitmq') return fulfillJson(route, rabbit)
   if (endpoint === 'rest-client-trace') return fulfillJson(route, restClientTrace)
   if (endpoint === 'rest-client-trace/clear') return fulfillJson(route, restClientTrace)
   if (endpoint === 'rest-client-trace/recording') return fulfillJson(route, restClientTrace)

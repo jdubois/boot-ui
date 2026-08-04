@@ -43,6 +43,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -121,6 +122,7 @@ public class ReactiveLiveActivityController {
     private final ObjectProvider<EmailCaptureService> emailCaptureService;
     private final ObjectProvider<CacheActivityRecorder> cacheActivity;
     private final ObjectProvider<KafkaActivityRecorder> kafkaActivity;
+    private final ObjectProvider<RabbitActivityRecorder> rabbitActivity;
     private final BootUiProperties properties;
     private final BootUiExposure exposure;
     private final ExceptionsService exceptionsService;
@@ -145,6 +147,7 @@ public class ReactiveLiveActivityController {
             ObjectProvider<EmailCaptureService> emailCaptureService,
             ObjectProvider<CacheActivityRecorder> cacheActivity,
             ObjectProvider<KafkaActivityRecorder> kafkaActivity,
+            ObjectProvider<RabbitActivityRecorder> rabbitActivity,
             SwitchableActivityStore activityStore,
             ActivityPersistenceSettings persistenceSettings,
             BootUiProperties properties,
@@ -162,6 +165,7 @@ public class ReactiveLiveActivityController {
         this.emailCaptureService = emailCaptureService;
         this.cacheActivity = cacheActivity;
         this.kafkaActivity = kafkaActivity;
+        this.rabbitActivity = rabbitActivity;
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.properties = properties;
@@ -191,6 +195,10 @@ public class ReactiveLiveActivityController {
         KafkaActivityRecorder kafkaRecorder = kafkaActivity.getIfAvailable();
         if (kafkaRecorder != null) {
             unsubscribers.add(kafkaRecorder.subscribe(changeStream::signal));
+        }
+        RabbitActivityRecorder rabbitRecorder = rabbitActivity.getIfAvailable();
+        if (rabbitRecorder != null) {
+            unsubscribers.add(rabbitRecorder.subscribe(changeStream::signal));
         }
         EmailCaptureService emailCapture = emailCaptureService.getIfAvailable();
         if (emailCapture != null) {
@@ -345,6 +353,8 @@ public class ReactiveLiveActivityController {
         boolean cacheAvailable = cacheEvents != null;
         List<CapturedMessage> kafkaMessages = kafkaMessages();
         boolean kafkaAvailable = kafkaMessages != null;
+        List<RabbitActivityRecorder.CapturedMessage> rabbitMessages = rabbitMessages();
+        boolean rabbitAvailable = rabbitMessages != null && !rabbitMessages.isEmpty();
         EmailsReport emailReport = emailReport();
         boolean emailAvailable = emailReport != null && emailReport.available();
 
@@ -363,6 +373,8 @@ public class ReactiveLiveActivityController {
                 limit,
                 kafkaMessages,
                 kafkaAvailable,
+                rabbitMessages,
+                rabbitAvailable,
                 emailAvailable ? emailReport.messages() : List.<EmailMessageDto>of(),
                 emailAvailable,
                 restEntries,
@@ -493,6 +505,22 @@ public class ReactiveLiveActivityController {
         return recorder.recent().stream()
                 .filter(message -> message.protocol() == KafkaActivityRecorder.Protocol.JMS || includeKafka)
                 .toList();
+    }
+
+    /**
+     * Recent RabbitMQ messages feeding the assembler's {@code MESSAGING} entries, or {@code null} when
+     * the source is not feeding (dedicated RabbitMQ panel disabled, capture disabled via
+     * {@code bootui.rabbitmq.enabled}, or no recorder bean present).
+     */
+    private List<RabbitActivityRecorder.CapturedMessage> rabbitMessages() {
+        if (!properties.isPanelEnabled(BootUiPanels.RABBITMQ)) {
+            return null;
+        }
+        RabbitActivityRecorder recorder = rabbitActivity.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return null;
+        }
+        return recorder.recent();
     }
 
     /**

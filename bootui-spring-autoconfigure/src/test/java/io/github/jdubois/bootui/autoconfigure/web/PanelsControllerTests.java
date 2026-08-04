@@ -512,16 +512,30 @@ class PanelsControllerTests {
     }
 
     @Test
-    void securityAdvisorStaysUnavailableUnderWebFluxEvenWithReactiveSpringSecurityConfigured() throws Exception {
-        // The SECURITY advisor panel (distinct from the SPRING_SECURITY raw-config panel) has no reactive
-        // ruleset and is not imported by BootUiReactiveAutoConfiguration.
+    void securityAdvisorIsAvailableOnWebFluxWhenApplicationChainPresent() throws Exception {
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
-            java.util.function.Supplier<org.springframework.security.web.server.WebFilterChainProxy> supplier =
-                    () -> new org.springframework.security.web.server.WebFilterChainProxy(List.of());
+            java.util.function.Supplier<org.springframework.security.web.server.SecurityWebFilterChain> supplier =
+                    () -> mock(org.springframework.security.web.server.SecurityWebFilterChain.class);
             context.registerBean(
-                    "springSecurityWebFilterChain",
-                    org.springframework.security.web.server.WebFilterChainProxy.class,
+                    "applicationSecurityWebFilterChain",
+                    org.springframework.security.web.server.SecurityWebFilterChain.class,
                     supplier);
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties());
+            MockMvc mvc = standaloneSetup(controller).build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.SECURITY) + ".available")
+                            .value(true));
+        }
+    }
+
+    @Test
+    void securityAdvisorStaysUnavailableOnWebFluxWithoutSpringSecurityConfigured() throws Exception {
+        // Without a WebFilterChainProxy bean, the security panel must stay unavailable with a WebFlux reason.
+        try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             context.refresh();
             PanelsController controller =
                     new PanelsController(context, context.getEnvironment(), new BootUiProperties());
@@ -532,7 +546,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.SECURITY) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.SECURITY) + ".unavailableReason")
-                            .value("Security Advisor is only available on the Spring MVC (servlet) adapter"));
+                            .value("No application SecurityWebFilterChain beans are available"));
         }
     }
 }

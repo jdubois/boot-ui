@@ -25,6 +25,8 @@ import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mappings.SpringMappingProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
+import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitConsumerCaptureBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceExchangeFilter;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceInterceptor;
 import io.github.jdubois.bootui.autoconfigure.scheduled.BootUiSchedulingConfigurer;
@@ -61,6 +63,7 @@ import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
@@ -806,6 +809,54 @@ public class BootUiEngineConfiguration {
         static JmsListenerCaptureBeanPostProcessor bootUiJmsListenerCaptureBeanPostProcessor(
                 ObjectProvider<KafkaActivityRecorder> recorderProvider, BootUiProperties properties) {
             return new JmsListenerCaptureBeanPostProcessor(recorderProvider, properties);
+        }
+    }
+
+    /**
+     * The Live Activity RabbitMQ capture backend is framework-neutral (a bounded in-memory recorder
+     * plus two Spring-specific post-processors) and is needed by both servlet and reactive stacks,
+     * so it is wired here in the shared engine configuration rather than under the servlet-only
+     * auto-configuration. The two {@code BeanPostProcessor}s keep their method-level
+     * {@code @ConditionalOnClass(RabbitTemplate)} guards so a Spring-AMQP-absent application never
+     * links those types. The recorder feeds both the Live Activity {@code MESSAGING} entries and the
+     * dedicated RabbitMQ panel from the same buffer — exactly the same dual-consumer model as the
+     * Kafka backend above.
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class RabbitBackendConfiguration {
+
+        /**
+         * Gated on the dedicated RabbitMQ panel ({@link BootUiPanels#RABBITMQ}), not Live
+         * Activity's — exactly like {@code bootUiKafkaActivityRecorder} above — because this
+         * single recorder now backs two consumers (Live Activity's {@code MESSAGING} entries and the
+         * RabbitMQ panel's own report), and disabling the RabbitMQ panel should stop the underlying
+         * capture entirely rather than merely hide it from one of the two views.
+         */
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        RabbitActivityRecorder bootUiRabbitActivityRecorder(BootUiProperties properties) {
+            BootUiProperties.Rabbitmq rabbit = properties.getRabbitmq();
+            boolean enabled = rabbit.isEnabled() && properties.isPanelEnabled(BootUiPanels.RABBITMQ);
+            return new RabbitActivityRecorder(
+                    enabled,
+                    rabbit.isCaptureCorrelationId(),
+                    rabbit.getMaxEntries(),
+                    rabbit.getMaxCorrelationIdLength());
+        }
+
+        @Bean
+        @ConditionalOnClass(name = "org.springframework.amqp.rabbit.core.RabbitTemplate")
+        static RabbitProducerCaptureBeanPostProcessor bootUiRabbitProducerCaptureBeanPostProcessor(
+                ObjectProvider<RabbitActivityRecorder> recorderProvider) {
+            return new RabbitProducerCaptureBeanPostProcessor(recorderProvider);
+        }
+
+        @Bean
+        @ConditionalOnClass(name = "org.springframework.amqp.rabbit.core.RabbitTemplate")
+        static RabbitConsumerCaptureBeanPostProcessor bootUiRabbitConsumerCaptureBeanPostProcessor(
+                ObjectProvider<RabbitActivityRecorder> recorderProvider) {
+            return new RabbitConsumerCaptureBeanPostProcessor(recorderProvider);
         }
     }
 

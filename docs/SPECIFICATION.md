@@ -27,8 +27,9 @@ BootUI currently targets:
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
-`docs/WEBFLUX-SUPPORT.md` §6.4), the raw Spring Security panel, and REST Client capture over instrumented
-`WebClient` instances; the Security advisor is not yet ported, and HTTP Sessions is not applicable to a reactive,
+`docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel and the WebFlux-native 25-rule Security advisor; the
+raw Spring Security panel, the WebFlux-native 25-rule Security advisor, and REST Client capture over instrumented
+`WebClient` instances; HTTP Sessions is not applicable to a reactive,
 container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
 is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
 current per-platform status.
@@ -39,7 +40,6 @@ Out of scope for the current 1.x line:
 - Spring Framework 6 / Boot 3 compatibility shims.
 - A dedicated BootUI Gradle plugin (the Spring starters and Quarkus extension are consumable from Maven or Gradle as
   ordinary dependencies).
-- On Spring Boot WebFlux: a reactive Security advisor ruleset (see `docs/WEBFLUX-SUPPORT.md` for the reason and plan).
 
 ## 2. Product goals
 
@@ -1111,6 +1111,24 @@ Acceptance criteria:
   `MESSAGING` entries, not just the dedicated view.
 - Ships on both Spring (servlet and WebFlux — the controller has no reactive-specific code) and Quarkus.
 
+### 5.14.7 RabbitMQ Panel
+
+Purpose: show payload-free RabbitMQ publish/consume activity over Spring AMQP or SmallRye Reactive Messaging, using the
+same bounded capture that feeds Live Activity's `MESSAGING` entries.
+
+Acceptance criteria:
+
+- Spring capture composes with existing `RabbitTemplate` before-publish processors and listener-factory advice; Quarkus
+  capture is registered only when `quarkus-messaging-rabbitmq` is present and excluded otherwise.
+- The message body and arbitrary headers are never captured. Exchange, routing key, and queue metadata are length-bounded;
+  raw exception messages are not retained.
+- Correlation IDs are omitted by default. With `bootui.rabbitmq.capture-correlation-id=true`, only a truncated SHA-256
+  hash is stored.
+- The in-memory buffer is capped by `bootui.rabbitmq.max-entries`, oldest-first eviction, and clear is gated by
+  `bootui.panels.rabbitmq.read-only`.
+- Spring panel availability requires a `RabbitTemplate` bean. Quarkus availability requires the RabbitMQ messaging
+  extension in a non-production launch. Dependency absence must not link optional RabbitMQ classes or advertise capture.
+
 ### 5.15 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.
@@ -1908,7 +1926,6 @@ Future compatibility:
 
 - Spring Boot 3.5 if demand requires it.
 - Gradle examples.
-- Closing the remaining Spring Boot WebFlux gap: a reactive Security advisor (see `docs/WEBFLUX-SUPPORT.md`).
 
 ## 9. Testing strategy
 

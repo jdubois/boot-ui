@@ -157,6 +157,18 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void rabbitPanelAvailabilityTracksTheOptionalIntegration() {
+        PanelDto absent = manifestById().get(BootUiPanels.RABBITMQ);
+        assertThat(absent.available()).isFalse();
+        assertThat(absent.unavailableReason()).contains("quarkus-messaging-rabbitmq");
+
+        StubConfig integrationPresent = new StubConfig(Map.of(QuarkusPanelAvailability.RABBIT_PRESENT_KEY, "true"));
+        PanelDto available = manifestById(integrationPresent).get(BootUiPanels.RABBITMQ);
+        assertThat(available.available()).isTrue();
+        assertThat(available.unavailableReason()).isNull();
+    }
+
+    @Test
     void hibernateIsUnavailableWithACapabilityHintWhenHibernateOrmIsAbsent() {
         // Default: bootui.internal.hibernate-present is unset, so the deployment processor never saw the
         // HIBERNATE_ORM capability. The panel must surface an honest capability hint, NOT the generic reason.

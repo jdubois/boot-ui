@@ -14,6 +14,8 @@ import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityEntries;
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
@@ -150,6 +152,13 @@ public final class LiveActivityAssembler {
      *     no trace id available on the producer/consumer thread today — see {@code docs/PLAN.md} §3.4.
      * @param kafkaAvailable whether the Kafka capture source is present and feeding ({@code KafkaTemplate}/
      *     {@code @KafkaListener} beans on Spring, SmallRye Reactive Messaging channels on Quarkus)
+     * @param rabbitMessages captured AMQP publish/consume outcomes (newest-first), or {@code null}; ignored
+     *     unless {@code rabbitAvailable}. Rendered top-level (no request-parent correlation), for the same
+     *     reason as Kafka — no trace id is available on the publisher/consumer thread — see
+     *     {@code docs/PLAN.md} §3.4.
+     * @param rabbitAvailable whether the RabbitMQ capture source is present and feeding
+     *     ({@code RabbitTemplate}/{@code @RabbitListener} beans on Spring, SmallRye Reactive
+     *     Messaging RabbitMQ channels on Quarkus)
      * @param emailMessages already-masked captured outgoing emails (newest-first), or {@code null}; ignored
      *     unless {@code emailAvailable}. Email capture stamps the active trace id alongside the sending
      *     thread, so {@code MAIL} entries can be nested under the uniquely matching REQUEST entry that
@@ -175,6 +184,8 @@ public final class LiveActivityAssembler {
             int limit,
             List<CapturedMessage> kafkaMessages,
             boolean kafkaAvailable,
+            List<RabbitActivityRecorder.CapturedMessage> rabbitMessages,
+            boolean rabbitAvailable,
             List<EmailMessageDto> emailMessages,
             boolean emailAvailable,
             List<RestClientTraceEntryDto> restEntries,
@@ -187,6 +198,8 @@ public final class LiveActivityAssembler {
         List<ScheduledTaskRunStore.Run> scheduled = scheduledRuns == null ? List.of() : scheduledRuns;
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
         List<CapturedMessage> kafka = !kafkaAvailable || kafkaMessages == null ? List.of() : kafkaMessages;
+        List<RabbitActivityRecorder.CapturedMessage> rabbit =
+                !rabbitAvailable || rabbitMessages == null ? List.of() : rabbitMessages;
         List<EmailMessageDto> emails = !emailAvailable || emailMessages == null ? List.of() : emailMessages;
         List<RestClientTraceEntryDto> rest = !restAvailable || restEntries == null ? List.of() : restEntries;
 
@@ -307,6 +320,10 @@ public final class LiveActivityAssembler {
             entries.add(KafkaActivityEntries.toEntry(message));
         }
 
+        for (RabbitActivityRecorder.CapturedMessage message : rabbit) {
+            entries.add(RabbitActivityEntries.toEntry(message));
+        }
+
         for (EmailMessageDto message : emails) {
             entries.add(toEmailEntry(message, traceIndex.parentRequestId(message.traceId())));
         }
@@ -343,6 +360,9 @@ public final class LiveActivityAssembler {
         }
         if (kafkaAvailable) {
             sources.add("kafka");
+        }
+        if (rabbitAvailable) {
+            sources.add("rabbitmq");
         }
         if (emailAvailable) {
             sources.add("email");

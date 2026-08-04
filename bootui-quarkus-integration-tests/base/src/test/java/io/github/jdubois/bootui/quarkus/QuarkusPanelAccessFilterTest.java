@@ -290,6 +290,7 @@ class QuarkusPanelAccessFilterTest {
         requests.put("hibernate", new ActionRequest("POST", "/bootui/api/hibernate/scan"));
         requests.put("cache", new ActionRequest("POST", "/bootui/api/cache/clear"));
         requests.put("kafka", new ActionRequest("DELETE", "/bootui/api/kafka"));
+        requests.put("rabbitmq", new ActionRequest("DELETE", "/bootui/api/rabbitmq"));
         requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));
         requests.put("exceptions", new ActionRequest("DELETE", "/bootui/api/exceptions"));
         requests.put("http-probe", new ActionRequest("POST", "/bootui/api/http-probe"));

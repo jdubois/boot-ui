@@ -43,6 +43,7 @@ const allPanelLinks = [
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
   {id: 'email', title: 'Email', heading: /^Email/},
   {id: 'kafka', title: 'Kafka', heading: /^Kafka/},
+  {id: 'rabbitmq', title: 'RabbitMQ', heading: /^RabbitMQ/},
   {id: 'rest-client-trace', title: 'REST Client', heading: /^REST Client$/},
   {id: 'architecture', title: 'Architecture', heading: /^Architecture/},
   {id: 'rest-api', title: 'REST API', heading: /^REST API/},
@@ -154,7 +155,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Configuration', count: 6},
       {title: 'Database', count: 5},
       {title: 'Security', count: 2},
-      {title: 'Services', count: 6},
+      {title: 'Services', count: 7},
       {title: 'Diagnostics', count: 5},
       {title: 'Developer tools', count: 5}
     ]
@@ -191,13 +192,14 @@ test.describe('BootUI app shell', () => {
       'Security Logs'
     ])
 
-    await page.getByRole('button', {name: /Services\s+6/}).click()
+    await page.getByRole('button', {name: /Services\s+7/}).click()
     await expect(page.getByRole('group', {name: 'Services panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Scheduled Tasks',
       'REST Client',
       'Cache',
       'Email',
       'Kafka',
+      'RabbitMQ',
       'AI Usage'
     ])
 

@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
+import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveActivitySignalFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveAgentSessionController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveApiAuthenticationFilter;
@@ -50,6 +51,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -144,19 +146,30 @@ import tools.jackson.databind.ObjectMapper;
  * data (log lines; session/dashboard snapshots) rather than a bare tick, matching their servlet
  * originals. {@code SecurityLogsController} was reclassified during this phase: it depends only on
  * Actuator's {@code AuditEventRepository}/{@code AuditApplicationEvent} - not on the Spring Security
- * advisor ruleset - so it ports independently of the (still-deferred) Security advisor below.</p>
+ * advisor ruleset - so it ported independently of the Security advisor.</p>
+ *
+ * <p><strong>Spring Security advisor (genuinely new reactive-native work, not mechanical reuse).</strong>
+ * Unlike the SSE panels above, the advisor that analyzes security configuration could not be reused
+ * as-is: the servlet advisor is coupled to {@code FilterChainProxy}/{@code HttpSecurity}, so a
+ * {@code ServerHttpSecurity}/{@code SecurityWebFilterChain} ruleset needed genuinely new rules. Per
+ * issue #644, the framework-neutral observation model, the 25 {@code SEC-RXF-*} rules, and the scanner
+ * orchestration live in {@code bootui-engine}'s {@code engine.reactivesecurity} package (no Spring/Reactor
+ * dependency); this adapter contributes only the Spring-specific collection
+ * ({@code io.github.jdubois.bootui.autoconfigure.security.SpringReactiveSecurityObservationCollector},
+ * which reads the application's own {@code SecurityWebFilterChain} beans — excluding BootUI's own,
+ * mirroring {@link io.github.jdubois.bootui.autoconfigure.web.PanelsController}'s availability check —
+ * plus CORS/OAuth2 beans and the {@code Environment}) and the thin
+ * {@link io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController} that wires the two
+ * together and keeps the scan on {@code Schedulers.boundedElastic()}. This advisor is distinct in scope
+ * from the raw Spring Security <em>panel</em>
+ * ({@link io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController}, which
+ * renders the observed chains as-is) and from BootUI's own reactive Security auto-configuration bypass
+ * ({@link BootUiReactiveSpringSecurityAutoConfiguration}); both are already ported and untouched by this
+ * work. Security *Logs* is ported too — see above.</p>
  *
  * <p><strong>Not yet ported (need genuinely new reactive-native work, not mechanical reuse):</strong></p>
  *
  * <ul>
- *   <li><strong>Spring Security advisor</strong> &mdash; the advisor that analyzes security
- *       configuration is coupled to servlet Spring Security ({@code FilterChainProxy},
- *       {@code HttpSecurity}); a {@code ServerHttpSecurity}/{@code SecurityWebFilterChain} ruleset is
- *       a genuinely new advisor, deferred to a follow-up. (The raw Spring Security <em>panel</em>
- *       ({@link io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController}) and
- *       BootUI's own reactive Security auto-configuration bypass
- *       ({@link BootUiReactiveSpringSecurityAutoConfiguration}) are already ported.
- *       Security *Logs* is ported too — see above.)</li>
  *   <li><strong>HTTP Sessions</strong> &mdash; {@code jakarta.servlet.http.HttpSession} /
  *       the container {@code Manager} SPI have no faithful reactive analog ({@code WebSession} is a
  *       different contract); reported {@code NOT_APPLICABLE}.</li>
@@ -234,6 +247,7 @@ import tools.jackson.databind.ObjectMapper;
     ReactiveLiveActivityController.class,
     EmailController.class,
     KafkaController.class,
+    RabbitController.class,
     ReactiveLogTailController.class,
     ReactiveCopilotController.class,
     ReactiveClaudeCodeController.class,
@@ -294,6 +308,7 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveBootUiMcpServerController.class.getName(),
             EmailController.class.getName(),
             KafkaController.class.getName(),
+            RabbitController.class.getName(),
             ReactiveCopilotController.class.getName(),
             ReactiveClaudeCodeController.class.getName());
 
@@ -347,6 +362,7 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<SpringController> spring,
                 ObjectProvider<HibernateController> hibernate,
                 ObjectProvider<MemoryController> memory,
+                ObjectProvider<ReactiveSecurityAdvisorService> security,
                 ObjectProvider<PentestingController> pentesting,
                 ObjectProvider<RestApiController> restApi,
                 ObjectProvider<GraalVmController> graalvm,
@@ -368,6 +384,7 @@ public class BootUiReactiveAutoConfiguration {
                     spring,
                     hibernate,
                     memory,
+                    security,
                     pentesting,
                     restApi,
                     graalvm,

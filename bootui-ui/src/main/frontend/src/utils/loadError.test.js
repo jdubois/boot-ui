@@ -1,6 +1,12 @@
 import {describe, expect, it} from 'vitest'
 
-import {describeLoadError, formatLoadError, isServerUnreachableError, toErrorMessage} from './loadError.js'
+import {
+  describeLoadError,
+  formatLoadError,
+  isAbortError,
+  isServerUnreachableError,
+  toErrorMessage
+} from './loadError.js'
 
 describe('loadError', () => {
   it('detects browser fetch failures as server unreachable', () => {
@@ -33,5 +39,11 @@ describe('loadError', () => {
   it('normalizes non-error values', () => {
     expect(toErrorMessage('Load failed')).toBe('Load failed')
     expect(toErrorMessage(null)).toBe('Request failed')
+  })
+
+  it('recognizes abort errors without requiring DOMException support', () => {
+    expect(isAbortError({name: 'AbortError'})).toBe(true)
+    expect(isAbortError(new Error('request failed'))).toBe(false)
+    expect(isAbortError(null)).toBe(false)
   })
 })

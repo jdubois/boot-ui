@@ -47,6 +47,7 @@ const McpServer = () => import('./views/McpServer.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
 const Email = () => import('./views/Email.vue')
 const Kafka = () => import('./views/Kafka.vue')
+const RabbitMQ = () => import('./views/RabbitMQ.vue')
 
 export const groups = {
   overview: 'overview',
@@ -660,6 +661,29 @@ export const routes = [
         'topic',
         'partition',
         'broker',
+        'reactive messaging',
+        'smallrye'
+      ]
+    }
+  },
+  {
+    path: '/rabbitmq',
+    name: 'rabbitmq',
+    component: RabbitMQ,
+    meta: {
+      group: groups.services,
+      icon: 'bi-envelope-paper',
+      title: 'RabbitMQ',
+      shortcut: 'rb',
+      keywords: [
+        'messaging',
+        'amqp',
+        'rabbitmq',
+        'exchange',
+        'routing key',
+        'queue',
+        'publisher',
+        'consumer',
         'reactive messaging',
         'smallrye'
       ]

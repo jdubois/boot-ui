@@ -1000,6 +1000,7 @@ class LiveActivityServiceTests {
                 provider(cacheActivity),
                 provider(scheduledTaskRuns),
                 provider(kafka),
+                provider(null),
                 properties);
     }
 

@@ -8,9 +8,10 @@ import com.tngtech.archunit.lang.syntax.ArchRuleDefinition;
 
 /**
  * Pins the framework-neutrality of {@code bootui-engine}: its services must never depend on a
- * host-framework or transport API, so both the Spring Boot and Quarkus adapters can wire them. Neutral
- * {@code jakarta.*} contracts ({@code jakarta.persistence}, {@code jakarta.sql}) and Micrometer stay
- * allowed deliberately; the framework/transport packages, the optional-library packages
+ * host-framework, reactive-runtime, or transport API, so both the Spring Boot and Quarkus adapters can
+ * wire them. Neutral {@code jakarta.*} contracts ({@code jakarta.persistence}, {@code jakarta.sql}) and
+ * Micrometer stay allowed deliberately; the framework/transport packages (including Project Reactor,
+ * which is Spring-WebFlux-specific and absent on Quarkus), the optional-library packages
  * (Flyway/Liquibase/HikariCP/Agroal/Hibernate ORM — which must stay behind their provider SPIs), and both
  * JSON libraries below are banned. JSON is banned because Spring Boot 4 ships Jackson 3
  * ({@code tools.jackson.*}) while Quarkus ships Jackson 2 ({@code com.fasterxml.jackson.*}) — incompatible
@@ -35,6 +36,7 @@ class EngineBoundaryArchitectureTests {
                     "io.quarkus..",
                     "io.vertx..",
                     "org.jboss..",
+                    "reactor..",
                     // optional libraries that must stay adapter-side (R2): the engine works over neutral SPI
                     // carriers (FlywayProvider, LiquibaseProvider, ConnectionPoolProvider, …) and never the
                     // library types themselves

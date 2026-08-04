@@ -10,15 +10,14 @@ reactive analog genuinely exists, and an honest "not yet ported" / "not applicab
 ## 2. Current status
 
 The WebFlux adapter serves the large majority of the panel surface — the same 50-panel manifest the servlet adapter
-reports, minus the two panels that stay unavailable for stack reasons described below. **Every action-capable panel
+reports, minus the one panel that stays unavailable for stack reasons described below. **Every action-capable panel
 that is available behaves identically to the servlet adapter**, behind the same shared `LocalhostGuard` write floor:
 Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Heap Dump
 (capture/analyze/delete/download), Threads (download), Traces (clear), SQL Trace (toggle recording/clear),
 REST Client (clear/toggle recording), the advisor scans (Architecture, Spring, Hibernate, Pentesting, REST API,
-Memory, Vulnerabilities/OSV), and Exceptions triage.
+Security, Memory, Vulnerabilities/OSV), and Exceptions triage.
 
-Only **HTTP Sessions** and the **Security advisor** stay
-unavailable, each with a panel-specific reason surfaced through the `/bootui/api/panels` manifest
+Only **HTTP Sessions** stays unavailable, with a panel-specific reason surfaced through the `/bootui/api/panels` manifest
 (and, in turn, the sidebar tooltip and the panel's own alert banner — see §5).
 `docs/FEATURES.md` and the per-panel `unavailableReason` strings in `PanelsController` are the authoritative, current
 detail.
@@ -252,11 +251,14 @@ collection, chain match, and authorization simulation remains a Reactor `Mono`/`
 - The WebFlux sample app (`bootui-spring-webflux-sample-app`) includes `spring-boot-starter-security` to demonstrate the
   integration end to end.
 
-### 6.6 Not yet ported (1 panel)
+### 6.6 Security advisor (`security`) — live on WebFlux
 
-| Panel          | Reason                                                                                                                                                                                        |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Security advisor (`security`, grouped under Advisors — distinct from the raw Spring Security panel above, grouped under Security) | *"Security Advisor is only available on the Spring MVC (servlet) adapter."* — it stays unavailable on WebFlux because its rules inspect servlet `SecurityFilterChain` configuration. A reactive ruleset for this advisor is a genuinely new advisor (comparable in scope to the from-scratch Quarkus Security ruleset), deliberately deferred to a follow-up. |
+The advisor uses a dedicated 25-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
+the application's `SecurityWebFilterChain` configuration. It stays distinct from the raw `spring-security` panel:
+the raw panel explains the configured chains and mappings, while the advisor turns the observed posture into bounded,
+deterministic findings across authorization, CSRF, CORS, headers, Actuator exposure, OAuth2/JWT, configuration, and
+reactive session policy. BootUI's own permit-all chain is excluded from availability and analysis. See
+`docs/SECURITY-CHECKS.md` for the complete reactive catalogue.
 
 ### 6.7 Not applicable (1 panel)
 
@@ -318,8 +320,8 @@ directly rather than through a real multi-scheduler Reactor pipeline.
   second, separate Playwright config and test directory (not a new npm project) so the default `npm test` run against
   the servlet sample app is untouched; the WebFlux suite checks the platform manifest, navbar branding, a
   representative sample of ported panels rendering cleanly (now including Live Activity and the MCP Server panel), and
-  that `http-sessions` shows its WebFlux-specific reason in both the sidebar and the panel alert (the `security`
-  advisor's equivalent reason is covered at the unit level by `PanelsControllerTests`, not re-asserted in e2e).
+  that `http-sessions` shows its WebFlux-specific reason in both the sidebar and the panel alert, and that the
+  Security advisor (`security`) is available and can be scanned (the reactive ruleset is now live — see §6.5 note).
 - Run it: see the "WebFlux (reactive) smoke suite" section of `bootui-spring-sample-app/e2e/README.md`.
 - **`playwright.custom-path.config.js`** runs one shared browser contract against both MVC and WebFlux with a non-default
   application root, UI path, and independently configured API path. It proves the shell metadata, assets, manifest,
@@ -345,8 +347,6 @@ sample app — but is easy to trip over when smoke-testing a freshly built react
 
 ## 10. Future work
 
-- A reactive Security advisor ruleset (`ServerHttpSecurity`/`SecurityWebFilterChain`), closing the
-  `security` gap in §6.5.
 - Deeper Live Activity correlation for requests with no active tracing span at all (today: trace-id-primary only,
   now matching the Quarkus adapter exactly since `Span.current()` is stamped unconditionally at every capture
   point — see §6.4).

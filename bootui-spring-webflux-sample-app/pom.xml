@@ -64,7 +64,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
-        <!-- Spring Security: makes the BootUI Spring Security panel available on WebFlux.
+        <!-- Spring Security: makes the raw Spring Security panel and Security advisor available on WebFlux.
              BootUiReactiveSpringSecurityAutoConfiguration registers a high-precedence permit-all
              SecurityWebFilterChain for the exact /bootui root and its descendants so BootUI itself
              is never blocked. The SecurityConfiguration below defines the application's own chain. -->
@@ -87,7 +87,6 @@
             <artifactId>spring-boot-devtools</artifactId>
             <optional>true</optional>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

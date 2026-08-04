@@ -1,7 +1,7 @@
 <script setup>
 import {getJson} from '../api.js'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
-import {describeLoadError} from '../utils/loadError.js'
+import {describeLoadError, isAbortError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import {SERVER_PAGE_SIZE} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
@@ -13,8 +13,10 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref(null)
 
-let requestId = 0
+let baseAc = null
+let appendAc = null
 let timer = null
+let disposed = false
 
 const entriesKey = computed(() => (tab.value === 'positive' ? 'positiveMatches' : 'negativeMatches'))
 const entries = computed(() => data.value?.[entriesKey.value] || [])
@@ -37,38 +39,96 @@ function buildUrl(offset) {
   return `api/conditions?${params.toString()}`
 }
 
-async function load(options = {}) {
-  const append = options.append === true
-  const id = options.requestId || ++requestId
-  const targetLoading = append ? loadingMore : loading
-  targetLoading.value = true
-  error.value = null
-  try {
-    const next = await getJson(buildUrl(append ? entries.value.length : 0))
-    if (id !== requestId) return
-    data.value =
-      append && data.value
+function cancelAppend() {
+  if (appendAc) {
+    appendAc.abort()
+    appendAc = null
+    loadingMore.value = false
+  }
+}
+
+async function load(loadOpts = {}) {
+  if (disposed) return
+  const append = loadOpts.append === true
+
+  if (append) {
+    if (loading.value || baseAc || timer) return
+    cancelAppend()
+    const ac = new AbortController()
+    appendAc = ac
+
+    const key = entriesKey.value
+    const currentEntries = [...entries.value]
+    const requestUrl = buildUrl(currentEntries.length)
+    loadingMore.value = true
+    error.value = null
+    try {
+      const next = await getJson(requestUrl, {signal: ac.signal})
+      if (appendAc !== ac || requestUrl !== buildUrl(currentEntries.length)) return
+      data.value = data.value
         ? {
             ...next,
-            [entriesKey.value]: [...entries.value, ...(next[entriesKey.value] || [])]
+            [key]: [...currentEntries, ...(next[key] || [])]
           }
         : next
-  } catch (e) {
-    if (id === requestId) error.value = describeLoadError(e, 'Unable to load conditions')
-  } finally {
-    if (id === requestId) targetLoading.value = false
+    } catch (e) {
+      if (isAbortError(e)) return
+      if (appendAc === ac) error.value = describeLoadError(e, 'Unable to load conditions')
+    } finally {
+      if (appendAc === ac) {
+        appendAc = null
+        loadingMore.value = false
+      }
+    }
+  } else {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+    if (baseAc) {
+      baseAc.abort()
+      baseAc = null
+    }
+    cancelAppend()
+    const ac = new AbortController()
+    baseAc = ac
+
+    const requestUrl = buildUrl(0)
+    loading.value = true
+    error.value = null
+    try {
+      const next = await getJson(requestUrl, {signal: ac.signal})
+      if (baseAc !== ac || requestUrl !== buildUrl(0)) return
+      data.value = next
+    } catch (e) {
+      if (isAbortError(e)) return
+      if (baseAc === ac) error.value = describeLoadError(e, 'Unable to load conditions')
+    } finally {
+      if (baseAc === ac) {
+        baseAc = null
+        loading.value = false
+      }
+    }
   }
 }
 
 function scheduleReload() {
-  requestId += 1
-  const id = requestId
+  if (disposed) return
+  if (baseAc) {
+    baseAc.abort()
+    baseAc = null
+  }
+  cancelAppend()
   if (timer) clearTimeout(timer)
-  timer = setTimeout(() => load({requestId: id}), 250)
+  loading.value = true
+  timer = setTimeout(() => {
+    timer = null
+    void load()
+  }, 250)
 }
 
 function loadMore() {
-  if (hiddenCount.value > 0 && !loadingMore.value) {
+  if (hiddenCount.value > 0 && !loading.value && !loadingMore.value) {
     return load({append: true})
   }
   return Promise.resolve()
@@ -77,8 +137,21 @@ function loadMore() {
 onMounted(load)
 watch([tab, filter], scheduleReload)
 onBeforeUnmount(() => {
-  if (timer) clearTimeout(timer)
-  requestId += 1
+  disposed = true
+  if (timer) {
+    clearTimeout(timer)
+    timer = null
+  }
+  if (baseAc) {
+    baseAc.abort()
+    baseAc = null
+  }
+  if (appendAc) {
+    appendAc.abort()
+    appendAc = null
+  }
+  loading.value = false
+  loadingMore.value = false
 })
 </script>
 

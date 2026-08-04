@@ -112,6 +112,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             "mcp-server",
             "email",
             "kafka",
+            "rabbitmq",
             "activity");
 
     /** Panels whose primary data lives at a nested path instead of the root {@code GET /bootui/api/<id>}. */
