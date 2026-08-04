@@ -52,7 +52,7 @@ async function fetchLogs(reset = false) {
   }
 }
 
-const {autoRefresh, loading, initialLoading, load, connectionState} = useEventStreamRefresh(
+const {autoRefresh, loading, initialLoading, load, retryConnection, connectionState} = useEventStreamRefresh(
   'api/security-logs/stream',
   fetchLogs
 )
@@ -111,7 +111,7 @@ function typeBadgeClass(typeName) {
       @refresh="load"
     />
 
-    <StreamStatusIndicator :connection-state="connectionState" @retry="load" />
+    <StreamStatusIndicator :connection-state="connectionState" @retry="retryConnection" />
 
     <p class="text-muted small">
       <template v-if="isQuarkus">

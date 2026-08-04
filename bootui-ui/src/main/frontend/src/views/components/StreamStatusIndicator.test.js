@@ -1,18 +1,14 @@
-import {flushPromises, mount} from '@vue/test-utils'
+import {mount} from '@vue/test-utils'
 import {nextTick} from 'vue'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {describe, expect, it} from 'vitest'
 
 import StreamStatusIndicator from './StreamStatusIndicator.vue'
 
-function render(connectionState = 'connected', onRetry = null) {
-  return mount(StreamStatusIndicator, {props: {connectionState, onRetry}})
+function render(connectionState = 'connected') {
+  return mount(StreamStatusIndicator, {props: {connectionState}})
 }
 
 describe('StreamStatusIndicator', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
   it('renders nothing visible when connected', () => {
     const wrapper = render('connected')
     expect(wrapper.find('.stream-status-indicator').exists()).toBe(false)
@@ -45,27 +41,23 @@ describe('StreamStatusIndicator', () => {
     expect(wrapper.find('.bi-wifi-off').exists()).toBe(true)
   })
 
-  it('has a role=status attribute when visible', () => {
+  it('uses one persistent live region instead of announcing the visible chip twice', () => {
     const wrapper = render('unavailable')
-    expect(wrapper.find('[role="status"]').exists()).toBe(true)
-  })
-
-  it('the aria-live region is always present for screen-reader registration', () => {
-    const wrapper = render('connected')
-    expect(wrapper.find('[aria-live="polite"]').exists()).toBe(true)
+    const liveRegions = wrapper.findAll('[role="status"][aria-live="polite"]')
+    expect(liveRegions).toHaveLength(1)
+    expect(liveRegions[0].classes()).toContain('visually-hidden')
+    expect(wrapper.find('.stream-status-indicator').attributes('role')).toBeUndefined()
   })
 
   it('emits retry when the retry button is clicked', async () => {
     const wrapper = render('unavailable')
     await wrapper.find('.stream-status-retry').trigger('click')
-    expect(wrapper.emitted('retry')).toBeTruthy()
+    expect(wrapper.emitted('retry')).toHaveLength(1)
   })
 
-  it('calls the onRetry prop function when the retry button is clicked', async () => {
-    const onRetry = vi.fn()
-    const wrapper = render('unavailable', onRetry)
-    await wrapper.find('.stream-status-retry').trigger('click')
-    expect(onRetry).toHaveBeenCalled()
+  it('gives the retry action a descriptive accessible name', () => {
+    const wrapper = render('unavailable')
+    expect(wrapper.find('.stream-status-retry').attributes('aria-label')).toBe('Retry stream connection now')
   })
 
   it('announces reconnecting transition to screen readers', async () => {
@@ -85,6 +77,11 @@ describe('StreamStatusIndicator', () => {
     expect(wrapper.find('[aria-live]').text()).toContain('unavailable')
   })
 
+  it('announces an initially degraded state', () => {
+    const wrapper = render('unavailable')
+    expect(wrapper.find('[aria-live]').text()).toContain('unavailable')
+  })
+
   it('announces recovery to screen readers', async () => {
     const wrapper = render('reconnecting')
     await wrapper.setProps({connectionState: 'connected'})
@@ -96,19 +93,23 @@ describe('StreamStatusIndicator', () => {
     const wrapper = render('connecting')
     await wrapper.setProps({connectionState: 'connected'})
     await nextTick()
-    // connecting → connected is not a degraded-to-healthy transition; stay silent
     expect(wrapper.find('[aria-live]').text()).toBe('')
   })
 
   it('does not re-announce the same state on repeated prop updates', async () => {
     const wrapper = render('reconnecting')
-    await flushPromises()
-
     const firstText = wrapper.find('[aria-live]').text()
 
     await wrapper.setProps({connectionState: 'reconnecting'})
     await nextTick()
 
     expect(wrapper.find('[aria-live]').text()).toBe(firstText)
+  })
+
+  it('clears stale announcements when the stream is paused', async () => {
+    const wrapper = render('reconnecting')
+    await wrapper.setProps({connectionState: 'paused'})
+    await nextTick()
+    expect(wrapper.find('[aria-live]').text()).toBe('')
   })
 })

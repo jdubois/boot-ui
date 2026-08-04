@@ -38,7 +38,7 @@ async function fetchReport() {
   }
 }
 
-const {autoRefresh, loading, initialLoading, load, connectionState} = useEventStreamRefresh(
+const {autoRefresh, loading, initialLoading, load, retryConnection, connectionState} = useEventStreamRefresh(
   'api/rest-client-trace/stream',
   fetchReport
 )
@@ -212,7 +212,7 @@ function clearTrace() {
 
     <FlashBanner :message="banner" @dismiss="clearBanner" />
 
-    <StreamStatusIndicator :connection-state="connectionState" @retry="load" />
+    <StreamStatusIndicator :connection-state="connectionState" @retry="retryConnection" />
 
     <PanelSkeleton v-if="initialLoading && !report" />
 

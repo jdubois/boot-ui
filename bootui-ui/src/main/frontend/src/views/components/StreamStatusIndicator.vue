@@ -1,5 +1,5 @@
 <script setup>
-import {computed, watch, ref} from 'vue'
+import {computed, ref, watch} from 'vue'
 
 /**
  * Calm, accessible status chip for SSE-backed panels.
@@ -15,23 +15,22 @@ import {computed, watch, ref} from 'vue'
  *   connected    → briefly announces recovery, then disappears
  */
 
+/** @typedef {'connecting'|'connected'|'reconnecting'|'paused'|'unavailable'} ConnectionState */
+
 const props = defineProps({
-  /** @type {'connecting'|'connected'|'reconnecting'|'paused'|'unavailable'} */
-  connectionState: {type: String, default: 'connected'},
-  /** Called when the user clicks "Retry now" in the unavailable state. */
-  onRetry: {type: Function, default: null}
+  connectionState: {
+    type: /** @type {import('vue').PropType<ConnectionState>} */ (String),
+    default: 'connected'
+  }
 })
 
 const emit = defineEmits(['retry'])
 
-// Announce only meaningful non-healthy transitions; avoid re-announcing the same state.
 const announcement = ref('')
-let previousState = props.connectionState
 
 watch(
   () => props.connectionState,
   (next, prev) => {
-    previousState = prev
     if (next === 'reconnecting' && prev !== 'reconnecting') {
       announcement.value = 'Stream reconnecting\u2026'
     } else if (next === 'unavailable' && prev !== 'unavailable') {
@@ -41,22 +40,21 @@ watch(
     } else {
       announcement.value = ''
     }
-  }
+  },
+  {immediate: true}
 )
 
 const isVisible = computed(() => props.connectionState === 'reconnecting' || props.connectionState === 'unavailable')
 
 function handleRetry() {
   emit('retry')
-  if (typeof props.onRetry === 'function') props.onRetry()
 }
 </script>
 
 <template>
-  <!-- aria-live region is always present in the DOM so screen readers register it on mount. -->
-  <span aria-live="polite" aria-atomic="true" class="visually-hidden">{{ announcement }}</span>
+  <span role="status" aria-live="polite" aria-atomic="true" class="visually-hidden">{{ announcement }}</span>
 
-  <div v-if="isVisible" class="stream-status-indicator" role="status" aria-label="Stream connection status">
+  <div v-if="isVisible" class="stream-status-indicator">
     <template v-if="connectionState === 'reconnecting'">
       <span class="stream-status-dot stream-status-dot--reconnecting" aria-hidden="true"></span>
       <span class="stream-status-label">Reconnecting&hellip;</span>
@@ -65,7 +63,9 @@ function handleRetry() {
     <template v-else-if="connectionState === 'unavailable'">
       <i class="bi bi-wifi-off stream-status-icon stream-status-icon--unavailable" aria-hidden="true"></i>
       <span class="stream-status-label stream-status-label--unavailable">Stream unavailable</span>
-      <button class="stream-status-retry" type="button" @click="handleRetry">Retry now</button>
+      <button class="stream-status-retry" type="button" aria-label="Retry stream connection now" @click="handleRetry">
+        Retry now
+      </button>
     </template>
   </div>
 </template>
@@ -78,13 +78,14 @@ function handleRetry() {
   border-radius: var(--bootui-radius-pill, 999px);
   box-shadow: var(--bootui-shadow-sm, 0 0.25rem 0.75rem rgba(15, 23, 42, 0.05));
   display: inline-flex;
-  font-size: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 1rem;
   gap: 0.4rem;
   margin-bottom: 0.75rem;
-  padding: 0.2rem 0.65rem;
+  max-width: 100%;
+  padding: 0.35rem 0.75rem;
 }
 
-/* Animated dot for reconnecting state */
 .stream-status-dot {
   border-radius: 50%;
   flex-shrink: 0;
@@ -121,16 +122,16 @@ function handleRetry() {
 }
 
 .stream-status-label--unavailable {
-  color: var(--bootui-danger-text, #b02a37);
+  color: var(--bootui-text, #152033);
 }
 
 .stream-status-icon {
   flex-shrink: 0;
-  font-size: 0.75rem;
+  font-size: inherit;
 }
 
 .stream-status-icon--unavailable {
-  color: var(--bootui-danger-text, #b02a37);
+  color: var(--bootui-danger, #dc3545);
 }
 
 .stream-status-retry {
@@ -138,19 +139,23 @@ function handleRetry() {
   border: none;
   color: var(--bootui-blue, #0d6efd);
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: inherit;
   font-weight: 600;
-  padding: 0;
+  line-height: 1.35;
+  padding: 0.1rem;
   text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.12em;
   white-space: nowrap;
 }
 
 .stream-status-retry:hover {
-  color: var(--bootui-accessible-deep-blue, #0a53be);
+  color: var(--bootui-blue, #0d6efd);
+  text-decoration-thickness: 2px;
 }
 
 .stream-status-retry:focus-visible {
-  border-radius: 2px;
+  border-radius: var(--bootui-radius-xs, 0.35rem);
   outline: 2px solid var(--bootui-blue, #0d6efd);
   outline-offset: 2px;
 }

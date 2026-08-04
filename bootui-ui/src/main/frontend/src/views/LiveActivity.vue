@@ -120,6 +120,7 @@ const {
   autoRefresh,
   loading,
   load: refreshNow,
+  retryConnection,
   connectionState
 } = useEventStreamRefresh('api/activity/stream', loadActivity, {
   enabled: manifestAvailable
@@ -587,7 +588,7 @@ function clearFilters() {
 
     <FlashBanner :message="banner" @dismiss="clearBanner" />
 
-    <StreamStatusIndicator :connection-state="connectionState" @retry="refreshNow" />
+    <StreamStatusIndicator :connection-state="connectionState" @retry="retryConnection" />
 
     <div
       v-if="showDatabaseInfo && report && !persistent"

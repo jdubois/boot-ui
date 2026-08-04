@@ -1,16 +1,14 @@
 import {computed, onBeforeUnmount, onMounted, ref, unref, watch} from 'vue'
 import {useRefreshState} from './useRefreshState.js'
 
-// Retry/backoff constants for managed reconnection.
 const INITIAL_BACKOFF_MS = 1_000
 const BACKOFF_MULTIPLIER = 2
 const MAX_BACKOFF_MS = 30_000
-/** Number of consecutive errors before entering the long-delay unavailable state. */
 const MAX_RETRIES = 5
-/** Retry interval once the stream is considered unavailable (allows background recovery). */
 const LONG_DELAY_MS = 60_000
-/** Milliseconds a stream must stay open without an error to be considered stable (resets retries). */
 const STABLE_MS = 5_000
+
+/** @typedef {'connecting'|'connected'|'reconnecting'|'paused'|'unavailable'} EventStreamConnectionState */
 
 /**
  * Composable that loads immediately and then refreshes whenever the server pushes a Server-Sent
@@ -30,7 +28,7 @@ const STABLE_MS = 5_000
  * @param {string} streamUrl - relative SSE endpoint to subscribe to (e.g. 'api/exceptions/stream')
  * @param {Function} callback - function to call for initial, manual, push, and visibility refreshes
  * @param {{defaultEnabled?: boolean, enabled?: boolean | import('vue').Ref<boolean>, initialLoading?: boolean}} [options] - options
- * @returns {{ autoRefresh, loading, hasLoaded, initialLoading, load, refresh, startAutoRefresh, stopAutoRefresh, connectionState }}
+ * @returns {{ autoRefresh, loading, hasLoaded, initialLoading, load, refresh, startAutoRefresh, stopAutoRefresh, retryConnection, connectionState }}
  */
 export function useEventStreamRefresh(
   streamUrl,
@@ -41,13 +39,16 @@ export function useEventStreamRefresh(
   const refreshEnabled = computed(() => unref(enabled) !== false)
   const {loading, hasLoaded, initialLoading: isInitialLoading, refresh} = useRefreshState(callback, {initialLoading})
 
-  /** @type {import('vue').Ref<'connecting'|'connected'|'reconnecting'|'paused'|'unavailable'>} */
+  /** @type {import('vue').Ref<EventStreamConnectionState>} */
   const connectionState = ref('connecting')
 
+  /** @type {EventSource | null} */
   let eventSource = null
   let inFlight = false
   let retryCount = 0
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let retryTimer = null
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let stabilityTimer = null
 
   async function load(...args) {
@@ -61,132 +62,176 @@ export function useEventStreamRefresh(
     }
   }
 
-  function clearTimers() {
+  function clearRetryTimer() {
     if (retryTimer !== null) {
       clearTimeout(retryTimer)
       retryTimer = null
     }
+  }
+
+  function clearStabilityTimer() {
     if (stabilityTimer !== null) {
       clearTimeout(stabilityTimer)
       stabilityTimer = null
     }
   }
 
-  function stopAutoRefresh() {
-    clearTimers()
+  function closeEventSource() {
     if (eventSource) {
       eventSource.close()
       eventSource = null
     }
   }
 
+  function teardownConnection() {
+    clearRetryTimer()
+    clearStabilityTimer()
+    closeEventSource()
+  }
+
+  function canConnect() {
+    return refreshEnabled.value && autoRefresh.value && document.visibilityState === 'visible'
+  }
+
+  function stopAutoRefresh() {
+    teardownConnection()
+    connectionState.value = 'paused'
+  }
+
   function scheduleRetry(delayMs) {
-    clearTimeout(retryTimer)
+    clearRetryTimer()
     retryTimer = setTimeout(() => {
       retryTimer = null
-      if (refreshEnabled.value && autoRefresh.value && document.visibilityState === 'visible') {
+      if (canConnect()) {
         startAutoRefresh()
+      } else {
+        connectionState.value = 'paused'
       }
     }, delayMs)
   }
 
-  function startAutoRefresh() {
-    // Always close any existing source first to prevent duplicate instances.
-    if (eventSource) {
-      eventSource.close()
+  /**
+   * @param {EventSource | null} source
+   */
+  function handleConnectionError(source) {
+    if (source !== null && eventSource !== source) return
+
+    if (source !== null) {
+      source.close()
       eventSource = null
     }
-    clearTimers()
+    clearStabilityTimer()
 
-    if (typeof EventSource === 'undefined') {
-      connectionState.value = 'unavailable'
-      return
-    }
-    if (!refreshEnabled.value || !autoRefresh.value || document.visibilityState !== 'visible') {
+    if (!canConnect()) {
+      clearRetryTimer()
       connectionState.value = 'paused'
       return
     }
 
-    connectionState.value = retryCount > 0 ? 'reconnecting' : 'connecting'
-    eventSource = new EventSource(streamUrl)
+    retryCount++
+    if (retryCount >= MAX_RETRIES) {
+      connectionState.value = 'unavailable'
+      scheduleRetry(LONG_DELAY_MS)
+      return
+    }
 
-    eventSource.addEventListener('open', () => {
+    connectionState.value = 'reconnecting'
+    const delay = Math.min(INITIAL_BACKOFF_MS * Math.pow(BACKOFF_MULTIPLIER, retryCount - 1), MAX_BACKOFF_MS)
+    scheduleRetry(delay)
+  }
+
+  function startAutoRefresh(reconnecting = retryCount > 0) {
+    teardownConnection()
+
+    if (!canConnect()) {
+      connectionState.value = 'paused'
+      return
+    }
+    if (typeof EventSource !== 'function') {
+      connectionState.value = 'unavailable'
+      return
+    }
+
+    connectionState.value = reconnecting ? 'reconnecting' : 'connecting'
+    /** @type {EventSource} */
+    let source
+    try {
+      source = new EventSource(streamUrl)
+    } catch {
+      handleConnectionError(null)
+      return
+    }
+    eventSource = source
+
+    source.addEventListener('open', () => {
+      if (eventSource !== source) return
+
       connectionState.value = 'connected'
-      // Start the stability window: if no error arrives within STABLE_MS, reset the retry counter.
-      clearTimeout(stabilityTimer)
+      clearStabilityTimer()
       stabilityTimer = setTimeout(() => {
         stabilityTimer = null
-        retryCount = 0
+        if (eventSource === source) {
+          retryCount = 0
+        }
       }, STABLE_MS)
     })
 
-    eventSource.addEventListener('error', () => {
-      // Close the native source immediately so we fully own the reconnect timing.
-      if (eventSource) {
-        eventSource.close()
-        eventSource = null
-      }
-      clearTimeout(stabilityTimer)
-      stabilityTimer = null
-
-      retryCount++
-      if (retryCount >= MAX_RETRIES) {
-        connectionState.value = 'unavailable'
-        scheduleRetry(LONG_DELAY_MS)
-      } else {
-        connectionState.value = 'reconnecting'
-        const delay = Math.min(INITIAL_BACKOFF_MS * Math.pow(BACKOFF_MULTIPLIER, retryCount - 1), MAX_BACKOFF_MS)
-        scheduleRetry(delay)
-      }
+    source.addEventListener('error', () => {
+      handleConnectionError(source)
     })
 
-    eventSource.addEventListener('update', () => {
-      if (refreshEnabled.value && autoRefresh.value && document.visibilityState === 'visible') {
+    source.addEventListener('update', () => {
+      if (eventSource === source && canConnect()) {
         load()
       }
     })
   }
 
+  function retryConnection() {
+    retryCount = 0
+    startAutoRefresh(true)
+    return load()
+  }
+
   function onVisibilityChange() {
-    if (!refreshEnabled.value) {
-      stopAutoRefresh()
-      connectionState.value = 'paused'
-      return
-    }
     if (document.visibilityState === 'visible') {
       startAutoRefresh()
-      if (autoRefresh.value) {
+      if (refreshEnabled.value && autoRefresh.value) {
         load()
       }
     } else {
       stopAutoRefresh()
-      connectionState.value = 'paused'
     }
   }
 
-  watch([autoRefresh, refreshEnabled], ([autoRefreshEnabled, enabledNow], [, wasEnabled]) => {
+  watch([autoRefresh, refreshEnabled], ([autoRefreshEnabled, enabledNow], [wasAutoRefreshEnabled, wasEnabled]) => {
+    const becameEnabled = enabledNow && wasEnabled === false
+    const resumedAutoRefresh = autoRefreshEnabled && wasAutoRefreshEnabled === false
+
     if (!enabledNow || !autoRefreshEnabled) {
       stopAutoRefresh()
-      connectionState.value = 'paused'
+      if (becameEnabled && document.visibilityState === 'visible') {
+        load()
+      }
       return
     }
     startAutoRefresh()
-    if (wasEnabled === false && document.visibilityState === 'visible') {
+    if ((becameEnabled || resumedAutoRefresh) && document.visibilityState === 'visible') {
       load()
     }
   })
 
   onMounted(() => {
+    document.addEventListener('visibilitychange', onVisibilityChange)
     if (refreshEnabled.value) {
       load()
     }
     startAutoRefresh()
-    document.addEventListener('visibilitychange', onVisibilityChange)
   })
 
   onBeforeUnmount(() => {
-    stopAutoRefresh()
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    teardownConnection()
   })
 
   return {
@@ -198,6 +243,7 @@ export function useEventStreamRefresh(
     refresh: load,
     startAutoRefresh,
     stopAutoRefresh,
+    retryConnection,
     connectionState
   }
 }

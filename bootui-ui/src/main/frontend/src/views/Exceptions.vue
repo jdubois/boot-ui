@@ -191,7 +191,10 @@ function requestLabel(item) {
   return method ? `${method} ${path}` : path
 }
 
-const {autoRefresh, loading, load, connectionState} = useEventStreamRefresh('api/exceptions/stream', fetchExceptions)
+const {autoRefresh, loading, load, retryConnection, connectionState} = useEventStreamRefresh(
+  'api/exceptions/stream',
+  fetchExceptions
+)
 
 const route = useRoute()
 onMounted(() => {
@@ -228,7 +231,7 @@ onMounted(() => {
 
     <FlashBanner :message="banner" @dismiss="clear" />
 
-    <StreamStatusIndicator :connection-state="connectionState" @retry="load" />
+    <StreamStatusIndicator :connection-state="connectionState" @retry="retryConnection" />
 
     <PanelSkeleton v-if="loading && !report" />
 
