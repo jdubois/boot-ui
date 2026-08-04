@@ -3,6 +3,7 @@ import {apiFetch, getJson} from '../api.js'
 import {computed, inject, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatBytes} from '../utils/format.js'
+import {resolveBootUiApiUrl} from '../utils/bootUiPath.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
@@ -117,7 +118,7 @@ async function clearAll() {
 }
 
 function downloadUrl(id) {
-  return `api/email/${encodeURIComponent(id)}/eml`
+  return resolveBootUiApiUrl(`api/email/${encodeURIComponent(id)}/eml`)
 }
 </script>
 

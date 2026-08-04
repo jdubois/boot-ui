@@ -6,6 +6,7 @@ import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
+import {getBootUiApiPath} from '../utils/bootUiPath.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
@@ -24,7 +25,7 @@ const actionTools = computed(() => (status.value?.tools ?? []).filter((tool) => 
 const readTools = computed(() => (status.value?.tools ?? []).filter((tool) => !tool.action))
 
 const endpointUrl = computed(() => {
-  const path = status.value?.endpoint ?? '/bootui/api/mcp'
+  const path = getBootUiApiPath() + '/mcp'
   const origin = typeof window !== 'undefined' && window.location ? window.location.origin : ''
   return origin + path
 })

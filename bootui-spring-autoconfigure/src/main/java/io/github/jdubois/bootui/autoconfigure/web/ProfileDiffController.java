@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code SpringConfigProvider}. Thin transport adapter; all logic lives in the engine.
  */
 @RestController
-@RequestMapping("/bootui/api/profile-diff")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/profile-diff")
 public class ProfileDiffController {
 
     private final ConfigService configService;

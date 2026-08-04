@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  * report and rejects level changes.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/loggers")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/loggers")
 public class LoggersController {
 
     private final LoggersService loggers;

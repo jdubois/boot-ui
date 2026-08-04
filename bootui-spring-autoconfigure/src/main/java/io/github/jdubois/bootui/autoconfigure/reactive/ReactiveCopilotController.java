@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
  * {@link ReactiveAgentSessionController}.
  */
 @RestController
-@RequestMapping("/bootui/api/copilot")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/copilot")
 public class ReactiveCopilotController extends ReactiveAgentSessionController {
 
     @Autowired

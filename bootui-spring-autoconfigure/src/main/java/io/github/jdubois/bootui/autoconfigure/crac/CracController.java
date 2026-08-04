@@ -41,7 +41,7 @@ import org.springframework.web.bind.annotation.RestController;
  * packaged jar.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/crac")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/crac")
 public class CracController {
 
     private static final String DOCKERFILE_FILE = "Dockerfile-crac";

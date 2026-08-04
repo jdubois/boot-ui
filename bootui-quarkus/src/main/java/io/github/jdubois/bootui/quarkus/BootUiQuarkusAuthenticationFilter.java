@@ -68,7 +68,7 @@ public class BootUiQuarkusAuthenticationFilter {
                                         + "="
                                         + authenticator.token()
                                         + "; Path="
-                                        + API_PATH
+                                        + QuarkusBootUiPaths.applicationApiPath(config)
                                         + "; HttpOnly; SameSite=Strict"
                                         + (request.isSSL() ? "; Secure" : ""));
             }

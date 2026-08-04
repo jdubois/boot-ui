@@ -7,6 +7,8 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
@@ -41,7 +43,9 @@ class ReactiveBootUiIndexControllerTests {
                 .expectHeader()
                 .contentTypeCompatibleWith(MediaType.TEXT_HTML)
                 .expectBody(String.class)
-                .value(body -> assertThat(body).contains("<base href=\"/bootui/\" />"));
+                .value(body -> assertThat(body)
+                        .contains("<base href=\"/bootui/\" />")
+                        .contains("content=\"/bootui/api\" name=\"bootui-api-path\""));
     }
 
     @Test
@@ -72,6 +76,23 @@ class ReactiveBootUiIndexControllerTests {
                 .isOk()
                 .expectBody(String.class)
                 .value(body -> assertThat(body).contains("<base href=\"/devtools/\" />"));
+    }
+
+    @Test
+    void runtimePathsIncludeWebFluxContextPath() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.setPath("/devtools");
+        properties.setApiPath("/internal/bootui-api");
+        ReactiveBootUiIndexController controller = new ReactiveBootUiIndexController(
+                properties, new ByteArrayResource(STUB_INDEX.getBytes(StandardCharsets.UTF_8)));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/host/devtools").contextPath("/host"));
+
+        controller.spaIndex(exchange).block();
+
+        assertThat(exchange.getResponse().getBodyAsString().block())
+                .contains("<base href=\"/host/devtools/\" />")
+                .contains("content=\"/host/internal/bootui-api\" name=\"bootui-api-path\"");
     }
 
     @Test

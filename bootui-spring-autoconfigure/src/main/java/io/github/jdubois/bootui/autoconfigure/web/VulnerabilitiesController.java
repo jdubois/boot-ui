@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  * mirroring every other advisor's dismiss/restore wiring.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/vulnerabilities")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/vulnerabilities")
 public class VulnerabilitiesController {
 
     private final BootUiProperties properties;

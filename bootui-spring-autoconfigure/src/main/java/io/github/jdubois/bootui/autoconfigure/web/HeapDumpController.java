@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  * because the dump file contains unmasked secrets.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/heap-dump")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/heap-dump")
 public class HeapDumpController {
 
     private final HeapDumpService service;

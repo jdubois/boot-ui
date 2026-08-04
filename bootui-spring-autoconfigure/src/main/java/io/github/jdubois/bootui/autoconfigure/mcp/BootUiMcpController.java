@@ -27,7 +27,7 @@ import tools.jackson.databind.node.JsonNodeFactory;
  * at this endpoint. Human-readable status is available from {@code /bootui/api/mcp-server}.
  */
 @RestController
-@RequestMapping("/bootui/api/mcp")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/mcp")
 public class BootUiMcpController {
 
     private static final String PAYLOAD_LIMIT_MESSAGE = "Request payload exceeds limit";

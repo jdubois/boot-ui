@@ -51,12 +51,12 @@ test.describe('CRaC view', () => {
     await expect(assets).toContainText('Container assets')
 
     // Both download links are present in the assets accordion (no scan required).
-    await expect(page.locator('a[href="api/crac/dockerfile"]')).toHaveCount(1)
-    await expect(page.locator('a[href="api/crac/entrypoint"]')).toHaveCount(1)
+    await expect(page.locator('a[href="/bootui/api/crac/dockerfile"]')).toHaveCount(1)
+    await expect(page.locator('a[href="/bootui/api/crac/entrypoint"]')).toHaveCount(1)
 
     // Opening the Dockerfile-crac entry reveals its download link and the CRaC-enabled runtime image.
     await assets.getByRole('button', {name: 'Dockerfile-crac'}).click()
-    await expect(page.locator('a[href="api/crac/dockerfile"]')).toBeVisible()
+    await expect(page.locator('a[href="/bootui/api/crac/dockerfile"]')).toBeVisible()
     await expect(assets).toContainText('bellsoft/liberica-runtime-container')
 
     // The checkpoint-and-run.sh accordion entry opens its entrypoint preview.

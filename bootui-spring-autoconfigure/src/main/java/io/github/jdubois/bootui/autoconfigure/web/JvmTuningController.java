@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/bootui/api/jvm-tuning")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/jvm-tuning")
 public class JvmTuningController {
 
     private final MemoryReportProvider provider;

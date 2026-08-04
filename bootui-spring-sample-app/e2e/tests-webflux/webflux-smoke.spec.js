@@ -9,7 +9,7 @@ import {expect, test} from '@playwright/test'
  * same Vue bundle is served either way, so once one adapter's UI is proven, the remaining risk specific
  * to WebFlux is (a) the shell actually boots and reports the right platform, (b) a representative sample
  * of panels that ARE ported render correctly, and (c) the panels that stay unavailable on this adapter
- * (Security advisor, HTTP Sessions, REST Client) surface their WebFlux-specific explanation through the real
+ * (Security advisor and HTTP Sessions) surface their WebFlux-specific explanation through the real
  * sidebar/alert UI rather than just the JSON contract.
  */
 test.describe('BootUI on Spring WebFlux', () => {
@@ -46,7 +46,8 @@ test.describe('BootUI on Spring WebFlux', () => {
       {id: 'scheduled', heading: /Scheduled Tasks/},
       {id: 'pentesting', heading: /^Pentesting/},
       {id: 'activity', heading: /Live Activity/},
-      {id: 'mcp-server', heading: /^MCP Server/}
+      {id: 'mcp-server', heading: /^MCP Server/},
+      {id: 'rest-client-trace', heading: /REST Client/}
     ]
 
     for (const panel of panels) {
@@ -117,6 +118,63 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(page.getByText(/Spring MVC mapping/)).toHaveCount(0)
   })
 
+  test('REST Client records WebClient calls, streams updates, and protects actions with CSRF', async ({
+    page,
+    request
+  }) => {
+    await request.get('/bootui/api/overview')
+    const {cookies} = await request.storageState()
+    const xsrf = cookies.find((cookie) => cookie.name === 'XSRF-TOKEN')
+    expect(xsrf).toBeTruthy()
+
+    const rejectedClear = await request.post('/bootui/api/rest-client-trace/clear')
+    expect(rejectedClear.status()).toBe(403)
+
+    const csrfHeaders = {'X-XSRF-TOKEN': xsrf.value}
+    const cleared = await request.post('/bootui/api/rest-client-trace/clear', {headers: csrfHeaders})
+    expect(cleared.ok()).toBeTruthy()
+
+    const streamRequested = page.waitForRequest((request) =>
+      request.url().endsWith('/bootui/api/rest-client-trace/stream')
+    )
+    const streamReady = page.waitForResponse(
+      (response) => response.url().endsWith('/bootui/api/rest-client-trace/stream') && response.status() === 200
+    )
+    await page.goto('/bootui/#/rest-client-trace')
+    await expect(page.getByText('No REST client calls have been captured yet')).toBeVisible()
+    await streamRequested
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await request.post('/bootui/api/rest-client-trace/clear', {headers: csrfHeaders})
+      const connected = await Promise.race([streamReady.then(() => true), page.waitForTimeout(100).then(() => false)])
+      if (connected) break
+    }
+    await streamReady
+
+    const outbound = await request.get('/api/sample/rest-client?name=WebFluxRestClient')
+    expect(outbound.ok()).toBeTruthy()
+    await expect(page.getByText('127.0.0.1/api/greetings/WebFluxRestClient', {exact: true}).first()).toBeVisible({
+      timeout: 15_000
+    })
+
+    const report = await request.get('/bootui/api/rest-client-trace')
+    const body = await report.json()
+    expect(body.available).toBe(true)
+    expect(body.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: 'GET',
+          path: '/api/greetings/WebFluxRestClient',
+          clientType: 'WebClient'
+        })
+      ])
+    )
+
+    await page.getByRole('button', {name: 'Pause'}).click()
+    await expect(page.getByRole('button', {name: 'Resume'})).toBeVisible()
+    await page.getByRole('button', {name: 'Resume'}).click()
+    await expect(page.getByRole('button', {name: 'Pause'})).toBeVisible()
+  })
+
   test('panels with no reactive equivalent yet explain why in the sidebar and panel alert', async ({page}) => {
     await page.goto('/bootui/')
 
@@ -133,10 +191,5 @@ test.describe('BootUI on Spring WebFlux', () => {
 
     await page.goto('/bootui/#/http-sessions')
     await expect(page.locator('.panel-availability-alert')).toContainText('Not applicable on Spring WebFlux')
-
-    await page.goto('/bootui/#/rest-client-trace')
-    await expect(page.locator('.panel-availability-alert')).toContainText(
-      'REST Client is only available on the Spring MVC (servlet) adapter'
-    )
   })
 })

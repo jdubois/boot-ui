@@ -1,7 +1,7 @@
 # Setup
 
 BootUI runs on **Spring Boot 4** (servlet or WebFlux) and **Quarkus**, serving the same console and the same
-`/bootui/api/**` JSON contract from a shared, framework-neutral engine. The numbered steps below cover the **Spring
+JSON contract (at `/bootui/api/**` by default) from a shared, framework-neutral engine. The numbered steps below cover the **Spring
 Boot servlet** starter; if you are on Spring Boot WebFlux, jump to [BootUI on Spring WebFlux](#bootui-on-spring-webflux);
 if you are on Quarkus, jump to [BootUI on Quarkus](#bootui-on-quarkus).
 
@@ -88,6 +88,32 @@ In `application.yml`, YAML parses `ON`/`OFF` (and `yes`/`no`/`true`/`false`) as 
 Nice job! BootUI is now configured 🚀
 
 Visit: <http://localhost:8080/bootui>
+
+### Use a custom path
+
+`/bootui` is the backward-compatible default. To move the whole console, set:
+
+```properties
+bootui.path=/dev-console
+```
+
+The shell/assets are then served at `/dev-console`, and the API, streams, downloads, writes, and MCP endpoint move to
+`/dev-console/api/**`. If the API must use a separate mount:
+
+```properties
+bootui.path=/dev-console
+bootui.api-path=/internal/bootui-api
+```
+
+These are application-relative paths. A servlet context path, WebFlux base path, or Quarkus HTTP root path is composed
+automatically; for example, `server.servlet.context-path=/host` plus `bootui.path=/dev-console` produces
+`/host/dev-console`. The shell publishes the browser-visible paths to the SPA, so no frontend rebuild is needed.
+
+Paths may use only absolute RFC 3986 unreserved segments. Trailing slashes are removed. Root, empty, encoded,
+query/fragment, duplicate interior separator, routing-pattern, and `.` / `..` segment values fail startup. Custom UI
+paths below `/bootui/**` are reserved and rejected. When a custom path is active, the old `/bootui` mount returns 404;
+it is not a compatibility alias. See the [property reference](PROPERTIES.md#custom-ui-and-api-paths) for the complete
+contract.
 
 ## Advanced: scope BootUI to a dev-only profile
 
@@ -184,7 +210,7 @@ Spring Boot profile:
 ## BootUI on Spring WebFlux
 
 BootUI also ships a **reactive starter** for Spring Boot WebFlux (Netty / `DispatcherHandler`) applications. It serves
-the same Vue console at `/bootui` and the same `/bootui/api/**` JSON contract as the servlet starter above, backed by
+the same Vue console and JSON contract as the servlet starter above (`/bootui` and `/bootui/api/**` by default), backed by
 the same framework-neutral BootUI engine — only the request/response binding differs underneath.
 
 ### Prerequisites
@@ -288,20 +314,21 @@ The large majority of BootUI's panels are live on the reactive adapter, includin
 plus Flyway/Liquibase, Database Connection Pools, Cache, SQL Trace, Log Tail, Security Logs, Exceptions, and Live
 Activity (over a rebuilt reactive streaming/capture layer). The raw **Spring Security** panel is live whenever the
 application contributes a `SecurityWebFilterChain`, with path/method-only explanations clearly marked as best effort.
+The **REST Client** panel is live after the application builds a `WebClient` from Spring Boot's auto-configured
+`WebClient.Builder`; it provides the same report and actions as the servlet panel over a reactive SSE stream.
 The following panels are not yet available:
 
 - **HTTP Sessions** — not applicable: it is the servlet container's `HttpSession` API, with no reactive equivalent.
 - **Security** (the advisor) — not yet ported: its rules key off servlet `SecurityFilterChain` beans; a separate
   `ServerHttpSecurity`/`SecurityWebFilterChain` advisor ruleset is planned.
-- **REST Client** — not yet ported: the standalone panel is only available on the Spring MVC (servlet) adapter.
 
 For the authoritative, per-panel detail and the reasoning behind each gap, see [Features](FEATURES.md) and
 [BootUI on Spring WebFlux](WEBFLUX-SUPPORT.md).
 
 ## BootUI on Quarkus
 
-BootUI also ships as a **Quarkus extension**. It serves the same Vue console at `/bootui` and the same
-`/bootui/api/**` JSON contract as the Spring Boot starter, backed by the Quarkus build of the framework-neutral
+BootUI also ships as a **Quarkus extension**. It serves the same Vue console and JSON contract as Spring
+(`/bootui` and `/bootui/api/**` by default), backed by the Quarkus build of the framework-neutral
 BootUI engine.
 
 ### Prerequisites
@@ -371,6 +398,9 @@ Nice job! BootUI is now configured 🚀
 
 Visit: <http://localhost:8080/bootui>
 
+The same `bootui.path` / `bootui.api-path` settings shown in
+[Use a custom path](#use-a-custom-path) work in Quarkus dev/test mode and compose with `quarkus.http.root-path`.
+
 ### Activation and safety on Quarkus
 
 Activation is governed entirely by the **Quarkus launch mode**, not by a Spring-style profile or a `bootui.enabled`
@@ -422,9 +452,9 @@ BootUI is intended for local development only. By default it:
 - Rejects non-loopback requests.
 - Requires bearer-token authentication for non-loopback API requests whenever remote access is explicitly enabled;
   localhost remains authentication-free.
-- Applies one cross-framework security-header policy to the whole `/bootui/**` surface, with no-store caching for APIs,
+- Applies one cross-framework security-header policy to the configured BootUI surface, with no-store caching for APIs,
   streams, and downloads and immutable caching only for successfully served content-hashed assets.
-- Permits `/bootui/**` through Spring Security when Spring Security is present, with a startup warning, so the local
+- Permits the configured UI/API paths through Spring Security when Spring Security is present, with a startup warning, so the local
   console remains directly reachable while the loopback-only filter still applies.
 - Masks secret-like configuration values.
 - Exposes the local Actuator endpoints used by BootUI panels when BootUI is active.
@@ -545,13 +575,13 @@ subnet over the broad `172.16.0.0/12`, and keep it limited to trusted local/dev 
 
 | Symptom                      | Check                                                                                                                                   |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `/bootui` returns 404        | Use the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`. In `application.yml`, `bootui.enabled: ON` is valid — YAML parses it as a boolean, which BootUI accepts as `ON`. |
+| BootUI path returns 404      | Use the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`; then open the configured `bootui.path` (default `/bootui`). In `application.yml`, `bootui.enabled: ON` is valid — YAML parses it as a boolean, which BootUI accepts as `ON`. |
 | BootUI is disabled in `prod` | This is intentional; only `bootui.enabled=ON` can force activation with a disabled profile.                                             |
 | Command-line app now stays up | Expected: BootUI starts a servlet server so the console is reachable. Set `bootui.force-web=false` to keep the app non-web.              |
 | Browser is rejected          | BootUI accepts loopback callers and fails closed for everything else. Inside a container, set `bootui.trust-container-gateway=AUTO` to auto-detect and trust the default gateway `/32` (the SNAT source of published-port traffic) — no subnet needed on any Docker flavor, and the Host + CSRF protections stay on. For a custom proxy/bridge or LAN access, add that source range to `bootui.trusted-proxies` instead — `172.16.0.0/12` on Linux Docker Engine, `192.168.65.0/24` on Docker Desktop (macOS/Windows) — plus the hostname you browse with to `bootui.allowed-hosts`. Use `bootui.allow-non-localhost=true` only as a blunt last resort on a trusted local network. |
-| Spring Security blocks UI    | BootUI auto-registers a `/bootui/**` permit-all chain when Spring Security is active; check for a custom higher-priority chain.         |
+| Spring Security blocks UI    | BootUI auto-registers a permit-all chain for the configured UI/API paths when Spring Security is active; check for a custom higher-priority chain. |
 | `localhost redirected you too many times` | BootUI serves the console at both `/bootui` and `/bootui/` with no redirect, so a host trailing-slash–stripping filter or proxy (e.g. Spring's `UrlHandlerFilter.trailingSlashHandler("/**").wrapRequest()`, a standard Boot 4 idiom) can't loop on it. If you still hit this on an older BootUI, upgrade or open `/bootui/` (with the trailing slash) directly. |
 | A panel is empty             | Enable the relevant Actuator endpoint or optional Spring module; BootUI degrades to stable empty DTOs when data is unavailable.         |
 | Startup Timeline is empty    | Leave `bootui.startup.enabled=true` and `bootui.startup.capacity` greater than zero, or provide your own `BufferingApplicationStartup`. |
 | Secrets are hidden           | Default exposure is `MASKED`; use `METADATA_ONLY` to hide all values or `FULL` only in trusted local sessions.                          |
-| Static resources disabled    | `spring.web.resources.add-mappings=false` is bypassed by BootUI: it registers its own `/bootui/**` handler for its Web-based dashboard assets and logs a WARN line; the host's other static resources stay disabled. |
+| Static resources disabled    | `spring.web.resources.add-mappings=false` is bypassed by BootUI: it registers its own handler at the configured `bootui.path` for dashboard assets and logs a WARN line; the host's other static resources stay disabled. |

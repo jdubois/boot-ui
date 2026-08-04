@@ -31,7 +31,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @ConditionalOnClass(AuditEventRepository.class)
-@RequestMapping("/bootui/api/security-logs")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/security-logs")
 public class SecurityLogsController implements ApplicationListener<AuditApplicationEvent> {
 
     private final ObjectProvider<AuditEventRepository> auditEventRepositoryProvider;

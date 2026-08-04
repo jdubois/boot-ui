@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/bootui/api/startup")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/startup")
 public class StartupController {
 
     private final ObjectProvider<StartupEndpoint> endpoint;

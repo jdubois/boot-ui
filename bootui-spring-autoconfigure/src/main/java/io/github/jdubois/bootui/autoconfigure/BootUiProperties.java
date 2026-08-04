@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.core.BootUiPathNormalizer;
 import io.github.jdubois.bootui.core.ValueExposure;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -22,13 +23,16 @@ public class BootUiProperties {
      */
     private Mode enabled = Mode.AUTO;
     /**
-     * UI base path.
+     * UI base path. Must be an absolute path (starting with {@code /}), not {@code /}, and must not
+     * contain path-traversal, query, or fragment components. Trailing slashes are stripped. The API
+     * path is automatically derived as {@code path + "/api"} unless {@code bootui.api-path} is also set.
      */
     private String path = "/bootui";
     /**
-     * Internal API base path.
+     * Internal API base path. Defaults to {@code bootui.path + "/api"}. Override only when the API
+     * must be served at a different sub-path from the UI (rare).
      */
-    private String apiPath = "/bootui/api";
+    private String apiPath = null;
     /**
      * Allow non-loopback requests (explicit opt-out of safety).
      */
@@ -206,15 +210,15 @@ public class BootUiProperties {
     }
 
     public void setPath(String path) {
-        this.path = path;
+        this.path = BootUiPathNormalizer.normalize(path);
     }
 
     public String getApiPath() {
-        return apiPath;
+        return apiPath != null ? apiPath : (path + "/api");
     }
 
     public void setApiPath(String apiPath) {
-        this.apiPath = apiPath;
+        this.apiPath = BootUiPathNormalizer.normalizeApiPath(apiPath);
     }
 
     public boolean isAllowNonLocalhost() {

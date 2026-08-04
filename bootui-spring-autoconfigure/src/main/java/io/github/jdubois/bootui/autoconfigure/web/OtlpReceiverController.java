@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
  * callers are rejected unless {@code bootui.allow-non-localhost=true}.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/otlp")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/otlp")
 public class OtlpReceiverController {
 
     private static final Logger log = LoggerFactory.getLogger(OtlpReceiverController.class);

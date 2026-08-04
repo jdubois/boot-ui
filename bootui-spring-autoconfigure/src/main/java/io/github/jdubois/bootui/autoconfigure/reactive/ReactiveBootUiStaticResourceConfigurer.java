@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.web.BootUiStaticResourceConfigurer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,13 +21,17 @@ public class ReactiveBootUiStaticResourceConfigurer implements WebFluxConfigurer
 
     private final Environment environment;
 
-    public ReactiveBootUiStaticResourceConfigurer(Environment environment) {
+    private final BootUiProperties properties;
+
+    public ReactiveBootUiStaticResourceConfigurer(Environment environment, BootUiProperties properties) {
         this.environment = environment;
+        this.properties = properties;
     }
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        registry.addResourceHandler(BootUiStaticResourceConfigurer.ASSET_PATH_PATTERN)
+        String assetPathPattern = properties.getPath() + "/**";
+        registry.addResourceHandler(assetPathPattern)
                 .addResourceLocations(BootUiStaticResourceConfigurer.ASSET_LOCATION);
 
         if (!environment.getProperty("spring.web.resources.add-mappings", Boolean.class, true)) {
@@ -34,7 +39,7 @@ public class ReactiveBootUiStaticResourceConfigurer implements WebFluxConfigurer
                     "spring.web.resources.add-mappings is false, which disables Spring Boot's default static "
                             + "resource handling. BootUI registered its own handler for '{}' (serving {}) so the "
                             + "dashboard UI still loads.",
-                    BootUiStaticResourceConfigurer.ASSET_PATH_PATTERN,
+                    assetPathPattern,
                     BootUiStaticResourceConfigurer.ASSET_LOCATION);
         }
     }

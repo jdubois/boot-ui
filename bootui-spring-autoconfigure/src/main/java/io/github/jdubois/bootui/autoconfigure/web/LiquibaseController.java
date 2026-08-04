@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @ConditionalOnClass(SpringLiquibase.class)
-@RequestMapping("/bootui/api/liquibase")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/liquibase")
 public class LiquibaseController {
 
     private final LiquibaseService liquibaseService;

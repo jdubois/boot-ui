@@ -24,29 +24,44 @@ class BootUiQuarkusStartupBannerTest {
 
     @Test
     void buildsRootUrlWhenRootPathIsDefaultSlash() {
-        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(8080, "/")).isEqualTo("http://localhost:8080/bootui");
+        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(8080, "/", "/bootui"))
+                .isEqualTo("http://localhost:8080/bootui");
     }
 
     @Test
     void includesCustomRootPath() {
-        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(8080, "/app"))
+        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(8080, "/app", "/bootui"))
                 .isEqualTo("http://localhost:8080/app/bootui");
     }
 
     @Test
     void stripsTrailingSlashFromRootPath() {
-        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(8081, "/app/"))
+        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(8081, "/app/", "/bootui"))
                 .isEqualTo("http://localhost:8081/app/bootui");
     }
 
     @Test
     void treatsBlankRootPathAsRoot() {
-        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(9000, "")).isEqualTo("http://localhost:9000/bootui");
+        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(9000, "", "/bootui"))
+                .isEqualTo("http://localhost:9000/bootui");
     }
 
     @Test
     void reflectsTheLiveBoundPort() {
-        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(58460, "/")).isEqualTo("http://localhost:58460/bootui");
+        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(58460, "/", "/bootui"))
+                .isEqualTo("http://localhost:58460/bootui");
+    }
+
+    @Test
+    void usesConfiguredPathInsteadOfDefault() {
+        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(8080, "/", "/my-console"))
+                .isEqualTo("http://localhost:8080/my-console");
+    }
+
+    @Test
+    void combinesCustomRootPathAndConfiguredBootuiPath() {
+        assertThat(BootUiQuarkusStartupBanner.buildStartupUrl(8080, "/app", "/console"))
+                .isEqualTo("http://localhost:8080/app/console");
     }
 
     @Test

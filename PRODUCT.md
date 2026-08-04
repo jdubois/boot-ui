@@ -1,8 +1,10 @@
 # Product
 
-## Register
+<!-- impeccable:product-schema 1 -->
 
-product
+## Platform
+
+web
 
 ## Users
 
@@ -39,7 +41,40 @@ Success looks like: a developer opens `/bootui`, and within a couple of minutes 
 profiles, wiring, config, health, and risks well enough to act — without leaving their normal workflow, and
 without BootUI ever leaking a secret, calling the network unprompted, or staying enabled in production.
 
-## Brand Personality
+## Positioning
+
+BootUI is the embedded explanation layer for a single running Spring Boot or Quarkus application. Unlike a hosted
+dashboard, standalone admin server, production APM, or raw framework endpoint, it runs inside the application and
+turns live runtime data into one shared, framework-neutral console and `/bootui/api/**` contract. Its meaningful
+difference is the combination of local runtime introspection, actionable advisor guidance, and explicit safety
+boundaries in the developer's existing inner loop.
+
+## Operating Context
+
+- The developer already has one application running locally and opens `/bootui` in a browser while debugging,
+  configuring, reviewing, or learning that application.
+- BootUI is added as the matching Spring Boot starter or Quarkus extension and is expected to remain dormant outside
+  development contexts.
+- The console sits beside the developer's editor, terminal, build tool, application logs, and local dependencies; it
+  should answer a focused runtime question without forcing a workflow change.
+- AI coding agents are optional participants through the local, opt-in MCP server. They consume the same structured,
+  masked diagnostics and advisor results as the browser UI.
+
+## Capabilities and Constraints
+
+- Supports Spring Boot 4 servlet and WebFlux applications and Quarkus applications from one codebase.
+- Serves one Vue UI and one `/bootui/api/**` JSON contract through a framework-neutral engine and thin framework
+  adapters.
+- Provides runtime inspection, diagnostics, configuration visibility, and on-demand advisors; it is not a hosted
+  dashboard, production monitoring system, or general-purpose APM.
+- Operates local-first and fails closed: ambiguous activation leaves BootUI disabled, surfaced values are secret-masked,
+  and production contexts stay dark unless the operator explicitly overrides the default.
+- Never performs a network call, scan, mutation, or destructive action merely because a panel rendered. External and
+  state-changing work requires an explicit user action.
+
+## Brand Commitments
+
+### Personality
 
 **Polished, modern, confident.** BootUI is a craft demonstration: a tool that advises Spring and Quarkus developers on
 architecture, security, and performance has to *look* like it was built by someone who holds those standards. It
@@ -54,7 +89,7 @@ application developer's world — calm, precise, and quietly authoritative.
   is a safe, careful guest in their process — confident enough to rely on, restrained enough to disappear into
   the task.
 
-## Anti-references
+### Anti-references
 
 - **Generic Bootstrap admin templates (AdminLTE, SB Admin, "Bootstrap dashboard" kits).** This is the primary
   thing to steer away from — and the sharpest constraint, because BootUI is itself built on **Bootstrap 5.3**.
@@ -67,7 +102,19 @@ application developer's world — calm, precise, and quietly authoritative.
 - **AI SaaS slop** — gradient hero + identical icon-card grids + cream/sand backgrounds + per-section uppercase
   eyebrows. The tool should never read as template-generated.
 
-## Design Principles
+## Evidence on Hand
+
+- `docs/SPECIFICATION.md` is the authoritative product scope, goals, safety model, and runtime contract.
+- `docs/FEATURES.md`, `docs/SETUP.md`, and the platform support documents record shipped behavior and current framework
+  coverage.
+- `bootui-spring-sample-app` and `bootui-quarkus-sample-app` are runnable demonstrations of the embedded-console
+  workflow.
+- `bootui-conformance` and the Playwright suites provide executable evidence for the shared API and browser behavior.
+- `docs/images/bootui-*.webp` contains the maintained panel imagery used by the public documentation.
+- The repository does not establish customer testimonials, adoption metrics, or comparative performance benchmarks;
+  future product work must not fabricate them.
+
+## Product Principles
 
 1. **Practice what you preach.** BootUI critiques other people's apps for quality; its own UI is the proof. Every
    panel is held to the standard the advisors recommend — accessible, consistent, intentional.

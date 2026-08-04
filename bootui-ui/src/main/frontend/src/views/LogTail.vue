@@ -1,6 +1,7 @@
 <script setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {formatClockTime} from '../utils/format.js'
+import {resolveBootUiApiUrl} from '../utils/bootUiPath.js'
 
 const MAX_LINES = 2000
 
@@ -54,7 +55,7 @@ const statusClass = computed(
 function connect() {
   disconnect(false)
   status.value = 'Disconnected'
-  eventSource = new EventSource('api/log-tail/stream')
+  eventSource = new EventSource(resolveBootUiApiUrl('api/log-tail/stream'))
   eventSource.onopen = () => {
     status.value = 'Connected'
   }

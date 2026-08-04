@@ -1,6 +1,7 @@
 <script setup>
 import {computed} from 'vue'
 import {useCopyToClipboard} from '../../utils/useCopyToClipboard'
+import {getBootUiApiPath} from '../../utils/bootUiPath'
 
 const props = defineProps({
   platform: {type: String, default: 'spring-boot'}
@@ -20,7 +21,7 @@ const instrumentation = `<dependency>
   <artifactId>langchain4j-observability-opentelemetry</artifactId>
 </dependency>`
 
-const otlpEndpoint = `/bootui/api/otlp/v1/traces`
+const otlpEndpoint = computed(() => getBootUiApiPath() + '/otlp/v1/traces')
 
 const quarkusDependency = `<dependency>
   <groupId>io.quarkiverse.langchain4j</groupId>

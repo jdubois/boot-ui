@@ -3,6 +3,7 @@ import {computed, onMounted, ref} from 'vue'
 import {apiFetch, getJson} from '../api.js'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
+import {resolveBootUiApiUrl} from '../utils/bootUiPath.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
@@ -452,7 +453,11 @@ onMounted(loadReport)
               <div :class="['accordion-collapse collapse', {show: openArtifact === 'dockerfile'}]">
                 <div class="accordion-body">
                   <div class="d-flex gap-2 mb-3">
-                    <a class="btn btn-outline-primary btn-sm" download="Dockerfile-crac" href="api/crac/dockerfile">
+                    <a
+                      :href="resolveBootUiApiUrl('api/crac/dockerfile')"
+                      class="btn btn-outline-primary btn-sm"
+                      download="Dockerfile-crac"
+                    >
                       <i class="bi bi-download me-1"></i>Download
                     </a>
                     <SpinnerButton
@@ -513,7 +518,7 @@ onMounted(loadReport)
                     <a
                       class="btn btn-outline-primary btn-sm"
                       download="checkpoint-and-run.sh"
-                      href="api/crac/entrypoint"
+                      :href="resolveBootUiApiUrl('api/crac/entrypoint')"
                     >
                       <i class="bi bi-download me-1"></i>Download
                     </a>

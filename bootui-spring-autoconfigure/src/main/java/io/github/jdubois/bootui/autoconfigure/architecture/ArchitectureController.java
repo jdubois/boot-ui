@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
  * curated ArchUnit ruleset against the host application classes and caches the result.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/architecture")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/architecture")
 public class ArchitectureController {
 
     private final ArchitectureScanner scanner;

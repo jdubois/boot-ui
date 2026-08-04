@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  * action.
  */
 @RestController
-@RequestMapping("/bootui/api/mcp-server")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/mcp-server")
 public class McpServerController {
 
     private final McpServerState state;
@@ -66,7 +66,7 @@ public class McpServerController {
                 BootUiMcpService.SERVER_NAME,
                 serverVersion(),
                 "http",
-                "/bootui/api/mcp",
+                properties.getApiPath() + "/mcp",
                 BootUiMcpService.DEFAULT_PROTOCOL_VERSION,
                 Math.max(1, properties.getMcp().getMaxResults()),
                 toolInfos.size(),

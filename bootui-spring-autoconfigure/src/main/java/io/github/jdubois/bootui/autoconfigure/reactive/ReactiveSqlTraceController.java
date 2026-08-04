@@ -25,7 +25,7 @@ import reactor.core.publisher.Flux;
  * endpoint rebuilt on {@link ReactiveBootUiChangeStream} instead of a servlet {@code SseEmitter}.
  */
 @RestController
-@RequestMapping("/bootui/api/sql-trace")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/sql-trace")
 public class ReactiveSqlTraceController {
 
     private final ObjectProvider<SqlTraceRecorder> recorderProvider;

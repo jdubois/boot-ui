@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @ConditionalOnClass(CacheManager.class)
-@RequestMapping("/bootui/api/cache")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/cache")
 public class SpringCacheController {
 
     private final CacheService service;

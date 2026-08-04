@@ -36,7 +36,7 @@ import reactor.core.publisher.Flux;
  * (the reactive twin of {@code BootUiExceptionHandlerResolver}).
  */
 @RestController
-@RequestMapping("/bootui/api/exceptions")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/exceptions")
 public class ReactiveExceptionsController {
 
     private final ObjectProvider<ExceptionStore> storeProvider;

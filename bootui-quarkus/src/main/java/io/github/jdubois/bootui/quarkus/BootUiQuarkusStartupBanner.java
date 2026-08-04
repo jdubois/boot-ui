@@ -18,11 +18,11 @@ import org.jboss.logging.Logger;
  * {@code bootui.show-banner} (default {@code true}), the same key the Spring adapter honors.
  *
  * <p><strong>URL assumptions.</strong> The console is a local developer tool, so the banner always builds an
- * {@code http://localhost:<port><root-path>/bootui} URL: the scheme is plain {@code http} (Quarkus has no single
+ * {@code http://localhost:<port><root-path><bootui.path>} URL: the scheme is plain {@code http} (Quarkus has no single
  * SSL-enabled flag analogous to Spring's {@code server.ssl.enabled}, and TLS-only dev is rare), the port is the
  * live bound HTTP port resolved by {@link QuarkusServerPortSupplier} (launch-mode aware), and the path includes
- * {@code quarkus.http.root-path} plus the fixed {@code /bootui} mount (unlike Spring, {@code bootui.path} does not
- * relocate the Quarkus UI). Quarkus also logs its own authoritative {@code "Listening on:"} line, so this banner is
+ * {@code quarkus.http.root-path} plus the normalized {@code bootui.path}. Quarkus also logs its own authoritative
+ * {@code "Listening on:"} line, so this banner is
  * a best-effort convenience. With a randomly assigned port ({@code quarkus.http.port=0}) the value is read after the
  * bind, so it is normally already resolved by {@link StartupEvent}.
  */
@@ -31,7 +31,8 @@ public class BootUiQuarkusStartupBanner {
 
     static final String SHOW_BANNER_KEY = "bootui.show-banner";
     static final String ROOT_PATH_KEY = "quarkus.http.root-path";
-    static final String BASE_PATH = "/bootui";
+    static final String BASE_PATH_KEY = "bootui.path";
+    static final String DEFAULT_BASE_PATH = "/bootui";
 
     private static final Logger LOG = Logger.getLogger(BootUiQuarkusStartupBanner.class);
 
@@ -48,8 +49,12 @@ public class BootUiQuarkusStartupBanner {
     }
 
     void onStart(@Observes StartupEvent event) {
+        QuarkusBootUiPaths.validate(config);
+        String bootUiPath = QuarkusBootUiPaths.uiPath(config);
         if (showBanner(config)) {
-            LOG.infof("BootUI is available at %s", buildStartupUrl(portSupplier.localServerPort(), rootPath()));
+            LOG.infof(
+                    "BootUI is available at %s",
+                    buildStartupUrl(portSupplier.localServerPort(), rootPath(), bootUiPath));
         }
         if (authenticator.generated() && remoteAccessConfigured()) {
             LOG.infof("BootUI bearer token for non-local API access: %s", authenticator.token());
@@ -82,13 +87,13 @@ public class BootUiQuarkusStartupBanner {
     }
 
     /**
-     * Builds {@code http://localhost:<port><normalized-root>/bootui}. The root path is normalized so a default
+     * Builds {@code http://localhost:<port><normalized-root><bootui-path>}. The root path is normalized so a default
      * {@code "/"} (or blank) contributes nothing and any custom root is rendered without a trailing slash — e.g.
      * {@code "/"} → {@code http://localhost:8080/bootui}, {@code "/app"} or {@code "/app/"} →
      * {@code http://localhost:8080/app/bootui}.
      */
-    static String buildStartupUrl(int port, String rootPath) {
-        return "http://localhost:" + port + normalizeRootPath(rootPath) + BASE_PATH;
+    static String buildStartupUrl(int port, String rootPath, String bootUiPath) {
+        return "http://localhost:" + port + normalizeRootPath(rootPath) + bootUiPath;
     }
 
     private static String normalizeRootPath(String rootPath) {

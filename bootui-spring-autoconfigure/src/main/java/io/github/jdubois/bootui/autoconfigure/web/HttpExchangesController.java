@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  * paging to the shared {@link HttpExchangesService} so the wire is identical to the Quarkus adapter.
  */
 @RestController
-@RequestMapping("/bootui/api/http-exchanges")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/http-exchanges")
 public class HttpExchangesController {
 
     private static final String UNAVAILABLE_REASON = "HTTP exchange repository not available";

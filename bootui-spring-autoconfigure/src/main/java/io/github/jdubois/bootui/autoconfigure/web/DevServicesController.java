@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * launched by Spring Boot during startup.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/dev-services")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/dev-services")
 public class DevServicesController implements ApplicationListener<ApplicationEvent> {
 
     private final DevServicesService service;

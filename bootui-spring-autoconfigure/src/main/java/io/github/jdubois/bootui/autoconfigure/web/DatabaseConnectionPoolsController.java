@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @ConditionalOnClass(HikariDataSource.class)
-@RequestMapping("/bootui/api/database-connection-pools")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/database-connection-pools")
 public class DatabaseConnectionPoolsController {
 
     private final ConnectionPoolService service;

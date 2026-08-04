@@ -38,7 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
  * exploded-build constraint; {@code POST /install/all} writes both artifacts in a single action.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/graalvm")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/graalvm")
 public class GraalVmController {
 
     private final GraalVmReadinessScanner scanner;

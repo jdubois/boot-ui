@@ -1,4 +1,5 @@
 <script setup>
+import {apiFetch} from './api.js'
 import {computed, onBeforeUnmount, onMounted, provide, reactive, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import {
@@ -260,13 +261,13 @@ const activeNavigationGroupKey = computed(() => {
 })
 
 async function loadOverview() {
-  const res = await fetch('api/overview')
+  const res = await apiFetch('api/overview')
   if (!res.ok) throw httpError(res.status)
   overview.value = await res.json()
 }
 
 async function loadPanels() {
-  const res = await fetch('api/panels')
+  const res = await apiFetch('api/panels')
   if (!res.ok) throw httpError(res.status)
   panels.value = await res.json()
 }
@@ -309,7 +310,7 @@ async function authenticate() {
   authenticating.value = true
   authenticationError.value = null
   try {
-    const response = await fetch('api/auth/session', {
+    const response = await apiFetch('api/auth/session', {
       method: 'POST',
       headers: {Authorization: `${bearerScheme} ${authenticationToken.value}`}
     })

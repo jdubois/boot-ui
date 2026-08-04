@@ -72,6 +72,29 @@ class ReactiveApiAuthenticationFilterTests {
     }
 
     @Test
+    void sessionCookieIncludesTheWebFluxContextAndConfiguredApiPath() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.setPath("/console");
+        properties.setApiPath("/internal/bootui-api");
+        ReactiveApiAuthenticationFilter customFilter = new ReactiveApiAuthenticationFilter(
+                properties, new ApiTokenAuthenticator(TOKEN), new ReactiveLocalhostOnlyFilter(properties));
+        MockServerHttpRequest request = MockServerHttpRequest.post("/host/internal/bootui-api/auth/session")
+                .contextPath("/host")
+                .remoteAddress(new InetSocketAddress("10.0.0.5", 12345))
+                .header("Authorization", "Bearer " + TOKEN)
+                .build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+
+        customFilter.filter(exchange, OK_CHAIN).block(Duration.ofSeconds(5));
+
+        assertThat(exchange.getResponse()
+                        .getCookies()
+                        .getFirst("BOOTUI_SESSION")
+                        .getPath())
+                .isEqualTo("/host/internal/bootui-api");
+    }
+
+    @Test
     void sourcesTrustedViaTrustedProxiesDoNotRequireAuthentication() {
         BootUiProperties properties = new BootUiProperties();
         properties.setTrustedProxies(new String[] {"10.0.0.0/24"});

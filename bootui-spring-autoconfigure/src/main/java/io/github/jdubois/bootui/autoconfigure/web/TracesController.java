@@ -23,7 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
  * {@link TracesService} in {@code bootui-engine}.
  */
 @RestController
-@RequestMapping("/bootui/api/traces")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/traces")
 public class TracesController {
 
     private final TracesService service;

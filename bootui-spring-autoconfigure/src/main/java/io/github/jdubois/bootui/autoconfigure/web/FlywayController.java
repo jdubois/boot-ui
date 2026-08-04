@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @ConditionalOnClass(Flyway.class)
-@RequestMapping("/bootui/api/flyway")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/flyway")
 public class FlywayController {
 
     private final FlywayService flywayService;

@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * They are never sent to any external service.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/dismissed-rules")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/dismissed-rules")
 public class DismissedRulesController {
 
     private final DismissedRulesStore store;

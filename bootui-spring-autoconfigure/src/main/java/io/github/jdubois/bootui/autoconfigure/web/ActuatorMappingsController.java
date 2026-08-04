@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * its types are therefore never linked in an Actuator-absent application.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/mappings")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/mappings")
 public class ActuatorMappingsController {
 
     private final ObjectProvider<MappingsEndpoint> endpoint;

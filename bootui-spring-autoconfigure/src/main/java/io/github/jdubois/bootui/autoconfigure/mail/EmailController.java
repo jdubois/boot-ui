@@ -34,7 +34,7 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @RestController
 @ConditionalOnClass(name = "org.springframework.mail.javamail.JavaMailSender")
-@RequestMapping("/bootui/api/email")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/email")
 public class EmailController {
 
     private final ObjectProvider<EmailCaptureService> captureServiceProvider;

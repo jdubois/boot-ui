@@ -24,7 +24,7 @@ import reactor.core.publisher.Flux;
  * log line - the browser has no other endpoint to re-fetch full log content from.
  */
 @RestController
-@RequestMapping("/bootui/api/log-tail")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/log-tail")
 @ConditionalOnClass(name = "ch.qos.logback.classic.LoggerContext")
 public class ReactiveLogTailController {
 

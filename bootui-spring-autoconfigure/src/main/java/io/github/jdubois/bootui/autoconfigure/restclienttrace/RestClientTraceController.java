@@ -26,10 +26,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * {@link RestClientTraceRecorder#report(boolean, io.github.jdubois.bootui.core.ValueExposure)}).</p>
  */
 @RestController
-@RequestMapping("/bootui/api/rest-client-trace")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/rest-client-trace")
 public class RestClientTraceController {
-
-    private static final String NOT_CONFIGURED = "REST client tracing is not configured";
 
     private final ObjectProvider<RestClientTraceRecorder> recorderProvider;
     private final BootUiExposure exposure;
@@ -64,32 +62,17 @@ public class RestClientTraceController {
 
     @GetMapping
     public RestClientTraceReport trace() {
-        RestClientTraceRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null) {
-            return RestClientTraceReport.unavailable(NOT_CONFIGURED);
-        }
-        return report(recorder);
+        return RestClientTraceControllerSupport.trace(recorderProvider, exposure);
     }
 
     @PostMapping("/clear")
     public RestClientTraceReport clear() {
-        RestClientTraceRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null) {
-            return RestClientTraceReport.unavailable(NOT_CONFIGURED);
-        }
-        recorder.clear();
-        return report(recorder);
+        return RestClientTraceControllerSupport.clear(recorderProvider, exposure);
     }
 
     @PostMapping("/recording")
     public RestClientTraceReport recording(@RequestBody(required = false) RestClientTraceRecordingRequest request) {
-        RestClientTraceRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null) {
-            return RestClientTraceReport.unavailable(NOT_CONFIGURED);
-        }
-        boolean enabled = (request == null || request.enabled() == null) ? !recorder.isRecording() : request.enabled();
-        recorder.setRecording(enabled);
-        return report(recorder);
+        return RestClientTraceControllerSupport.recording(recorderProvider, exposure, request);
     }
 
     /**
@@ -99,20 +82,5 @@ public class RestClientTraceController {
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream() {
         return changeStream.open();
-    }
-
-    private RestClientTraceReport report(RestClientTraceRecorder recorder) {
-        if (!recorder.hasInstrumentedClient()) {
-            return RestClientTraceReport.unavailable(unavailableReason(recorder));
-        }
-        return recorder.report(exposure.maskSecrets(), exposure.valueExposure());
-    }
-
-    private String unavailableReason(RestClientTraceRecorder recorder) {
-        if (!recorder.isEnabled()) {
-            return "REST client tracing is disabled (set bootui.rest-client-trace.enabled=true in a "
-                    + "trusted local profile).";
-        }
-        return "No RestClient, RestTemplate, or WebClient has been instrumented yet.";
     }
 }

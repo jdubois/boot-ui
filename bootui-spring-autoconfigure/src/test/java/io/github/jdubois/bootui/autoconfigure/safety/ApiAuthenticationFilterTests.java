@@ -61,6 +61,24 @@ class ApiAuthenticationFilterTests {
     }
 
     @Test
+    void sessionCookieIncludesTheServletContextAndConfiguredApiPath() throws Exception {
+        BootUiProperties properties = new BootUiProperties();
+        properties.setPath("/console");
+        properties.setApiPath("/internal/bootui-api");
+        ApiAuthenticationFilter customFilter = new ApiAuthenticationFilter(
+                properties, new ApiTokenAuthenticator(TOKEN), new LocalhostOnlyFilter(properties));
+        MockHttpServletRequest request = request("POST", "/host/internal/bootui-api/auth/session", "10.0.0.5");
+        request.setContextPath("/host");
+        request.addHeader("Authorization", "Bearer " + TOKEN);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        customFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getHeader("Set-Cookie"))
+                .isEqualTo("BOOTUI_SESSION=test-token; Path=/host/internal/bootui-api; HttpOnly; SameSite=Strict");
+    }
+
+    @Test
     void staticUiAndApplicationRequestsAreNotAuthenticated() throws Exception {
         assertThat(filter(request("GET", "/bootui/index.html", "10.0.0.5")).getStatus())
                 .isEqualTo(200);

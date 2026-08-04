@@ -4,20 +4,20 @@
 
 Support Spring WebFlux (reactive, Netty/`DispatcherHandler`) Spring Boot 4 applications as a first-class BootUI
 target alongside the existing Spring MVC (servlet) adapter and the Quarkus adapter: the same shared engine
-(`bootui-engine`/`bootui-core`), the same Vue UI, the same `/bootui/api/**` contract, panel parity wherever a
+(`bootui-engine`/`bootui-core`), the same Vue UI, the same JSON contract (`/bootui/api/**` by default), panel parity wherever a
 reactive analog genuinely exists, and an honest "not yet ported" / "not applicable" status where it doesn't.
 
 ## 2. Current status
 
 The WebFlux adapter serves the large majority of the panel surface — the same 50-panel manifest the servlet adapter
-reports, minus the four panels that stay unavailable for stack reasons described below. **Every action-capable panel
+reports, minus the two panels that stay unavailable for stack reasons described below. **Every action-capable panel
 that is available behaves identically to the servlet adapter**, behind the same shared `LocalhostGuard` write floor:
 Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Heap Dump
-(capture/analyze/delete/download), Threads (download), Traces (clear), SQL Trace (toggle recording/clear), the
-advisor scans (Architecture, Spring, Hibernate, Pentesting, REST API, Memory, Vulnerabilities/OSV), and Exceptions
-triage.
+(capture/analyze/delete/download), Threads (download), Traces (clear), SQL Trace (toggle recording/clear),
+REST Client (clear/toggle recording), the advisor scans (Architecture, Spring, Hibernate, Pentesting, REST API,
+Memory, Vulnerabilities/OSV), and Exceptions triage.
 
-Only **HTTP Sessions**, the **Security advisor**, and the standalone **REST Client** panel stay
+Only **HTTP Sessions** and the **Security advisor** stay
 unavailable, each with a panel-specific reason surfaced through the `/bootui/api/panels` manifest
 (and, in turn, the sidebar tooltip and the panel's own alert banner — see §5).
 `docs/FEATURES.md` and the per-panel `unavailableReason` strings in `PanelsController` are the authoritative, current
@@ -73,6 +73,12 @@ both, so exactly one of the two autoconfigurations activates.
   `HttpServletRequest`/`HttpServletResponse`) differs.
 - **Same per-panel gating.** `ReactivePanelAccessFilter` enforces `bootui.panels.*` (enable/read-only) via the same
   `BootUiPanels` registry the servlet `PanelAccessFilter` uses — same config keys, same canonical JSON 403 body.
+- **Same configurable path contract.** `bootui.path` moves the shell, assets, APIs, streams, downloads, and action
+  endpoints together; `bootui.api-path` can override the derived `<bootui.path>/api` mount independently. Both compose
+  with `spring.webflux.base-path` exactly once. A dedicated WebFlux static-resource handler serves the configured mount,
+  while an earlier blocker prevents the packaged `/bootui/**` resources from leaking as a legacy alias. The generated
+  shell injects the browser-visible UI/API paths for the shared SPA, and the authentication cookie is scoped to the
+  composed API path.
 - **Same platform-aware manifest mechanism the Quarkus adapter established.** `PanelsController` — a single shared
   bean bulk-imported unmodified by both autoconfigurations — detects the running context type
   (`applicationContext instanceof ReactiveWebApplicationContext`) and reports `platform:
@@ -114,10 +120,10 @@ work identically to the servlet adapter with zero adapter changes, the same as E
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
 | HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies Actuator's reactive `HttpExchangeRepository` bean instead of the servlet one — same DTO, same UI, same capture semantics |
 
-### 6.3 Rebuilt with a new reactive capture layer (6 panels)
+### 6.3 Rebuilt with a new reactive capture layer (7 panels)
 
 The DTO and UI are reused unchanged; only the capture/streaming source was rewritten because the servlet original
-depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions) or `HandlerExceptionResolver` (Exceptions):
+depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST Client) or `HandlerExceptionResolver` (Exceptions):
 
 | Panel         | Reactive source                                                                                                                                                                        |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -127,6 +133,7 @@ depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions) or `Ha
 | Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below |
 | Copilot       | `ReactiveCopilotController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`                     |
 | Claude Code   | `ReactiveClaudeCodeController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`                  |
+| REST Client   | `ReactiveRestClientTraceController` — same `RestClientTraceRecorder` engine, SSE via `ReactiveBootUiChangeStream`. Availability is gated on `RestClientTraceRecorder#hasInstrumentedClient()` (a `WebClient.Builder` auto-configured with the BootUI customizer must have been built); the `RestClient`/`RestTemplate` interceptors are not linked on a WebFlux-only classpath (their `@ConditionalOnClass` gate requires `spring-boot-restclient`), so the recorder only sees `WebClient` customization on this stack, which is the correct signal. |
 
 **`ReactiveBootUiChangeStream`** is a small shared `Sinks.Many`-backed SSE broadcaster (`open()` /
 `signal()` / `close()`) used by every "push an update when something changes" panel above, instead of each controller
@@ -152,8 +159,8 @@ capture wiring (`BootUiEngineConfiguration`) is gated purely on classpath/bean p
 `EmailCaptureService`/`EmailController` the §6.1 Email panel exposes; Kafka messaging is read from
 `KafkaActivityRecorder` (fed by the same `KafkaTemplate`/`@KafkaListener` `BeanPostProcessor` wrapping used on the
 servlet adapter, which has no servlet-specific dependency); and REST/WebClient calls are read from the same
-`RestClientTraceRecorder` fed by `BootUiEngineConfiguration`'s `WebClientCustomizer` (see §6.5 — capture is active
-here even though the *standalone* REST Client panel is not). The servlet adapter's `LiveActivityController`
+`RestClientTraceRecorder` fed by `BootUiEngineConfiguration`'s `WebClientCustomizer` (capture is active on both
+stacks — the standalone panel is now also wired reactively, see §6.3). The servlet adapter's `LiveActivityController`
 additionally depends on two things with no reactive equivalent: a `ServletRequestHandledEvent` listener, which exists
 purely as an SSE-refresh trigger (not a data source), and a thread-based `LiveActivityCorrelator` that stitches a
 request to its downstream activity via serving-thread identity — meaningless on Reactor Netty, where a request is
@@ -245,12 +252,11 @@ collection, chain match, and authorization simulation remains a Reactor `Mono`/`
 - The WebFlux sample app (`bootui-spring-webflux-sample-app`) includes `spring-boot-starter-security` to demonstrate the
   integration end to end.
 
-### 6.6 Not yet ported (2 panels)
+### 6.6 Not yet ported (1 panel)
 
 | Panel          | Reason                                                                                                                                                                                        |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Security advisor (`security`, grouped under Advisors — distinct from the raw Spring Security panel above, grouped under Security) | *"Security Advisor is only available on the Spring MVC (servlet) adapter."* — it stays unavailable on WebFlux because its rules inspect servlet `SecurityFilterChain` configuration. A reactive ruleset for this advisor is a genuinely new advisor (comparable in scope to the from-scratch Quarkus Security ruleset), deliberately deferred to a follow-up. |
-| REST Client       | *"REST Client is only available on the Spring MVC (servlet) adapter."* — the panel's availability check in `PanelsController` requires `!isReactive()`, so the dedicated full-detail panel (with its own filtering/paging over every captured call) is not wired into `BootUiReactiveAutoConfiguration` regardless of client instrumentation. On the servlet adapter, availability additionally requires `RestClientTraceRecorder#hasInstrumentedClient()` (see `docs/FEATURES.md`), so an MVC app that never builds a `RestClient`/`RestTemplate`/`WebClient` also reports unavailable rather than an empty buffer — the pre-existing bean-presence check alone wasn't a useful signal, since the recorder bean is registered unconditionally on both adapters. **Capture itself is not stack-gated**, though: `BootUiEngineConfiguration`'s `WebClientCustomizer` attaches `RestClientTraceExchangeFilter` to every auto-configured `WebClient.Builder` regardless of web application type, so REST/WebClient calls are still captured into the shared `RestClientTraceRecorder` and still appear as `REST_CLIENT` entries in the Live Activity merge (§6.4) on WebFlux — only the standalone panel is unavailable. |
 
 ### 6.7 Not applicable (1 panel)
 
@@ -315,6 +321,10 @@ directly rather than through a real multi-scheduler Reactor pipeline.
   that `http-sessions` shows its WebFlux-specific reason in both the sidebar and the panel alert (the `security`
   advisor's equivalent reason is covered at the unit level by `PanelsControllerTests`, not re-asserted in e2e).
 - Run it: see the "WebFlux (reactive) smoke suite" section of `bootui-spring-sample-app/e2e/README.md`.
+- **`playwright.custom-path.config.js`** runs one shared browser contract against both MVC and WebFlux with a non-default
+  application root, UI path, and independently configured API path. It proves the shell metadata, assets, manifest,
+  API fetches, SSE, CSRF enforcement, MCP controls, servlet OTLP receiver, and 404 behavior of the old `/bootui` mount
+  in a real browser.
 - **`Dockerfile-webflux`** (repository root) is the reactive analogue of the plain servlet `Dockerfile`: the same
   exploded-jar-layers + jlink + distroless-glibc recipe, pointed at `bootui-spring-webflux-sample-app` instead of
   `bootui-spring-sample-app`, keeping the sample app's own `server.port=8081` default in the container too — the same

@@ -3,6 +3,7 @@ import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {apiFetch, getJson} from '../api.js'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
+import {resolveBootUiApiUrl} from '../utils/bootUiPath.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
@@ -560,7 +561,7 @@ onBeforeUnmount(stopProgressPolling)
                         v-if="canDownloadMetadata"
                         class="btn btn-outline-primary btn-sm"
                         download="reachability-metadata.json"
-                        href="api/graalvm/metadata"
+                        :href="resolveBootUiApiUrl('api/graalvm/metadata')"
                       >
                         <i class="bi bi-download me-1"></i>Download
                       </a>
@@ -629,7 +630,7 @@ onBeforeUnmount(stopProgressPolling)
                         v-if="hasScanData"
                         class="btn btn-outline-primary btn-sm"
                         download="Dockerfile-native"
-                        href="api/graalvm/dockerfile"
+                        :href="resolveBootUiApiUrl('api/graalvm/dockerfile')"
                       >
                         <i class="bi bi-download me-1"></i>Download
                       </a>

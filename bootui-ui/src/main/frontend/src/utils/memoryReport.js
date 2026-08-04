@@ -1,4 +1,5 @@
 import {onBeforeUnmount, ref, watch} from 'vue'
+import {resolveBootUiApiUrl} from './bootUiPath.js'
 import {formatLoadError} from './loadError.js'
 import {useAutoRefresh} from './useAutoRefresh.js'
 
@@ -56,7 +57,7 @@ export function useMemoryReport({endpoint = 'api/live-memory', tuningInputs = fa
 
   async function fetchMemory() {
     try {
-      const res = await fetch(endpoint + buildQuery())
+      const res = await fetch(resolveBootUiApiUrl(endpoint + buildQuery()))
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const payload = await res.json()
       data.value = payload

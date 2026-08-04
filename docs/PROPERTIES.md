@@ -85,8 +85,8 @@ settings" below.
 | `bootui.enabled-profiles`        | `dev,local`                             | Profiles that activate BootUI when `bootui.enabled=AUTO`.                                                                       |
 | `bootui.disabled-profiles`       | `prod,production`                       | Profiles that force BootUI off unless `bootui.enabled=ON`.                                                                      |
 | `bootui.force-web`               | `true`                                  | While BootUI is active, force a non-web (command-line) application into a servlet web application so the console can be served. No effect on apps that are already servlet web apps or explicitly reactive. Set to `false` to leave the host's web-application type untouched. |
-| `bootui.path`                    | `/bootui`                               | UI base path. `/bootui` is the supported route.                                                                                 |
-| `bootui.api-path`                | `/bootui/api`                           | Internal API base path used by the UI and safety filters.                                                                       |
+| `bootui.path`                    | `/bootui`                               | Application-relative UI base path used by the shell, assets, filters, and startup banner. Normalized and validated as described below. |
+| `bootui.api-path`                | `<bootui.path>/api`                     | Optional application-relative API base path used by the UI, controllers, filters, MCP, OTLP, streams, and downloads.             |
 | `bootui.allow-non-localhost`     | `false`                                 | Explicitly opt out of loopback-only protection. Keep this `false` unless the local network is trusted.                          |
 | `bootui.allowed-hosts`           | _(empty)_                               | Extra `Host` header values accepted by the loopback filter, in addition to the built-in loopback names (`localhost`, `127.0.0.1`, `::1`). Use this for custom local hostnames while keeping DNS-rebinding protection. |
 | `bootui.authentication.token`    | _(generated)_                           | Access token required for every non-loopback `/bootui/api/**` request. When remote access is configured and this property is blank, BootUI generates a 256-bit token and logs it once at startup. Supply a stable token through an environment-backed property when logs are shared; configured tokens are never printed. |
@@ -105,16 +105,48 @@ settings" below.
 
 ### Remote API authentication
 
-The static `/bootui/**` SPA remains available after non-loopback access is explicitly enabled, but
-the `/bootui/api/**` surface requires authentication for every caller whose raw TCP peer is not
+The configured static SPA remains available after non-loopback access is explicitly enabled, but
+the configured API surface requires authentication for every caller whose raw TCP peer is not
 loopback. Paste the startup token into the unlock screen; BootUI exchanges it for an HTTP-only,
-`SameSite=Strict` session cookie scoped to `/bootui/api`, which also authenticates SSE streams and
+`SameSite=Strict` session cookie scoped to the browser-visible API path (including the host application's context/root
+path), which also authenticates SSE streams and
 downloads. CLI, MCP, and OTLP clients should send the token using the standard HTTP bearer authorization scheme.
 
 Localhost requests remain frictionless and do not require a token. Authentication is an additional
 layer: activation, source trust, Host validation, cross-site-write protection, panel access, and
 read-only checks still apply. Use HTTPS for direct remote access because bearer credentials sent over
 plain HTTP can be intercepted.
+
+### Custom UI and API paths
+
+`bootui.path` is configurable on Spring MVC, Spring WebFlux, and Quarkus. `/bootui` remains the exact
+backward-compatible default. When only the UI path is set, the API path is derived after normalization:
+
+```properties
+bootui.path=/dev-console/
+# Effective API path: /dev-console/api
+```
+
+Use `bootui.api-path` only when the API must live elsewhere:
+
+```properties
+bootui.path=/dev-console
+bootui.api-path=/internal/bootui-api
+```
+
+Both values are relative to the application root. `server.servlet.context-path`, `spring.webflux.base-path`, or
+`quarkus.http.root-path` is prepended automatically and exactly once. Do not include that framework root in the
+`bootui.*` values.
+
+BootUI trims surrounding whitespace and trailing slashes. It rejects blank or root paths, `.` / `..` path segments,
+duplicate interior slashes, query/fragment content, percent encoding, backslashes, routing metacharacters, and any
+character outside RFC 3986's unreserved path-segment set. Invalid active configuration fails startup with the property
+name in the error. The UI path also cannot be nested below `/bootui/**`, which is reserved for Quarkus' private internal
+classpath mount; the exact `/bootui` default is valid, and the API default `/bootui/api` remains valid.
+
+With a custom UI path, the old packaged `/bootui` mount is answered with 404 rather than retained as a compatibility
+alias. The generated SPA shell receives the fully composed UI/API locations at runtime, so assets, API calls, SSE,
+downloads, MCP configuration, and OTLP setup copy all follow the configured paths.
 
 ## Panel access settings
 
@@ -585,7 +617,8 @@ The Kafka panel is a dedicated, filterable view over the same producer/consumer 
 ### MCP server
 
 The MCP server exposes BootUI's advisors and read-only diagnostics to local AI agents (GitHub Copilot, Claude Code) over
-a loopback-only Model Context Protocol endpoint at `POST /bootui/api/mcp`. It is **off by default** and only ever active
+a loopback-only Model Context Protocol endpoint at `POST <bootui.api-path>/mcp` (default
+`POST /bootui/api/mcp`). It is **off by default** and only ever active
 while BootUI itself is active, so it is never reachable in production. Tools inherit the same safety model as the panels:
 read tools require the backing panel to be enabled, action (`*_scan`) tools are additionally refused when the panel is
 read-only, and all values flow through the same secret masking as the REST API.

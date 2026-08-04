@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @ConditionalOnClass(FilterChainProxy.class)
-@RequestMapping("/bootui/api/security")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/security")
 public class SecurityController {
 
     private final SecurityScanner scanner;

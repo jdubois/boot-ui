@@ -2,6 +2,7 @@
 import {apiFetch, getJson} from '../api.js'
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatClockTime, formatNumber} from '../utils/format.js'
+import {resolveBootUiApiUrl} from '../utils/bootUiPath.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
@@ -167,7 +168,7 @@ async function deleteDump(name) {
 }
 
 function downloadUrl(name) {
-  return `api/heap-dump/download?name=${encodeURIComponent(name)}`
+  return resolveBootUiApiUrl(`api/heap-dump/download?name=${encodeURIComponent(name)}`)
 }
 
 function showReadOnlyMessage() {

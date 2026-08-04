@@ -1,4 +1,5 @@
 import {computed, onBeforeUnmount, onMounted, ref, unref, watch} from 'vue'
+import {resolveBootUiApiUrl} from './bootUiPath.js'
 import {useRefreshState} from './useRefreshState.js'
 
 const INITIAL_BACKOFF_MS = 1_000
@@ -127,7 +128,6 @@ export function useEventStreamRefresh(
       connectionState.value = 'paused'
       return
     }
-
     retryCount++
     if (retryCount >= MAX_RETRIES) {
       connectionState.value = 'unavailable'
@@ -156,7 +156,7 @@ export function useEventStreamRefresh(
     /** @type {EventSource} */
     let source
     try {
-      source = new EventSource(streamUrl)
+      source = new EventSource(resolveBootUiApiUrl(streamUrl))
     } catch {
       handleConnectionError(null)
       return

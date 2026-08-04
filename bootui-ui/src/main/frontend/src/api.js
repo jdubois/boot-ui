@@ -1,3 +1,5 @@
+import {resolveBootUiApiUrl} from './utils/bootUiPath.js'
+
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
 /**
@@ -14,7 +16,7 @@ export async function apiFetch(input, init = {}) {
     if (!headers.has('X-XSRF-TOKEN')) {
       let token = csrfToken()
       if (!token) {
-        await fetch('api/overview', {cache: 'no-store'})
+        await fetch(resolveBootUiApiUrl('api/overview'), {cache: 'no-store'})
         token = csrfToken()
       }
       if (token) {
@@ -27,7 +29,7 @@ export async function apiFetch(input, init = {}) {
     }
   }
 
-  return fetch(input, options)
+  return fetch(resolveBootUiApiUrl(input), options)
 }
 
 /**

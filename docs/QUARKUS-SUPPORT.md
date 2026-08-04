@@ -17,7 +17,7 @@ Concretely:
 
 1. **One UI artifact.** `bootui-ui` (the Vue 3 SPA) is built once and served unchanged by both backends.
 2. **One data contract.** The immutable `record` DTOs in `bootui-core` are the contract; both backends emit identical
-   JSON at `/bootui/api/**`.
+   JSON at the configured API path (`/bootui/api/**` by default).
 3. **One engine.** Advisor rule engines, scanners, the OSV scanner, the OTLP/telemetry store, JVM/MXBean readers, the
    dependency catalog, secret masking, scoring, and the MCP server move into a shared, Spring-free engine module.
 4. **Thin per-framework adapters.** Spring and Quarkus each provide: a web binding (Spring MVC controllers vs JAX-RS /
@@ -26,8 +26,8 @@ Concretely:
 ### Non-goals
 
 - **Native-image BootUI.** BootUI is dev-only; Quarkus dev mode is always JVM mode (see §6), so native is out of scope.
-- **Integrating into Quarkus's built-in Dev UI** (`/q/dev`). BootUI keeps its own console at `/bootui/`. Quarkus Dev UI
-  uses build-time Lit web components; reusing our Vue UI as a standalone console is what keeps the UI shared.
+- **Integrating into Quarkus's built-in Dev UI** (`/q/dev`). BootUI keeps its own standalone console (`/bootui/` by
+  default). Quarkus Dev UI uses build-time Lit web components; reusing our Vue UI is what keeps the UI shared.
 - **100% panel parity.** A curated subset ships on Quarkus (§5). Spring-only panels are dropped or replaced.
 - **Spring Boot 3.x / Gradle** — unchanged, still out of scope.
 
@@ -331,9 +331,10 @@ advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is s
   working API behind it, but reachable. `BootUiProdShellGuardFilter` closes this: a CDI Vert.x filter registered by its
   own **always-on** `@BuildStep` (deliberately *not* launch-mode-gated, the opposite polarity from every other build
   step in the extension), whose `handle()` method reads a CDI-injected `LaunchMode` and answers a plain `404` for
-  `/bootui`/`/bootui/**` only when it is `LaunchMode.NORMAL` — an immediate no-op pass-through otherwise, so
-  dev/`@QuarkusTest` behavior is unaffected. Net effect: `/bootui`/`/bootui/**` is a plain 404 in production, at parity
-  with the Spring adapter (which never registers any BootUI route when inactive, so nothing is reachable there either).
+  the configured UI/API surface and the private `/bootui` classpath mount only when it is `LaunchMode.NORMAL` — an
+  immediate no-op pass-through otherwise, so dev/`@QuarkusTest` behavior is unaffected. Net effect: the public and
+  internal BootUI paths are plain 404s in production, at parity with the Spring adapter (which never registers any BootUI
+  route when inactive, so nothing is reachable there either).
   Proven by a genuine `LaunchMode.NORMAL` build+run via `QuarkusProdModeTest`
   (`BootUiQuarkusProdShellGuardBootTest`, in the dedicated `bootui-quarkus-prod-shell-guard-integration-tests`
   module — kept separate from every `@QuarkusTest`-based module because Quarkus's own test framework refuses to mix
@@ -345,8 +346,9 @@ advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is s
   limitations (no runtime classpath scan, stripped metadata) only apply to production native images, which BootUI never
   ships in.
 - **Loopback safety preserved.** The shared `LocalhostGuard` enforces the same loopback / allowed-hosts / CSRF rules; the
-  Quarkus adapter binds it as a high-priority Vert.x handler on `/bootui/*` and `/bootui/api/*`, failing closed for
-  non-loopback callers — matching `LocalhostOnlyFilter`'s `Integer.MIN_VALUE` servlet ordering.
+  Quarkus adapter binds it as a high-priority Vert.x handler after configured public requests have been rerouted to the
+  private mount, failing closed for non-loopback callers — matching `LocalhostOnlyFilter`'s `Integer.MIN_VALUE` servlet
+  ordering.
 - **Per-panel access gating at parity.** `QuarkusPanelAccessFilter` enforces `bootui.panels.<id>.enabled` /
   `.read-only` and the global `bootui.read-only`, mirroring Spring's `PanelAccessFilter` exactly (same config keys,
   same `BootUiPanels` path resolution, same canonical `{"error":"BootUI panel access denied","panel":"<id>",
@@ -362,6 +364,25 @@ advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is s
   banner) reflect the setting. One divergence from the Spring spec: it cannot use the `config` panel as the
   "unaffected control panel" the way Spring does, because Configuration is *always* read-only on Quarkus for an
   unrelated reason (no runtime-override write path yet — see above); it uses `memory` instead.
+
+### Configurable path routing
+
+`bootui.path` and `bootui.api-path` use the same normalized contract as the Spring adapters. `/bootui` and
+`/bootui/api` remain the defaults. The public paths compose with `quarkus.http.root-path`; the host root is prepended
+exactly once to browser-visible links, the startup banner, session-cookie scope, and production suppression.
+
+Quarkus' runtime and static resources remain registered at a private `/bootui` classpath/JAX-RS mount. An early Vert.x
+filter recognizes only the configured public UI/API paths and reroutes them internally without redirecting the browser.
+It preserves the query string, marks the routing context before rerouting to prevent recursion, and sends the bare and
+trailing-slash shell paths through the index resource so both receive runtime `<base>` and API metadata. When
+`bootui.path` is custom, direct requests to the private `/bootui` mount return 404; it is not exposed as a legacy alias.
+The later safety, authentication, panel-access, and response-header filters therefore continue to enforce one internal
+route shape without weakening the public boundary.
+
+The UI path cannot be nested under `/bootui/**`, which avoids collisions with that private mount. Invalid active
+configuration fails dev/test startup. Production remains dark even if dormant path settings are invalid: the
+always-registered production guard uses fail-closed safe defaults and suppresses both configured/default and private
+mounts without wiring data-bearing resources.
 
 ## 7. Code-sharing scorecard
 

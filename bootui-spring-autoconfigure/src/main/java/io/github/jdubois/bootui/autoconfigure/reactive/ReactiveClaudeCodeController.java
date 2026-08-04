@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
  * {@link ReactiveAgentSessionController}.
  */
 @RestController
-@RequestMapping("/bootui/api/claude-code")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/claude-code")
 public class ReactiveClaudeCodeController extends ReactiveAgentSessionController {
 
     @Autowired

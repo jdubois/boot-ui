@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/bootui/api/overview")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/overview")
 public class OverviewController {
 
     private final Environment environment;

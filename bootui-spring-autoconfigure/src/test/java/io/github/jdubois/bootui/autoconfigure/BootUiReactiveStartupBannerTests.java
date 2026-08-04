@@ -61,4 +61,14 @@ class BootUiReactiveStartupBannerTests {
         assertThat(BootUiReactiveAutoConfiguration.buildStartupUrl(environment, properties))
                 .isEqualTo("http://localhost:8080/console");
     }
+
+    @Test
+    void includesWebFluxBasePath() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("spring.webflux.base-path", "/host");
+        properties.setPath("/console");
+
+        assertThat(BootUiReactiveAutoConfiguration.buildStartupUrl(environment, properties))
+                .isEqualTo("http://localhost:8080/host/console");
+    }
 }

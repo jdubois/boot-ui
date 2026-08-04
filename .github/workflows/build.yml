@@ -83,6 +83,11 @@ jobs:
         working-directory: bootui-spring-sample-app/e2e
         run: npm run test:webflux
 
+      - name: Run custom-path Playwright end-to-end tests
+        if: ${{ !cancelled() }}
+        working-directory: bootui-spring-sample-app/e2e
+        run: npm run test:custom-path
+
       - name: Publish Java test report
         if: ${{ !cancelled() }}
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
@@ -123,6 +128,16 @@ jobs:
           fail-on-error: false
           fail-on-empty: false
 
+      - name: Publish custom-path end-to-end test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        with:
+          name: Custom-path end-to-end tests (Playwright)
+          path: bootui-spring-sample-app/e2e/test-results-custom-path/junit/results.xml
+          reporter: jest-junit
+          fail-on-error: false
+          fail-on-empty: false
+
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -145,6 +160,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Upload custom-path Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-custom-path
+          path: |
+            bootui-spring-sample-app/e2e/playwright-report-custom-path/
+            bootui-spring-sample-app/e2e/test-results-custom-path/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload JUnit test reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -155,6 +181,7 @@ jobs:
             bootui-ui/src/main/frontend/test-results/vitest-junit.xml
             bootui-spring-sample-app/e2e/test-results/junit/results.xml
             bootui-spring-sample-app/e2e/test-results-webflux/junit/results.xml
+            bootui-spring-sample-app/e2e/test-results-custom-path/junit/results.xml
           if-no-files-found: ignore
           retention-days: 7
 

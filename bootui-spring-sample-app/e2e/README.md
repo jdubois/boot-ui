@@ -65,6 +65,24 @@ It boots `bootui-spring-webflux-sample-app` via `./mvnw spring-boot:run` on port
 auto-start/reuse behavior as `npm test` above); set `BOOTUI_WEBFLUX_BASE_URL` to point at an
 already-running instance on a different host/port instead.
 
+## Custom-path cross-adapter suite
+
+`tests-custom-path/custom-path.spec.js` runs against both the servlet and WebFlux sample apps. Each server uses an
+application root of `/host`, a UI path of `/dev-console/`, and a separate API path of `/internal/bootui-api/`. The suite
+proves that normalization, application-root composition, runtime shell metadata, hashed asset URLs, ordinary API calls,
+SSE, CSRF rejection, MCP reads/writes, and the servlet OTLP receiver all use the public configured paths. It also asserts
+that the packaged `/host/bootui` UI/API paths return 404 instead of leaking as aliases.
+
+Run both projects with:
+
+```bash
+npm run test:custom-path
+```
+
+Playwright starts the MVC app on port 8083 and WebFlux app on port 8084. Set `BOOTUI_CUSTOM_MVC_PORT` or
+`BOOTUI_CUSTOM_WEBFLUX_PORT` to change those ports. `BOOTUI_MAVEN_REPO_LOCAL` applies to every suite's auto-started Maven
+server and can point them at an isolated repository (for example, `.m2` from the repository root).
+
 ## Prerequisites
 
 - Node.js 20+
@@ -124,6 +142,8 @@ BOOTUI_SCREENSHOT_ONLY=overview,github,http-sessions npm run screenshots
 
 - `BOOTUI_BASE_URL` — override the base URL (default `http://localhost:8080`).
 - `BOOTUI_SAMPLE_PORT` — override the port used to build the default base URL.
+- `BOOTUI_CUSTOM_MVC_PORT` / `BOOTUI_CUSTOM_WEBFLUX_PORT` — ports for the two custom-path test servers.
+- `BOOTUI_MAVEN_REPO_LOCAL` — optional Maven local-repository path passed to every auto-started sample server.
 - `BOOTUI_SCREENSHOT_BASE_URL` — reuse an existing Vite server when generating
   documentation screenshots.
 - `BOOTUI_SCREENSHOT_PORT` — Vite port for the screenshot generator when it starts

@@ -7,6 +7,7 @@ import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
+import {getBootUiApiPath} from '../utils/bootUiPath.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -17,6 +18,7 @@ const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const panels = inject('panels', ref(null))
 const platform = computed(() => panels.value?.platform ?? 'spring-boot')
+const otlpEndpoint = computed(() => getBootUiApiPath() + '/otlp/v1/traces')
 const {confirm} = useConfirm()
 const report = ref(null)
 const detail = ref(null)
@@ -230,7 +232,8 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
         <template v-else>
           No traces received yet. With the BootUI starter on the classpath, local application spans are captured
           automatically. Exercise your application to populate this panel; cooperating services can still export OTLP to
-          <code>/bootui/api/otlp/v1/traces</code>.
+          <code>{{ otlpEndpoint }}</code
+          >.
         </template>
       </div>
 

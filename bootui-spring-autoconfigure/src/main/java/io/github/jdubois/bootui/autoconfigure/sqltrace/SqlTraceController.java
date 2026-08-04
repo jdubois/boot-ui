@@ -32,7 +32,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * {@code /stream} endpoint, and the recorder-listener lifecycle.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/sql-trace")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/sql-trace")
 public class SqlTraceController {
 
     private final ObjectProvider<SqlTraceRecorder> recorderProvider;

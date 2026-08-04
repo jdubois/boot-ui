@@ -1,8 +1,9 @@
 # BootUI — Copilot instructions
 
-BootUI is a local-only developer console (Vue 3 SPA + REST API at `/bootui`) that drops into a host application. It
+BootUI is a local-only developer console (Vue 3 SPA + REST API at `/bootui` by default, configurable with
+`bootui.path` / `bootui.api-path`) that drops into a host application. It
 targets **two frameworks from one codebase**: **Spring Boot 4** and **Quarkus**. Both adapters serve the **same Vue UI**,
-the **same `/bootui/api/**` JSON contract**, and reuse the **same framework-neutral engine** — so a panel should look and
+the **same JSON contract** (at `/bootui/api/**` by default), and reuse the **same framework-neutral engine** — so a panel should look and
 behave identically on either runtime. The authoritative scope/behavior lives in `docs/SPECIFICATION.md`, `docs/PLAN.md`,
 `docs/FEATURES.md`, and `docs/QUARKUS-SUPPORT.md` — read those before changing public behavior or visible panel behavior.
 
@@ -182,6 +183,8 @@ port with `BOOTUI_API_PROXY_TARGET` (the Copilot app's `Vite UI dev server` scri
 changing panel actions work through the proxy because both adapters compare the `Origin`/`Host` **host only** (not port),
 so the browser's `:5173` origin is accepted against the backend's host regardless of its port (`:8080` for the Spring
 MVC sample, `:8081` for the Spring WebFlux sample, `:8082` for Quarkus, or `$COPILOT_PORT`).
+For custom mounts, set `BOOTUI_DEV_PATH`; set `BOOTUI_DEV_API_PATH` too when the API does not use the derived
+`<BOOTUI_DEV_PATH>/api` path.
 
 CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 17 — which builds both adapters, runs the
 shared conformance suite against both, runs the frontend Vitest suite through Maven, builds + augments the Quarkus sample
@@ -237,7 +240,7 @@ same canonical JSON 403 body shape.
 - Activation (`BootUiActivationCondition.resolve`): `bootui.enabled=ON|OFF` wins, otherwise an active profile in
   `bootui.enabled-profiles` (`dev`, `local` by default) or `spring-boot-devtools` on the classpath turns BootUI on.
   `bootui.disabled-profiles` (`prod`, `production`) force-off unless `bootui.enabled=ON`.
-- `LocalhostOnlyFilter` (order `Integer.MIN_VALUE`, on `/bootui/*` and `/bootui/api/*`) is a **thin binding over the engine
+- `LocalhostOnlyFilter` (order `Integer.MIN_VALUE`, on the configured UI/API paths) is a **thin binding over the engine
   `LocalhostGuard`**. It fails closed for non-loopback callers; beyond the loopback source check the guard validates the
   `Host` header against the built-in loopback names plus `bootui.allowed-hosts` (DNS-rebinding defense) and rejects
   cross-site state-changing requests via `Origin`/`Sec-Fetch-Site` (CSRF defense that works without Spring Security). The
@@ -302,7 +305,9 @@ same canonical JSON 403 body shape.
 
 ## API & DTO conventions
 
-- All endpoints live under `/bootui/api/**`. The browser UI is at `/bootui/` (Vite `base: '/bootui/'`, hash router).
+- All endpoints live under the normalized `bootui.api-path` (`/bootui/api/**` by default). The browser UI is at the
+  normalized `bootui.path` (`/bootui/` by default, hash router). The packaged Vite build uses relative asset URLs and the
+  backend injects the browser-visible UI/API paths into the shell at runtime.
 - **DTOs are immutable Java `record`s in `io.github.jdubois.bootui.core.dto`**, one record per file, no Jackson
   annotations — they must serialize identically under Spring Boot's Jackson 3 and Quarkus' Jackson 2. The UI binds to this
   stable shape; never return raw Actuator descriptors or framework objects. Map them to DTOs (see `ConfigController.toDto`).
@@ -675,8 +680,8 @@ hide newer ones. Keep API, UI,
   `group` in `meta`; the sidebar in `App.vue` renders from `router.options.routes`.
 - Frontend unit tests use Vitest with Vue Test Utils and jsdom. Add focused `*.test.js` coverage for reusable composables/
   components and UI logic where Playwright would be too broad or slow.
-- The Vite dev server proxies `/bootui/api/*` to a running sample app (Spring or Quarkus); packaged assets must work from
-  `/bootui/` without requiring consumers to install Node.
+- The Vite dev server proxies the configured development API path to a running sample app (Spring or Quarkus);
+  packaged assets must work from any normalized `bootui.path` without requiring consumers to install Node.
 
 ## Contribution conventions (from `CONTRIBUTING.md`)
 

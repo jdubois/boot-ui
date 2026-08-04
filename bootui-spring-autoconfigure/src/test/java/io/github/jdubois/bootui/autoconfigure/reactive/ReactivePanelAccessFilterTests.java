@@ -146,6 +146,22 @@ class ReactivePanelAccessFilterTests {
     }
 
     @Test
+    void perPanelReadOnlyBlocksRestClientActionsButAllowsReportRead() {
+        properties.panel(BootUiPanels.REST_CLIENT_TRACE).setReadOnly(true);
+        MockServerWebExchange action = exchange("POST", "/bootui/api/rest-client-trace/recording");
+        MockServerWebExchange report = exchange("GET", "/bootui/api/rest-client-trace");
+
+        filter.filter(action, OK_CHAIN).block(Duration.ofSeconds(5));
+        filter.filter(report, OK_CHAIN).block(Duration.ofSeconds(5));
+
+        assertThat(action.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(bodyAsString(action))
+                .contains("\"panel\":\"rest-client-trace\"")
+                .contains("bootui.panels.rest-client-trace.read-only=true");
+        assertThat(report.getResponse().getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
     void globalReadOnlyDoesNotBlockReadOnlyPanelWithoutActions() {
         properties.setReadOnly(true);
         MockServerWebExchange exchange = exchange("GET", "/bootui/api/metrics");

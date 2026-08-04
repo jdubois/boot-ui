@@ -1,6 +1,7 @@
 <script setup>
 import {computed} from 'vue'
 import {useCopyToClipboard} from '../../utils/useCopyToClipboard'
+import {getBootUiApiPath} from '../../utils/bootUiPath'
 import AiSpringAiSetup from './AiSpringAiSetup.vue'
 import AiLangChain4jSetup from './AiLangChain4jSetup.vue'
 
@@ -17,7 +18,7 @@ const isQuarkus = computed(() => props.platform === 'quarkus')
 
 const {copiedKey, copyToClipboard} = useCopyToClipboard()
 
-const otlpEndpoint = `/bootui/api/otlp/v1/traces`
+const otlpEndpoint = computed(() => getBootUiApiPath() + '/otlp/v1/traces')
 </script>
 
 <template>

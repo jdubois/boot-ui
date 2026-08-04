@@ -66,7 +66,7 @@ test.describe.serial('Email view', () => {
 
     const download = page.locator('main table tbody tr a[title="Download .eml"]').first()
     await expect(download).toBeVisible()
-    await expect(download).toHaveAttribute('href', /^api\/email\/.+\/eml$/)
+    await expect(download).toHaveAttribute('href', /^\/bootui\/api\/email\/.+\/eml$/)
   })
 
   test('clears the captured emails', async ({openView, page}) => {

@@ -4208,6 +4208,7 @@ try {
       window.scrollTo(0, 0)
       document.querySelector('.bootui-workspace')?.scrollTo(0, 0)
     })
+    await showActiveMenuItem(page, title)
     await page.waitForTimeout(250)
     const pngBuffer = await page.screenshot({
       fullPage: false,
@@ -4445,6 +4446,16 @@ async function handleApiRoute(route) {
 
 function waitForText(text) {
   return (page) => page.getByText(text).first().waitFor()
+}
+
+async function showActiveMenuItem(page, expectedTitle) {
+  const activeMenuItem = page.locator('aside.bootui-sidebar .bootui-nav-link[aria-current="page"]')
+  await activeMenuItem.scrollIntoViewIfNeeded()
+
+  const actualTitle = (await activeMenuItem.locator('.bootui-nav-link__label').innerText()).trim()
+  if (actualTitle !== expectedTitle) {
+    throw new Error(`Expected active sidebar item "${expectedTitle}", found "${actualTitle}"`)
+  }
 }
 
 function pagedReport(itemsKey, items, url, extra = {}) {

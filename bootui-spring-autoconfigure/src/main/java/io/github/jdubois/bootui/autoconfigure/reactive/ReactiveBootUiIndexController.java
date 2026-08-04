@@ -24,9 +24,9 @@ import reactor.core.publisher.Mono;
  * {@code injectBaseHref} rewriting so the two adapters cannot diverge on the shared shell markup; see
  * that class's Javadoc for why the shell is served directly rather than redirected.
  *
- * <p>WebFlux has no {@code server.servlet.context-path} analog, so unlike the servlet controller this
- * never prepends a context path to the injected {@code <base href>} &mdash; {@code properties.getPath()}
- * is always application-relative here.</p>
+ * <p>WebFlux exposes its optional {@code spring.webflux.base-path} as the request context path. That
+ * prefix is included in the injected UI and API paths just as the servlet adapter includes
+ * {@code server.servlet.context-path}.</p>
  */
 @Controller
 public class ReactiveBootUiIndexController {
@@ -47,10 +47,12 @@ public class ReactiveBootUiIndexController {
         this.indexResource = indexResource;
     }
 
-    @GetMapping({"/bootui", "/bootui/"})
+    @GetMapping({"${bootui.path:/bootui}", "${bootui.path:/bootui}/"})
     public Mono<Void> spaIndex(ServerWebExchange exchange) {
-        String baseHref = properties.getPath() + "/";
-        String html = BootUiIndexController.injectBaseHref(template(), baseHref);
+        String contextPath = exchange.getRequest().getPath().contextPath().value();
+        String baseHref = contextPath + properties.getPath() + "/";
+        String apiPath = contextPath + properties.getApiPath();
+        String html = BootUiIndexController.injectRuntimePaths(template(), baseHref, apiPath);
         byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
         ServerHttpResponse response = exchange.getResponse();
         response.getHeaders().setContentType(MediaType.TEXT_HTML);

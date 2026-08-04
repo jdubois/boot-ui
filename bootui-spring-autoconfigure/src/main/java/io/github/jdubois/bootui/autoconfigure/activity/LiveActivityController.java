@@ -78,7 +78,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * persistent()} state rather than the static startup settings, correctly reflecting a runtime switch.
  */
 @RestController
-@RequestMapping("/bootui/api/activity")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/activity")
 public class LiveActivityController {
 
     private final LiveActivityService service;

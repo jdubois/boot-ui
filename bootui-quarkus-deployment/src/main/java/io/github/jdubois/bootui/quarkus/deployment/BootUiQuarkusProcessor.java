@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.deployment;
 
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
+import io.github.jdubois.bootui.quarkus.BootUiPathRewriteFilter;
 import io.github.jdubois.bootui.quarkus.BootUiProdShellGuardFilter;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusAuthenticationFilter;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
@@ -279,6 +280,7 @@ class BootUiQuarkusProcessor {
                         QuarkusMcpTools.class,
                         QuarkusMcpEnvelope.class,
                         BootUiQuarkusSafetyFilter.class,
+                        BootUiPathRewriteFilter.class,
                         BootUiQuarkusAuthenticationFilter.class,
                         QuarkusPanelAccessFilter.class,
                         BootUiQuarkusStartupBanner.class)

@@ -12,10 +12,12 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -23,9 +25,8 @@ import reactor.core.scheduler.Schedulers;
 /**
  * Reactive counterpart of the servlet sample app's {@code SampleController}: a small "action lab" of
  * safe, idempotent endpoints backing the WebFlux sample app's landing page buttons, each engineered to
- * light up a specific BootUI panel. Deliberately excludes the servlet sample's Security- and Spring
- * AI-gated actions (secure admin/user, AI chat) - see {@link io.github.jdubois.bootui.webfluxsample.BootUiWebfluxSampleApplication}'s
- * Javadoc for why this app does not add Spring Security.
+ * light up a specific BootUI panel. Deliberately excludes the servlet sample's Spring AI-gated action
+ * (AI chat).
  *
  * <p>Every action that does non-trivial work runs on {@code Schedulers.boundedElastic()}, the same
  * off-event-loop pattern {@code NoteController}/{@code GreetingController} already use, so a slow or
@@ -40,6 +41,8 @@ public class SampleActionsController {
     private final NoteRepository noteRepository;
     private final GreetingService greetingService;
     private final ObservationRegistry observationRegistry;
+    private final WebClient webClient;
+    private final WebServerApplicationContext webServerApplicationContext;
     private final Counter ordersProcessedCounter;
     private final Timer orderDurationTimer;
 
@@ -47,16 +50,36 @@ public class SampleActionsController {
             NoteRepository noteRepository,
             GreetingService greetingService,
             MeterRegistry meterRegistry,
-            ObservationRegistry observationRegistry) {
+            ObservationRegistry observationRegistry,
+            WebClient webClient,
+            WebServerApplicationContext webServerApplicationContext) {
         this.noteRepository = noteRepository;
         this.greetingService = greetingService;
         this.observationRegistry = observationRegistry;
+        this.webClient = webClient;
+        this.webServerApplicationContext = webServerApplicationContext;
         this.ordersProcessedCounter = Counter.builder("sample.orders.processed")
                 .description("Sample orders processed by the BootUI demo metrics button")
                 .register(meterRegistry);
         this.orderDurationTimer = Timer.builder("sample.orders.duration")
                 .description("Simulated sample order processing time")
                 .register(meterRegistry);
+    }
+
+    /** Makes a real instrumented outbound WebClient call back into the sample application. */
+    @GetMapping("/rest-client")
+    public Mono<Map<String, String>> restClient(@RequestParam(defaultValue = "WebFlux") String name) {
+        var loopbackClient = webClient
+                .mutate()
+                .baseUrl("http://127.0.0.1:"
+                        + webServerApplicationContext.getWebServer().getPort())
+                .build();
+        return loopbackClient
+                .get()
+                .uri("/api/greetings/{name}", name)
+                .retrieve()
+                .bodyToMono(String.class)
+                .map(greeting -> Map.of("greeting", greeting));
     }
 
     /** Throws on purpose so the BootUI Exceptions panel has a captured failure to inspect. */

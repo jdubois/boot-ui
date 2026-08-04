@@ -22,8 +22,8 @@ import org.springframework.web.bind.annotation.GetMapping;
  * <p>The compiled Vue assets ship inside {@code bootui-ui} at
  * {@code META-INF/resources/bootui/} (Spring Boot serves the static files automatically;
  * see {@link BootUiStaticResourceConfigurer}). The generated {@code index.html} references its
- * assets relatively (e.g. {@code ./assets/index-*.js}) and the SPA calls its API relatively
- * (e.g. {@code fetch('api/overview')}) so it keeps working under a host
+ * assets relatively (e.g. {@code ./assets/index-*.js}). The controller injects both the document base
+ * and the configured API base at request time so the SPA keeps working under a host
  * {@code server.servlet.context-path} without baking an absolute path at build time (see #332).</p>
  *
  * <p>Those relative URLs only resolve correctly when the document's base URL ends in
@@ -45,6 +45,9 @@ public class BootUiIndexController {
 
     private static final Pattern EXISTING_BASE = Pattern.compile("(?i)<base\\b");
 
+    private static final Pattern EXISTING_API_PATH =
+            Pattern.compile("(?i)<meta\\b[^>]*\\bname=[\"']bootui-api-path[\"']");
+
     private final BootUiProperties properties;
 
     private final Resource indexResource;
@@ -61,12 +64,14 @@ public class BootUiIndexController {
         this.indexResource = indexResource;
     }
 
-    @GetMapping({"/bootui", "/bootui/"})
+    @GetMapping({"${bootui.path:/bootui}", "${bootui.path:/bootui}/"})
     public void spaIndex(HttpServletRequest request, HttpServletResponse response) throws IOException {
         // Include the servlet context path so the SPA's relative assets/API resolve when the host app
         // sets server.servlet.context-path (e.g. /api/bootui/ instead of /bootui/). See #332.
-        String baseHref = request.getContextPath() + properties.getPath() + "/";
-        String html = injectBaseHref(template(), baseHref);
+        String contextPath = request.getContextPath();
+        String baseHref = contextPath + properties.getPath() + "/";
+        String apiPath = contextPath + properties.getApiPath();
+        String html = injectRuntimePaths(template(), baseHref, apiPath);
         response.setContentType(MediaType.TEXT_HTML_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.getWriter().write(html);
@@ -108,6 +113,23 @@ public class BootUiIndexController {
         int insertAt = matcher.end();
         String baseTag = "\n    <base href=\"" + escapeAttribute(baseHref) + "\" />";
         return html.substring(0, insertAt) + baseTag + html.substring(insertAt);
+    }
+
+    /**
+     * Injects the document base plus the application-root-aware API path consumed by the shared SPA.
+     */
+    public static String injectRuntimePaths(String html, String baseHref, String apiPath) {
+        String rewritten = injectBaseHref(html, baseHref);
+        if (EXISTING_API_PATH.matcher(rewritten).find()) {
+            return rewritten;
+        }
+        Matcher matcher = HEAD_OPEN.matcher(rewritten);
+        if (!matcher.find()) {
+            return rewritten;
+        }
+        int insertAt = matcher.end();
+        String meta = "\n    <meta content=\"" + escapeAttribute(apiPath) + "\" name=\"bootui-api-path\" />";
+        return rewritten.substring(0, insertAt) + meta + rewritten.substring(insertAt);
     }
 
     private static String escapeAttribute(String value) {

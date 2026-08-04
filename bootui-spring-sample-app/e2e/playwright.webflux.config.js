@@ -9,7 +9,7 @@ import {defineConfig, devices} from '@playwright/test'
  * WebFlux/Netty sibling of the servlet `bootui-spring-sample-app` the default `playwright.config.js`
  * targets. This is deliberately a small smoke suite (one spec file), not a full per-panel port of the
  * servlet suite: its job is to prove the reactive adapter serves the same console shell and that the
- * panels that stay unavailable (HTTP Sessions, the Security advisor, REST Client) surface their
+ * panels that stay unavailable (HTTP Sessions and the Security advisor) surface their
  * WebFlux-specific "unavailable" copy through the real UI, not to re-verify panel behavior already
  * covered by the shared conformance suite and the servlet e2e spec-per-panel coverage.
  *
@@ -19,6 +19,8 @@ import {defineConfig, devices} from '@playwright/test'
  */
 const PORT = Number(process.env.BOOTUI_WEBFLUX_PORT || 8081)
 const BASE_URL = process.env.BOOTUI_WEBFLUX_BASE_URL || `http://localhost:${PORT}`
+const MAVEN_REPO = process.env.BOOTUI_MAVEN_REPO_LOCAL
+const REPO_ARG = MAVEN_REPO ? ` -Dmaven.repo.local=${MAVEN_REPO}` : ''
 
 export default defineConfig({
   testDir: './tests-webflux',
@@ -62,7 +64,7 @@ export default defineConfig({
     : {
         // Run from the e2e module through the root Maven Wrapper, against the reactive sample app.
         command:
-          '../../mvnw -f ../../bootui-spring-webflux-sample-app/pom.xml -q spring-boot:run ' +
+          `../../mvnw${REPO_ARG} -f ../../bootui-spring-webflux-sample-app/pom.xml -q spring-boot:run ` +
           '-Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=false',
         url: `${BASE_URL}/bootui/api/overview`,
         reuseExistingServer: !process.env.CI,

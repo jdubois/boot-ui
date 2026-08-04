@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * action and blocked by {@code PanelAccessFilter} when the panel or BootUI is read-only.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/threads")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/threads")
 public class ThreadDumpController {
 
     private final ThreadDumpService service;

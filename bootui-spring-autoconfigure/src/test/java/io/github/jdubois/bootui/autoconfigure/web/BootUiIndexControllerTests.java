@@ -32,7 +32,9 @@ class BootUiIndexControllerTests {
     private static MockMvc buildMvc(BootUiProperties properties) {
         BootUiIndexController controller = new BootUiIndexController(
                 properties, new ByteArrayResource(STUB_INDEX.getBytes(StandardCharsets.UTF_8)));
-        return standaloneSetup(controller).build();
+        return standaloneSetup(controller)
+                .addPlaceholderValue("bootui.path", properties.getPath())
+                .build();
     }
 
     // ── /bootui and /bootui/ → SPA shell with injected <base href> ─────────────
@@ -44,7 +46,8 @@ class BootUiIndexControllerTests {
         mvc.perform(get("/bootui"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
-                .andExpect(content().string(containsString("<base href=\"/bootui/\" />")));
+                .andExpect(content().string(containsString("<base href=\"/bootui/\" />")))
+                .andExpect(content().string(containsString("content=\"/bootui/api\" name=\"bootui-api-path\"")));
     }
 
     @Test
@@ -65,7 +68,8 @@ class BootUiIndexControllerTests {
         // server.servlet.context-path (e.g. /api/bootui/...). See #332.
         mvc.perform(get("/api/bootui").contextPath("/api"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("<base href=\"/api/bootui/\" />")));
+                .andExpect(content().string(containsString("<base href=\"/api/bootui/\" />")))
+                .andExpect(content().string(containsString("content=\"/api/bootui/api\" name=\"bootui-api-path\"")));
     }
 
     @Test
@@ -74,9 +78,22 @@ class BootUiIndexControllerTests {
         properties.setPath("/devtools");
         MockMvc mvc = buildMvc(properties);
 
-        mvc.perform(get("/bootui"))
+        mvc.perform(get("/devtools"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("<base href=\"/devtools/\" />")));
+    }
+
+    @Test
+    void injectedApiPathCanDifferFromUiPath() throws Exception {
+        BootUiProperties properties = new BootUiProperties();
+        properties.setPath("/devtools");
+        properties.setApiPath("/internal/bootui-api");
+        MockMvc mvc = buildMvc(properties);
+
+        mvc.perform(get("/host/devtools").contextPath("/host"))
+                .andExpect(status().isOk())
+                .andExpect(content()
+                        .string(containsString("content=\"/host/internal/bootui-api\" name=\"bootui-api-path\"")));
     }
 
     // ── injectBaseHref ─────────────────────────────────────────────────────────
@@ -111,5 +128,16 @@ class BootUiIndexControllerTests {
         String result = BootUiIndexController.injectBaseHref("<head></head>", "/a\"b/");
 
         assertThat(result).contains("/a&quot;b/");
+    }
+
+    @Test
+    void injectsApiPathMetadataWithoutDuplicatingIt() {
+        String html = "<html><head></head><body></body></html>";
+
+        String once = BootUiIndexController.injectRuntimePaths(html, "/console/", "/console/api");
+        String twice = BootUiIndexController.injectRuntimePaths(once, "/ignored/", "/ignored/api");
+
+        assertThat(twice).contains("content=\"/console/api\" name=\"bootui-api-path\"");
+        assertThat(twice).doesNotContain("/ignored/api");
     }
 }

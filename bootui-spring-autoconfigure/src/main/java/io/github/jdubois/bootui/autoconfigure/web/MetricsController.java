@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/bootui/api/metrics")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/metrics")
 public class MetricsController {
 
     private final MetricsReportProvider provider;

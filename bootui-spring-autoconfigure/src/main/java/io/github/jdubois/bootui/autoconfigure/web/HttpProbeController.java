@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/bootui/api/http-probe")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/http-probe")
 public class HttpProbeController {
 
     private final HttpProbeService probeService;

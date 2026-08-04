@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  * ruleset against it.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/spring")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/spring")
 public class SpringController {
 
     private final SpringScanner scanner;

@@ -50,7 +50,7 @@ public final class ApiAuthenticationFilter extends AbstractBootUiFilter {
 
         if (isSessionRequest(request)) {
             if (!trustedSource) {
-                response.addHeader("Set-Cookie", sessionCookie(request.isSecure()));
+                response.addHeader("Set-Cookie", sessionCookie(request));
             }
             response.setStatus(HttpServletResponse.SC_NO_CONTENT);
             return;
@@ -69,14 +69,15 @@ public final class ApiAuthenticationFilter extends AbstractBootUiFilter {
                 && path.equals(withoutTrailingSlash(properties.getApiPath()) + SESSION_PATH);
     }
 
-    private String sessionCookie(boolean secure) {
+    private String sessionCookie(HttpServletRequest request) {
         return ApiTokenAuthenticator.SESSION_COOKIE_NAME
                 + "="
                 + authenticator.token()
                 + "; Path="
+                + request.getContextPath()
                 + withoutTrailingSlash(properties.getApiPath())
                 + "; HttpOnly; SameSite=Strict"
-                + (secure ? "; Secure" : "");
+                + (request.isSecure() ? "; Secure" : "");
     }
 
     private static String withoutTrailingSlash(String path) {

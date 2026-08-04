@@ -42,7 +42,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * SSE {@code /stream} endpoint, and the store-listener lifecycle.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/exceptions")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/exceptions")
 public class ExceptionsController {
 
     private final ObjectProvider<ExceptionStore> storeProvider;

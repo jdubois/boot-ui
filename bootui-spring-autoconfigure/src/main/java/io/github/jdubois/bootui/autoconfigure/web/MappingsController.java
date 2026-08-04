@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
  * available the service returns an empty report.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/mappings")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/mappings")
 public class MappingsController {
 
     private final MappingsService mappingsService;

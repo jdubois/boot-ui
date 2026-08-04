@@ -58,9 +58,8 @@ public class BootUiTelemetryProducer {
     public SelfTelemetryClassifier selfTelemetryClassifier(Config config) {
         boolean excludeSelf = config.getOptionalValue("bootui.monitoring.exclude-self", Boolean.class)
                 .orElse(Boolean.TRUE);
-        String path = config.getOptionalValue("bootui.path", String.class).orElse("/bootui");
-        String apiPath =
-                config.getOptionalValue("bootui.api-path", String.class).orElse("/bootui/api");
+        String path = QuarkusBootUiPaths.uiPath(config);
+        String apiPath = QuarkusBootUiPaths.apiPath(config);
         return new SelfTelemetryClassifier(excludeSelf, path, apiPath);
     }
 

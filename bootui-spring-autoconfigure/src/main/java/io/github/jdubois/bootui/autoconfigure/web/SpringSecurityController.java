@@ -26,7 +26,7 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMappi
  */
 @RestController
 @ConditionalOnClass(FilterChainProxy.class)
-@RequestMapping("/bootui/api/spring-security")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/spring-security")
 public class SpringSecurityController {
 
     private final SpringSecurityService securityService;

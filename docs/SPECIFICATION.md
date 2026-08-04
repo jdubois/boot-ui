@@ -27,8 +27,8 @@ BootUI currently targets:
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
-`docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel; the Security advisor and standalone REST Client
-panel are not yet ported, and HTTP Sessions is not applicable to a reactive,
+`docs/WEBFLUX-SUPPORT.md` §6.4), the raw Spring Security panel, and REST Client capture over instrumented
+`WebClient` instances; the Security advisor is not yet ported, and HTTP Sessions is not applicable to a reactive,
 container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
 is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
 current per-platform status.
@@ -39,8 +39,7 @@ Out of scope for the current 1.x line:
 - Spring Framework 6 / Boot 3 compatibility shims.
 - A dedicated BootUI Gradle plugin (the Spring starters and Quarkus extension are consumable from Maven or Gradle as
   ordinary dependencies).
-- On Spring Boot WebFlux: a reactive Security advisor ruleset and the standalone REST Client panel (see
-  `docs/WEBFLUX-SUPPORT.md` for the reasons and the plan to close each gap).
+- On Spring Boot WebFlux: a reactive Security advisor ruleset (see `docs/WEBFLUX-SUPPORT.md` for the reason and plan).
 
 ## 2. Product goals
 
@@ -121,18 +120,47 @@ Default UI URL inside the host Spring Boot 4 application:
 http://localhost:${server.port}/bootui
 ```
 
-The current implementation serves the UI at `/bootui/` and APIs at `/bootui/api/**`. Configuration properties for the
-UI/API paths exist, but `/bootui` remains the supported route until path customization is wired through every controller
-and packaged asset:
+`/bootui` is the backward-compatible default, not a fixed mount. Set `bootui.path` to move the shell, assets, APIs,
+filters, streams, downloads, action routes, MCP bridge, startup banner, and SPA runtime base together:
 
 ```properties
-bootui.path=/bootui
+bootui.path=/dev-console
 ```
+
+The API then defaults to `/dev-console/api`. `bootui.api-path` may move it independently when a host needs separate
+UI and API mounts:
+
+```properties
+bootui.path=/dev-console
+bootui.api-path=/internal/bootui-api
+```
+
+Both values are application-relative. Spring's `server.servlet.context-path` or `spring.webflux.base-path`, and Quarkus'
+`quarkus.http.root-path`, are prepended exactly once. For example, `bootui.path=/dev-console` with an application root of
+`/host` is served at `/host/dev-console`; the generated shell injects that browser-visible base and API path for the
+shared Vue application.
+
+Path configuration is normalized once and then used by every adapter:
+
+- leading/trailing whitespace and one or more trailing slashes are removed;
+- the value must be an absolute, non-root path made only of RFC 3986 unreserved segment characters
+  (`A-Z`, `a-z`, `0-9`, `.`, `_`, `~`, `-`);
+- empty segments, `.` / `..` segments, query or fragment content, percent encoding, backslashes, route-pattern
+  characters, and other ambiguous values are rejected with a startup configuration error;
+- `/bootui/**` is reserved as the Quarkus adapter's internal classpath mount, so a custom UI path cannot be nested under
+  it (the exact default `/bootui` remains valid). `bootui.api-path` may use `/bootui/api`, its backward-compatible
+  default.
+
+When a custom UI path is active, the packaged internal `/bootui` shell/assets/API mount is not publicly exposed. Quarkus
+reroutes the configured public paths internally without redirecting the browser, preserves query strings, and uses a
+per-request loop marker so rerouting cannot recurse. All adapters serve both the bare and trailing-slash shell URL
+directly, without a redirect loop.
 
 ### 4.2.1 Browser response-header policy
 
-Every active adapter applies the same framework-neutral baseline to `/bootui`, `/bootui/**`, and `/bootui/api/**`,
-including shell and asset responses, API errors, localhost/panel-policy rejections, SSE streams, and downloads:
+Every active adapter applies the same framework-neutral baseline to the configured UI and API surfaces (the defaults are
+`/bootui`, `/bootui/**`, and `/bootui/api/**`), including shell and asset responses, API errors,
+localhost/panel-policy rejections, SSE streams, and downloads:
 
 | Header | BootUI baseline |
 | --- | --- |
@@ -148,9 +176,9 @@ the same-origin `<base>` tag BootUI injects when a host application has a servle
 
 BootUI treats cache semantics separately by response class:
 
-- `/bootui/api` and `/bootui/api/**`, including JSON, errors, SSE, and downloads: `Cache-Control: no-store,
+- the configured API path and its descendants, including JSON, errors, SSE, and downloads: `Cache-Control: no-store,
   must-revalidate` plus `Pragma: no-cache`.
-- Successfully served content-hashed files under `/bootui/assets/`: `Cache-Control: public, max-age=31536000,
+- successfully served content-hashed files under the configured UI path's `assets/` directory: `Cache-Control: public, max-age=31536000,
   immutable`, with no
   conflicting `Pragma`.
 - The SPA shell, favicon, unhashed/missing assets, and other BootUI responses: `Cache-Control: no-cache` plus
@@ -163,7 +191,7 @@ per policy header.
 
 Quarkus' production-dark 404 responses carry the same baseline and path-appropriate cache directive without exposing
 the shell or API. The Vite development server remains compatible because it serves the development document and HMR
-client itself; only proxied backend `/bootui/api/**` responses carry these headers, and response CSP headers do not set
+client itself; only proxied backend API responses carry these headers, and response CSP headers do not set
 the policy of the Vite document.
 
 ### 4.3 Startup banner integration
@@ -182,8 +210,8 @@ On Spring the scheme follows `server.ssl.enabled`: when TLS is enabled the banne
 The Quarkus adapter logs the same line at startup, gated by the same `bootui.show-banner`
 key. Because the console is a local developer tool there, the Quarkus banner always uses
 `http://`; the port is the live bound HTTP port (`quarkus.http.test-port` under tests,
-otherwise `quarkus.http.port`) and the path is `quarkus.http.root-path` plus the fixed
-`/bootui` mount.
+otherwise `quarkus.http.port`) and the path is `quarkus.http.root-path` plus the normalized
+`bootui.path`.
 
 This should integrate with the project's startup banner convention.
 
@@ -1616,8 +1644,8 @@ Initial properties:
 | Property                                     | Default                                 | Description                                                                                       |
 | -------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `bootui.enabled`                             | `AUTO`                                  | Enables BootUI. Values: `AUTO`, `ON`, `OFF` (YAML parses `ON`/`OFF` as booleans, so `true`/`yes` and `false`/`no` are accepted too). |
-| `bootui.path`                                | `/bootui`                               | UI base path used by the banner and safety filter; `/bootui` is the supported route.              |
-| `bootui.api-path`                            | `/bootui/api`                           | Internal API base path used by the safety filter; controllers currently serve `/bootui/api/**`.   |
+| `bootui.path`                                | `/bootui`                               | Normalized application-relative UI base path used by shell/assets, filters, and the banner. See §4.2 for validation rules. |
+| `bootui.api-path`                            | `<bootui.path>/api`                     | Optional normalized application-relative API base path used by controllers, filters, MCP, OTLP, streams, and downloads. |
 | `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                           |
 | `bootui.allowed-hosts`                       | _(empty)_                               | Extra `Host` header values accepted by the loopback filter (DNS-rebinding allow-list).            |
 | `bootui.authentication.token`                | _(generated)_                           | Access token required by non-loopback API callers. A generated token is logged once at startup when remote access is configured; configured tokens are never logged. |
@@ -1880,8 +1908,7 @@ Future compatibility:
 
 - Spring Boot 3.5 if demand requires it.
 - Gradle examples.
-- Closing the remaining Spring Boot WebFlux gaps: a reactive Security advisor and the standalone REST Client panel (see
-  `docs/WEBFLUX-SUPPORT.md`).
+- Closing the remaining Spring Boot WebFlux gap: a reactive Security advisor (see `docs/WEBFLUX-SUPPORT.md`).
 
 ## 9. Testing strategy
 

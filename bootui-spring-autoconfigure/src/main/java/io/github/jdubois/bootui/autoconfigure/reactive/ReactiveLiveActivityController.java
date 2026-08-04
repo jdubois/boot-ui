@@ -105,7 +105,7 @@ import reactor.core.publisher.Flux;
  * recorder / email capture service subscriptions signal directly, same as servlet.
  */
 @RestController
-@RequestMapping("/bootui/api/activity")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/activity")
 public class ReactiveLiveActivityController {
 
     private final ObjectProvider<HttpExchangesController> httpExchanges;

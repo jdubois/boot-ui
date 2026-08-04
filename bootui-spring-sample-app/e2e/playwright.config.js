@@ -14,6 +14,8 @@ import {defineConfig, devices} from '@playwright/test'
  */
 const PORT = Number(process.env.BOOTUI_SAMPLE_PORT || 8080)
 const BASE_URL = process.env.BOOTUI_BASE_URL || `http://localhost:${PORT}`
+const MAVEN_REPO = process.env.BOOTUI_MAVEN_REPO_LOCAL
+const REPO_ARG = MAVEN_REPO ? ` -Dmaven.repo.local=${MAVEN_REPO}` : ''
 
 // Optional Spring profile(s) for the auto-started sample app. Leave unset for the default
 // Docker-free `dev` profile; set BOOTUI_SAMPLE_PROFILES=docker to boot the full Docker stack
@@ -58,7 +60,7 @@ export default defineConfig({
     ? undefined
     : {
         // Run from the e2e module through the root Maven Wrapper.
-        command: `../../mvnw -f ../pom.xml -q spring-boot:run -Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=false${PROFILES_ARG}`,
+        command: `../../mvnw${REPO_ARG} -f ../pom.xml -q spring-boot:run -Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=false${PROFILES_ARG}`,
         url: `${BASE_URL}/bootui/api/overview`,
         reuseExistingServer: !process.env.CI,
         stdout: 'pipe',

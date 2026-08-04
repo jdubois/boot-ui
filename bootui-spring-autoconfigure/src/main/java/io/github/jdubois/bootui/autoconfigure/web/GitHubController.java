@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 
 @RestController
-@RequestMapping("/bootui/api/github")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/github")
 public class GitHubController {
 
     private final GitHubDashboardService service;

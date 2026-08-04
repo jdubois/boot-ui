@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
+    "test:custom-path": "playwright test --config=playwright.custom-path.config.js",
     "test:webflux": "playwright test --config=playwright.webflux.config.js",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",

@@ -279,9 +279,10 @@ has one, and honestly reports itself unavailable rather than fabricating a parti
 detection, its row badge, and call-site capture are computed by the same shared engine code as every other adapter,
 so a WebFlux request that resolves a trace-id correlation gets byte-identical flagging to Spring MVC and Quarkus. The
 optional durable persistence backend and the "Use the existing datasource" hot-switch described above work
-identically on WebFlux too, over the same shared engine machinery. The dedicated REST Client panel itself is
-still not available on WebFlux — only its capture and Live Activity merge are. See
-[docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full detail.
+identically on WebFlux too, over the same shared engine machinery. The dedicated REST Client panel is also available
+on WebFlux (see [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full detail), delivering the same
+pause/resume controls, retained-call table, and "Most frequent calls" grouping over `WebClient` calls captured via
+the reactive adapter.
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
@@ -1192,18 +1193,19 @@ serving-thread-second correlation SQL statements use, and carry a deep link back
 above is not (yet) surfaced as a row-level badge in the merged stream the way SQL's N+1 suspicion is — it is visible only
 in this panel's own "Most frequent calls" table.
 
-**REST Client's dedicated panel is available on Spring MVC (servlet) and Quarkus adapters.** On Spring, client calls
-are intercepted via `RestClientCustomizer`/`RestTemplateCustomizer` hooks; on Quarkus, the MicroProfile
+**REST Client's dedicated panel is available on Spring MVC (servlet), Spring WebFlux (reactive), and Quarkus adapters.**
+On Spring MVC, client calls are intercepted via `RestClientCustomizer`/`RestTemplateCustomizer` hooks. On WebFlux,
+`WebClient` calls are captured through an `ExchangeFilterFunction` installed by Spring Boot's auto-configured
+`WebClient.Builder`; the panel becomes available after that builder has customized a client, and its reactive
+`/stream` endpoint provides the same pause/resume, clear, and live-refresh behavior without linking servlet classes.
+On Quarkus, the MicroProfile
 `RestClientListener` SPI (`QuarkusRestClientTraceListener`, registered via `ServiceProviderBuildItem` when
 `quarkus-rest-client` capability is present) attaches a `QuarkusRestClientTraceFilter` on every proxy. The filter runs
 after application request filters and before application response filters, so it brackets the transport without
 replacing application customization. Quarkus reports a pre-response transport failure to the response filter with status
 `0`; BootUI records that as a failed call with no invented HTTP status, while any real `4xx`/`5xx` response remains a
 transport-successful error response. The same `RestClientTraceRecorder` backs both adapters, so the panel shape is
-identical. The Spring WebFlux (reactive) adapter captures `WebClient` calls via an
-`ExchangeFilterFunction` and merges them into **Live Activity**; its push-updating `/stream` endpoint is built on
-the servlet-specific `SseEmitter`, so the full standalone panel (with pause/resume controls) is currently only exposed
-on the Spring MVC (servlet) adapter, but WebFlux REST entries still appear in the merged Live Activity feed.
+identical.
 
 ![BootUI REST Client panel](./images/bootui-rest-client-trace.webp)
 

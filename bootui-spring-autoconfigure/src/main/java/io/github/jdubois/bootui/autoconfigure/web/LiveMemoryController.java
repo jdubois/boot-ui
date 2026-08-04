@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/bootui/api/live-memory")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/live-memory")
 public class LiveMemoryController {
 
     private final MemoryReportProvider provider;

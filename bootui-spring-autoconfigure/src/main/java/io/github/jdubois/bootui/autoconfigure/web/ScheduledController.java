@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @ConditionalOnClass(name = "org.springframework.scheduling.config.ScheduledTaskHolder")
-@RequestMapping("/bootui/api/scheduled")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/scheduled")
 public class ScheduledController {
 
     private final ScheduledTasksService scheduledTasksService;

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiPathPropertySource;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
@@ -30,11 +31,13 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveClaudeCodeControl
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveCopilotController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveHttpExchangeTraceFilter;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLegacyBootUiPathFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLogTailController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveOtelTraceIdProvider;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactivePanelAccessFilter;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityEventTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityHeadersFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityLogsController;
@@ -226,6 +229,7 @@ import tools.jackson.databind.ObjectMapper;
     BootUiReactiveAutoConfiguration.ReactiveExceptionsConfiguration.class,
     ReactiveExceptionsController.class,
     ReactiveSqlTraceController.class,
+    ReactiveRestClientTraceController.class,
     ReactiveSecurityLogsController.class,
     ReactiveLiveActivityController.class,
     EmailController.class,
@@ -283,6 +287,7 @@ public class BootUiReactiveAutoConfiguration {
             DismissedRulesController.class.getName(),
             ReactiveExceptionsController.class.getName(),
             ReactiveSqlTraceController.class.getName(),
+            ReactiveRestClientTraceController.class.getName(),
             ReactiveSecurityLogsController.class.getName(),
             ReactiveLiveActivityController.class.getName(),
             ReactiveBootUiMcpController.class.getName(),
@@ -300,8 +305,9 @@ public class BootUiReactiveAutoConfiguration {
             "bootUiClaudeCodeSessionStore");
 
     @Bean
-    static BeanFactoryPostProcessor bootUiReactiveLazyBeanPostProcessor() {
+    static BeanFactoryPostProcessor bootUiReactiveLazyBeanPostProcessor(ConfigurableEnvironment environment) {
         return beanFactory -> {
+            BootUiPathPropertySource.apply(environment);
             for (String beanName : beanFactory.getBeanDefinitionNames()) {
                 BeanDefinition beanDefinition = beanFactory.getBeanDefinition(beanName);
                 String beanClassName = beanDefinition.getBeanClassName();
@@ -451,8 +457,13 @@ public class BootUiReactiveAutoConfiguration {
         boolean sslEnabled = environment.getProperty("server.ssl.enabled", Boolean.class, false);
         String scheme = sslEnabled ? "https" : "http";
         String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
-        String contextPath = environment.getProperty("server.servlet.context-path", "");
+        String contextPath = environment.getProperty("spring.webflux.base-path", "");
         return scheme + "://localhost:" + port + contextPath + properties.getPath();
+    }
+
+    @Bean
+    public ReactiveLegacyBootUiPathFilter bootUiReactiveLegacyPathFilter(BootUiProperties properties) {
+        return new ReactiveLegacyBootUiPathFilter(properties);
     }
 
     @Bean
@@ -492,8 +503,9 @@ public class BootUiReactiveAutoConfiguration {
     }
 
     @Bean
-    public ReactiveBootUiStaticResourceConfigurer bootUiReactiveStaticResourceConfigurer(Environment environment) {
-        return new ReactiveBootUiStaticResourceConfigurer(environment);
+    public ReactiveBootUiStaticResourceConfigurer bootUiReactiveStaticResourceConfigurer(
+            Environment environment, BootUiProperties properties) {
+        return new ReactiveBootUiStaticResourceConfigurer(environment, properties);
     }
 
     /**

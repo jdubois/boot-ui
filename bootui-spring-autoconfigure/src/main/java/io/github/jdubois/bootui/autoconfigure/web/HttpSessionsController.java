@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @ConditionalOnClass(name = {"org.springframework.boot.tomcat.TomcatWebServer", "org.apache.catalina.Manager"})
-@RequestMapping("/bootui/api/http-sessions")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/http-sessions")
 public class HttpSessionsController {
 
     private final HttpSessionsService service;

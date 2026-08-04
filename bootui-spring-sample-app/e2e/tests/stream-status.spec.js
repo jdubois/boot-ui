@@ -2,11 +2,11 @@
 import {expect, test} from './fixtures.js'
 
 const STREAMING_PANELS = [
-  ['activity', 'Live Activity', 'api/activity/stream'],
-  ['exceptions', 'Exceptions', 'api/exceptions/stream'],
-  ['rest-client-trace', 'REST Client', 'api/rest-client-trace/stream'],
-  ['security-logs', 'Security Logs', 'api/security-logs/stream'],
-  ['sql-trace', 'SQL Trace', 'api/sql-trace/stream']
+  ['activity', 'Live Activity', '/bootui/api/activity/stream'],
+  ['exceptions', 'Exceptions', '/bootui/api/exceptions/stream'],
+  ['rest-client-trace', 'REST Client', '/bootui/api/rest-client-trace/stream'],
+  ['security-logs', 'Security Logs', '/bootui/api/security-logs/stream'],
+  ['sql-trace', 'SQL Trace', '/bootui/api/sql-trace/stream']
 ]
 
 /**

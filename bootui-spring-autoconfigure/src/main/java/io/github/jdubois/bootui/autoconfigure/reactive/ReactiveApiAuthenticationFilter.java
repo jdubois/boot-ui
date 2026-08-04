@@ -76,7 +76,8 @@ public final class ReactiveApiAuthenticationFilter extends AbstractReactiveBootU
             if (!trustedSource) {
                 exchange.getResponse()
                         .addCookie(ResponseCookie.from(ApiTokenAuthenticator.SESSION_COOKIE_NAME, authenticator.token())
-                                .path(withoutTrailingSlash(properties.getApiPath()))
+                                .path(request.getPath().contextPath().value()
+                                        + withoutTrailingSlash(properties.getApiPath()))
                                 .httpOnly(true)
                                 .sameSite("Strict")
                                 .secure("https"

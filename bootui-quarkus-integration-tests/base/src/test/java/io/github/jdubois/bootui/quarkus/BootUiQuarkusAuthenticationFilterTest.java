@@ -69,6 +69,30 @@ class BootUiQuarkusAuthenticationFilterTest {
     }
 
     @Test
+    void sessionCookieIncludesTheRootAndConfiguredApiPath() {
+        Config customConfig = new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(
+                        Map.of(
+                                "bootui.path", "/console",
+                                "bootui.api-path", "/internal/bootui-api",
+                                "quarkus.http.root-path", "/host"),
+                        "test",
+                        100))
+                .build();
+        BootUiQuarkusAuthenticationFilter customFilter = new BootUiQuarkusAuthenticationFilter(
+                customConfig, new ApiTokenAuthenticator(TOKEN), new BootUiQuarkusSafetyFilter(customConfig));
+        RoutingContext context = context(HttpMethod.POST, "10.0.0.5", "Bearer " + TOKEN, null);
+        when(context.normalizedPath()).thenReturn("/host/bootui/api/auth/session");
+
+        customFilter.handle(context);
+
+        verify(context.response())
+                .putHeader(
+                        "Set-Cookie",
+                        "BOOTUI_SESSION=test-token; Path=/host/internal/bootui-api; HttpOnly; SameSite=Strict");
+    }
+
+    @Test
     void sourcesTrustedViaTrustedProxiesDoNotRequireAuthentication() {
         Config trustedProxiesConfig = new SmallRyeConfigBuilder()
                 .withSources(new PropertiesConfigSource(Map.of("bootui.trusted-proxies", "10.0.0.0/24"), "test", 100))

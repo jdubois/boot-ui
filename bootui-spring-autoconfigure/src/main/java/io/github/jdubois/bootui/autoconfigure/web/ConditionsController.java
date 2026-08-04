@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/bootui/api/conditions")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/conditions")
 public class ConditionsController {
 
     private final ObjectProvider<ConditionsReportEndpoint> endpoint;

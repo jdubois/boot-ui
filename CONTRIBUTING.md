@@ -194,6 +194,19 @@ non-default port, point the proxy at it with `BOOTUI_API_PROXY_TARGET`. Use
 `npm run test:watch` for Vitest watch mode while iterating. When you are done,
 run `./mvnw install -pl bootui-ui` once to re-bundle the assets into the JAR.
 
+To develop against custom BootUI mounts, set `BOOTUI_DEV_PATH` for the Vite shell base and, when the API path is not
+`<BOOTUI_DEV_PATH>/api`, set `BOOTUI_DEV_API_PATH` independently:
+
+```bash
+BOOTUI_DEV_PATH=/dev-console \
+  BOOTUI_DEV_API_PATH=/internal/bootui-api \
+  BOOTUI_API_PROXY_TARGET=http://localhost:8083 \
+  npm run dev
+```
+
+Then open <http://localhost:5173/dev-console/>. These values affect only Vite development; the packaged build uses
+relative asset URLs and receives the actual UI/API paths from the backend at runtime.
+
 ### Bootstrap Icons subsetting
 
 To keep the packaged JAR small, the build does not ship the full Bootstrap Icons

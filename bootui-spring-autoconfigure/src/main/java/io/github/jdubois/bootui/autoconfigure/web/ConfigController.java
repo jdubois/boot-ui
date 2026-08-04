@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  * signature is preserved because {@code BootUiMcpTools}' {@code get_config} tool invokes it directly.
  */
 @RestController
-@RequestMapping("/bootui/api/config")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/config")
 public class ConfigController {
 
     private final ConfigService configService;
