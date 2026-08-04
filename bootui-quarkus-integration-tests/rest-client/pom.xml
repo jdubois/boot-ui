@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.12.0</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>bootui-quarkus-rest-client-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (REST Client Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds quarkus-rest-client on top of the
+        bootui-quarkus extension and proves the REST Client panel light-up: a @RegisterRestClient proxy is
+        registered and called from a test, the BootUI QuarkusRestClientTraceListener SPI hook registers a
+        QuarkusRestClientTraceFilter on the proxy, the filter feeds the shared RestClientTraceRecorder, and the
+        panel is surfaced on GET /bootui/api/rest-client-trace with working clear and recording-toggle actions.
+        Kept separate from bootui-quarkus-integration-tests (which deliberately has NO
+        quarkus-rest-client, so the class-presence gate keeps the REST Client panel unavailable) so
+        the present and absent paths are each proven in isolation — the same split used for the
+        cache-present/absent and email-present/absent coverage. No Docker is needed; the @RegisterRestClient
+        target is the test app's own loopback port.</description>
+
+    <!--
+        Like the other Quarkus integration-test modules, this app has NO datasource / messaging dependencies, so
+        a @QuarkusTest boots without Docker. It is never published.
+    -->
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-bom</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
+             quarkus-vertx-http transitively, so this app serves /bootui/ and /bootui/api/** with no extra deps. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Gives Maven's reactor an explicit edge to the deployment half before Quarkus augmentation.
+             Provided scope keeps deployment classes off this test application's runtime classpath. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Adds Quarkus REST Client Reactive. Its capability makes the deployment build step
+             (registerRestClientTrace) emit the service-provider entry for the listener and set
+             bootui.internal.rest-client-trace-present=true; the BootUI QuarkusRestClientTraceListener is then
+             registered and receives an onNewClient() callback for each @RegisterRestClient proxy built. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-client</artifactId>
+        </dependency>
+
+        <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- forkCount=1: avoids a Quarkus @QuarkusTest classloading race between concurrent Surefire
+                 forks in the same module (test-classes.idx); see
+                 bootui-quarkus-integration-tests/base/pom.xml for the full rationale. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1</forkCount>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

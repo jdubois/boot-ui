@@ -146,10 +146,14 @@ import tools.jackson.databind.ObjectMapper;
  * <p><strong>Not yet ported (need genuinely new reactive-native work, not mechanical reuse):</strong></p>
  *
  * <ul>
- *   <li><strong>Spring Security advisor and BootUI's own Security auto-configuration bypass</strong>
- *       &mdash; coupled to servlet Spring Security ({@code FilterChainProxy}, {@code HttpSecurity});
- *       needs a {@code ServerHttpSecurity}/{@code SecurityWebFilterChain} ruleset. (Security *Logs* is
- *       ported - see above - only the advisor that analyzes security configuration is deferred.)</li>
+ *   <li><strong>Spring Security advisor</strong> &mdash; the advisor that analyzes security
+ *       configuration is coupled to servlet Spring Security ({@code FilterChainProxy},
+ *       {@code HttpSecurity}); a {@code ServerHttpSecurity}/{@code SecurityWebFilterChain} ruleset is
+ *       a genuinely new advisor, deferred to a follow-up. (The raw Spring Security <em>panel</em>
+ *       ({@link io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController}) and
+ *       BootUI's own reactive Security auto-configuration bypass
+ *       ({@link BootUiReactiveSpringSecurityAutoConfiguration}) are already ported.
+ *       Security *Logs* is ported too — see above.)</li>
  *   <li><strong>HTTP Sessions</strong> &mdash; {@code jakarta.servlet.http.HttpSession} /
  *       the container {@code Manager} SPI have no faithful reactive analog ({@code WebSession} is a
  *       different contract); reported {@code NOT_APPLICABLE}.</li>

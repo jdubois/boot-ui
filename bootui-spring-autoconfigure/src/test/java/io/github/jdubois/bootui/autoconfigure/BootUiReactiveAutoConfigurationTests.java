@@ -49,6 +49,7 @@ import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.restclient.RestClientCustomizer;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.boot.webflux.actuate.web.exchanges.HttpExchangesWebFilter;
@@ -173,6 +174,22 @@ class BootUiReactiveAutoConfigurationTests {
                 .run(context -> assertThat(context)
                         .hasSingleBean(BootUiReactiveAutoConfiguration.class)
                         .doesNotHaveBean(BootUiAutoConfiguration.class));
+    }
+
+    @Test
+    void startsWithoutSpringSecurityOnTheClasspath() {
+        new ReactiveWebApplicationContextRunner()
+                .withClassLoader(new FilteredClassLoader("org.springframework.security"))
+                .withConfiguration(AutoConfigurations.of(
+                        BootUiReactiveAutoConfiguration.class, BootUiReactiveSpringSecurityAutoConfiguration.class))
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context)
+                            .hasSingleBean(BootUiReactiveAutoConfiguration.class)
+                            .doesNotHaveBean(BootUiReactiveSpringSecurityAutoConfiguration.class)
+                            .doesNotHaveBean("reactiveSpringSecurityController");
+                });
     }
 
     @Test
@@ -661,8 +678,8 @@ class BootUiReactiveAutoConfigurationTests {
         // Full-stack proof (real DispatcherHandler, real WebFluxAutoConfiguration) that the shared,
         // unmodified PanelsController correctly self-detects a genuine reactive ApplicationContext and
         // (a) reports the "spring-boot-reactive" platform discriminator and (b) marks the panels with no
-        // faithful reactive equivalent (HTTP Sessions), or not yet ported (Spring Security advisor), as
-        // unavailable with a WebFlux-specific reason - complementing PanelsControllerTests' unit-level
+        // faithful reactive equivalent (HTTP Sessions), or no detected backing chain (raw Spring Security),
+        // as unavailable with a WebFlux-specific reason - complementing PanelsControllerTests' unit-level
         // coverage of the same behavior with an end-to-end HTTP round trip through the real reactive
         // autoconfiguration stack. MCP Server and Live Activity are wired into this autoconfiguration, so
         // both must report available here.
@@ -695,7 +712,8 @@ class BootUiReactiveAutoConfigurationTests {
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.SPRING_SECURITY + "')].available")
                             .isEqualTo(false)
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.SPRING_SECURITY + "')].unavailableReason")
-                            .<List<String>>value(singleReasonStartingWith("Not yet ported for Spring WebFlux"))
+                            .<List<String>>value(
+                                    singleReasonStartingWith("No reactive Spring Security filter chains are available"))
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.MCP_SERVER + "')].available")
                             .isEqualTo(true)
                             .jsonPath("$.panels[?(@.id=='" + BootUiPanels.ACTIVITY + "')].available")

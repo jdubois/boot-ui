@@ -4,8 +4,9 @@ import {computed, inject, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
-import SpinnerButton from './components/SpinnerButton.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
+import StreamStatusIndicator from './components/StreamStatusIndicator.vue'
 
 const panels = inject('panels', ref(null))
 const isQuarkus = computed(() => (panels.value?.platform ?? 'spring-boot') === 'quarkus')
@@ -51,7 +52,10 @@ async function fetchLogs(reset = false) {
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useEventStreamRefresh('api/security-logs/stream', fetchLogs)
+const {autoRefresh, loading, initialLoading, load, retryConnection, connectionState} = useEventStreamRefresh(
+  'api/security-logs/stream',
+  fetchLogs
+)
 
 function previousPage() {
   if (!page.value) return
@@ -106,6 +110,8 @@ function typeBadgeClass(typeName) {
       v-model:auto-refresh="autoRefresh"
       @refresh="load"
     />
+
+    <StreamStatusIndicator :connection-state="connectionState" @retry="retryConnection" />
 
     <p class="text-muted small">
       <template v-if="isQuarkus">

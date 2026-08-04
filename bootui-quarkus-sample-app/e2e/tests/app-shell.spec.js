@@ -50,6 +50,7 @@ const PANEL_HEADINGS = {
   exceptions: /^Exceptions/,
   'http-exchanges': /HTTP Exchanges/,
   'http-probe': /HTTP Probe/,
+  'rest-client-trace': /^REST Client/,
   email: /^Email/,
   architecture: /^Architecture/,
   'rest-api': /^REST API/,

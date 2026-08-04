@@ -27,8 +27,8 @@ BootUI currently targets:
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
-`docs/WEBFLUX-SUPPORT.md` §6.4); a handful of panels (the Security advisor, the raw Spring Security panel,
-and the standalone REST Client panel) are not yet ported, and HTTP Sessions is not applicable to a reactive,
+`docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel; the Security advisor and standalone REST Client
+panel are not yet ported, and HTTP Sessions is not applicable to a reactive,
 container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
 is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
 current per-platform status.
@@ -39,8 +39,8 @@ Out of scope for the current 1.x line:
 - Spring Framework 6 / Boot 3 compatibility shims.
 - A dedicated BootUI Gradle plugin (the Spring starters and Quarkus extension are consumable from Maven or Gradle as
   ordinary dependencies).
-- On Spring Boot WebFlux: a reactive Security advisor ruleset, the raw Spring Security panel, and the
-  standalone REST Client panel (see `docs/WEBFLUX-SUPPORT.md` for the reasons and the plan to close each gap).
+- On Spring Boot WebFlux: a reactive Security advisor ruleset and the standalone REST Client panel (see
+  `docs/WEBFLUX-SUPPORT.md` for the reasons and the plan to close each gap).
 
 ## 2. Product goals
 
@@ -823,7 +823,7 @@ Features:
   point), while on Quarkus it carries the channel name. Controlled by `bootui.kafka.enabled`,
   `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length`.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
-  exception count, SQL/min, slowest query, (Spring servlet/WebFlux only, `null` on Quarkus) outbound-call error
+  exception count, SQL/min, slowest query, outbound-call error
   rate/p95 latency deep-linked to the REST Client panel, health status, heap usage, (Spring only, `null` on
   Quarkus) cache hit
   ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel — and a
@@ -1010,32 +1010,36 @@ Data sources:
 - A shared `ClientHttpRequestInterceptor` customizes every auto-configured `RestClient` and `RestTemplate`; a shared
   `ExchangeFilterFunction` customizes every auto-configured `WebClient`. Each call is recorded with its method, host,
   path, query string, response status, wall-clock duration, success/failure, client type, trace id (when active),
-  executing thread, and call site.
+  executing thread, and call site when the interception stack still exposes it.
+- On Quarkus, the supported MicroProfile `RestClientListener` SPI conditionally registers a metadata-only JAX-RS client
+  request/response filter on every REST Client Reactive proxy when `Capability.REST_CLIENT_REACTIVE` is present. The
+  optional listener is excluded and its service-provider entry omitted when the capability is absent.
 
 Acceptance criteria:
 
-- A capture failure never disrupts the outbound call itself: both instrumentation points always let the request
+- A capture failure never disrupts the outbound call itself: every adapter instrumentation point always lets the request
   through and only best-effort record around it.
-- The URI and query parameters are always captured and masked **by name** (the same `SecretMasker` rules Config and
-  HTTP Exchanges use); request headers are withheld by default and only captured, subject to the same masking, when
-  `bootui.rest-client-trace.capture-headers=true`.
+- Spring masks retained query/header values **by name** and captures request headers only when
+  `bootui.rest-client-trace.capture-headers=true`. Quarkus is always metadata-only: it never reads or retains bodies,
+  arbitrary headers, credentials, cookies, or tokens, and removes URI user-info/fragments plus sensitive path/query
+  values before storage.
 - Calls are grouped by method, host, and normalized path (numeric/UUID segments collapsed to `{id}`) and a group at or
   above `bootui.rest-client-trace.chatty-call-threshold` is flagged as a **chatty** (repeated-call) pattern, for calls
   of any HTTP method.
 - Pause/Resume and Clear are gated by `bootui.panels.rest-client-trace.read-only`; recording state, buffer size, and
   the slow/chatty thresholds are configurable under `bootui.rest-client-trace.*`.
-- Recent calls surface in Live Activity as `REST_CLIENT` entries, nested under their correlated request using the
-  same trace-id-first, serving-thread-second join SQL statements use.
-- The dedicated panel is available on the Spring MVC (servlet) adapter only, since its push-updating `/stream`
-  endpoint relies on the servlet-specific `SseEmitter`. The underlying `WebClient` call capture is shared with Spring
-  WebFlux and feeds Live Activity there with trace-id-only correlation, but WebFlux has no dedicated panel yet.
+- Recent calls surface in Live Activity as `REST_CLIENT` entries. Spring MVC uses trace-id-first/serving-thread-second
+  correlation; Quarkus and WebFlux use trace id only because neither reactive runtime has a thread-per-request model.
+- The dedicated panel is available on Spring MVC and Quarkus. Quarkus keeps it visible whenever the optional capability
+  is present (proxies are initialized lazily), renders a no-proxy message until instrumentation occurs, and refreshes via
+  its JAX-RS SSE stream. WebFlux captures calls for Live Activity but still has no dedicated panel.
 - On the servlet adapter, `/bootui/api/panels` additionally requires that at least one `RestClient`, `RestTemplate`,
   or `WebClient` has actually been instrumented (mirroring how Kafka/Email/Cache report against their own beans): an
   application that never builds one of the three reports the panel unavailable rather than available-with-an-empty-
   buffer, since the recorder bean backing the panel is registered unconditionally and so is never itself a useful
   signal.
-  Quarkus has no outbound REST client capture pipeline at all yet, so both the dedicated panel and the Live Activity
-  `REST_CLIENT` entries are unavailable there (see `docs/WEBFLUX-SUPPORT.md` and `docs/QUARKUS-SUPPORT.md`).
+  On Quarkus, real `4xx`/`5xx` responses are recorded as transport-successful error responses; a pre-response transport
+  failure is reported to the filter with status `0` and stored as a failed call with no invented HTTP status.
 
 ### 5.14.6 Kafka Panel
 
@@ -1867,8 +1871,8 @@ Future compatibility:
 
 - Spring Boot 3.5 if demand requires it.
 - Gradle examples.
-- Closing the remaining Spring Boot WebFlux gaps: a reactive Security advisor, the raw Spring Security panel, MCP
-  Server, and the standalone REST Client panel (see `docs/WEBFLUX-SUPPORT.md`).
+- Closing the remaining Spring Boot WebFlux gaps: a reactive Security advisor and the standalone REST Client panel (see
+  `docs/WEBFLUX-SUPPORT.md`).
 
 ## 9. Testing strategy
 

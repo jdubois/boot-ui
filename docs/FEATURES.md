@@ -199,17 +199,17 @@ disk, so a later restart reverts to the in-memory default unless `bootui.activit
 in configuration. If no `DataSource` is present, the button instead links straight to the setup documentation for
 configuring one (a dedicated one, just for Live Activity, or reusing an existing one).
 
-On Quarkus the panel merges seven signals: HTTP requests (from the same Vert.x-fed ring buffer as HTTP Exchanges), SQL
-trace, exceptions, security events, scheduled-task runs, Kafka producer/consumer activity, and captured emails, alongside
-JVM heap KPIs. Cache accesses and outbound REST-client calls (`REST_CLIENT`) are Spring-servlet/WebFlux-only today (see
-their own sections above) — neither has a Quarkus capture seam yet, so both slots stay empty/unavailable there. SQL trace
+On Quarkus the panel merges eight signals: HTTP requests (from the same Vert.x-fed ring buffer as HTTP Exchanges), SQL
+trace, exceptions, security events, scheduled-task runs, Kafka producer/consumer activity, captured emails, and outbound
+REST Client Reactive calls, alongside JVM heap KPIs. Cache accesses remain Spring-servlet/WebFlux-only today (see their
+own section above), so only that slot stays empty/unavailable on Quarkus. SQL trace
 contributes only when a JDBC datasource is
 configured (the recorder is gated on Agroal); when none is present those entries drop out and the report carries a clear
 note. Signal-to-request correlation works by **trace id**: Spring's thread-per-request anchor is unportable on the Vert.x
 event loop (a thread does not map to a single request), so when `quarkus-opentelemetry` is present the adapter stamps the
-active server span's trace id at each capture point — the HTTP filter, the SQL recorder, the exception store, and the CDI
-security-event observer — and the engine nests SQL, exception, security, and email entries under the request sharing that
-trace id, exactly as on Spring (scheduled-task runs and Kafka activity always stay top-level, as described above); the
+active server span's trace id at each capture point — the HTTP filter, REST Client recorder, SQL recorder, exception store,
+and CDI security-event observer — and the engine nests REST Client, SQL, exception, security, and email entries under the
+request sharing that trace id, exactly as on Spring (scheduled-task runs and Kafka activity always stay top-level); the
 OpenTelemetry context propagates across the event-loop→worker hop, so the same trace id is available even for
 blocking JDBC on a worker thread or a security event fired from a CDI observer. A request whose trace id uniquely matches
 a correlated security event is flagged **authenticated** exactly like Spring, naming the audit event's principal; Quarkus's
@@ -517,9 +517,9 @@ relabels the metrics ("Permission policies" in place of "Filter chains") — the
 ![BootUI Security panel — Quarkus Security](./images/bootui-quarkus-security.webp)
 
 This advisor is **not yet ported for Spring Boot WebFlux**: it analyzes the servlet `SecurityFilterChain` beans
-described above, and a reactive Spring Security setup registers a different bean type (`WebFilterChainProxy`) instead
-— so the panel reports unavailable with its existing "no filter chains available" reason rather than a bespoke
-WebFlux message. A `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as follow-up work. See
+described above, while a reactive Spring Security setup registers unrelated `SecurityWebFilterChain` beans behind a
+`WebFilterChainProxy` instead — so the panel reports unavailable with its existing "no filter chains available" reason
+rather than a bespoke WebFlux message. A `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as follow-up work. See
 [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the current status.
 
 ### Pentesting
@@ -1065,9 +1065,13 @@ meant to explain local security wiring without exposing credentials or replacing
 
 ![BootUI Spring Security panel](./images/bootui-spring-security.webp)
 
-This panel is **not yet ported for Spring Boot WebFlux**: it reads the servlet `SecurityFilterChain` bean chain, which a
-reactive application never registers (a reactive Spring Security setup registers a `WebFilterChainProxy`/
-`SecurityWebFilterChain` instead). See [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the current status.
+On **Spring Boot WebFlux**, the same panel reads ordered application `SecurityWebFilterChain` beans and lists their
+`WebFilter` pipelines. Chain matching remains fully non-blocking and uses each chain's public reactive matcher. Explain
+and annotation-endpoint authorization views use a sanitized path-and-method-only exchange: they never reuse the current
+request's headers, cookies, principal, session, body, or network metadata, and mark reduced results as best effort instead
+of guessing context-dependent rules. Functional `RouterFunction` routes are not listed. The compatibility
+`sessionManagementPresent` signal is labelled **Security context** on WebFlux and does not claim that `WebSession`
+persistence is configured. See [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the fidelity and safety details.
 
 ### Security Logs
 
@@ -1110,13 +1114,14 @@ programmatic `Scheduler.newJob()` jobs are not captured (annotation-discovered t
 
 ### REST Client
 
-The REST Client panel shows outbound HTTP calls your application recently made through Spring's own REST clients,
+The REST Client panel shows outbound HTTP calls your application recently made through Spring's own REST clients (Spring
+adapter) or through Quarkus REST Client Reactive proxies (Quarkus adapter),
 captured without a third-party HTTP proxy library. When BootUI is active it customizes every auto-configured `RestClient`
-and `RestTemplate` with a shared `ClientHttpRequestInterceptor` (one instance per client type, so the recorded client
-label — `RestClient` or `RestTemplate` — is always correct) and every auto-configured `WebClient` with an
-`ExchangeFilterFunction`, recording each call's method, host, path, query string, response status, wall-clock duration,
-success/failure, the client type, a trace id when one is active, the executing thread, and the call site in your own
-application code that issued it (when call-site capture is enabled — see below). A capture failure never disrupts the
+and `RestTemplate` with a shared `ClientHttpRequestInterceptor` (Spring) or hooks into every `@RegisterRestClient` proxy
+via the MicroProfile `RestClientListener` SPI (Quarkus), recording each call's method, host, path, sanitized query string,
+response status, wall-clock duration, success/failure, the client type, a trace id when one is active, the executing
+thread, and, when the interception stack still exposes it, the call site in your own application code that issued it
+(when call-site capture is enabled — see below). A capture failure never disrupts the
 outbound call itself: both instrumentation points always let the request through and only best-effort record around it.
 
 Calls are retained in a bounded in-memory ring buffer (most recent first) alongside aggregate stats: retained count,
@@ -1124,35 +1129,36 @@ average and slowest duration, a configurable slow-call count, and — unlike SQL
 distinct failure counts, because an outbound HTTP call can fail two different ways: **Failed** counts transport-level
 failures (the call never got a response — connection refused, timeout, DNS failure), while **Error responses** counts
 calls that completed with a `4xx`/`5xx` status. A per-method breakdown badges GET/POST/PUT/DELETE/other call counts, and
-an "Instrumented clients" row lists which client types (`RestClient`, `RestTemplate`, `WebClient`) are actually wired in
+an "Instrumented clients" row lists which client types (`RestClient`, `RestTemplate`, `WebClient`, or
+`Quarkus REST Client Reactive`) are actually wired in
 the running application. The panel also groups calls by method, host, and normalized path — numeric and UUID path
 segments collapse to `{id}`, so calls to `/orders/1`, `/orders/2`, … group under `/orders/{id}` — into a "Most frequent
 calls" table, flagging a group at or above `bootui.rest-client-trace.chatty-call-threshold` calls as a **chatty**
 (repeated-call) pattern; unlike SQL's N+1 rule, which only flags repeated `SELECT`s, a chatty pattern is flagged for
 calls of *any* HTTP method, since looping a `POST`/`PUT` once per item is just as real and costly an anti-pattern as
 looping a `GET`. A flagged group also lists the distinct call site(s) that issued it, most-recently-seen first and
-bounded to a handful of entries. Each individual call row expands to reveal the full URI, captured request headers,
+bounded to a handful of entries. Each individual call row expands to reveal the full URI, request headers when that
+adapter supports them,
 client type, trace id, executing thread, call site, and error message, and can be filtered by HTTP method, a slow-only
 toggle, or free text across URI, host, method, client, and thread. Local-only **Pause/Resume** and **Clear** actions let
 you stop recording without removing the client instrumentation, or empty the buffer.
 
-The panel is read-mostly and privacy-conscious. The URI is always captured, including query parameter values — but,
-unlike SQL Trace's bound parameters, which are withheld wholesale unless capture is explicitly turned on, each query
-parameter and header value is masked **by name** (the same `SecretMasker` rules the Config and HTTP Exchanges panels
-use) rather than suppressed outright, so a runtime change to `bootui.expose-values`/`bootui.mask-secrets` is reflected
-immediately for both already-captured and new calls. Request headers are the one part **not** captured by default,
-since a header (for example `Authorization`) is far more likely to carry a raw secret than a query parameter; setting
-`bootui.rest-client-trace.capture-headers=true` records them, still subject to the same by-name masking. Call-site
+The panel is read-mostly and privacy-conscious. On Spring, the URI is retained and query values are masked **by name**
+(the same `SecretMasker` rules the Config and HTTP Exchanges panels use); request headers are withheld by default, and
+`bootui.rest-client-trace.capture-headers=true` opts into bounded, exposure-aware header capture. Quarkus is deliberately
+stricter: it is always metadata-only, ignores that header property, never reads or retains request/response bodies,
+arbitrary headers, authorization, cookies, credentials, or tokens, and strips URI user-info/fragments plus masks
+sensitive path/query values **before storage**. Call-site
 capture is a separate concern, exactly as in SQL Trace: a call site names only your own application's code (class,
 method, line), never a value, so it is **not** privacy-gated — `bootui.rest-client-trace.capture-call-site` defaults to
-`true` and only trades a small, defensively-bounded stack walk per call for the ability to see where it came from. The
+`true` and only trades a small, defensively-bounded stack walk per call for the ability to see where it came from. On
+Quarkus this attribution is best-effort because a reactive client callback can run after the application's issuing stack
+has unwound. The
 recorder bean itself is still registered unconditionally whenever the panel is enabled — it doubles as the source for
-Live Activity's REST entries on both Spring adapters — but panel-level availability (`/bootui/api/panels`) does **not**
-just track the bean's presence: it mirrors the recorder's own "has anything been instrumented yet" signal (the same one
-that drives this panel's own empty-state message), the same pattern Kafka/Email/Cache use against their own beans. So an
-application that never builds a `RestClient`, `RestTemplate`, or `WebClient` lands in the "Disabled / unavailable"
-section instead of showing a perpetually empty buffer; the panel flips to available the moment any one of the three is
-instrumented and stays that way for the rest of the run, even if the buffer is later cleared. Only the customizer that
+Live Activity's REST entries. On Spring MVC, panel-level availability mirrors the recorder's "has anything been
+instrumented yet" signal. On Quarkus, the manifest is capability-driven because REST Client proxies are built lazily:
+when `quarkus-rest-client` is present the panel stays visible and reports that no proxy has been initialized until the
+first one is built, then its SSE stream refreshes on the first captured call. Only the customizer that
 wires a given client type fails open, skipping itself entirely when that client's Spring Boot module (for example
 `spring-boot-webclient`) is not on the classpath, so an app without `WebClient` simply never gets a `WebClient`
 customizer rather than failing startup. Tracing, the initial recording state, header capture, call-site capture, buffer
@@ -1170,13 +1176,18 @@ serving-thread-second correlation SQL statements use, and carry a deep link back
 above is not (yet) surfaced as a row-level badge in the merged stream the way SQL's N+1 suspicion is — it is visible only
 in this panel's own "Most frequent calls" table.
 
-**REST Client's dedicated panel is currently available on the Spring MVC (servlet) adapter only.** Its own
-push-updating `/stream` endpoint is built on the servlet-specific `SseEmitter`, so BootUI does not yet expose that full
-panel (with its pause/resume controls, retained-call table, and "Most frequent calls" grouping) on Spring WebFlux or
-Quarkus. However, the underlying outbound-call capture is now shared by both Spring adapters: a WebFlux application's
-own `WebClient` calls are captured and merged into **Live Activity** with the same trace-id-only correlation model that
-WebFlux already uses there for SQL/exceptions/security. Quarkus still has no outbound REST client capture pipeline of
-any kind yet, so both the dedicated panel and Live Activity REST entries remain unavailable on that adapter for now.
+**REST Client's dedicated panel is available on Spring MVC (servlet) and Quarkus adapters.** On Spring, client calls
+are intercepted via `RestClientCustomizer`/`RestTemplateCustomizer` hooks; on Quarkus, the MicroProfile
+`RestClientListener` SPI (`QuarkusRestClientTraceListener`, registered via `ServiceProviderBuildItem` when
+`quarkus-rest-client` capability is present) attaches a `QuarkusRestClientTraceFilter` on every proxy. The filter runs
+after application request filters and before application response filters, so it brackets the transport without
+replacing application customization. Quarkus reports a pre-response transport failure to the response filter with status
+`0`; BootUI records that as a failed call with no invented HTTP status, while any real `4xx`/`5xx` response remains a
+transport-successful error response. The same `RestClientTraceRecorder` backs both adapters, so the panel shape is
+identical. The Spring WebFlux (reactive) adapter captures `WebClient` calls via an
+`ExchangeFilterFunction` and merges them into **Live Activity**; its push-updating `/stream` endpoint is built on
+the servlet-specific `SseEmitter`, so the full standalone panel (with pause/resume controls) is currently only exposed
+on the Spring MVC (servlet) adapter, but WebFlux REST entries still appear in the merged Live Activity feed.
 
 ![BootUI REST Client panel](./images/bootui-rest-client-trace.webp)
 

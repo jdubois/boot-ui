@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch, getJson} from '../api.js'
-import {computed, onMounted, ref} from 'vue'
+import {computed, inject, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
@@ -13,9 +13,12 @@ import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
+import StreamStatusIndicator from './components/StreamStatusIndicator.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const panels = inject('panels', ref(null))
+const platform = computed(() => panels.value?.platform ?? 'spring-boot')
 const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
@@ -37,7 +40,10 @@ async function fetchReport() {
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useEventStreamRefresh('api/rest-client-trace/stream', fetchReport)
+const {autoRefresh, loading, initialLoading, load, retryConnection, connectionState} = useEventStreamRefresh(
+  'api/rest-client-trace/stream',
+  fetchReport
+)
 
 const route = useRoute()
 onMounted(() => {
@@ -208,6 +214,8 @@ function clearTrace() {
 
     <FlashBanner :message="banner" @dismiss="clearBanner" />
 
+    <StreamStatusIndicator :connection-state="connectionState" @retry="retryConnection" />
+
     <PanelSkeleton v-if="initialLoading && !report" />
 
     <template v-else-if="report">
@@ -223,8 +231,14 @@ function clearTrace() {
         <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">Recording controls are read-only.</ReadOnlyNotice>
 
         <div v-if="!report.captureHeaders" class="alert alert-secondary small py-2">
-          Header capture is disabled. Set <code>bootui.rest-client-trace.capture-headers=true</code> (local profiles
-          only) to record request header values.
+          <template v-if="platform === 'quarkus'">
+            Quarkus capture is metadata-only. Request and response bodies, headers, cookies, credentials, and tokens are
+            never retained; sensitive URI values are sanitized before storage.
+          </template>
+          <template v-else>
+            Header capture is disabled. Set <code>bootui.rest-client-trace.capture-headers=true</code> (local profiles
+            only) to record request header values.
+          </template>
         </div>
 
         <section class="mb-4">

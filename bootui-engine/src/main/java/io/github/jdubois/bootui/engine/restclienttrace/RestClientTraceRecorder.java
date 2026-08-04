@@ -203,9 +203,77 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
             String clientType,
             Map<String, String> headers,
             String thread) {
-        if (!enabled || idleSuspended || !recording.get()) {
+        if (!shouldRecord()) {
             return;
         }
+        append(
+                method,
+                uri,
+                host,
+                path,
+                status,
+                durationMillis,
+                success,
+                errorMessage,
+                clientType,
+                headers,
+                thread,
+                currentTraceId());
+    }
+
+    /**
+     * Records one outbound call with a trace id captured explicitly at the interception boundary.
+     * Reactive adapters use this overload when the active context is available in the request filter but
+     * no longer attached when the response callback runs.
+     */
+    public void record(
+            String method,
+            String uri,
+            String host,
+            String path,
+            Integer status,
+            long durationMillis,
+            boolean success,
+            String errorMessage,
+            String clientType,
+            Map<String, String> headers,
+            String thread,
+            String traceId) {
+        if (!shouldRecord()) {
+            return;
+        }
+        append(
+                method,
+                uri,
+                host,
+                path,
+                status,
+                durationMillis,
+                success,
+                errorMessage,
+                clientType,
+                headers,
+                thread,
+                normalizeTraceId(traceId));
+    }
+
+    private boolean shouldRecord() {
+        return enabled && !idleSuspended && recording.get();
+    }
+
+    private void append(
+            String method,
+            String uri,
+            String host,
+            String path,
+            Integer status,
+            long durationMillis,
+            boolean success,
+            String errorMessage,
+            String clientType,
+            Map<String, String> headers,
+            String thread,
+            String traceId) {
         CapturedCall entry = new CapturedCall(
                 sequence.incrementAndGet(),
                 System.currentTimeMillis(),
@@ -220,7 +288,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 clientType,
                 captureHeaders ? truncateHeaderValues(headers) : Map.of(),
                 thread,
-                resolveTraceId(),
+                traceId,
                 captureCallSite ? currentCallSite() : null);
         synchronized (lock) {
             buffer.addLast(entry);
@@ -532,13 +600,16 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
      * and fully guarded so an outbound call is never disrupted by a missing or misbehaving provider.
      * Returns {@code null} (no correlation) when blank or on any failure.
      */
-    private String resolveTraceId() {
+    public String currentTraceId() {
         try {
-            String traceId = traceIdProvider.currentTraceId();
-            return traceId == null || traceId.isBlank() ? null : traceId;
+            return normalizeTraceId(traceIdProvider.currentTraceId());
         } catch (RuntimeException ex) {
             return null;
         }
+    }
+
+    private static String normalizeTraceId(String traceId) {
+        return traceId == null || traceId.isBlank() ? null : traceId;
     }
 
     /**

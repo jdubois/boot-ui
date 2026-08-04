@@ -275,7 +275,7 @@ Scope — new event types, roughly in priority order:
   run does, on both the servlet and WebFlux adapters. On Quarkus, `LiveActivityResource` reads the same
   `EmailCaptureService` directly (not through the Email panel's own resource) and feeds its merged SSE stream
   identically, mirroring the Spring wiring exactly.
-- **Outbound REST call capture — ✅ Shipped (Spring servlet and WebFlux adapters).** Every `RestClient`/`RestTemplate`/
+- **Outbound REST call capture — ✅ Shipped (Spring servlet, Spring WebFlux, and Quarkus adapters).** Every `RestClient`/`RestTemplate`/
   `WebClient` built through Spring Boot's auto-configured builders is instrumented via Spring Boot's own
   `RestClientCustomizer`/`RestTemplateCustomizer`/`WebClientCustomizer` hooks, attaching a `RestClientTraceInterceptor`
   (`RestClient`/`RestTemplate`) or `RestClientTraceExchangeFilter` (`WebClient`) from inside the `customize(...)`
@@ -288,9 +288,17 @@ Scope — new event types, roughly in priority order:
   standalone REST Client panel and, like Cache/Mail, a `REST_CLIENT` entry into the merged Live Activity feed —
   nesting as a `REQUEST` child via the same trace-id-then-thread join `SQL`/`CACHE`/`MAIL` use (see the `MAIL` bullet
   above for why `EXCEPTION`/`SECURITY` are not part of that list), and adding
-  `restCallErrorRatePercent`/`restCallP95LatencyMs` KPI tiles deep-linked to `/rest-client-trace`. Quarkus is out of
-  scope for now — like Cache, no comparable runtime interception seam exists yet for the Quarkus-native REST client
-  (see `docs/QUARKUS-SUPPORT.md`), so the Quarkus adapter reports the merged-stream slot unavailable.
+  `restCallErrorRatePercent`/`restCallP95LatencyMs` KPI tiles deep-linked to `/rest-client-trace`. Quarkus uses the
+  supported MicroProfile `RestClientListener` SPI (`QuarkusRestClientTraceListener`, registered through a generated
+  service-provider entry only when `Capability.REST_CLIENT_REACTIVE` is present) to attach a
+  `QuarkusRestClientTraceFilter` at transport-bracketing priority on every client proxy. Capture is metadata-only on
+  Quarkus: no headers or bodies are read, and URI credentials/sensitive query values are sanitized before storage.
+  Quarkus reports pre-response transport failures with status `0`; the filter maps those to failed calls with no HTTP
+  status, while real `4xx`/`5xx` responses remain transport-successful error responses. A capability-absent exclusion
+  keeps the optional listener type unlinked, and the recorder's Quarkus OTel `TraceIdProvider` feeds trace-only Live
+  Activity correlation.
+
+**Done** — Quarkus REST Client capture shipped (issue #653).
 
 Scope — enhancements on top of the shipped event types, generally cheaper than a new source and some of higher value:
 

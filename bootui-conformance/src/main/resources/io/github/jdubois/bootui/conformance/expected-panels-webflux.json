@@ -1,5 +1,5 @@
 {
-  "_comment": "Golden manifest for the Spring WebFlux (reactive) adapter: the exact panels GET /bootui/api/panels must report, in registry order. Panel ids/titles/order are shared with the servlet Spring adapter (same BootUiPanels registry), so this list mirrors expected-panels-spring.json; only the platform discriminator differs (runtime availability for the divergent panels - http-sessions, spring-security - is computed by PanelsController, not encoded here). Keep in sync with BootUiPanels and bootui-ui/src/main/frontend/src/routes.js.",
+  "_comment": "Golden manifest for the Spring WebFlux (reactive) adapter: the exact panels GET /bootui/api/panels must report, in registry order. Panel ids/titles/order are shared with the servlet Spring adapter (same BootUiPanels registry), so this list mirrors expected-panels-spring.json; only the platform discriminator differs (runtime availability for divergent panels such as http-sessions, spring-security, security, and rest-client-trace is computed by PanelsController, not encoded here). Keep in sync with BootUiPanels and bootui-ui/src/main/frontend/src/routes.js.",
   "platform": "spring-boot-reactive",
   "panels": [
     { "id": "overview", "title": "Overview", "actionCapable": false },

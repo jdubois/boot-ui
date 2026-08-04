@@ -303,10 +303,13 @@ class PanelsControllerTests {
         // GenericReactiveWebApplicationContext is the Spring Boot marker Spring uses for a genuine WebFlux
         // (reactive) ApplicationContext - the same shared PanelsController that BootUiReactiveAutoConfiguration
         // imports unmodified must detect it and (a) report the reactive platform discriminator and (b) mark the
-        // panels that have no faithful reactive equivalent (HTTP Sessions), are not yet ported (Spring
-        // Security advisor), or are servlet-only by design (REST Client) as unavailable with a
-        // WebFlux-specific reason, instead of relying on incidental classpath presence. MCP Server and Live
-        // Activity are ported reactively, so they stay available here too.
+        // panels that have no faithful reactive equivalent (HTTP Sessions) or are servlet-only by design (REST
+        // Client) as unavailable with a WebFlux-specific reason, instead of relying on incidental classpath
+        // presence. MCP Server and Live Activity are ported reactively, so they stay available here too.
+        // SPRING_SECURITY (the raw panel, not the advisor) is now ported to WebFlux via
+        // ReactiveSpringSecurityController, so in a reactive context without a WebFilterChainProxy bean it
+        // reports unavailable with the "no chains" reason (not the old "not yet ported" message), and in a
+        // context where WebFilterChainProxy is registered it reports available:true (tested separately).
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             context.refresh();
             PanelsController controller =
@@ -325,7 +328,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.SPRING_SECURITY) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.SPRING_SECURITY) + ".unavailableReason")
-                            .value(startsWith("Not yet ported for Spring WebFlux")))
+                            .value(startsWith("No reactive Spring Security filter chains are available")))
                     .andExpect(jsonPath(panelPath(BootUiPanels.MCP_SERVER) + ".available")
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.REST_CLIENT_TRACE) + ".available")
@@ -334,6 +337,47 @@ class PanelsControllerTests {
                             .value("REST Client is only available on the Spring MVC (servlet) adapter"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.ACTIVITY) + ".available")
                             .value(true));
+        }
+    }
+
+    @Test
+    void springSecurityPanelIsAvailableUnderWebFluxWhenApplicationChainBeanPresent() throws Exception {
+        // Verifies that the SPRING_SECURITY panel (the raw panel, not the Security advisor) reports
+        // available:true on a reactive WebFlux application context when an application-owned
+        // SecurityWebFilterChain bean is registered.
+        try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
+            context.registerBean(
+                    "applicationSecurityWebFilterChain",
+                    org.springframework.security.web.server.SecurityWebFilterChain.class,
+                    () -> mock(org.springframework.security.web.server.SecurityWebFilterChain.class));
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties());
+            MockMvc mvc = standaloneSetup(controller).build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.SPRING_SECURITY) + ".available")
+                            .value(true));
+        }
+    }
+
+    @Test
+    void springSecurityPanelIgnoresBootUiOwnReactiveChain() throws Exception {
+        try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
+            context.registerBean(
+                    "bootUiReactiveSecurityWebFilterChain",
+                    org.springframework.security.web.server.SecurityWebFilterChain.class,
+                    () -> mock(org.springframework.security.web.server.SecurityWebFilterChain.class));
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties());
+            MockMvc mvc = standaloneSetup(controller).build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.SPRING_SECURITY) + ".available")
+                            .value(false));
         }
     }
 
@@ -440,16 +484,8 @@ class PanelsControllerTests {
 
     @Test
     void securityAdvisorStaysUnavailableUnderWebFluxEvenWithReactiveSpringSecurityConfigured() throws Exception {
-        // The SECURITY advisor panel (distinct from the SPRING_SECURITY raw-config panel) is NOT in
-        // BootUiReactiveAutoConfiguration's @Import list, so it must never report available:true on a
-        // reactive app - unlike SPRING_SECURITY/HTTP_SESSIONS/MCP_SERVER, its availability check
-        // (securityAvailable()) has no explicit !isReactive() guard; it instead relies on
-        // org.springframework.security.web.FilterChainProxy (the servlet security filter bean, extends
-        // GenericFilterBean) and org.springframework.security.web.server.WebFilterChainProxy (the reactive
-        // security filter bean, implements WebFilter) being genuinely unrelated types in the same
-        // spring-security-web jar. This test proves that holds even when a real reactive Spring Security
-        // setup - a WebFilterChainProxy bean - is present: beanPresent(FilterChainProxy.class) must still
-        // resolve false, so the panel does not falsely light up a dead link.
+        // The SECURITY advisor panel (distinct from the SPRING_SECURITY raw-config panel) has no reactive
+        // ruleset and is not imported by BootUiReactiveAutoConfiguration.
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             java.util.function.Supplier<org.springframework.security.web.server.WebFilterChainProxy> supplier =
                     () -> new org.springframework.security.web.server.WebFilterChainProxy(List.of());
@@ -467,7 +503,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.SECURITY) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.SECURITY) + ".unavailableReason")
-                            .value("No Spring Security filter chains are available"));
+                            .value("Security Advisor is only available on the Spring MVC (servlet) adapter"));
         }
     }
 }

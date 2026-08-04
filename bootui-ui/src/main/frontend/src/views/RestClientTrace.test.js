@@ -1,4 +1,5 @@
 import {flushPromises, mount} from '@vue/test-utils'
+import {ref} from 'vue'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import RestClientTrace from './RestClientTrace.vue'
@@ -146,6 +147,30 @@ describe('RestClientTrace', () => {
     expect(text).toContain('clear text')
     expect(text).toContain('com.example.OrderClient.getOrder(OrderClient.java:10)')
     expect(text).toContain('RestClient')
+  })
+
+  it('explains Quarkus metadata-only capture without suggesting header capture can be enabled', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(traceReport({captureHeaders: false}))))
+
+    wrapper = mount(RestClientTrace, {
+      props: {panel: {id: 'rest-client-trace'}},
+      global: {provide: {panels: ref({platform: 'quarkus'})}}
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Quarkus capture is metadata-only')
+    expect(wrapper.text()).toContain('headers, cookies, credentials, and tokens are never retained')
+    expect(wrapper.text()).not.toContain('capture-headers=true')
+  })
+
+  it('keeps the Spring header-capture guidance by default', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(traceReport({captureHeaders: false}))))
+
+    wrapper = mount(RestClientTrace, {props: {panel: {id: 'rest-client-trace'}}})
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('bootui.rest-client-trace.capture-headers=true')
+    expect(wrapper.text()).not.toContain('Quarkus capture is metadata-only')
   })
 
   it('reveals headers, client type, thread, and call site when a row is expanded', async () => {

@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch, getJson} from '../api.js'
-import {computed, onMounted, ref} from 'vue'
+import {computed, inject, onMounted, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
@@ -8,6 +8,8 @@ import SpinnerButton from './components/SpinnerButton.vue'
 const report = ref(null)
 const error = ref(null)
 const springSecurityPresent = ref(true)
+const panels = inject('panels', ref(null))
+const isReactive = computed(() => (panels.value?.platform ?? 'spring-boot') === 'spring-boot-reactive')
 
 const explainMethod = ref('GET')
 const explainPath = ref('/')
@@ -154,18 +156,31 @@ onMounted(() => {
     <PanelHeader icon="bi-person-lock" title="Spring Security" :error="error" />
 
     <div v-if="!springSecurityPresent" class="alert alert-info">
-      Spring Security is not on the classpath of this application. Add
-      <code>spring-boot-starter-security</code> to see security configuration here.
+      <template v-if="isReactive">
+        No application <code>SecurityWebFilterChain</code> was detected. Add
+        <code>spring-boot-starter-security</code> and configure a reactive security chain to inspect it here.
+      </template>
+      <template v-else>
+        Spring Security is not on the classpath of this application. Add
+        <code>spring-boot-starter-security</code> to see security configuration here.
+      </template>
     </div>
 
     <template v-else-if="report">
+      <div v-if="isReactive" class="alert alert-secondary small" data-testid="reactive-fidelity-note">
+        This reactive view reads ordered <code>SecurityWebFilterChain</code> beans and their <code>WebFilter</code>
+        pipelines. Request explanations use a sanitized path-and-method-only exchange; context-dependent matchers and
+        authorization rules are marked best effort instead of being guessed.
+      </div>
+
       <!-- Filter chains -->
       <h5 class="mt-3 mb-2">
-        Filter chains <span class="badge bg-secondary">{{ report.chains.length }}</span>
+        {{ isReactive ? 'WebFilter chains' : 'Filter chains' }}
+        <span class="badge bg-secondary">{{ report.chains.length }}</span>
       </h5>
 
       <div v-if="report.chains.length === 0" class="alert alert-secondary">
-        No filter chains detected. Spring Security may be present but not configured.
+        No {{ isReactive ? 'WebFilter' : 'filter' }} chains detected. Spring Security may be present but not configured.
       </div>
 
       <div v-else id="chains-accordion" class="accordion mb-4">
@@ -183,8 +198,20 @@ onMounted(() => {
                 <span class="badge bg-light text-dark border small">{{ chain.requestMatcherType }}</span>
                 <span v-if="chain.csrfEnabled" class="badge bg-warning text-dark">CSRF</span>
                 <span v-if="chain.corsEnabled" class="badge bg-info text-dark">CORS</span>
-                <span v-if="chain.sessionManagementPresent" class="badge bg-secondary">Session</span>
-                <span class="ms-auto text-muted small">{{ chain.filters.length }} filters</span>
+                <span
+                  v-if="chain.sessionManagementPresent"
+                  class="badge bg-secondary"
+                  :title="
+                    isReactive
+                      ? 'Security-context integration is present; this does not prove WebSession persistence.'
+                      : 'Session-management filter is present.'
+                  "
+                >
+                  {{ isReactive ? 'Security context' : 'Session' }}
+                </span>
+                <span class="ms-auto text-muted small">
+                  {{ chain.filters.length }} {{ isReactive ? 'WebFilters' : 'filters' }}
+                </span>
               </div>
             </button>
           </h2>
@@ -195,7 +222,7 @@ onMounted(() => {
                 <span class="ms-2 badge bg-light text-dark border">{{ chain.requestMatcherType }}</span>
               </div>
               <div class="mb-1 small">
-                <strong>Filters ({{ chain.filters.length }}):</strong>
+                <strong>{{ isReactive ? 'WebFilters' : 'Filters' }} ({{ chain.filters.length }}):</strong>
               </div>
               <div class="d-flex flex-wrap gap-1">
                 <span v-for="filter in chain.filters" :key="filter" :class="filterBadgeClass(filter)" class="badge">
@@ -212,7 +239,7 @@ onMounted(() => {
       <div v-if="report.auth">
         <dl class="row small">
           <template v-if="report.auth.authenticationProviderTypes.length">
-            <dt class="col-sm-3">Authentication providers</dt>
+            <dt class="col-sm-3">{{ isReactive ? 'Reactive authentication managers' : 'Authentication providers' }}</dt>
             <dd class="col-sm-9">
               <div v-for="t in report.auth.authenticationProviderTypes" :key="t">
                 <code>{{ shortName(t) }}</code>
@@ -222,7 +249,7 @@ onMounted(() => {
           </template>
 
           <template v-if="report.auth.userDetailsServiceTypes.length">
-            <dt class="col-sm-3">UserDetailsService</dt>
+            <dt class="col-sm-3">{{ isReactive ? 'ReactiveUserDetailsService' : 'UserDetailsService' }}</dt>
             <dd class="col-sm-9">
               <div v-for="t in report.auth.userDetailsServiceTypes" :key="t">
                 <code>{{ shortName(t) }}</code>
@@ -244,8 +271,12 @@ onMounted(() => {
           v-if="!report.auth.authenticationProviderTypes.length && !report.auth.userDetailsServiceTypes.length"
           class="alert alert-secondary small"
         >
-          No <code>AuthenticationProvider</code> or <code>UserDetailsService</code> beans found in the application
-          context. These may be configured internally by a parent context.
+          No
+          <template v-if="isReactive">
+            <code>ReactiveAuthenticationManager</code> or <code>ReactiveUserDetailsService</code>
+          </template>
+          <template v-else> <code>AuthenticationProvider</code> or <code>UserDetailsService</code> </template>
+          beans found in the application context. These may be configured internally by a parent context.
         </div>
       </div>
 
@@ -262,8 +293,15 @@ onMounted(() => {
         />
       </h5>
       <p class="text-muted small">
-        Per-endpoint authorization rule resolved by matching each Spring MVC mapping against the configured filter
-        chains. Resolution is best-effort: header- or session-based matchers may not be evaluated accurately.
+        <template v-if="isReactive">
+          Annotation-based Spring WebFlux mappings are evaluated against each reactive chain with a sanitized
+          path-and-method-only exchange. Functional routes are not listed; context-dependent matchers and authorization
+          managers remain custom or unknown.
+        </template>
+        <template v-else>
+          Per-endpoint authorization rule resolved by matching each Spring MVC mapping against the configured filter
+          chains. Resolution is best-effort: header- or session-based matchers may not be evaluated accurately.
+        </template>
       </p>
 
       <div v-if="endpointsError" class="alert alert-danger small">{{ endpointsError }}</div>
@@ -310,7 +348,11 @@ onMounted(() => {
                   <span
                     v-if="ep.bestEffort"
                     class="badge bg-warning text-dark ms-1"
-                    title="Best effort: header- or session-based matchers may not be accurate"
+                    :title="
+                      isReactive
+                        ? 'Best effort: evaluated without headers, cookies, principal, session, or request body.'
+                        : 'Best effort: header- or session-based matchers may not be accurate.'
+                    "
                   >
                     <i class="bi bi-exclamation-triangle"></i>
                   </span>
@@ -329,8 +371,14 @@ onMounted(() => {
       <!-- Explain tool -->
       <h5 class="mt-4 mb-2">Explain a request</h5>
       <p class="text-muted small">
-        Enter a method and path to see which filter chain would handle that request. Matching is best-effort: header- or
-        session-based matchers may not be evaluated accurately.
+        <template v-if="isReactive">
+          Enter a method and path to run each reactive chain's public matcher without reusing data from your current
+          request. Headers, cookies, principal, session, and body are deliberately omitted.
+        </template>
+        <template v-else>
+          Enter a method and path to see which filter chain would handle that request. Matching is best-effort: header-
+          or session-based matchers may not be evaluated accurately.
+        </template>
       </p>
       <div class="row g-2 mb-3">
         <div class="col-auto">
@@ -371,7 +419,7 @@ onMounted(() => {
             <strong>Matcher:</strong> <code>{{ explainResult.matcherDescription }}</code>
           </div>
           <div v-if="explainResult.filters && explainResult.filters.length">
-            <strong>Filter pipeline:</strong>
+            <strong>{{ isReactive ? 'WebFilter pipeline' : 'Filter pipeline' }}:</strong>
             <div class="d-flex flex-wrap gap-1 mt-1">
               <span
                 v-for="filter in explainResult.filters"
@@ -385,7 +433,11 @@ onMounted(() => {
           </div>
           <div v-if="explainResult.bestEffort" class="alert alert-warning mt-2 mb-0 py-1 px-2 small">
             <i class="bi bi-exclamation-triangle me-1"></i>
-            Result may be inaccurate for chains that match on headers, cookies, or session state.
+            {{
+              isReactive
+                ? 'Result uses only the supplied path and method; context-dependent matching is intentionally reduced.'
+                : 'Result may be inaccurate for chains that match on headers, cookies, or session state.'
+            }}
           </div>
         </div>
       </div>
