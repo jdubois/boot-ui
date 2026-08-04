@@ -243,13 +243,18 @@ public class QuarkusPanelAvailability {
 
     /**
      * Runtime-config key carrying the build-time REST Client Reactive presence decision. The deployment
-     * processor emits it (default {@code false}) only when the MicroProfile REST Client API class is present
-     * at runtime (i.e. {@code quarkus-rest-client} is on the classpath) and the launch mode is
-     * non-production; this bean reads it back to decide whether the REST Client Trace panel is lit up,
-     * mirroring {@link #KAFKA_PRESENT_KEY}. The recorder backing it ({@code RestClientTraceRecorder}) is
-     * produced unconditionally either way — this key only gates the panel's own <em>availability</em>.
+     * processor emits it (default {@code false}) only when the REST Client Reactive capability is present
+     * and the launch mode is non-production. The recorder is produced unconditionally; the panel remains
+     * visible when the capability exists so it can explain that no proxy has been initialized yet and then
+     * start streaming as soon as the first call is captured.
      */
     public static final String REST_CLIENT_TRACE_PRESENT_KEY = "bootui.internal.rest-client-trace-present";
+
+    public static final String REST_CLIENT_TRACE_DISABLED =
+            "REST Client capture is disabled via bootui.rest-client-trace.enabled=false";
+
+    public static final String REST_CLIENT_TRACE_NOT_INSTRUMENTED =
+            "No REST Client Reactive proxy has been instrumented yet.";
 
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
@@ -291,7 +296,7 @@ public class QuarkusPanelAvailability {
 
     private static final String REST_CLIENT_TRACE_ABSENT =
             "Not available: this application does not use Quarkus REST Client Reactive. Add the"
-                    + " quarkus-rest-client extension (with at least one @RegisterRestClient"
+                    + " quarkus-rest-client extension (with at least one REST Client"
                     + " interface) to enable the REST Client panel.";
 
     private static final String SQL_TRACE_ABSENT =
@@ -566,6 +571,16 @@ public class QuarkusPanelAvailability {
         return AVAILABLE_PANELS.contains(panelId)
                 || dynamicAvailability.getOrDefault(panelId, Boolean.FALSE)
                 || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable());
+    }
+
+    /** Whether the panel is enabled by the live per-panel access policy. */
+    public boolean isPanelEnabled(String panelId) {
+        return accessConfig.isPanelEnabled(panelId);
+    }
+
+    /** Returns the platform-specific reason for an unavailable panel, or {@code null} when available. */
+    public String panelUnavailableReason(String panelId) {
+        return isPanelAvailable(panelId) ? null : unavailableReason(panelId);
     }
 
     /**

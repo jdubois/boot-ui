@@ -52,10 +52,17 @@
             <artifactId>bootui-quarkus</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Gives Maven's reactor an explicit edge to the deployment half before Quarkus augmentation.
+             Provided scope keeps deployment classes off this test application's runtime classpath. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
 
-        <!-- Adds Quarkus REST Client Reactive. Its presence makes
-             org.eclipse.microprofile.rest.client.RestClientBuilder available at runtime, so the deployment
-             build step (registerRestClientTrace) emits the ServiceProviderBuildItem for the listener and sets
+        <!-- Adds Quarkus REST Client Reactive. Its capability makes the deployment build step
+             (registerRestClientTrace) emit the service-provider entry for the listener and set
              bootui.internal.rest-client-trace-present=true; the BootUI QuarkusRestClientTraceListener is then
              registered and receives an onNewClient() callback for each @RegisterRestClient proxy built. -->
         <dependency>

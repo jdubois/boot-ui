@@ -2,8 +2,10 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
+import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.smallrye.mutiny.Multi;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -24,7 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>Capture is wired via the MicroProfile {@code RestClientListener} SPI ({@link
  * io.github.jdubois.bootui.quarkus.restclienttrace.QuarkusRestClientTraceListener}), registered
- * conditionally by the deployment processor when {@code quarkus-rest-client-reactive} is present. The
+ * conditionally by the deployment processor when the REST Client Reactive capability is present. The
  * recorder is always produced (so this resource always wires), but {@link RestClientTraceRecorder#hasInstrumentedClient()}
  * returns {@code false} until the listener registers at least one REST client — which is reflected in the
  * report's {@code available} flag. State-changing endpoints ({@code /clear}, {@code /recording}) are gated
@@ -35,19 +37,27 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Path("/bootui/api/rest-client-trace")
 public class RestClientTraceResource {
 
-    private static final String NOT_CONFIGURED = "REST client tracing is not configured";
-
     /** Upper bound on simultaneous REST-client-trace streams; this is a local dev tool, not a fan-out hub. */
     static final int MAX_CONCURRENT_STREAMS = 20;
 
     private final RestClientTraceRecorder recorder;
     private final QuarkusExposurePolicy exposure;
+    private final QuarkusPanelAvailability panelAvailability;
     private final AtomicInteger openStreams = new AtomicInteger();
 
     @Inject
-    public RestClientTraceResource(RestClientTraceRecorder recorder, QuarkusExposurePolicy exposure) {
+    public RestClientTraceResource(
+            RestClientTraceRecorder recorder,
+            QuarkusExposurePolicy exposure,
+            QuarkusPanelAvailability panelAvailability) {
         this.recorder = recorder;
         this.exposure = exposure;
+        this.panelAvailability = panelAvailability;
+    }
+
+    /** Constructor for resource unit tests outside Arc. */
+    public RestClientTraceResource(RestClientTraceRecorder recorder, QuarkusExposurePolicy exposure) {
+        this(recorder, exposure, null);
     }
 
     @GET
@@ -81,17 +91,22 @@ public class RestClientTraceResource {
     }
 
     private RestClientTraceReport report() {
-        if (!recorder.hasInstrumentedClient()) {
+        if (panelAvailability != null && !panelAvailability.isPanelAvailable(BootUiPanels.REST_CLIENT_TRACE)) {
+            return RestClientTraceReport.unavailable(unavailableReason());
+        }
+        if (!recorder.isEnabled() || !recorder.hasInstrumentedClient()) {
             return RestClientTraceReport.unavailable(unavailableReason());
         }
         return recorder.report(exposure.maskSecrets(), exposure.valueExposure());
     }
 
     private String unavailableReason() {
-        if (!recorder.isEnabled()) {
-            return "REST client tracing is disabled (set bootui.rest-client-trace.enabled=true in a"
-                    + " trusted local profile).";
+        if (panelAvailability != null && !panelAvailability.isPanelAvailable(BootUiPanels.REST_CLIENT_TRACE)) {
+            return panelAvailability.panelUnavailableReason(BootUiPanels.REST_CLIENT_TRACE);
         }
-        return "No @RegisterRestClient proxy has been instrumented yet.";
+        if (!recorder.isEnabled()) {
+            return QuarkusPanelAvailability.REST_CLIENT_TRACE_DISABLED;
+        }
+        return QuarkusPanelAvailability.REST_CLIENT_TRACE_NOT_INSTRUMENTED;
     }
 }

@@ -21,7 +21,7 @@ public class SampleApiScheduler {
     @RestClient
     SampleApiClient apiClient;
 
-    @Scheduled(every = "45s", delay = 5)
+    @Scheduled(every = "45s", delayed = "5s")
     void fetchProducts() {
         try {
             apiClient.listProducts(5);

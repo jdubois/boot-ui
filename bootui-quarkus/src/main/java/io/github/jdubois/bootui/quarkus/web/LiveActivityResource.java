@@ -73,10 +73,9 @@ import javax.sql.DataSource;
  * {@link SqlTraceRecorder}), exceptions (via the shared {@link ExceptionStore}), security/audit events
  * (via the shared {@link SecurityEventBuffer}), scheduled-task runs (via the shared
  * {@link ScheduledTaskRunStore}), Kafka messages (via the shared {@link KafkaActivityRecorder}), and
- * captured email (via the shared {@link EmailCaptureService}) — plus JVM heap into the neutral
- * {@link LiveActivityReport}. Cache activity and outbound REST-client calls have no capture seam on
- * Quarkus yet (see {@link LiveActivityAssembler}'s class Javadoc), so both slots are always
- * empty/unavailable here. The HTTP-exchange source hides BootUI's own traffic via the adapter-wide
+ * captured email (via the shared {@link EmailCaptureService}), REST Client Reactive calls (via the shared
+ * {@link RestClientTraceRecorder}), and JVM heap into the neutral {@link LiveActivityReport}. Cache activity
+ * has no capture seam on Quarkus yet. The HTTP-exchange source hides BootUI's own traffic via the adapter-wide
  * {@link SelfTelemetryClassifier} singleton (see its class javadoc), the same instance Metrics/Cache/Traces
  * inject, rather than a locally hardcoded path check. SQL trace
  * contributes only when a datasource is configured (the recorder is gated on Agroal); security events
@@ -301,7 +300,7 @@ public class LiveActivityResource {
         EmailsReport emailReport = emailReport();
         boolean emailAvailable = emailReport != null;
 
-        boolean restClientAvailable = panelAvailability.isPanelAvailable(BootUiPanels.REST_CLIENT_TRACE);
+        boolean restClientAvailable = restClientActivityAvailable();
 
         LiveActivityReport report = assembler.report(
                 requests,
@@ -388,16 +387,18 @@ public class LiveActivityResource {
                 MAX_CONCURRENT_STREAMS,
                 combined(
                         combined(
-                                combined(buffer::subscribe, scheduledTaskRunStore::subscribe),
-                                kafkaRecorder::subscribe),
-                        emailChangeSource()));
+                                combined(
+                                        combined(buffer::subscribe, scheduledTaskRunStore::subscribe),
+                                        kafkaRecorder::subscribe),
+                                emailChangeSource()),
+                        restClientChangeSource()));
     }
 
     /**
      * Combines two {@link SseStreams.ChangeSource}s into one that notifies {@code onChange} when either
      * fires, so the merged Live Activity stream ticks on a new HTTP exchange, a new captured
-     * {@code @Scheduled} execution, a new captured Kafka message, <em>or</em> a new captured email (nested
-     * at the call site to fan in all four) — mirroring the Spring adapter, whose single
+     * {@code @Scheduled} execution, a new captured Kafka message, a new captured email, <em>or</em> a REST
+     * Client call (nested at the call site to fan in all five) — mirroring the Spring adapter, whose single
      * {@code BootUiChangeStream} already fans in every signal source (including
      * {@link ScheduledTaskRunStore}, the Kafka recorder, and captured email) to the same effect.
      */
@@ -439,6 +440,21 @@ public class LiveActivityResource {
             }
             return emailCaptureService.get().subscribe(onChange);
         };
+    }
+
+    private SseStreams.ChangeSource restClientChangeSource() {
+        return onChange -> restClientTraceRecorder.subscribe(() -> {
+            if (restClientActivityAvailable()) {
+                onChange.run();
+            }
+        });
+    }
+
+    private boolean restClientActivityAvailable() {
+        return panelAvailability.isPanelAvailable(BootUiPanels.REST_CLIENT_TRACE)
+                && panelAvailability.isPanelEnabled(BootUiPanels.REST_CLIENT_TRACE)
+                && restClientTraceRecorder.isEnabled()
+                && restClientTraceRecorder.hasInstrumentedClient();
     }
 
     private SqlSnapshot sqlSnapshot() {

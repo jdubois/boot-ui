@@ -247,6 +247,99 @@ class LiveActivityResourceTests {
     }
 
     @Test
+    void mergedReportIncludesRestClientCallsAndCorrelatesThemByTraceId() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(50);
+        buffer.record(new CapturedHttpExchange(
+                Instant.ofEpochMilli(1_000L),
+                "GET",
+                URI.create("http://localhost:8080/orders"),
+                200,
+                25L,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                "trace-rest"));
+        RestClientTraceRecorder recorder = restClientRecorder(true);
+        recorder.registerClientCustomization("Quarkus REST Client Reactive");
+        recorder.setTraceIdProvider(() -> "trace-rest");
+        recorder.record(
+                "GET",
+                "https://api.example.test/inventory",
+                "api.example.test",
+                "/inventory",
+                200,
+                12L,
+                true,
+                null,
+                "Quarkus REST Client Reactive",
+                Map.of(),
+                "worker-1");
+        SmallRyeConfig config = config(Map.of(QuarkusPanelAvailability.REST_CLIENT_TRACE_PRESENT_KEY, "true"));
+        LiveActivityResource resource = resourceWith(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                buffer,
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 200),
+                config,
+                recorder);
+
+        LiveActivityReport report = resource.mergedReport(0);
+
+        String requestId = report.entries().stream()
+                .filter(entry -> "REQUEST".equals(entry.type()))
+                .findFirst()
+                .orElseThrow()
+                .id();
+        assertThat(report.entries()).anySatisfy(entry -> {
+            assertThat(entry.type()).isEqualTo("REST_CLIENT");
+            assertThat(entry.parentId()).isEqualTo(requestId);
+            assertThat(entry.correlationId()).isEqualTo("trace-rest");
+        });
+        assertThat(report.sources()).contains("rest-client");
+    }
+
+    @Test
+    void mergedReportDoesNotExposeRestClientCallsWhenItsPanelIsDisabled() {
+        RestClientTraceRecorder recorder = restClientRecorder(true);
+        recorder.registerClientCustomization("Quarkus REST Client Reactive");
+        recorder.record(
+                "GET",
+                "https://api.example.test/private",
+                "api.example.test",
+                "/private",
+                200,
+                12L,
+                true,
+                null,
+                "Quarkus REST Client Reactive",
+                Map.of(),
+                "worker-1");
+        SmallRyeConfig config = config(Map.of(
+                QuarkusPanelAvailability.REST_CLIENT_TRACE_PRESENT_KEY,
+                "true",
+                "bootui.panels.rest-client-trace.enabled",
+                "false"));
+        LiveActivityResource resource = resourceWith(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                new HttpExchangeBuffer(50),
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 200),
+                config,
+                recorder);
+
+        LiveActivityReport report = resource.mergedReport(0);
+
+        assertThat(report.entries()).noneMatch(entry -> "REST_CLIENT".equals(entry.type()));
+        assertThat(report.sources()).doesNotContain("rest-client");
+    }
+
+    @Test
     void mergedReportMergesCapturedKafkaMessagesAsMessagingEntries() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
         recorder.recordProduce("orders", 2, "key-1", null, true, null);
@@ -507,6 +600,26 @@ class LiveActivityResourceTests {
             Instance<EmailCaptureService> emailCaptureService,
             KafkaActivityRecorder kafkaRecorder,
             SmallRyeConfig config) {
+        return resourceWith(
+                activityStore,
+                settings,
+                dataSources,
+                buffer,
+                emailCaptureService,
+                kafkaRecorder,
+                config,
+                restClientRecorder(true));
+    }
+
+    private static LiveActivityResource resourceWith(
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings settings,
+            Instance<DataSource> dataSources,
+            HttpExchangeBuffer buffer,
+            Instance<EmailCaptureService> emailCaptureService,
+            KafkaActivityRecorder kafkaRecorder,
+            SmallRyeConfig config,
+            RestClientTraceRecorder restClientTraceRecorder) {
         return new LiveActivityResource(
                 buffer,
                 new QuarkusExposurePolicy(config),
@@ -522,8 +635,12 @@ class LiveActivityResourceTests {
                 settings,
                 dataSources,
                 kafkaRecorder,
-                new RestClientTraceRecorder(true, true, false, false, 200, 1000, 256, 256, 5),
+                restClientTraceRecorder,
                 selfTelemetryClassifier(config));
+    }
+
+    private static RestClientTraceRecorder restClientRecorder(boolean enabled) {
+        return new RestClientTraceRecorder(enabled, true, false, false, 200, 1000, 256, 256, 5);
     }
 
     /** Mirrors {@code BootUiTelemetryProducer.selfTelemetryClassifier} so tests wire the same classifier. */

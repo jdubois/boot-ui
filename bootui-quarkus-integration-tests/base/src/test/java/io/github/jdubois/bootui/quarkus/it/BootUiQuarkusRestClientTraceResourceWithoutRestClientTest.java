@@ -1,13 +1,17 @@
 package io.github.jdubois.bootui.quarkus.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
+import java.io.IOException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -18,14 +22,19 @@ import org.junit.jupiter.api.Test;
  * in the dedicated {@code bootui-quarkus-rest-client-integration-tests} module). It proves the R2 gate fails
  * closed: the {@code QuarkusRestClientTraceListener} class (which implements
  * {@code org.eclipse.microprofile.rest.client.spi.RestClientListener} from the absent API) is never loaded
- * because the {@code ServiceProviderBuildItem} entry is not emitted when
- * {@code QuarkusClassLoader.isClassPresentAtRuntime(REST_CLIENT_BUILDER_CLASS)} is {@code false}. The always-
+ * because the deployment processor sees no REST Client Reactive capability, excludes the optional importer
+ * from Arc, and emits no service-provider entry. The always-
  * produced {@code RestClientTraceRecorder} is still wired (it holds no REST-client-reactive types), so
  * {@code GET /bootui/api/rest-client-trace} answers with valid JSON reporting the panel unavailable — no
  * {@code NoClassDefFoundError}.</p>
  */
 @QuarkusTest
 class BootUiQuarkusRestClientTraceResourceWithoutRestClientTest {
+
+    private static final String LISTENER_CLASS =
+            "io.github.jdubois.bootui.quarkus.restclienttrace.QuarkusRestClientTraceListener";
+    private static final String LISTENER_SERVICE =
+            "META-INF/services/org.eclipse.microprofile.rest.client.spi.RestClientListener";
 
     @TestHTTPResource
     URL baseUrl;
@@ -69,5 +78,27 @@ class BootUiQuarkusRestClientTraceResourceWithoutRestClientTest {
         assertThat(root.path("available").asBoolean(true))
                 .as("the report is unavailable when no @RegisterRestClient proxy has been instrumented")
                 .isFalse();
+        assertThat(root.path("unavailableReason").asText()).contains("quarkus-rest-client");
+    }
+
+    @Test
+    void optionalApiAndGeneratedListenerServiceEntryAreAbsent() throws IOException {
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        assertThatThrownBy(() ->
+                        Class.forName("org.eclipse.microprofile.rest.client.RestClientBuilder", false, classLoader))
+                .isInstanceOf(ClassNotFoundException.class);
+
+        String serviceProviders = Collections.list(classLoader.getResources(LISTENER_SERVICE)).stream()
+                .map(BootUiQuarkusRestClientTraceResourceWithoutRestClientTest::read)
+                .reduce("", (left, right) -> left + '\n' + right);
+        assertThat(serviceProviders).doesNotContain(LISTENER_CLASS);
+    }
+
+    private static String read(URL url) {
+        try (var input = url.openStream()) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException failure) {
+            throw new IllegalStateException("Could not inspect REST Client listener service file", failure);
+        }
     }
 }

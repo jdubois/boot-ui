@@ -903,19 +903,17 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public RestClientTraceRecorder restClientTraceRecorder(Config config) {
+    public RestClientTraceRecorder restClientTraceRecorder(Config config, Instance<TraceIdProvider> traceIdProvider) {
         boolean enabled = config.getOptionalValue("bootui.rest-client-trace.enabled", Boolean.class)
                 .orElse(true);
         boolean recording = config.getOptionalValue("bootui.rest-client-trace.recording", Boolean.class)
                 .orElse(true);
-        boolean captureHeaders = config.getOptionalValue("bootui.rest-client-trace.capture-headers", Boolean.class)
-                .orElse(false);
         boolean captureCallSite = config.getOptionalValue("bootui.rest-client-trace.capture-call-site", Boolean.class)
                 .orElse(true);
         int maxEntries = config.getOptionalValue("bootui.rest-client-trace.max-entries", Integer.class)
                 .orElse(200);
         long slowCallThresholdMillis = config.getOptionalValue(
-                        "bootui.rest-client-trace.slow-call-threshold-ms", Long.class)
+                        "bootui.rest-client-trace.slow-call-threshold-millis", Long.class)
                 .orElse(1000L);
         int maxUriLength = config.getOptionalValue("bootui.rest-client-trace.max-uri-length", Integer.class)
                 .orElse(2000);
@@ -925,15 +923,21 @@ public class BootUiEngineProducer {
         int chattyCallThreshold = config.getOptionalValue(
                         "bootui.rest-client-trace.chatty-call-threshold", Integer.class)
                 .orElse(5);
-        return new RestClientTraceRecorder(
+        // Quarkus capture is deliberately metadata-only: arbitrary request headers are never retained,
+        // even if the Spring-oriented capture-headers property is configured.
+        RestClientTraceRecorder recorder = new RestClientTraceRecorder(
                 enabled,
                 recording,
-                captureHeaders,
+                false,
                 captureCallSite,
                 maxEntries,
                 slowCallThresholdMillis,
                 maxUriLength,
                 maxHeaderValueLength,
                 chattyCallThreshold);
+        if (traceIdProvider.isResolvable()) {
+            recorder.setTraceIdProvider(traceIdProvider.get());
+        }
+        return recorder;
     }
 }
