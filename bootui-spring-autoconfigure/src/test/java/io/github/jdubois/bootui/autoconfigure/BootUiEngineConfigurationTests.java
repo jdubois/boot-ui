@@ -21,6 +21,7 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
@@ -285,6 +286,23 @@ class BootUiEngineConfigurationTests {
         assertThat(settings.retention()).isEqualTo(Duration.ofDays(3));
         assertThat(settings.instanceId()).isEqualTo("pinned-instance");
         assertThat(settings.captureInterval()).isEqualTo(Duration.ofSeconds(7));
+    }
+
+    @Test
+    void jmsRecorderFactoryMapsIndependentJmsSettingsWithoutTransposition() {
+        BootUiProperties properties = new BootUiProperties();
+        BootUiProperties.Jms jms = properties.getJms();
+        jms.setCaptureMessageId(false);
+        jms.setMaxEntries(37);
+        jms.setMaxMessageIdLength(24);
+
+        JmsActivityRecorder recorder =
+                new BootUiEngineConfiguration.JmsBackendConfiguration().bootUiJmsActivityRecorder(properties);
+
+        assertThat(recorder.isEnabled()).isTrue();
+        assertThat(recorder.isCaptureMessageId()).isFalse();
+        assertThat(recorder.getMaxEntries()).isEqualTo(37);
+        assertThat(recorder.getMaxMessageIdLength()).isEqualTo(24);
     }
 
     @Test

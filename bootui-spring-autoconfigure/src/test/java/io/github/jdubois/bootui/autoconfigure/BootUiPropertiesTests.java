@@ -193,6 +193,16 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultJmsCaptureUsesIndependentBoundedSettings() {
+        BootUiProperties.Jms jms = new BootUiProperties().getJms();
+
+        assertThat(jms.isEnabled()).isTrue();
+        assertThat(jms.isCaptureMessageId()).isTrue();
+        assertThat(jms.getMaxEntries()).isEqualTo(200);
+        assertThat(jms.getMaxMessageIdLength()).isEqualTo(16);
+    }
+
+    @Test
     void defaultClaudeCodeRawRevealIsFalse() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getClaudeCode().isAllowRawReveal()).isFalse();
@@ -214,6 +224,22 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getEnabled()).isEqualTo(BootUiProperties.Mode.ON);
+    }
+
+    @Test
+    void bindsJmsCaptureSettings() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.jms.enabled", "false");
+        env.setProperty("bootui.jms.capture-message-id", "false");
+        env.setProperty("bootui.jms.max-entries", "37");
+        env.setProperty("bootui.jms.max-message-id-length", "24");
+
+        BootUiProperties.Jms jms = bind(env).getJms();
+
+        assertThat(jms.isEnabled()).isFalse();
+        assertThat(jms.isCaptureMessageId()).isFalse();
+        assertThat(jms.getMaxEntries()).isEqualTo(37);
+        assertThat(jms.getMaxMessageIdLength()).isEqualTo(24);
     }
 
     @Test

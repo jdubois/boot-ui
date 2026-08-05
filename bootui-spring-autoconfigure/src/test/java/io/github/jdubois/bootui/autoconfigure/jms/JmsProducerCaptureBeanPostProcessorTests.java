@@ -8,10 +8,9 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
-import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
-import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder.CapturedMessage;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder.Direction;
 import jakarta.jms.Connection;
 import jakarta.jms.Destination;
 import jakarta.jms.Message;
@@ -29,9 +28,8 @@ class JmsProducerCaptureBeanPostProcessorTests {
 
     @Test
     void ignoresBeansThatAreNotJmsTemplates() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
 
         Object bean = new Object();
         assertThat(postProcessor.postProcessAfterInitialization(bean, "someBean"))
@@ -40,36 +38,19 @@ class JmsProducerCaptureBeanPostProcessorTests {
 
     @Test
     void skipsWrappingWhenRecorderDisabled() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(false, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate template = templateWithQueueSession("orders");
 
         Object result = postProcessor.postProcessAfterInitialization(template, "jmsTemplate");
 
         assertThat(result).isSameAs(template);
-    }
-
-    @Test
-    void skipsWrappingWhenJmsDisabledViaProperties() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        BootUiProperties properties = new BootUiProperties();
-        properties.getJms().setEnabled(false);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), properties);
-        JmsTemplate template = templateWithQueueSession("orders");
-
-        Object result = postProcessor.postProcessAfterInitialization(template, "jmsTemplate");
-
-        assertThat(result).isSameAs(template);
-        assertThat(recorder.recent()).isEmpty();
     }
 
     @Test
     void capturesSuccessfulSendToNamedQueue() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate)
                 postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
 
@@ -78,18 +59,15 @@ class JmsProducerCaptureBeanPostProcessorTests {
         assertThat(recorder.recent()).hasSize(1);
         CapturedMessage message = recorder.recent().get(0);
         assertThat(message.direction()).isEqualTo(Direction.PRODUCE);
-        assertThat(message.topic()).isEqualTo("orders");
+        assertThat(message.destination()).isEqualTo("orders");
         assertThat(message.success()).isTrue();
         assertThat(message.durationMillis()).isNotNull().isGreaterThanOrEqualTo(0L);
-        assertThat(message.partition()).isNull();
-        assertThat(message.offset()).isNull();
     }
 
     @Test
     void capturesSuccessfulConvertAndSendToNamedQueue() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate)
                 postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
 
@@ -98,15 +76,14 @@ class JmsProducerCaptureBeanPostProcessorTests {
         assertThat(recorder.recent()).hasSize(1);
         CapturedMessage message = recorder.recent().get(0);
         assertThat(message.direction()).isEqualTo(Direction.PRODUCE);
-        assertThat(message.topic()).isEqualTo("orders");
+        assertThat(message.destination()).isEqualTo("orders");
         assertThat(message.success()).isTrue();
     }
 
     @Test
     void capturesSuccessfulSendToDestinationObject() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate)
                 postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
 
@@ -115,14 +92,13 @@ class JmsProducerCaptureBeanPostProcessorTests {
         proxy.send(queue, session -> session.createTextMessage("hello"));
 
         assertThat(recorder.recent()).hasSize(1);
-        assertThat(recorder.recent().get(0).topic()).isEqualTo("orders");
+        assertThat(recorder.recent().get(0).destination()).isEqualTo("orders");
     }
 
     @Test
     void capturesSuccessfulSendToTopicDestination() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate)
                 postProcessor.postProcessAfterInitialization(templateWithQueueSession("events"), "jmsTemplate");
 
@@ -131,14 +107,13 @@ class JmsProducerCaptureBeanPostProcessorTests {
         proxy.send(topic, session -> session.createTextMessage("hello"));
 
         assertThat(recorder.recent()).hasSize(1);
-        assertThat(recorder.recent().get(0).topic()).isEqualTo("events");
+        assertThat(recorder.recent().get(0).destination()).isEqualTo("events");
     }
 
     @Test
     void capturesFailedSendWithErrorMessage() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy =
                 (JmsTemplate) postProcessor.postProcessAfterInitialization(templateWithFailingSession(), "jmsTemplate");
 
@@ -148,14 +123,13 @@ class JmsProducerCaptureBeanPostProcessorTests {
         assertThat(recorder.recent()).hasSize(1);
         CapturedMessage message = recorder.recent().get(0);
         assertThat(message.success()).isFalse();
-        assertThat(message.errorMessage()).isNotNull();
+        assertThat(message.failureType()).isNotNull();
     }
 
     @Test
     void doesNotRecordNonSendMethods() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate)
                 postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
 
@@ -167,8 +141,7 @@ class JmsProducerCaptureBeanPostProcessorTests {
 
     @Test
     void doesNotWrapWhenRecorderUnavailable() throws Exception {
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(null), enabledProperties());
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(null));
         JmsTemplate template = templateWithQueueSession("orders");
 
         Object result = postProcessor.postProcessAfterInitialization(template, "jmsTemplate");
@@ -178,9 +151,8 @@ class JmsProducerCaptureBeanPostProcessorTests {
 
     @Test
     void doesNotDoubleRecordWhenConvertAndSendCallsSendInternally() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate)
                 postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
 
@@ -196,9 +168,8 @@ class JmsProducerCaptureBeanPostProcessorTests {
 
     @Test
     void hashesTheProviderAssignedMessageIdForMessageCreatorSends() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 16);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate)
                 postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
         TextMessage message = mock(TextMessage.class);
@@ -206,7 +177,7 @@ class JmsProducerCaptureBeanPostProcessorTests {
 
         proxy.send("orders", session -> message);
 
-        assertThat(recorder.recent().get(0).key())
+        assertThat(recorder.recent().get(0).messageId())
                 .isNotNull()
                 .doesNotContain("ID:provider-assigned")
                 .hasSize(16);
@@ -214,18 +185,17 @@ class JmsProducerCaptureBeanPostProcessorTests {
 
     @Test
     void capturesTheMessageReturnedByAnApplicationPostProcessor() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 16);
         TextMessage converted = mock(TextMessage.class);
         TextMessage processed = mock(TextMessage.class);
         when(processed.getJMSMessageID()).thenReturn("ID:processed");
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate) postProcessor.postProcessAfterInitialization(
                 templateWithQueueSession("orders", converted), "jmsTemplate");
 
         proxy.convertAndSend("orders", "payload", message -> processed);
 
-        assertThat(recorder.recent().get(0).key())
+        assertThat(recorder.recent().get(0).messageId())
                 .isNotNull()
                 .doesNotContain("ID:processed")
                 .hasSize(16);
@@ -233,9 +203,8 @@ class JmsProducerCaptureBeanPostProcessorTests {
 
     @Test
     void sanitizesDestinationMetadataAndNeverFallsBackToProviderToString() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate)
                 postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
         Destination providerDestination = mock(Destination.class);
@@ -244,19 +213,18 @@ class JmsProducerCaptureBeanPostProcessorTests {
         proxy.send("orders?password=raw-secret", session -> mock(Message.class));
         proxy.send(providerDestination, session -> mock(Message.class));
 
-        assertThat(recorder.recent()).extracting(CapturedMessage::topic).contains("orders?password=******");
-        assertThat(recorder.recent()).extracting(CapturedMessage::topic).anyMatch(java.util.Objects::isNull);
+        assertThat(recorder.recent()).extracting(CapturedMessage::destination).contains("orders?password=******");
+        assertThat(recorder.recent()).extracting(CapturedMessage::destination).anyMatch(java.util.Objects::isNull);
     }
 
     @Test
     void captureFailureNeverChangesSendBehavior() throws Exception {
-        KafkaActivityRecorder recorder = mock(KafkaActivityRecorder.class);
-        when(recorder.isJmsEnabled()).thenReturn(true);
+        JmsActivityRecorder recorder = mock(JmsActivityRecorder.class);
+        when(recorder.isEnabled()).thenReturn(true);
         doThrow(new IllegalStateException("capture failed"))
                 .when(recorder)
-                .recordJmsProduce(any(), any(), any(), org.mockito.ArgumentMatchers.eq(true), any());
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+                .recordProduce(any(), any(), any(), org.mockito.ArgumentMatchers.eq(true), any());
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate proxy = (JmsTemplate)
                 postProcessor.postProcessAfterInitialization(templateWithQueueSession("orders"), "jmsTemplate");
 
@@ -265,9 +233,8 @@ class JmsProducerCaptureBeanPostProcessorTests {
 
     @Test
     void doesNotDoubleWrapAnAlreadyProcessedTemplate() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
-        JmsProducerCaptureBeanPostProcessor postProcessor =
-                new JmsProducerCaptureBeanPostProcessor(provider(recorder), enabledProperties());
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        JmsProducerCaptureBeanPostProcessor postProcessor = new JmsProducerCaptureBeanPostProcessor(provider(recorder));
         JmsTemplate template = templateWithQueueSession("orders");
 
         Object once = postProcessor.postProcessAfterInitialization(template, "jmsTemplate");
@@ -319,9 +286,5 @@ class JmsProducerCaptureBeanPostProcessorTests {
         ObjectProvider<T> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(value);
         return provider;
-    }
-
-    private static BootUiProperties enabledProperties() {
-        return new BootUiProperties();
     }
 }

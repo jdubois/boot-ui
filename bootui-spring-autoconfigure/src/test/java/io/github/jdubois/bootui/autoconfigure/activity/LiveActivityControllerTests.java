@@ -360,6 +360,7 @@ class LiveActivityControllerTests {
                 empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
                 empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.jms.JmsActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder.class),
                 properties);
         return service.report(type, severity, since, limit);
@@ -471,6 +472,7 @@ class LiveActivityControllerTests {
                 empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
                 empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.jms.JmsActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.email.EmailCaptureService.class),
                 activityStore,
@@ -498,6 +500,7 @@ class LiveActivityControllerTests {
                 empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
                 empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.jms.JmsActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.email.EmailCaptureService.class),
                 defaultActivityStore(),

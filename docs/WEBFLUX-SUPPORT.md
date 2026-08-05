@@ -155,9 +155,10 @@ HTTP Exchanges, SQL Trace, Exceptions, and Security Logs — are already capture
 capture wiring (`BootUiEngineConfiguration`) is gated purely on classpath/bean presence, never on
 `ConditionalOnWebApplication`: Cache and Scheduled Tasks are read from the same `CacheActivityRecorder`/
 `ScheduledTaskRunStore` the §6.1 Cache/Scheduled Tasks panels already expose unmodified; Mail is read from the same
-`EmailCaptureService`/`EmailController` the §6.1 Email panel exposes; Kafka messaging is read from
-`KafkaActivityRecorder` (fed by the same `KafkaTemplate`/`@KafkaListener` `BeanPostProcessor` wrapping used on the
-servlet adapter, which has no servlet-specific dependency); and REST/WebClient calls are read from the same
+`EmailCaptureService`/`EmailController` the §6.1 Email panel exposes; messaging is read from the independent
+`KafkaActivityRecorder`, `RabbitActivityRecorder`, and `JmsActivityRecorder` buffers (fed by the same
+template/listener-factory `BeanPostProcessor` wrapping used on the servlet adapter, with no servlet-specific dependency);
+and REST/WebClient calls are read from the same
 `RestClientTraceRecorder` fed by `BootUiEngineConfiguration`'s `WebClientCustomizer` (capture is active on both
 stacks — the standalone panel is now also wired reactively, see §6.3). The servlet adapter's `LiveActivityController`
 additionally depends on two things with no reactive equivalent: a `ServletRequestHandledEvent` listener, which exists
@@ -167,7 +168,7 @@ not served start-to-finish on one dedicated worker thread.
 
 | Panel         | Reactive source                                                                                                                                                                                     |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Live Activity | `ReactiveLiveActivityController`, merging `HttpExchangesController` (requests), `SqlTraceRecorder` (SQL), `ExceptionStore` (exceptions), `ReactiveSecurityLogsController` (security), `CacheActivityRecorder` (cache), `ScheduledTaskRunStore` (scheduled tasks), `KafkaActivityRecorder` (messaging), `EmailCaptureService`/`EmailController` (mail), and `RestClientTraceRecorder` (REST/WebClient calls) via the shared engine `LiveActivityAssembler`/`RequestProfileAssembler` — the same classes the Quarkus adapter validated first; refreshed over `ReactiveBootUiChangeStream`, signaled by a new lightweight `ReactiveActivitySignalFilter` `WebFilter` after each non-BootUI request completes. |
+| Live Activity | `ReactiveLiveActivityController`, merging `HttpExchangesController` (requests), `SqlTraceRecorder` (SQL), `ExceptionStore` (exceptions), `ReactiveSecurityLogsController` (security), `CacheActivityRecorder` (cache), `ScheduledTaskRunStore` (scheduled tasks), `KafkaActivityRecorder`/`RabbitActivityRecorder`/`JmsActivityRecorder` (messaging), `EmailCaptureService`/`EmailController` (mail), and `RestClientTraceRecorder` (REST/WebClient calls) via the shared engine `LiveActivityAssembler`/`RequestProfileAssembler` — the same classes the Quarkus adapter validated first; refreshed over `ReactiveBootUiChangeStream`, signaled by a new lightweight `ReactiveActivitySignalFilter` `WebFilter` after each non-BootUI request completes. |
 
 `ReactiveActivitySignalFilter` takes an `ObjectProvider<ReactiveLiveActivityController>` rather than a direct
 reference: `WebFilter` beans are eagerly resolved by WebFlux at startup to build the filter chain, so a direct

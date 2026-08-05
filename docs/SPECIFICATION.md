@@ -854,11 +854,15 @@ Features:
   `JmsTemplate` and `AbstractJmsListenerContainerFactory` beans without replacing converters, callbacks, listeners, or
   error handlers. The producer proxy records each public send operation once even when `convertAndSend` delegates
   internally; listener adapters preserve the original plain-vs-session-aware dispatch interface and propagate the same
-  failure exactly once. Entries share the bounded messaging recorder but remain protocol-tagged so the Kafka panel,
-  counters, and clear action stay Kafka-only. Destinations are sanitized and bounded before storage; unknown provider
-  destination `toString()` values, payloads, arbitrary headers/properties, raw message IDs, and exception messages are
-  never retained. Provider-assigned message IDs exposed through a `MessageCreator`/`MessagePostProcessor` are stored only
-  as hashes. `bootui.jms.enabled` is independent from `bootui.kafka.enabled`; Quarkus reports no JMS integration.
+  failure exactly once. Direct `JMSContext`/`MessageProducer`/`MessageConsumer` calls are outside this Spring-integration
+  capture seam, consistent with the Kafka and RabbitMQ capture scope. A dedicated framework-neutral
+  `JmsActivityRecorder` and bounded buffer keep JMS retention,
+  counters, and configuration independent from the Kafka and RabbitMQ recorders. Destinations are sanitized and bounded
+  before storage; unknown provider destination `toString()` values, payloads, arbitrary headers/properties, raw message
+  IDs, and exception messages are never retained. Provider-assigned message IDs exposed through a
+  `MessageCreator`/`MessagePostProcessor` are stored only as hashes. Controlled by `bootui.jms.enabled`,
+  `bootui.jms.capture-message-id`, `bootui.jms.max-entries`, and `bootui.jms.max-message-id-length`; Quarkus reports no
+  JMS integration.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, outbound-call error
   rate/p95 latency deep-linked to the REST Client panel, health status, heap usage, (Spring only, `null` on

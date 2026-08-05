@@ -54,6 +54,7 @@ import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
@@ -758,10 +759,9 @@ public class BootUiEngineConfiguration {
         @ConditionalOnMissingBean
         KafkaActivityRecorder bootUiKafkaActivityRecorder(BootUiProperties properties) {
             BootUiProperties.Kafka kafka = properties.getKafka();
-            boolean kafkaEnabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.KAFKA);
-            boolean jmsEnabled = properties.getJms().isEnabled() && properties.isPanelEnabled(BootUiPanels.ACTIVITY);
+            boolean enabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.KAFKA);
             return new KafkaActivityRecorder(
-                    kafkaEnabled, jmsEnabled, kafka.isCaptureKey(), kafka.getMaxEntries(), kafka.getMaxKeyLength());
+                    enabled, kafka.isCaptureKey(), kafka.getMaxEntries(), kafka.getMaxKeyLength());
         }
 
         @Bean
@@ -786,29 +786,35 @@ public class BootUiEngineConfiguration {
      * {@code @ConditionalOnClass}-guarded so a JMS-absent application never links
      * {@code spring-jms} types.
      *
-     * <p>JMS entries share the existing {@link KafkaActivityRecorder}: the recorder is a generic
-     * bounded messaging buffer with no Kafka-specific protocol semantics; the Kafka-named class is
-     * kept for backwards compatibility. The JMS BPPs request it via {@code ObjectProvider}, so the
-     * recorder is only created when at least one consumer is present. Kafka and JMS capture are
-     * independently gated inside that shared buffer: disabling the Kafka panel or
-     * {@code bootui.kafka.enabled} does not silence JMS, while {@code bootui.jms.enabled=false}
-     * disables only JMS capture.</p>
+     * <p>JMS has its own framework-neutral recorder and settings, so its traffic cannot evict Kafka
+     * panel history and disabling either transport has no effect on the other.</p>
      */
     @Configuration(proxyBeanMethods = false)
     static class JmsBackendConfiguration {
 
         @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        @ConditionalOnClass(name = {"org.springframework.jms.core.JmsTemplate", "jakarta.jms.Message"})
+        JmsActivityRecorder bootUiJmsActivityRecorder(BootUiProperties properties) {
+            BootUiProperties.Jms jms = properties.getJms();
+            boolean enabled = jms.isEnabled() && properties.isPanelEnabled(BootUiPanels.ACTIVITY);
+            return new JmsActivityRecorder(
+                    enabled, jms.isCaptureMessageId(), jms.getMaxEntries(), jms.getMaxMessageIdLength());
+        }
+
+        @Bean
         @ConditionalOnClass(name = {"org.springframework.jms.core.JmsTemplate", "jakarta.jms.Message"})
         static JmsProducerCaptureBeanPostProcessor bootUiJmsProducerCaptureBeanPostProcessor(
-                ObjectProvider<KafkaActivityRecorder> recorderProvider, BootUiProperties properties) {
-            return new JmsProducerCaptureBeanPostProcessor(recorderProvider, properties);
+                ObjectProvider<JmsActivityRecorder> recorderProvider) {
+            return new JmsProducerCaptureBeanPostProcessor(recorderProvider);
         }
 
         @Bean
         @ConditionalOnClass(name = {"org.springframework.jms.core.JmsTemplate", "jakarta.jms.Message"})
         static JmsListenerCaptureBeanPostProcessor bootUiJmsListenerCaptureBeanPostProcessor(
-                ObjectProvider<KafkaActivityRecorder> recorderProvider, BootUiProperties properties) {
-            return new JmsListenerCaptureBeanPostProcessor(recorderProvider, properties);
+                ObjectProvider<JmsActivityRecorder> recorderProvider) {
+            return new JmsListenerCaptureBeanPostProcessor(recorderProvider);
         }
     }
 

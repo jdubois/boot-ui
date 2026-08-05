@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.jms;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import jakarta.jms.Destination;
 import jakarta.jms.Message;
 import java.lang.reflect.Method;
@@ -21,7 +20,7 @@ import org.springframework.jms.core.MessagePostProcessor;
 
 /**
  * Wraps every {@link JmsTemplate} bean with a CGLIB proxy after initialization so every
- * {@code send}/{@code convertAndSend} call is timed and recorded into {@link KafkaActivityRecorder}
+ * {@code send}/{@code convertAndSend} call is timed and recorded into {@link JmsActivityRecorder}
  * as a {@code MESSAGING} entry, before delegating to the original template — pass-through by
  * default, exactly like {@link io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor}
  * wraps {@code KafkaTemplate} beans.
@@ -51,13 +50,10 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
 
     private static final Logger log = LoggerFactory.getLogger(JmsProducerCaptureBeanPostProcessor.class);
 
-    private final ObjectProvider<KafkaActivityRecorder> recorderProvider;
-    private final BootUiProperties properties;
+    private final ObjectProvider<JmsActivityRecorder> recorderProvider;
 
-    public JmsProducerCaptureBeanPostProcessor(
-            ObjectProvider<KafkaActivityRecorder> recorderProvider, BootUiProperties properties) {
+    public JmsProducerCaptureBeanPostProcessor(ObjectProvider<JmsActivityRecorder> recorderProvider) {
         this.recorderProvider = recorderProvider;
-        this.properties = properties;
     }
 
     @Override
@@ -65,11 +61,8 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
         if (!(bean instanceof JmsTemplate template)) {
             return bean;
         }
-        if (!properties.getJms().isEnabled()) {
-            return bean;
-        }
-        KafkaActivityRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null || !recorder.isJmsEnabled() || isAlreadyWrapped(template)) {
+        JmsActivityRecorder recorder = recorderProvider.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled() || isAlreadyWrapped(template)) {
             return bean;
         }
         try {
@@ -101,9 +94,9 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
     private static final class JmsProducerCaptureInterceptor implements MethodInterceptor {
 
         private final JmsTemplate target;
-        private final KafkaActivityRecorder recorder;
+        private final JmsActivityRecorder recorder;
 
-        private JmsProducerCaptureInterceptor(JmsTemplate target, KafkaActivityRecorder recorder) {
+        private JmsProducerCaptureInterceptor(JmsTemplate target, JmsActivityRecorder recorder) {
             this.target = target;
             this.recorder = recorder;
         }
@@ -172,9 +165,9 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
         }
 
         private void safeRecord(
-                String destination, String messageId, long durationMillis, boolean success, String errorMessage) {
+                String destination, String messageId, long durationMillis, boolean success, String failureType) {
             try {
-                recorder.recordJmsProduce(destination, messageId, durationMillis, success, errorMessage);
+                recorder.recordProduce(destination, messageId, durationMillis, success, failureType);
             } catch (RuntimeException ex) {
                 log.warn("BootUI could not capture an outgoing JMS message; leaving it untouched", ex);
             }

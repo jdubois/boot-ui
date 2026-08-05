@@ -64,7 +64,7 @@ class LiveActivityServiceTests {
     @Test
     void doesNotIncludeKafkaMessagesWhenKafkaPanelDisabled() {
         io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder =
-                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, false, true, 10, 50);
+                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 10, 50);
         recorder.recordProduce("orders", 0, "order-1", 0L, true, null);
 
         BootUiProperties properties = new BootUiProperties();
@@ -79,19 +79,54 @@ class LiveActivityServiceTests {
 
     @Test
     void includesJmsMessagesWhenKafkaPanelDisabled() {
-        io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder =
-                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(false, true, true, 10, 50);
-        recorder.recordJmsProduce("orders", "ID:1", 3L, true, null);
+        io.github.jdubois.bootui.engine.jms.JmsActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.jms.JmsActivityRecorder(true, true, 10, 50);
+        recorder.recordProduce("orders", "ID:1", 3L, true, null);
 
         BootUiProperties properties = new BootUiProperties();
         properties.panel(BootUiPanels.KAFKA).setEnabled(false);
-        LiveActivityReport report = serviceWithKafka(recorder, properties).report(null, null, 0, 0);
+        LiveActivityReport report = serviceWithJms(recorder, properties).report(null, null, 0, 0);
 
         assertThat(report.sources()).contains("JMS").doesNotContain("Kafka");
         assertThat(report.entries()).singleElement().satisfies(entry -> {
             assertThat(entry.id()).startsWith("jms-");
             assertThat(entry.type()).isEqualTo("MESSAGING");
         });
+    }
+
+    @Test
+    void keepsKafkaAndJmsRetentionIndependent() {
+        io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder kafka =
+                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 1, 50);
+        io.github.jdubois.bootui.engine.jms.JmsActivityRecorder jms =
+                new io.github.jdubois.bootui.engine.jms.JmsActivityRecorder(true, true, 1, 16);
+        kafka.recordProduce("kafka-orders", 0, "order-1", 1L, true, null);
+        jms.recordProduce("old-jms-orders", "ID:1", 1L, true, null);
+        jms.recordProduce("new-jms-orders", "ID:2", 1L, true, null);
+
+        LiveActivityReport report = service(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        kafka,
+                        jms,
+                        new BootUiProperties())
+                .report(null, null, 0, 0);
+
+        assertThat(report.entries())
+                .extracting("id", "summary")
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("kafka-1", "→ kafka-orders [0]"),
+                        org.assertj.core.groups.Tuple.tuple("jms-2", "→ new-jms-orders"));
+        assertThat(report.sources()).contains("Kafka", "JMS");
     }
 
     @Test
@@ -987,6 +1022,38 @@ class LiveActivityServiceTests {
             io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledTaskRuns,
             io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder kafka,
             BootUiProperties properties) {
+        return service(
+                requests,
+                sql,
+                rest,
+                exceptions,
+                security,
+                health,
+                email,
+                requestCorrelations,
+                securityCorrelations,
+                cacheActivity,
+                scheduledTaskRuns,
+                kafka,
+                null,
+                properties);
+    }
+
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            RestClientTraceController rest,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            EmailController email,
+            RequestCorrelationRegistry requestCorrelations,
+            SecurityEventCorrelationRegistry securityCorrelations,
+            io.github.jdubois.bootui.engine.cache.CacheActivityRecorder cacheActivity,
+            io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore scheduledTaskRuns,
+            io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder kafka,
+            io.github.jdubois.bootui.engine.jms.JmsActivityRecorder jms,
+            BootUiProperties properties) {
         return new LiveActivityService(
                 provider(requests),
                 provider(sql),
@@ -1000,6 +1067,7 @@ class LiveActivityServiceTests {
                 provider(cacheActivity),
                 provider(scheduledTaskRuns),
                 provider(kafka),
+                provider(jms),
                 provider(null),
                 properties);
     }
@@ -1007,6 +1075,11 @@ class LiveActivityServiceTests {
     private LiveActivityService serviceWithKafka(
             io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder, BootUiProperties properties) {
         return service(null, null, null, null, null, null, null, null, null, null, null, recorder, properties);
+    }
+
+    private LiveActivityService serviceWithJms(
+            io.github.jdubois.bootui.engine.jms.JmsActivityRecorder recorder, BootUiProperties properties) {
+        return service(null, null, null, null, null, null, null, null, null, null, null, null, recorder, properties);
     }
 
     private LiveActivityService serviceWithCache(

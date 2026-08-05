@@ -45,7 +45,7 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
             return bean;
         }
         KafkaActivityRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null || !recorder.isKafkaEnabled()) {
+        if (recorder == null || !recorder.isEnabled()) {
             return bean;
         }
         try {

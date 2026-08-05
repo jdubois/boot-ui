@@ -28,6 +28,7 @@ import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -63,10 +64,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * <p>Because the merged feed is genuinely event-driven, the panel refreshes over Server-Sent Events
  * instead of fixed-interval polling: {@link #stream()} pushes a tiny coalesced {@code update} tick
  * whenever any underlying source changes, and the browser re-fetches {@link #activity} so all
- * masking, filtering and bounds still apply. SQL trace, REST client trace, exceptions, cache accesses,
- * scheduled-task runs, Kafka messages, and captured emails are wired in as signals through their
- * in-process subscribe hooks; security and HTTP requests are wired through Spring application events —
- * a single {@link BootUiChangeStream} coalesces a burst into one push.
+ * masking, filtering and bounds still apply. SQL trace, REST client trace, exceptions, cache
+ * accesses, scheduled-task runs, Kafka/JMS/RabbitMQ messages, and captured emails are wired in as
+ * signals through their in-process subscribe hooks; security and HTTP requests are wired through
+ * Spring application events — a single {@link BootUiChangeStream} coalesces a burst into one push.
  *
  * <p>This controller also always owns the capture side: whenever the injected {@link
  * #persistenceSettings} has persistence enabled (from startup configuration, or later via the "Use the
@@ -109,6 +110,7 @@ public class LiveActivityController {
             ObjectProvider<CacheActivityRecorder> cacheActivity,
             ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
             ObjectProvider<KafkaActivityRecorder> kafkaActivityRecorder,
+            ObjectProvider<JmsActivityRecorder> jmsActivityRecorder,
             ObjectProvider<RabbitActivityRecorder> rabbitActivityRecorder,
             ObjectProvider<EmailCaptureService> emailCaptureService,
             SwitchableActivityStore activityStore,
@@ -128,6 +130,7 @@ public class LiveActivityController {
                 cacheActivity,
                 scheduledTaskRuns,
                 kafkaActivityRecorder,
+                jmsActivityRecorder,
                 rabbitActivityRecorder,
                 properties);
         this.correlator = new LiveActivityCorrelator(
@@ -165,6 +168,10 @@ public class LiveActivityController {
         KafkaActivityRecorder kafkaRecorder = kafkaActivityRecorder.getIfAvailable();
         if (kafkaRecorder != null) {
             unsubscribers.add(kafkaRecorder.subscribe(changeStream::signal));
+        }
+        JmsActivityRecorder jmsRecorder = jmsActivityRecorder.getIfAvailable();
+        if (jmsRecorder != null) {
+            unsubscribers.add(jmsRecorder.subscribe(changeStream::signal));
         }
         RabbitActivityRecorder rabbitRecorder = rabbitActivityRecorder.getIfAvailable();
         if (rabbitRecorder != null) {

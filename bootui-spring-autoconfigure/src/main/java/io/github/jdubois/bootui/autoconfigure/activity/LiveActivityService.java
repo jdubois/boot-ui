@@ -27,6 +27,8 @@ import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.jms.JmsActivityEntries;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
@@ -85,6 +87,7 @@ public class LiveActivityService {
     private final ObjectProvider<CacheActivityRecorder> cacheActivity;
     private final ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns;
     private final ObjectProvider<KafkaActivityRecorder> kafka;
+    private final ObjectProvider<JmsActivityRecorder> jms;
     private final ObjectProvider<RabbitActivityRecorder> rabbit;
     private final BootUiProperties properties;
 
@@ -101,6 +104,7 @@ public class LiveActivityService {
             ObjectProvider<CacheActivityRecorder> cacheActivity,
             ObjectProvider<ScheduledTaskRunStore> scheduledTaskRuns,
             ObjectProvider<KafkaActivityRecorder> kafka,
+            ObjectProvider<JmsActivityRecorder> jms,
             ObjectProvider<RabbitActivityRecorder> rabbit,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
@@ -115,6 +119,7 @@ public class LiveActivityService {
         this.cacheActivity = cacheActivity;
         this.scheduledTaskRuns = scheduledTaskRuns;
         this.kafka = kafka;
+        this.jms = jms;
         this.rabbit = rabbit;
         this.properties = properties;
     }
@@ -141,6 +146,7 @@ public class LiveActivityService {
         List<CacheActivityEvent> cache = loadCache(sources);
         List<ScheduledTaskRunStore.Run> scheduledRuns = loadScheduledTaskRuns(sources);
         List<CapturedMessage> kafkaMessages = loadKafka(sources);
+        List<JmsActivityRecorder.CapturedMessage> jmsMessages = loadJms(sources);
         List<RabbitActivityRecorder.CapturedMessage> rabbitMessages = loadRabbit(sources);
 
         List<RequestAnchor> anchors = buildAnchors(requests);
@@ -217,6 +223,9 @@ public class LiveActivityService {
         }
         for (CapturedMessage message : kafkaMessages) {
             all.add(toKafkaEntry(message));
+        }
+        for (JmsActivityRecorder.CapturedMessage message : jmsMessages) {
+            all.add(JmsActivityEntries.toEntry(message));
         }
         for (RabbitActivityRecorder.CapturedMessage message : rabbitMessages) {
             all.add(toRabbitEntry(message));
@@ -404,20 +413,35 @@ public class LiveActivityService {
         return runs.size() > cap ? runs.subList(0, cap) : runs;
     }
 
-    /** Loads Kafka and JMS records from their shared bounded messaging buffer. */
+    /**
+     * Loads recently captured Kafka messages from {@link KafkaActivityRecorder} directly. Gated on the
+     * dedicated {@code KAFKA} panel — like {@link #loadCache}/{@link #loadEmail} gate on their own domain
+     * panel — plus the recorder's own {@code bootui.kafka.enabled} toggle (folded into
+     * {@link KafkaActivityRecorder#isEnabled()} at construction).
+     */
     private List<CapturedMessage> loadKafka(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.KAFKA)) {
+            return List.of();
+        }
         KafkaActivityRecorder recorder = kafka == null ? null : kafka.getIfAvailable();
         if (recorder == null || !recorder.isEnabled()) {
             return List.of();
         }
-        boolean includeKafka = properties.isPanelEnabled(BootUiPanels.KAFKA) && recorder.isKafkaEnabled();
-        List<CapturedMessage> messages = recorder.recent().stream()
-                .filter(message -> message.protocol() == KafkaActivityRecorder.Protocol.JMS || includeKafka)
-                .toList();
-        if (messages.stream().anyMatch(message -> message.protocol() == KafkaActivityRecorder.Protocol.KAFKA)) {
+        List<CapturedMessage> messages = recorder.recent();
+        if (!messages.isEmpty()) {
             sources.add("Kafka");
         }
-        if (messages.stream().anyMatch(message -> message.protocol() == KafkaActivityRecorder.Protocol.JMS)) {
+        return messages;
+    }
+
+    /** Loads recently captured JMS records independently from Kafka and RabbitMQ history. */
+    private List<JmsActivityRecorder.CapturedMessage> loadJms(List<String> sources) {
+        JmsActivityRecorder recorder = jms == null ? null : jms.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled()) {
+            return List.of();
+        }
+        List<JmsActivityRecorder.CapturedMessage> messages = recorder.recent();
+        if (!messages.isEmpty()) {
             sources.add("JMS");
         }
         return messages;

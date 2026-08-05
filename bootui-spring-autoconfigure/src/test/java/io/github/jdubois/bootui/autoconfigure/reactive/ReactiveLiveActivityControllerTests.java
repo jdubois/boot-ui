@@ -32,6 +32,7 @@ import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
@@ -295,6 +296,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -339,6 +341,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 provider(cacheRecorder),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -373,6 +376,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -415,6 +419,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -446,6 +451,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -477,6 +483,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -526,6 +533,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -565,6 +573,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 provider(kafka),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -580,7 +589,7 @@ class ReactiveLiveActivityControllerTests {
 
     @Test
     void mergedReportOmitsKafkaMessagesWhenKafkaPanelDisabled() {
-        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, false, true, 10, 50);
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 50);
         kafka.recordProduce("orders", 0, "order-1", 1L, true, null);
 
         BootUiProperties properties = new BootUiProperties();
@@ -599,6 +608,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 provider(kafka),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -610,8 +620,8 @@ class ReactiveLiveActivityControllerTests {
 
     @Test
     void mergedReportIncludesJmsMessagesWhenKafkaPanelDisabled() {
-        KafkaActivityRecorder messaging = new KafkaActivityRecorder(false, true, true, 10, 50);
-        messaging.recordJmsConsume("orders", "ID:1", 4L, true, null, null, "listener");
+        JmsActivityRecorder jms = new JmsActivityRecorder(true, true, 10, 50);
+        jms.recordConsume("orders", "ID:1", 4L, true, null, null, "listener");
 
         BootUiProperties properties = new BootUiProperties();
         properties.panel(BootUiPanels.KAFKA).setEnabled(false);
@@ -628,7 +638,8 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailController.class),
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
-                provider(messaging),
+                empty(KafkaActivityRecorder.class),
+                provider(jms),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -675,6 +686,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -708,6 +720,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -739,6 +752,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -777,6 +791,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -814,6 +829,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 defaultActivityStore(),
                 disabledSettings(),
@@ -948,6 +964,7 @@ class ReactiveLiveActivityControllerTests {
                 empty(EmailCaptureService.class),
                 empty(CacheActivityRecorder.class),
                 empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
                 empty(RabbitActivityRecorder.class),
                 activityStore,
                 persistenceSettings,

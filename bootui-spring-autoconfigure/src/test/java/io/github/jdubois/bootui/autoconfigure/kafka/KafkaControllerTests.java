@@ -68,16 +68,13 @@ class KafkaControllerTests {
 
     @Test
     void clearRemovesAllCapturedMessages() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, true, 200, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
         recorder.recordProduce("orders", 0, "order-42", null, true, null);
-        recorder.recordJmsProduce("jms-orders", "ID:42", 2L, true, null);
         MockMvc mvc = buildMvc(recorder, new KafkaTemplate<>(producerFactory));
 
         mvc.perform(delete("/bootui/api/kafka")).andExpect(status().isNoContent());
 
-        assertThat(recorder.recent())
-                .singleElement()
-                .satisfies(message -> assertThat(message.protocol()).isEqualTo(KafkaActivityRecorder.Protocol.JMS));
+        assertThat(recorder.recent()).isEmpty();
     }
 
     @Test

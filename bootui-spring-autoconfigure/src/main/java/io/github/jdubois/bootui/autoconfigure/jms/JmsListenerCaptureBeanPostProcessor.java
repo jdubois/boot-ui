@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.jms;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
 import jakarta.jms.Session;
@@ -24,7 +23,7 @@ import org.springframework.jms.listener.SessionAwareMessageListener;
  * initialization so that every container the factory subsequently creates (for each
  * {@code @JmsListener} endpoint) has its message listener wrapped with a
  * capture adapter that times each delivery and records the outcome into
- * {@link KafkaActivityRecorder} as a {@code MESSAGING} entry — the consumer-side twin of
+ * {@link JmsActivityRecorder} as a {@code MESSAGING} entry — the consumer-side twin of
  * {@link JmsProducerCaptureBeanPostProcessor}.
  *
  * <p>{@link AbstractJmsListenerContainerFactory} has no {@code RecordInterceptor} equivalent (unlike
@@ -51,13 +50,10 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
 
     private static final Logger log = LoggerFactory.getLogger(JmsListenerCaptureBeanPostProcessor.class);
 
-    private final ObjectProvider<KafkaActivityRecorder> recorderProvider;
-    private final BootUiProperties properties;
+    private final ObjectProvider<JmsActivityRecorder> recorderProvider;
 
-    public JmsListenerCaptureBeanPostProcessor(
-            ObjectProvider<KafkaActivityRecorder> recorderProvider, BootUiProperties properties) {
+    public JmsListenerCaptureBeanPostProcessor(ObjectProvider<JmsActivityRecorder> recorderProvider) {
         this.recorderProvider = recorderProvider;
-        this.properties = properties;
     }
 
     @Override
@@ -65,11 +61,8 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
         if (!(bean instanceof AbstractJmsListenerContainerFactory<?> factory)) {
             return bean;
         }
-        if (!properties.getJms().isEnabled()) {
-            return bean;
-        }
-        KafkaActivityRecorder recorder = recorderProvider.getIfAvailable();
-        if (recorder == null || !recorder.isJmsEnabled() || isAlreadyWrapped(factory)) {
+        JmsActivityRecorder recorder = recorderProvider.getIfAvailable();
+        if (recorder == null || !recorder.isEnabled() || isAlreadyWrapped(factory)) {
             return bean;
         }
         try {
@@ -101,10 +94,10 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
      */
     private static final class FactoryInterceptor implements MethodInterceptor {
 
-        private final KafkaActivityRecorder recorder;
+        private final JmsActivityRecorder recorder;
         private final String factoryBeanName;
 
-        private FactoryInterceptor(KafkaActivityRecorder recorder, String factoryBeanName) {
+        private FactoryInterceptor(JmsActivityRecorder recorder, String factoryBeanName) {
             this.recorder = recorder;
             this.factoryBeanName = factoryBeanName;
         }
@@ -134,8 +127,7 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
             return result;
         }
 
-        private static Object capturingListener(
-                Object delegate, KafkaActivityRecorder recorder, String factoryBeanName) {
+        private static Object capturingListener(Object delegate, JmsActivityRecorder recorder, String factoryBeanName) {
             String listenerId = JmsCaptureMetadata.listenerId(factoryBeanName);
             if (delegate instanceof CapturingMessageListener
                     || delegate instanceof CapturingSessionAwareMessageListener) {
@@ -161,11 +153,11 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
     static final class CapturingMessageListener implements jakarta.jms.MessageListener {
 
         private final jakarta.jms.MessageListener delegate;
-        private final KafkaActivityRecorder recorder;
+        private final JmsActivityRecorder recorder;
         private final String listenerId;
 
         CapturingMessageListener(
-                jakarta.jms.MessageListener delegate, KafkaActivityRecorder recorder, String listenerId) {
+                jakarta.jms.MessageListener delegate, JmsActivityRecorder recorder, String listenerId) {
             this.delegate = delegate;
             this.recorder = recorder;
             this.listenerId = listenerId;
@@ -183,19 +175,19 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
             }
         }
 
-        private void safeRecord(Message message, long start, boolean success, String errorMessage) {
-            record(recorder, listenerId, message, start, success, errorMessage);
+        private void safeRecord(Message message, long start, boolean success, String failureType) {
+            record(recorder, listenerId, message, start, success, failureType);
         }
     }
 
     static final class CapturingSessionAwareMessageListener implements SessionAwareMessageListener<Message> {
 
         private final SessionAwareMessageListener<Message> delegate;
-        private final KafkaActivityRecorder recorder;
+        private final JmsActivityRecorder recorder;
         private final String listenerId;
 
         CapturingSessionAwareMessageListener(
-                SessionAwareMessageListener<Message> delegate, KafkaActivityRecorder recorder, String listenerId) {
+                SessionAwareMessageListener<Message> delegate, JmsActivityRecorder recorder, String listenerId) {
             this.delegate = delegate;
             this.recorder = recorder;
             this.listenerId = listenerId;
@@ -215,20 +207,20 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
     }
 
     private static void record(
-            KafkaActivityRecorder recorder,
+            JmsActivityRecorder recorder,
             String listenerId,
             Message message,
             long start,
             boolean success,
-            String errorMessage) {
+            String failureType) {
         try {
             long durationMillis = (System.nanoTime() - start) / 1_000_000L;
-            recorder.recordJmsConsume(
+            recorder.recordConsume(
                     JmsCaptureMetadata.destination(message),
                     JmsCaptureMetadata.messageId(message),
                     durationMillis,
                     success,
-                    errorMessage,
+                    failureType,
                     null,
                     listenerId);
         } catch (RuntimeException ex) {

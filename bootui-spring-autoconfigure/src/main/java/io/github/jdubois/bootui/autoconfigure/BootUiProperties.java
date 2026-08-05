@@ -147,10 +147,7 @@ public class BootUiProperties {
      * Kafka message capture settings, feeding the Live Activity stream's {@code MESSAGING} entries.
      */
     private Kafka kafka = new Kafka();
-    /**
-     * JMS message capture settings, feeding the Live Activity stream's {@code MESSAGING} entries
-     * through the shared messaging recorder (the same one Kafka uses).
-     */
+    /** JMS message capture settings for its independent Live Activity {@code MESSAGING} buffer. */
     private Jms jms = new Jms();
     /**
      * RabbitMQ (AMQP) message capture settings, feeding the Live Activity stream's
@@ -1363,14 +1360,7 @@ public class BootUiProperties {
     }
 
     /**
-     * JMS message capture settings, feeding the Live Activity stream's {@code MESSAGING} entries
-     * through the shared messaging recorder (the same one Kafka uses). JMS sends and listener
-     * deliveries appear alongside Kafka messages as {@code MESSAGING} entries in the activity feed.
-     *
-     * <p>This toggle is independent from {@code bootui.kafka.enabled}; either transport can be
-     * captured while the other is disabled. The shared buffer size and message-ID hashing settings
-     * are inherited from {@code bootui.kafka.max-entries} and
-     * {@code bootui.kafka.capture-key}.</p>
+     * JMS message capture settings for the Live Activity stream's {@code MESSAGING} entries.
      */
     public static class Jms {
 
@@ -1382,12 +1372,48 @@ public class BootUiProperties {
          */
         private boolean enabled = true;
 
+        /**
+         * Whether a provider-assigned JMS message ID is retained as a truncated SHA-256 hash. The
+         * raw message ID is never stored.
+         */
+        private boolean captureMessageId = true;
+
+        /** Maximum number of JMS messages retained in the in-memory ring buffer. */
+        private int maxEntries = 200;
+
+        /** Maximum retained length of the JMS message ID's hex-encoded SHA-256 hash. */
+        private int maxMessageIdLength = 16;
+
         public boolean isEnabled() {
             return enabled;
         }
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public boolean isCaptureMessageId() {
+            return captureMessageId;
+        }
+
+        public void setCaptureMessageId(boolean captureMessageId) {
+            this.captureMessageId = captureMessageId;
+        }
+
+        public int getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public int getMaxMessageIdLength() {
+            return maxMessageIdLength;
+        }
+
+        public void setMaxMessageIdLength(int maxMessageIdLength) {
+            this.maxMessageIdLength = maxMessageIdLength;
         }
     }
 

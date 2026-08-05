@@ -12,6 +12,8 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
+import io.github.jdubois.bootui.engine.jms.JmsActivityEntries;
+import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityEntries;
@@ -190,6 +192,58 @@ public final class LiveActivityAssembler {
             boolean emailAvailable,
             List<RestClientTraceEntryDto> restEntries,
             boolean restAvailable) {
+        return report(
+                requests,
+                sqlEntries,
+                sqlAvailable,
+                sqlUnavailableWarning,
+                exceptionGroups,
+                securityEvents,
+                securityAvailable,
+                cacheEvents,
+                cacheAvailable,
+                scheduledRuns,
+                healthStatus,
+                limit,
+                kafkaMessages,
+                kafkaAvailable,
+                null,
+                false,
+                rabbitMessages,
+                rabbitAvailable,
+                emailMessages,
+                emailAvailable,
+                restEntries,
+                restAvailable);
+    }
+
+    /**
+     * Spring-capable overload that also merges JMS activity. The original overload remains for
+     * adapters without a JMS capture source.
+     */
+    public LiveActivityReport report(
+            HttpExchangesReport requests,
+            List<SqlTraceEntryDto> sqlEntries,
+            boolean sqlAvailable,
+            String sqlUnavailableWarning,
+            List<ExceptionGroupDto> exceptionGroups,
+            List<SecurityLogEventDto> securityEvents,
+            boolean securityAvailable,
+            List<CacheActivityEvent> cacheEvents,
+            boolean cacheAvailable,
+            List<ScheduledTaskRunStore.Run> scheduledRuns,
+            String healthStatus,
+            int limit,
+            List<CapturedMessage> kafkaMessages,
+            boolean kafkaAvailable,
+            List<JmsActivityRecorder.CapturedMessage> jmsMessages,
+            boolean jmsAvailable,
+            List<RabbitActivityRecorder.CapturedMessage> rabbitMessages,
+            boolean rabbitAvailable,
+            List<EmailMessageDto> emailMessages,
+            boolean emailAvailable,
+            List<RestClientTraceEntryDto> restEntries,
+            boolean restAvailable) {
 
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
@@ -198,6 +252,7 @@ public final class LiveActivityAssembler {
         List<ScheduledTaskRunStore.Run> scheduled = scheduledRuns == null ? List.of() : scheduledRuns;
         List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
         List<CapturedMessage> kafka = !kafkaAvailable || kafkaMessages == null ? List.of() : kafkaMessages;
+        List<JmsActivityRecorder.CapturedMessage> jms = !jmsAvailable || jmsMessages == null ? List.of() : jmsMessages;
         List<RabbitActivityRecorder.CapturedMessage> rabbit =
                 !rabbitAvailable || rabbitMessages == null ? List.of() : rabbitMessages;
         List<EmailMessageDto> emails = !emailAvailable || emailMessages == null ? List.of() : emailMessages;
@@ -320,6 +375,10 @@ public final class LiveActivityAssembler {
             entries.add(KafkaActivityEntries.toEntry(message));
         }
 
+        for (JmsActivityRecorder.CapturedMessage message : jms) {
+            entries.add(JmsActivityEntries.toEntry(message));
+        }
+
         for (RabbitActivityRecorder.CapturedMessage message : rabbit) {
             entries.add(RabbitActivityEntries.toEntry(message));
         }
@@ -360,6 +419,9 @@ public final class LiveActivityAssembler {
         }
         if (kafkaAvailable) {
             sources.add("kafka");
+        }
+        if (jmsAvailable) {
+            sources.add("jms");
         }
         if (rabbitAvailable) {
             sources.add("rabbitmq");

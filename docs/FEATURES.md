@@ -67,11 +67,11 @@ accesses, is captured by a small dedicated recorder (Spring servlet and WebFlux 
 ever stores a hashed cache key, never a raw key or value. The eighth signal, scheduled-task runs, captures each
 `@Scheduled` method *execution* (start, success, failure, duration) on both adapters: Spring taps its own scheduling
 observability hook (no extra proxying), Quarkus observes the CDI `SuccessfulExecution`/`FailedExecution` events its
-scheduler always fires — feeding a bounded in-memory buffer the same way the other sources do. The ninth signal, Kafka
-producer/consumer activity, is described below.
+scheduler always fires — feeding a bounded in-memory buffer the same way the other sources do. The ninth signal,
+messaging activity (Kafka and RabbitMQ on both adapters, plus JMS on Spring), is described below.
 
 The stream merges nine signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
-(`EXCEPTION`), security events (`SECURITY`), scheduled-task runs (`SCHEDULED`), Kafka producer/consumer activity
+(`EXCEPTION`), security events (`SECURITY`), scheduled-task runs (`SCHEDULED`), messaging producer/consumer activity
 (`MESSAGING`), and captured emails (`MAIL`) on both adapters, plus — on the Spring servlet and WebFlux adapters only —
 outbound REST client calls (`REST_CLIENT`) and cache accesses (`CACHE`). Each row carries a timestamp, a type icon, a
 color-coded severity
@@ -99,7 +99,7 @@ active-exceptions, health, heap-usage, cache-hit-ratio, and scheduled-failures c
 respectively. Because the merged feed is genuinely event-driven, it refreshes over **Server-Sent Events** instead of
 fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement, REST
-client call, exception, security event, cache access, scheduled-task run, Kafka message, or captured email), and the
+client call, exception, security event, cache access, scheduled-task run, messaging event, or captured email), and the
 feed can be paused and resumed so a row you are inspecting does not scroll away.
 When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
 SQL statements, REST client calls, exceptions, security events, cache accesses, and emails that BootUI can pin precisely
@@ -175,16 +175,16 @@ activity into the same `MESSAGING` stream. Every `JmsTemplate` bean is wrapped v
 `send`/`convertAndSend` calls; every `AbstractJmsListenerContainerFactory` bean is similarly proxied so that each
 container it creates has its message listener wrapped by a matching plain or session-aware capture adapter. Both the
 proxy and adapters compose with the application's existing converters, callbacks, and error handlers without replacing
-them or changing the listener dispatch interface.
+them or changing the listener dispatch interface. Direct `JMSContext`, `MessageProducer`, or `MessageConsumer` usage is
+outside this capture seam, matching Kafka and RabbitMQ's framework-integration-level instrumentation.
 Each entry records a sanitized JMS destination name (only explicit names and standard `Queue`/`Topic` accessors are
 trusted), direction, success/failure, and duration. When a `MessageCreator` or `MessagePostProcessor` exposes the
 provider-assigned JMS message ID, BootUI retains only its one-way hash. **The message payload, arbitrary
-headers/properties, raw message ID, and exception message are never captured.** JMS entries reuse the
-`KafkaActivityRecorder` bounded buffer and the same `MESSAGING` display as Kafka entries, while the dedicated Kafka panel
-filters them out and its clear action leaves JMS history intact. Buffer size and hashing settings are inherited from
-`bootui.kafka.*`, but capture enablement is independent: `bootui.jms.enabled=false` disables only JMS and
-`bootui.kafka.enabled=false` disables only Kafka. JMS capture is available on Spring MVC and WebFlux; no Quarkus JMS
-equivalent is claimed.
+headers/properties, raw message ID, and exception message are never captured.** JMS uses its own framework-neutral
+`JmsActivityRecorder`, bounded buffer, and `MESSAGING` mapper, so JMS traffic cannot evict Kafka panel history and either
+transport can be disabled independently. Tune it with `bootui.jms.enabled`, `bootui.jms.capture-message-id`,
+`bootui.jms.max-entries`, and `bootui.jms.max-message-id-length`. JMS capture is available on Spring MVC and WebFlux;
+no Quarkus JMS equivalent is claimed.
 
 By default the stream is in-memory only, so history is lost on a restart and the feed can only show as far back as the
 small buffers behind it reach. Setting `bootui.activity.persistence.enabled=true` additionally buffers
@@ -216,7 +216,7 @@ in configuration. If no `DataSource` is present, the button instead links straig
 configuring one (a dedicated one, just for Live Activity, or reusing an existing one).
 
 On Quarkus the panel merges eight signals: HTTP requests (from the same Vert.x-fed ring buffer as HTTP Exchanges), SQL
-trace, exceptions, security events, scheduled-task runs, Kafka producer/consumer activity, captured emails, and outbound
+trace, exceptions, security events, scheduled-task runs, messaging activity, captured emails, and outbound
 REST Client Reactive calls, alongside JVM heap KPIs. Cache accesses remain Spring-servlet/WebFlux-only today (see their
 own section above), so only that slot stays empty/unavailable on Quarkus. SQL trace
 contributes only when a JDBC datasource is
@@ -225,7 +225,7 @@ note. Signal-to-request correlation works by **trace id**: Spring's thread-per-r
 event loop (a thread does not map to a single request), so when `quarkus-opentelemetry` is present the adapter stamps the
 active server span's trace id at each capture point — the HTTP filter, REST Client recorder, SQL recorder, exception store,
 and CDI security-event observer — and the engine nests REST Client, SQL, exception, security, and email entries under the
-request sharing that trace id, exactly as on Spring (scheduled-task runs and Kafka activity always stay top-level); the
+request sharing that trace id, exactly as on Spring (scheduled-task runs and messaging activity always stay top-level); the
 OpenTelemetry context propagates across the event-loop→worker hop, so the same trace id is available even for
 blocking JDBC on a worker thread or a security event fired from a CDI observer. A request whose trace id uniquely matches
 a correlated security event is flagged **authenticated** exactly like Spring, naming the audit event's principal; Quarkus's
@@ -254,7 +254,7 @@ so the tip, button, and confirmation flow behave the same regardless of adapter.
 
 On Spring Boot WebFlux the panel is available too, merging all nine signals like the servlet adapter does. Seven of
 them needed no new *capture* pipeline at all: HTTP requests, SQL trace, exceptions, security events, scheduled-task
-runs, Kafka producer/consumer activity, and captured emails are each already reactive-safe — their engine beans live
+runs, messaging activity, and captured emails are each already reactive-safe — their engine beans live
 in the shared `BootUiEngineConfiguration` both the servlet and reactive auto-configurations import — so the WebFlux
 port is purely a merge over those existing sources (see their own sections below). The remaining two needed one each.
 Cache accesses reuse the exact same `CacheActivityRecorder`/`CacheActivityCacheManagerBeanPostProcessor` pair the

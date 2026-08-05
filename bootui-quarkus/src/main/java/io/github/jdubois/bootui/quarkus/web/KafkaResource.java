@@ -56,7 +56,7 @@ public class KafkaResource {
 
     @DELETE
     public Response clear() {
-        recorder.clearKafka();
+        recorder.clear();
         return Response.noContent().build();
     }
 }
