@@ -436,6 +436,9 @@ public class LiveActivityService {
 
     /** Loads recently captured JMS records independently from Kafka and RabbitMQ history. */
     private List<JmsActivityRecorder.CapturedMessage> loadJms(List<String> sources) {
+        if (!properties.isPanelEnabled(BootUiPanels.JMS)) {
+            return List.of();
+        }
         JmsActivityRecorder recorder = jms == null ? null : jms.getIfAvailable();
         if (recorder == null || !recorder.isEnabled()) {
             return List.of();

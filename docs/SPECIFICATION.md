@@ -862,7 +862,11 @@ Features:
   IDs, and exception messages are never retained. Provider-assigned message IDs exposed through a
   `MessageCreator`/`MessagePostProcessor` are stored only as hashes. Controlled by `bootui.jms.enabled`,
   `bootui.jms.capture-message-id`, `bootui.jms.max-entries`, and `bootui.jms.max-message-id-length`; Quarkus reports no
-  JMS integration.
+  JMS integration. A dedicated `GET /bootui/api/jms` panel report exposes the same retained metadata newest-first, and
+  confirmation-gated `DELETE /bootui/api/jms` clears that shared buffer. The panel supports destination, message-ID,
+  subscription, listener, failure-type, and direction filtering; it is available on Spring when a `JmsTemplate` bean is
+  present and reports not yet available on Quarkus. It reports unavailable in a Spring GraalVM native image because its
+  `JmsTemplate` and listener-factory interception requires runtime class proxies.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, outbound-call error
   rate/p95 latency deep-linked to the REST Client panel, health status, heap usage, (Spring only, `null` on

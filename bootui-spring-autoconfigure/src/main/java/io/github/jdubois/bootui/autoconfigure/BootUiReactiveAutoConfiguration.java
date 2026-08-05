@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
@@ -248,6 +249,7 @@ import tools.jackson.databind.ObjectMapper;
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
+    JmsController.class,
     ReactiveLogTailController.class,
     ReactiveCopilotController.class,
     ReactiveClaudeCodeController.class,
@@ -309,6 +311,7 @@ public class BootUiReactiveAutoConfiguration {
             EmailController.class.getName(),
             KafkaController.class.getName(),
             RabbitController.class.getName(),
+            JmsController.class.getName(),
             ReactiveCopilotController.class.getName(),
             ReactiveClaudeCodeController.class.getName());
 

@@ -530,6 +530,9 @@ public class ReactiveLiveActivityController {
 
     /** Recent JMS messages from the independent JMS bounded buffer. */
     private List<JmsActivityRecorder.CapturedMessage> jmsMessages() {
+        if (!properties.isPanelEnabled(BootUiPanels.JMS)) {
+            return null;
+        }
         JmsActivityRecorder recorder = jmsActivity.getIfAvailable();
         if (recorder == null || !recorder.isEnabled()) {
             return null;

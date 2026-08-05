@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.boot.web.context.reactive.GenericReactiveWebApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.jms.core.JmsTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 class PanelsControllerTests {
@@ -131,7 +132,29 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.LIQUIBASE) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.LIQUIBASE) + ".unavailableReason")
-                            .value("No Liquibase beans are available"));
+                            .value("No Liquibase beans are available"))
+                    .andExpect(
+                            jsonPath(panelPath(BootUiPanels.JMS) + ".available").value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.JMS) + ".unavailableReason")
+                            .value("No JmsTemplate bean is available"));
+        }
+    }
+
+    @Test
+    void panelsMarksJmsAvailableWhenAJmsTemplateBeanIsPresent() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("jmsTemplate", JmsTemplate.class, () -> mock(JmsTemplate.class));
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(
+                            jsonPath(panelPath(BootUiPanels.JMS) + ".available").value(true))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.JMS) + ".unavailableReason")
+                            .doesNotExist());
         }
     }
 
@@ -257,6 +280,7 @@ class PanelsControllerTests {
     @Test
     void panelsMarksNativeImagePanelsUnavailableWhenRunningInNativeImage() throws Exception {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("jmsTemplate", JmsTemplate.class, () -> mock(JmsTemplate.class));
             context.refresh();
             PanelsController controller =
                     new PanelsController(context, context.getEnvironment(), new BootUiProperties()) {
@@ -290,7 +314,11 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.CRAC) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.CRAC) + ".unavailableReason")
-                            .value("CRaC is not applicable when running as a GraalVM native image"));
+                            .value("CRaC is not applicable when running as a GraalVM native image"))
+                    .andExpect(
+                            jsonPath(panelPath(BootUiPanels.JMS) + ".available").value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.JMS) + ".unavailableReason")
+                            .value("JMS capture is not available when running as a GraalVM native image"));
         }
     }
 

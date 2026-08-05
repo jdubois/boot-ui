@@ -52,6 +52,7 @@
     { "id": "activity", "title": "Live Activity", "actionCapable": true },
     { "id": "email", "title": "Email", "actionCapable": true },
     { "id": "kafka", "title": "Kafka", "actionCapable": true },
-    { "id": "rabbitmq", "title": "RabbitMQ", "actionCapable": true }
+    { "id": "rabbitmq", "title": "RabbitMQ", "actionCapable": true },
+    { "id": "jms", "title": "JMS", "actionCapable": true }
   ]
 }

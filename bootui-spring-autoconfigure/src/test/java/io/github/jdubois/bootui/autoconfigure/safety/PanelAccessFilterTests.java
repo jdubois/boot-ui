@@ -237,6 +237,7 @@ class PanelAccessFilterTests {
         requests.put("email", new ActionRequest("DELETE", "/bootui/api/email"));
         requests.put("kafka", new ActionRequest("DELETE", "/bootui/api/kafka"));
         requests.put("rabbitmq", new ActionRequest("DELETE", "/bootui/api/rabbitmq"));
+        requests.put("jms", new ActionRequest("DELETE", "/bootui/api/jms"));
         return requests;
     }
 

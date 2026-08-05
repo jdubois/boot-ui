@@ -95,6 +95,20 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void doesNotIncludeJmsMessagesWhenJmsPanelDisabled() {
+        io.github.jdubois.bootui.engine.jms.JmsActivityRecorder recorder =
+                new io.github.jdubois.bootui.engine.jms.JmsActivityRecorder(true, true, 10, 50);
+        recorder.recordProduce("orders", "ID:1", 3L, true, null);
+
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.JMS).setEnabled(false);
+        LiveActivityReport report = serviceWithJms(recorder, properties).report(null, null, 0, 0);
+
+        assertThat(report.sources()).doesNotContain("JMS");
+        assertThat(report.entries()).noneMatch(entry -> entry.id().startsWith("jms-"));
+    }
+
+    @Test
     void keepsKafkaAndJmsRetentionIndependent() {
         io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder kafka =
                 new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 1, 50);

@@ -1318,6 +1318,26 @@ clear unavailable reason.
 
 ![BootUI RabbitMQ panel](./images/bootui-rabbitmq.webp)
 
+### JMS
+
+The JMS panel is the dedicated, filterable view over the Spring JMS producer/consumer capture that also feeds
+`MESSAGING` entries into Live Activity. It lists retained messages newest-first with their direction, sanitized queue or
+topic destination, processing duration, success/failure, subscription and listener identifiers, and—when enabled—a short
+SHA-256 hash of the provider-assigned message ID. The message payload, arbitrary headers/properties, raw message ID, and
+exception message are never captured.
+
+Capture uses the same `JmsActivityRecorder` as Live Activity, so both surfaces stay synchronized and clearing the panel
+also clears retained JMS entries from the merged feed. Filter by destination, message-ID hash, subscription, listener, or
+failure type; narrow the table to produced or consumed messages; and use the confirmation-gated clear action to reset the
+bounded buffer. `bootui.jms.enabled`, `bootui.jms.capture-message-id`, `bootui.jms.max-entries`, and
+`bootui.jms.max-message-id-length` configure both surfaces. The panel is available when a `JmsTemplate` bean is present;
+otherwise it remains visible with a clear unavailable reason.
+
+JMS capture is currently Spring-only. On Quarkus the shared route remains visible but reports the panel not yet available;
+BootUI directs Quarkus applications to the Kafka and RabbitMQ panels backed by Reactive Messaging instead. The Spring
+interception uses runtime class proxies, so the JMS panel reports unavailable in a GraalVM native image rather than
+claiming capture is active when those proxies cannot be generated.
+
 ### AI Usage
 
 The AI Usage panel summarizes Spring AI and LangChain4j activity collected from OpenTelemetry spans emitted by their

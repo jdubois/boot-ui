@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
@@ -303,6 +304,28 @@ class BootUiEngineConfigurationTests {
         assertThat(recorder.isCaptureMessageId()).isFalse();
         assertThat(recorder.getMaxEntries()).isEqualTo(37);
         assertThat(recorder.getMaxMessageIdLength()).isEqualTo(24);
+    }
+
+    @Test
+    void jmsRecorderFactoryHonorsTheDedicatedPanelToggle() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.JMS).setEnabled(false);
+
+        JmsActivityRecorder recorder =
+                new BootUiEngineConfiguration.JmsBackendConfiguration().bootUiJmsActivityRecorder(properties);
+
+        assertThat(recorder.isEnabled()).isFalse();
+    }
+
+    @Test
+    void jmsRecorderFactoryIsIndependentFromTheLiveActivityPanelToggle() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.ACTIVITY).setEnabled(false);
+
+        JmsActivityRecorder recorder =
+                new BootUiEngineConfiguration.JmsBackendConfiguration().bootUiJmsActivityRecorder(properties);
+
+        assertThat(recorder.isEnabled()).isTrue();
     }
 
     @Test

@@ -14,6 +14,7 @@ import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.core.NativeDetector;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.jms.core.MessageCreator;
 import org.springframework.jms.core.MessagePostProcessor;
@@ -58,7 +59,7 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
 
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
-        if (!(bean instanceof JmsTemplate template)) {
+        if (NativeDetector.inNativeImage() || !(bean instanceof JmsTemplate template)) {
             return bean;
         }
         JmsActivityRecorder recorder = recorderProvider.getIfAvailable();

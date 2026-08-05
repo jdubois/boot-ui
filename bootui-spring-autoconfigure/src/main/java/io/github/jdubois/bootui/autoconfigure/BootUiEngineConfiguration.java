@@ -780,14 +780,14 @@ public class BootUiEngineConfiguration {
     }
 
     /**
-     * The Live Activity JMS capture backend wires two Spring-specific post-processors needed by
-     * both servlet and reactive stacks, so it lives here in the shared engine configuration rather
-     * than under the servlet-only auto-configuration. The post-processors are method-level
+     * The JMS panel and Live Activity share two Spring-specific post-processors across the servlet
+     * and reactive stacks, so the backend lives here rather than under the servlet-only
+     * auto-configuration. The post-processors are method-level
      * {@code @ConditionalOnClass}-guarded so a JMS-absent application never links
      * {@code spring-jms} types.
      *
      * <p>JMS has its own framework-neutral recorder and settings, so its traffic cannot evict Kafka
-     * panel history and disabling either transport has no effect on the other.</p>
+     * or RabbitMQ history and each transport can be configured independently.</p>
      */
     @Configuration(proxyBeanMethods = false)
     static class JmsBackendConfiguration {
@@ -798,7 +798,7 @@ public class BootUiEngineConfiguration {
         @ConditionalOnClass(name = {"org.springframework.jms.core.JmsTemplate", "jakarta.jms.Message"})
         JmsActivityRecorder bootUiJmsActivityRecorder(BootUiProperties properties) {
             BootUiProperties.Jms jms = properties.getJms();
-            boolean enabled = jms.isEnabled() && properties.isPanelEnabled(BootUiPanels.ACTIVITY);
+            boolean enabled = jms.isEnabled() && properties.isPanelEnabled(BootUiPanels.JMS);
             return new JmsActivityRecorder(
                     enabled, jms.isCaptureMessageId(), jms.getMaxEntries(), jms.getMaxMessageIdLength());
         }

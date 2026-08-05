@@ -53,6 +53,19 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void jmsIsNotYetAvailableAndPointsUsersToSupportedMessagingPanels() {
+        PanelDto panel = manifestById().get(BootUiPanels.JMS);
+
+        assertThat(panel.available()).isFalse();
+        assertThat(panel.unavailableReason())
+                .contains("Not yet available on Quarkus")
+                .contains("Spring JMS")
+                .contains("Kafka")
+                .contains("RabbitMQ")
+                .doesNotContain("Not applicable");
+    }
+
+    @Test
     void springOnlyFinishersRedirectToTheirQuarkusEquivalents() {
         // Spring Data and Spring Security are NOT_APPLICABLE on Quarkus, but their reasons must point users at
         // the Quarkus-native panels that do cover the concern (Hibernate advisor / Security advisor).

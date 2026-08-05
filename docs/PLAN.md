@@ -231,10 +231,11 @@ Scope — new event types, roughly in priority order:
   CGLIB proxy to intercept `send`/`convertAndSend` calls, and `JmsListenerCaptureBeanPostProcessor` wraps every
   `AbstractJmsListenerContainerFactory` to intercept `createListenerContainer()` and wrap the returned container's
   listener with a matching plain or session-aware capture adapter, preserving its original dispatch path. Both feed a
-  dedicated framework-neutral `JmsActivityRecorder` and JMS-specific `MESSAGING` mapper. Its independent bounded buffer
-  means JMS traffic cannot evict Kafka panel history; `bootui.jms.*` controls JMS without coupling either transport's
-  enablement, retention, hashing, counters, or clear behavior. Gated on both `JmsTemplate` and the Jakarta JMS API,
-  pass-through/fail-open, no Quarkus JMS equivalent claimed. The **Quarkus Kafka port (SmallRye Reactive Messaging) has
+  dedicated framework-neutral `JmsActivityRecorder` shared by Live Activity and a standalone **JMS** panel with
+  destination/message-ID/subscription/listener filters and a confirmation-gated clear action. Its independent bounded
+  buffer means JMS traffic cannot evict Kafka or RabbitMQ panel history; `bootui.jms.*` controls JMS without coupling any
+  transport's enablement, retention, hashing, counters, or clear behavior. Gated on both `JmsTemplate` and the Jakarta JMS
+  API, pass-through/fail-open, and not yet ported to Quarkus. The **Quarkus Kafka port (SmallRye Reactive Messaging) has
   now shipped**, reusing the same
   `KafkaActivityRecorder` and the same `bootui.kafka.*` keys/defaults: because Quarkus applications use SmallRye's
   `@Incoming`/`@Outgoing` channel model rather than `spring-kafka`'s imperative templates, the capture point is

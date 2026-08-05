@@ -653,6 +653,37 @@ class ReactiveLiveActivityControllerTests {
     }
 
     @Test
+    void mergedReportOmitsJmsMessagesWhenJmsPanelDisabled() {
+        JmsActivityRecorder jms = new JmsActivityRecorder(true, true, 10, 50);
+        jms.recordConsume("orders", "ID:1", 4L, true, null, null, "listener");
+
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.JMS).setEnabled(false);
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
+                provider(jms),
+                empty(RabbitActivityRecorder.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        assertThat(controller.mergedReport(0).entries()).isEmpty();
+    }
+
+    @Test
     void mergedReportIncludesEmailMessagesWhenAvailable() {
         EmailController email = mock(EmailController.class);
         EmailMessageDto message = new EmailMessageDto(

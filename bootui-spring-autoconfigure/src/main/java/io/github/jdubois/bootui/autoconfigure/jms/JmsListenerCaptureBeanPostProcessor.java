@@ -14,7 +14,10 @@ import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.core.NativeDetector;
 import org.springframework.jms.config.AbstractJmsListenerContainerFactory;
+import org.springframework.jms.config.AbstractJmsListenerEndpoint;
+import org.springframework.jms.config.JmsListenerEndpoint;
 import org.springframework.jms.listener.AbstractMessageListenerContainer;
 import org.springframework.jms.listener.SessionAwareMessageListener;
 
@@ -58,7 +61,7 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
 
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
-        if (!(bean instanceof AbstractJmsListenerContainerFactory<?> factory)) {
+        if (NativeDetector.inNativeImage() || !(bean instanceof AbstractJmsListenerContainerFactory<?> factory)) {
             return bean;
         }
         JmsActivityRecorder recorder = recorderProvider.getIfAvailable();
@@ -112,8 +115,9 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
                 return result;
             }
             try {
+                ListenerMetadata metadata = listenerMetadata(invocation, factoryBeanName);
                 Object existing = container.getMessageListener();
-                Object capturing = capturingListener(existing, recorder, factoryBeanName);
+                Object capturing = capturingListener(existing, recorder, metadata);
                 if (capturing != existing) {
                     container.setMessageListener(capturing);
                 }
@@ -127,8 +131,8 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
             return result;
         }
 
-        private static Object capturingListener(Object delegate, JmsActivityRecorder recorder, String factoryBeanName) {
-            String listenerId = JmsCaptureMetadata.listenerId(factoryBeanName);
+        private static Object capturingListener(
+                Object delegate, JmsActivityRecorder recorder, ListenerMetadata metadata) {
             if (delegate instanceof CapturingMessageListener
                     || delegate instanceof CapturingSessionAwareMessageListener) {
                 return delegate;
@@ -136,14 +140,39 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
             if (delegate instanceof SessionAwareMessageListener<?> sessionAware) {
                 @SuppressWarnings("unchecked")
                 SessionAwareMessageListener<Message> typed = (SessionAwareMessageListener<Message>) sessionAware;
-                return new CapturingSessionAwareMessageListener(typed, recorder, listenerId);
+                return new CapturingSessionAwareMessageListener(
+                        typed, recorder, metadata.subscriptionName(), metadata.listenerId());
             }
             if (delegate instanceof jakarta.jms.MessageListener messageListener) {
-                return new CapturingMessageListener(messageListener, recorder, listenerId);
+                return new CapturingMessageListener(
+                        messageListener, recorder, metadata.subscriptionName(), metadata.listenerId());
             }
             return delegate;
         }
+
+        private static ListenerMetadata listenerMetadata(MethodInvocation invocation, String factoryBeanName) {
+            String listenerId = JmsCaptureMetadata.listenerId(factoryBeanName);
+            String subscriptionName = null;
+            Object[] arguments = invocation.getArguments();
+            if (arguments.length == 0 || !(arguments[0] instanceof JmsListenerEndpoint endpoint)) {
+                return new ListenerMetadata(subscriptionName, listenerId);
+            }
+            try {
+                String endpointId = JmsCaptureMetadata.listenerId(endpoint.getId());
+                if (endpointId != null) {
+                    listenerId = endpointId;
+                }
+                if (endpoint instanceof AbstractJmsListenerEndpoint abstractEndpoint) {
+                    subscriptionName = JmsCaptureMetadata.subscriptionName(abstractEndpoint.getSubscription());
+                }
+            } catch (RuntimeException ignored) {
+                // Keep capture active with the sanitized factory bean name when custom endpoint metadata fails.
+            }
+            return new ListenerMetadata(subscriptionName, listenerId);
+        }
     }
+
+    private record ListenerMetadata(String subscriptionName, String listenerId) {}
 
     /**
      * Wraps a plain {@link jakarta.jms.MessageListener} without changing its listener-interface
@@ -154,12 +183,17 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
 
         private final jakarta.jms.MessageListener delegate;
         private final JmsActivityRecorder recorder;
+        private final String subscriptionName;
         private final String listenerId;
 
         CapturingMessageListener(
-                jakarta.jms.MessageListener delegate, JmsActivityRecorder recorder, String listenerId) {
+                jakarta.jms.MessageListener delegate,
+                JmsActivityRecorder recorder,
+                String subscriptionName,
+                String listenerId) {
             this.delegate = delegate;
             this.recorder = recorder;
+            this.subscriptionName = subscriptionName;
             this.listenerId = listenerId;
         }
 
@@ -176,7 +210,7 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
         }
 
         private void safeRecord(Message message, long start, boolean success, String failureType) {
-            record(recorder, listenerId, message, start, success, failureType);
+            record(recorder, subscriptionName, listenerId, message, start, success, failureType);
         }
     }
 
@@ -184,12 +218,17 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
 
         private final SessionAwareMessageListener<Message> delegate;
         private final JmsActivityRecorder recorder;
+        private final String subscriptionName;
         private final String listenerId;
 
         CapturingSessionAwareMessageListener(
-                SessionAwareMessageListener<Message> delegate, JmsActivityRecorder recorder, String listenerId) {
+                SessionAwareMessageListener<Message> delegate,
+                JmsActivityRecorder recorder,
+                String subscriptionName,
+                String listenerId) {
             this.delegate = delegate;
             this.recorder = recorder;
+            this.subscriptionName = subscriptionName;
             this.listenerId = listenerId;
         }
 
@@ -198,9 +237,16 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
             long start = System.nanoTime();
             try {
                 delegate.onMessage(message, session);
-                record(recorder, listenerId, message, start, true, null);
+                record(recorder, subscriptionName, listenerId, message, start, true, null);
             } catch (JMSException | RuntimeException | Error ex) {
-                record(recorder, listenerId, message, start, false, JmsCaptureMetadata.failureType(ex));
+                record(
+                        recorder,
+                        subscriptionName,
+                        listenerId,
+                        message,
+                        start,
+                        false,
+                        JmsCaptureMetadata.failureType(ex));
                 throw ex;
             }
         }
@@ -208,6 +254,7 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
 
     private static void record(
             JmsActivityRecorder recorder,
+            String subscriptionName,
             String listenerId,
             Message message,
             long start,
@@ -221,7 +268,7 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
                     durationMillis,
                     success,
                     failureType,
-                    null,
+                    subscriptionName,
                     listenerId);
         } catch (RuntimeException ex) {
             log.warn("BootUI could not capture an incoming JMS message; leaving it untouched", ex);

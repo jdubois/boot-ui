@@ -109,4 +109,26 @@ class JmsActivityRecorderTests {
         assertThat(entry.durationMs()).isEqualTo(4L);
         assertThat(entry.severity()).isEqualTo("ERROR");
     }
+
+    @Test
+    void mapsDedicatedPanelReportFromTheSameBuffer() {
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 16);
+        recorder.recordConsume("orders", "ID:1", 4L, false, "JMSException", "updates", "listener");
+
+        var report = JmsMessageDtos.toReport(recorder);
+
+        assertThat(report.available()).isTrue();
+        assertThat(report.capturing()).isTrue();
+        assertThat(report.captureMessageIdEnabled()).isTrue();
+        assertThat(report.maxEntries()).isEqualTo(10);
+        assertThat(report.totalCaptured()).isEqualTo(1);
+        assertThat(report.messages()).singleElement().satisfies(message -> {
+            assertThat(message.direction()).isEqualTo("CONSUME");
+            assertThat(message.destination()).isEqualTo("orders");
+            assertThat(message.messageId()).hasSize(16);
+            assertThat(message.failureType()).isEqualTo("JMSException");
+            assertThat(message.subscriptionName()).isEqualTo("updates");
+            assertThat(message.listenerId()).isEqualTo("listener");
+        });
+    }
 }

@@ -169,7 +169,16 @@ export function deepLink(entry) {
     case 'MAIL':
       return entry.id ? {path: '/email', query: {id: entry.id}, label: 'Open in Email'} : null
     case 'MESSAGING': {
-      if ((entry.id || '').startsWith('jms-')) return null
+      if ((entry.id || '').startsWith('jms-')) {
+        const needle = jmsNeedle(entry.summary)
+        return needle ? {path: '/jms', query: {q: needle}, label: 'Open in JMS'} : {path: '/jms', label: 'Open in JMS'}
+      }
+      if ((entry.id || '').startsWith('rabbit-')) {
+        const needle = rabbitNeedle(entry.summary)
+        return needle
+          ? {path: '/rabbitmq', query: {q: needle}, label: 'Open in RabbitMQ'}
+          : {path: '/rabbitmq', label: 'Open in RabbitMQ'}
+      }
       const needle = kafkaNeedle(entry.summary)
       return needle
         ? {path: '/kafka', query: {q: needle}, label: 'Open in Kafka'}
@@ -192,10 +201,25 @@ function exceptionNeedle(summary) {
 }
 
 function kafkaNeedle(summary) {
-  return (summary || '')
-    .replace(/^[→←]\s*/, '')
+  return messagingNeedle(summary)
     .replace(/\s*\[\d+]$/, '')
     .trim()
+}
+
+function rabbitNeedle(summary) {
+  const value = messagingNeedle(summary)
+  const separator = value.lastIndexOf('/')
+  if (separator < 0) return value
+  return value.slice(separator + 1).trim() || value.slice(0, separator).trim()
+}
+
+function jmsNeedle(summary) {
+  const value = messagingNeedle(summary)
+  return value === '(unknown destination)' ? '' : value
+}
+
+function messagingNeedle(summary) {
+  return (summary || '').replace(/^[→←]\s*/, '').trim()
 }
 
 /**

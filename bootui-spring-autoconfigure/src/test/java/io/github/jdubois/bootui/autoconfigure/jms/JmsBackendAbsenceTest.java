@@ -23,6 +23,7 @@ class JmsBackendAbsenceTest {
                     assertThat(context).doesNotHaveBean(JmsActivityRecorder.class);
                     assertThat(context).doesNotHaveBean(JmsProducerCaptureBeanPostProcessor.class);
                     assertThat(context).doesNotHaveBean(JmsListenerCaptureBeanPostProcessor.class);
+                    assertThat(context).doesNotHaveBean(JmsController.class);
                 });
     }
 
@@ -33,6 +34,7 @@ class JmsBackendAbsenceTest {
             assertThat(context).doesNotHaveBean(JmsActivityRecorder.class);
             assertThat(context).doesNotHaveBean(JmsProducerCaptureBeanPostProcessor.class);
             assertThat(context).doesNotHaveBean(JmsListenerCaptureBeanPostProcessor.class);
+            assertThat(context).doesNotHaveBean(JmsController.class);
         });
     }
 }

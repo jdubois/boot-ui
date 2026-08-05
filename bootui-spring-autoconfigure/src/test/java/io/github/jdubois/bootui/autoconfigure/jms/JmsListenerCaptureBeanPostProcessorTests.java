@@ -64,7 +64,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
         Message message = messageWithQueueDestination("orders");
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
-        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, null, "myFactory");
 
         adapter.onMessage(message);
 
@@ -86,7 +86,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         @SuppressWarnings("unchecked")
         SessionAwareMessageListener<Message> delegate = mock(SessionAwareMessageListener.class);
         CapturingSessionAwareMessageListener adapter =
-                new CapturingSessionAwareMessageListener(delegate, recorder, "myFactory");
+                new CapturingSessionAwareMessageListener(delegate, recorder, null, "myFactory");
 
         adapter.onMessage(message, session);
 
@@ -106,7 +106,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
         RuntimeException boom = new IllegalStateException("listener failed");
         org.mockito.Mockito.doThrow(boom).when(delegate).onMessage(message);
-        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, null, "myFactory");
 
         assertThatThrownBy(() -> adapter.onMessage(message)).isSameAs(boom);
 
@@ -121,7 +121,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
         Message message = messageWithQueueDestination("orders");
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
-        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, null, "myFactory");
 
         adapter.onMessage(message);
 
@@ -137,7 +137,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         @SuppressWarnings("unchecked")
         SessionAwareMessageListener<Message> delegate = mock(SessionAwareMessageListener.class);
         CapturingSessionAwareMessageListener adapter =
-                new CapturingSessionAwareMessageListener(delegate, recorder, "myFactory");
+                new CapturingSessionAwareMessageListener(delegate, recorder, null, "myFactory");
 
         // Container calls onMessage(msg, session) when the adapter implements SessionAwareMessageListener
         adapter.onMessage(message, session);
@@ -153,7 +153,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         Message message = messageWithQueueDestination("orders");
         when(message.getJMSMessageID()).thenReturn("ID:unique-message-id");
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
-        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, null, "myFactory");
 
         adapter.onMessage(message);
 
@@ -169,7 +169,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         Message message = messageWithQueueDestination("orders");
         when(message.getJMSMessageID()).thenReturn(null);
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
-        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, null, "myFactory");
 
         adapter.onMessage(message);
 
@@ -177,7 +177,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
     }
 
     @Test
-    void proxyWrapsTheListenerCreatedByTheFactoryWithoutChangingItsInterface() throws Exception {
+    void proxyWrapsTheListenerAndCapturesSanitizedEndpointMetadata() throws Exception {
         JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
         JmsListenerCaptureBeanPostProcessor postProcessor = new JmsListenerCaptureBeanPostProcessor(provider(recorder));
         DefaultJmsListenerContainerFactory factory = factoryWithMockConnection();
@@ -185,14 +185,21 @@ class JmsListenerCaptureBeanPostProcessorTests {
                 (DefaultJmsListenerContainerFactory) postProcessor.postProcessAfterInitialization(factory, "myFactory");
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
         SimpleJmsListenerEndpoint endpoint = new SimpleJmsListenerEndpoint();
+        endpoint.setId("ordersListener");
         endpoint.setDestination("orders");
+        endpoint.setSubscription("orders-sub?token=raw-secret");
         endpoint.setMessageListener(delegate);
 
         AbstractMessageListenerContainer container = proxy.createListenerContainer(endpoint);
 
-        assertThat(container.getMessageListener())
+        Object listener = container.getMessageListener();
+        assertThat(listener)
                 .isInstanceOf(CapturingMessageListener.class)
                 .isNotInstanceOf(SessionAwareMessageListener.class);
+        ((jakarta.jms.MessageListener) listener).onMessage(messageWithQueueDestination("orders"));
+        CapturedMessage captured = recorder.recent().get(0);
+        assertThat(captured.subscriptionName()).isEqualTo("orders-sub?token=******");
+        assertThat(captured.listenerId()).isEqualTo("ordersListener");
     }
 
     @Test
@@ -214,7 +221,7 @@ class JmsListenerCaptureBeanPostProcessorTests {
         jakarta.jms.MessageListener delegate = mock(jakarta.jms.MessageListener.class);
         AssertionError failure = new AssertionError("payload-secret");
         org.mockito.Mockito.doThrow(failure).when(delegate).onMessage(message);
-        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, "myFactory");
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, null, "myFactory");
 
         assertThatThrownBy(() -> adapter.onMessage(message)).isSameAs(failure);
 

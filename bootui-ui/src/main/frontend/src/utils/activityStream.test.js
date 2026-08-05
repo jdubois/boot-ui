@@ -211,8 +211,32 @@ describe('deepLink', () => {
     })
   })
 
-  it('does not link JMS activity to the Kafka panel', () => {
-    expect(deepLink({type: 'MESSAGING', id: 'jms-2', summary: '→ orders'})).toBeNull()
+  it('links JMS activity to the JMS panel filtered by destination', () => {
+    expect(deepLink({type: 'MESSAGING', id: 'jms-2', summary: '→ orders'})).toEqual({
+      path: '/jms',
+      query: {q: 'orders'},
+      label: 'Open in JMS'
+    })
+  })
+
+  it('links unknown-destination JMS activity without a filter that would hide the record', () => {
+    expect(deepLink({type: 'MESSAGING', id: 'jms-3', summary: '← (unknown destination)'})).toEqual({
+      path: '/jms',
+      label: 'Open in JMS'
+    })
+  })
+
+  it('links RabbitMQ activity to the RabbitMQ panel filtered by routing key or queue', () => {
+    expect(deepLink({type: 'MESSAGING', id: 'rabbit-2', summary: '→ orders/order.created'})).toEqual({
+      path: '/rabbitmq',
+      query: {q: 'order.created'},
+      label: 'Open in RabbitMQ'
+    })
+    expect(deepLink({type: 'MESSAGING', id: 'rabbit-3', summary: '← fulfillment'})).toEqual({
+      path: '/rabbitmq',
+      query: {q: 'fulfillment'},
+      label: 'Open in RabbitMQ'
+    })
   })
 
   it('links a messaging entry with no parsable topic to the Kafka panel without a filter', () => {

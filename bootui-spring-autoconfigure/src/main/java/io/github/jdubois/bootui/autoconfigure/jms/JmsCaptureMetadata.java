@@ -63,6 +63,10 @@ final class JmsCaptureMetadata {
         return sanitize(listenerId);
     }
 
+    static String subscriptionName(String subscriptionName) {
+        return sanitize(subscriptionName);
+    }
+
     static String failureType(Throwable failure) {
         return failure == null ? null : failure.getClass().getSimpleName();
     }

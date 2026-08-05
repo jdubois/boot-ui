@@ -375,6 +375,11 @@ public class QuarkusPanelAvailability {
                     + " dev mode owns live reload through build-time augmentation, with no stable runtime API to"
                     + " read or trigger it, so this panel is not used here.");
 
+    private static final Map<String, String> NOT_YET_AVAILABLE_REASONS = Map.of(
+            BootUiPanels.JMS,
+            "Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and"
+                    + " @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging.");
+
     /**
      * Reasons shown for panels that are unavailable only because the corresponding Quarkus
      * extension/capability is missing from the application — as opposed to {@link #NOT_APPLICABLE},
@@ -604,13 +609,17 @@ public class QuarkusPanelAvailability {
      * Reason a not-currently-available panel is unavailable: the dynamic GitHub case first (computed
      * fresh, mirroring {@link #isPanelAvailable}), then the capability-gated panels via
      * {@link #CAPABILITY_ABSENT}, then the permanently-inapplicable panels via {@link #NOT_APPLICABLE},
-     * and finally the generic {@link #NOT_YET_AVAILABLE} fallback for panels not yet ported at all.
+     * then any panel-specific not-yet reason, and finally the generic {@link #NOT_YET_AVAILABLE}
+     * fallback.
      */
     private String unavailableReason(String panelId) {
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();
         }
-        return CAPABILITY_ABSENT.getOrDefault(panelId, NOT_APPLICABLE.getOrDefault(panelId, NOT_YET_AVAILABLE));
+        return CAPABILITY_ABSENT.getOrDefault(
+                panelId,
+                NOT_APPLICABLE.getOrDefault(
+                        panelId, NOT_YET_AVAILABLE_REASONS.getOrDefault(panelId, NOT_YET_AVAILABLE)));
     }
 
     /**

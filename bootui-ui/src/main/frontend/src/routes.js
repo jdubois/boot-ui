@@ -48,6 +48,7 @@ const LiveActivity = () => import('./views/LiveActivity.vue')
 const Email = () => import('./views/Email.vue')
 const Kafka = () => import('./views/Kafka.vue')
 const RabbitMQ = () => import('./views/RabbitMQ.vue')
+const Jms = () => import('./views/Jms.vue')
 
 export const groups = {
   overview: 'overview',
@@ -686,6 +687,28 @@ export const routes = [
         'consumer',
         'reactive messaging',
         'smallrye'
+      ]
+    }
+  },
+  {
+    path: '/jms',
+    name: 'jms',
+    component: Jms,
+    meta: {
+      group: groups.services,
+      icon: 'bi-mailbox',
+      title: 'JMS',
+      shortcut: 'jm',
+      keywords: [
+        'messaging',
+        'jakarta messaging',
+        'jms',
+        'jmstemplate',
+        'jmslistener',
+        'queue',
+        'topic',
+        'producer',
+        'consumer'
       ]
     }
   },

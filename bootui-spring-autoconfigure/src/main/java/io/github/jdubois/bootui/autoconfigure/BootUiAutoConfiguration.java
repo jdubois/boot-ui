@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityFilter;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityTracker;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
+import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
@@ -162,6 +163,7 @@ import tools.jackson.databind.ObjectMapper;
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
+    JmsController.class,
     SqlTraceController.class,
     RestClientTraceController.class,
     ThreadDumpController.class,
@@ -199,6 +201,7 @@ public class BootUiAutoConfiguration {
             EmailController.class.getName(),
             KafkaController.class.getName(),
             RabbitController.class.getName(),
+            JmsController.class.getName(),
             SqlTraceController.class.getName(),
             RestClientTraceController.class.getName(),
             HealthController.class.getName(),
