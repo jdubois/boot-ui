@@ -24,7 +24,7 @@ class KafkaProducerCaptureBeanPostProcessorTests {
 
     @Test
     void ignoresBeansThatAreNotKafkaTemplates() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         KafkaProducerCaptureBeanPostProcessor postProcessor =
                 new KafkaProducerCaptureBeanPostProcessor(provider(recorder));
 
@@ -35,7 +35,7 @@ class KafkaProducerCaptureBeanPostProcessorTests {
 
     @Test
     void skipsWrappingWhenRecorderDisabled() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 10, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 10, 16);
         KafkaProducerCaptureBeanPostProcessor postProcessor =
                 new KafkaProducerCaptureBeanPostProcessor(provider(recorder));
         KafkaTemplate<Object, Object> template = new KafkaTemplate<>(producerFactory);
@@ -50,7 +50,7 @@ class KafkaProducerCaptureBeanPostProcessorTests {
 
     @Test
     void capturesSuccessfulSendAndComposesWithExistingListener() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         KafkaProducerCaptureBeanPostProcessor postProcessor =
                 new KafkaProducerCaptureBeanPostProcessor(provider(recorder));
         KafkaTemplate<Object, Object> template = new KafkaTemplate<>(producerFactory);
@@ -74,7 +74,7 @@ class KafkaProducerCaptureBeanPostProcessorTests {
 
     @Test
     void capturesFailedSend() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         KafkaProducerCaptureBeanPostProcessor postProcessor =
                 new KafkaProducerCaptureBeanPostProcessor(provider(recorder));
         KafkaTemplate<Object, Object> template = new KafkaTemplate<>(producerFactory);
@@ -87,7 +87,7 @@ class KafkaProducerCaptureBeanPostProcessorTests {
         assertThat(recorder.recent()).hasSize(1);
         CapturedMessage message = recorder.recent().get(0);
         assertThat(message.success()).isFalse();
-        assertThat(message.errorMessage()).isEqualTo("boom");
+        assertThat(message.errorMessage()).isEqualTo("Message processing failed");
     }
 
     @Test
@@ -113,7 +113,7 @@ class KafkaProducerCaptureBeanPostProcessorTests {
     }
 
     private static String hashedKey(String key) {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 16);
         recorder.recordProduce("orders", 0, key, 0L, true, null);
         return recorder.recent().get(0).key();
     }

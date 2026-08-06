@@ -13,7 +13,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Pins the {@code bootui.kafka.*} MicroProfile {@link Config} bindings used by
  * {@link BootUiEngineProducer#kafkaActivityRecorder(Config)}. The key names and defaults
- * ({@code enabled}/{@code capture-key} {@code true}, {@code max-entries}/{@code max-key-length} {@code 200})
+ * ({@code enabled}/{@code capture-key} {@code true}, {@code max-entries} {@code 200},
+ * {@code max-key-length} {@code 16})
  * are kept unified with the Spring adapter's {@code BootUiProperties.Kafka}, so the same
  * {@code bootui.kafka.*} values size and gate capture identically on both frameworks.
  */
@@ -32,6 +33,10 @@ class BootUiEngineProducerKafkaConfigTest {
         assertThat(recorder.isEnabled()).isTrue();
         assertThat(recorder.isCaptureKey()).isTrue();
         assertThat(recorder.getMaxEntries()).isEqualTo(200);
+        recorder.recordProduce("orders", 0, "order-1", null, true, null);
+        assertThat(recorder.recent())
+                .singleElement()
+                .satisfies(message -> assertThat(message.key()).hasSize(16));
     }
 
     @Test
@@ -70,5 +75,16 @@ class BootUiEngineProducerKafkaConfigTest {
         assertThat(recorder.recent())
                 .singleElement()
                 .satisfies(message -> assertThat(message.key()).isEqualTo("2125b2c3"));
+    }
+
+    @Test
+    void disablingKafkaPanelDisablesCapture() {
+        KafkaActivityRecorder recorder = new BootUiEngineProducer()
+                .kafkaActivityRecorder(config(Map.of("bootui.panels.kafka.enabled", "false")));
+
+        recorder.recordProduce("orders", 0, "order-1", null, true, null);
+
+        assertThat(recorder.isEnabled()).isFalse();
+        assertThat(recorder.recent()).isEmpty();
     }
 }

@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Available whenever a {@link RabbitTemplate} bean is present (the
  * {@code RabbitProducerCaptureBeanPostProcessor}/{@code RabbitConsumerCaptureBeanPostProcessor}
  * wrap it and feed captures into the shared {@link RabbitActivityRecorder}); when no
- * {@link RabbitTemplate} bean can be resolved the panel reports itself unavailable, even though
+ * {@link RabbitTemplate} bean is present the panel reports itself unavailable, even though
  * {@link RabbitActivityRecorder} is itself framework-neutral and always registered — same shape
  * as {@code KafkaController}.</p>
  *
@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @ConditionalOnClass(name = "org.springframework.amqp.rabbit.core.RabbitTemplate")
-@RequestMapping("/bootui/api/rabbitmq")
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/rabbitmq")
 public class RabbitController {
 
     private final ObjectProvider<RabbitActivityRecorder> recorderProvider;
@@ -68,7 +68,7 @@ public class RabbitController {
     }
 
     private RabbitActivityRecorder availableRecorder() {
-        if (rabbitTemplateProvider.getIfAvailable() == null) {
+        if (rabbitTemplateProvider.stream().findAny().isEmpty()) {
             return null;
         }
         return recorderProvider.getIfAvailable();

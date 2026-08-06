@@ -21,7 +21,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param durationMillis the send/delivery duration in milliseconds, or {@code null} when unknown (a
  *     producer send never carries one — the underlying callback carries no send-start timestamp)
  * @param success whether the send/delivery completed without error
- * @param errorMessage the failure message when {@code success} is {@code false}
+ * @param errorMessage generic failure text when {@code success} is {@code false}; raw exception messages
+ *     are never retained
  * @param groupId the consumer group id, or {@code null} for a produced message
  * @param listenerId the listener/channel identifier, or {@code null} for a produced message
  */

@@ -300,7 +300,9 @@ public class LiveActivityResource {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
         boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
-        boolean kafkaAvailable = kafkaRecorder.isEnabled();
+        boolean kafkaAvailable = panelAvailability.isPanelAvailable(BootUiPanels.KAFKA)
+                && panelAvailability.isPanelEnabled(BootUiPanels.KAFKA)
+                && kafkaRecorder.isEnabled();
         boolean rabbitAvailable = panelAvailability.isPanelAvailable(BootUiPanels.RABBITMQ)
                 && panelAvailability.isPanelEnabled(BootUiPanels.RABBITMQ)
                 && rabbitRecorder.isEnabled();

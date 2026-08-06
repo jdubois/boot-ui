@@ -179,7 +179,10 @@ async function clearAll() {
 
         <div v-if="report.total === 0" class="alert alert-secondary">
           No Kafka activity captured yet. Send or consume a message through the application's
-          <code>KafkaTemplate</code>/<code>@KafkaListener</code> integration and refresh this panel.
+          <code>KafkaTemplate</code>/<code>@KafkaListener</code> or SmallRye <code>@Outgoing</code>/<code
+            >@Incoming</code
+          >
+          integration and refresh this panel.
         </div>
 
         <template v-else>
@@ -187,9 +190,14 @@ async function clearAll() {
             <input
               v-model="filter"
               class="form-control form-control-sm kafka-filter-input"
+              aria-label="Filter Kafka activity"
               placeholder="Filter by topic, key, group, or listener…"
             />
-            <select v-model="directionFilter" class="form-select form-select-sm kafka-direction-select">
+            <select
+              v-model="directionFilter"
+              class="form-select form-select-sm kafka-direction-select"
+              aria-label="Filter Kafka activity by direction"
+            >
               <option value="">All directions</option>
               <option value="PRODUCE">Produced</option>
               <option value="CONSUME">Consumed</option>
@@ -200,22 +208,23 @@ async function clearAll() {
             <table class="table table-sm table-hover align-middle">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th></th>
-                  <th>Topic</th>
-                  <th>Partition</th>
-                  <th>Offset</th>
-                  <th>Key hash</th>
-                  <th>Duration</th>
-                  <th>Status</th>
-                  <th>Group / Listener</th>
+                  <th scope="col">Time</th>
+                  <th scope="col"><span class="visually-hidden">Direction</span></th>
+                  <th scope="col">Topic</th>
+                  <th scope="col">Partition</th>
+                  <th scope="col">Offset</th>
+                  <th scope="col">Key hash</th>
+                  <th scope="col">Duration</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Group / Listener</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="m in filteredMessages" :key="m.id">
                   <td class="text-muted small text-nowrap">{{ formatTimestamp(m.timestamp) }}</td>
                   <td class="text-center" :title="directionLabel(m.direction)">
-                    <i class="bi" :class="directionIcon(m.direction)"></i>
+                    <i class="bi" :class="directionIcon(m.direction)" aria-hidden="true"></i>
+                    <span class="visually-hidden">{{ directionLabel(m.direction) }}</span>
                   </td>
                   <td class="text-truncate kafka-topic-cell fw-semibold font-monospace">{{ m.topic }}</td>
                   <td>{{ m.partition ?? '—' }}</td>

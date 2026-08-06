@@ -75,7 +75,7 @@ function reportWithMessages(overrides = {}) {
         key: null,
         durationMillis: null,
         success: false,
-        errorMessage: 'Broker not available',
+        errorMessage: 'Message processing failed',
         groupId: null,
         listenerId: null
       }
@@ -159,7 +159,7 @@ describe('Kafka panel', () => {
     expect(wrapper.text()).toContain('2 captured since startup')
 
     const errorBadge = wrapper.findAll('.badge').find((b) => b.text() === 'error')
-    expect(errorBadge.attributes('title')).toBe('Broker not available')
+    expect(errorBadge.attributes('title')).toBe('Message processing failed')
   })
 
   it('filters messages by topic, key, group, or listener', async () => {

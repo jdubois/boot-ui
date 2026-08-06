@@ -190,9 +190,14 @@ async function clearAll() {
             <input
               v-model="filter"
               class="form-control form-control-sm rabbit-filter-input"
+              aria-label="Filter RabbitMQ activity"
               placeholder="Filter by exchange, routing key, queue, or correlation ID…"
             />
-            <select v-model="directionFilter" class="form-select form-select-sm rabbit-direction-select">
+            <select
+              v-model="directionFilter"
+              class="form-select form-select-sm rabbit-direction-select"
+              aria-label="Filter RabbitMQ activity by direction"
+            >
               <option value="">All directions</option>
               <option value="PUBLISH">Published</option>
               <option value="CONSUME">Consumed</option>
@@ -203,21 +208,22 @@ async function clearAll() {
             <table class="table table-sm table-hover align-middle">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th></th>
-                  <th>Exchange</th>
-                  <th>Routing Key</th>
-                  <th>Queue</th>
-                  <th>Correlation ID</th>
-                  <th>Duration</th>
-                  <th>Status</th>
+                  <th scope="col">Time</th>
+                  <th scope="col"><span class="visually-hidden">Direction</span></th>
+                  <th scope="col">Exchange</th>
+                  <th scope="col">Routing Key</th>
+                  <th scope="col">Queue</th>
+                  <th scope="col">Correlation ID</th>
+                  <th scope="col">Duration</th>
+                  <th scope="col">Status</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="m in filteredMessages" :key="m.id">
                   <td class="text-muted small text-nowrap">{{ formatTimestamp(m.timestamp) }}</td>
                   <td class="text-center" :title="directionLabel(m.direction)">
-                    <i class="bi" :class="directionIcon(m.direction)"></i>
+                    <i class="bi" :class="directionIcon(m.direction)" aria-hidden="true"></i>
+                    <span class="visually-hidden">{{ directionLabel(m.direction) }}</span>
                   </td>
                   <td class="text-truncate rabbit-cell fw-semibold font-monospace">{{ m.exchange || '—' }}</td>
                   <td class="text-truncate rabbit-cell font-monospace">{{ m.routingKey || '—' }}</td>

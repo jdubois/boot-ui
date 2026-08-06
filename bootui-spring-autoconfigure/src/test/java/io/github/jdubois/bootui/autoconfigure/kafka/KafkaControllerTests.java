@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -24,7 +25,7 @@ class KafkaControllerTests {
 
     @Test
     void reportsUnavailableWhenNoKafkaTemplateBeanIsPresent() throws Exception {
-        MockMvc mvc = buildMvc(new KafkaActivityRecorder(true, true, 200, 200), null);
+        MockMvc mvc = buildMvc(new KafkaActivityRecorder(true, true, 200, 16), null);
 
         mvc.perform(get("/bootui/api/kafka"))
                 .andExpect(status().isOk())
@@ -36,7 +37,7 @@ class KafkaControllerTests {
 
     @Test
     void listsCapturedKafkaActivityWhenKafkaTemplateIsPresent() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 16);
         recorder.recordProduce("orders", 0, "order-42", null, true, null);
         recorder.recordConsume("orders", 0, 41L, "order-42", 12L, true, null, "orders-group", "orderListener");
         MockMvc mvc = buildMvc(recorder, new KafkaTemplate<>(producerFactory));
@@ -57,7 +58,7 @@ class KafkaControllerTests {
 
     @Test
     void reflectsDisabledCaptureAndKeyHashingOnTheReport() throws Exception {
-        MockMvc mvc = buildMvc(new KafkaActivityRecorder(false, false, 200, 200), new KafkaTemplate<>(producerFactory));
+        MockMvc mvc = buildMvc(new KafkaActivityRecorder(false, false, 200, 16), new KafkaTemplate<>(producerFactory));
 
         mvc.perform(get("/bootui/api/kafka"))
                 .andExpect(status().isOk())
@@ -67,8 +68,24 @@ class KafkaControllerTests {
     }
 
     @Test
+    void reportsAvailableWhenMultipleKafkaTemplateBeansArePresent() throws Exception {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<KafkaTemplate<?, ?>> templates = mock(ObjectProvider.class);
+        KafkaTemplate<Object, Object> first = new KafkaTemplate<>(producerFactory);
+        KafkaTemplate<Object, Object> second = new KafkaTemplate<>(producerFactory);
+        when(templates.stream()).thenReturn(Stream.of(first, second));
+        KafkaController controller = new KafkaController(
+                provider(new KafkaActivityRecorder(true, true, 200, 16)), templates, new BootUiProperties());
+        MockMvc mvc = standaloneSetup(controller).build();
+
+        mvc.perform(get("/bootui/api/kafka"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true));
+    }
+
+    @Test
     void clearRemovesAllCapturedMessages() throws Exception {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 16);
         recorder.recordProduce("orders", 0, "order-42", null, true, null);
         MockMvc mvc = buildMvc(recorder, new KafkaTemplate<>(producerFactory));
 
@@ -94,6 +111,7 @@ class KafkaControllerTests {
         @SuppressWarnings("unchecked")
         ObjectProvider<T> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(value);
+        when(provider.stream()).thenReturn(value == null ? Stream.empty() : Stream.of(value));
         return provider;
     }
 }

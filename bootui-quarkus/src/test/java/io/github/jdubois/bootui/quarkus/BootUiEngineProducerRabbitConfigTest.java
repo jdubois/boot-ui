@@ -38,6 +38,17 @@ class BootUiEngineProducerRabbitConfigTest {
         assertThat(recorder.getMaxEntries()).isEqualTo(42);
     }
 
+    @Test
+    void disablingRabbitPanelDisablesCapture() {
+        RabbitActivityRecorder recorder = new BootUiEngineProducer()
+                .rabbitActivityRecorder(config(Map.of("bootui.panels.rabbitmq.enabled", "false")));
+
+        recorder.recordPublish("orders", "created", null, true, null, null);
+
+        assertThat(recorder.isEnabled()).isFalse();
+        assertThat(recorder.recent()).isEmpty();
+    }
+
     private static SmallRyeConfig config(Map<String, String> properties) {
         return new SmallRyeConfigBuilder()
                 .withSources(new PropertiesConfigSource(properties, "test", 1000))

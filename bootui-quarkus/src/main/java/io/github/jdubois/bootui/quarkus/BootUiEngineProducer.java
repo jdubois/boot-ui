@@ -767,23 +767,24 @@ public class BootUiEngineProducer {
      * Live Activity renders no {@code MESSAGING} entries, exactly as on Spring without {@code spring-kafka}.
      *
      * <p>The {@code bootui.kafka.*} keys and their defaults (enabled/capture-key {@code true},
-     * max-entries/max-key-length {@code 200}) are kept unified with the Spring adapter's
+     * max-entries {@code 200}, max-key-length {@code 16}) are kept unified with the Spring adapter's
      * {@code BootUiProperties.Kafka}, so the same values size and gate capture identically on both
-     * frameworks. Per-panel gating of the Live Activity panel itself is handled by
-     * {@code QuarkusPanelAccessFilter} on the read path (as for every other Quarkus source), so the
-     * recorder gates only on {@code bootui.kafka.enabled}.</p>
+     * frameworks. Disabling the dedicated Kafka panel also disables its underlying capture, while
+     * disabling Live Activity alone does not.</p>
      */
     @Produces
     @Singleton
     public KafkaActivityRecorder kafkaActivityRecorder(Config config) {
         boolean enabled =
-                config.getOptionalValue("bootui.kafka.enabled", Boolean.class).orElse(true);
+                config.getOptionalValue("bootui.kafka.enabled", Boolean.class).orElse(true)
+                        && config.getOptionalValue("bootui.panels.kafka.enabled", Boolean.class)
+                                .orElse(true);
         boolean captureKey = config.getOptionalValue("bootui.kafka.capture-key", Boolean.class)
                 .orElse(true);
         int maxEntries = config.getOptionalValue("bootui.kafka.max-entries", Integer.class)
                 .orElse(200);
         int maxKeyLength = config.getOptionalValue("bootui.kafka.max-key-length", Integer.class)
-                .orElse(200);
+                .orElse(16);
         return new KafkaActivityRecorder(enabled, captureKey, maxEntries, maxKeyLength);
     }
 
@@ -799,13 +800,16 @@ public class BootUiEngineProducer {
      *
      * <p>The {@code bootui.rabbitmq.*} keys and their defaults are kept unified with the Spring adapter's
      * {@code BootUiProperties.Rabbitmq}, so the same values size and gate capture identically on both
-     * frameworks.</p>
+     * frameworks. Disabling the dedicated RabbitMQ panel also disables its underlying capture, while
+     * disabling Live Activity alone does not.</p>
      */
     @Produces
     @Singleton
     public RabbitActivityRecorder rabbitActivityRecorder(Config config) {
         boolean enabled = config.getOptionalValue("bootui.rabbitmq.enabled", Boolean.class)
-                .orElse(true);
+                        .orElse(true)
+                && config.getOptionalValue("bootui.panels.rabbitmq.enabled", Boolean.class)
+                        .orElse(true);
         boolean captureCorrelationId = config.getOptionalValue("bootui.rabbitmq.capture-correlation-id", Boolean.class)
                 .orElse(false);
         int maxEntries = config.getOptionalValue("bootui.rabbitmq.max-entries", Integer.class)

@@ -20,7 +20,8 @@ package io.github.jdubois.bootui.core.dto;
  *     publisher send never carries one — the {@code MessagePostProcessor} hook runs before the
  *     actual {@code basicPublish} and there is no post-send callback without publisher confirms)
  * @param success whether the publish/delivery completed without error
- * @param errorMessage the failure message when {@code success} is {@code false}
+ * @param errorMessage generic failure text when {@code success} is {@code false}; raw exception messages
+ *     are never retained
  * @param correlationId a short SHA-256 hash of the AMQP correlation ID, or {@code null} when
  *     correlation-ID capture is disabled or the message carried none
  */

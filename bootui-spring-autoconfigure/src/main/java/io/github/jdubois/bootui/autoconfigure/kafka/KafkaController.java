@@ -66,7 +66,7 @@ public class KafkaController {
     }
 
     private KafkaActivityRecorder availableRecorder() {
-        if (kafkaTemplateProvider.getIfAvailable() == null) {
+        if (kafkaTemplateProvider.stream().findAny().isEmpty()) {
             return null;
         }
         return recorderProvider.getIfAvailable();

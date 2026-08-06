@@ -1307,12 +1307,11 @@ public class BootUiProperties {
         private boolean enabled = true;
 
         /**
-         * Whether the message key is retained alongside each captured entry (truncated to {@link
-         * #maxKeyLength}). On by default since a Kafka key is typically a correlation/partitioning id
-         * rather than a secret, but this lets an application disable it when its keys do carry sensitive
-         * data. The message value/payload is never captured at all, regardless of this setting: unlike a
-         * SQL statement or a config value, it is an arbitrary, potentially large application payload
-         * with no generic masking strategy.
+         * Whether a SHA-256 hash of the message key is retained alongside each captured entry (truncated
+         * to {@link #maxKeyLength}). The raw key is never retained. On by default since a Kafka key is
+         * typically a correlation/partitioning id rather than a secret, but this lets an application
+         * disable even the hash when its keys carry sensitive data. The message value/payload is never
+         * captured at all.
          */
         private boolean captureKey = true;
 
@@ -1322,9 +1321,9 @@ public class BootUiProperties {
         private int maxEntries = 200;
 
         /**
-         * Maximum retained length of a captured message key; longer keys are truncated.
+         * Maximum retained length of the message key's hex-encoded SHA-256 hash.
          */
-        private int maxKeyLength = 200;
+        private int maxKeyLength = 16;
 
         public boolean isEnabled() {
             return enabled;

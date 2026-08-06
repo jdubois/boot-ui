@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 class QuarkusKafkaCaptureTests {
 
     private static KafkaActivityRecorder enabledRecorder() {
-        return new KafkaActivityRecorder(true, true, 200, 200);
+        return new KafkaActivityRecorder(true, true, 200, 16);
     }
 
     // ---- producer (OutgoingInterceptor) ----------------------------------------------------------
@@ -61,7 +61,7 @@ class QuarkusKafkaCaptureTests {
         CapturedMessage message = recent.get(0);
         assertThat(message.direction()).isEqualTo(Direction.PRODUCE);
         assertThat(message.success()).isFalse();
-        assertThat(message.errorMessage()).isEqualTo("boom");
+        assertThat(message.errorMessage()).isEqualTo("Message processing failed");
     }
 
     @Test
@@ -90,7 +90,7 @@ class QuarkusKafkaCaptureTests {
 
     @Test
     void producerShortCircuitsWhenRecorderDisabled() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 200, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 200, 16);
         QuarkusKafkaProducerCapture capture = new QuarkusKafkaProducerCapture(recorder);
 
         capture.onMessageAck(outgoingKafkaMessage("orders", 1, "key-1"));
@@ -155,7 +155,7 @@ class QuarkusKafkaCaptureTests {
         CapturedMessage message = recent.get(0);
         assertThat(message.direction()).isEqualTo(Direction.CONSUME);
         assertThat(message.success()).isFalse();
-        assertThat(message.errorMessage()).isEqualTo("processing failed");
+        assertThat(message.errorMessage()).isEqualTo("Message processing failed");
     }
 
     @Test
@@ -173,7 +173,7 @@ class QuarkusKafkaCaptureTests {
 
     @Test
     void consumerShortCircuitsWhenRecorderDisabled() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 200, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 200, 16);
         QuarkusKafkaConsumerCapture capture = new QuarkusKafkaConsumerCapture(recorder);
 
         Message<?> incoming = incomingKafkaMessage("orders", 3, 42L, "key-2", "orders-in");

@@ -25,12 +25,16 @@ import java.util.concurrent.atomic.AtomicLong;
  * record's value is an arbitrary, potentially large and sensitive application payload with no generic
  * masking strategy (unlike a SQL statement or a config value), so it is out of scope entirely; only a
  * short, stable hash of the key is retained, and only when {@code captureKey} is enabled. This keeps the
- * feature safe by construction rather than by best-effort redaction.</p>
+ * feature safe by construction rather than by best-effort redaction. Raw exception messages supplied by
+ * adapter callbacks are discarded and replaced with generic failure text.</p>
  *
  * <p>Thread-safe, capped at {@code maxEntries}, and evicts the oldest message once full so it never
  * grows unbounded.</p>
  */
 public final class KafkaActivityRecorder {
+
+    private static final int MAX_HASH_LENGTH = 64;
+    private static final String FAILURE_MESSAGE = "Message processing failed";
 
     /** Whether a captured message was published or consumed. */
     public enum Direction {
@@ -68,7 +72,7 @@ public final class KafkaActivityRecorder {
         this.enabled = enabled;
         this.captureKey = captureKey;
         this.maxEntries = Math.max(1, maxEntries);
-        this.maxKeyLength = Math.max(8, maxKeyLength);
+        this.maxKeyLength = Math.max(8, Math.min(MAX_HASH_LENGTH, maxKeyLength));
     }
 
     public boolean isEnabled() {
@@ -142,7 +146,7 @@ public final class KafkaActivityRecorder {
                 captureKey ? hashKey(key, maxKeyLength) : null,
                 durationMillis == null ? null : Math.max(0, durationMillis),
                 success,
-                errorMessage,
+                success ? null : FAILURE_MESSAGE,
                 groupId,
                 listenerId);
         synchronized (lock) {
@@ -213,8 +217,8 @@ public final class KafkaActivityRecorder {
                 hex.append(Character.forDigit((b >> 4) & 0xF, 16));
                 hex.append(Character.forDigit(b & 0xF, 16));
             }
-            int length = Math.max(8, Math.min(hex.length(), maxLength));
-            return hex.substring(0, Math.min(length, 16));
+            int length = Math.max(8, Math.min(MAX_HASH_LENGTH, maxLength));
+            return hex.substring(0, length);
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 is required but unavailable", ex);
         }

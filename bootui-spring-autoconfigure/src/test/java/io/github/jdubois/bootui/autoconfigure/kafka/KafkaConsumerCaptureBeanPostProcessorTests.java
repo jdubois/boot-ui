@@ -21,7 +21,7 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
 
     @Test
     void ignoresBeansThatAreNotListenerContainerFactories() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         KafkaConsumerCaptureBeanPostProcessor postProcessor =
                 new KafkaConsumerCaptureBeanPostProcessor(provider(recorder));
 
@@ -32,7 +32,7 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
 
     @Test
     void skipsWrappingWhenRecorderDisabled() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 10, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 10, 16);
         KafkaConsumerCaptureBeanPostProcessor postProcessor =
                 new KafkaConsumerCaptureBeanPostProcessor(provider(recorder));
         ConcurrentKafkaListenerContainerFactory<Object, Object> factory =
@@ -45,7 +45,7 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
 
     @Test
     void capturesSuccessfulDeliveryAndComposesWithExistingInterceptor() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         KafkaConsumerCaptureBeanPostProcessor postProcessor =
                 new KafkaConsumerCaptureBeanPostProcessor(provider(recorder));
         ConcurrentKafkaListenerContainerFactory<Object, Object> factory =
@@ -82,7 +82,7 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
 
     @Test
     void capturesFailedDelivery() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         KafkaConsumerCaptureBeanPostProcessor postProcessor =
                 new KafkaConsumerCaptureBeanPostProcessor(provider(recorder));
         ConcurrentKafkaListenerContainerFactory<Object, Object> factory =
@@ -102,7 +102,7 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
         assertThat(recorder.recent()).hasSize(1);
         CapturedMessage message = recorder.recent().get(0);
         assertThat(message.success()).isFalse();
-        assertThat(message.errorMessage()).isEqualTo("boom");
+        assertThat(message.errorMessage()).isEqualTo("Message processing failed");
     }
 
     @Test
@@ -132,7 +132,7 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
     }
 
     private static String hashedKey(String key) {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 16);
         recorder.recordConsume("orders", 0, 0L, key, 0L, true, null, null, null);
         return recorder.recent().get(0).key();
     }

@@ -203,6 +203,16 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultKafkaCaptureUsesBoundedHashSettings() {
+        BootUiProperties.Kafka kafka = new BootUiProperties().getKafka();
+
+        assertThat(kafka.isEnabled()).isTrue();
+        assertThat(kafka.isCaptureKey()).isTrue();
+        assertThat(kafka.getMaxEntries()).isEqualTo(200);
+        assertThat(kafka.getMaxKeyLength()).isEqualTo(16);
+    }
+
+    @Test
     void defaultClaudeCodeRawRevealIsFalse() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getClaudeCode().isAllowRawReveal()).isFalse();

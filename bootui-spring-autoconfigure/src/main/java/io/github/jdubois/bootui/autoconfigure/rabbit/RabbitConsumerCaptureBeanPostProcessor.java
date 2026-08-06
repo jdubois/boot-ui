@@ -59,7 +59,7 @@ public final class RabbitConsumerCaptureBeanPostProcessor implements BeanPostPro
         }
         try {
             Advice[] existing = factory.getAdviceChain();
-            Advice[] newChain = prependAdvice(new CapturingConsumerAdvice(recorder, beanName), existing);
+            Advice[] newChain = prependAdvice(new CapturingConsumerAdvice(recorder), existing);
             factory.setAdviceChain(newChain);
         } catch (RuntimeException ex) {
             log.warn(
@@ -89,13 +89,9 @@ public final class RabbitConsumerCaptureBeanPostProcessor implements BeanPostPro
     private static final class CapturingConsumerAdvice implements MethodInterceptor {
 
         private final RabbitActivityRecorder recorder;
-        private final String listenerId;
 
-        private CapturingConsumerAdvice(RabbitActivityRecorder recorder, String listenerId) {
+        private CapturingConsumerAdvice(RabbitActivityRecorder recorder) {
             this.recorder = recorder;
-            // At this factory-wide interception point, the resolved per-listener @RabbitListener
-            // id is not exposed, so the factory bean name is the best available stable identifier.
-            this.listenerId = listenerId;
         }
 
         @Override

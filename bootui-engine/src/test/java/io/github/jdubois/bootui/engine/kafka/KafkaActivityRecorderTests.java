@@ -12,7 +12,7 @@ class KafkaActivityRecorderTests {
 
     @Test
     void recordsProduceAndConsumeNewestFirst() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
 
         recorder.recordProduce("orders", 0, "order-1", 5L, true, null);
         recorder.recordConsume("orders", 0, 42L, "order-1", 3L, true, null, "orders-group", "ordersListener");
@@ -30,7 +30,7 @@ class KafkaActivityRecorderTests {
 
     @Test
     void disabledRecorderDropsMessages() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 10, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 10, 16);
         recorder.recordProduce("orders", 0, "order-1", 5L, true, null);
         assertThat(recorder.recent()).isEmpty();
         assertThat(recorder.totalCaptured()).isZero();
@@ -38,7 +38,7 @@ class KafkaActivityRecorderTests {
 
     @Test
     void evictsOldestWhenBufferIsFull() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 2, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 2, 16);
         recorder.recordProduce("orders", 0, "k1", 1L, true, null);
         recorder.recordProduce("orders", 0, "k2", 1L, true, null);
         recorder.recordProduce("orders", 0, "k3", 1L, true, null);
@@ -61,23 +61,24 @@ class KafkaActivityRecorderTests {
 
     @Test
     void keyCaptureCanBeDisabled() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, false, 10, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, false, 10, 16);
         recorder.recordProduce("orders", 0, "order-1", 1L, true, null);
         assertThat(recorder.recent().get(0).key()).isNull();
     }
 
     @Test
-    void recordsFailureWithErrorMessage() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
-        recorder.recordProduce("orders", null, "order-1", 2L, false, "boom");
+    void recordsGenericFailureWithoutRetainingRawErrorText() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
+        recorder.recordProduce("orders", null, "order-1", 2L, false, "payload=secret");
         CapturedMessage entry = recorder.recent().get(0);
         assertThat(entry.success()).isFalse();
-        assertThat(entry.errorMessage()).isEqualTo("boom");
+        assertThat(entry.errorMessage()).isEqualTo("Message processing failed");
+        assertThat(entry.toString()).doesNotContain("payload=secret");
     }
 
     @Test
     void clearRemovesAllMessagesAndNotifiesListeners() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         AtomicInteger notifications = new AtomicInteger();
         recorder.subscribe(notifications::incrementAndGet);
 
@@ -91,7 +92,7 @@ class KafkaActivityRecorderTests {
 
     @Test
     void subscribeReturnsHandleThatUnsubscribes() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         AtomicInteger notifications = new AtomicInteger();
         Runnable unsubscribe = recorder.subscribe(notifications::incrementAndGet);
         unsubscribe.run();
@@ -105,5 +106,12 @@ class KafkaActivityRecorderTests {
         assertThat(KafkaActivityRecorder.hashKey("42")).isEqualTo(KafkaActivityRecorder.hashKey("42"));
         assertThat(KafkaActivityRecorder.hashKey("42")).isNotEqualTo(KafkaActivityRecorder.hashKey("43"));
         assertThat(KafkaActivityRecorder.hashKey("42")).hasSize(16);
+    }
+
+    @Test
+    void honorsConfiguredHashLengthWithinSha256Bounds() {
+        assertThat(KafkaActivityRecorder.hashKey("42", 32)).hasSize(32);
+        assertThat(KafkaActivityRecorder.hashKey("42", 200)).hasSize(64);
+        assertThat(KafkaActivityRecorder.hashKey("42", 1)).hasSize(8);
     }
 }

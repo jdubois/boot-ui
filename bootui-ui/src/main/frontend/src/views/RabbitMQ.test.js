@@ -1,5 +1,6 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {useRoute} from 'vue-router'
 
 import RabbitMq from './RabbitMQ.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -8,7 +9,7 @@ vi.mock('../utils/useConfirm.js', () => ({
   useConfirm: () => ({confirm: () => Promise.resolve(true)})
 }))
 
-vi.mock('vue-router', () => ({useRoute: () => ({query: {}})}))
+vi.mock('vue-router', () => ({useRoute: vi.fn(() => ({query: {}}))}))
 
 const emptyReport = {
   available: true,
@@ -101,6 +102,11 @@ describe('RabbitMQ panel', () => {
     expect(wrapper.text()).toContain('a1b2c3d4e5f6a7b8')
     expect(wrapper.text()).not.toContain('payload')
     expect(wrapper.text()).not.toContain('headers')
+    expect(wrapper.get('input.rabbit-filter-input').attributes('aria-label')).toBe('Filter RabbitMQ activity')
+    expect(wrapper.get('select.rabbit-direction-select').attributes('aria-label')).toBe(
+      'Filter RabbitMQ activity by direction'
+    )
+    expect(wrapper.findAll('th').every((header) => header.attributes('scope') === 'col')).toBe(true)
 
     await wrapper.get('input.rabbit-filter-input').setValue('shipping')
     expect(wrapper.text()).toContain('shipment.failed')
@@ -117,6 +123,27 @@ describe('RabbitMQ panel', () => {
 
     expect(wrapper.text()).toContain('Correlation ID hashes are not being captured')
     expect(wrapper.text()).toContain('bootui.rabbitmq.capture-correlation-id=true')
+  })
+
+  it('shows coherent empty and capture-disabled states', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({...emptyReport, capturing: false})))
+    wrapper = mount(RabbitMq)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('RabbitMQ capture is currently disabled')
+    expect(wrapper.text()).toContain('bootui.rabbitmq.enabled=false')
+    expect(wrapper.text()).toContain('No RabbitMQ activity captured yet')
+  })
+
+  it('prefills the filter from a Live Activity deep link', async () => {
+    vi.mocked(useRoute).mockReturnValueOnce({query: {q: 'shipping'}})
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(reportWithMessages())))
+    wrapper = mount(RabbitMq)
+    await flushPromises()
+
+    expect(wrapper.get('input.rabbit-filter-input').element.value).toBe('shipping')
+    expect(wrapper.text()).toContain('shipment.failed')
+    expect(wrapper.text()).not.toContain('fulfillment')
   })
 
   it('clears captured activity when confirmed', async () => {

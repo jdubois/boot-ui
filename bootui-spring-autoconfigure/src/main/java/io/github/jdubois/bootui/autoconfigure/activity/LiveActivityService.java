@@ -427,11 +427,8 @@ public class LiveActivityService {
         if (recorder == null || !recorder.isEnabled()) {
             return List.of();
         }
-        List<CapturedMessage> messages = recorder.recent();
-        if (!messages.isEmpty()) {
-            sources.add("Kafka");
-        }
-        return messages;
+        sources.add("Kafka");
+        return recorder.recent();
     }
 
     /** Loads recently captured JMS records independently from Kafka and RabbitMQ history. */
@@ -443,11 +440,8 @@ public class LiveActivityService {
         if (recorder == null || !recorder.isEnabled()) {
             return List.of();
         }
-        List<JmsActivityRecorder.CapturedMessage> messages = recorder.recent();
-        if (!messages.isEmpty()) {
-            sources.add("JMS");
-        }
-        return messages;
+        sources.add("JMS");
+        return recorder.recent();
     }
 
     /**
@@ -464,11 +458,8 @@ public class LiveActivityService {
         if (recorder == null || !recorder.isEnabled()) {
             return List.of();
         }
-        List<RabbitActivityRecorder.CapturedMessage> messages = recorder.recent();
-        if (!messages.isEmpty()) {
-            sources.add("RabbitMQ");
-        }
-        return messages;
+        sources.add("RabbitMQ");
+        return recorder.recent();
     }
 
     private ActivityEntryDto toRequestEntry(

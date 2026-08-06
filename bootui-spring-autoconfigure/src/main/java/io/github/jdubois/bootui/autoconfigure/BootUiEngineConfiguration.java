@@ -737,12 +737,12 @@ public class BootUiEngineConfiguration {
      * The Live Activity Kafka capture backend is framework-neutral (a bounded in-memory recorder plus two
      * Spring-specific post-processors) and is needed by both servlet and reactive stacks, so it is wired
      * here in the shared engine configuration rather than under the servlet-only auto-configuration. The
-     * two {@code BeanPostProcessor}s keep their method-level
-     * {@code @ConditionalOnClass(KafkaTemplate)} guards so a Spring-Kafka-absent application never links
-     * those types. The recorder feeds both the Live Activity {@code MESSAGING} entries and the dedicated
-     * Kafka panel from the same buffer (see {@code bootUiKafkaActivityRecorder}'s Javadoc for why it is
-     * gated on the Kafka panel rather than Live Activity's, mirroring {@code bootUiCacheActivityRecorder}
-     * above).
+     * recorder and two {@code BeanPostProcessor}s keep method-level
+     * {@code @ConditionalOnClass(KafkaTemplate)} guards so a Spring-Kafka-absent application neither
+     * exposes an inactive source nor links those types. The recorder feeds both the Live Activity
+     * {@code MESSAGING} entries and the dedicated Kafka panel from the same buffer (see {@code
+     * bootUiKafkaActivityRecorder}'s Javadoc for why it is gated on the Kafka panel rather than Live
+     * Activity's, mirroring {@code bootUiCacheActivityRecorder} above).
      */
     @Configuration(proxyBeanMethods = false)
     static class KafkaBackendConfiguration {
@@ -757,6 +757,7 @@ public class BootUiEngineConfiguration {
         @Bean
         @Lazy
         @ConditionalOnMissingBean
+        @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
         KafkaActivityRecorder bootUiKafkaActivityRecorder(BootUiProperties properties) {
             BootUiProperties.Kafka kafka = properties.getKafka();
             boolean enabled = kafka.isEnabled() && properties.isPanelEnabled(BootUiPanels.KAFKA);
@@ -822,11 +823,11 @@ public class BootUiEngineConfiguration {
      * The Live Activity RabbitMQ capture backend is framework-neutral (a bounded in-memory recorder
      * plus two Spring-specific post-processors) and is needed by both servlet and reactive stacks,
      * so it is wired here in the shared engine configuration rather than under the servlet-only
-     * auto-configuration. The two {@code BeanPostProcessor}s keep their method-level
-     * {@code @ConditionalOnClass(RabbitTemplate)} guards so a Spring-AMQP-absent application never
-     * links those types. The recorder feeds both the Live Activity {@code MESSAGING} entries and the
-     * dedicated RabbitMQ panel from the same buffer — exactly the same dual-consumer model as the
-     * Kafka backend above.
+     * auto-configuration. The recorder and two {@code BeanPostProcessor}s keep method-level
+     * {@code @ConditionalOnClass(RabbitTemplate)} guards so a Spring-AMQP-absent application neither
+     * exposes an inactive source nor links those types. The recorder feeds both the Live Activity
+     * {@code MESSAGING} entries and the dedicated RabbitMQ panel from the same buffer — exactly the
+     * same dual-consumer model as the Kafka backend above.
      */
     @Configuration(proxyBeanMethods = false)
     static class RabbitBackendConfiguration {
@@ -841,6 +842,7 @@ public class BootUiEngineConfiguration {
         @Bean
         @Lazy
         @ConditionalOnMissingBean
+        @ConditionalOnClass(name = "org.springframework.amqp.rabbit.core.RabbitTemplate")
         RabbitActivityRecorder bootUiRabbitActivityRecorder(BootUiProperties properties) {
             BootUiProperties.Rabbitmq rabbit = properties.getRabbitmq();
             boolean enabled = rabbit.isEnabled() && properties.isPanelEnabled(BootUiPanels.RABBITMQ);

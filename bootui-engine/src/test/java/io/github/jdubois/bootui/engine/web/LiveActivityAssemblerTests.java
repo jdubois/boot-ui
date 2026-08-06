@@ -780,7 +780,7 @@ class LiveActivityAssemblerTests {
 
     @Test
     void renderedKafkaEntryNeverExposesTheRawKey() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         recorder.recordProduce("orders", 0, "super-secret-key", null, true, null);
 
         LiveActivityReport report = assembler.report(
@@ -1229,7 +1229,7 @@ class LiveActivityAssemblerTests {
     }
 
     private static String hashedKey(String key) {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 16);
         recorder.recordProduce("orders", 0, key, 0L, true, null);
         return recorder.recent().get(0).key();
     }

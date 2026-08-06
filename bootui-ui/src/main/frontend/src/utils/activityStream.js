@@ -174,7 +174,7 @@ export function deepLink(entry) {
         return needle ? {path: '/jms', query: {q: needle}, label: 'Open in JMS'} : {path: '/jms', label: 'Open in JMS'}
       }
       if ((entry.id || '').startsWith('rabbit-')) {
-        const needle = rabbitNeedle(entry.summary)
+        const needle = rabbitNeedle(entry)
         return needle
           ? {path: '/rabbitmq', query: {q: needle}, label: 'Open in RabbitMQ'}
           : {path: '/rabbitmq', label: 'Open in RabbitMQ'}
@@ -206,11 +206,27 @@ function kafkaNeedle(summary) {
     .trim()
 }
 
-function rabbitNeedle(summary) {
-  const value = messagingNeedle(summary)
+function rabbitNeedle(entry) {
+  const value = messagingNeedle(entry.summary)
+  if (value === '(unknown queue)' || value === '(default)') {
+    return rabbitDetailValue(entry.detail, 'routingKey') || rabbitDetailValue(entry.detail, 'exchange')
+  }
   const separator = value.lastIndexOf('/')
   if (separator < 0) return value
   return value.slice(separator + 1).trim() || value.slice(0, separator).trim()
+}
+
+function rabbitDetailValue(detail, key) {
+  const value = (detail || '').trim()
+  const marker = `${key}=`
+  const start = value.indexOf(marker)
+  if (start < 0) return ''
+  const tail = value.slice(start + marker.length)
+  const boundaries = [' exchange=', ' routingKey=', ' correlationId=', ' Message processing failed']
+    .map((boundary) => tail.indexOf(boundary))
+    .filter((index) => index >= 0)
+  const end = boundaries.length ? Math.min(...boundaries) : tail.length
+  return tail.slice(0, end).trim()
 }
 
 function jmsNeedle(summary) {

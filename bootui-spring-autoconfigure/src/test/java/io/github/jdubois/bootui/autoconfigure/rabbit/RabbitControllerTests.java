@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.ObjectProvider;
@@ -49,6 +50,37 @@ class RabbitControllerTests {
     }
 
     @Test
+    void reportsAvailableWhenMultipleRabbitTemplateBeansArePresent() throws Exception {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<RabbitTemplate> templates = mock(ObjectProvider.class);
+        RabbitTemplate first = mock(RabbitTemplate.class);
+        RabbitTemplate second = mock(RabbitTemplate.class);
+        when(templates.stream()).thenReturn(Stream.of(first, second));
+        RabbitController controller = new RabbitController(
+                provider(new RabbitActivityRecorder(true, false, 200, 16)), templates, new BootUiProperties());
+        MockMvc mvc = standaloneSetup(controller).build();
+
+        mvc.perform(get("/bootui/api/rabbitmq"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true));
+    }
+
+    @Test
+    void honorsCustomApiPath() throws Exception {
+        RabbitController controller = new RabbitController(
+                provider(new RabbitActivityRecorder(true, false, 200, 16)),
+                provider(mock(RabbitTemplate.class)),
+                new BootUiProperties());
+        MockMvc mvc = standaloneSetup(controller)
+                .addPlaceholderValue("bootui.api-path", "/internal/bootui-api")
+                .build();
+
+        mvc.perform(get("/internal/bootui-api/rabbitmq"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true));
+    }
+
+    @Test
     void clearRemovesAllCapturedMessages() throws Exception {
         RabbitActivityRecorder recorder = new RabbitActivityRecorder(true, false, 200, 16);
         recorder.recordPublish("orders", "order.created", null, true, null, null);
@@ -69,6 +101,7 @@ class RabbitControllerTests {
         @SuppressWarnings("unchecked")
         ObjectProvider<T> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(value);
+        when(provider.stream()).thenReturn(value == null ? Stream.empty() : Stream.of(value));
         return provider;
     }
 }

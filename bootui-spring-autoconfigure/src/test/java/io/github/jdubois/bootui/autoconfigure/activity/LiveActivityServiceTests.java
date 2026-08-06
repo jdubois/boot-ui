@@ -42,7 +42,7 @@ class LiveActivityServiceTests {
     @Test
     void mergesKafkaCapturedMessagesAsMessagingEntries() {
         io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder =
-                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 10, 50);
+                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 10, 16);
         recorder.recordProduce("orders", 0, "order-1", 0L, true, null);
         recorder.recordConsume("orders", 0, 5L, "order-1", 12L, true, null, "group-a", "myListener");
         recorder.recordConsume("orders", 0, 6L, "order-2", 3L, false, "boom", "group-a", "myListener");
@@ -64,7 +64,7 @@ class LiveActivityServiceTests {
     @Test
     void doesNotIncludeKafkaMessagesWhenKafkaPanelDisabled() {
         io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder recorder =
-                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 10, 50);
+                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 10, 16);
         recorder.recordProduce("orders", 0, "order-1", 0L, true, null);
 
         BootUiProperties properties = new BootUiProperties();
@@ -109,9 +109,47 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void mergesRabbitMessagesAndHonorsRabbitPanelGate() {
+        io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder rabbit =
+                new io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder(true, false, 10, 16);
+        rabbit.recordConsume("orders", "created", "workers", 4L, false, "payload=secret", null);
+
+        LiveActivityReport enabled =
+                serviceWithMessaging(null, null, rabbit, new BootUiProperties()).report(null, null, 0, 0);
+
+        assertThat(enabled.sources()).contains("RabbitMQ");
+        assertThat(enabled.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.id()).startsWith("rabbit-");
+            assertThat(entry.type()).isEqualTo("MESSAGING");
+            assertThat(entry.detail()).contains("Message processing failed").doesNotContain("payload=secret");
+        });
+
+        BootUiProperties disabledProperties = new BootUiProperties();
+        disabledProperties.panel(BootUiPanels.RABBITMQ).setEnabled(false);
+        LiveActivityReport disabled =
+                serviceWithMessaging(null, null, rabbit, disabledProperties).report(null, null, 0, 0);
+
+        assertThat(disabled.sources()).doesNotContain("RabbitMQ");
+        assertThat(disabled.entries()).isEmpty();
+    }
+
+    @Test
+    void reportsEnabledMessagingSourcesBeforeTheirFirstMessage() {
+        var kafka = new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 10, 16);
+        var jms = new io.github.jdubois.bootui.engine.jms.JmsActivityRecorder(true, true, 10, 16);
+        var rabbit = new io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder(true, false, 10, 16);
+
+        LiveActivityReport report =
+                serviceWithMessaging(kafka, jms, rabbit, new BootUiProperties()).report(null, null, 0, 0);
+
+        assertThat(report.sources()).contains("Kafka", "JMS", "RabbitMQ");
+        assertThat(report.entries()).isEmpty();
+    }
+
+    @Test
     void keepsKafkaAndJmsRetentionIndependent() {
         io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder kafka =
-                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 1, 50);
+                new io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder(true, true, 1, 16);
         io.github.jdubois.bootui.engine.jms.JmsActivityRecorder jms =
                 new io.github.jdubois.bootui.engine.jms.JmsActivityRecorder(true, true, 1, 16);
         kafka.recordProduce("kafka-orders", 0, "order-1", 1L, true, null);
@@ -1094,6 +1132,29 @@ class LiveActivityServiceTests {
     private LiveActivityService serviceWithJms(
             io.github.jdubois.bootui.engine.jms.JmsActivityRecorder recorder, BootUiProperties properties) {
         return service(null, null, null, null, null, null, null, null, null, null, null, null, recorder, properties);
+    }
+
+    private LiveActivityService serviceWithMessaging(
+            io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder kafka,
+            io.github.jdubois.bootui.engine.jms.JmsActivityRecorder jms,
+            io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder rabbit,
+            BootUiProperties properties) {
+        return new LiveActivityService(
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(kafka),
+                provider(jms),
+                provider(rabbit),
+                properties);
     }
 
     private LiveActivityService serviceWithCache(

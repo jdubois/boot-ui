@@ -239,6 +239,26 @@ describe('deepLink', () => {
     })
   })
 
+  it('uses RabbitMQ routing metadata when the consumer queue is unknown', () => {
+    expect(
+      deepLink({
+        type: 'MESSAGING',
+        id: 'rabbit-4',
+        summary: '← (unknown queue)',
+        detail: 'exchange=orders routingKey=order.created correlationId=a1b2c3'
+      })
+    ).toEqual({
+      path: '/rabbitmq',
+      query: {q: 'order.created'},
+      label: 'Open in RabbitMQ'
+    })
+
+    expect(deepLink({type: 'MESSAGING', id: 'rabbit-5', summary: '← (unknown queue)'})).toEqual({
+      path: '/rabbitmq',
+      label: 'Open in RabbitMQ'
+    })
+  })
+
   it('links a messaging entry with no parsable topic to the Kafka panel without a filter', () => {
     expect(deepLink({type: 'MESSAGING', summary: ''})).toEqual({
       path: '/kafka',

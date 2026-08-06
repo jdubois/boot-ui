@@ -213,7 +213,7 @@ async function clearAll() {
                 <tr v-for="message in filteredMessages" :key="message.id">
                   <td class="text-muted small text-nowrap">{{ formatTimestamp(message.timestamp) }}</td>
                   <td class="text-center" :title="directionLabel(message.direction)">
-                    <i class="bi" :class="directionIcon(message.direction)"></i>
+                    <i class="bi" :class="directionIcon(message.direction)" aria-hidden="true"></i>
                     <span class="visually-hidden">{{ directionLabel(message.direction) }}</span>
                   </td>
                   <td class="text-truncate jms-destination-cell fw-semibold font-monospace">

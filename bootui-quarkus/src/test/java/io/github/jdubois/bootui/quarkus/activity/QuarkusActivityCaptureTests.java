@@ -112,7 +112,7 @@ class QuarkusActivityCaptureTests {
                 new SwitchableActivityStore(new InMemoryActivityStore(10)),
                 disabledSettings(),
                 new UnsatisfiedInstance<>(),
-                new KafkaActivityRecorder(true, true, 200, 200),
+                new KafkaActivityRecorder(true, true, 200, 16),
                 new RabbitActivityRecorder(true, false, 200, 16),
                 new RestClientTraceRecorder(true, true, false, false, 200, 1000, 256, 256, 5),
                 new SelfTelemetryClassifier(true, "/bootui", "/bootui/api"));

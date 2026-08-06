@@ -555,7 +555,7 @@ class ReactiveLiveActivityControllerTests {
 
     @Test
     void mergedReportIncludesKafkaMessagesWhenRecorderPresent() {
-        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 16);
         kafka.recordProduce("orders", 0, "order-1", 1L, true, null);
 
         BootUiProperties properties = new BootUiProperties();
@@ -589,7 +589,7 @@ class ReactiveLiveActivityControllerTests {
 
     @Test
     void mergedReportOmitsKafkaMessagesWhenKafkaPanelDisabled() {
-        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 50);
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 16);
         kafka.recordProduce("orders", 0, "order-1", 1L, true, null);
 
         BootUiProperties properties = new BootUiProperties();
@@ -681,6 +681,44 @@ class ReactiveLiveActivityControllerTests {
                 new BootUiExposure(properties));
 
         assertThat(controller.mergedReport(0).entries()).isEmpty();
+    }
+
+    @Test
+    void mergedReportTreatsEmptyMessagingRecordersAsAvailableSources() {
+        BootUiProperties properties = new BootUiProperties();
+        ReactiveLiveActivityController controller = controllerWithMessaging(
+                new KafkaActivityRecorder(true, true, 10, 16),
+                new JmsActivityRecorder(true, true, 10, 16),
+                new RabbitActivityRecorder(true, false, 10, 16),
+                properties);
+
+        LiveActivityReport report = controller.mergedReport(0);
+
+        assertThat(report.sources()).contains("kafka", "jms", "rabbitmq");
+        assertThat(report.entries()).isEmpty();
+    }
+
+    @Test
+    void mergedReportMergesRabbitMessagesAndHonorsRabbitPanelGate() {
+        RabbitActivityRecorder rabbit = new RabbitActivityRecorder(true, false, 10, 16);
+        rabbit.recordConsume("orders", "created", "workers", 4L, true, null, null);
+
+        LiveActivityReport enabled = controllerWithMessaging(null, null, rabbit, new BootUiProperties())
+                .mergedReport(0);
+
+        assertThat(enabled.sources()).contains("rabbitmq");
+        assertThat(enabled.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.id()).startsWith("rabbit-");
+            assertThat(entry.type()).isEqualTo("MESSAGING");
+        });
+
+        BootUiProperties disabledProperties = new BootUiProperties();
+        disabledProperties.panel(BootUiPanels.RABBITMQ).setEnabled(false);
+        LiveActivityReport disabled =
+                controllerWithMessaging(null, null, rabbit, disabledProperties).mergedReport(0);
+
+        assertThat(disabled.sources()).doesNotContain("rabbitmq");
+        assertThat(disabled.entries()).isEmpty();
     }
 
     @Test
@@ -1010,6 +1048,33 @@ class ReactiveLiveActivityControllerTests {
         return provider;
     }
 
+    private static ReactiveLiveActivityController controllerWithMessaging(
+            KafkaActivityRecorder kafka,
+            JmsActivityRecorder jms,
+            RabbitActivityRecorder rabbit,
+            BootUiProperties properties) {
+        return new ReactiveLiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                provider(kafka),
+                provider(jms),
+                provider(rabbit),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> ObjectProvider<T> provider(T value) {
         ObjectProvider<T> provider = mock(ObjectProvider.class);
@@ -1018,7 +1083,7 @@ class ReactiveLiveActivityControllerTests {
     }
 
     private static String hashedKey(String key) {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 50);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 16);
         recorder.recordProduce("orders", 0, key, 0L, true, null);
         return recorder.recent().get(0).key();
     }

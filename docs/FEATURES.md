@@ -165,9 +165,10 @@ processing duration (a producer send's duration is not exposed by either framewo
 That listener identifier is intentionally framework-specific: on Spring it is currently the **listener container
 factory bean name** (the per-`@KafkaListener` id is not exposed at the factory-wide interception point), while on
 Quarkus it is the channel name. **The message value/payload is never captured** — only metadata — since a Kafka payload
-is an arbitrary, potentially large and sensitive application object with no generic masking strategy. Kafka entries are
-top-level in the feed today (not yet nested under a correlated request). Capture is on by default whenever the relevant
-Kafka integration is present and the panel is enabled, and can be tuned or disabled entirely via `bootui.kafka.enabled`,
+is an arbitrary, potentially large and sensitive application object with no generic masking strategy. Raw exception
+messages are not retained either; failed operations carry only generic failure text. Kafka entries are top-level in the
+feed today (not yet nested under a correlated request). Capture is on by default whenever the relevant Kafka integration
+is present and the panel is enabled, and can be tuned or disabled entirely via `bootui.kafka.enabled`,
 `bootui.kafka.capture-key`, `bootui.kafka.max-entries`, and `bootui.kafka.max-key-length` — see `docs/PROPERTIES.md`.
 
 When Spring JMS support is present (`spring-jms` and `jakarta.jms` on the classpath), BootUI also captures JMS producer and consumer
@@ -1269,11 +1270,11 @@ entries into Live Activity (see above): every application-owned `KafkaTemplate` 
 recorded into a bounded ring buffer, newest-first, without altering delivery. Each row shows the timestamp, direction
 (produced/consumed, with an icon), topic, partition, offset (consumed records only — a produced record's offset isn't
 known at send time), a short hash of the key, processing duration (consume only; a producer send's duration is not
-exposed by either framework's callback), success/failure with the underlying error available on hover, and — for
-consumed records — the consumer group id and listener identifier. As with Live Activity, **the message value/payload is
-never captured, only metadata**, since a Kafka payload is an arbitrary, potentially large and sensitive application
-object with no generic masking strategy. A text filter matches topic, key, group, and listener, a direction filter
-isolates produced or consumed records, and the whole buffer can be cleared.
+exposed by either framework's callback), success/failure with privacy-safe generic failure text on hover, and — for
+consumed records — the consumer group id and listener identifier. As with Live Activity, **the message value/payload and
+raw exception messages are never captured, only bounded metadata**, since a Kafka payload is an arbitrary, potentially
+large and sensitive application object with no generic masking strategy. A text filter matches topic, key, group, and
+listener, a direction filter isolates produced or consumed records, and the whole buffer can be cleared.
 
 Capture is on by default whenever a Kafka integration is present and the panel is enabled, and is tuned through the same
 `bootui.kafka.*` properties Live Activity uses (`enabled`, `capture-key`, `max-entries`, `max-key-length`) — see

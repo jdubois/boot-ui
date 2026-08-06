@@ -229,7 +229,7 @@ class LiveActivityResourceTests {
                 unsatisfiedDataSource(),
                 buffer,
                 satisfiedEmailCaptureService(emailService),
-                new KafkaActivityRecorder(true, true, 200, 200),
+                new KafkaActivityRecorder(true, true, 200, 16),
                 config(Map.of(QuarkusPanelAvailability.EMAIL_PRESENT_KEY, "true")));
 
         LiveActivityReport report = resource.mergedReport(0);
@@ -284,7 +284,7 @@ class LiveActivityResourceTests {
                 unsatisfiedDataSource(),
                 buffer,
                 unsatisfiedEmailCaptureService(),
-                new KafkaActivityRecorder(true, true, 200, 200),
+                new KafkaActivityRecorder(true, true, 200, 16),
                 config,
                 recorder);
 
@@ -330,7 +330,7 @@ class LiveActivityResourceTests {
                 unsatisfiedDataSource(),
                 new HttpExchangeBuffer(50),
                 unsatisfiedEmailCaptureService(),
-                new KafkaActivityRecorder(true, true, 200, 200),
+                new KafkaActivityRecorder(true, true, 200, 16),
                 config,
                 recorder);
 
@@ -342,7 +342,7 @@ class LiveActivityResourceTests {
 
     @Test
     void mergedReportMergesCapturedKafkaMessagesAsMessagingEntries() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 16);
         recorder.recordProduce("orders", 2, "key-1", null, true, null);
         recorder.recordConsume("orders", 3, 42L, "key-2", 5L, true, null, null, "orders-in");
         LiveActivityResource resource = resourceWithKafka(recorder);
@@ -374,7 +374,7 @@ class LiveActivityResourceTests {
 
     @Test
     void mergedReportHasNoMessagingEntriesWhenNoKafkaCaptured() {
-        LiveActivityResource resource = resourceWithKafka(new KafkaActivityRecorder(true, true, 200, 200));
+        LiveActivityResource resource = resourceWithKafka(new KafkaActivityRecorder(true, true, 200, 16));
 
         LiveActivityReport report = resource.mergedReport(0);
 
@@ -385,7 +385,7 @@ class LiveActivityResourceTests {
 
     @Test
     void mergedReportSortsKafkaEntriesNewestFirst() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 16);
         recorder.recordProduce("orders", 2, "key-1", null, true, null);
         recorder.recordConsume("orders", 3, 42L, "key-2", 5L, true, null, null, "orders-in");
         LiveActivityResource resource = resourceWithKafka(recorder);
@@ -401,7 +401,7 @@ class LiveActivityResourceTests {
 
     @Test
     void mergedReportAppliesLimitAcrossMergedKafkaEntries() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 16);
         recorder.recordProduce("orders", 0, "a", null, true, null);
         recorder.recordProduce("orders", 1, "b", null, true, null);
         recorder.recordProduce("orders", 2, "c", null, true, null);
@@ -415,7 +415,7 @@ class LiveActivityResourceTests {
 
     @Test
     void mergedReportHasNoMessagingEntriesWhenRecorderDisabled() {
-        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 200, 200);
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(false, true, 200, 16);
         // recordProduce is a no-op while disabled, so nothing is ever captured.
         recorder.recordProduce("orders", 0, "a", null, true, null);
         LiveActivityResource resource = resourceWithKafka(recorder);
@@ -425,6 +425,58 @@ class LiveActivityResourceTests {
         assertThat(report.entries()).noneMatch(entry -> "MESSAGING".equals(entry.type()));
         assertThat(report.typeCounts()).doesNotContainKey("MESSAGING");
         assertThat(report.sources()).doesNotContain("kafka");
+    }
+
+    @Test
+    void mergedReportOmitsKafkaWhenCapabilityOrPanelIsUnavailable() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 200, 16);
+        recorder.recordProduce("orders", 0, "a", null, true, null);
+        RabbitActivityRecorder rabbit = new RabbitActivityRecorder(true, false, 200, 16);
+
+        LiveActivityReport capabilityAbsent =
+                resourceWithMessaging(recorder, rabbit, config(Map.of())).mergedReport(0);
+        LiveActivityReport panelDisabled = resourceWithMessaging(
+                        recorder,
+                        rabbit,
+                        config(Map.of(
+                                QuarkusPanelAvailability.KAFKA_PRESENT_KEY,
+                                "true",
+                                "bootui.panels.kafka.enabled",
+                                "false")))
+                .mergedReport(0);
+
+        assertThat(capabilityAbsent.entries()).noneMatch(entry -> entry.id().startsWith("kafka-"));
+        assertThat(capabilityAbsent.sources()).doesNotContain("kafka");
+        assertThat(panelDisabled.entries()).noneMatch(entry -> entry.id().startsWith("kafka-"));
+        assertThat(panelDisabled.sources()).doesNotContain("kafka");
+    }
+
+    @Test
+    void mergedReportMergesRabbitMessagesAndHonorsRabbitPanelGate() {
+        RabbitActivityRecorder rabbit = new RabbitActivityRecorder(true, false, 200, 16);
+        rabbit.recordConsume("orders", "created", null, 4L, true, null, null);
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 200, 16);
+
+        LiveActivityReport enabled = resourceWithMessaging(
+                        kafka, rabbit, config(Map.of(QuarkusPanelAvailability.RABBIT_PRESENT_KEY, "true")))
+                .mergedReport(0);
+        LiveActivityReport disabled = resourceWithMessaging(
+                        kafka,
+                        rabbit,
+                        config(Map.of(
+                                QuarkusPanelAvailability.RABBIT_PRESENT_KEY,
+                                "true",
+                                "bootui.panels.rabbitmq.enabled",
+                                "false")))
+                .mergedReport(0);
+
+        assertThat(enabled.sources()).contains("rabbitmq");
+        assertThat(enabled.entries()).anySatisfy(entry -> {
+            assertThat(entry.id()).startsWith("rabbit-");
+            assertThat(entry.type()).isEqualTo("MESSAGING");
+        });
+        assertThat(disabled.sources()).doesNotContain("rabbitmq");
+        assertThat(disabled.entries()).noneMatch(entry -> entry.id().startsWith("rabbit-"));
     }
 
     @Test
@@ -564,7 +616,7 @@ class LiveActivityResourceTests {
                 unsatisfiedDataSource(),
                 new HttpExchangeBuffer(50),
                 unsatisfiedEmailCaptureService(),
-                new KafkaActivityRecorder(true, true, 200, 200),
+                new KafkaActivityRecorder(true, true, 200, 16),
                 config(Map.of()));
     }
 
@@ -576,7 +628,21 @@ class LiveActivityResourceTests {
                 new HttpExchangeBuffer(50),
                 unsatisfiedEmailCaptureService(),
                 kafkaRecorder,
-                config(Map.of()));
+                config(Map.of(QuarkusPanelAvailability.KAFKA_PRESENT_KEY, "true")));
+    }
+
+    private static LiveActivityResource resourceWithMessaging(
+            KafkaActivityRecorder kafkaRecorder, RabbitActivityRecorder rabbitRecorder, SmallRyeConfig config) {
+        return resourceWith(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                new HttpExchangeBuffer(50),
+                unsatisfiedEmailCaptureService(),
+                kafkaRecorder,
+                rabbitRecorder,
+                config,
+                restClientRecorder(true));
     }
 
     private static LiveActivityResource resourceWith(
@@ -589,7 +655,7 @@ class LiveActivityResourceTests {
                 dataSources,
                 new HttpExchangeBuffer(50),
                 unsatisfiedEmailCaptureService(),
-                new KafkaActivityRecorder(true, true, 200, 200),
+                new KafkaActivityRecorder(true, true, 200, 16),
                 config(Map.of()));
     }
 
@@ -621,6 +687,28 @@ class LiveActivityResourceTests {
             KafkaActivityRecorder kafkaRecorder,
             SmallRyeConfig config,
             RestClientTraceRecorder restClientTraceRecorder) {
+        return resourceWith(
+                activityStore,
+                settings,
+                dataSources,
+                buffer,
+                emailCaptureService,
+                kafkaRecorder,
+                new RabbitActivityRecorder(true, false, 200, 16),
+                config,
+                restClientTraceRecorder);
+    }
+
+    private static LiveActivityResource resourceWith(
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings settings,
+            Instance<DataSource> dataSources,
+            HttpExchangeBuffer buffer,
+            Instance<EmailCaptureService> emailCaptureService,
+            KafkaActivityRecorder kafkaRecorder,
+            RabbitActivityRecorder rabbitRecorder,
+            SmallRyeConfig config,
+            RestClientTraceRecorder restClientTraceRecorder) {
         return new LiveActivityResource(
                 buffer,
                 new QuarkusExposurePolicy(config),
@@ -636,7 +724,7 @@ class LiveActivityResourceTests {
                 settings,
                 dataSources,
                 kafkaRecorder,
-                new RabbitActivityRecorder(true, false, 200, 16),
+                rabbitRecorder,
                 restClientTraceRecorder,
                 selfTelemetryClassifier(config));
     }

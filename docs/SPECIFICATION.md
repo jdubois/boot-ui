@@ -844,8 +844,9 @@ Features:
   interceptors capture the same metadata. Each entry carries topic, partition, offset (consume only), a hash of the key,
   direction, success/failure, and — for consumed records — consumer group id, listener id, and processing duration.
   Only metadata is captured; the message value/payload is never captured or masked, since it is an arbitrary
-  application payload with no generic masking strategy. Kafka entries are always top-level by design — no
-  request-parent correlation is attempted, since a message has no single owning request.
+  application payload with no generic masking strategy. Raw exception messages are never retained; failed operations
+  use generic failure text. Kafka entries are always top-level by design — no request-parent correlation is attempted,
+  since a message has no single owning request.
   The listener-id field is intentionally honest about framework limits: on Spring it currently carries the listener
   container factory bean name (the resolved per-`@KafkaListener` id is not exposed at the factory-wide interception
   point), while on Quarkus it carries the channel name. Controlled by `bootui.kafka.enabled`,
@@ -1108,7 +1109,8 @@ Acceptance criteria:
 - Only metadata is ever captured — direction (`PRODUCE`/`CONSUME`), topic, partition, offset, duration,
   success/failure, consumer group id, and listener/channel id. The message value/payload is never captured at all,
   regardless of configuration, since it is an arbitrary, potentially large application payload with no generic
-  masking strategy (unlike a SQL statement or a config value).
+  masking strategy (unlike a SQL statement or a config value). Raw exception messages are never retained; failure text
+  is generic.
 - The message key is never retained verbatim: when `bootui.kafka.capture-key=true` (the default), a SHA-256 hash of
   the key is captured and truncated to `bootui.kafka.max-key-length` hex characters; when disabled, the key is
   `null`.
@@ -1116,7 +1118,7 @@ Acceptance criteria:
   oldest evicted first).
 - Clearing the buffer is gated by `bootui.panels.kafka.read-only`, consistent with every other clearable capture
   panel; disabling capture entirely (`bootui.kafka.enabled=false`) stops both the panel and Live Activity's
-  `MESSAGING` entries, not just the dedicated view.
+  `MESSAGING` entries, not just the dedicated view. Disabling the Kafka panel also stops its underlying capture.
 - Ships on both Spring (servlet and WebFlux — the controller has no reactive-specific code) and Quarkus.
 
 ### 5.14.7 RabbitMQ Panel
@@ -1133,7 +1135,7 @@ Acceptance criteria:
 - Correlation IDs are omitted by default. With `bootui.rabbitmq.capture-correlation-id=true`, only a truncated SHA-256
   hash is stored.
 - The in-memory buffer is capped by `bootui.rabbitmq.max-entries`, oldest-first eviction, and clear is gated by
-  `bootui.panels.rabbitmq.read-only`.
+  `bootui.panels.rabbitmq.read-only`. Disabling the RabbitMQ panel also stops its underlying capture.
 - Spring panel availability requires a `RabbitTemplate` bean. Quarkus availability requires the RabbitMQ messaging
   extension in a non-production launch. Dependency absence must not link optional RabbitMQ classes or advertise capture.
 

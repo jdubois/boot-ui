@@ -393,15 +393,16 @@ When Kafka support is present, BootUI captures producer/consumer outcomes into t
 entries. Spring does this by wrapping application-owned `KafkaTemplate` and `@KafkaListener` container factory beans;
 Quarkus does it through SmallRye Reactive Messaging Kafka interceptors. Only metadata is captured — topic, partition,
 offset, a hash of the key, timing, success/failure, consumer group id, and listener id — the message value/payload is
-never captured. On Spring, that listener-id field currently carries the listener container factory bean name (not the
-resolved per-`@KafkaListener` id); on Quarkus it carries the channel name. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md).
+never captured, and failure text is generic so exception messages cannot leak payload or credentials. On Spring, that
+listener-id field currently carries the listener container factory bean name (not the resolved per-`@KafkaListener` id);
+on Quarkus it carries the channel name. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md).
 
 | Property                             | Default | Description                                                                                                    |
 | ------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
-| `bootui.kafka.enabled`               | `true`  | Capture Kafka producer/consumer activity into the Live Activity stream when `spring-kafka` is present.         |
+| `bootui.kafka.enabled`               | `true`  | Capture Kafka producer/consumer activity when the framework's Kafka integration is present.                    |
 | `bootui.kafka.capture-key`           | `true`  | Capture a SHA-256 hash of the record key alongside each entry (the raw key is never stored). Disable if even a hash of the key is unwanted. |
 | `bootui.kafka.max-entries`           | `200`   | Maximum number of captured Kafka messages retained in the in-memory ring buffer.                               |
-| `bootui.kafka.max-key-length`        | `200`   | Maximum retained length of the key's hex-encoded hash (minimum `8`, effectively capped at `16`); longer hashes are truncated. |
+| `bootui.kafka.max-key-length`        | `16`    | Maximum retained hex characters from the key hash (minimum `8`, maximum `64`).                                 |
 
 #### Live Activity JMS capture
 

@@ -364,9 +364,9 @@ public class ReactiveLiveActivityController {
         List<CapturedMessage> kafkaMessages = kafkaMessages();
         boolean kafkaAvailable = kafkaMessages != null;
         List<JmsActivityRecorder.CapturedMessage> jmsMessages = jmsMessages();
-        boolean jmsAvailable = jmsMessages != null && !jmsMessages.isEmpty();
+        boolean jmsAvailable = jmsMessages != null;
         List<RabbitActivityRecorder.CapturedMessage> rabbitMessages = rabbitMessages();
-        boolean rabbitAvailable = rabbitMessages != null && !rabbitMessages.isEmpty();
+        boolean rabbitAvailable = rabbitMessages != null;
         EmailsReport emailReport = emailReport();
         boolean emailAvailable = emailReport != null && emailReport.available();
 
