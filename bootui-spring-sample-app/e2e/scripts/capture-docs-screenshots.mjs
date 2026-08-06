@@ -10,6 +10,24 @@ const e2eDir = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(e2eDir, '..', '..')
 const frontendDir = path.join(repoRoot, 'bootui-ui', 'src', 'main', 'frontend')
 const imagesDir = path.join(repoRoot, 'docs', 'images')
+const e2ePackage = JSON.parse(await fs.readFile(path.join(e2eDir, 'package.json'), 'utf8'))
+const rootPomPath = path.join(repoRoot, 'pom.xml')
+const quarkusSamplePomPath = path.join(repoRoot, 'bootui-quarkus-sample-app', 'pom.xml')
+const rootPom = await fs.readFile(rootPomPath, 'utf8')
+const quarkusSamplePom = await fs.readFile(quarkusSamplePomPath, 'utf8')
+const bootUiVersion = requiredValue(e2ePackage.version, 'version', path.join(e2eDir, 'package.json'))
+const springBootVersion = requiredMatch(
+  rootPom,
+  /<spring-boot\.version>([^<]+)<\/spring-boot\.version>/,
+  'spring-boot.version',
+  rootPomPath
+)
+const quarkusVersion = requiredMatch(
+  quarkusSamplePom,
+  /<quarkus\.platform\.version>([^<]+)<\/quarkus\.platform\.version>/,
+  'quarkus.platform.version',
+  quarkusSamplePomPath
+)
 
 const port = Number(process.env.BOOTUI_SCREENSHOT_PORT || 5173)
 const baseUrl = process.env.BOOTUI_SCREENSHOT_BASE_URL || `http://127.0.0.1:${port}`
@@ -34,6 +52,7 @@ const quarkusUnavailablePanels = new Set([
   'data',
   'spring-security',
   'devtools',
+  'jms',
   'email',
   'rest-client-trace'
 ])
@@ -80,6 +99,7 @@ const panelOrder = [
   ['email', 'Email'],
   ['kafka', 'Kafka'],
   ['rabbitmq', 'RabbitMQ'],
+  ['jms', 'JMS'],
   ['architecture', 'Architecture'],
   ['rest-api', 'REST API'],
   ['mcp-server', 'MCP Server'],
@@ -90,10 +110,10 @@ const panelOrder = [
 ]
 
 const overview = {
-  bootUiVersion: '0.5.0',
+  bootUiVersion,
   applicationName: 'bootui-sample',
   frameworkName: 'Spring Boot',
-  frameworkVersion: '4.0.6',
+  frameworkVersion: springBootVersion,
   javaVersion: '17',
   javaVendor: 'Eclipse Temurin',
   activeProfiles: ['dev', 'local'],
@@ -113,10 +133,10 @@ const overview = {
 }
 
 const quarkusOverview = {
-  bootUiVersion: '0.5.0',
+  bootUiVersion,
   applicationName: 'bootui-quarkus-sample',
   frameworkName: 'Quarkus',
-  frameworkVersion: '3.33.2',
+  frameworkVersion: quarkusVersion,
   javaVersion: '21',
   javaVendor: 'Eclipse Temurin',
   activeProfiles: ['dev'],
@@ -2578,7 +2598,7 @@ const kafkaMessages = [
     success: true,
     errorMessage: null,
     groupId: 'order-processing',
-    listenerId: 'orderCreatedListener'
+    listenerId: 'kafkaListenerContainerFactory'
   },
   {
     id: 1041,
@@ -2618,10 +2638,9 @@ const kafkaMessages = [
     key: '5f4dcc3b5aa765d6',
     durationMillis: 14,
     success: false,
-    errorMessage:
-      'org.apache.kafka.common.errors.SerializationException: Error deserializing value for topic inventory.updated',
+    errorMessage: 'Message processing failed',
     groupId: 'inventory-sync',
-    listenerId: 'inventoryUpdatedListener'
+    listenerId: 'kafkaListenerContainerFactory'
   },
   {
     id: 1038,
@@ -2722,6 +2741,80 @@ const rabbit = {
   totalCaptured: 3841,
   total: rabbitMessages.length,
   messages: rabbitMessages
+}
+
+const jmsMessages = [
+  {
+    id: 3059,
+    timestamp: nowMillis - 60 * 1000,
+    direction: 'CONSUME',
+    destination: 'orders.created',
+    messageId: '9bf31c2402b4ef1d',
+    durationMillis: 6,
+    success: true,
+    failureType: null,
+    subscriptionName: 'fulfillment',
+    listenerId: 'orderCreatedListener'
+  },
+  {
+    id: 3058,
+    timestamp: nowMillis - 68 * 1000,
+    direction: 'PRODUCE',
+    destination: 'orders.created',
+    messageId: null,
+    durationMillis: 3,
+    success: true,
+    failureType: null,
+    subscriptionName: null,
+    listenerId: null
+  },
+  {
+    id: 3057,
+    timestamp: nowMillis - 3 * 60 * 1000,
+    direction: 'CONSUME',
+    destination: 'shipping.events',
+    messageId: '4e8f5175bf62a3c9',
+    durationMillis: 18,
+    success: true,
+    failureType: null,
+    subscriptionName: 'shipping-status',
+    listenerId: 'shipmentStatusListener'
+  },
+  {
+    id: 3056,
+    timestamp: nowMillis - 4.5 * 60 * 1000,
+    direction: 'CONSUME',
+    destination: 'inventory.reservations',
+    messageId: '18e79a4cd382d0b7',
+    durationMillis: 24,
+    success: false,
+    failureType: 'JMSException',
+    subscriptionName: 'warehouse',
+    listenerId: 'inventoryReservationListener'
+  },
+  {
+    id: 3055,
+    timestamp: nowMillis - 5 * 60 * 1000,
+    direction: 'PRODUCE',
+    destination: 'inventory.reservations',
+    messageId: null,
+    durationMillis: 2,
+    success: true,
+    failureType: null,
+    subscriptionName: null,
+    listenerId: null
+  }
+]
+
+const jms = {
+  available: true,
+  unavailableReason: null,
+  capturing: true,
+  captureMessageIdEnabled: true,
+  maxEntries: 200,
+  totalCaptured: 2934,
+  total: jmsMessages.length,
+  messages: jmsMessages
 }
 
 const restClientTraceEntries = [
@@ -3911,6 +4004,16 @@ const screenshots = [
       await page.getByRole('link', {name: /^RabbitMQ/}).scrollIntoViewIfNeeded()
     }
   ],
+  [
+    'jms',
+    'JMS',
+    'bootui-jms.webp',
+    async (page) => {
+      await page.locator('.jms-filter-input').waitFor()
+      await page.getByText('orders.created').first().waitFor()
+      await page.locator('.badge.text-bg-danger').waitFor()
+    }
+  ],
   ['architecture', 'Architecture', 'bootui-architecture.webp', waitForText('Packages should be free of cycles')],
   ['rest-api', 'REST API', 'bootui-rest-api.webp', waitForText("Don't expose JPA entities in responses")],
   ['spring', 'Spring', 'bootui-spring.webp', waitForText('Prefer RestClient over RestTemplate')],
@@ -4507,6 +4610,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'email') return fulfillJson(route, email)
   if (endpoint === 'kafka') return fulfillJson(route, kafka)
   if (endpoint === 'rabbitmq') return fulfillJson(route, rabbit)
+  if (endpoint === 'jms') return fulfillJson(route, jms)
   if (endpoint === 'rest-client-trace') return fulfillJson(route, restClientTrace)
   if (endpoint === 'rest-client-trace/clear') return fulfillJson(route, restClientTrace)
   if (endpoint === 'rest-client-trace/recording') return fulfillJson(route, restClientTrace)
@@ -4532,6 +4636,18 @@ async function handleApiRoute(route) {
 
 function waitForText(text) {
   return (page) => page.getByText(text).first().waitFor()
+}
+
+function requiredMatch(source, pattern, label, sourcePath) {
+  const value = source.match(pattern)?.[1]?.trim()
+  return requiredValue(value, label, sourcePath)
+}
+
+function requiredValue(value, label, sourcePath) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`Could not resolve ${label} from ${sourcePath}`)
+  }
+  return value.trim()
 }
 
 async function showActiveMenuItem(page, expectedTitle) {

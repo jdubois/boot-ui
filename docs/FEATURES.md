@@ -1281,13 +1281,15 @@ Capture is on by default whenever a Kafka integration is present and the panel i
 `docs/PROPERTIES.md`. Turning off key capture (`bootui.kafka.capture-key=false`) is reflected in the panel with a notice
 instead of blank hashes, and turning off capture entirely (`bootui.kafka.enabled=false`) leaves already-captured
 messages visible with a similar notice. The panel is available only when a `KafkaTemplate` bean is present (e.g.
-`spring-kafka`); otherwise it reports a clear unavailable reason.
+Spring Boot's `spring-boot-starter-kafka`); otherwise it reports a clear unavailable reason.
 
-On Quarkus the panel is identical, running over the same shared engine `KafkaActivityRecorder` and the same
-`/bootui/api/kafka` contract (list/clear); the same difference already documented for Live Activity applies here too —
-the listener identifier is the channel name rather than a listener container factory bean name. The panel is available
-when `quarkus-messaging-kafka` is on the classpath with at least one `@Incoming`/`@Outgoing` channel configured (and
-dark in production); otherwise it reports a clear unavailable reason.
+On Quarkus the same UI and `/bootui/api/kafka` contract (list/clear) run over the shared engine
+`KafkaActivityRecorder`, with the reduced metadata exposed by SmallRye Reactive Messaging: the listener identifier is
+the channel name, while consumer group id and producer duration are unavailable. The panel is available when
+`quarkus-messaging-kafka` is on the classpath in a non-production launch; configured `@Incoming`/`@Outgoing` channels
+determine whether it receives any activity. Incoming deliveries carry connector metadata automatically; outgoing
+messages are captured only when they already carry `OutgoingKafkaRecordMetadata`, so a payload-only emission that relies
+entirely on channel configuration is not recorded. Without the extension the panel reports a clear unavailable reason.
 
 ![BootUI Kafka panel](./images/bootui-kafka.webp)
 
@@ -1312,10 +1314,13 @@ Capture is on by default whenever a RabbitMQ integration is present and the pane
 `bootui.rabbitmq.max-correlation-id-length` — see `docs/PROPERTIES.md`. The panel is available when a `RabbitTemplate`
 bean is present (e.g. `spring-rabbit` / `spring-boot-starter-amqp`); otherwise it reports a clear unavailable reason.
 
-On Quarkus the panel is identical, running over the same shared engine `RabbitActivityRecorder` and the same
-`/bootui/api/rabbitmq` contract (list/clear). The panel is available when `quarkus-messaging-rabbitmq` is on the
-classpath (and dark in production); otherwise it reports a
-clear unavailable reason.
+On Quarkus the same UI and `/bootui/api/rabbitmq` contract (list/clear) run over the shared engine
+`RabbitActivityRecorder`. SmallRye does not expose a producer exchange, consumer queue, or producer duration at these
+callbacks, so those per-message fields render as unavailable; routing key, outcome, and opt-in correlation-ID hash
+remain available. The panel is available when `quarkus-messaging-rabbitmq` is on the classpath in a non-production
+launch. Incoming deliveries carry connector metadata automatically; outgoing messages are captured only when they
+already carry `OutgoingRabbitMQMetadata`, so a payload-only emission that relies entirely on channel configuration is
+not recorded. Without the extension the panel reports a clear unavailable reason.
 
 ![BootUI RabbitMQ panel](./images/bootui-rabbitmq.webp)
 
@@ -1331,13 +1336,15 @@ Capture uses the same `JmsActivityRecorder` as Live Activity, so both surfaces s
 also clears retained JMS entries from the merged feed. Filter by destination, message-ID hash, subscription, listener, or
 failure type; narrow the table to produced or consumed messages; and use the confirmation-gated clear action to reset the
 bounded buffer. `bootui.jms.enabled`, `bootui.jms.capture-message-id`, `bootui.jms.max-entries`, and
-`bootui.jms.max-message-id-length` configure both surfaces. The panel is available when a `JmsTemplate` bean is present;
-otherwise it remains visible with a clear unavailable reason.
+`bootui.jms.max-message-id-length` configure both surfaces. The panel is available when a `JmsTemplate` bean is present
+(for example through Spring Boot's Artemis starter); otherwise it remains visible with a clear unavailable reason.
 
 JMS capture is currently Spring-only. On Quarkus the shared route remains visible but reports the panel not yet available;
 BootUI directs Quarkus applications to the Kafka and RabbitMQ panels backed by Reactive Messaging instead. The Spring
 interception uses runtime class proxies, so the JMS panel reports unavailable in a GraalVM native image rather than
 claiming capture is active when those proxies cannot be generated.
+
+![BootUI JMS panel](./images/bootui-jms.webp)
 
 ### AI Usage
 

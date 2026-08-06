@@ -392,10 +392,13 @@ drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-
 When Kafka support is present, BootUI captures producer/consumer outcomes into the Live Activity stream as `MESSAGING`
 entries. Spring does this by wrapping application-owned `KafkaTemplate` and `@KafkaListener` container factory beans;
 Quarkus does it through SmallRye Reactive Messaging Kafka interceptors. Only metadata is captured — topic, partition,
-offset, a hash of the key, timing, success/failure, consumer group id, and listener id — the message value/payload is
-never captured, and failure text is generic so exception messages cannot leak payload or credentials. On Spring, that
-listener-id field currently carries the listener container factory bean name (not the resolved per-`@KafkaListener` id);
-on Quarkus it carries the channel name. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md).
+offset, a hash of the key, timing, success/failure, consumer group id when exposed, and listener id — the message
+value/payload is never captured, and failure text is generic so exception messages cannot leak payload or credentials.
+On Spring, the consumer group is available and the listener-id field currently carries the listener container factory
+bean name (not the resolved per-`@KafkaListener` id); on Quarkus the group is unavailable and the channel name is used
+as the listener id. Quarkus outgoing capture requires `OutgoingKafkaRecordMetadata` to be attached before the interceptor;
+payload-only emissions that rely solely on channel configuration are not recorded. See
+[SPECIFICATION.md §5.14.2](./SPECIFICATION.md).
 
 | Property                             | Default | Description                                                                                                    |
 | ------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -428,7 +431,9 @@ When RabbitMQ support is present, BootUI captures publish/consume activity as `M
 application-owned `RabbitTemplate` before-publish processors and listener-factory advice; Quarkus uses SmallRye Reactive
 Messaging RabbitMQ interceptors. Message bodies and arbitrary headers are never captured. Routing metadata is bounded,
 correlation IDs are omitted by default and stored only as a SHA-256 hash when explicitly enabled, and failure details are
-generic so exception messages cannot leak payload or credential data.
+generic so exception messages cannot leak payload or credential data. On Quarkus, producer exchange, consumer queue, and
+producer duration are unavailable because SmallRye's callbacks do not expose them; outgoing capture also requires
+`OutgoingRabbitMQMetadata` to be attached before the interceptor.
 
 | Property                                         | Default | Description |
 | ------------------------------------------------ | ------- | ----------- |
@@ -508,7 +513,7 @@ The Kafka panel is a dedicated, filterable view over the same producer/consumer 
 
 | Property                       | Default | Description                                                                                                                                        |
 | -------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bootui.panels.kafka.enabled`   | `true`  | Show the Kafka panel when a Kafka integration is present (`KafkaTemplate` on Spring, or `quarkus-messaging-kafka` with a configured channel on Quarkus). |
+| `bootui.panels.kafka.enabled`   | `true`  | Show the Kafka panel when a Kafka integration is present (`KafkaTemplate` on Spring, or `quarkus-messaging-kafka` in a non-production Quarkus launch). Configured channels determine whether activity is captured, not panel availability. |
 | `bootui.panels.kafka.read-only` | `false` | Disable the clear action while keeping captured messages visible.                                                                                  |
 
 ### RabbitMQ

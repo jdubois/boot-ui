@@ -75,7 +75,7 @@ shipped. The bean/dependency graph visualization (§3.2) is the one remaining it
 | 1        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 | No                | Existing roadmap |
 | Done     | E-mail Viewer                         | Services      | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
 | Done     | Live Activity — REST call capture     | Diagnostics   | Intercepted `RestClient`/`RestTemplate`/`WebClient` | No (capture only) | Shipped |
-| Done     | Live Activity — new event types       | Diagnostics   | Cache, scheduled-task, Kafka, JMS, and mail capture sources (see §3.4) | No (capture only) | Cache, Scheduled Tasks, Kafka, JMS (Spring), and Mail all shipped |
+| Done     | Live Activity — new event types       | Diagnostics   | Cache, scheduled-task, Kafka, RabbitMQ, JMS, and mail capture sources (see §3.4) | No (capture only) | Cache, Scheduled Tasks, Kafka, RabbitMQ, JMS (Spring), and Mail all shipped |
 
 The Trace ↔ Log ↔ Request correlation work in §3.1 has shipped as the **Live Activity** panel, building on the
 already-shipped HTTP Exchanges panel and the existing Traces and Log Tail panels. The E-mail Viewer (§3.3) has shipped as
@@ -255,20 +255,22 @@ Scope — new event types, roughly in priority order:
   `OutgoingInterceptor`/`IncomingInterceptor` SPI as the Kafka capture
   (`QuarkusRabbitProducerCapture`/`QuarkusRabbitConsumerCapture`), capability-gated on `IncomingRabbitMQMetadata`
   class presence via a `registerRabbitCapture` deployment build-step (production-dark, R2), exactly like
-  Hibernate/Cache/Flyway. Both adapters capture direction, exchange, routing key, queue, success/failure, timing,
-  and (opt-in via `bootui.rabbitmq.capture-correlation-id=true`, default `false`) a hashed correlation ID —
-  never the message body, arbitrary headers, or raw exception messages. Both SmallRye capture pairs are the sole importers
-  of their connector-specific metadata types, are excluded from bean discovery when their extension is absent, are
-  pass-through/fail-open, and use the lowest interceptor precedence so an application's own channel interceptor wins.
+  Hibernate/Cache/Flyway. Both adapters use the same DTO for direction, routing metadata, success/failure, timing, and
+  (opt-in via `bootui.rabbitmq.capture-correlation-id=true`, default `false`) a hashed correlation ID; Quarkus leaves
+  producer exchange, consumer queue, and producer duration unavailable because SmallRye's callbacks do not expose them.
+  Neither adapter captures the message body, arbitrary headers, or raw exception messages. Both SmallRye capture pairs
+  are the sole importers of their connector-specific metadata types, are excluded from bean discovery when their
+  extension is absent, are pass-through/fail-open, and use the lowest interceptor precedence so an application's own
+  channel interceptor wins.
   `LiveActivityResource` merges both recorders' `MESSAGING` entries into the feed adapter-side (top-level, no request
   correlation), preserving the same wire shape across adapters. Kafka, RabbitMQ, and JMS are three unrelated client APIs,
   so each keeps an adapter-specific interception seam, a framework-neutral recorder, and an independent bounded buffer.
   Interception itself is more invasive than any existing capture source: it means wrapping the app's own messaging beans
   (a `BeanPostProcessor`, mirroring the existing HTTP Exchanges repository wrapper) or registering interceptor/advice
-  hooks, so pass-through-by-default and fail-open wrapping are non-negotiable design constraints, and message bodies
-  need their own bounding/masking design (arbitrary, potentially large application payloads, unlike a SQL statement or
-  HTTP header). On Quarkus, the interception point was different in kind, not just in wiring: Quarkus applications
-  typically use SmallRye Reactive Messaging (`@Incoming`/`@Outgoing` channels) rather than Spring's imperative
+  hooks, so pass-through-by-default and fail-open wrapping are non-negotiable design constraints; message bodies are
+  never captured rather than entrusted to a generic masker (they are arbitrary, potentially large application payloads,
+  unlike a SQL statement or HTTP header). On Quarkus, the interception point was different in kind, not just in wiring:
+  Quarkus applications typically use SmallRye Reactive Messaging (`@Incoming`/`@Outgoing` channels) rather than Spring's imperative
   `spring-kafka`/`spring-rabbit` templates, so the Quarkus capture is a per-adapter interceptor pair rather than the
   thinner Cache/Flyway provider seams — closer to the Beans panel's `BeanProvider` split (CDI vs. Spring bean
   introspection) in spirit, though the shared, framework-neutral recorders and entry mappings keep the engine seam intact.
@@ -278,7 +280,7 @@ Scope — new event types, roughly in priority order:
 - **Captured email — ✅ Shipped (both adapters).** The standalone Email panel (§3.3) already captured every outgoing
   message via the shared, framework-neutral `EmailCaptureService`; this item only adds a `MAIL` entry to the merged Live
   Activity feed, so — like Cache and Scheduled Task runs — it needed no new capture instrumentation, just a read of an
-  existing buffer. Unlike Kafka `MESSAGING` entries (always top-level, no correlation attempted, since a message has no
+  existing buffer. Unlike `MESSAGING` entries (always top-level, no correlation attempted, since a message has no
   single owning request), `MAIL` nests as a `REQUEST` child whenever the captured message's trace id matches an
   in-flight request — the same trace-id-then-thread `parentRequestId` join `SQL`/`CACHE` already use (`EXCEPTION`/
   `SECURITY` predate this join and are correlated differently depending on adapter: on Spring **servlet** (MVC),
@@ -324,9 +326,10 @@ Scope — enhancements on top of the shipped event types, generally cheaper than
   (Scheduled Task runs).
 - **Verify persistence and filtering stay generic over `type`** as new event types are added — `JdbcActivityStore`,
   `BufferedActivityStore`, and the client-side type filter chips pick up new types automatically; keep confirming this
-  with tests if any further event type (e.g. RabbitMQ messaging) lands later.
-- **Add deep links** for each entry type into its own source panel — Cache and Scheduled Tasks entries now link to
-  `/cache` and `/scheduled` respectively, and REST Client entries link to `/rest-client-trace`, joining the existing
+  with tests if any further event type lands.
+- **Add deep links** for each entry type into its own source panel — Cache, Scheduled Tasks, Kafka, RabbitMQ, JMS, and
+  REST Client entries now link to `/cache`, `/scheduled`, `/kafka`, `/rabbitmq`, `/jms`, and `/rest-client-trace`,
+  respectively, joining the existing
   per-entry deep links into HTTP Exchanges (REQUEST), SQL Trace (SQL), and Exceptions (EXCEPTION); the KPI strip's own
   launchpad cards additionally deep-link Health and Heap usage.
 
@@ -334,13 +337,13 @@ Design constraints:
 
 - Every new source stays **read-only** and **fails closed** when its backing bean/class is absent, consistent with
   §3.1/§3.3 and the cross-cutting rules in §4.
-- Sensitive payloads (cache keys/values, message bodies) are masked by default and follow the same value-exposure model
-  as the rest of the panel; cache keys are hashed rather than shown raw even under full exposure.
+- Messaging payloads are never captured; cache values are omitted and cache keys are hashed rather than shown raw even
+  under full exposure.
 - New capture buffers are bounded and self-filtering (BootUI's own traffic must not appear in its own feed), consistent
   with the existing `bootui.monitoring.exclude-self` behaviour.
-- Actual shipped sequencing: Scheduled Task runs and Cache operations landed first, then Kafka messaging, then Mail,
-  then REST call capture last — all five now shipped, each with `REQUEST`-nesting from day one where a nesting
-  relationship applies (Kafka `MESSAGING` is the deliberate exception: always top-level, no correlation attempted).
+- Actual shipped sequencing: Scheduled Task runs and Cache operations landed first, then `MESSAGING` (initially Kafka,
+  later RabbitMQ and Spring JMS), then Mail, and finally REST call capture — all five event types now ship, each with
+  `REQUEST`-nesting where a nesting relationship applies (`MESSAGING` is deliberately always top-level).
 
 ## 4. Cross-cutting work for every new panel
 

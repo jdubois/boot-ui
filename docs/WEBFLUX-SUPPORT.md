@@ -92,7 +92,7 @@ reactive binding (e.g. a `WebFilter` capturing into the same engine store) · `R
 capture layer replacing a servlet-only primitive · `Not yet ported` = deliberately deferred, no reactive
 implementation wired yet · `Not applicable` = no faithful reactive analog exists for this panel's concept.
 
-### 6.1 Ported as-is (37 panels)
+### 6.1 Ported as-is (39 panels)
 
 Bulk-imported from the servlet adapter's `@RestController`s with no code changes at all — confirming these
 controllers were already framework-neutral in practice, not just in the engine underneath them:
@@ -100,10 +100,12 @@ controllers were already framework-neutral in practice, not just in the engine u
 Overview · GitHub · Beans · Conditions · Configuration · Mappings · Health · Loggers · Startup Timeline · Spring Data ·
 Hibernate · Flyway · Liquibase · Database Connection Pools · Cache · Dev Services · Vulnerabilities · Scheduled Tasks ·
 HTTP Probe · Pentesting · Heap Dump · Architecture · REST API advisor · Profile Diff · Spring advisor[^spring-advisor-reactive] ·
-Live Memory · JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory · Email · Kafka.
-`KafkaController` and its `KafkaTemplate`/`@KafkaListener` `BeanPostProcessor` capture pair have no
-`ConditionalOnWebApplication`/reactive-specific code at all, so the panel and its Live Activity `MESSAGING` capture
-work identically to the servlet adapter with zero adapter changes, the same as Email.
+Live Memory · JVM Tuning · Metrics · DevTools · Traces · AI Usage · GraalVM · CRaC · Threads · Memory · Email · Kafka ·
+RabbitMQ · JMS. `KafkaController`, `RabbitController`, and `JmsController`, plus their template/listener-factory
+`BeanPostProcessor` capture pairs, have no `ConditionalOnWebApplication` or reactive-specific code, so the panels and
+their Live Activity `MESSAGING` capture work identically to the servlet adapter with zero adapter changes. JMS remains
+an imperative, blocking broker API, but its work runs on the application's JMS template/listener threads; the WebFlux
+panel only reads the shared in-memory recorder.
 
 [^spring-advisor-reactive]: The `SpringController` wiring itself needed no adapter change, but the ruleset it runs
     (`SpringScanner`/`SpringRules`) is reactive-aware internally: it detects a WebFlux `ReactiveWebApplicationContext`
