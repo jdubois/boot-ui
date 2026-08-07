@@ -129,8 +129,8 @@ accidentally inherit the Reactor Netty event loop.
 
 [^spring-advisor-reactive]: The `SpringController` wiring itself needed no adapter change, but the ruleset it runs
     (`SpringScanner`/`SpringRules`) is reactive-aware internally: it detects a WebFlux `ReactiveWebApplicationContext`
-    the same way `PanelsController.isReactive()` does, skips a servlet-only rule that does not apply
-    (`SPRING-WEB-007`, Tomcat thread cap), also matches `WebClient` beans for the HTTP-client-timeout rule
+    the same way `PanelsController.isReactive()` does, checks the active embedded server before evaluating
+    `SPRING-WEB-007` (the Tomcat thread cap, including reactive Tomcat), also matches `WebClient` beans for the HTTP-client-timeout rule
     (`SPRING-WEB-005`), points four rules' "Learn more" links at the reactive docs page instead of the servlet one,
     and adds two WebFlux-only rules (`SPRING-REACTIVE-001`, `SPRING-REACTIVE-002`) that are otherwise `SKIPPED`. See
     `docs/SPRING-CHECKS.md`.

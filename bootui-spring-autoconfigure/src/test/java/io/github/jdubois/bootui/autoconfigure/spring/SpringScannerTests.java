@@ -12,12 +12,26 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.tomcat.reactive.TomcatReactiveWebServerFactory;
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.scheduling.annotation.AsyncConfigurer;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 class SpringScannerTests {
 
     private static final int RULE_COUNT = 41;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T10:00:00Z"), ZoneOffset.UTC);
+    private final ApplicationContextRunner taskRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(TaskExecutionAutoConfiguration.class));
 
     @Test
     void initialReportIsNotScanned() {
@@ -105,6 +119,58 @@ class SpringScannerTests {
     }
 
     @Test
+    void scannerDetectsTomcatFactoriesAcrossWebStacks() {
+        assertTomcatFactoryTriggersThreadCapRule(TomcatServletWebServerFactory.class, false);
+        assertTomcatFactoryTriggersThreadCapRule(TomcatReactiveWebServerFactory.class, true);
+    }
+
+    @Test
+    void scannerRecognizesBootAndExceptionOnlyAsyncConfigurers() {
+        taskRunner.withUserConfiguration(AsyncEnabledConfiguration.class).run(context -> {
+            assertThat(context.getBeanFactory()
+                            .containsBeanDefinition(
+                                    "org.springframework.scheduling.config.internalAsyncAnnotationProcessor"))
+                    .isTrue();
+            assertThat(context).hasBean("applicationTaskExecutor");
+            SpringReport report =
+                    new SpringScanner(context.getBeanFactory(), context.getEnvironment(), false, CLOCK).scan();
+
+            assertThat(report.results())
+                    .extracting(SpringRuleResultDto::id)
+                    .contains("SPRING-PERF-003", "SPRING-PERF-006");
+        });
+        taskRunner
+                .withUserConfiguration(ExceptionOnlyAsyncConfigurerConfiguration.class)
+                .run(context -> {
+                    SpringReport report =
+                            new SpringScanner(context.getBeanFactory(), context.getEnvironment(), false, CLOCK).scan();
+
+                    assertThat(report.results())
+                            .extracting(SpringRuleResultDto::id)
+                            .contains("SPRING-PERF-003", "SPRING-PERF-006");
+                });
+    }
+
+    @Test
+    void scannerRecognizesSchedulingAnnotationProcessor() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(SchedulingEnabledConfiguration.class)
+                .run(context -> {
+                    assertThat(
+                                    context.getBeanFactory()
+                                            .containsBeanDefinition(
+                                                    "org.springframework.scheduling.config.internalScheduledAnnotationProcessor"))
+                            .isTrue();
+                    SpringReport report =
+                            new SpringScanner(context.getBeanFactory(), context.getEnvironment(), false, CLOCK).scan();
+
+                    assertThat(report.results())
+                            .extracting(SpringRuleResultDto::id)
+                            .contains("SPRING-PERF-005");
+                });
+    }
+
+    @Test
     void applyDismissalsReturnsTheSameReportWhenNothingIsDismissed() {
         SpringScanner scanner = new SpringScanner(findingContext(), CLOCK);
         SpringReport report = scanner.scan();
@@ -166,6 +232,18 @@ class SpringScannerTests {
                 .build();
     }
 
+    private static void assertTomcatFactoryTriggersThreadCapRule(Class<?> factoryType, boolean reactive) {
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerBeanDefinition("webServerFactory", new RootBeanDefinition(factoryType));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.threads.virtual.enabled", "true")
+                .withProperty("server.tomcat.threads.max", "200");
+
+        SpringReport report = new SpringScanner(beanFactory, environment, reactive, CLOCK).scan();
+
+        assertThat(report.results()).extracting(SpringRuleResultDto::id).contains("SPRING-WEB-007");
+    }
+
     @Test
     void analysisErrorsKeepsOnlyErrorResultsSortedById() {
         SpringRuleResultDto pass = result("SPRING-T-001", SpringRuleSupport.PASS);
@@ -194,4 +272,22 @@ class SpringScannerTests {
                 "recommendation",
                 "https://example.com");
     }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableAsync
+    static class AsyncEnabledConfiguration {}
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableAsync
+    static class ExceptionOnlyAsyncConfigurerConfiguration {
+
+        @Bean
+        AsyncConfigurer exceptionOnlyAsyncConfigurer() {
+            return new AsyncConfigurer() {};
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableScheduling
+    static class SchedulingEnabledConfiguration {}
 }
