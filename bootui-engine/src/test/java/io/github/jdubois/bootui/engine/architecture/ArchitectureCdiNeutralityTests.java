@@ -104,7 +104,8 @@ class ArchitectureCdiNeutralityTests {
                 evaluate(new ProxiedMethodsShouldNotBePrivateOrStaticRule(), CdiPrivateTransactionalBean.class);
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anySatisfy(sample -> assertThat(sample).contains("private"));
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("private"));
     }
 
     @Test

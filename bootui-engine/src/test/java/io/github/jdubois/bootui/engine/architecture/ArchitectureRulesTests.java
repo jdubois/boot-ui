@@ -900,11 +900,8 @@ class ArchitectureRulesTests {
 
     private static ArchitectureRuleResultDto evaluate(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = new ClassFileImporter().importClasses(classes);
-        return rule.evaluate(
-                new ArchitectureContext(
-                        importedClasses,
-                        List.of(ArchitectureRulesTests.class.getPackageName()),
-                        ArchitecturePlatform.SPRING));
+        return rule.evaluate(new ArchitectureContext(
+                importedClasses, List.of(ArchitectureRulesTests.class.getPackageName()), ArchitecturePlatform.SPRING));
     }
 
     @RestController
