@@ -304,7 +304,7 @@ the **Use a database** button/confirmation flow, so the panel behaves and looks 
 | ------------------- | ------------------------------------------------------------------------------------------------------ |
 | `Spring` advisor    | **Implemented** — **`Quarkus` advisor**: new Quarkus-native ruleset over the shared scanning engine (CDI/Arc scopes, build-time config, reactive idioms, profiles) under the same panel id `spring` + `/bootui/api/spring` + `SpringReport`. See [QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md) |
 | `Cache`             | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven) |
-| `Security` advisor  | **Implemented** — a Quarkus-native ruleset (Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS, `@RolesAllowed`) under the same panel id `security`, replacing the Spring-Security-coupled checks. See [QUARKUS-CHECKS.md](QUARKUS-CHECKS.md) |
+| `Security` advisor  | **Implemented** — a Quarkus-native ruleset (Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS, Jakarta security annotations, `@PermissionsAllowed`, and `@AuthorizationPolicy`) under the same panel id `security`, replacing the Spring-Security-coupled checks. See [QUARKUS-CHECKS.md](QUARKUS-CHECKS.md) |
 
 ### 5.5 Dropped on Quarkus (8)
 

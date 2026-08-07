@@ -531,9 +531,11 @@ and security beans described above.
 ![BootUI Security panel — Spring Security](./images/bootui-security.webp)
 
 On **Quarkus** it runs a Quarkus-native ruleset instead, reading the application's HTTP permission policies, MicroProfile
-`Config`, and role-annotated endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS
-and transport policy, CORS (including the wildcard-origin-with-credentials trap), security response headers, and
-`@RolesAllowed`/`@PermitAll`/`@DenyAll` usage. It surfaces the same severity-ranked review prompts, so the shared UI only
+`Config`, and authorization-annotated endpoints: Elytron/OIDC authentication,
+`quarkus.http.auth.permission.*` authorization, TLS and transport policy, CORS (including the
+wildcard-origin-with-credentials trap), security response headers, and Jakarta/Quarkus annotations including
+`@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. It surfaces the same severity-ranked review prompts,
+so the shared UI only
 relabels the metrics ("Permission policies" in place of "Filter chains") — the panel is otherwise identical. See
 [QUARKUS-CHECKS.md](QUARKUS-CHECKS.md) for the full Quarkus rule catalogue and remediation links.
 

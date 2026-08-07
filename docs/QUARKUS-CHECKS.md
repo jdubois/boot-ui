@@ -1,13 +1,14 @@
 # Quarkus Security Advisor checks
 
-The Security panel, on Quarkus, runs a fixed, on-demand ruleset against the host application's
+The Security panel, on Quarkus, runs a fixed, on-demand **49-rule** ruleset against the host application's
 **Quarkus security configuration** — not Spring Security. It reads the effective `quarkus.http.*`,
 `quarkus.oidc.*`, `quarkus.smallrye-jwt.*`, `quarkus.tls.*`, `quarkus.management.*`,
 `quarkus.security.users.embedded.*`, `quarkus.rest-csrf.*` (the CSRF extension), `quarkus.grpc.server.*`,
 `quarkus.smallrye-graphql.*`, `quarkus-elytron-security-jdbc` principal-query settings, and Kafka/SmallRye
 Reactive Messaging channel security settings, plus build-time counts of the standard authorization
-annotations (`@RolesAllowed`, `@PermitAll`, `@DenyAll`, `@Authenticated`) discovered in the application's
-own classes. It never intercepts live traffic, exposes credentials or secrets, or modifies the
+annotations (`@RolesAllowed`, `@PermitAll`, `@DenyAll`, `@Authenticated`, `@PermissionsAllowed`, and
+`@AuthorizationPolicy`) discovered in the application's own classes. It never intercepts live traffic,
+exposes credentials or secrets, or modifies the
 configuration. Findings are heuristic review prompts; the right remediation depends on the application's
 threat model and deployment topology.
 
@@ -24,8 +25,9 @@ proxies) are simply not evaluated here, and Quarkus-only concepts below are not 
 The advisor is always available on Quarkus (no extension required) and reads config live. Annotation
 counts are captured at build time; when an app has zero secured endpoints and no auth mechanism, that
 is itself a finding, not an unavailable panel. Missing/invalid values fail safe (counted as absent).
-Several rules are suppressed when the app is configured behind a TLS-terminating reverse proxy
-(`quarkus.http.proxy.proxy-address-forwarding=true`), since transport hardening then lives at the proxy.
+A forwarding configuration (`quarkus.http.proxy.proxy-address-forwarding=true`) is not treated as proof
+that a proxy actually terminates TLS, so listener-level transport findings remain visible and explain that
+a verified terminating proxy can make them acceptable.
 A handful of rules — marked **Quarkus-specific** below — have no Spring Security equivalent at all: they
 cover Quarkus-only capabilities (gRPC, GraphQL, SmallRye Reactive Messaging) or Quarkus-only footguns (the
 non-application root path). The rest are Quarkus ports of the same risk the Spring Security advisor
@@ -46,9 +48,11 @@ The panel lists only checks with findings, ordered by severity, count, then rule
 ## Authentication
 
 ### QS-AUTH-001 - No authentication mechanism configured (HIGH)
-No OIDC, JWT, basic, form, or mTLS auth is configured and no endpoints are role-protected, yet the app
-exposes JAX-RS endpoints. Add an auth mechanism (`quarkus-oidc`, `quarkus-smallrye-jwt`,
-`quarkus.http.auth.basic`) or restrict endpoints with `@RolesAllowed`/`quarkus.http.auth.permission.*`.
+No OIDC, JWT, basic, form, or mTLS auth is configured and no protective permission policy or authorization
+annotation restricts the app, yet it exposes JAX-RS endpoints. `@PermitAll` and `policy=permit` do not suppress
+this finding. Add an auth mechanism (`quarkus-oidc`, `quarkus-smallrye-jwt`,
+`quarkus.http.auth.basic`) or restrict endpoints with `@RolesAllowed`/`@PermissionsAllowed`/
+`quarkus.http.auth.permission.*`.
 (Only raised when at least one endpoint is discovered.)
 
 ### QS-AUTH-002 - Basic authentication without TLS (HIGH)
@@ -70,11 +74,11 @@ with a trusted key are accepted. Set `mp.jwt.verify.issuer` to the expected toke
 pattern, but unannotated endpoints then run anonymously unless explicitly secured — pair it with
 deny-by-default (`quarkus.security.jaxrs.deny-unannotated-endpoints=true`).
 
-### QS-AUTH-006 - JWT signature algorithm not pinned for a remote JWKS (MEDIUM)
-`mp.jwt.verify.publickey.location` points at a remote (`http`/`https`) JWKS endpoint but
-`mp.jwt.verify.publickey.algorithm` is left unset, relying on SmallRye JWT's implicit RS256-only default instead
-of explicitly pinning the expected algorithm(s) for a key source that can rotate/change independently of this
-application. Set `mp.jwt.verify.publickey.algorithm` explicitly to the algorithm(s) this application expects.
+> **Retired: QS-AUTH-006** (JWT signature algorithm not pinned for a remote JWKS) was removed. MicroProfile
+> JWT 2.1 defines `mp.jwt.verify.publickey.algorithm` with an `RS256` default and explicitly describes the
+> property as the algorithm whitelist. Leaving it unset therefore does not accept an unbounded algorithm set;
+> the old rule reported a missing explicit preference even though the effective verifier remained pinned.
+> The rule id is retired and will not be reused.
 
 ### QS-AUTH-007 - Embedded properties-file users enabled (MEDIUM)
 `quarkus.security.users.embedded.enabled=true` authenticates against a static in-memory/properties-file
@@ -99,8 +103,14 @@ mapper) and re-hash stored passwords.
 ### QS-AUTH-012 - Form authentication without TLS (HIGH)
 `quarkus.http.auth.form.enabled=true` while `quarkus.http.insecure-requests=enabled` accepts passwords over
 plain HTTP, exposing them to passive network observers and active intermediaries. Set
-`quarkus.http.insecure-requests=redirect` (or `disabled`) and configure TLS. Suppressed when forwarded headers
-indicate that a trusted reverse proxy terminates TLS.
+`quarkus.http.insecure-requests=redirect` (or `disabled`) and configure TLS. Forwarded-header trust does not
+suppress the finding because it does not prove that a proxy terminates TLS.
+
+### QS-AUTH-013 - Embedded users stored with plain-text passwords (HIGH)
+`quarkus.security.users.embedded.enabled=true` and
+`quarkus.security.users.embedded.plain-text=true` make the embedded identity store accept literal passwords.
+Quarkus defaults `plain-text` to `false` and otherwise expects a digest derived from
+`username:realm:password`. Remove the override and store digest hashes, or use a production identity provider.
 
 > **Retired: QS-AUTH-011** (JDBC identity store bcrypt work-factor too low) was removed. The rule checked
 > `principal-query.*.bcrypt-password-mapper.work-factor`, a property that does not exist:
@@ -113,8 +123,9 @@ indicate that a trusted reverse proxy terminates TLS.
 ## Authorization
 
 ### QS-AUTHZ-001 - No path or role authorization (HIGH)
-An auth mechanism exists but no `quarkus.http.auth.permission.*` policies and no authorization annotations
-restrict any endpoint. Add `@RolesAllowed`/`@Authenticated` or path permissions with
+An auth mechanism exists but no protective `quarkus.http.auth.permission.*` policy, default roles, or
+authorization annotations restrict any endpoint. Disabled policies and broad `policy=permit` blocks do not
+count as protection. Add `@RolesAllowed`/`@PermissionsAllowed`/`@Authenticated` or path permissions with
 `policy=authenticated`/roles.
 
 ### QS-AUTHZ-002 - Permission policy permits all paths (HIGH)
@@ -125,49 +136,58 @@ instead of `permit`. (Paths are parsed as a comma-separated list and matched exa
 CORS-preflight `OPTIONS`-only permit, is scoped to that method and is not flagged either — only a permit with
 no `methods` restriction applies to every HTTP method.)
 
-### QS-AUTHZ-003 - Mostly unsecured endpoints (LOW)
-Fewer than half of discovered endpoints carry an authorization annotation. Confirm the open endpoints are
-intentionally public; add `@Authenticated`/`@RolesAllowed` otherwise.
+### QS-AUTHZ-003 - Most endpoints lack authorization annotations (LOW)
+Fewer than half of discovered endpoints carry an authorization annotation. Path policies can still protect
+them, so this is an annotation-coverage review rather than proof that the endpoints are public. Confirm the
+open endpoints are intentional; add `@Authenticated`/`@RolesAllowed`/`@PermissionsAllowed` otherwise.
 
 ### QS-AUTHZ-004 - No deny-by-default for unannotated endpoints (MEDIUM)
 Authentication is configured but endpoints without an authorization annotation are reachable anonymously:
-`quarkus.security.jaxrs.deny-unannotated-endpoints` is off and no broad permission policy covers them. Set
-`deny-unannotated-endpoints=true` and mark public endpoints `@PermitAll`. (Suppressed only when a broad
+`quarkus.security.jaxrs.deny-unannotated-endpoints` is off, no
+`quarkus.security.jaxrs.default-roles-allowed` value exists, and no broad permission policy covers them. Set
+`deny-unannotated-endpoints=true` (or default roles) and mark public endpoints `@PermitAll`. (Suppressed only when a broad
 non-permit permission policy on `/` or `/*` with **no method restriction** already protects everything; a
 policy scoped to a single HTTP method, e.g. `methods=GET`, does not actually cover every unannotated endpoint
-and so does not suppress this finding.)
+and so does not suppress this finding. Policies with `enabled=false` or no `paths` are ignored, matching
+Quarkus's runtime mapping.)
 
 ## Transport
 
 ### QS-TLS-001 - Insecure requests enabled (LOW)
 `quarkus.http.insecure-requests=enabled` serves plain HTTP. Acceptable in local dev or behind a
 TLS-terminating proxy; risky if exposed directly. Prefer `redirect` once TLS is available, or document the
-terminating proxy. (Suppressed when the app is configured behind a proxy.)
+terminating proxy. The rule uses Quarkus's effective default: absent means `disabled` when
+`quarkus.http.ssl.client-auth=required`, and `enabled` otherwise. Forwarding configuration does not suppress it.
 
-### QS-TLS-002 - No TLS configured (INFO)
-No HTTPS keystore/TLS registry is configured — checked against `quarkus.http.ssl.*`, the default
-`quarkus.tls.*` bucket, **and any named TLS registry bucket** (`quarkus.tls.<name>.key-store.*`, commonly used
-to pin TLS independently for a REST client, gRPC, or OIDC connection). Acceptable behind a terminating proxy.
-(Suppressed when the app is configured behind a proxy.)
+### QS-TLS-002 - No TLS configured for the main HTTP listener (INFO)
+The main HTTP listener has no HTTPS keystore. The check recognizes legacy `quarkus.http.ssl.*`, every supported
+default TLS-registry keystore shape (`quarkus.tls.key-store.pem|p12|jks.*`), and a named bucket only when
+`quarkus.http.tls-configuration-name` selects that bucket. A client-only named bucket no longer hides this
+finding. Acceptable behind a verified terminating proxy.
 
 ### QS-TLS-003 - Outbound TLS certificate validation disabled (HIGH)
 `trust-all=true` is set on the default TLS registry bucket (`quarkus.tls.trust-all`) **or any named bucket**
-(`quarkus.tls.<name>.trust-all`), disabling certificate validation for outbound TLS (REST clients, OIDC,
-datasources, gRPC) on that bucket, enabling man-in-the-middle attacks. Remove `trust-all`; import the peer's
-CA into a trust-store instead.
+(`quarkus.tls.<name>.trust-all`), disabling peer certificate validation wherever that bucket is used and
+enabling man-in-the-middle attacks. Remove `trust-all`; import the peer's CA into a trust-store instead.
 
 ### QS-TLS-004 - Identity-provider and JWK endpoints should use HTTPS (HIGH)
 `quarkus.oidc.auth-server-url` (for the default or any named tenant) or
 `mp.jwt.verify.publickey.location` uses plain HTTP, allowing OIDC discovery metadata or JWT signing keys to be
 modified by an active network attacker. Use HTTPS endpoints with certificate validation enabled.
 
+### QS-TLS-005 - TLS hostname verification disabled (HIGH)
+`quarkus.tls.hostname-verification-algorithm=NONE`, the equivalent setting on a named TLS registry bucket, or
+legacy OIDC `tls.verification=certificate-validation` validates certificate chains without checking that the
+certificate belongs to the requested host. Use the default HTTPS hostname verification. A named OIDC TLS
+configuration supersedes the legacy OIDC setting and avoids a duplicate/obsolete finding.
+
 ## CORS
 
 ### QS-CORS-001 - CORS allows any origin (MEDIUM)
 CORS is enabled with an **explicit** wildcard origin — `quarkus.http.cors.origins` is exactly `*` or the
-bare regex `/.*/ ` — allowing any site to call the API. Set explicit origins. (Unset/absent origins are
+bare regex `/.*/` — allowing any site to call the API. Set explicit origins. (Unset/absent origins are
 **not** treated as a wildcard — see QS-CORS-005 below; Quarkus's own `CORSFilter.isOriginConfiguredWithWildcard`
-only matches when the configured origin list has exactly one entry equal to `*`/`/.*/ `, so e.g.
+only matches when the configured origin list has exactly one entry equal to `*`/`/.*/`, so e.g.
 `*,https://app.example` is a literal two-entry list, not a wildcard, and is not flagged here either.)
 
 ### QS-CORS-002 - CORS wildcard origin with credentials (CRITICAL)
@@ -177,7 +197,9 @@ combine wildcard with credentials.
 
 ### QS-CORS-003 - Credentialed CORS with wildcard methods or headers (MEDIUM)
 CORS allows credentials with a pinned (non-wildcard) origin but a wildcard `quarkus.http.cors.methods`/`headers`
-list, widening the cross-origin surface. List the exact methods and headers the client needs instead of `*`.
+list, widening the cross-origin surface. Quarkus treats an **unset or empty** methods/headers list, or a
+single `*`, as wildcard; a multi-entry list merely containing `*` is not modeled as wildcard. List the exact
+methods and headers the client needs instead.
 Credentials are considered "allowed" here either when `access-control-allow-credentials=true` is set
 explicitly, **or** when it is left unset and `origins` is configured as one or more precisely-pinned literal
 values (no `*`, no `/regex/`) — mirroring Quarkus's real `CORSFilter` default,
@@ -207,8 +229,9 @@ effectively inert until origins are configured. If cross-origin access is intend
 ## Headers
 
 ### QS-HDR-001 - Weak Strict-Transport-Security policy (LOW)
-The HSTS header has a `max-age` under one year or omits `includeSubDomains`, weakening HTTPS enforcement.
-Use `max-age=31536000` (1 year) and add `includeSubDomains`.
+The HSTS header has a `max-age` under one year, weakening HTTPS enforcement. Use
+`max-age=31536000` (1 year). `includeSubDomains` is intentionally not required: RFC 6797 makes it optional,
+and enabling it without securing every subdomain can break legitimate deployments.
 
 ### QS-HDR-002 - Weak Content-Security-Policy (MEDIUM)
 The CSP allows `'unsafe-inline'`/`'unsafe-eval'` or a wildcard `default-src`/`script-src`, undermining its
@@ -217,7 +240,8 @@ XSS protection. Remove unsafe-inline/unsafe-eval and wildcard sources; use nonce
 ### QS-HDR-003 - Missing Strict-Transport-Security header (LOW)
 No `Strict-Transport-Security` response header is configured, so browsers fall back to trusting whatever
 scheme a link/redirect uses instead of enforcing HTTPS. Add
-`quarkus.http.header."Strict-Transport-Security".value=max-age=31536000; includeSubDomains`.
+`quarkus.http.header."Strict-Transport-Security".value=max-age=31536000`; add `includeSubDomains` only after
+every subdomain is HTTPS-ready.
 
 ### QS-HDR-004 - Missing Content-Security-Policy header (LOW)
 No `Content-Security-Policy` response header is configured, losing a defense-in-depth control against XSS
@@ -245,14 +269,16 @@ geolocation, …) at their default availability instead of explicitly disabled w
 
 ## Dev exposure
 
-### QS-DEV-001 - OIDC TLS verification disabled (MEDIUM)
+### QS-DEV-001 - OIDC TLS verification disabled (HIGH)
 `quarkus.oidc.tls.verification=none` disables provider certificate validation. Sometimes used against a
-local dev provider, but must never reach production.
+local dev provider, but must never reach production. This legacy setting is deprecated in Quarkus 3.33 in
+favor of a TLS registry configuration.
 
-### QS-DEV-002 - OpenAPI/Swagger/GraphQL UI always included (MEDIUM)
-`quarkus.swagger-ui.always-include=true`, `quarkus.smallrye-openapi.always-include=true`, or
-`quarkus.smallrye-graphql.ui.always-include=true` exposes API docs and/or the GraphQL UI in all profiles,
-including production. Restrict to dev, or remove `always-include`.
+### QS-DEV-002 - Swagger/GraphQL UI always included (MEDIUM)
+`quarkus.swagger-ui.always-include=true` or `quarkus.smallrye-graphql.ui.always-include=true` exposes the
+Swagger or GraphQL UI in all profiles, including production. Restrict it to dev, or remove `always-include`.
+There is no `quarkus.smallrye-openapi.always-include` property in Quarkus 3.33, so that former dead predicate
+is no longer evaluated.
 
 ### QS-DEV-003 - SmallRye Health UI always included (LOW)
 `quarkus.smallrye-health.ui.always-include=true` exposes the Health UI in every profile, including
@@ -303,11 +329,11 @@ dev/test default and could never catch a real prod-facing `0.0.0.0`. See QS-MGMT
 case where neither key is pinned at all.)
 
 ### QS-MGMT-002 - Non-application endpoints merged into the main application path (MEDIUM)
-**Quarkus-specific — no Spring equivalent.** `quarkus.http.non-application-root-path=/` collapses
-health/metrics/OpenAPI endpoints into the main application namespace instead of keeping them on the
-separate `/q` root, widening the app's exposed surface and risking accidental path collisions
-([quarkusio/quarkus#14800](https://github.com/quarkusio/quarkus/issues/14800)). Leave
-`non-application-root-path` at its default (`/q`), or use the separate management interface
+**Quarkus-specific — no Spring equivalent.** A `quarkus.http.non-application-root-path` that resolves to
+`quarkus.http.root-path` (including the documented `${quarkus.http.root-path}` form) collapses
+health/metrics/OpenAPI endpoints into the main application namespace instead of keeping them under the
+default relative `q` root, widening the app's exposed surface and risking accidental path collisions. Leave
+`non-application-root-path` at its default (`q`), or use the separate management interface
 (`quarkus.management.enabled=true`) instead.
 
 ### QS-MGMT-003 - Management interface has no explicit prod-scoped host binding (INFO)
@@ -321,13 +347,14 @@ when nothing is pinned and Quarkus's prod-mode default would take over unnoticed
 ## Config hygiene
 
 ### QS-CFG-001 - Possible secret in configuration (CRITICAL)
-A config key looks like a password/secret/token set to a literal value (not an externalized `${...}`
-reference). Scans **all** configuration keys, including the `quarkus.*` namespace — e.g.
+A config key's terminal segment identifies a password, secret, API key, private key, token, or access/refresh token
+set to a literal value (not an externalized `${...}` reference). Scans application and `%prod` configuration,
+including the `quarkus.*` namespace — e.g.
 `quarkus.datasource.password`, `quarkus.oidc.credentials.secret`, `quarkus.mail.password` are all in scope,
-alongside application-owned keys. Only BootUI's own internal `bootui.*` keys are excluded. Move secrets to a
-vault/env var; never commit literals. (An earlier version of this rule excluded the entire `quarkus.*`
-namespace from scanning, meaning the most common real-world Quarkus secret-bearing properties could never be
-flagged regardless of their literal value; that blanket exclusion has been removed.)
+alongside application-owned keys. Environment-variable and system-property sources, `${...}` expressions,
+`%dev`/`%test` values, BootUI internals, and non-secret keys that merely contain words such as
+`quarkus.oidc.token.issuer` are excluded. Only key names enter the report; values never do. Move committed
+literals to a vault/env var.
 
 ## Session
 
