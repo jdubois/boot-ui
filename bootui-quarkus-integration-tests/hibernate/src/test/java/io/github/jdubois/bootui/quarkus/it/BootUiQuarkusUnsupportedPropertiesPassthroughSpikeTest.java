@@ -21,9 +21,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Live-runtime spike (HIB-CONFIG-005, see docs/HIBERNATE-CHECKS.md) proving that Quarkus' generic
  * {@code quarkus.hibernate-orm.unsupported-properties."..."} escape hatch — the fallback
- * {@code QuarkusHibernatePropertyLookup} uses for {@code hibernate.order_inserts}/{@code hibernate.order_updates},
- * which have no first-class {@code quarkus.hibernate-orm.*} equivalent — actually reaches vanilla Hibernate ORM's
- * own bootstrapped {@link org.hibernate.boot.spi.SessionFactoryOptions}, not just that BootUI's own property
+ * {@code QuarkusHibernatePropertyLookup} uses for native Hibernate settings — actually reaches vanilla Hibernate
+ * ORM's own bootstrapped {@link org.hibernate.boot.spi.SessionFactoryOptions}, not just that BootUI's own property
  * lookup reads the SmallRye Config value back. Bytecode inspection of the shipped
  * {@code quarkus-hibernate-orm-deployment} jar already showed {@code FastBootMetadataBuilder} merges
  * {@code unsupported-properties} verbatim into Hibernate's build-time settings; this test is the corroborating
@@ -72,7 +71,7 @@ class BootUiQuarkusUnsupportedPropertiesPassthroughSpikeTest {
         }
         assertThat(violationIds)
                 .as("hibernate.order_inserts/order_updates reached via the unsupported-properties passthrough"
-                        + " (with batching also configured via quarkus.hibernate-orm.jdbc.statement-batch-size)"
+                        + " (with hibernate.jdbc.batch_size also configured through that passthrough)"
                         + " must be read back so HIB-CONFIG-005 does not false-positive")
                 .doesNotContain("HIB-CONFIG-005");
     }
@@ -81,7 +80,7 @@ class BootUiQuarkusUnsupportedPropertiesPassthroughSpikeTest {
         @Override
         public Map<String, String> getConfigOverrides() {
             return Map.of(
-                    "quarkus.hibernate-orm.jdbc.statement-batch-size",
+                    "quarkus.hibernate-orm.unsupported-properties.\"hibernate.jdbc.batch_size\"",
                     "25",
                     "quarkus.hibernate-orm.unsupported-properties.\"hibernate.order_inserts\"",
                     "true",

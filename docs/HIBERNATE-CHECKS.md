@@ -100,8 +100,9 @@ includes up to a handful of sample mapped members plus a remediation link.
   `@Basic(fetch = FetchType.LAZY)`.
 - **Enhancement requirement**: Hibernate ORM 7 requires bytecode enhancement to honor lazy basic attributes. This rule
   deliberately does not recommend `@Basic(fetch = LAZY)` when enhancement is unavailable; HIB-FETCH-007 instead reports
-  existing ineffective lazy-basic declarations. Quarkus enhances entities at build time, while Spring applications must
-  configure enhancement explicitly.
+  existing ineffective lazy-basic declarations. The advisor relies on transformed-class evidence or an adapter-verified
+  platform capability; an ordinary Hibernate enhancement setting alone does not prove that application classes were
+  transformed. Quarkus provides that verified capability at build time.
 
 ### HIB-FETCH-006 - Collection associations should not declare @Fetch(JOIN)
 
@@ -211,13 +212,12 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 - **Severity**: HIGH
 - **Inspects**: `@EmbeddedId` attribute types and `@IdClass` values (including inherited from a superclass).
-- **Fires when**: the composite identifier class is not `Serializable`, has no public no-arg constructor, or does not
-  override both `equals` and `hashCode`.
-- **Why it matters**: JPA and Hibernate require all four for a composite identifier class to work correctly - this is a
-  pure, deterministic contract check with essentially zero false-positive risk. Violating any of these can silently
-  break entity equality, second-level caching, and collection lookups.
-- **Recommendation**: make the composite identifier class implement `Serializable`, declare a public no-arg constructor,
-  and override both `equals` and `hashCode` over every identifier field.
+- **Fires when**: the composite identifier class is not `Serializable`; a non-record class has no public or protected
+  no-arg constructor; or the class does not override both `equals` and `hashCode`.
+- **Why it matters**: a composite identifier needs stable equality and a construction path that JPA can use. A record
+  supplies its canonical constructor and generated equality methods, so it is exempt from the no-arg-constructor check.
+- **Recommendation**: make the composite identifier class implement `Serializable`. For a non-record class, declare a
+  public or protected no-arg constructor and override both `equals` and `hashCode` over every identifier field.
 - **Quarkus/Panache**: applies identically - this check inspects only the identifier class via reflection, with no
   framework-specific behavior.
 
@@ -239,8 +239,10 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Severity**: MEDIUM
 - **Inspects**: `@ManyToMany` mappings and their Java collection type.
 - **Fires when**: a many-to-many association is declared as `List`.
-- **Why it matters**: list-backed many-to-many mappings can force delete-and-reinsert behavior for join-table rows.
-- **Recommendation**: use `Set`, or model the join table as an entity when it has attributes or business meaning.
+- **Why it matters**: a many-to-many link table is not owned by either entity like a child foreign key is. A `List` adds
+  ordering and lifecycle complexity even when `@OrderColumn` persists that order.
+- **Recommendation**: use `Set` when ordering is not domain-significant. When link order or attributes matter, model the
+  link table as an entity instead.
 
 ### HIB-MAP-003 - Enum attributes should declare an explicit storage strategy
 
@@ -324,12 +326,13 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 ### HIB-MAP-011 - Entity classes should not be final
 
-- **Severity**: HIGH
-- **Inspects**: `@Entity` classes for the `final` modifier.
-- **Fires when**: an entity is declared `final`.
-- **Why it matters**: Hibernate cannot create runtime proxies for lazy associations or bytecode-enhanced state when the
-  class is final.
-- **Recommendation**: remove the `final` modifier from entities (and avoid Kotlin classes without `open`).
+- **Severity**: INFO
+- **Inspects**: `@Entity` classes for the `final` modifier and their bytecode-enhancement state.
+- **Fires when**: an entity is declared `final` and is not proven bytecode-enhanced.
+- **Why it matters**: final entities are not Jakarta-portable and cannot use subclass proxies for lazy to-one associations.
+  Bytecode enhancement is a valid alternative and is not itself blocked by a final declaration.
+- **Recommendation**: prefer non-final entities (and `open` Kotlin entities) when lazy subclass proxies are needed.
+  Bytecode-enhanced entities are exempt.
 
 ### HIB-MAP-012 - SINGLE_TABLE inheritance should declare @DiscriminatorColumn
 
@@ -344,7 +347,9 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 - **Severity**: INFO
 - **Inspects**: persistent `String` attributes (excluding identifiers and `@Lob` fields).
-- **Fires when**: there is no `@Column(length=...)` and no `columnDefinition`.
+- **Fires when**: there is no `@Column` mapping and no `columnDefinition`. Reflection cannot distinguish
+  `@Column(length = 255)` from the annotation's default length, so an existing `@Column` is treated as an explicit
+  mapping.
 - **Why it matters**: generated DDL defaults to 255 characters, which can clash with domain expectations or database
   constraints.
 - **Recommendation**: set `@Column(length=...)` to match the domain, or use `@Lob`/`columnDefinition` for free-text
@@ -376,30 +381,17 @@ includes up to a handful of sample mapped members plus a remediation link.
   issue to discriminate between null and a real proxy.
 - **Recommendation**: set `@ManyToOne(optional=false)` whenever the join column is non-nullable.
 
-### HIB-MAP-017 - Lazy owning @OneToOne requires bytecode enhancement
-
-- **Severity**: INFO
-- **Inspects**: optional owning `@OneToOne` associations.
-- **Fires when**: the association is `FetchType.LAZY`, `optional` is not `false`, no `@MapsId` is declared, and Hibernate
-  bytecode enhancement is not enabled.
-- **Why it matters**: Hibernate cannot proxy the missing-or-present discriminator on the owning side without the
-  enhancer, so it silently fetches the association eagerly.
-- **Recommendation**: enable `hibernate.bytecode.enhancer.enableLazyInitialization` (and configure the enhancement
-  plugin), or switch to `@MapsId` so the existing foreign key drives loading.
-- **Quarkus**: bytecode enhancement is always considered enabled. Quarkus enhances every Hibernate ORM entity's
-  bytecode unconditionally at build time (there is no `quarkus.hibernate-orm.enhancement.*` opt-out), so this check
-  never fires there.
-
 ### HIB-MAP-018 - Non-owning @OneToOne triggers N+1 queries
 
 - **Severity**: HIGH
-- **Inspects**: non-owning (`mappedBy`) `@OneToOne` associations and whether Hibernate bytecode enhancement is enabled.
-- **Fires when**: bytecode enhancement is disabled and an entity declares a non-owning `@OneToOne` association.
+- **Inspects**: non-owning (`mappedBy`) `@OneToOne` associations and whether the declaring entity is bytecode enhanced.
+- **Fires when**: bytecode enhancement is not proven and an entity declares a non-owning `@OneToOne` association.
 - **Why it matters**: without bytecode enhancement Hibernate cannot create a lazy proxy for a non-owning `@OneToOne`, so
   it loads the association eagerly with an extra query per parent row — the classic N+1 pattern.
 - **Recommendation**: enable bytecode enhancement, or replace the bidirectional `@OneToOne` with a shared primary key
   (`@MapsId`) and a unidirectional mapping.
-- **Quarkus**: bytecode enhancement is always considered enabled (see HIB-MAP-017), so this check never fires there.
+- **Quarkus**: bytecode enhancement is verified by the adapter's unconditional build-time entity enhancement, so this
+  check never fires there.
 
 ### HIB-MAP-019 - Missing foreign key indexes
 
@@ -416,6 +408,8 @@ includes up to a handful of sample mapped members plus a remediation link.
   schema with Flyway/Liquibase, ensure the index exists in your migrations.
 - **Noise controls**: inferred join-column names are skipped because a physical naming strategy can rewrite them, and
   migration-managed schemas are skipped because JPA annotations cannot prove whether the migration created an index.
+  Shared-primary-key `@MapsId` associations are also skipped because the join column is already the primary-key access
+  path.
 
 ### HIB-MAP-020 - Unidirectional @OneToMany with @JoinColumn issues extra UPDATE statements
 
@@ -438,6 +432,8 @@ includes up to a handful of sample mapped members plus a remediation link.
   migrated before or during an ORM 7 upgrade.
 - **Recommendation**: use `@SQLRestriction` / `@SQLJoinTableRestriction`, or Hibernate's `@SoftDelete` for supported
   soft-delete mappings.
+- **Runtime scope**: this check is most useful while scanning an ORM 6.x application before migration. On ORM 7 the
+  removed annotation types prevent a compatible mapping from starting, rather than yielding a live advisory finding.
 
 ### HIB-MAP-022 - Explicit ordinal enum mappings should be reviewed
 
@@ -527,15 +523,17 @@ includes up to a handful of sample mapped members plus a remediation link.
 ### HIB-ENTITY-007 - Assigned IDs should implement Persistable
 
 - **Severity**: MEDIUM
-- **Inspects**: entities with assigned identifiers (lacking `@GeneratedValue`) and no `@Version` attribute.
-- **Fires when**: the entity does not implement `org.springframework.data.domain.Persistable`.
+- **Inspects**: Spring Data repository domain entities with assigned identifiers (lacking `@GeneratedValue`) and no
+  `@Version` attribute.
+- **Fires when**: a discovered Spring Data repository domain entity does not implement
+  `org.springframework.data.domain.Persistable`.
 - **Why it matters**: when using assigned identifiers such as a natural key or application-created UUID, Spring Data cannot
   determine whether the entity is new or detached because the ID is already populated. It assumes the entity might exist
   and issues a `SELECT` before `INSERT`.
 - **Recommendation**: implement `Persistable<ID>` and manage the `isNew()` flag manually, for example via a `@Transient`
   flag set after loading or defaulting to true, so Spring Data avoids the unnecessary `SELECT` before every insert.
-- **Quarkus**: skipped entirely (whole-rule) when `spring-data-commons` is not on the classpath. The concern is specific
-  to Spring Data's repository `save()` merge-vs-persist decision; Panache's own `persist()`/`persistAndFlush()` always
+- **Quarkus**: skipped entirely because no Spring Data repository metadata is available. The concern is specific to
+  Spring Data's repository `save()` merge-vs-persist decision; Panache's own `persist()`/`persistAndFlush()` always
   issues an `INSERT` and never probes existence first, so there is nothing to recommend on a Quarkus/Panache app.
 
 ### HIB-ENTITY-008 - Mutable entities should declare @Version for optimistic locking
@@ -573,13 +571,17 @@ runtime repository/query metadata with enough fidelity to evaluate these rules r
 Quarkus rather than guessing from Panache method names or generated bytecode. Mapping, identifier, fetching, configuration,
 and caching rules still run on Quarkus against the live JPA metamodel.
 
-### HIB-QUERY-001 - @Modifying queries should clear or flush the persistence context
+The JPQL checks deliberately use bounded, heuristic parsing rather than a full JPQL parser. Queries with nested aliases,
+subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 
-- **Severity**: HIGH
+### HIB-QUERY-001 - @Modifying bulk queries should clear stale persistence context
+
+- **Severity**: INFO
 - **Inspects**: Spring Data JPA `@Modifying` annotations on repository methods.
-- **Fires when**: a `@Modifying` method does not set `clearAutomatically` or `flushAutomatically`.
+- **Fires when**: a `@Modifying` method does not set `clearAutomatically`.
 - **Why it matters**: the persistence context can hold stale entities after a bulk update or delete, leading to
-  hard-to-diagnose data inconsistencies.
+  hard-to-diagnose data inconsistencies. `flushAutomatically` only synchronizes pending changes before the bulk query;
+  it does not evict the stale managed entities afterward.
 - **Recommendation**: set `@Modifying(clearAutomatically=true)` (and `flushAutomatically=true` when pending changes must
   be applied first), or evict affected entities explicitly before issuing the bulk statement.
 
@@ -593,14 +595,15 @@ and caching rules still run on Quarkus against the live JPA metamodel.
 - **Recommendation**: annotate the caller with `@Transactional(readOnly = true)`, consume the stream inside a
   try-with-resources block, and close it before the transaction ends; otherwise prefer `Page<>` or a bounded `List<>`.
 
-### HIB-QUERY-003 - Native paged @Query must declare countQuery
+### HIB-QUERY-003 - Native Page queries should review count derivation
 
-- **Severity**: HIGH
-- **Inspects**: Spring Data `@Query(nativeQuery=true)` methods with `Pageable` or returning `Page<>`.
+- **Severity**: INFO
+- **Inspects**: Spring Data `@Query(nativeQuery=true)` methods returning `Page<>`.
 - **Fires when**: `countQuery` is missing.
-- **Why it matters**: Spring Data cannot derive a correct COUNT statement from a native query, so paging either fails to
-  start or executes the wrong COUNT.
-- **Recommendation**: add `countQuery = "..."` to the `@Query` so paging can compute totals reliably.
+- **Why it matters**: Spring Data can derive a count query for some simple native SQL, but complex SQL can require an
+  explicit count query or JSqlParser support.
+- **Recommendation**: review the generated count query. Add `countQuery = "..."` when Spring Data cannot derive a correct
+  count, especially for complex native SQL.
 
 ### HIB-QUERY-004 - Derived deleteBy methods load entities before deletion
 
@@ -682,6 +685,8 @@ and caching rules still run on Quarkus against the live JPA metamodel.
 - **Fires when**: the property is absent or non-positive.
 - **Why it matters**: write-heavy code otherwise sends insert/update/delete statements one at a time.
 - **Recommendation**: set a bounded batch size, such as 25, and tune it with representative workloads.
+- **Quarkus**: `quarkus.hibernate-orm.jdbc.statement-batch-size` has no native default, so an unset value leaves
+  Hibernate batching disabled and this INFO prompt remains applicable.
 
 ### HIB-CONFIG-005 - JDBC batching should order inserts and updates
 
@@ -705,6 +710,8 @@ and caching rules still run on Quarkus against the live JPA metamodel.
 - **Fires when**: no positive threshold is configured.
 - **Why it matters**: a local slow-query threshold helps spot expensive SQL before it reaches shared environments.
 - **Recommendation**: configure a bounded threshold in development and staging profiles.
+- **Quarkus**: the neutral Hibernate threshold keys map to
+  `quarkus.hibernate-orm.log.queries-slower-than-ms`, so a native Quarkus threshold is recognized.
 
 ### HIB-CONFIG-007 - Hibernate statistics should be enabled when tuning
 
@@ -749,22 +756,23 @@ and caching rules still run on Quarkus against the live JPA metamodel.
 - **Fires when**: query cache is enabled without a configured second-level cache provider, or when second-level cache is
   explicitly disabled.
 - **Why it matters**: query caching depends on the second-level cache infrastructure and proper entity caching.
-- **Recommendation**: disable query caching or configure a region factory and cache entities returned by cacheable entity
-  queries.
+- **Recommendation**: disable query caching or configure an effective region factory and cache entities returned by
+  cacheable entity queries.
 - **Quarkus**: `hibernate.cache.use_query_cache` maps to `quarkus.hibernate-orm.second-level-caching-enabled` via
   `QuarkusHibernatePropertyLookup` — Quarkus exposes a single unified toggle for second-level/query caching, not a
   separate query-cache property, so both the query-cache and second-level-cache reads resolve to the same Quarkus
-  setting. `hibernate.cache.region.factory_class` has no first-class Quarkus equivalent but is still reachable via
-  the `unsupported-properties` fallback if explicitly configured.
+  setting. When enabled, Quarkus supplies its integrated second-level cache implementation even though it does not
+  expose a `hibernate.cache.region.factory_class` property.
 
 ### HIB-CONFIG-011 - Cacheable entities should declare an explicit cache strategy
 
 - **Severity**: MEDIUM
 - **Inspects**: entity-level `@Cacheable` and Hibernate `@Cache` when second-level caching appears configured.
-- **Fires when**: an entity is JPA-cacheable but does not declare an explicit Hibernate cache strategy.
+- **Fires when**: an entity is JPA-cacheable but does not declare an explicit Hibernate cache strategy or a valid
+  `hibernate.cache.default_cache_concurrency_strategy` is not configured.
 - **Why it matters**: cache concurrency behavior should be explicit for cached entities.
-- **Recommendation**: add a Hibernate cache concurrency strategy, or remove `@Cacheable` when the entity should not use the
-  second-level cache.
+- **Recommendation**: add a Hibernate cache concurrency strategy, configure a valid default cache concurrency strategy,
+  or remove `@Cacheable` when the entity should not use the second-level cache.
 - **Quarkus**: `hibernate.cache.use_second_level_cache` maps to the same
   `quarkus.hibernate-orm.second-level-caching-enabled` toggle as HIB-CONFIG-010, so the precondition check for
   "second-level caching appears configured" is read correctly on Quarkus too.
@@ -814,17 +822,16 @@ and caching rules still run on Quarkus against the live JPA metamodel.
   and lacks the resilience and monitoring of a production pool.
 - **Recommendation**: remove the property and rely on Spring Boot's managed `DataSource` (HikariCP by default).
 
-### HIB-CONFIG-015 - spring.jpa.defer-datasource-initialization is only safe with embedded DDL flows
+### HIB-CONFIG-015 - Deferred script initialization should have an intentional order
 
-- **Severity**: MEDIUM
+- **Severity**: INFO
 - **Inspects**: `spring.jpa.defer-datasource-initialization` and `spring.jpa.hibernate.ddl-auto`.
-- **Fires when**: deferred initialization is enabled while `ddl-auto` is explicitly set to a value other than `create`,
-  `create-drop`, or `update`. If `ddl-auto` is unset, the check is skipped because embedded-database defaults can still
-  make deferred initialization meaningful.
-- **Why it matters**: the property is meaningful only when Hibernate creates or updates the schema; otherwise `data.sql`
-  is never executed by that flow and the configuration is misleading.
-- **Recommendation**: combine deferred initialization with `ddl-auto=create`/`create-drop`, or remove it and load seed
-  data through your migration tool (Flyway, Liquibase).
+- **Fires when**: deferred initialization is enabled.
+- **Why it matters**: the property moves script-based datasource initialization until after JPA initialization. That can
+  be intentional with schema validation or externally managed schemas, but the initialization owner and ordering should
+  be explicit.
+- **Recommendation**: verify that script-based initialization has the intended owner and order. Do not infer that scripts
+  are ineffective solely because Hibernate validates or does not generate the schema.
 
 ### HIB-CONFIG-016 - Fail on pagination over collection fetch
 
@@ -849,12 +856,13 @@ and caching rules still run on Quarkus against the live JPA metamodel.
 ### HIB-CONFIG-017 - Disable SQL formatting in production
 
 - **Severity**: LOW
-- **Inspects**: the `hibernate.format_sql` property and the active Spring profiles.
-- **Fires when**: a production profile is active and `hibernate.format_sql` is `true`.
-- **Why it matters**: pretty-printing SQL adds CPU and memory overhead, and Hibernate formats the statements even when SQL
-  logging is disabled, so it is wasted work in production.
-- **Recommendation**: disable `hibernate.format_sql` in production profiles and keep it enabled only for local development
-  where readable SQL helps.
+- **Inspects**: the `hibernate.format_sql` property, SQL-logging state, and active Spring profiles.
+- **Fires when**: a production profile is active, `hibernate.format_sql` is `true`, and SQL logging is enabled.
+- **Why it matters**: Hibernate formats a statement only when it logs that statement. Formatting every verbose SQL log
+  line adds avoidable CPU and allocation work in production.
+- **Recommendation**: disable `hibernate.format_sql` when verbose SQL logging is enabled in production.
+- **Quarkus**: `quarkus.hibernate-orm.log.format-sql` defaults to `true`, but it is inert unless
+  `quarkus.hibernate-orm.log.sql` or an equivalent Hibernate SQL logger is enabled.
 
 ### HIB-CONFIG-018 - Bind-parameter logging should be off in production
 
@@ -872,15 +880,16 @@ and caching rules still run on Quarkus against the live JPA metamodel.
 
 ## Caching
 
-### HIB-CACHE-001 - Cached entities should also cache their associations
+### HIB-CACHE-001 - Cached entity association coverage should be reviewed
 
-- **Severity**: MEDIUM
+- **Severity**: INFO
 - **Inspects**: entities annotated with `@Cacheable` or Hibernate `@Cache` and the entities they associate with.
 - **Fires when**: an association on a cached entity targets another entity that is itself uncached.
-- **Why it matters**: loading the aggregate from the cache still hits the database for every uncached association,
-  defeating much of the cache's value.
-- **Recommendation**: annotate the associated entities (or the association attributes) with
-  `@org.hibernate.annotations.Cache` so the second-level cache covers the whole graph.
+- **Why it matters**: loading a cached aggregate can still query an uncached target, but caching target entities and
+  caching collection roles have different semantics and costs. The right coverage depends on real hit rates, mutability,
+  and access patterns.
+- **Recommendation**: measure cache hit rates and access patterns before caching associated entities or collection roles.
+  Leave mutable or low-hit targets uncached when that better fits the workload.
 
 ### HIB-CACHE-002 - READ_ONLY cache strategy on writable entities is unsafe
 
