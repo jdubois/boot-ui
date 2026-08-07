@@ -16,9 +16,9 @@ final class SecurityModel {
     /**
      * One {@code SecurityFilterChain} and the salient, read-only facts the advisor needs about it.
      *
-     * @param permitsAllAnonymous best-effort result of simulating an anonymous request through the
-     *     chain's authorization manager ({@code TRUE} when fully public, {@code null} when it could
-     *     not be determined)
+     * @param permitsAllAnonymous best-effort result of simulating a bounded set of anonymous requests
+     *     across common paths and HTTP methods through the chain's authorization manager ({@code
+     *     TRUE} when every probe is granted, {@code null} when it could not be determined)
      * @param sessionFixationDisabled {@code TRUE} when the session-management strategy was detected
      *     to skip session-fixation protection, {@code null} when it could not be determined
      * @param headerWriterNames simple class names of the {@code HeaderWriter}s installed by the
@@ -36,7 +36,8 @@ final class SecurityModel {
      * @param authorizationRuleShadowed {@code TRUE} when an earlier, broader {@code
      *     authorizeHttpRequests} matcher in this chain shadows a later, narrower one (so the later
      *     rule can never take effect), {@code FALSE} when no shadowing was detected, {@code null}
-     *     when the chain's {@code AuthorizationManager} could not be introspected
+     *     when the chain's {@code AuthorizationManager} was absent, wrapped by an unrecognized
+     *     implementation, or could not be introspected
      * @param rememberMeKeyLength the length of the configured remember-me signing key, when a
      *     {@code RememberMeAuthenticationFilter} is present and its key could be read, {@code null}
      *     otherwise. Only the length is retained -- never the key itself -- so a short/predictable
