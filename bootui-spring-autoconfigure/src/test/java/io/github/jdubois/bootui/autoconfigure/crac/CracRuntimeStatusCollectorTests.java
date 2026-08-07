@@ -109,6 +109,25 @@ class CracRuntimeStatusCollectorTests {
     }
 
     @Test
+    void surfacesHikariLifecycleIssuesAsRestoreCaveat() {
+        CracRuntimeInventory inventory = new CracRuntimeInventory(
+                List.of(),
+                List.of(),
+                List.of("dataSource : com.zaxxer.hikari.HikariDataSource - allowPoolSuspension=false"),
+                List.of(),
+                true,
+                false,
+                false);
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                new MockEnvironment(), List::of, className -> false, () -> inventory, () -> null);
+
+        CracRuntimeStatusDto status = collector.collect();
+
+        assertThat(status.restoreCaveats())
+                .anyMatch(caveat -> caveat.contains("allowPoolSuspension=false") && caveat.contains("CRAC-POOL-004"));
+    }
+
+    @Test
     void warnsWhenEnvironmentClaimsCheckpointOnRefreshButSpringPropertyIsUnset() {
         // Spring Boot's Environment can see spring.context.checkpoint from application.yml or an OS
         // environment variable, but Spring Framework's DefaultLifecycleProcessor only ever honors the

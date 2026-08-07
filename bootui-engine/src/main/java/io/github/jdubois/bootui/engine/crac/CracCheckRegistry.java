@@ -15,16 +15,17 @@ final class CracCheckRegistry {
             new SocketConstructionCheck(),
             new ConnectionPoolCheck(),
             new UnmanagedHttpClientFieldCheck(),
-            new SpringHttpClientFacadeFieldCheck(),
+            new HikariCheckpointLifecycleCheck(),
             new CacheManagerCheck(),
             new UnmanagedThreadCheck(),
+            new SpringTaskLifecycleCheck(),
             new ScheduledFixedRateTaskCheck(),
             new CapturedTimeCheck(),
             new CapturedConfigurationCheck(),
             new RandomFieldCheck(),
             new SecureRandomFieldCheck(),
             new CapturedSecretFieldCheck(),
-            new ResourceRegistrationCheck(),
+            new TlsMaterialFieldCheck(),
             new CracDependencyCheck());
 
     private CracCheckRegistry() {}

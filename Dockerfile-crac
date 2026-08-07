@@ -74,6 +74,8 @@ WORKDIR /app
 # docker-compose-crac.yml so the checkpoint survives container restarts.
 ENV CRAC_CHECKPOINT_DIR=/opt/crac/checkpoint
 ENV APP_JAR=/app/app.jar
+# Spring Boot's Hikari checkpoint lifecycle suspends new borrows before draining the pool.
+ENV SPRING_DATASOURCE_HIKARI_ALLOWPOOLSUSPENSION=true
 
 # Run the sample app with its "dev" profile *active* (not merely the default).
 # BootUI's activation condition checks Environment.getActiveProfiles(), which does

@@ -212,8 +212,9 @@ public class BootUiEngineConfiguration {
     CracReadinessScanner bootUiCracReadinessScanner(
             BasePackageProvider basePackageProvider, ApplicationContext applicationContext) {
         // Reuses the shared BasePackageProvider SPI (live base packages) and reads a live runtime inventory of
-        // auto-configured resources (connection pools, cache managers) through the engine's CracRuntimeInventory
-        // supplier seam; this adapter supplies the Spring bean inspection so bootui-engine stays framework-neutral.
+        // auto-configured resources (connection pools, Hikari lifecycle evidence, local caches, and partial-lifecycle
+        // task executors) through the engine's CracRuntimeInventory supplier seam; this adapter supplies the Spring
+        // bean inspection so bootui-engine stays framework-neutral.
         // The ArchUnit import runs only on demand (POST /scan), never at bean construction.
         return CracReadinessScanner.usingClasspath(
                 basePackageProvider::basePackages,

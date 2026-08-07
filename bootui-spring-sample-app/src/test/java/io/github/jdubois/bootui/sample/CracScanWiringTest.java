@@ -40,5 +40,10 @@ class CracScanWiringTest {
         assertThat(result.basePackages()).contains("io.github.jdubois.bootui.sample");
         assertThat(result.classesAnalyzed()).isPositive();
         assertThat(result.checksRun()).isPositive();
+        assertThat(result.findings()).anySatisfy(finding -> {
+            assertThat(finding.id()).isEqualTo("CRAC-POOL-004");
+            assertThat(finding.status()).isEqualTo("REVIEW");
+            assertThat(finding.sampleOccurrences()).anyMatch(sample -> sample.contains("HikariDataSource"));
+        });
     }
 }

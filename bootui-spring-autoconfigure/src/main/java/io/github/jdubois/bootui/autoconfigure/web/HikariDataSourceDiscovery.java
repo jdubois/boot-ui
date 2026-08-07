@@ -63,18 +63,34 @@ public final class HikariDataSourceDiscovery {
         }
     }
 
-    private static HikariDataSource hikariTarget(DataSource dataSource) {
+    /**
+     * Returns the Hikari pool behind a DataSource proxy or wrapper, if one is exposed through Spring AOP
+     * or the JDBC unwrap contract.
+     */
+    public static HikariDataSource hikariTarget(DataSource dataSource) {
+        return hikariTarget(dataSource, false);
+    }
+
+    /**
+     * Returns an already-created Hikari target without resolving a dynamic Spring AOP target or an unknown
+     * wrapper. BootUI's tracing proxy is safe to unwrap because it can only wrap an existing DataSource.
+     */
+    public static HikariDataSource existingHikariTarget(DataSource dataSource) {
+        return hikariTarget(dataSource, true);
+    }
+
+    private static HikariDataSource hikariTarget(DataSource dataSource, boolean existingOnly) {
         if (dataSource instanceof HikariDataSource hikariDataSource) {
             return hikariDataSource;
         }
-        HikariDataSource advisedTarget = advisedTarget(dataSource);
+        HikariDataSource advisedTarget = advisedTarget(dataSource, existingOnly);
         if (advisedTarget != null) {
             return advisedTarget;
         }
-        return wrapperTarget(dataSource);
+        return !existingOnly || isBootUiTracingProxy(dataSource) ? wrapperTarget(dataSource) : null;
     }
 
-    private static HikariDataSource advisedTarget(DataSource dataSource) {
+    private static HikariDataSource advisedTarget(DataSource dataSource, boolean existingOnly) {
         ClassLoader classLoader = HikariDataSourceDiscovery.class.getClassLoader();
         if (!ClassUtils.isPresent("org.springframework.aop.framework.Advised", classLoader)) {
             return null;
@@ -89,14 +105,28 @@ public final class HikariDataSourceDiscovery {
                 return null;
             }
             Class<?> targetSourceType = ClassUtils.forName("org.springframework.aop.TargetSource", classLoader);
+            if (existingOnly
+                    && !Boolean.TRUE.equals(
+                            targetSourceType.getMethod("isStatic").invoke(targetSource))) {
+                return null;
+            }
             Object target = targetSourceType.getMethod("getTarget").invoke(targetSource);
             if (target == dataSource || !(target instanceof DataSource targetDataSource)) {
                 return null;
             }
-            return hikariTarget(targetDataSource);
+            return hikariTarget(targetDataSource, existingOnly);
         } catch (ReflectiveOperationException | LinkageError | RuntimeException ex) {
             return null;
         }
+    }
+
+    private static boolean isBootUiTracingProxy(DataSource dataSource) {
+        for (Class<?> interfaceType : dataSource.getClass().getInterfaces()) {
+            if ("io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource".equals(interfaceType.getName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static HikariDataSource wrapperTarget(DataSource dataSource) {
@@ -104,12 +134,12 @@ public final class HikariDataSourceDiscovery {
             if (dataSource.isWrapperFor(HikariDataSource.class)) {
                 return dataSource.unwrap(HikariDataSource.class);
             }
-        } catch (SQLException ex) {
+        } catch (SQLException | RuntimeException ex) {
             // Try unwrap below; some proxies only implement one side of Wrapper.
         }
         try {
             return dataSource.unwrap(HikariDataSource.class);
-        } catch (SQLException ex) {
+        } catch (SQLException | RuntimeException ex) {
             return null;
         }
     }

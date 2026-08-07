@@ -58,9 +58,6 @@ class CracReadinessScannerTests {
         assertThat(report.classesAnalyzed()).isPositive();
         assertThat(report.findings())
                 .allSatisfy(finding -> assertThat(finding.status()).isEqualTo("REVIEW"));
-        // CRAC-LIFECYCLE-001 is intentionally absent here: ManagedResourceLifecycle and
-        // ManagedClassWithUnrelatedLeak both implement org.crac.Resource, so the "no implementations
-        // found" check now reports OK. See resourceRegistrationCheckIsOkWhenAnImplementerExists().
         assertThat(report.findings())
                 .extracting(CracFindingDto::id)
                 .contains(
@@ -73,9 +70,10 @@ class CracReadinessScannerTests {
                         "CRAC-RANDOM-001",
                         "CRAC-RANDOM-002",
                         "CRAC-SECRET-001",
+                        "CRAC-SECRET-002",
                         "CRAC-SCHED-001",
-                        "CRAC-POOL-002",
-                        "CRAC-POOL-003");
+                        "CRAC-POOL-002")
+                .doesNotContain("CRAC-LIFECYCLE-001", "CRAC-POOL-003");
         assertThat(report.findings().stream().map(CracFindingDto::severity).toList())
                 .isSortedAccordingTo(Comparator.comparingInt(SeverityOrder::rank));
         assertThat(report.severityCounts())
@@ -85,23 +83,35 @@ class CracReadinessScannerTests {
     }
 
     @Test
-    void resourceRegistrationCheckIsOkWhenAnImplementerExists() {
-        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
-        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
-
-        // ManagedResourceLifecycle and ManagedClassWithUnrelatedLeak both implement org.crac.Resource,
-        // so CRAC-LIFECYCLE-001 ("no implementations found") reports OK and is filtered out of findings().
-        assertThat(report.findings()).extracting(CracFindingDto::id).doesNotContain("CRAC-LIFECYCLE-001");
+    void registryContainsTheAuditedCheckInventory() {
+        assertThat(CracCheckRegistry.activeChecks())
+                .extracting(check -> check.definition().id())
+                .containsExactly(
+                        "CRAC-RES-001",
+                        "CRAC-FILE-001",
+                        "CRAC-NET-001",
+                        "CRAC-POOL-001",
+                        "CRAC-POOL-002",
+                        "CRAC-POOL-004",
+                        "CRAC-CACHE-001",
+                        "CRAC-THREAD-001",
+                        "CRAC-THREAD-002",
+                        "CRAC-SCHED-001",
+                        "CRAC-TIME-001",
+                        "CRAC-CONFIG-001",
+                        "CRAC-RANDOM-001",
+                        "CRAC-RANDOM-002",
+                        "CRAC-SECRET-001",
+                        "CRAC-SECRET-002",
+                        "CRAC-LIFECYCLE-002");
     }
 
     @Test
-    void managedLifecycleReopeningResourcesInCallbacksIsExempt() {
+    void managedLifecycleExemptsOnlyRestoreAcquisitionAndMatchingCleanup() {
         CracReadinessScanner scanner = scanner(List.of(FIXTURES));
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
-        // ManagedResourceLifecycle implements org.crac.Resource and re-acquires its socket, file,
-        // executor pool, and HTTP client from afterRestore() - the exact pattern each check's own
-        // recommendation text suggests. None of these should be (re-)flagged.
+        // Restore-time acquisition is exempt, while field checks still require compatible cleanup.
         assertThat(findingSamples(report, "CRAC-NET-001"))
                 .noneMatch(sample -> sample.contains("ManagedResourceLifecycle"));
         assertThat(findingSamples(report, "CRAC-FILE-001"))
@@ -111,7 +121,7 @@ class CracReadinessScannerTests {
         assertThat(findingSamples(report, "CRAC-RES-001"))
                 .noneMatch(sample -> sample.contains("ManagedResourceLifecycle"));
         assertThat(findingSamples(report, "CRAC-POOL-002"))
-                .noneMatch(sample -> sample.contains("ManagedResourceLifecycle"));
+                .anyMatch(sample -> sample.contains("ManagedResourceLifecycle"));
     }
 
     @Test
@@ -119,11 +129,33 @@ class CracReadinessScannerTests {
         CracReadinessScanner scanner = scanner(List.of(FIXTURES));
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
-        // ManagedClassWithUnrelatedLeak implements org.crac.Resource, but opens its socket from an
-        // unrelated method, not from beforeCheckpoint()/afterRestore(); the call-site-scoped exemption
-        // must not let this leak slip through just because the enclosing class is otherwise managed.
+        // An overload named afterRestore is not the Resource callback and must not receive its exemption.
         assertThat(findingSamples(report, "CRAC-NET-001"))
                 .anyMatch(sample -> sample.contains("ManagedClassWithUnrelatedLeak"));
+    }
+
+    @Test
+    void acquisitionDuringBeforeCheckpointIsNotExempt() {
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        assertThat(findingSamples(report, "CRAC-NET-001"))
+                .anyMatch(sample -> sample.contains("ManagedBeforeCheckpointAcquisition"));
+        assertThat(findingSamples(report, "CRAC-FILE-001"))
+                .anyMatch(sample -> sample.contains("ManagedBeforeCheckpointAcquisition"));
+        assertThat(findingSamples(report, "CRAC-THREAD-001"))
+                .anyMatch(sample -> sample.contains("ManagedBeforeCheckpointAcquisition"));
+        assertThat(findingSamples(report, "CRAC-RANDOM-001"))
+                .anyMatch(sample -> sample.contains("ManagedBeforeCheckpointAcquisition"));
+    }
+
+    @Test
+    void overloadedCallbackDoesNotProvideCleanupEvidenceForResourceField() {
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        assertThat(findingSamples(report, "CRAC-RES-001"))
+                .anyMatch(sample -> sample.contains("ManagedClassWithoutCleanup"));
     }
 
     @Test
@@ -141,9 +173,14 @@ class CracReadinessScannerTests {
                 .orElseThrow();
         assertThat(secureRandom.severity()).isEqualTo("INFO");
         assertThat(secureRandom.sampleOccurrences()).anyMatch(sample -> sample.contains("NoArgSecureRandomHolder"));
+        assertThat(findingSamples(report, "CRAC-RANDOM-001"))
+                .noneMatch(sample -> sample.contains("ManagedRestoreSecureRandom"));
         assertThat(findingSamples(report, "CRAC-SECRET-001"))
                 .anyMatch(sample -> sample.contains("InstanceSecretHolder"));
-        assertThat(findingSamples(report, "CRAC-SECRET-001")).anyMatch(sample -> sample.contains("SslSecretHolder"));
+        assertThat(findingSamples(report, "CRAC-SECRET-001")).noneMatch(sample -> sample.contains("SslSecretHolder"));
+        assertThat(findingSamples(report, "CRAC-SECRET-002")).anyMatch(sample -> sample.contains("SslSecretHolder"));
+        assertThat(findingSamples(report, "CRAC-SECRET-002")).anyMatch(sample -> sample.contains("trustManagers"));
+        assertThat(findingSamples(report, "CRAC-SECRET-001")).noneMatch(sample -> sample.contains("TokenUrlHolder"));
     }
 
     @Test
@@ -182,16 +219,13 @@ class CracReadinessScannerTests {
     }
 
     @Test
-    void scanFlagsSpringHttpClientFacadesAtReviewSeverity() {
+    void scanDoesNotTreatSpringHttpClientFacadesAsTransportOwners() {
         CracReadinessScanner scanner = scanner(List.of(FIXTURES));
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
-        CracFindingDto finding = report.findings().stream()
-                .filter(candidate -> "CRAC-POOL-003".equals(candidate.id()))
-                .findFirst()
-                .orElseThrow();
-        assertThat(finding.severity()).isEqualTo("MEDIUM");
-        assertThat(finding.sampleOccurrences()).anyMatch(sample -> sample.contains("SpringHttpClientHolder"));
+        assertThat(report.findings()).extracting(CracFindingDto::id).doesNotContain("CRAC-POOL-003");
+        assertThat(findingSamples(report, "CRAC-POOL-002"))
+                .noneMatch(sample -> sample.contains("SpringHttpClientHolder"));
     }
 
     @Test
@@ -208,6 +242,20 @@ class CracReadinessScannerTests {
         assertThat(dependency.severity()).isEqualTo("MEDIUM");
         assertThat(dependency.status()).isEqualTo("REVIEW");
         assertThat(dependency.occurrenceCount()).isEqualTo(1);
+    }
+
+    @Test
+    void missingCracDependencyIsHighWhenCheckpointOnRefreshIsConfigured() {
+        CracRuntimeInventory inventory =
+                new CracRuntimeInventory(List.of(), List.of(), List.of(), List.of(), false, true, false);
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
+
+        CracFindingDto dependency = scanner.report(scanner.scan(), RUNTIME).findings().stream()
+                .filter(finding -> "CRAC-LIFECYCLE-002".equals(finding.id()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(dependency.severity()).isEqualTo("HIGH");
     }
 
     @Test
@@ -246,6 +294,21 @@ class CracReadinessScannerTests {
     }
 
     @Test
+    void runtimeInventoryFailureDegradesToVisibleWarning() {
+        CracReadinessScanner scanner =
+                new CracReadinessScanner(() -> List.of(FIXTURES), new ClassFileCracImporter(), CLOCK, () -> {
+                    throw new IllegalStateException("inventory boom");
+                });
+
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.warnings())
+                .anyMatch(warning -> warning.contains("runtime inventory could not be collected")
+                        && warning.contains("inventory boom"));
+    }
+
+    @Test
     void scanWithoutConnectionPoolsDoesNotFlagPoolCheck() {
         CracReadinessScanner scanner = scanner(List.of(FIXTURES));
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
@@ -256,7 +319,7 @@ class CracReadinessScannerTests {
     @Test
     void scanFlagsConnectionPoolWhenInventoryReportsOne() {
         CracRuntimeInventory inventory =
-                new CracRuntimeInventory(List.of("dataSource : com.zaxxer.hikari.HikariDataSource"));
+                new CracRuntimeInventory(List.of("redisConnectionFactory : example.RedisConnectionFactory"));
         CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
 
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
@@ -268,7 +331,7 @@ class CracReadinessScannerTests {
         assertThat(pool.severity()).isEqualTo("HIGH");
         assertThat(pool.status()).isEqualTo("REVIEW");
         assertThat(pool.occurrenceCount()).isEqualTo(1);
-        assertThat(pool.sampleOccurrences()).anyMatch(sample -> sample.contains("HikariDataSource"));
+        assertThat(pool.sampleOccurrences()).anyMatch(sample -> sample.contains("RedisConnectionFactory"));
     }
 
     @Test
@@ -279,6 +342,69 @@ class CracReadinessScannerTests {
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
         assertThat(report.findings()).extracting(CracFindingDto::id).doesNotContain("CRAC-SCHED-001");
+    }
+
+    @Test
+    void scheduledCheckRunsAfterAProcessHasAlreadyBeenRestored() {
+        CracRuntimeInventory inventory =
+                new CracRuntimeInventory(List.of(), List.of(), List.of(), List.of(), true, true, true);
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
+
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        assertThat(report.findings()).extracting(CracFindingDto::id).contains("CRAC-SCHED-001");
+    }
+
+    @Test
+    void scanFlagsHikariLifecycleIssueWhenInventoryReportsOne() {
+        CracRuntimeInventory inventory = new CracRuntimeInventory(
+                List.of(),
+                List.of(),
+                List.of("dataSource : com.zaxxer.hikari.HikariDataSource - allowPoolSuspension=false"),
+                List.of(),
+                true,
+                false,
+                false);
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
+
+        CracFindingDto finding = scanner.report(scanner.scan(), RUNTIME).findings().stream()
+                .filter(candidate -> "CRAC-POOL-004".equals(candidate.id()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(finding.severity()).isEqualTo("HIGH");
+        assertThat(finding.sampleOccurrences()).anyMatch(sample -> sample.contains("allowPoolSuspension=false"));
+    }
+
+    @Test
+    void scanFlagsSpringTaskBeanWithoutFullLifecycle() {
+        CracRuntimeInventory inventory = new CracRuntimeInventory(
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("taskExecutor : org.springframework.core.task.SimpleAsyncTaskExecutor"),
+                true,
+                false,
+                false);
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
+
+        CracFindingDto finding = scanner.report(scanner.scan(), RUNTIME).findings().stream()
+                .filter(candidate -> "CRAC-THREAD-002".equals(candidate.id()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+        assertThat(finding.sampleOccurrences()).anyMatch(sample -> sample.contains("SimpleAsyncTaskExecutor"));
+    }
+
+    @Test
+    void unstartedThreadAndMonotonicTimeAreBoundaryNonFindings() {
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        assertThat(findingSamples(report, "CRAC-THREAD-001"))
+                .noneMatch(sample -> sample.contains("UnstartedThreadHolder"));
+        assertThat(findingSamples(report, "CRAC-TIME-001")).noneMatch(sample -> sample.contains("MonotonicTimeHolder"));
     }
 
     @Test

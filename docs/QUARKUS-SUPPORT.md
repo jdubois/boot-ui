@@ -318,8 +318,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - **Hibernate advisor query rules:** mapping/configuration rules run against Quarkus' JPA metamodel, but HIB-QUERY rules
   remain unavailable because Panache exposes no reliable runtime equivalent of Spring Data repository query metadata.
 - **Servlet-only / low value on a reactive stack:** `HTTP Sessions`.
-- **Superseded or moot:** `GraalVM` readiness (Quarkus is native-first with its own build), `CRaC` (native focus makes
-  it niche), `DevTools` (**Implemented as `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
+- **Superseded or moot:** `GraalVM` readiness (Quarkus is native-first with its own build), `CRaC` (BootUI's advisor and
+  generated assets depend on Spring `LifecycleProcessor`, Spring scheduling, Spring Boot Hikari integration, and
+  `spring.context.checkpoint=onRefresh`, so partial reuse would be misleading), `DevTools` (**Implemented as
+  `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
   Spring-style DevTools restart/LiveReload to expose; the panel reports *not applicable* rather than *not yet*).
 
 ### 5.6 Not yet available on Quarkus (1)
@@ -556,7 +558,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Profile Diff        | **done**    | Adapt   | Config service                   | `ConfigProvider` → SmallRye profiles        |
 | Security            | **done**    | Replace | Quarkus security ruleset         | Quarkus-native checks (OIDC/auth/TLS/CORS/annotations); see QUARKUS-CHECKS.md |
 | GraalVM             | **done**    | Drop    | —                                | Quarkus native-first; `NOT_APPLICABLE`      |
-| CRaC                | **done**    | Drop    | —                                | native focus; `NOT_APPLICABLE`              |
+| CRaC                | **done**    | Drop    | —                                | Spring lifecycle-specific; `NOT_APPLICABLE` |
 | DevTools            | **done**    | Drop    | —                                | Quarkus live reload built in; `NOT_APPLICABLE` |
 | Conditions          | spring-only | Drop    | —                                | no runtime conditions report                |
 | Startup Timeline    | spring-only | Drop    | —                                | not applicable: build-time augmentation, no runtime per-step buffer |

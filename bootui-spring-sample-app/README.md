@@ -405,7 +405,9 @@ as the application context finishes refreshing. This requires the
 declares it; the version is managed by the Spring Boot BOM) in addition to the
 CRaC-enabled JDK. With the default `dev` profile the only resources are in-memory
 (H2 and a simple cache), so no socket or file descriptor is open at checkpoint
-time and CRaC can snapshot the process directly. The sample app does not
+time and CRaC can snapshot the process directly. The CRaC image also enables
+`spring.datasource.hikari.allow-pool-suspension=true`, allowing Spring Boot's
+`HikariCheckpointRestoreLifecycle` to block new borrows while it drains the pool. The sample app does not
 implement any custom [`org.crac.Resource`](https://crac.org/) callbacks. Run the
 BootUI **CRaC** panel's readiness scan first if you add code that holds OS
 resources directly.

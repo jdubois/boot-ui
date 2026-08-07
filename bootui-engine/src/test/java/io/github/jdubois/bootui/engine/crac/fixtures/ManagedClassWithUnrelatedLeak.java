@@ -6,10 +6,9 @@ import org.crac.Context;
 import org.crac.Resource;
 
 /**
- * Implements {@code org.crac.Resource} but opens a socket from an unrelated method rather than from
- * {@link #beforeCheckpoint(Context)}/{@link #afterRestore(Context)}. CRAC-NET-001's exemption is
- * scoped to calls that originate from the managed callback methods themselves, not to the whole
- * class, so this leak must still be flagged.
+ * Implements {@code org.crac.Resource} but opens a socket from an overload that is not the real
+ * {@link #afterRestore(Context)} callback. CRAC-NET-001's exemption validates the callback signature,
+ * so this acquisition must still be flagged.
  */
 public class ManagedClassWithUnrelatedLeak implements Resource {
 
@@ -23,7 +22,7 @@ public class ManagedClassWithUnrelatedLeak implements Resource {
         // No resource to re-acquire here; the leak below is intentionally outside this callback.
     }
 
-    public Socket connect() throws IOException {
+    public Socket afterRestore(String ignored) throws IOException {
         return new Socket("localhost", 9090);
     }
 }

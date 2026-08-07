@@ -850,12 +850,14 @@ reports whether the `org.crac` API is on the classpath, whether the running JVM 
 CRaC or BellSoft Liberica, detected via the real CRaC implementation rather than the no-op shim), whether
 `spring.context.checkpoint=onRefresh` is set, and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments (read
 from the same `RuntimeMXBean` input arguments the JVM Tuning panel uses). On demand the readiness advisor imports the
-application's own classes (bounded to the detected base package(s)) and runs a curated set of `CRaC-*` checks for
-constructs that complicate checkpoint/restore — open resources and file handles held outside a managed CRaC/Spring
-lifecycle, network listeners (including NIO channels), live connection pools, cache managers, and HTTP/RPC clients,
-unmanaged threads and fixed-rate scheduled tasks that may run a catch-up burst after an on-demand restore, captured
-timestamps, captured environment/system configuration, Random/SecureRandom and secret state held in static or instance
-fields, and a missing `org.crac.Resource` registration or `org.crac:crac` dependency. After a scan, the concerns list
+application's own classes (bounded to the detected base package(s)) and runs 17 curated `CRaC-*` checks. The checks review
+direct resource acquisition separately from resource liveness, require observable cleanup before suppressing resource
+fields, distinguish Spring Boot's Hikari lifecycle and pool-suspension evidence from other remote clients, limit cache
+findings to known local managers, and flag direct background work plus Spring thread-per-task executors with incomplete
+lifecycle support. They also cover Spring's documented fixed-rate catch-up behavior, retained startup time/configuration,
+provider-specific Random/SecureRandom behavior, bounded secret and TLS-state fields, and a missing `org.crac:crac`
+dependency. Runtime observations never initialize a lazy pool, and inventory failures remain visible as scan warnings.
+After a scan, the concerns list
 can be filtered in place by severity, category, or free-text search to focus on a subset of findings without rerunning
 the scan. The checks are heuristic review aids that complement, but do not replace, an actual checkpoint/restore run on
 a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what
@@ -868,7 +870,9 @@ starts). The build command is tailored to the detected build system (Maven or Gr
 file can be downloaded, and — when the application is running from an exploded build (for example `mvn spring-boot:run`
 or an IDE) rather than a packaged jar — written directly into the project root. Writes are fail-closed and never
 overwrite a file BootUI did not generate. This shares the same source-tree writer the GraalVM panel uses for its
-`Dockerfile-native`.
+`Dockerfile-native`. The generated local run command includes CRIU's `CHECKPOINT_RESTORE`, `SYS_PTRACE`, `SYS_ADMIN`, and
+`NET_ADMIN` capabilities; the panel does not claim that string generation can replace a real Linux checkpoint/restore
+test.
 
 > **Not available in GraalVM native images.** CRaC (Coordinated Restore at Checkpoint) is a JVM-only feature and is
 > mutually exclusive with native executables; the panel is automatically hidden when the application is detected to be

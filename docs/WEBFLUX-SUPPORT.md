@@ -122,6 +122,10 @@ their Live Activity `MESSAGING` capture work identically to the servlet adapter 
 an imperative, blocking broker API, but its work runs on the application's JMS template/listener threads; the WebFlux
 panel only reads the shared in-memory recorder.
 
+CRaC uses the same framework-neutral scanner and Spring runtime inventory on MVC and WebFlux. Its pool inventory includes
+R2DBC factories, and its task/scheduling checks use Spring context APIs rather than servlet types. Generated assets still
+target a JVM process and Spring's checkpoint lifecycle; they do not imply Quarkus or native-image support.
+
 These controllers keep their synchronous servlet-facing signatures. On WebFlux, the centralized
 `ReactiveBootUiHandlerAdapter` dispatches their argument resolution and handler invocation on bounded-elastic threads,
 so controller-local scheduler annotations or endpoint allowlists are not required and new shared handlers cannot
