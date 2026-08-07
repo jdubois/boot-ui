@@ -7,16 +7,13 @@ import java.util.Set;
 
 /**
  * Read-only inputs handed to every reactive Spring Security advisor rule: the observed
- * {@code SecurityWebFilterChain}s, CORS/OAuth2 facts, and the precomputed environment snapshot. Built
- * by {@link ReactiveSecurityScanner} from a {@link ReactiveSecurityObservation}.
+ * {@code SecurityWebFilterChain}s, CORS facts, and the precomputed environment snapshot. Built by
+ * {@link ReactiveSecurityScanner} from a {@link ReactiveSecurityObservation}.
  */
 record ReactiveSecurityContext(
         List<WebFilterChainObservation> chains,
         List<CorsConfigObservation> corsConfigs,
-        boolean corsSourcePresent,
-        List<String> reactiveJwtDecoderTypes,
-        List<String> oauth2TokenValidatorTypes,
-        List<String> opaqueTokenIntrospectorTypes,
+        boolean corsObservationComplete,
         ReactiveSecurityEnvironmentSnapshot environment) {
 
     private static final List<String> SENSITIVE_ACTUATOR_ENDPOINTS =
@@ -25,9 +22,6 @@ record ReactiveSecurityContext(
     ReactiveSecurityContext {
         chains = List.copyOf(chains);
         corsConfigs = List.copyOf(corsConfigs);
-        reactiveJwtDecoderTypes = List.copyOf(reactiveJwtDecoderTypes);
-        oauth2TokenValidatorTypes = List.copyOf(oauth2TokenValidatorTypes);
-        opaqueTokenIntrospectorTypes = List.copyOf(opaqueTokenIntrospectorTypes);
         environment = environment == null ? ReactiveSecurityEnvironmentSnapshot.empty() : environment;
     }
 
@@ -35,10 +29,7 @@ record ReactiveSecurityContext(
         return new ReactiveSecurityContext(
                 observation.chains(),
                 observation.corsConfigs(),
-                observation.corsSourcePresent(),
-                observation.reactiveJwtDecoderTypes(),
-                observation.oauth2TokenValidatorTypes(),
-                observation.opaqueTokenIntrospectorTypes(),
+                observation.corsObservationComplete(),
                 observation.environment());
     }
 

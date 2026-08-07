@@ -36,8 +36,8 @@ import org.springframework.web.server.WebFilter;
 
 /**
  * Collects a framework-neutral {@link ReactiveSecurityObservation} from the application's registered
- * {@code SecurityWebFilterChain} beans, CORS/OAuth2 beans, and {@code Environment} for the reactive
- * Spring Security advisor engine.
+ * {@code SecurityWebFilterChain} beans, CORS beans, and {@code Environment} for the reactive Spring
+ * Security advisor engine.
  *
  * <p>This class owns every piece of Spring-specific collection the advisor needs: bean lookups,
  * reflection into Spring Security's internal filter/header-writer fields, and {@code Environment} /
@@ -55,6 +55,7 @@ public final class SpringReactiveSecurityObservationCollector {
 
     private static final String BOOT_UI_CHAIN_BEAN_NAME = "bootUiReactiveSecurityWebFilterChain";
     private static final Duration FILTER_COLLECT_TIMEOUT = Duration.ofSeconds(5);
+    private static final int MAX_HEADER_WRITER_DEPTH = 8;
     private static final String SPRING_MATCHER_PACKAGE = "org.springframework.security.web.server.util.matcher.";
 
     private static final Pattern SUSPECTED_SECRET_KEY = Pattern.compile(
@@ -95,26 +96,19 @@ public final class SpringReactiveSecurityObservationCollector {
         }
 
         ListableBeanFactory beanFactory = beanFactories.getIfAvailable();
-        List<String> reactiveJwtDecoderTypes =
-                beanTypeNames(beanFactory, "org.springframework.security.oauth2.jwt.ReactiveJwtDecoder");
-        List<String> oauth2TokenValidatorTypes =
-                beanTypeNames(beanFactory, "org.springframework.security.oauth2.core.OAuth2TokenValidator");
-        List<String> opaqueTokenIntrospectorTypes = beanTypeNames(
-                beanFactory,
-                "org.springframework.security.oauth2.server.resource.introspection.ReactiveOpaqueTokenIntrospector");
-
         List<CorsConfigObservation> corsConfigs = new ArrayList<>();
-        boolean corsSourcePresent = discoverCors(beanFactory, corsConfigs, errors);
+        CorsDiscovery corsDiscovery = discoverCors(beanFactory, corsConfigs, errors);
 
         return new ReactiveSecurityObservation(
                 chains,
                 corsConfigs,
-                corsSourcePresent,
-                reactiveJwtDecoderTypes,
-                oauth2TokenValidatorTypes,
-                opaqueTokenIntrospectorTypes,
+                corsDiscovery.sourcePresent(),
+                List.of(),
+                List.of(),
+                List.of(),
                 environmentSnapshot(),
-                errors);
+                errors,
+                corsDiscovery.complete());
     }
 
     // ── Application chain discovery (bean-name exclusion, not WebFilterChainProxy reflection) ──────
@@ -156,13 +150,13 @@ public final class SpringReactiveSecurityObservationCollector {
                 : webFilters.stream()
                         .map(filter -> filter.getClass().getSimpleName())
                         .toList();
-        Boolean permitsAllAnonymous = webFilters == null ? null : detectPermitsAllAnonymous(webFilterNames);
+        Boolean permitsAllAnonymous = webFilters == null ? null : !webFilterNames.contains("AuthorizationWebFilter");
         if (webFilters == null) {
             errors.add("Chain " + index + ": web filters could not be collected");
         }
         boolean bearerTokenAuthentication = webFilters != null
                 && webFilters.stream().anyMatch(SpringReactiveSecurityObservationCollector::isBearerTokenFilter);
-        HeaderWriterInfo headerWriters = detectHeaderWriters(webFilters);
+        HeaderWriterInfo headerWriters = detectHeaderWriters(webFilters, index, errors);
         return new WebFilterChainObservation(
                 index,
                 matcher,
@@ -173,7 +167,8 @@ public final class SpringReactiveSecurityObservationCollector {
                 headerWriters.hstsMaxAgeSeconds(),
                 headerWriters.hstsIncludeSubdomains(),
                 headerWriters.cspPolicyDirectives(),
-                headerWriters.cspReportOnly());
+                headerWriters.cspReportOnly(),
+                headerWriters.observed());
     }
 
     /**
@@ -253,14 +248,6 @@ public final class SpringReactiveSecurityObservationCollector {
         }
     }
 
-    /**
-     * A reactive chain with no {@code AuthorizationWebFilter} permits all requests without
-     * authorization (analogous to not having {@code authorizeExchange(...)} at all).
-     */
-    private static Boolean detectPermitsAllAnonymous(List<String> filterNames) {
-        return !filterNames.contains("AuthorizationWebFilter");
-    }
-
     // ── Header writer extraction ───────────────────────────────────────────────────
 
     private record HeaderWriterInfo(
@@ -268,7 +255,10 @@ public final class SpringReactiveSecurityObservationCollector {
             Long hstsMaxAgeSeconds,
             Boolean hstsIncludeSubdomains,
             String cspPolicyDirectives,
-            Boolean cspReportOnly) {}
+            Boolean cspReportOnly,
+            boolean observed) {}
+
+    private record FlattenedWriters(List<Object> writers, boolean complete) {}
 
     private static boolean isBearerTokenFilter(WebFilter filter) {
         if (!"AuthenticationWebFilter".equals(filter.getClass().getSimpleName())) {
@@ -278,26 +268,31 @@ public final class SpringReactiveSecurityObservationCollector {
         return converter != null && converter.getClass().getName().endsWith("ServerBearerTokenAuthenticationConverter");
     }
 
-    private static HeaderWriterInfo detectHeaderWriters(List<WebFilter> filters) {
+    private static HeaderWriterInfo detectHeaderWriters(List<WebFilter> filters, int chainIndex, List<String> errors) {
         if (filters == null) {
-            return new HeaderWriterInfo(List.of(), null, null, null, null);
+            return new HeaderWriterInfo(List.of(), null, null, null, null, false);
         }
         for (Object filter : filters) {
             if (filter == null
                     || !"HttpHeaderWriterWebFilter".equals(filter.getClass().getSimpleName())) {
                 continue;
             }
-            return readHeaderWriterFilter(filter);
+            return readHeaderWriterFilter(filter, chainIndex, errors);
         }
-        return new HeaderWriterInfo(List.of(), null, null, null, null);
+        return new HeaderWriterInfo(List.of(), null, null, null, null, true);
     }
 
-    private static HeaderWriterInfo readHeaderWriterFilter(Object headerFilter) {
+    private static HeaderWriterInfo readHeaderWriterFilter(Object headerFilter, int chainIndex, List<String> errors) {
         Object writerField = readField(headerFilter, "writer");
         if (writerField == null) {
-            return new HeaderWriterInfo(List.of(), null, null, null, null);
+            errors.add("Chain " + chainIndex + ": header writers could not be collected");
+            return new HeaderWriterInfo(List.of(), null, null, null, null, false);
         }
-        List<Object> writers = flattenWriters(writerField);
+        FlattenedWriters flattened = flattenWriters(writerField);
+        List<Object> writers = flattened.writers();
+        if (!flattened.complete()) {
+            errors.add("Chain " + chainIndex + ": header writers could not be fully collected");
+        }
         List<String> names =
                 writers.stream().map(w -> w.getClass().getSimpleName()).toList();
         Long hstsMaxAge = null;
@@ -318,22 +313,35 @@ public final class SpringReactiveSecurityObservationCollector {
                 }
             }
         }
-        return new HeaderWriterInfo(names, hstsMaxAge, hstsIncludeSubdomains, cspDirectives, cspReportOnly);
+        return new HeaderWriterInfo(
+                names, hstsMaxAge, hstsIncludeSubdomains, cspDirectives, cspReportOnly, flattened.complete());
     }
 
-    private static List<Object> flattenWriters(Object writerField) {
+    private static FlattenedWriters flattenWriters(Object writerField) {
+        return flattenWriters(writerField, 0);
+    }
+
+    private static FlattenedWriters flattenWriters(Object writerField, int depth) {
+        if (depth >= MAX_HEADER_WRITER_DEPTH) {
+            return new FlattenedWriters(List.of(writerField), false);
+        }
         Object delegateList = readField(writerField, "writers");
         if (delegateList instanceof List<?> list) {
             List<Object> result = new ArrayList<>();
+            boolean complete = true;
             for (Object item : list) {
                 if (item != null) {
-                    result.addAll(flattenWriters(item));
+                    FlattenedWriters nested = flattenWriters(item, depth + 1);
+                    result.addAll(nested.writers());
+                    complete &= nested.complete();
                 }
             }
-            return result;
+            return new FlattenedWriters(result, complete);
         }
-        // Single writer
-        return List.of(writerField);
+        if (writerField.getClass().getSimpleName().contains("Composite")) {
+            return new FlattenedWriters(List.of(), false);
+        }
+        return new FlattenedWriters(List.of(writerField), true);
     }
 
     private static Long parseHstsMaxAge(Object maxAge) {
@@ -364,23 +372,27 @@ public final class SpringReactiveSecurityObservationCollector {
 
     // ── CORS discovery ────────────────────────────────────────────────────────────
 
-    private static boolean discoverCors(
+    private record CorsDiscovery(boolean sourcePresent, boolean complete) {}
+
+    private static CorsDiscovery discoverCors(
             ListableBeanFactory beanFactory, List<CorsConfigObservation> corsConfigs, List<String> errors) {
         if (beanFactory == null) {
-            return false;
+            return new CorsDiscovery(false, true);
         }
         Class<?> sourceType = classForName("org.springframework.web.cors.reactive.CorsConfigurationSource");
         if (sourceType == null) {
-            return false;
+            return new CorsDiscovery(false, true);
         }
         Map<String, ?> beans;
         try {
             beans = beanFactory.getBeansOfType(sourceType);
         } catch (RuntimeException | LinkageError ex) {
             errors.add("CORS: " + safeMessage(ex));
-            return false;
+            return new CorsDiscovery(false, false);
         }
-        for (Object bean : beans.values()) {
+        boolean complete = true;
+        for (Map.Entry<String, ?> beanEntry : beans.entrySet()) {
+            Object bean = beanEntry.getValue();
             if (bean == null) {
                 continue;
             }
@@ -391,11 +403,21 @@ public final class SpringReactiveSecurityObservationCollector {
                             toCorsObservation(String.valueOf(entry.getKey()), entry.getValue());
                     if (observation != null) {
                         corsConfigs.add(observation);
+                    } else {
+                        complete = false;
+                        errors.add("CORS: configuration entry for " + entry.getKey() + " could not be inspected");
                     }
                 }
+            } else {
+                complete = false;
+                errors.add("CORS: configuration source '"
+                        + beanEntry.getKey()
+                        + "' ("
+                        + bean.getClass().getName()
+                        + ") could not be inspected");
             }
         }
-        return !beans.isEmpty();
+        return new CorsDiscovery(!beans.isEmpty(), complete);
     }
 
     private static CorsConfigObservation toCorsObservation(String pattern, Object config) {
@@ -433,31 +455,6 @@ public final class SpringReactiveSecurityObservationCollector {
         return null;
     }
 
-    private static List<String> beanTypeNames(ListableBeanFactory beanFactory, String className) {
-        if (beanFactory == null) {
-            return List.of();
-        }
-        Class<?> type = classForName(className);
-        if (type == null) {
-            return List.of();
-        }
-        try {
-            String[] names = beanFactory.getBeanNamesForType(type);
-            List<String> result = new ArrayList<>();
-            for (String name : names) {
-                try {
-                    Class<?> beanType = beanFactory.getType(name);
-                    result.add(beanType == null ? name : beanType.getName());
-                } catch (RuntimeException | LinkageError ex) {
-                    result.add(name);
-                }
-            }
-            return result;
-        } catch (RuntimeException | LinkageError ex) {
-            return List.of();
-        }
-    }
-
     private static Class<?> classForName(String name) {
         try {
             return Class.forName(name);
@@ -482,6 +479,7 @@ public final class SpringReactiveSecurityObservationCollector {
         String issuerUri = firstProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri");
         String jwkSetUri = firstProperty("spring.security.oauth2.resourceserver.jwt.jwk-set-uri");
         String publicKeyLocation = firstProperty("spring.security.oauth2.resourceserver.jwt.public-key-location");
+        String introspectionUri = firstProperty("spring.security.oauth2.resourceserver.opaquetoken.introspection-uri");
         boolean staticPublicKeyConfigured = hasText(publicKeyLocation) && !hasText(issuerUri) && !hasText(jwkSetUri);
         String loggingLevel = firstProperty(
                 "logging.level.org.springframework.security", "logging.level.org.springframework.security.web");
@@ -491,12 +489,17 @@ public final class SpringReactiveSecurityObservationCollector {
                 firstHostProperty("management.endpoints.web.exposure.exclude"),
                 firstHostProperty("management.server.port") != null,
                 profiles,
-                isPropertyTrue("spring.security.debug"),
+                false,
                 staticPublicKeyConfigured,
                 usesPlainHttp(issuerUri),
                 usesPlainHttp(jwkSetUri),
                 loggingLevel,
-                suspectedHardcodedSecretKeys());
+                suspectedHardcodedSecretKeys(),
+                usesPlainHttp(introspectionUri),
+                "always".equalsIgnoreCase(firstHostProperty("management.endpoint.env.show-values")),
+                "always".equalsIgnoreCase(firstHostProperty("management.endpoint.configprops.show-values")),
+                isActuatorEndpointWebExposed("env"),
+                isActuatorEndpointWebExposed("configprops"));
     }
 
     private static boolean usesPlainHttp(String value) {
@@ -518,6 +521,42 @@ public final class SpringReactiveSecurityObservationCollector {
         return forwarded != null && ("framework".equalsIgnoreCase(forwarded) || "native".equalsIgnoreCase(forwarded));
     }
 
+    private boolean isActuatorEndpointWebExposed(String endpointId) {
+        String include = firstProperty("management.endpoints.web.exposure.include");
+        if (!containsCommaSeparated(include, endpointId) && !containsCommaSeparated(include, "*")) {
+            return false;
+        }
+        String exclude = firstProperty("management.endpoints.web.exposure.exclude");
+        if (containsCommaSeparated(exclude, endpointId) || containsCommaSeparated(exclude, "*")) {
+            return false;
+        }
+        String endpointPrefix = "management.endpoint." + endpointId;
+        String endpointAccess = firstProperty(endpointPrefix + ".access");
+        if (isPropertyFalse(endpointPrefix + ".enabled")
+                || "none".equalsIgnoreCase(endpointAccess)
+                || "none".equalsIgnoreCase(firstProperty("management.endpoints.access.max-permitted"))) {
+            return false;
+        }
+        if (endpointAccess == null && "none".equalsIgnoreCase(firstProperty("management.endpoints.access.default"))) {
+            return false;
+        }
+        return !isPropertyFalse("management.endpoints.enabled-by-default")
+                || firstProperty(endpointPrefix + ".enabled") != null
+                || endpointAccess != null;
+    }
+
+    private static boolean containsCommaSeparated(String value, String candidate) {
+        if (value == null) {
+            return false;
+        }
+        for (String token : value.split(",")) {
+            if (candidate.equalsIgnoreCase(token.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private String firstProperty(String... keys) {
         for (String key : keys) {
             String value = environment.getProperty(key);
@@ -531,6 +570,11 @@ public final class SpringReactiveSecurityObservationCollector {
     private boolean isPropertyTrue(String... keys) {
         String value = firstProperty(keys);
         return value != null && "true".equalsIgnoreCase(value);
+    }
+
+    private boolean isPropertyFalse(String... keys) {
+        String value = firstProperty(keys);
+        return value != null && "false".equalsIgnoreCase(value);
     }
 
     private String firstHostProperty(String... keys) {

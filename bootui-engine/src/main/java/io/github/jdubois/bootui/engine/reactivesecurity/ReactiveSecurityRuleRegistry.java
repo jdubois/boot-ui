@@ -9,10 +9,10 @@ final class ReactiveSecurityRuleRegistry {
     private static final List<ReactiveSecurityRule> ACTIVE_RULES = List.of(
             // Authorization
             new ReactiveAuthorizationFilterRule(),
-            new ReactivePermitAllCatchAllRule(),
+            new ReactiveCatchAllWithoutAuthorizationRule(),
             new ReactiveEffectivelyDisabledSecurityRule(),
             // CSRF
-            new ReactiveCsrfDisabledStatefulRule(),
+            new ReactiveCsrfDisabledLoginRule(),
             new ReactiveCsrfGloballyDisabledRule(),
             // CORS
             new ReactiveCorsWildcardOriginRule(),
@@ -27,19 +27,19 @@ final class ReactiveSecurityRuleRegistry {
             // Actuator exposure
             new ReactiveActuatorWildcardExposureRule(),
             new ReactiveActuatorSensitiveExposureRule(),
-            new ReactiveActuatorUnprotectedRule(),
+            new ReactiveActuatorAuthorizationReviewRule(),
             new ReactiveManagementPortIsolationRule(),
+            new ReactiveActuatorShowValuesRule(),
             // OAuth2 / JWT
-            new ReactiveJwtAudienceValidationRule(),
             new ReactiveJwtStaticKeyRule(),
             new ReactiveInsecureJwtMetadataUrlRule(),
+            new ReactiveInsecureOpaqueTokenIntrospectionUrlRule(),
             // Configuration hygiene
-            new ReactiveSecurityDebugRule(),
             new ReactiveHttpsEnforcementRule(),
             new ReactiveHardcodedSecretPropertyRule(),
             new ReactiveSecurityDebugLoggingProductionRule(),
             // Session management
-            new ReactiveBearerTokenStatefulRule());
+            new ReactiveMixedBearerAndLoginRule());
 
     private ReactiveSecurityRuleRegistry() {}
 
