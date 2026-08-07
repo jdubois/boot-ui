@@ -18,7 +18,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * Bounded, on-demand Memory Advisor.
+ * On-demand Memory Advisor.
  *
  * <p>The scanner aggregates the JVM data already produced by the Memory, Threads, and Heap Dump
  * panels into a {@link MemoryContext} and runs a curated registry of static health rules.
@@ -55,6 +55,9 @@ public final class MemoryScanner {
      */
     private MemoryContext.GcSample previousGcSample;
 
+    /** Post-histogram latest GC event from the previous scan, guarded by single-flight admission. */
+    private MemoryContext.GcEvent previousPostHistogramGcEvent = MemoryContext.GcEvent.unavailable();
+
     /**
      * Cross-scan state for MEM-POOL-007's buffer-pool growth-without-release trend: each pool's used
      * bytes and consecutive-increase streak as of the previous scan. Guarded by single-flight admission.
@@ -85,8 +88,9 @@ public final class MemoryScanner {
     /**
      * Builds the production scanner over the shared {@link ThreadDumpService} and the
      * {@code GC.class_histogram} diagnostic command, exactly as both adapters did inline before the
-     * extraction. The thread snapshot is read unbounded ({@code limit 1000}) so the thread rules see
-     * the full picture; the histogram forces a full GC, so callers gate the scan accordingly.
+     * extraction. The thread snapshot retains complete summary counts but bounds per-thread detail to
+     * 1,000 rows; the CPU-hot-thread rule skips when that detail is truncated. The histogram forces a
+     * full GC, so callers gate the scan accordingly.
      */
     public static MemoryScanner create(ThreadDumpService threadDumpService, Clock clock) {
         return new MemoryScanner(
@@ -124,16 +128,22 @@ public final class MemoryScanner {
                     List.of());
         }
 
-        MemoryContext.GcSample currentSample = MemoryContext.GcSample.from(context.runtime());
+        MemoryContext.GcSample currentSample = context.postHistogramGc();
         MemoryContext.GcTrend trend = previousGcSample == null
                 ? MemoryContext.GcTrend.unavailable()
                 : MemoryContext.GcTrend.between(previousGcSample, context.preHistogramGc());
         previousGcSample = currentSample;
+        MemoryContext.GcEvent latestGcEvent = context.latestGcEvent().sameEvent(previousPostHistogramGcEvent)
+                ? MemoryContext.GcEvent.unavailable()
+                : context.latestGcEvent();
+        previousPostHistogramGcEvent = context.postHistogramGcEvent();
         MemoryContext.BufferPoolTrend bufferPoolTrend =
                 computeBufferPoolTrend(context.memory().bufferPools());
         MemoryContext.OldGenTrend oldGenTrend = computeOldGenTrend(context.postGcHeap());
-        MemoryContext evaluated =
-                context.withGcTrend(trend).withBufferPoolTrend(bufferPoolTrend).withOldGenTrend(oldGenTrend);
+        MemoryContext evaluated = context.withGcTrend(trend)
+                .withLatestGcEvent(latestGcEvent)
+                .withBufferPoolTrend(bufferPoolTrend)
+                .withOldGenTrend(oldGenTrend);
 
         List<MemoryRuleResultDto> results = MemoryRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(evaluated))
