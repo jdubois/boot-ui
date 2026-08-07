@@ -14,7 +14,7 @@ function memoryReport() {
     nonHeap: {name: 'Non-Heap', usedBytes: 64 * MB, committedBytes: 128 * MB, maxBytes: -1, usedPercent: 50},
     pools: [{name: 'G1 Eden Space', usedBytes: 32 * MB, committedBytes: 64 * MB, maxBytes: 128 * MB, usedPercent: 25}],
     jvmInputArguments: [],
-    suggestedJvmOptions: '-Xms512m -Xmx512m -XX:+UseG1GC',
+    suggestedJvmOptions: '-Xms512m -Xmx512m -XX:MaxMetaspaceSize=64m',
     calculation: {
       totalMemoryBytes: 1024 * MB,
       heapBytes: 512 * MB,
@@ -30,7 +30,7 @@ function memoryReport() {
       liveThreadCount: 40,
       liveLoadedClassCount: 5000,
       headRoomPercent: 10,
-      jvmOptions: '-Xms512m -Xmx512m -XX:+UseG1GC',
+      jvmOptions: '-Xms512m -Xmx512m -XX:MaxMetaspaceSize=64m',
       valid: true,
       error: null
     },
@@ -45,9 +45,9 @@ function memoryReport() {
       burstableRequestMemory: '512Mi',
       currentSnapshotMemory: '432Mi',
       detectedContainerLimitMemory: '1024Mi',
-      qosClass: 'Guaranteed',
-      confidence: 'High',
-      warnings: ['Request equals limit for Kubernetes Guaranteed QoS.'],
+      qosClass: 'Depends on CPU',
+      confidence: 'Low',
+      warnings: ['Kubernetes Guaranteed QoS also requires matching CPU resources.'],
       yaml:
         'resources:\n' +
         '  requests:\n' +
@@ -56,7 +56,8 @@ function memoryReport() {
         '    memory: "1024Mi"\n' +
         'env:\n' +
         '  - name: JAVA_TOOL_OPTIONS\n' +
-        '    value: "-Xms512m -Xmx512m -XX:+UseG1GC"'
+        '    value: >-\n' +
+        '      -XX:MaxRAMPercentage=50 -XX:MinRAMPercentage=50 -XX:InitialRAMPercentage=50'
     }
   }
 }

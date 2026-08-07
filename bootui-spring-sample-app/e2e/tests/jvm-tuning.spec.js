@@ -26,21 +26,23 @@ test.describe('JVM Tuning view', () => {
     const kubernetesYaml = kubernetesCard.locator('.options-box code')
     await expect(virtualThreadsStatus).toBeVisible()
     await expect(virtualThreadsStatus).toContainText('Virtual threads enabled')
-    await expect(virtualThreadsStatus).toContainText('positive for performance')
+    await expect(virtualThreadsStatus).toContainText('conservative platform-thread reserve')
     await expect(virtualThreadsStatus).toHaveClass(/alert-info/)
     await expect(page.locator('#virtualThreadsEnabled')).toHaveCount(0)
     await expect(jvmOptionsCard).toBeVisible()
     await expect(kubernetesCard).toBeVisible()
-    await expect(kubernetesCard).toContainText('Guaranteed')
+    await expect(kubernetesCard).toContainText('Depends on CPU')
     await expect(kubernetesCard.locator('#kubernetesBurstableEnabled')).not.toBeChecked()
     await expect(kubernetesCard.locator('#kubernetesActuatorEnabled')).toBeChecked()
     await expect(kubernetesYaml).toContainText('JAVA_TOOL_OPTIONS')
     await expect(kubernetesYaml).toContainText('MaxRAMPercentage')
+    await expect(kubernetesYaml).toContainText('MinRAMPercentage')
+    await expect(kubernetesYaml).toContainText('port: http')
     await expect(kubernetesYaml).toContainText('MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED')
     await expect(kubernetesYaml).toContainText('readinessProbe')
     await expect(kubernetesYaml).not.toContainText('spring.threads.virtual.enabled=true')
     await expect(kubernetesYaml).not.toContainText('-Xmx')
-    await expect(kubernetesCard).toContainText('Garbage collector:')
+    await expect(kubernetesCard).not.toContainText('Garbage collector:')
     await expect(kubernetesCard).toContainText('Sizing notes')
 
     const optionsBlock = jvmOptionsCard.locator('.options-box code')
@@ -61,9 +63,9 @@ test.describe('JVM Tuning view', () => {
     const actuatorToggle = kubernetesCard.locator('#kubernetesActuatorEnabled')
 
     await expect(kubernetesCard).toBeVisible()
-    const guaranteedYaml = await yamlBlock.innerText()
-    const guaranteedRequest = guaranteedYaml.match(/requests:\s+memory: "([^"]+)"/)?.[1]
-    expect(guaranteedRequest).toBeTruthy()
+    const equalRequestYaml = await yamlBlock.innerText()
+    const equalRequest = equalRequestYaml.match(/requests:\s+memory: "([^"]+)"/)?.[1]
+    expect(equalRequest).toBeTruthy()
 
     await burstableToggle.check()
     await expect
@@ -74,7 +76,7 @@ test.describe('JVM Tuning view', () => {
         },
         {timeout: 5_000}
       )
-      .not.toBe(guaranteedRequest)
+      .not.toBe(equalRequest)
     await expect(kubernetesCard).toContainText('Burstable')
 
     await actuatorToggle.uncheck()

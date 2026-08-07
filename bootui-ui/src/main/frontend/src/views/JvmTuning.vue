@@ -24,6 +24,10 @@ const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 
 const virtualThreadsProperty = computed(() => data.value?.calculation?.virtualThreadsProperty ?? null)
 const virtualThreadsActive = computed(() => data.value?.calculation?.virtualThreadsEnabled === true)
+const kubernetesRequestBelowLimit = computed(() => {
+  const recommendation = data.value?.kubernetes
+  return recommendation ? recommendation.requestMemoryBytes < recommendation.limitMemoryBytes : false
+})
 
 const breakdown = computed(() => {
   const c = data.value?.calculation
@@ -59,6 +63,13 @@ async function copyKubernetesYaml() {
   if (data.value?.kubernetes?.yaml) {
     await copyToClipboard(data.value.kubernetes.yaml, 'kubernetes-yaml')
   }
+}
+
+function formatPercentage(value) {
+  if (value == null) return '—'
+  return `${Number(value)
+    .toFixed(3)
+    .replace(/\.?0+$/, '')}%`
 }
 </script>
 
@@ -103,21 +114,21 @@ async function copyKubernetesYaml() {
             <div class="fw-semibold mb-1">Virtual threads {{ virtualThreadsActive ? 'enabled' : 'not enabled' }}</div>
             <template v-if="virtualThreadsActive">
               <p class="small mb-2">
-                This application is running with <code>{{ virtualThreadsProperty }}=true</code>. That is positive for
-                performance because the application can use virtual threads for web requests and supported task
-                executors, reducing platform-thread pressure during blocking work.
+                This application is running with <code>{{ virtualThreadsProperty }}=true</code>. Virtual threads
+                decouple blocking-request concurrency from the platform-thread count, but the calculator keeps a
+                conservative platform-thread reserve and 1 MiB stacks because carrier and JVM helper threads still use
+                native stacks.
               </p>
             </template>
             <template v-else>
               <p class="small mb-2">
-                <code>{{ virtualThreadsProperty }}=true</code> is not active for this application. On Java 21+, enabling
-                it in application configuration is recommended for services that handle blocking web requests or
-                supported task-executor work because it can improve throughput and latency under concurrent blocking
-                workloads.
+                <code>{{ virtualThreadsProperty }}=true</code> is not active for this application. On Java 21+, consider
+                virtual threads for services dominated by blocking request or task-executor work, then verify
+                throughput, pinning, and memory under representative load.
               </p>
               <p class="small mb-0">
-                BootUI keeps the JVM and Kubernetes snippets in platform-thread mode until the running application
-                enables virtual threads.
+                BootUI always uses the conservative platform-thread sizing model and never adds this application
+                property to generated JVM options.
               </p>
             </template>
           </div>
@@ -131,15 +142,15 @@ async function copyKubernetesYaml() {
         </div>
         <div class="card-body">
           <p class="text-muted small mb-3">
-            For a dedicated server or VM, heap is fixed after subtracting metaspace (sized from currently loaded classes
-            × 1.25 safety factor), code cache, direct memory, platform-thread stacks, and headroom from your target JVM
-            process memory.
+            For a dedicated server or VM, heap is fixed after subtracting modeled metaspace (currently loaded classes ×
+            1.25), code cache, direct memory, platform-thread stacks, and operator-selected headroom. Direct memory uses
+            the Paketo 10 MiB fallback or the current observed usage, whichever is larger.
           </p>
 
           <div class="row g-3 mb-3">
             <div class="col-md-5">
               <label class="form-label small fw-semibold" for="jvm-target-memory">
-                Target JVM process memory (MB)
+                Target JVM process memory (MiB)
               </label>
               <div class="input-group input-group-sm">
                 <button aria-label="Decrease" class="btn btn-outline-secondary" type="button" @click="stepTotal(-64)">
@@ -157,7 +168,7 @@ async function copyKubernetesYaml() {
                 <button aria-label="Increase" class="btn btn-outline-secondary" type="button" @click="stepTotal(64)">
                   +
                 </button>
-                <span class="input-group-text">MB</span>
+                <span class="input-group-text">MiB</span>
               </div>
             </div>
             <div class="col-md-4">
@@ -214,10 +225,8 @@ async function copyKubernetesYaml() {
             </div>
             <div class="small text-muted">
               Currently {{ data.calculation.liveLoadedClassCount.toLocaleString() }} classes loaded · metaspace sized
-              for {{ data.calculation.loadedClasses.toLocaleString() }} classes × 1.25 safety factor
-              <span v-if="data.calculation.virtualThreadsEnabled">
-                · virtual-thread mode uses {{ data.calculation.stackBytesPerThread / 1024 }} KB platform-thread stacks
-              </span>
+              for {{ data.calculation.loadedClasses.toLocaleString() }} classes × 1.25 safety factor ·
+              {{ data.calculation.stackBytesPerThread / 1024 }} KiB per platform thread
             </div>
           </template>
         </div>
@@ -238,16 +247,17 @@ async function copyKubernetesYaml() {
         </div>
         <div class="card-body">
           <p class="text-muted small mb-2">
-            Generated from your calculator inputs for a dedicated host. <code>-Xms == -Xmx</code> fixes heap size for
-            predictable startup and runtime latency; GC is picked automatically (G1 below 4 GB, ZGC above).
+            Generated as a starting point for a dedicated host. <code>-Xms == -Xmx</code> fixes the modeled heap; the
+            running JVM's collector stays unchanged, and workload-specific GC, string deduplication, compact-header,
+            direct-memory-cap, pre-touch, and OOM policy flags are intentionally omitted.
           </p>
           <pre
             :class="{'opacity-50': data.calculation && !data.calculation.valid}"
             class="bg-dark text-light rounded p-3 mb-0 options-box"
           ><code>{{ data.suggestedJvmOptions || '—' }}</code></pre>
           <div class="mt-2">
-            <span class="badge text-bg-secondary me-1"><i class="bi bi-shield-check me-1"></i>OOM protection</span>
-            <span class="badge text-bg-secondary me-1"><i class="bi bi-gear me-1"></i>GC tuned</span>
+            <span class="badge text-bg-secondary me-1"><i class="bi bi-calculator me-1"></i>Sizing model</span>
+            <span class="badge text-bg-secondary me-1"><i class="bi bi-gear me-1"></i>Collector unchanged</span>
             <span class="badge text-bg-secondary me-1"><i class="bi bi-memory me-1"></i>Fixed heap</span>
           </div>
         </div>
@@ -257,16 +267,16 @@ async function copyKubernetesYaml() {
         <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
           <span><i class="bi bi-box-seam me-2"></i>Kubernetes calculator</span>
           <span :class="['badge', confidenceBadgeClass(data.kubernetes.confidence)]">
-            {{ data.kubernetes.confidence }} confidence
+            {{ data.kubernetes.confidence }} model confidence
           </span>
         </div>
         <div class="card-body">
           <p class="text-muted small mb-3">
             Uses the calculator total as the hard Kubernetes memory limit. By default, the generated manifest sets
-            <code>requests.memory == limits.memory</code> for Guaranteed QoS; the Burstable toggle lowers only the
-            request. The JVM uses <code>MaxRAMPercentage</code>/<code>InitialRAMPercentage</code> instead of fixed
-            <code>-Xmx</code>/<code>-Xms</code>, so heap tracks the container memory limit when an operator resizes the
-            pod.
+            <code>requests.memory == limits.memory</code>; Kubernetes only assigns Guaranteed QoS when every container
+            also has equal, non-zero CPU request and limit. The Burstable toggle lowers only the memory request. HotSpot
+            uses <code>MaxRAMPercentage</code>/<code>MinRAMPercentage</code>/<code>InitialRAMPercentage</code> instead
+            of fixed <code>-Xmx</code>/<code>-Xms</code>.
           </p>
 
           <div class="row g-3 mb-3">
@@ -276,9 +286,9 @@ async function copyKubernetesYaml() {
                   <div>
                     <div class="fw-semibold">Burstable resources</div>
                     <div class="text-muted small">
-                      Off by default. When enabled, the snippet lowers <code>requests.memory</code> to the current
-                      snapshot-based request while keeping the same limit. Use only when your cluster intentionally
-                      overcommits memory.
+                      Off by default. When enabled, the snippet attempts to lower <code>requests.memory</code> to the
+                      current snapshot-based request while keeping the same limit. Use only when your cluster
+                      intentionally overcommits memory.
                     </div>
                   </div>
                   <div class="form-check form-switch mb-0 flex-shrink-0">
@@ -301,8 +311,9 @@ async function copyKubernetesYaml() {
                   <div>
                     <div class="fw-semibold">Kubernetes health probes</div>
                     <div class="text-muted small">
-                      Initialized from the current health configuration. Recommended so Kubernetes can use startup,
-                      readiness, and liveness checks; the snippet below uses this application's health endpoints.
+                      Initialized from the current health capability. The fragment uses framework-default paths and the
+                      named container port <code>http</code>; verify both when application or management settings
+                      differ.
                     </div>
                   </div>
                   <div class="form-check form-switch mb-0 flex-shrink-0">
@@ -333,7 +344,7 @@ async function copyKubernetesYaml() {
                 <div class="text-muted small">Request memory</div>
                 <div class="fs-5 fw-semibold">{{ data.kubernetes.requestMemory || '—' }}</div>
                 <div class="text-muted small">
-                  {{ kubernetesBurstableEnabled ? 'Burstable scheduling request' : 'Guaranteed scheduling request' }}
+                  {{ kubernetesRequestBelowLimit ? 'Burstable scheduling request' : 'Memory request equals limit' }}
                 </div>
               </div>
             </div>
@@ -347,28 +358,24 @@ async function copyKubernetesYaml() {
             <div class="col-md">
               <div class="border rounded p-3 h-100">
                 <div class="text-muted small">Heap percentage</div>
-                <div class="fs-5 fw-semibold">
-                  {{
-                    data.kubernetes.maxRamPercentage != null ? data.kubernetes.maxRamPercentage.toFixed(1) + '%' : '—'
-                  }}
-                </div>
-                <div class="text-muted small">MaxRAMPercentage</div>
+                <div class="fs-5 fw-semibold">{{ formatPercentage(data.kubernetes.maxRamPercentage) }}</div>
+                <div class="text-muted small">Max/Min RAM percentage</div>
               </div>
             </div>
             <div class="col-md">
               <div class="border rounded p-3 h-100">
-                <div class="text-muted small">QoS class</div>
+                <div class="text-muted small">Pod QoS</div>
                 <div class="fs-5 fw-semibold">{{ data.kubernetes.qosClass }}</div>
                 <div class="text-muted small">
-                  {{ kubernetesBurstableEnabled ? 'Opt-in mode' : 'Recommended default' }}
+                  {{ kubernetesRequestBelowLimit ? 'Determined by memory settings' : 'CPU settings also required' }}
                 </div>
               </div>
             </div>
             <div class="col-md">
               <div class="border rounded p-3 h-100">
-                <div class="text-muted small">Current snapshot</div>
+                <div class="text-muted small">Observed baseline</div>
                 <div class="fs-5 fw-semibold">{{ data.kubernetes.currentSnapshotMemory }}</div>
-                <div class="text-muted small">Committed JVM memory + live platform stacks</div>
+                <div class="text-muted small">cgroup total when available; JVM-pool fallback otherwise</div>
               </div>
             </div>
           </div>

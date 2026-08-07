@@ -654,24 +654,29 @@ Features:
 - The Live Memory panel shows memory pool usage.
 - The JVM Tuning panel shows JVM input arguments.
 - The JVM Tuning panel explains `spring.threads.virtual.enabled=true`, detects whether Spring virtual threads are
-  enabled in the current application, and shows an information or warning bubble. The detected state feeds the sizing
-  calculations, but generated JVM or Kubernetes snippets do not set the Spring property.
+  enabled in the current application, and shows an information or warning bubble. The detected state is explanatory:
+  generated JVM or Kubernetes snippets do not set the Spring property, and virtual threads do not trigger a speculative
+  native-stack discount.
 - The JVM Tuning panel provides a bare-metal JVM memory calculator that partitions a user-chosen
   target JVM process memory into JVM regions
   (`heap = total − headRoom − directMemory − metaspace − codeCache − stack×threads`),
-  using the live loaded-class count from `ClassLoadingMXBean` (with a 1.25× safety
-  factor) and a live-or-floored platform-thread count. When virtual threads are enabled, the calculator uses a smaller
-  platform-thread floor and stack size because request concurrency no longer reserves one native stack per request.
+  using the live loaded-class count from `ClassLoadingMXBean` (with an explicit 1.25× safety
+  factor), the greater of the 10 MiB direct-memory fallback and observed direct-buffer use, and a platform-thread count
+  floored at 250 by default.
 - The JVM Tuning panel suggests bare-metal JVM options derived from the calculator output, including `-Xms`/`-Xmx`
-  (equal for predictable startup), `-XX:MaxMetaspaceSize`, `-XX:ReservedCodeCacheSize`,
-  `-XX:MaxDirectMemorySize`, `-Xss`, GC selection (G1 below 4 GB, ZGC above), and
-  out-of-memory safeguards.
-- The JVM Tuning panel suggests Kubernetes resources and `JAVA_TOOL_OPTIONS` with `requests.memory == limits.memory`
-  for Guaranteed QoS and percentage-based heap sizing (`-XX:MaxRAMPercentage` / `-XX:InitialRAMPercentage`) instead of
-  fixed `-Xmx` / `-Xms`, while keeping fixed non-heap caps and warnings visible.
-- The JVM Tuning panel lets the user opt into a Burstable Kubernetes request based on the current memory snapshot,
-  and lets the user include or omit Kubernetes startup/readiness/liveness health probes. The toggle
-  initializes from the current application health-probe configuration and is recommended for Kubernetes deployments.
+  (equal for a fixed modeled heap), `-XX:MaxMetaspaceSize`, `-XX:ReservedCodeCacheSize`, and `-Xss`. It deliberately
+  leaves the running JVM's collector unchanged and does not synthesize direct-memory, pre-touch, compact-header,
+  string-deduplication, or out-of-memory policy flags from a memory snapshot.
+- The JVM Tuning panel suggests Kubernetes resources and `JAVA_TOOL_OPTIONS` with percentage-based heap sizing
+  (`-XX:MaxRAMPercentage`, `-XX:MinRAMPercentage`, and `-XX:InitialRAMPercentage`) instead of fixed `-Xmx` / `-Xms`.
+  Equal memory request and limit values are reported as `Depends on CPU`, because Kubernetes Guaranteed QoS also
+  requires equal, non-zero CPU request and limit values for every container.
+- The JVM Tuning panel lets the user attempt a lower, Burstable Kubernetes request based first on the current cgroup
+  memory snapshot, with committed JVM pools plus observed direct buffers as a lower-confidence fallback. It can include
+  startup/readiness/liveness probes using framework-default paths and the named container port `http`; operators must
+  verify both when application, management-server, or container-port configuration differs.
+- The model, generated-option inventory, platform behavior, evidence, and limitations are documented in
+  [JVM-TUNING-CHECKS.md](JVM-TUNING-CHECKS.md).
 
 Acceptance criteria:
 

@@ -53,7 +53,7 @@ class LiveMemoryControllerTests {
                 true,
                 null);
         KubernetesMemoryRecommendationDto kubernetes = new KubernetesMemoryRecommendationDto(
-                0, 0, 0, 0, null, "", "", "", "", "", "Guaranteed", "", List.of(), "", 0, 0, "", false, true);
+                0, 0, 0, 0, null, "", "", "", "", "", "Depends on CPU", "", List.of(), "", 0, 0, "", false, true);
         return new LiveMemoryReport(heap, nonHeap, List.of(heap), List.of("-Xss"), "-Xmx", calculation, kubernetes);
     }
 
@@ -73,7 +73,7 @@ class LiveMemoryControllerTests {
                 .andExpect(jsonPath("$.heap.name").value("Heap"))
                 .andExpect(jsonPath("$.nonHeap.name").value("Non-Heap"))
                 .andExpect(jsonPath("$.calculation.threadCount").value(7))
-                .andExpect(jsonPath("$.kubernetes.qosClass").value("Guaranteed"));
+                .andExpect(jsonPath("$.kubernetes.qosClass").value("Depends on CPU"));
     }
 
     @Test
@@ -101,7 +101,7 @@ class LiveMemoryControllerTests {
         mvc.perform(get("/bootui/api/jvm-tuning").param("totalMemoryMb", "512").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.heap.name").value("Heap"))
-                .andExpect(jsonPath("$.kubernetes.qosClass").value("Guaranteed"));
+                .andExpect(jsonPath("$.kubernetes.qosClass").value("Depends on CPU"));
 
         verify(provider).buildReport(512L, null, null, null, null);
     }

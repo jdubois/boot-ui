@@ -727,18 +727,23 @@ JVM sizing controls mixed into the view.
 
 The JVM Tuning panel uses the same live JVM context to review current JVM input arguments, explain
 `spring.threads.virtual.enabled=true`, and run JVM sizing calculators for both dedicated hosts and Kubernetes. It detects
-whether Spring virtual threads are enabled in the current application, shows an information or warning bubble, and feeds
-that detected state into platform-thread stack budgets and heap sizing recommendations without adding the Spring property
-to generated JVM or Kubernetes snippets.
+whether Spring virtual threads are enabled in the current application and shows an information or warning bubble, but
+does not infer a smaller native-stack budget from that signal or add the Spring property to generated snippets.
 
 The bare-metal calculator partitions a target JVM process memory budget into heap, metaspace, code cache, direct memory,
-thread stacks, and headroom, then turns that plan into copyable JVM options with fixed `-Xms` and `-Xmx` values. The
-Kubernetes calculator keeps `requests.memory == limits.memory` for Guaranteed QoS by default, but can switch to a
-snapshot-based Burstable request when the operator intentionally overcommits memory. Its `JAVA_TOOL_OPTIONS` uses
-`-XX:MaxRAMPercentage` and `-XX:InitialRAMPercentage` instead of fixed heap sizes so the JVM heap follows the container
-memory limit when an operator resizes the pod. A Kubernetes health probes toggle initializes from the current health
-probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
-non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
+thread stacks, and headroom, then turns that plan into copyable JVM options with fixed `-Xms` and `-Xmx` values. It keeps
+the current collector and omits workload-specific GC, direct-memory-cap, pre-touch, compact-header, string-deduplication,
+and out-of-memory policy flags.
+
+The Kubernetes calculator sets equal memory request and limit values by default but labels Pod QoS `Depends on CPU`,
+because Kubernetes also requires matching non-zero CPU resources on every container for Guaranteed QoS. Operators can
+instead attempt a lower, snapshot-based Burstable request. `JAVA_TOOL_OPTIONS` uses `-XX:MaxRAMPercentage`,
+`-XX:MinRAMPercentage`, and `-XX:InitialRAMPercentage` instead of fixed heap sizes. A health-probes toggle initializes
+from the current framework capability and adds framework-default startup/readiness/liveness paths on the named container
+port `http`; those paths and the port name must be verified against deployment configuration.
+
+See [JVM-TUNING-CHECKS.md](JVM-TUNING-CHECKS.md) for the behavior inventory, evidence ledger, cross-platform details,
+and model limitations.
 
 > **Not available in GraalVM native images.** JVM heap, GC, and flag tuning does not apply to a native executable;
 > the panel is automatically hidden when the application is detected to be running as a native image.

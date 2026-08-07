@@ -5,9 +5,9 @@ package io.github.jdubois.bootui.spi;
  * framework-neutral semantic questions rather than raw configuration property names.
  *
  * <p>This is the seam behind the memory report: the engine asks <em>whether</em> virtual threads are
- * enabled (which changes per-thread stack sizing) and <em>whether</em> Kubernetes liveness/readiness
- * health probes are exposed (which changes the generated manifest), but <em>how</em> those facts are
- * derived is a per-framework detail. The Spring Boot adapter resolves them from
+ * enabled (for explanatory context, not a speculative stack discount) and <em>whether</em> Kubernetes
+ * liveness/readiness health probes are exposed (which changes the generated manifest), but
+ * <em>how</em> those facts are derived is a per-framework detail. The Spring Boot adapter resolves them from
  * {@code spring.threads.virtual.enabled} and the {@code management.endpoint.health.*} chain; a Quarkus
  * adapter would resolve them from its own equivalents (e.g. SmallRye Health). Both are read <em>live</em>
  * on every report so a runtime override is honored.

@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.memory;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
-import io.github.jdubois.bootui.engine.memory.MemoryCalculator.JdkVersion;
 import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
 import org.junit.jupiter.api.Test;
@@ -12,17 +11,14 @@ import org.junit.jupiter.api.Test;
  * Behavior tests for {@link MemoryReportProvider}, the framework-neutral engine service shared by the
  * Live Memory and JVM Tuning panels.
  *
- * <p>Uses the package-private {@code MemoryCalculator(JdkVersion)} seam to pin the JDK version so that
- * JVM-option assertions are reproducible regardless of the host JDK, and a fake
- * {@link MemoryRuntimeConfig} to drive the virtual-threads / Kubernetes-health-probe inputs without a
- * framework. Live {@link java.lang.management.ManagementFactory} data is used for heap, non-heap and
- * pool readings — these are always non-negative in a running JVM, which is all these tests assert about
- * them. The pure formula assertions are covered by {@link MemoryCalculatorTests} and
- * {@link MemoryKubernetesSizerTests}.</p>
+ * <p>Uses a fake {@link MemoryRuntimeConfig} to drive the virtual-threads /
+ * Kubernetes-health-probe inputs without a framework. Live
+ * {@link java.lang.management.ManagementFactory} data is used for heap, non-heap and pool readings —
+ * these are always non-negative in a running JVM, which is all these tests assert about them. The pure
+ * formula assertions are covered by {@link MemoryCalculatorTests} and
+ * {@link MemoryKubernetesSizerTests}.
  */
 class MemoryReportProviderTests {
-
-    private static final JdkVersion JDK_25 = () -> 25;
 
     private static MemoryRuntimeConfig config(boolean virtualThreads, boolean healthProbes) {
         return new MemoryRuntimeConfig() {
@@ -49,12 +45,11 @@ class MemoryReportProviderTests {
     }
 
     private static MemoryReportProvider providerWithDefaults() {
-        return new MemoryReportProvider(new MemoryCalculator(JDK_25));
+        return new MemoryReportProvider(new MemoryCalculator());
     }
 
     private static MemoryReportProvider providerWithDisabledDetector(MemoryRuntimeConfig runtimeConfig) {
-        return new MemoryReportProvider(
-                new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), runtimeConfig);
+        return new MemoryReportProvider(new MemoryCalculator(), ContainerMemoryLimitDetector.disabled(), runtimeConfig);
     }
 
     @Test
@@ -93,7 +88,13 @@ class MemoryReportProviderTests {
                 .contains("-Xmx")
                 .contains("-Xms")
                 .contains("-XX:MaxMetaspaceSize=")
-                .contains("-XX:+UseCompactObjectHeaders");
+                .contains("-XX:ReservedCodeCacheSize=")
+                .doesNotContain(
+                        "-XX:MaxDirectMemorySize=",
+                        "-XX:+UseG1GC",
+                        "-XX:+UseZGC",
+                        "-XX:+UseStringDeduplication",
+                        "-XX:+UseCompactObjectHeaders");
     }
 
     @Test
@@ -105,36 +106,40 @@ class MemoryReportProviderTests {
     }
 
     @Test
-    void kubernetesRecommendationReportsGuaranteedResources() {
+    void kubernetesRecommendationDoesNotInferPodQosFromMemoryAlone() {
         LiveMemoryReport report =
                 providerWithDisabledDetector(MemoryRuntimeConfig.DEFAULTS).buildReport(1024L, null, 10, null, null);
 
         long expectedBytes = 1024L * 1024L * 1024L;
         assertThat(report.kubernetes().requestMemoryBytes()).isEqualTo(expectedBytes);
         assertThat(report.kubernetes().limitMemoryBytes()).isEqualTo(expectedBytes);
-        assertThat(report.kubernetes().qosClass()).isEqualTo("Guaranteed");
+        assertThat(report.kubernetes().qosClass()).isEqualTo("Depends on CPU");
         assertThat(report.kubernetes().burstableEnabled()).isFalse();
         assertThat(report.kubernetes().healthProbesEnabled()).isTrue();
         assertThat(report.kubernetes().yaml())
                 .contains("resources:")
                 .contains("MaxRAMPercentage")
+                .contains("MinRAMPercentage")
                 .contains("startupProbe")
                 .contains("readinessProbe")
+                .contains("port: http")
                 .doesNotContain("-Xmx")
                 .doesNotContain("-Xms");
     }
 
     @Test
-    void detectedVirtualThreadsChangeStackSizing() {
+    void detectedVirtualThreadsDoNotDiscountPlatformThreadStacks() {
         LiveMemoryReport enabled =
                 providerWithDisabledDetector(config(true, true)).buildReport(1024L, 250, null, null, null);
         assertThat(enabled.calculation().virtualThreadsEnabled()).isTrue();
-        assertThat(enabled.calculation().stackBytesPerThread()).isEqualTo(512L * 1024L);
+        assertThat(enabled.calculation().stackBytesPerThread()).isEqualTo(1024L * 1024L);
 
         LiveMemoryReport disabled =
                 providerWithDisabledDetector(config(false, true)).buildReport(1024L, 250, null, null, null);
         assertThat(disabled.calculation().virtualThreadsEnabled()).isFalse();
         assertThat(disabled.calculation().stackBytesPerThread()).isEqualTo(1024L * 1024L);
+        assertThat(enabled.calculation().stackBytesTotal())
+                .isEqualTo(disabled.calculation().stackBytesTotal());
     }
 
     @Test
@@ -159,5 +164,16 @@ class MemoryReportProviderTests {
         assertThat(report.kubernetes().qosClass()).isEqualTo("Burstable");
         assertThat(report.kubernetes().limitMemory()).isEqualTo("4096Mi");
         assertThat(report.kubernetes().requestMemory()).isNotEqualTo("4096Mi");
+    }
+
+    @Test
+    void clampsTotalMemoryMebibytesBeforeMultiplication() {
+        LiveMemoryReport oversized = providerWithDisabledDetector(MemoryRuntimeConfig.DEFAULTS)
+                .buildReport(Long.MAX_VALUE, null, null, null, null);
+        LiveMemoryReport negative = providerWithDisabledDetector(MemoryRuntimeConfig.DEFAULTS)
+                .buildReport(Long.MIN_VALUE, null, null, null, null);
+
+        assertThat(oversized.calculation().totalMemoryBytes()).isEqualTo(MemoryCalculator.MAX_TOTAL_MEMORY_BYTES);
+        assertThat(negative.calculation().totalMemoryBytes()).isEqualTo(MemoryCalculator.MIN_TOTAL_MEMORY_BYTES);
     }
 }
