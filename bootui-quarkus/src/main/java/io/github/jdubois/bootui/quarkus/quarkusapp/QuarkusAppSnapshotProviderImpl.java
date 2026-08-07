@@ -34,7 +34,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     static final String CONFIG_MAPPING_KEY = "bootui.internal.app.config-mapping";
     static final String PUBLIC_RESOURCE_FIELDS_KEY = "bootui.internal.app.public-resource-fields";
     static final String REST_CLIENTS_KEY = "bootui.internal.app.rest-clients";
-    static final String VIRTUAL_THREAD_ENDPOINTS_KEY = "bootui.internal.app.virtual-thread-endpoints";
+    static final String JDBC_DATASOURCE_KEY = "bootui.internal.app.jdbc-datasource";
     static final String VIRTUAL_THREAD_SYNCHRONIZED_KEY = "bootui.internal.app.virtual-thread-synchronized";
     static final String JDK_MAJOR_VERSION_KEY = "bootui.internal.app.jdk-major-version";
 
@@ -81,7 +81,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 prodDevServices,
                 false,
                 count(CONFIG_MAPPING_KEY),
-                jdbcDatasourcePresent(),
+                bool(JDBC_DATASOURCE_KEY),
                 prodSchemaGeneration(),
                 str("%prod.quarkus.datasource.db-kind", "").toLowerCase(),
                 prodJdbcUrlInMemory(),
@@ -93,7 +93,6 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 shutdownTimeoutZeroed(),
                 count(REST_CLIENTS_KEY) > 0,
                 restClientTimeoutZeroOrExcessive(),
-                count(VIRTUAL_THREAD_ENDPOINTS_KEY),
                 count(VIRTUAL_THREAD_SYNCHRONIZED_KEY),
                 count(JDK_MAJOR_VERSION_KEY),
                 strList(MUTABLE_SINGLETON_FIELDS_KEY),
@@ -108,11 +107,11 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     }
 
     private boolean shutdownTimeoutZeroed() {
-        return isZero("quarkus.shutdown.timeout") || isZero("quarkus.http.shutdown.timeout");
+        return isZero("quarkus.shutdown.timeout");
     }
 
     private boolean shutdownTimeoutConfigured() {
-        return has("quarkus.shutdown.timeout") || has("quarkus.http.shutdown.timeout");
+        return has("quarkus.shutdown.timeout");
     }
 
     private boolean isZero(String key) {
@@ -127,8 +126,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
      */
     private boolean restClientTimeoutZeroOrExcessive() {
         for (String name : config.getPropertyNames()) {
-            if (name.startsWith("quarkus.rest-client")
-                    && (name.endsWith("connect-timeout") || name.endsWith("read-timeout"))) {
+            if (isRestClientConnectOrReadTimeout(name)) {
                 Long ms = config.getOptionalValue(name, Long.class).orElse(null);
                 if (ms != null && (ms == 0L || ms > EXCESSIVE_REST_CLIENT_TIMEOUT_MS)) {
                     return true;
@@ -138,11 +136,9 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         return false;
     }
 
-    private boolean jdbcDatasourcePresent() {
-        return has("quarkus.datasource.db-kind")
-                || has("quarkus.datasource.jdbc.url")
-                || has("%prod.quarkus.datasource.db-kind")
-                || has("%prod.quarkus.datasource.jdbc.url");
+    private static boolean isRestClientConnectOrReadTimeout(String propertyName) {
+        return propertyName.startsWith("quarkus.rest-client.")
+                && (propertyName.endsWith(".connect-timeout") || propertyName.endsWith(".read-timeout"));
     }
 
     private String prodSchemaGeneration() {
@@ -163,18 +159,22 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     }
 
     /**
-     * QA-CFG-004: {@code quarkus.hibernate-orm.database.generation} is {@code @Deprecated(forRemoval = true)}
-     * as of Quarkus 3.22, in favour of {@code quarkus.hibernate-orm.schema-management.strategy}. Matches any
-     * profile (bare, {@code %prod.}/{@code %dev.}/…) or named-persistence-unit variant, since the property
-     * name — not just its {@code %prod} use — is what is being flagged as legacy.
+     * QA-CFG-004: detects the legacy {@code quarkus.hibernate-orm.database.generation} namespace, including
+     * profile and named-persistence-unit variants, rather than unrelated vendor properties with a matching suffix.
      */
     private boolean legacySchemaGenerationPropertyUsed() {
         for (String name : config.getPropertyNames()) {
-            if (name.endsWith("database.generation")) {
+            if (isLegacySchemaGenerationProperty(name)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean isLegacySchemaGenerationProperty(String propertyName) {
+        int profileSeparator = propertyName.startsWith("%") ? propertyName.indexOf('.') : -1;
+        String unprofiledName = profileSeparator >= 0 ? propertyName.substring(profileSeparator + 1) : propertyName;
+        return unprofiledName.startsWith("quarkus.hibernate-orm.") && unprofiledName.endsWith(".database.generation");
     }
 
     /** QA-DB-001: the default (unnamed) datasource's own max pool size, checked bare or under {@code %prod}. */
