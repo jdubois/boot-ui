@@ -14,7 +14,7 @@
 # (PostgreSQL + Redis) see bootui-spring-sample-app/README.md.
 #
 # Taking and restoring a checkpoint needs Linux kernel 5.9+ and the
-# CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN capabilities; see the sample README.
+# CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN/NET_ADMIN capabilities; see the sample README.
 set -eu
 
 CRAC_CHECKPOINT_DIR="${CRAC_CHECKPOINT_DIR:-/opt/crac/checkpoint}"
@@ -54,7 +54,7 @@ set -e
 
 if [ -z "$(ls -A "$CRAC_CHECKPOINT_DIR" 2>/dev/null)" ]; then
   echo "[crac] Checkpoint creation failed (exit code $checkpoint_status). See the log above." >&2
-  echo "[crac] CRIU needs Linux kernel 5.9+ and the CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN capabilities." >&2
+  echo "[crac] CRIU needs Linux kernel 5.9+ and the CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN/NET_ADMIN capabilities." >&2
   echo "[crac] If you switched the app to PostgreSQL/Redis, an open connection at checkpoint time" >&2
   echo "[crac] aborts CRaC; keep the default H2 'dev' profile or see the README's external-services note." >&2
   exit "$checkpoint_status"

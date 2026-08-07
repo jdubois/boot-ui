@@ -59,8 +59,8 @@ final class CracDockerfileGenerator {
                 #
                 # CRaC snapshots a fully warmed-up JVM process to disk and restores it in tens of
                 # milliseconds. The CRIU engine needs Linux kernel 5.9 or newer plus
-                # CHECKPOINT_RESTORE, SYS_PTRACE and (with Docker's default /proc restrictions)
-                # SYS_ADMIN. The companion
+                # CHECKPOINT_RESTORE, SYS_PTRACE, SYS_ADMIN (with Docker's default /proc restrictions)
+                # and NET_ADMIN (to recreate network interfaces). The companion
                 # checkpoint-and-run.sh entrypoint (generated alongside this file and expected at the
                 # project root) takes the checkpoint on the first start and restores it afterwards.
                 #
@@ -68,7 +68,7 @@ final class CracDockerfileGenerator {
                 # between restarts, and -p publishes the port so the app is reachable from the host):
                 #   docker build -f Dockerfile-crac -t %1$s .
                 #   docker run --rm -p 8080:8080 \\
-                #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \\
+                #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN --cap-add=NET_ADMIN \\
                 #     -v %1$s-crac:/opt/crac/checkpoint %1$s
                 # These capabilities grant broad host access. Use this image only for local
                 # development on an isolated machine; do not deploy it to production or a shared host.
@@ -102,6 +102,8 @@ final class CracDockerfileGenerator {
                 # survives container restarts.
                 ENV CRAC_CHECKPOINT_DIR=/opt/crac/checkpoint
                 ENV APP_JAR=/app/app.jar
+                # Spring Boot's Hikari checkpoint lifecycle suspends new borrows before draining the pool.
+                ENV SPRING_DATASOURCE_HIKARI_ALLOWPOOLSUSPENSION=true
 
                 # Copy the repackaged jar and the checkpoint/restore entrypoint generated alongside this file.
                 COPY --from=build /app/app.jar ${APP_JAR}
@@ -164,7 +166,7 @@ final class CracDockerfileGenerator {
 
                 if [ -z "$(ls -A "$CRAC_CHECKPOINT_DIR" 2>/dev/null)" ]; then
                   echo "[crac] Checkpoint creation failed (exit code $checkpoint_status). See the log above." >&2
-                  echo "[crac] CRIU needs Linux kernel 5.9+ and the CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN capabilities." >&2
+                  echo "[crac] CRIU needs Linux kernel 5.9+ and the CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN/NET_ADMIN capabilities." >&2
                   exit "$checkpoint_status"
                 fi
 

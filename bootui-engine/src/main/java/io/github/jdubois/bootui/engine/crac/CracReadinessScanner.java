@@ -134,7 +134,8 @@ public final class CracReadinessScanner {
                     basePackages.warnings());
         }
 
-        CracContext context = new CracContext(classes, basePackages.packages(), safeInventory());
+        InventorySnapshot inventory = safeInventory();
+        CracContext context = new CracContext(classes, basePackages.packages(), inventory.inventory());
         List<CracFindingDto> results = CracCheckRegistry.activeChecks().stream()
                 .map(check -> check.evaluate(context))
                 .toList();
@@ -148,7 +149,7 @@ public final class CracReadinessScanner {
                 classes.size(),
                 results.size(),
                 results,
-                basePackages.warnings());
+                concat(basePackages.warnings(), inventory.warnings()));
     }
 
     /** Assembles the DTO report served to the panel from a cached scan plus a fresh runtime status. */
@@ -178,12 +179,21 @@ public final class CracReadinessScanner {
                 List.of());
     }
 
-    private CracRuntimeInventory safeInventory() {
+    private InventorySnapshot safeInventory() {
         try {
             CracRuntimeInventory inventory = inventorySupplier.get();
-            return inventory == null ? CracRuntimeInventory.empty() : inventory;
-        } catch (RuntimeException ex) {
-            return CracRuntimeInventory.empty();
+            if (inventory == null) {
+                return new InventorySnapshot(
+                        CracRuntimeInventory.empty(),
+                        List.of(
+                                "CRaC runtime inventory collection returned no data; runtime-backed checks may be incomplete."));
+            }
+            return new InventorySnapshot(inventory, List.of());
+        } catch (RuntimeException | LinkageError ex) {
+            return new InventorySnapshot(
+                    CracRuntimeInventory.empty(),
+                    List.of("CRaC runtime inventory could not be collected; runtime-backed checks may be incomplete: "
+                            + CracCheckSupport.detail(ex.getMessage())));
         }
     }
 
@@ -202,6 +212,10 @@ public final class CracReadinessScanner {
     private static List<String> concat(List<String> warnings, String extra) {
         return java.util.stream.Stream.concat(warnings.stream(), java.util.stream.Stream.of(extra))
                 .toList();
+    }
+
+    private static List<String> concat(List<String> first, List<String> second) {
+        return java.util.stream.Stream.concat(first.stream(), second.stream()).toList();
     }
 
     private List<CracSeverityCountDto> severityCounts(List<CracFindingDto> findings) {
@@ -238,4 +252,6 @@ public final class CracReadinessScanner {
     }
 
     private record BasePackageDetection(List<String> packages, List<String> warnings) {}
+
+    private record InventorySnapshot(CracRuntimeInventory inventory, List<String> warnings) {}
 }

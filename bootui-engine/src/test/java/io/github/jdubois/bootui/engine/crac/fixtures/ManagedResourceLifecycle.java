@@ -10,10 +10,9 @@ import org.crac.Resource;
 
 /**
  * Implements {@code org.crac.Resource} and re-acquires its socket, file handle, executor pool, and
- * HTTP client inside {@link #afterRestore(Context)} - exactly the pattern that CRAC-NET-001,
- * CRAC-FILE-001, CRAC-THREAD-001, and CRAC-POOL-002 recommend. None of these calls/fields should be
- * flagged: the class implements {@code org.crac.Resource}, so it is a managed class for the purposes
- * of {@code ManagedLifecycleCallSites}.
+ * HTTP client inside {@link #afterRestore(Context)}. The acquisition calls and resource fields with
+ * matching cleanup are exempt. The HTTP client field deliberately has no observable cleanup and
+ * remains visible to CRAC-POOL-002.
  */
 public class ManagedResourceLifecycle implements Resource {
 

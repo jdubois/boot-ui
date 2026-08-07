@@ -149,11 +149,15 @@ final class CracRuntimeStatusCollector {
                     + "Spring Boot Environment. No automatic checkpoint will actually be taken on context refresh; "
                     + "set the property as a JVM system property or in a classpath spring.properties file instead.");
         }
-        List<String> poolBeans = safeInventory().connectionPoolBeans();
+        CracRuntimeInventory inventory = safeInventory();
+        List<String> poolBeans = java.util.stream.Stream.concat(
+                        inventory.connectionPoolBeans().stream(), inventory.hikariPoolIssues().stream())
+                .toList();
         if (!poolBeans.isEmpty()) {
             caveats.add("Detected " + poolBeans.size() + " connection pool bean(s) (" + String.join(", ", poolBeans)
                     + "). The backing service must be reachable both when the checkpoint is taken and when it is "
-                    + "restored, and no pooled connection may be open at checkpoint time (see check CRAC-POOL-001).");
+                    + "restored, and no pooled connection may be open at checkpoint time (see checks CRAC-POOL-001 "
+                    + "and CRAC-POOL-004).");
         }
         return List.copyOf(caveats);
     }
