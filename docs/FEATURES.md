@@ -383,11 +383,11 @@ violating rules, sorted by severity and violation count. See
 
 On Quarkus the panel is identical, running the same shared ArchUnit ruleset and on-demand scan over the same report
 contract — the framework-agnostic hygiene rules apply unchanged, while the Spring-stereotype rules simply find no
-matching classes on a Quarkus application. A handful of these rules are deliberately dual-framework instead of
-Spring-only, because they also key on the portable `jakarta.*` annotations a CDI container recognizes: self-invocation
-and proxy-visibility checks also fire on `jakarta.transaction.Transactional`, held to the CDI-accurate, more permissive
-visibility bar (a CDI client proxy can intercept protected and package-private methods, unlike Spring's stricter
-public-only proxies) so they degrade gracefully rather than false-positive — see
+matching classes on a Quarkus application. Framework-sensitive proxy rules receive the active platform explicitly:
+the Spring self-invocation rule is skipped because Arc supports intercepted self-invocation, while proxy visibility
+follows Arc's support for static interception and final-method transformation instead of applying Spring's proxy
+restrictions. On Spring, protected and package-private methods are accepted for Spring Boot's default class-based
+proxies, matching Spring Framework 6+ behavior — see
 [ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the per-rule detail. The one platform
 difference is base-package discovery: Quarkus has no
 `@SpringBootApplication` to read and no reliable runtime package scan under its classloader, so the application's base

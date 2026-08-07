@@ -37,12 +37,18 @@ public final class ArchitectureScanner {
 
     private final Supplier<List<String>> basePackagesSupplier;
     private final ArchitectureClassImporter importer;
+    private final ArchitecturePlatform platform;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
 
-    ArchitectureScanner(Supplier<List<String>> basePackagesSupplier, ArchitectureClassImporter importer, Clock clock) {
+    ArchitectureScanner(
+            Supplier<List<String>> basePackagesSupplier,
+            ArchitectureClassImporter importer,
+            ArchitecturePlatform platform,
+            Clock clock) {
         this.basePackagesSupplier = basePackagesSupplier;
         this.importer = importer;
+        this.platform = platform;
         this.clock = clock;
     }
 
@@ -52,8 +58,18 @@ public final class ArchitectureScanner {
      * <em>live</em> on every scan (the supplier is typically backed by a {@code BasePackageProvider} SPI),
      * and the ArchUnit import runs only on demand, never at construction.
      */
+    public static ArchitectureScanner usingClasspath(
+            Supplier<List<String>> basePackagesSupplier, ArchitecturePlatform platform, Clock clock) {
+        return new ArchitectureScanner(basePackagesSupplier, new ClassFileArchitectureImporter(), platform, clock);
+    }
+
+    /**
+     * Builds a Spring-platform scanner, preserving the original public factory contract.
+     *
+     * @see #usingClasspath(Supplier, ArchitecturePlatform, Clock)
+     */
     public static ArchitectureScanner usingClasspath(Supplier<List<String>> basePackagesSupplier, Clock clock) {
-        return new ArchitectureScanner(basePackagesSupplier, new ClassFileArchitectureImporter(), clock);
+        return usingClasspath(basePackagesSupplier, ArchitecturePlatform.SPRING, clock);
     }
 
     public ArchitectureReport initialReport() {
@@ -113,7 +129,7 @@ public final class ArchitectureScanner {
                     List.of());
         }
 
-        ArchitectureContext context = new ArchitectureContext(classes, basePackages);
+        ArchitectureContext context = new ArchitectureContext(classes, basePackages, platform);
         List<ArchitectureRuleResultDto> results = ArchitectureRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(context))
                 .toList();
