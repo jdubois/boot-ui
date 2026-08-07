@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.sample;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
@@ -38,6 +39,7 @@ class SpringVulnerabilitiesIntegrationTest {
     private static final String ADVISORY_ID = "GHSA-spring-it-0001";
     private static final Path DISMISSALS_FILE = Path.of("target/vulnerabilities-it/boot-ui.yml");
     private static final AtomicInteger QUERY_CALLS = new AtomicInteger();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static HttpServer osv;
 
     @LocalServerPort
@@ -165,7 +167,7 @@ class SpringVulnerabilitiesIntegrationTest {
             osv = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             osv.createContext("/v1/querybatch", exchange -> {
                 QUERY_CALLS.incrementAndGet();
-                respond(exchange, "{\"results\":[{\"vulns\":[{\"id\":\"" + ADVISORY_ID + "\"}]}]}");
+                respond(exchange, queryBatchResponse(exchange.getRequestBody().readAllBytes()));
             });
             osv.createContext(
                     "/v1/vulns/",
@@ -178,6 +180,18 @@ class SpringVulnerabilitiesIntegrationTest {
         } catch (IOException ex) {
             throw new IllegalStateException("Could not start the OSV stub", ex);
         }
+    }
+
+    private static String queryBatchResponse(byte[] requestBody) throws IOException {
+        int queryCount = OBJECT_MAPPER.readTree(requestBody).path("queries").size();
+        StringBuilder response = new StringBuilder("{\"results\":[");
+        for (int i = 0; i < queryCount; i++) {
+            if (i > 0) {
+                response.append(',');
+            }
+            response.append(i == 0 ? "{\"vulns\":[{\"id\":\"" + ADVISORY_ID + "\"}]}" : "{}");
+        }
+        return response.append("]}").toString();
     }
 
     private static void respond(HttpExchange exchange, String body) throws IOException {

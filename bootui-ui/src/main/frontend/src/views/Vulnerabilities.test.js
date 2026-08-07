@@ -34,7 +34,11 @@ function dependency(packageName, version, vulnerabilities, highestSeverity) {
   }
 }
 
-function report(dependencies, vulnerable = dependencies.filter((d) => d.vulnerabilityCount > 0).length) {
+function report(
+  dependencies,
+  vulnerable = dependencies.filter((d) => d.vulnerabilityCount > 0).length,
+  status = 'SCANNED'
+) {
   return {
     scanningEnabled: true,
     total: dependencies.length,
@@ -47,7 +51,7 @@ function report(dependencies, vulnerable = dependencies.filter((d) => d.vulnerab
     ],
     scan: {
       scanner: 'OSV.dev',
-      status: 'SCANNED',
+      status,
       message: 'Scan completed against OSV.dev.',
       scannedAt: 1_700_000_000_000,
       packagesScanned: dependencies.length,
@@ -65,7 +69,7 @@ function report(dependencies, vulnerable = dependencies.filter((d) => d.vulnerab
  * re-fetching after a dismiss/restore, so each test supplies the *next* report reflecting the
  * expected server-side effect.
  */
-async function mountWithReports(reports) {
+async function mountWithReports(reports, props = {}) {
   let callIndex = 0
   const fetchMock = vi.fn((input, init) => {
     const url = typeof input === 'string' ? input : input.toString()
@@ -82,7 +86,7 @@ async function mountWithReports(reports) {
   })
   vi.stubGlobal('fetch', fetchMock)
 
-  const wrapper = mount(Vulnerabilities)
+  const wrapper = mount(Vulnerabilities, {props})
   await flushPromises()
   return {wrapper, fetchMock}
 }
@@ -131,6 +135,18 @@ describe('Vulnerabilities', () => {
     const {wrapper} = await mountWithReports([report([clean])])
 
     expect(wrapper.text()).toContain('None found')
+  })
+
+  it('does not claim a dependency is clean before or during an incomplete scan', async () => {
+    const dependencyWithoutFindings = dependency('org.example:unknown', '1.0.0', [], 'NONE')
+    const {wrapper: notScanned} = await mountWithReports([report([dependencyWithoutFindings], 0, 'NOT_SCANNED')])
+
+    expect(notScanned.text()).toContain('Not scanned')
+    expect(notScanned.text()).not.toContain('None found')
+
+    const {wrapper: partial} = await mountWithReports([report([dependencyWithoutFindings], 0, 'PARTIAL')])
+    expect(partial.text()).toContain('No finding in partial result')
+    expect(partial.text()).not.toContain('None found')
   })
 
   it('keeps a dismissed-only dependency out of "None found" so it can still be restored', async () => {
@@ -215,6 +231,22 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).toContain('Dismiss')
   })
 
+  it('disables vulnerability dismissal when the panel is read-only', async () => {
+    const active = dependency(
+      'org.example:sample',
+      '1.0.0',
+      [vulnerability('GHSA-active-0001', 'CRITICAL', false)],
+      'CRITICAL'
+    )
+    const {wrapper, fetchMock} = await mountWithReports([report([active])], {
+      panel: {readOnly: true, readOnlyReason: 'Disabled by policy.'}
+    })
+
+    const dismissButton = wrapper.find('button.btn-outline-secondary')
+    expect(dismissButton.attributes('disabled')).toBeDefined()
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('api/dismissed-rules/'))).toHaveLength(0)
+  })
+
   it('renders the numeric CVSS base score next to the severity badge', async () => {
     const scored = dependency(
       'org.example:scored',
@@ -297,7 +329,7 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).not.toContain('No fixed version reported by OSV')
   })
 
-  it('shows "already on a fixed version" when fixedVersions is non-empty but fixAvailable is false', async () => {
+  it('does not claim the installed dependency is fixed when OSV still matched it as vulnerable', async () => {
     const alreadyFixed = dependency(
       'org.example:already-fixed',
       '2.0.0',
@@ -306,7 +338,8 @@ describe('Vulnerabilities', () => {
     )
     const {wrapper} = await mountWithReports([report([alreadyFixed])])
 
-    expect(wrapper.text()).toContain('already on a fixed version')
+    expect(wrapper.text()).toContain('No newer fixed version reported by OSV (reported: 1.5.0)')
+    expect(wrapper.text()).not.toContain('already on a fixed version')
     expect(wrapper.text()).not.toContain('No fixed version reported by OSV')
   })
 

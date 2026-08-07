@@ -695,31 +695,45 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
-- Derive severity from a real CVSS v3.0/v3.1 Base Score computed from the advisory's CVSS vector (per the FIRST.org
-  specification) when present, preferring a package-level `affected[].severity` entry matching the scanned dependency
-  over the advisory's top-level `severity[]` (the OSV schema states the two are mutually exclusive), falling back to
-  the advisory's `database_specific` severity label when no CVSS vector is present at either level; render `UNKNOWN`
-  only when none of these is available, never silently drop the finding.
+- Derive severity only from OSV entries explicitly typed `CVSS_V3` and carrying a valid CVSS v3.0/v3.1 vector (per the
+  FIRST.org specification), choosing the highest valid v3 Base Score when multiple entries exist. Prefer a
+  package-level `affected[].severity` entry matching the scanned dependency over the advisory's top-level
+  `severity[]` (the OSV schema states the two are mutually exclusive), falling back to the advisory's
+  `database_specific` severity label when no supported vector is present; render CVSS `0.0` as `NONE` and `UNKNOWN`
+  only when no supported score/label is available. Never reinterpret bare numbers, CVSS v2/v4, or provider-specific
+  scales as CVSS v3, and never silently drop the finding.
 - Exclude advisories marked `withdrawn` by OSV from results and counts.
 - Follow OSV `/v1/querybatch` pagination (`next_page_token`) until every query is exhausted or a bounded page-count
-  safety limit is hit, and partition the outgoing package list into batches of at most 1,000 queries (OSV's documented
-  hard limit per request), merging every page/batch back into one result set.
+  safety limit is hit, and partition the outgoing package list into batches of at most 1,000 queries (the OSV server
+  implementation's hard limit), merging every page/batch back into one result set. Validate that every response
+  contains exactly one structurally valid result per submitted query; never reinterpret a missing/short/malformed
+  response as an empty result. Require every returned vulnerability reference to be an object with a non-blank id.
+  Preserve completed chunks as `PARTIAL` if a later chunk fails and report only completed package queries in
+  `packagesScanned`.
 - Fetch distinct advisory details (`GET /v1/vulns/{id}`) with a small bounded concurrency (up to 10 at a time) instead of
-  one at a time, so scans against a dependency tree with many distinct advisories stay responsive.
-- Enrich each CVE-aliased advisory with FIRST.org [EPSS](https://www.first.org/epss/) exploit-probability data
-  (probability + percentile) in one batched request per scan, alongside the OSV calls; EPSS is a likelihood-of-
+  one at a time, so scans against a dependency tree with many distinct advisories stay responsive. De-duplicate repeated
+  ids per dependency and require each detail response id to match the requested id; mismatch/missing-id responses count
+  as failed fetches. Keep the detail-stage withdrawn check because POST queries omit withdrawn records while
+  `GET /v1/vulns/{id}` can return them.
+- Enrich each advisory linked to a canonical CVE through either its own id or an alias with FIRST.org
+  [EPSS](https://www.first.org/epss/) exploit-probability data (probability + percentile) in one or more batched requests
+  per scan, each respecting FIRST's 2,000-character maximum for the comma-separated `cve` parameter, alongside the OSV calls; EPSS is a likelihood-of-
   exploitation signal that deliberately complements, rather than replaces, the CVSS severity-if-exploited score. EPSS
-  lookups can be disabled independently of OSV scanning, and a failed/unreachable EPSS request never fails the scan or
-  discards the underlying OSV results — it just omits the EPSS figures.
+  responses may enrich only CVEs requested in that chunk and must contain finite probability/percentile values from
+  0 to 1. Lookups can be disabled independently of OSV scanning, and a failed/unreachable EPSS request never fails the
+  scan or discards the underlying OSV results — it just omits the EPSS figures.
 - Derive an explicit `fixAvailable` signal per advisory by comparing the dependency's currently-resolved version
-  against the advisory's `fixedVersions` using Maven `ComparableVersion` qualifier semantics. An empty list means only
+  against the advisory's non-`GIT` `fixedVersions` using Maven `ComparableVersion` qualifier semantics; de-duplicate and
+  order candidates using those same semantics. A false signal means only that OSV reported no candidate newer than the
+  installed version, not that the installed dependency is unaffected. An empty list means only
   that OSV reported no `fixed` event: a range may instead end with `last_affected`, which names the final vulnerable
   version but does not identify the first non-vulnerable upgrade target. The UI must not conflate that state with proof
   that no fix exists.
 - Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
 - Allow dismissing/restoring an individual vulnerability finding for a specific dependency, excluding it from the
   vulnerable count and severity rollups until restored, consistent with the dismiss/restore workflow shared by every
-  other advisor.
+  other advisor. Recompute dependency ordering from active severity after every dismissal change, and disable the
+  Vulnerabilities panel's dismissal controls under panel read-only policy.
 
 Acceptance criteria:
 
@@ -729,6 +743,9 @@ Acceptance criteria:
   inventory; a failure fetching one advisory's details does not discard advisories that were already fetched
   successfully, degrading the scan to a partial-success status instead of an outright error.
 - Scan size is bounded by configuration so large classpaths remain responsive.
+- Initial/error/partial UI states must not label an empty advisory list as a clean "None found" result.
+- An unreadable Spring `pom.properties` resource is logged and skipped without discarding readable inventory entries;
+  Quarkus continues to use its build-time resolved runtime dependency model and fails soft on malformed entries.
 
 Known limitation: the dependency inventory on both adapters is coordinate-based (one resolved JAR = one artifact
 coordinate). A vulnerable library relocated/repackaged inside a shaded or uber JAR has no `pom.properties`/build-time
