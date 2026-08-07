@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpTools;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController;
+import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import org.junit.jupiter.api.Test;
@@ -175,6 +176,30 @@ class BootUiReactiveSpringSecurityAutoConfigurationTests {
     }
 
     @Test
+    void anyExchangePermitAllStillInstallsAuthorizationWebFilter() {
+        new ReactiveWebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        HttpHandlerAutoConfiguration.class,
+                        WebFluxAutoConfiguration.class,
+                        BootUiReactiveAutoConfiguration.class,
+                        BootUiReactiveSpringSecurityAutoConfiguration.class))
+                .withUserConfiguration(PermitAllSecurityConfiguration.class)
+                .withPropertyValues(
+                        "bootui.enabled=ON",
+                        "bootui.allow-non-localhost=true",
+                        "bootui.authentication.token=test-token")
+                .run(context -> {
+                    var report = context.getBean(ReactiveSecurityAdvisorService.class)
+                            .scan();
+
+                    assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
+                    assertThat(report.results())
+                            .extracting(SecurityRuleResultDto::id)
+                            .doesNotContain("SEC-RXF-AUTHZ-001", "SEC-RXF-AUTHZ-002", "SEC-RXF-AUTHZ-003");
+                });
+    }
+
+    @Test
     void issuesAndAcceptsTheSpaCsrfCookieHeaderPair() {
         runner.run(context -> {
             WebTestClient client = client(context.getSourceApplicationContext());
@@ -276,6 +301,30 @@ class BootUiReactiveSpringSecurityAutoConfigurationTests {
     @Configuration(proxyBeanMethods = false)
     @EnableWebFluxSecurity
     static class SecurityInfrastructureOnlyConfiguration {}
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableWebFluxSecurity
+    static class PermitAllSecurityConfiguration {
+
+        @Bean
+        ReactiveAuthenticationManager permitAllAuthenticationManager() {
+            UserDetails user = User.withUsername("developer")
+                    .password("{noop}password")
+                    .roles("USER")
+                    .build();
+            return new UserDetailsRepositoryReactiveAuthenticationManager(new MapReactiveUserDetailsService(user));
+        }
+
+        @Bean
+        @Order(100)
+        SecurityWebFilterChain permitAllSecurityWebFilterChain(
+                ServerHttpSecurity http, ReactiveAuthenticationManager permitAllAuthenticationManager) {
+            return http.authenticationManager(permitAllAuthenticationManager)
+                    .authorizeExchange(exchange -> exchange.anyExchange().permitAll())
+                    .httpBasic(Customizer.withDefaults())
+                    .build();
+        }
+    }
 
     @RestController
     static class TestController {

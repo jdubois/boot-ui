@@ -26,6 +26,6 @@ public record CorsConfigObservation(
     }
 
     boolean hasWildcardOriginPattern() {
-        return allowedOriginPatterns.stream().anyMatch(p -> p.equals("*") || p.endsWith("**"));
+        return allowedOriginPatterns.stream().anyMatch("*"::equals);
     }
 }

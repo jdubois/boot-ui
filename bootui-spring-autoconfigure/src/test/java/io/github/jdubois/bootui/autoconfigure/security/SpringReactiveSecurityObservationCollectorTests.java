@@ -6,6 +6,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityEnvironmentSnapshot;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityObservation;
 import io.github.jdubois.bootui.engine.reactivesecurity.WebFilterChainObservation;
 import java.time.Duration;
@@ -25,11 +26,13 @@ import org.springframework.security.web.server.csrf.CsrfWebFilter;
 import org.springframework.security.web.server.header.CompositeServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.ContentSecurityPolicyServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.HttpHeaderWriterWebFilter;
+import org.springframework.security.web.server.header.ServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.StrictTransportSecurityServerHttpHeadersWriter;
 import org.springframework.security.web.server.util.matcher.PathPatternParserServerWebExchangeMatcher;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatcher;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsConfigurationSource;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -50,6 +53,17 @@ class SpringReactiveSecurityObservationCollectorTests {
 
         @Override
         public Mono<org.springframework.security.core.Authentication> convert(ServerWebExchange exchange) {
+            return Mono.empty();
+        }
+    }
+
+    private static final class CyclicServerHttpHeadersWriter implements ServerHttpHeadersWriter {
+
+        @SuppressWarnings("FieldCanBeLocal")
+        private final List<ServerHttpHeadersWriter> writers = List.of(this);
+
+        @Override
+        public Mono<Void> writeHttpHeaders(ServerWebExchange exchange) {
             return Mono.empty();
         }
     }
@@ -207,6 +221,22 @@ class SpringReactiveSecurityObservationCollectorTests {
     }
 
     @Test
+    void cyclicHeaderWriterCompositionIsDepthBounded() {
+        HttpHeaderWriterWebFilter headers = new HttpHeaderWriterWebFilter(new CyclicServerHttpHeadersWriter());
+        SecurityWebFilterChain chain =
+                new MatcherSecurityWebFilterChain(ServerWebExchangeMatchers.anyExchange(), List.of(headers));
+        SpringReactiveSecurityObservationCollector collector = new SpringReactiveSecurityObservationCollector(
+                chainProvider(List.of(chain)), beanFactoryProvider(null), new MockEnvironment());
+
+        ReactiveSecurityObservation observation = collector.collect();
+        WebFilterChainObservation observed = observation.chains().get(0);
+
+        assertThat(observed.headerWriterNames()).contains("CyclicServerHttpHeadersWriter");
+        assertThat(observed.headerWritersObserved()).isFalse();
+        assertThat(observation.errors()).containsExactly("Chain 0: header writers could not be fully collected");
+    }
+
+    @Test
     void collectionDoesNotBlockOnAnAsynchronousChain() {
         SecurityWebFilterChain asynchronousChain = new SecurityWebFilterChain() {
             @Override
@@ -248,7 +278,7 @@ class SpringReactiveSecurityObservationCollectorTests {
 
         ReactiveSecurityObservation observation = collector.collect();
 
-        assertThat(observation.chains().get(0).permitsAllAnonymous()).isNull();
+        assertThat(observation.chains().get(0).authorizationFilterPresent()).isNull();
         assertThat(observation.errors()).containsExactly("Chain 0: web filters could not be collected");
     }
 
@@ -286,6 +316,45 @@ class SpringReactiveSecurityObservationCollectorTests {
             assertThat(cors.allowedOriginPatterns()).containsExactly("*");
             assertThat(cors.allowCredentials()).isTrue();
         });
+    }
+
+    @Test
+    void opaqueCorsSourceProducesAnExplicitPartialObservation() {
+        CorsConfigurationSource source = exchange -> null;
+        ListableBeanFactory beanFactory = mock(ListableBeanFactory.class);
+        doReturn(Map.of("customCorsConfigurationSource", source))
+                .when(beanFactory)
+                .getBeansOfType(any());
+        SpringReactiveSecurityObservationCollector collector = new SpringReactiveSecurityObservationCollector(
+                chainProvider(List.of()), beanFactoryProvider(beanFactory), new MockEnvironment());
+
+        ReactiveSecurityObservation observation = collector.collect();
+
+        assertThat(observation.corsSourcePresent()).isTrue();
+        assertThat(observation.corsConfigs()).isEmpty();
+        assertThat(observation.corsObservationComplete()).isFalse();
+        assertThat(observation.errors()).singleElement().asString().contains("could not be inspected");
+    }
+
+    @Test
+    void mixedInspectableAndOpaqueCorsSourcesRemainIncomplete() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(List.of("https://app.example"));
+        UrlBasedCorsConfigurationSource inspectable = new UrlBasedCorsConfigurationSource();
+        inspectable.registerCorsConfiguration("/**", configuration);
+        CorsConfigurationSource opaque = exchange -> null;
+        ListableBeanFactory beanFactory = mock(ListableBeanFactory.class);
+        doReturn(Map.of("inspectable", inspectable, "opaque", opaque))
+                .when(beanFactory)
+                .getBeansOfType(any());
+        SpringReactiveSecurityObservationCollector collector = new SpringReactiveSecurityObservationCollector(
+                chainProvider(List.of()), beanFactoryProvider(beanFactory), new MockEnvironment());
+
+        ReactiveSecurityObservation observation = collector.collect();
+
+        assertThat(observation.corsConfigs()).hasSize(1);
+        assertThat(observation.corsObservationComplete()).isFalse();
+        assertThat(observation.errors()).singleElement().asString().contains("opaque");
     }
 
     @Test
@@ -353,5 +422,55 @@ class SpringReactiveSecurityObservationCollectorTests {
                 .isTrue();
         assertThat(issuerObservation.environment().oauth2JwtStaticPublicKeyConfigured())
                 .isFalse();
+    }
+
+    @Test
+    void capturesBootFourReactiveSignalsAndIgnoresUnsupportedSecurityDebugProperty() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.security.debug", "true")
+                .withProperty(
+                        "spring.security.oauth2.resourceserver.opaquetoken.introspection-uri",
+                        "http://authorization.example/introspect")
+                .withProperty("management.endpoints.web.exposure.include", "env,configprops")
+                .withProperty("management.endpoint.env.show-values", "ALWAYS")
+                .withProperty("management.endpoint.configprops.show-values", "when-authorized");
+        SpringReactiveSecurityObservationCollector collector = new SpringReactiveSecurityObservationCollector(
+                chainProvider(List.of()), beanFactoryProvider(null), environment);
+
+        ReactiveSecurityObservation observation = collector.collect();
+
+        assertThat(observation.environment().securityDebugEnabled()).isFalse();
+        assertThat(observation.environment().oauth2OpaqueTokenIntrospectionUsesPlainHttp())
+                .isTrue();
+        assertThat(observation.environment().managementEnvShowValuesAlways()).isTrue();
+        assertThat(observation.environment().managementConfigPropsShowValuesAlways())
+                .isFalse();
+        assertThat(observation.environment().managementEnvWebExposed()).isTrue();
+        assertThat(observation.environment().managementConfigPropsWebExposed()).isTrue();
+    }
+
+    @Test
+    void actuatorExposureHonorsWildcardExcludesAndAccessCaps() {
+        MockEnvironment excluded = new MockEnvironment()
+                .withProperty("management.endpoints.web.exposure.include", "*")
+                .withProperty("management.endpoints.web.exposure.exclude", "*");
+        MockEnvironment accessDenied = new MockEnvironment()
+                .withProperty("management.endpoints.web.exposure.include", "env,configprops")
+                .withProperty("management.endpoint.env.access", "none")
+                .withProperty("management.endpoints.access.max-permitted", "none");
+
+        ReactiveSecurityEnvironmentSnapshot excludedSnapshot = new SpringReactiveSecurityObservationCollector(
+                        chainProvider(List.of()), beanFactoryProvider(null), excluded)
+                .collect()
+                .environment();
+        ReactiveSecurityEnvironmentSnapshot deniedSnapshot = new SpringReactiveSecurityObservationCollector(
+                        chainProvider(List.of()), beanFactoryProvider(null), accessDenied)
+                .collect()
+                .environment();
+
+        assertThat(excludedSnapshot.managementEnvWebExposed()).isFalse();
+        assertThat(excludedSnapshot.managementConfigPropsWebExposed()).isFalse();
+        assertThat(deniedSnapshot.managementEnvWebExposed()).isFalse();
+        assertThat(deniedSnapshot.managementConfigPropsWebExposed()).isFalse();
     }
 }

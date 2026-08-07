@@ -46,4 +46,28 @@ abstract class AbstractReactiveSecurityRule implements ReactiveSecurityRule {
     SecurityRuleResultDto violation(String severityOverride, List<String> details) {
         return details.isEmpty() ? pass() : ReactiveSecuritySupport.violation(definition, severityOverride, details);
     }
+
+    SecurityRuleResultDto filterViolation(ReactiveSecurityContext context, List<String> details) {
+        if (details.isEmpty() && context.chains().stream().anyMatch(chain -> !chain.filtersObserved())) {
+            return skipped("Web filters could not be observed for every reactive security chain.");
+        }
+        return violation(details);
+    }
+
+    SecurityRuleResultDto corsViolation(ReactiveSecurityContext context, List<String> details) {
+        if (details.isEmpty() && !context.corsObservationComplete()) {
+            return skipped("Reactive CORS sources are present but could not all be inspected.");
+        }
+        return violation(details);
+    }
+
+    SecurityRuleResultDto headerViolation(ReactiveSecurityContext context, List<String> details) {
+        if (details.isEmpty()
+                && context.chains().stream()
+                        .anyMatch(chain -> !chain.filtersObserved()
+                                || (chain.hasHeaderWriterWebFilter() && !chain.headerWritersObserved()))) {
+            return skipped("Header-writer details could not be fully observed.");
+        }
+        return violation(details);
+    }
 }

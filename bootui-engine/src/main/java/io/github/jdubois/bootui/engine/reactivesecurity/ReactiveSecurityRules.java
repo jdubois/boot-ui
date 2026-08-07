@@ -18,8 +18,8 @@ final class ReactiveAuthorizationFilterRule extends AbstractReactiveSecurityRule
                         "Every reactive filter chain should enforce authorization",
                         ReactiveSecurityCategory.AUTHORIZATION,
                         "HIGH",
-                        "Detects a SecurityWebFilterChain that installs no AuthorizationWebFilter, so matched requests are unguarded.",
-                        "Add authorizeExchange(...) with at least anyExchange().authenticated() (or an explicit denyAll) to the chain.",
+                        "Detects a SecurityWebFilterChain whose observed Spring Security filters contain no AuthorizationWebFilter. Custom authorization filters remain outside this bounded snapshot.",
+                        "Add authorizeExchange(...) with at least anyExchange().authenticated() (or denyAll), or verify equivalent custom authorization explicitly.",
                         "https://docs.spring.io/spring-security/reference/reactive/authorization/authorize-http-requests.html"));
     }
 
@@ -27,25 +27,25 @@ final class ReactiveAuthorizationFilterRule extends AbstractReactiveSecurityRule
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (!chain.hasAuthorizationWebFilter()) {
-                details.add(chain.describe() + " installs no authorization web filter.");
+            if (Boolean.FALSE.equals(chain.authorizationFilterPresent())) {
+                details.add(chain.describe() + " installs no observed AuthorizationWebFilter.");
             }
         }
-        return violation(details);
+        return filterViolation(context, details);
     }
 }
 
-final class ReactivePermitAllCatchAllRule extends AbstractReactiveSecurityRule {
+final class ReactiveCatchAllWithoutAuthorizationRule extends AbstractReactiveSecurityRule {
 
-    ReactivePermitAllCatchAllRule() {
+    ReactiveCatchAllWithoutAuthorizationRule() {
         super(
                 new ReactiveSecurityRuleDefinition(
                         "SEC-RXF-AUTHZ-002",
-                        "Avoid blanket permitAll authorization in reactive chains",
+                        "Catch-all reactive chains with authentication should install authorization",
                         ReactiveSecurityCategory.AUTHORIZATION,
                         "HIGH",
-                        "Detects a reactive chain whose authorization grants every request to anonymous callers (permitAll catch-all) while also configuring authentication.",
-                        "Restrict sensitive paths and finish with anyExchange().authenticated(); keep permitAll only for genuinely public endpoints.",
+                        "Detects a catch-all reactive chain that installs authentication filters but no AuthorizationWebFilter. Runtime filter inspection cannot distinguish permitAll from authenticated authorization decisions once an AuthorizationWebFilter is present.",
+                        "Add authorizeExchange(...) and finish with anyExchange().authenticated() or denyAll(); keep explicit permitAll matchers only for public endpoints.",
                         "https://docs.spring.io/spring-security/reference/reactive/authorization/authorize-http-requests.html"));
     }
 
@@ -53,15 +53,15 @@ final class ReactivePermitAllCatchAllRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (Boolean.TRUE.equals(chain.permitsAllAnonymous())
+            if (Boolean.FALSE.equals(chain.authorizationFilterPresent())
                     && chain.matchesAnyRequest()
                     && chain.hasAuthenticationFilter()) {
                 details.add(
                         chain.describe()
-                                + " matches every request and permits it anonymously even though it configures authentication.");
+                                + " matches every request and configures authentication but installs no observed AuthorizationWebFilter.");
             }
         }
-        return violation(details);
+        return filterViolation(context, details);
     }
 }
 
@@ -71,11 +71,11 @@ final class ReactiveEffectivelyDisabledSecurityRule extends AbstractReactiveSecu
         super(
                 new ReactiveSecurityRuleDefinition(
                         "SEC-RXF-AUTHZ-003",
-                        "Reactive application security should not be effectively disabled",
+                        "Reactive applications should not omit both authentication and authorization",
                         ReactiveSecurityCategory.AUTHORIZATION,
                         "HIGH",
-                        "Detects when every reactive filter chain permits all requests anonymously with no authentication mechanism.",
-                        "Define authorization rules requiring authentication for non-public endpoints instead of leaving the app fully open.",
+                        "Detects when every observed reactive filter chain omits both AuthorizationWebFilter and authentication filters. Custom filters remain outside this bounded observation.",
+                        "Define authentication and authorizeExchange rules for non-public endpoints, or verify that custom filters provide equivalent protection.",
                         "https://docs.spring.io/spring-security/reference/reactive/authorization/authorize-http-requests.html"));
     }
 
@@ -85,17 +85,18 @@ final class ReactiveEffectivelyDisabledSecurityRule extends AbstractReactiveSecu
         if (chains.isEmpty()) {
             return pass();
         }
-        boolean anyDeterminable = chains.stream().anyMatch(chain -> chain.permitsAllAnonymous() != null);
-        if (!anyDeterminable) {
-            return skipped("Authorization decisions could not be determined for any chain.");
+        boolean anyUnknown = chains.stream().anyMatch(chain -> chain.authorizationFilterPresent() == null);
+        if (anyUnknown) {
+            return skipped("Web filters could not be observed for every reactive security chain.");
         }
-        boolean allOpen = chains.stream().allMatch(chain -> Boolean.TRUE.equals(chain.permitsAllAnonymous()));
+        boolean allMissingAuthorization =
+                chains.stream().allMatch(chain -> Boolean.FALSE.equals(chain.authorizationFilterPresent()));
         boolean anyAuthentication = chains.stream().anyMatch(WebFilterChainObservation::hasAuthenticationFilter);
-        if (allOpen && !anyAuthentication) {
+        if (allMissingAuthorization && !anyAuthentication) {
             return violation(
                     List.of(
                             "All " + chains.size()
-                                    + " reactive security filter chains permit every request anonymously with no authentication mechanism."));
+                                    + " observed reactive security filter chains omit both AuthorizationWebFilter and authentication filters."));
         }
         return pass();
     }
@@ -105,16 +106,16 @@ final class ReactiveEffectivelyDisabledSecurityRule extends AbstractReactiveSecu
 // CSRF
 // ---------------------------------------------------------------------------
 
-final class ReactiveCsrfDisabledStatefulRule extends AbstractReactiveSecurityRule {
+final class ReactiveCsrfDisabledLoginRule extends AbstractReactiveSecurityRule {
 
-    ReactiveCsrfDisabledStatefulRule() {
+    ReactiveCsrfDisabledLoginRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-CSRF-001",
-                "Reactive stateful chains should enable CSRF protection",
+                "Reactive OAuth2/OIDC login chains should enable CSRF protection",
                 ReactiveSecurityCategory.CSRF,
                 "HIGH",
-                "Detects a reactive chain with OAuth2 login or session-based authentication but no CsrfWebFilter. Without CSRF protection, cross-origin state-changing requests can be forged.",
-                "Add .csrf(Customizer.withDefaults()) or configure a CookieServerCsrfTokenRepository for reactive applications using session-based authentication.",
+                "Detects a reactive chain with an observed OAuth2/OIDC login filter but no CsrfWebFilter. Without CSRF protection, cross-origin state-changing requests can be forged.",
+                "Keep CSRF enabled for browser login chains, using .csrf(Customizer.withDefaults()) or a CookieServerCsrfTokenRepository as appropriate.",
                 "https://docs.spring.io/spring-security/reference/reactive/exploits/csrf.html"));
     }
 
@@ -122,11 +123,11 @@ final class ReactiveCsrfDisabledStatefulRule extends AbstractReactiveSecurityRul
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.isStateful() && !chain.hasCsrfWebFilter()) {
-                details.add(chain.describe() + " uses session-based authentication but no CsrfWebFilter is installed.");
+            if (chain.hasObservedInteractiveLoginFilter() && !chain.hasCsrfWebFilter()) {
+                details.add(chain.describe() + " has an OAuth2/OIDC login filter but no CsrfWebFilter is installed.");
             }
         }
-        return violation(details);
+        return filterViolation(context, details);
     }
 }
 
@@ -149,12 +150,15 @@ final class ReactiveCsrfGloballyDisabledRule extends AbstractReactiveSecurityRul
             return pass();
         }
         boolean anyHasCsrf = context.chains().stream().anyMatch(WebFilterChainObservation::hasCsrfWebFilter);
-        if (!anyHasCsrf) {
-            return violation(List.of("No CsrfWebFilter was found across all "
-                    + context.chains().size()
-                    + " registered reactive security filter chains. Verify all chains are intentionally stateless."));
+        if (anyHasCsrf) {
+            return pass();
         }
-        return pass();
+        if (context.chains().stream().anyMatch(chain -> !chain.filtersObserved())) {
+            return skipped("Web filters could not be observed for every reactive security chain.");
+        }
+        return violation(List.of("No CsrfWebFilter was found across all "
+                + context.chains().size()
+                + " registered reactive security filter chains. Verify all chains are intentionally stateless."));
     }
 }
 
@@ -170,23 +174,20 @@ final class ReactiveCorsWildcardOriginRule extends AbstractReactiveSecurityRule 
                 "CORS should not allow wildcard origins in reactive applications",
                 ReactiveSecurityCategory.CORS,
                 "MEDIUM",
-                "Detects a reactive CorsConfigurationSource that permits requests from any origin (allowedOrigins: \"*\").",
+                "Detects an inspectable reactive CorsConfigurationSource that permits every origin through the exact \"*\" value in allowedOrigins or allowedOriginPatterns.",
                 "Enumerate allowed origins explicitly, e.g. https://app.example.com, instead of using the wildcard.",
                 "https://docs.spring.io/spring-framework/reference/web/webflux-cors.html"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (!context.corsSourcePresent()) {
-            return pass();
-        }
         List<String> details = new ArrayList<>();
         for (CorsConfigObservation config : context.corsConfigs()) {
             if (config.hasWildcardOrigin() || config.hasWildcardOriginPattern()) {
                 details.add("CORS config for pattern '" + config.pattern() + "' allows all origins (wildcard).");
             }
         }
-        return violation(details);
+        return corsViolation(context, details);
     }
 }
 
@@ -195,29 +196,25 @@ final class ReactiveCorsWildcardWithCredentialsRule extends AbstractReactiveSecu
     ReactiveCorsWildcardWithCredentialsRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-CORS-002",
-                "CORS wildcard origin must not be combined with allow-credentials in reactive apps",
+                "Credentialed reactive CORS must not trust every origin pattern",
                 ReactiveSecurityCategory.CORS,
                 "HIGH",
-                "Detects a reactive CORS configuration that combines a wildcard origin with allowCredentials=true.",
-                "Replace the wildcard with explicit allowed origins before enabling credentials.",
+                "Detects allowedOriginPatterns=\"*\" with allowCredentials=true, a legal Spring configuration that reflects arbitrary origins while allowing credentials. Spring rejects the separate allowedOrigins=\"*\" plus credentials combination.",
+                "Replace the wildcard origin pattern with explicit trusted origins before enabling credentials.",
                 "https://docs.spring.io/spring-framework/reference/web/webflux-cors.html"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (!context.corsSourcePresent()) {
-            return pass();
-        }
         List<String> details = new ArrayList<>();
         for (CorsConfigObservation config : context.corsConfigs()) {
-            boolean wildcard = config.hasWildcardOrigin() || config.hasWildcardOriginPattern();
-            if (wildcard && Boolean.TRUE.equals(config.allowCredentials())) {
+            if (config.hasWildcardOriginPattern() && Boolean.TRUE.equals(config.allowCredentials())) {
                 details.add("CORS config for pattern '"
                         + config.pattern()
-                        + "' combines a wildcard origin with allowCredentials=true.");
+                        + "' combines allowedOriginPatterns=\"*\" with allowCredentials=true.");
             }
         }
-        return violation(details);
+        return corsViolation(context, details);
     }
 }
 
@@ -235,7 +232,7 @@ final class ReactiveHstsHeaderRule extends AbstractReactiveSecurityRule {
                         ReactiveSecurityCategory.HEADERS,
                         "MEDIUM",
                         "Detects chains that apply security headers (HttpHeaderWriterWebFilter) but do not include an HSTS writer while TLS is configured.",
-                        "Add a HstsServerHttpHeadersWriter via .headers(h -> h.hsts(Customizer.withDefaults())) to chains serving HTTPS traffic.",
+                        "Keep Spring Security's StrictTransportSecurityServerHttpHeadersWriter defaults via .headers(h -> h.hsts(Customizer.withDefaults())).",
                         "https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-hsts"));
     }
 
@@ -246,11 +243,11 @@ final class ReactiveHstsHeaderRule extends AbstractReactiveSecurityRule {
         }
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.hasHeaderWriterWebFilter() && !chain.hasHstsWriter()) {
+            if (chain.headerWritersObserved() && chain.hasHeaderWriterWebFilter() && !chain.hasHstsWriter()) {
                 details.add(chain.describe() + " applies security headers without HSTS while TLS is configured.");
             }
         }
-        return violation(details);
+        return headerViolation(context, details);
     }
 }
 
@@ -263,8 +260,8 @@ final class ReactiveFrameOptionsRule extends AbstractReactiveSecurityRule {
                         "X-Frame-Options header should be set in reactive chains",
                         ReactiveSecurityCategory.HEADERS,
                         "MEDIUM",
-                        "Detects chains with security header writers but no FrameOptions writer, leaving the application vulnerable to clickjacking.",
-                        "Enable frame-options protection via .headers(h -> h.frameOptions(Customizer.withDefaults())).",
+                        "Detects chains with security header writers but neither a FrameOptions writer nor an enforcing CSP frame-ancestors directive.",
+                        "Keep frame-options protection via .headers(h -> h.frameOptions(Customizer.withDefaults())) or enforce an appropriate CSP frame-ancestors policy.",
                         "https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-frame-options"));
     }
 
@@ -272,12 +269,16 @@ final class ReactiveFrameOptionsRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.hasHeaderWriterWebFilter() && !chain.hasFrameOptionsWriter()) {
-                details.add(chain.describe()
-                        + " applies security headers without X-Frame-Options (clickjacking protection).");
+            if (chain.headerWritersObserved()
+                    && chain.hasHeaderWriterWebFilter()
+                    && !chain.hasFrameOptionsWriter()
+                    && !chain.hasEnforcingFrameAncestorsPolicy()) {
+                details.add(
+                        chain.describe()
+                                + " applies security headers without X-Frame-Options or an enforcing CSP frame-ancestors directive.");
             }
         }
-        return violation(details);
+        return headerViolation(context, details);
     }
 }
 
@@ -299,11 +300,13 @@ final class ReactiveContentTypeOptionsRule extends AbstractReactiveSecurityRule 
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.hasHeaderWriterWebFilter() && !chain.hasContentTypeOptionsWriter()) {
+            if (chain.headerWritersObserved()
+                    && chain.hasHeaderWriterWebFilter()
+                    && !chain.hasContentTypeOptionsWriter()) {
                 details.add(chain.describe() + " applies security headers without X-Content-Type-Options (nosniff).");
             }
         }
-        return violation(details);
+        return headerViolation(context, details);
     }
 }
 
@@ -312,11 +315,11 @@ final class ReactiveContentSecurityPolicyRule extends AbstractReactiveSecurityRu
     ReactiveContentSecurityPolicyRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-HEAD-004",
-                "Content-Security-Policy should be defined in reactive chains",
+                "Review Content-Security-Policy enforcement for reactive browser chains",
                 ReactiveSecurityCategory.HEADERS,
-                "MEDIUM",
-                "Detects chains with security header writers that do not configure a Content-Security-Policy.",
-                "Configure a Content-Security-Policy via .headers(h -> h.contentSecurityPolicy(csp -> csp.policyDirectives(\"...\"))).",
+                "LOW",
+                "Reports chains whose Spring Security header writers omit Content-Security-Policy or configure it as report-only. Spring intentionally provides no default because a safe policy depends on application context.",
+                "For browser-facing responses, configure a tailored enforcing policy via .headers(h -> h.contentSecurityPolicy(...)); use report-only mode only during a bounded rollout.",
                 "https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-csp"));
     }
 
@@ -324,12 +327,20 @@ final class ReactiveContentSecurityPolicyRule extends AbstractReactiveSecurityRu
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
+            if (!chain.headerWritersObserved()) {
+                continue;
+            }
             if (chain.hasHeaderWriterWebFilter() && !chain.hasCspWriter()) {
                 details.add(
-                        chain.describe() + " applies security headers but does not define a Content-Security-Policy.");
+                        chain.describe()
+                                + " applies Spring Security headers without a Content-Security-Policy; review whether this chain serves browser content.");
+            } else if (chain.hasCspWriter() && Boolean.TRUE.equals(chain.cspReportOnly())) {
+                details.add(
+                        chain.describe()
+                                + " configures Content-Security-Policy-Report-Only, which monitors policy violations but does not enforce the policy.");
             }
         }
-        return violation(details);
+        return headerViolation(context, details);
     }
 }
 
@@ -341,7 +352,7 @@ final class ReactiveHeadersDisabledRule extends AbstractReactiveSecurityRule {
                 "Security headers should not be disabled in reactive chains",
                 ReactiveSecurityCategory.HEADERS,
                 "HIGH",
-                "Detects chains with authentication or authorization filters but no HttpHeaderWriterWebFilter, meaning all Spring Security header protections are absent.",
+                "Detects chains with authentication or authorization filters but no HttpHeaderWriterWebFilter, meaning Spring Security's own header protections are absent. A reverse proxy or custom filter may still add equivalent headers.",
                 "Do not call .headers(h -> h.disable()) unless the application sets equivalent headers via another mechanism.",
                 "https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html"));
     }
@@ -357,7 +368,7 @@ final class ReactiveHeadersDisabledRule extends AbstractReactiveSecurityRule {
                                 + " enforces authentication/authorization but installs no security header writer (HttpHeaderWriterWebFilter).");
             }
         }
-        return violation(details);
+        return filterViolation(context, details);
     }
 }
 
@@ -367,11 +378,11 @@ final class ReactiveWeakHstsPolicyRule extends AbstractReactiveSecurityRule {
         super(
                 new ReactiveSecurityRuleDefinition(
                         "SEC-RXF-HEAD-006",
-                        "HSTS max-age should be at least one year in reactive applications",
+                        "Review HSTS max-age values below Spring Security's one-year default",
                         ReactiveSecurityCategory.HEADERS,
                         "LOW",
-                        "Detects an HSTS writer configured with a max-age below the recommended one-year minimum (31,536,000 seconds).",
-                        "Set hsts.maxAge(Duration.ofDays(365)) or higher, and set includeSubDomains when appropriate.",
+                        "Detects an HSTS writer configured below Spring Security's one-year default (31,536,000 seconds). RFC 6797 does not mandate a universal minimum.",
+                        "Use a shorter rollout only intentionally; otherwise keep Spring Security's Duration.ofDays(365) default and evaluate includeSubDomains separately.",
                         "https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-hsts"));
     }
 
@@ -379,14 +390,14 @@ final class ReactiveWeakHstsPolicyRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.hasHstsWriter() && chain.hasWeakHsts()) {
+            if (chain.headerWritersObserved() && chain.hasHstsWriter() && chain.hasWeakHsts()) {
                 details.add(chain.describe()
                         + " configures HSTS with a max-age of "
                         + chain.hstsMaxAgeSeconds()
                         + " seconds, below the recommended 31,536,000 (one year).");
             }
         }
-        return violation(details);
+        return headerViolation(context, details);
     }
 }
 
@@ -402,8 +413,8 @@ final class ReactiveActuatorWildcardExposureRule extends AbstractReactiveSecurit
                 "Actuator endpoints should not be exposed with a wildcard",
                 ReactiveSecurityCategory.ACTUATOR,
                 "HIGH",
-                "Detects management.endpoints.web.exposure.include=* without any exclude, which exposes all Actuator endpoints including sensitive ones.",
-                "Explicitly list only the endpoints you need, or add management.endpoints.web.exposure.exclude to exclude sensitive endpoints.",
+                "Detects management.endpoints.web.exposure.include=* without any exclude. Endpoint enablement and Boot 4 access settings still determine which exposed endpoints are callable.",
+                "Explicitly list only the endpoints you need, add excludes, and review management.endpoint.<id>.access for sensitive endpoints.",
                 "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.exposing"));
     }
 
@@ -444,16 +455,16 @@ final class ReactiveActuatorSensitiveExposureRule extends AbstractReactiveSecuri
     }
 }
 
-final class ReactiveActuatorUnprotectedRule extends AbstractReactiveSecurityRule {
+final class ReactiveActuatorAuthorizationReviewRule extends AbstractReactiveSecurityRule {
 
-    ReactiveActuatorUnprotectedRule() {
+    ReactiveActuatorAuthorizationReviewRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-ACT-003",
-                "Actuator endpoints should be protected when more than health/info are exposed",
+                "Review authorization for broad reactive Actuator exposure",
                 ReactiveSecurityCategory.ACTUATOR,
-                "HIGH",
-                "Detects that Actuator endpoints beyond health/info are exposed AND every reactive security chain is fully open, leaving sensitive management operations unprotected.",
-                "Add authentication requirements for the /actuator/** path, or restrict sensitive endpoints to a separate management port.",
+                "MEDIUM",
+                "Detects broad Actuator web exposure while every observed application chain omits AuthorizationWebFilter. The advisor cannot prove which chain matches a custom management path or separate management context.",
+                "Verify the actual management path/port has explicit authorization or a restricted network path; add an Actuator-specific SecurityWebFilterChain when needed.",
                 "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.security"));
     }
 
@@ -462,12 +473,16 @@ final class ReactiveActuatorUnprotectedRule extends AbstractReactiveSecurityRule
         if (!context.exposesBeyondHealthAndInfo()) {
             return pass();
         }
-        boolean allChainsOpen = !context.chains().isEmpty()
-                && context.chains().stream().allMatch(chain -> Boolean.TRUE.equals(chain.permitsAllAnonymous()));
-        if (allChainsOpen) {
+        if (context.chains().stream().anyMatch(chain -> !chain.filtersObserved())) {
+            return skipped("Web filters could not be observed for every reactive security chain.");
+        }
+        boolean allChainsObservedWithoutAuthorization = !context.chains().isEmpty()
+                && context.chains().stream()
+                        .allMatch(chain -> Boolean.FALSE.equals(chain.authorizationFilterPresent()));
+        if (allChainsObservedWithoutAuthorization) {
             return violation(
                     List.of(
-                            "Actuator endpoints beyond health/info are exposed and every reactive security chain permits unauthenticated access."));
+                            "Actuator endpoints beyond health/info are configured for web exposure, and no observed application chain installs AuthorizationWebFilter. Verify management-path authorization separately."));
         }
         return pass();
     }
@@ -500,47 +515,49 @@ final class ReactiveManagementPortIsolationRule extends AbstractReactiveSecurity
     }
 }
 
-// ---------------------------------------------------------------------------
-// OAuth2 / JWT
-// ---------------------------------------------------------------------------
+final class ReactiveActuatorShowValuesRule extends AbstractReactiveSecurityRule {
 
-final class ReactiveJwtAudienceValidationRule extends AbstractReactiveSecurityRule {
-
-    ReactiveJwtAudienceValidationRule() {
-        super(new ReactiveSecurityRuleDefinition(
-                "SEC-RXF-OAUTH2-001",
-                "Reactive JWT resource server should validate the audience claim",
-                ReactiveSecurityCategory.OAUTH2,
-                "MEDIUM",
-                "Detects a ReactiveJwtDecoder bean with no configured OAuth2TokenValidator that checks the audience claim. Without audience validation, a JWT issued for a different service can be replayed against this application.",
-                "Configure a DelegatingReactiveJwtDecoder with a JwtClaimValidator<List<String>>(\"aud\", ...) or use spring.security.oauth2.resourceserver.jwt.audiences.",
-                "https://docs.spring.io/spring-security/reference/reactive/oauth2/resource-server/jwt.html"));
+    ReactiveActuatorShowValuesRule() {
+        super(
+                new ReactiveSecurityRuleDefinition(
+                        "SEC-RXF-ACT-005",
+                        "Reactive Actuator env/configprops values must stay sanitized",
+                        ReactiveSecurityCategory.ACTUATOR,
+                        "HIGH",
+                        "Detects a web-exposed env or configprops endpoint whose host configuration sets show-values=always, revealing unsanitized property values to callers.",
+                        "Leave show-values at never or when-authorized so the Actuator sanitizer masks sensitive values; only relax it behind strict authorization.",
+                        "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (context.reactiveJwtDecoderTypes().isEmpty()) {
-            return pass();
+        List<String> details = new ArrayList<>();
+        if (context.environment().managementEnvShowValuesAlways()
+                && context.environment().managementEnvWebExposed()) {
+            details.add("management.endpoint.env.show-values=always exposes unsanitized /env values.");
         }
-        if (context.oauth2TokenValidatorTypes().isEmpty()) {
-            return violation(
-                    List.of(
-                            "A ReactiveJwtDecoder is configured but no OAuth2TokenValidator was found; the JWT audience claim may not be validated."));
+        if (context.environment().managementConfigPropsShowValuesAlways()
+                && context.environment().managementConfigPropsWebExposed()) {
+            details.add("management.endpoint.configprops.show-values=always exposes unsanitized /configprops values.");
         }
-        return pass();
+        return violation(details);
     }
 }
+
+// ---------------------------------------------------------------------------
+// OAuth2 / JWT
+// ---------------------------------------------------------------------------
 
 final class ReactiveJwtStaticKeyRule extends AbstractReactiveSecurityRule {
 
     ReactiveJwtStaticKeyRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-OAUTH2-002",
-                "Reactive JWT resource servers should avoid static public keys",
+                "Review rotation for reactive JWT static public keys",
                 ReactiveSecurityCategory.OAUTH2,
-                "MEDIUM",
-                "Detects spring.security.oauth2.resourceserver.jwt.public-key-location, which pins JWT verification to a static public key and makes signing-key rotation operationally fragile.",
-                "Prefer issuer-uri or jwk-set-uri so signing-key rotation can be handled through the authorization server's JWKS endpoint.",
+                "LOW",
+                "Detects the supported spring.security.oauth2.resourceserver.jwt.public-key-location configuration. Static verification keys are valid but require an explicit rotation process.",
+                "Document manual key rotation or prefer issuer-uri/jwk-set-uri when the authorization server publishes a trusted JWKS endpoint.",
                 "https://docs.spring.io/spring-security/reference/reactive/oauth2/resource-server/jwt.html"));
     }
 
@@ -584,44 +601,45 @@ final class ReactiveInsecureJwtMetadataUrlRule extends AbstractReactiveSecurityR
     }
 }
 
-// ---------------------------------------------------------------------------
-// Configuration hygiene
-// ---------------------------------------------------------------------------
+final class ReactiveInsecureOpaqueTokenIntrospectionUrlRule extends AbstractReactiveSecurityRule {
 
-final class ReactiveSecurityDebugRule extends AbstractReactiveSecurityRule {
-
-    ReactiveSecurityDebugRule() {
+    ReactiveInsecureOpaqueTokenIntrospectionUrlRule() {
         super(new ReactiveSecurityRuleDefinition(
-                "SEC-RXF-CONFIG-001",
-                "Spring Security debug mode should not be active",
-                ReactiveSecurityCategory.CONFIGURATION,
+                "SEC-RXF-OAUTH2-004",
+                "Opaque-token introspection must use HTTPS in reactive production applications",
+                ReactiveSecurityCategory.OAUTH2,
                 "HIGH",
-                "Detects spring.security.debug=true, which logs full request/response details including authentication headers and session tokens.",
-                "Remove spring.security.debug=true before deploying to any shared or production environment.",
-                "https://docs.spring.io/spring-security/reference/reactive/index.html"));
+                "Detects spring.security.oauth2.resourceserver.opaquetoken.introspection-uri configured with plain HTTP in a production profile. RFC 7662 requires TLS for introspection because access tokens and authorization metadata cross this channel.",
+                "Use an https:// introspection URI and validate the authorization server certificate.",
+                "https://www.rfc-editor.org/rfc/rfc7662.html#section-4"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (context.environment().securityDebugEnabled()) {
-            return violation(
-                    List.of(
-                            "spring.security.debug=true is active; this logs credential and session details to standard output."));
+        if (!context.isProductionProfileActive()
+                || !context.environment().oauth2OpaqueTokenIntrospectionUsesPlainHttp()) {
+            return pass();
         }
-        return pass();
+        return violation(
+                List.of(
+                        "spring.security.oauth2.resourceserver.opaquetoken.introspection-uri uses plain HTTP; RFC 7662 requires TLS."));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Configuration hygiene
+// ---------------------------------------------------------------------------
 
 final class ReactiveHttpsEnforcementRule extends AbstractReactiveSecurityRule {
 
     ReactiveHttpsEnforcementRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-CONFIG-002",
-                "Reactive application should enforce HTTPS in production",
+                "Review HTTPS enforcement for reactive production applications",
                 ReactiveSecurityCategory.CONFIGURATION,
-                "HIGH",
-                "Detects a production profile active without any TLS configuration or HttpsRedirectWebFilter. Running over plain HTTP in production exposes all traffic.",
-                "Configure TLS (server.ssl.*) or terminate it upstream and set server.forward-headers-strategy, or add .redirectToHttps(Customizer.withDefaults()) to production chains.",
+                "MEDIUM",
+                "Detects a production profile where BootUI cannot observe server TLS, trusted forwarded-header handling, or HttpsRedirectWebFilter. External proxy policy remains outside runtime configuration inspection.",
+                "Confirm upstream TLS explicitly, configure server.forward-headers-strategy when trusted, or add .redirectToHttps(Customizer.withDefaults()) to production chains.",
                 "https://docs.spring.io/spring-security/reference/reactive/exploits/https.html"));
     }
 
@@ -635,7 +653,7 @@ final class ReactiveHttpsEnforcementRule extends AbstractReactiveSecurityRule {
         }
         return violation(
                 List.of(
-                        "A production profile is active but no TLS configuration or HttpsRedirectWebFilter was found. All traffic is served over plain HTTP."));
+                        "A production profile is active, but BootUI could not confirm TLS, trusted forwarded-header handling, or HttpsRedirectWebFilter. Verify the deployment boundary."));
     }
 }
 
@@ -671,10 +689,10 @@ final class ReactiveSecurityDebugLoggingProductionRule extends AbstractReactiveS
     ReactiveSecurityDebugLoggingProductionRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-CONFIG-004",
-                "Spring Security DEBUG logging should not run in production",
+                "Spring Security DEBUG or TRACE logging should not run in production",
                 ReactiveSecurityCategory.CONFIGURATION,
                 "MEDIUM",
-                "Detects DEBUG-level logging configured for Spring Security packages while a production profile is active.",
+                "Detects DEBUG- or TRACE-level logging configured for Spring Security packages while a production profile is active.",
                 "Set logging.level.org.springframework.security to INFO or WARN in the production profile.",
                 "https://docs.spring.io/spring-security/reference/reactive/index.html"));
     }
@@ -685,10 +703,10 @@ final class ReactiveSecurityDebugLoggingProductionRule extends AbstractReactiveS
             return pass();
         }
         String level = context.environment().securityLoggingLevel();
-        if (level != null && "DEBUG".equalsIgnoreCase(level.trim())) {
-            return violation(
-                    List.of(
-                            "logging.level.org.springframework.security is set to DEBUG while a production profile is active."));
+        if (level != null && ("DEBUG".equalsIgnoreCase(level.trim()) || "TRACE".equalsIgnoreCase(level.trim()))) {
+            return violation(List.of("Spring Security logging is set to "
+                    + level.trim().toUpperCase(java.util.Locale.ROOT)
+                    + " while a production profile is active."));
         }
         return pass();
     }
@@ -698,29 +716,29 @@ final class ReactiveSecurityDebugLoggingProductionRule extends AbstractReactiveS
 // Session management
 // ---------------------------------------------------------------------------
 
-final class ReactiveBearerTokenStatefulRule extends AbstractReactiveSecurityRule {
+final class ReactiveMixedBearerAndLoginRule extends AbstractReactiveSecurityRule {
 
-    ReactiveBearerTokenStatefulRule() {
+    ReactiveMixedBearerAndLoginRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-SESSION-001",
-                "Bearer-token resource server should use stateless session management",
+                "Review reactive chains that mix bearer-token and browser OAuth2 filters",
                 ReactiveSecurityCategory.SESSION,
                 "LOW",
-                "Detects a reactive chain that handles bearer-token authentication through AuthenticationWebFilter while also configuring session-based authentication mechanisms. JWTs are self-contained credentials; pairing them with session storage is redundant and increases attack surface.",
-                "For pure bearer-token resource servers, configure .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) to disable server-side sessions.",
-                "https://docs.spring.io/spring-security/reference/reactive/oauth2/resource-server/jwt.html"));
+                "Detects a chain with both Spring Security's bearer-token converter and an observed OAuth2/OIDC login or authorization-code client filter. This mixed topology may be intentional; filter presence does not prove SecurityContext persistence.",
+                "Prefer separate ordered SecurityWebFilterChain beans for browser OAuth2 and resource-server paths. For a pure bearer chain, use securityContextRepository(NoOpServerSecurityContextRepository.getInstance()); WebFlux has no SessionCreationPolicy API.",
+                "https://docs.spring.io/spring-security/reference/reactive/authentication/index.html"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.bearerTokenAuthentication() && chain.isStateful()) {
+            if (chain.bearerTokenAuthentication() && chain.hasObservedInteractiveLoginFilter()) {
                 details.add(
                         chain.describe()
-                                + " configures both bearer-token authentication and session-based authentication; consider using stateless sessions for pure resource server chains.");
+                                + " configures both bearer-token authentication and an OAuth2/OIDC browser filter; review whether separate chains would express the two security models more safely.");
             }
         }
-        return violation(details);
+        return filterViolation(context, details);
     }
 }

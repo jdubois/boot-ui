@@ -283,6 +283,25 @@ deterministic findings across authorization, CSRF, CORS, headers, Actuator expos
 reactive session policy. BootUI's own permit-all chain is excluded from availability and analysis. See
 `docs/SECURITY-CHECKS.md` for the complete reactive catalogue.
 
+The catalogue is aligned with the Java 17 / Spring Boot 4.1.0 / Spring Security 7.1.0 baseline and deliberately
+describes only evidence the adapter can observe: installed filter/header-writer types, inspectable CORS maps, and host
+`Environment` properties. In particular, an installed `AuthorizationWebFilter` does not reveal whether
+its manager chose `permitAll`,
+`authenticated`, a role check, or custom logic; a decoder-local JWT validator is not inferred from unrelated validator
+beans; and management-path authorization, reverse-proxy TLS policy, handler-level CORS, and custom filters remain
+outside the snapshot. Unknown filter, header-writer, or CORS extraction skips dependent conclusions and produces a
+partial observation rather than being treated as an absent protection. Recursive composite header traversal is
+depth-bounded and reports incomplete evidence explicitly.
+
+Two unsupported checks were replaced without changing the 25-rule count: the non-existent reactive
+`spring.security.debug` switch and the unprovable global-bean audience-validator check gave way to host-configured
+Actuator `show-values=always` detection for web-exposed `env`/`configprops` endpoints and RFC 7662 plain-HTTP
+opaque-token introspection detection. Existing findings were narrowed where needed: credentialed CORS now targets the
+legal `allowedOriginPatterns="*"` case, CSP absence is a LOW contextual review (and report-only policies are called out
+as non-enforcing), static JWT keys are LOW rotation advice, HTTPS/Actuator findings avoid claiming knowledge of external
+deployment policy, and the mixed bearer/login rule uses WebFlux's real `NoOpServerSecurityContextRepository`
+remediation rather than servlet-only `SessionCreationPolicy`.
+
 ### 6.7 Not applicable (1 panel)
 
 | Panel        | Reason                                                                                                                                                                                                     |
