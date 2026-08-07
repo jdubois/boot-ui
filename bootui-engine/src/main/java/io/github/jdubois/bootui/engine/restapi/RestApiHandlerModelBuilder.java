@@ -127,15 +127,6 @@ final class RestApiHandlerModelBuilder {
     /** Header name (case-insensitive) recognised by the expired IETF HTTPAPI Idempotency-Key draft. */
     private static final String IDEMPOTENCY_KEY_HEADER_NAME = "idempotency-key";
 
-    private static final List<String> JAXRS_METHOD_ANNOTATIONS = List.of(
-            Types.JAXRS_GET,
-            Types.JAXRS_POST,
-            Types.JAXRS_PUT,
-            Types.JAXRS_DELETE,
-            Types.JAXRS_PATCH,
-            Types.JAXRS_HEAD,
-            Types.JAXRS_OPTIONS);
-
     /** Parameter annotations that bind a non-body source; any param carrying one is not the request entity. */
     private static final Set<String> JAXRS_BOUND_PARAM_ANNOTATIONS = Set.of(
             Types.JAXRS_PATH_PARAM,
@@ -152,6 +143,9 @@ final class RestApiHandlerModelBuilder {
             Types.REST_FORM,
             Types.REST_COOKIE,
             Types.REST_MATRIX);
+
+    private static final Set<String> RESPONSE_PARAMETER_TYPES =
+            Set.of(Types.HTTP_SERVLET_RESPONSE, Types.REACTIVE_SERVER_HTTP_RESPONSE, Types.SERVER_WEB_EXCHANGE);
 
     private final List<ControllerModel> controllers = new ArrayList<>();
     private final List<HandlerMethodModel> handlers = new ArrayList<>();
@@ -225,13 +219,29 @@ final class RestApiHandlerModelBuilder {
         boolean hasTag = hasTagAnnotation(type);
         boolean hidden = hasHiddenAnnotation(type);
         boolean classResponseBody = annotated(type, Types.RESPONSE_BODY) || metaAnnotated(type, Types.RESPONSE_BODY);
-        List<String> typeLevelPaths = mappingPaths(type, Types.REQUEST_MAPPING);
-        List<String> typeLevelProduces = mappingAttribute(type, Types.REQUEST_MAPPING, "produces");
-        List<String> typeLevelConsumes = mappingAttribute(type, Types.REQUEST_MAPPING, "consumes");
-        List<String> typeLevelParams = mappingAttribute(type, Types.REQUEST_MAPPING, "params");
-        List<String> typeLevelHeaders = mappingAttribute(type, Types.REQUEST_MAPPING, "headers");
-        List<String> typeLevelMethods = mappingEnumAttribute(type, Types.REQUEST_MAPPING, "method");
-        String typeLevelVersion = mappingStringAttribute(type, Types.REQUEST_MAPPING, "version");
+        Optional<? extends JavaAnnotation<?>> typeLevelMapping =
+                typeHierarchyMappingAnnotation(type, Types.REQUEST_MAPPING);
+        List<String> typeLevelPaths = typeLevelMapping
+                .map(annotation -> stringValues(annotation, "value", "path"))
+                .orElse(List.of());
+        List<String> typeLevelProduces = typeLevelMapping
+                .map(annotation -> stringValues(annotation, "produces"))
+                .orElse(List.of());
+        List<String> typeLevelConsumes = typeLevelMapping
+                .map(annotation -> stringValues(annotation, "consumes"))
+                .orElse(List.of());
+        List<String> typeLevelParams = typeLevelMapping
+                .map(annotation -> stringValues(annotation, "params"))
+                .orElse(List.of());
+        List<String> typeLevelHeaders = typeLevelMapping
+                .map(annotation -> stringValues(annotation, "headers"))
+                .orElse(List.of());
+        List<String> typeLevelMethods = typeLevelMapping
+                .map(annotation -> enumValues(annotation, "method"))
+                .orElse(List.of());
+        String typeLevelVersion = typeLevelMapping
+                .map(annotation -> annotationString(annotation, "version"))
+                .orElse("");
 
         int handlerCount = 0;
         for (JavaMethod method : type.getMethods()) {
@@ -271,15 +281,16 @@ final class RestApiHandlerModelBuilder {
 
     /** A class is a JAX-RS resource when it carries {@code @Path} or any JAX-RS HTTP-method method. */
     private static boolean isJaxRsResource(JavaClass type) {
+        if (annotated(type, Types.REGISTER_REST_CLIENT)) {
+            return false;
+        }
         if (annotated(type, Types.JAXRS_PATH)) {
             return true;
         }
         try {
             for (JavaMethod method : type.getMethods()) {
-                for (String httpAnnotation : JAXRS_METHOD_ANNOTATIONS) {
-                    if (method.isAnnotatedWith(httpAnnotation)) {
-                        return true;
-                    }
+                if (!jaxRsHttpMethods(method).isEmpty()) {
+                    return true;
                 }
             }
         } catch (RuntimeException | LinkageError ex) {
@@ -330,12 +341,7 @@ final class RestApiHandlerModelBuilder {
             List<String> typeLevelProduces,
             List<String> typeLevelConsumes) {
 
-        Set<String> httpMethods = new LinkedHashSet<>();
-        for (String annotation : JAXRS_METHOD_ANNOTATIONS) {
-            if (method.isAnnotatedWith(annotation)) {
-                httpMethods.add(simpleName(annotation));
-            }
-        }
+        Set<String> httpMethods = jaxRsHttpMethods(method);
         if (httpMethods.isEmpty()) {
             // A @Path-only method with no HTTP verb is a sub-resource locator, not a request handler.
             return null;
@@ -970,6 +976,47 @@ final class RestApiHandlerModelBuilder {
         return stringValues(annotation.get(), "value", "path");
     }
 
+    /**
+     * Spring's request-mapping resolver searches the type hierarchy. Model the same bounded fallback so a
+     * concrete controller inherits type-level mapping facts from a base class or controller interface.
+     */
+    private static Optional<? extends JavaAnnotation<?>> typeHierarchyMappingAnnotation(
+            JavaClass type, String annotationName) {
+        return typeHierarchyMappingAnnotation(type, annotationName, new LinkedHashSet<>(), 0);
+    }
+
+    private static Optional<? extends JavaAnnotation<?>> typeHierarchyMappingAnnotation(
+            JavaClass type, String annotationName, Set<String> visited, int depth) {
+        if (depth >= 10 || !visited.add(type.getName())) {
+            return Optional.empty();
+        }
+        try {
+            Optional<? extends JavaAnnotation<?>> annotation = type.tryGetAnnotationOfType(annotationName);
+            if (annotation.isPresent()) {
+                return annotation;
+            }
+            Optional<JavaClass> superclass = type.getRawSuperclass();
+            if (superclass.isPresent()
+                    && !"java.lang.Object".equals(superclass.get().getName())) {
+                Optional<? extends JavaAnnotation<?>> inherited =
+                        typeHierarchyMappingAnnotation(superclass.get(), annotationName, visited, depth + 1);
+                if (inherited.isPresent()) {
+                    return inherited;
+                }
+            }
+            for (JavaType interfaceType : type.getInterfaces()) {
+                Optional<? extends JavaAnnotation<?>> inherited =
+                        typeHierarchyMappingAnnotation(interfaceType.toErasure(), annotationName, visited, depth + 1);
+                if (inherited.isPresent()) {
+                    return inherited;
+                }
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            return Optional.empty();
+        }
+        return Optional.empty();
+    }
+
     private static List<String> mappingAttribute(JavaClass type, String annotationName, String key) {
         Optional<? extends JavaAnnotation<?>> annotation = type.tryGetAnnotationOfType(annotationName);
         if (annotation.isEmpty()) {
@@ -999,6 +1046,15 @@ final class RestApiHandlerModelBuilder {
     private static String mappingString(JavaMethod method, String key) {
         for (String value : mappingStrings(method, key)) {
             if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private static String annotationString(JavaAnnotation<?> annotation, String key) {
+        for (String value : stringValues(annotation, key)) {
+            if (!value.isBlank()) {
                 return value;
             }
         }
@@ -1151,6 +1207,7 @@ final class RestApiHandlerModelBuilder {
         if (annotation.isEmpty()) {
             return null;
         }
+
         JavaAnnotation<JavaParameter> ann = annotation.get();
         for (String key : List.of("value", "name")) {
             Optional<Object> raw = ann.get(key);
@@ -1159,6 +1216,33 @@ final class RestApiHandlerModelBuilder {
             }
         }
         return null;
+    }
+
+    private static Set<String> jaxRsHttpMethods(JavaMethod method) {
+        Set<String> methods = new LinkedHashSet<>();
+        for (JavaAnnotation<JavaMethod> annotation : method.getAnnotations()) {
+            jaxRsHttpMethod(annotation).ifPresent(methods::add);
+        }
+        return methods;
+    }
+
+    private static Optional<String> jaxRsHttpMethod(JavaAnnotation<?> annotation) {
+        try {
+            JavaClass annotationType = annotation.getRawType();
+            Optional<? extends JavaAnnotation<?>> httpMethod =
+                    annotationType.tryGetAnnotationOfType(Types.JAXRS_HTTP_METHOD);
+            if (httpMethod.isEmpty()) {
+                return Optional.empty();
+            }
+            return httpMethod
+                    .get()
+                    .get("value")
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .map(value -> value.toUpperCase(Locale.ROOT));
+        } catch (RuntimeException | LinkageError ex) {
+            return Optional.empty();
+        }
     }
 
     private static boolean isSimpleBodyType(JavaClass type) {
@@ -1264,7 +1348,7 @@ final class RestApiHandlerModelBuilder {
         for (JavaParameter parameter : method.getParameters()) {
             try {
                 String name = parameter.getRawType().getName();
-                if (Types.HTTP_SERVLET_RESPONSE.equals(name) || Types.SERVER_HTTP_RESPONSE.equals(name)) {
+                if (RESPONSE_PARAMETER_TYPES.contains(name)) {
                     return true;
                 }
             } catch (RuntimeException | LinkageError ex) {

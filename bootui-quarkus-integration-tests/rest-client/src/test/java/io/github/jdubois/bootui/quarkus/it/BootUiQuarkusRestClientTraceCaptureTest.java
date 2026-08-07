@@ -56,6 +56,17 @@ class BootUiQuarkusRestClientTraceCaptureTest {
     }
 
     @Test
+    void restApiAdvisorExcludesOutboundRestClientInterfaces() {
+        Response scan = probe().post("/bootui/api/rest-api/scan", JSON_HEADERS);
+
+        assertThat(scan.status()).isEqualTo(200);
+        assertThat(scan.json().path("controllersAnalyzed").asInt())
+                .as("only PingResource is an inbound JAX-RS resource; PingClient is outbound")
+                .isEqualTo(1);
+        assertThat(scan.json().path("handlersAnalyzed").asInt()).isEqualTo(4);
+    }
+
+    @Test
     void capturesReceivedHttpErrorsAsResponsesAndBracketsApplicationFilters() {
         resetRecorder();
 

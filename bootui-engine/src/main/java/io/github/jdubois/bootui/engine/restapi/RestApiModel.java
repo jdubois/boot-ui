@@ -41,7 +41,9 @@ final class RestApiModel {
         static final String RESPONSE_ENTITY_EXCEPTION_HANDLER =
                 "org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler";
         static final String HTTP_SERVLET_RESPONSE = "jakarta.servlet.http.HttpServletResponse";
-        static final String SERVER_HTTP_RESPONSE = "org.springframework.http.server.ServerHttpResponse";
+        static final String REACTIVE_SERVER_HTTP_RESPONSE =
+                "org.springframework.http.server.reactive.ServerHttpResponse";
+        static final String SERVER_WEB_EXCHANGE = "org.springframework.web.server.ServerWebExchange";
         static final String REQUEST_HEADER = "org.springframework.web.bind.annotation.RequestHeader";
 
         static final String DEPRECATED = "java.lang.Deprecated";
@@ -89,6 +91,7 @@ final class RestApiModel {
         static final String JAXRS_PATCH = "jakarta.ws.rs.PATCH";
         static final String JAXRS_HEAD = "jakarta.ws.rs.HEAD";
         static final String JAXRS_OPTIONS = "jakarta.ws.rs.OPTIONS";
+        static final String JAXRS_HTTP_METHOD = "jakarta.ws.rs.HttpMethod";
         static final String JAXRS_PATH_PARAM = "jakarta.ws.rs.PathParam";
         static final String JAXRS_QUERY_PARAM = "jakarta.ws.rs.QueryParam";
         static final String JAXRS_HEADER_PARAM = "jakarta.ws.rs.HeaderParam";
@@ -106,6 +109,7 @@ final class RestApiModel {
         // RESTEasy Reactive's simpler, @Provider-free exception-mapper style (no ExceptionMapper<X>
         // interface to implement): https://quarkus.io/guides/rest#exception-mapping
         static final String SERVER_EXCEPTION_MAPPER = "org.jboss.resteasy.reactive.server.ServerExceptionMapper";
+        static final String REGISTER_REST_CLIENT = "org.eclipse.microprofile.rest.client.inject.RegisterRestClient";
 
         // --- RESTEasy Reactive (quarkus-rest) parameter annotations: still mark a param as bound, so the
         // remaining unannotated parameter is correctly identified as the request entity body. ---

@@ -8,21 +8,25 @@ Each rule is a small class registered in
 [`RestApiRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRuleRegistry.java)
 and implemented in
 [`RestApiRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRules.java),
-both in the framework-neutral `bootui-engine` module so the same 53 rules run identically on Spring Boot and Quarkus. The
-list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a registry entry.
+both in the framework-neutral `bootui-engine` module. The same 53 rule definitions are evaluated on Spring Boot and
+Quarkus from one bounded handler model; rules whose required framework fact is not observable are skipped rather than
+guessed. The list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a
+registry entry.
 
 ## What BootUI does
 
 The scanner detects the host application's base package(s) — from the `@SpringBootApplication` configuration via
 `AutoConfigurationPackages` on Spring, or from a build-time Jandex index on Quarkus — imports the compiled `.class`
-files from those packages with ArchUnit's `ClassFileImporter`, derives a read-only handler model (HTTP method(s),
-path(s), parameters and their annotations, return type, `produces`/`consumes`, validation flags, declared throws) once,
-and evaluates every registered rule against that model. Importing is bounded to the application's own base package(s) —
-never the entire classpath — and runs only on demand when the scan action is invoked, caching the last report in the
-controller. A handful of rules reason about Spring-specific types (`ProblemDetail`/`ErrorResponse` convenience types or
-Spring Data `Pageable`); on Quarkus those report `SKIPPED` with an explanatory reason instead of misfiring. RFC 9457
-itself is framework-neutral; the limitation is that the bounded model cannot reliably prove that an arbitrary JAX-RS
-payload implements its schema — see RAPI-PAGE-002, RAPI-ERR-003, and RAPI-ERR-006 below.
+files from those packages with ArchUnit's `ClassFileImporter`, derives a read-only handler model (standard and custom
+JAX-RS HTTP method(s), path(s), parameters and their annotations, return type, `produces`/`consumes`, validation flags,
+declared throws) once, and evaluates every registered rule against that model. Importing is bounded to the application's
+own base package(s) — never the entire classpath — and runs only on demand when the scan action is invoked, caching the
+last report in the controller. A handful of rules reason about Spring-specific types (`ProblemDetail`/`ErrorResponse`
+convenience types or
+Spring Data `Pageable`); on Quarkus their evaluation is `SKIPPED` rather than misfiring. The public report intentionally
+contains findings only, so `PASS`, `SKIPPED`, and `ERROR` outcomes do not appear as result rows. RFC 9457 itself is
+framework-neutral; the limitation is that the bounded model cannot reliably prove that an arbitrary JAX-RS payload
+implements its schema — see RAPI-PAGE-002, RAPI-ERR-003, and RAPI-ERR-006 below.
 
 The handler model unwraps common async/reactive return-type wrappers before classifying the response body, so the
 body-shape rules below (RAPI-DTO-001/002/004/005, RAPI-RESP-004, RAPI-PAGE-001/002, RAPI-NAME-002) see the real payload
@@ -37,15 +41,21 @@ without an extra application dependency. The panel is available only when:
 - ArchUnit is on the classpath, and
 - a base package is resolvable from the running application.
 
-Every rule catches `RuntimeException` and `LinkageError` and degrades to a `SKIPPED`/`ERROR` outcome so one
-unresolvable class never aborts the scan, and the scanner degrades to a stable "scanned, nothing to analyze" report when
-no controllers can be imported.
+Every rule catches `RuntimeException` and `LinkageError` so one unresolvable class never aborts the scan. Non-violation
+outcomes are omitted from the public finding list, and the scanner degrades to a stable "scanned, nothing to analyze"
+report when no controllers can be imported.
 
 ## What BootUI does not do
 
 - It does not check security concerns (CORS, authentication, authorization) — those remain owned by the **Security**
   panel.
 - It does not modify, compile, or instrument application code; it reads already-compiled bytecode.
+- It excludes MicroProfile `@RegisterRestClient` interfaces: they are outbound client proxies, not inbound JAX-RS
+  resources.
+- It does not infer statuses, `Location`, `Retry-After`, or problem-details payloads from imperative
+  `Response`/`ResponseEntity` builder chains. Rules only act on bounded, directly observable handler facts.
+- It treats unresolved `${...}` property placeholders and `#{...}` SpEL path segments as opaque rather than guessing
+  whether their resolved values follow a naming convention.
 - It is **not a replacement** for an API design review or contract testing. The heuristics are project-agnostic review
   prompts, not verdicts.
 
@@ -62,8 +72,9 @@ Findings are ranked in the scanner's severity order:
 The catalogue below ships **53 rules across 8 categories** (8 HIGH, 10 MEDIUM, 20 LOW, 15 INFO; no active CRITICAL
 rules). The `RAPI-DOC-*` documentation rules only run when OpenAPI annotations are present on the host classpath —
 Swagger/springdoc-openapi (`io.swagger.v3.oas.annotations`) on Spring, or MicroProfile OpenAPI
-(`org.eclipse.microprofile.openapi.annotations`, honored by Quarkus's `quarkus-smallrye-openapi`) on either framework;
-otherwise they are reported as `SKIPPED`.
+(`org.eclipse.microprofile.openapi.annotations`) on Quarkus through `quarkus-smallrye-openapi`. The shared model
+recognizes both Swagger and MicroProfile annotation forms when that platform's documentation integration is available;
+otherwise the rules are skipped without emitting a finding.
 
 ---
 
@@ -230,8 +241,8 @@ otherwise they are reported as `SKIPPED`.
 ### RAPI-RESP-008 - Created responses expose a Location
 
 - **Severity**: MEDIUM
-- **Detects**: A handler annotated @ResponseStatus(CREATED) that returns a plain body (not ResponseEntity and with no servlet response argument) has no way to set the Location header of the newly created resource.
-- **Recommendation**: Return ResponseEntity.created(uri).body(...) so the 201 response also carries the Location of the new resource.
+- **Detects**: A handler annotated @ResponseStatus(CREATED) that returns a plain body (not ResponseEntity and with no response-mutating MVC/WebFlux argument) has no way to set the Location header of the newly created resource.
+- **Recommendation**: Return ResponseEntity.created(uri).body(...) so the 201 response also carries the Location of the newly created resource, or set it through an explicit response argument.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.2>
 
 ### RAPI-RESP-009 - HEAD handlers do not return response bodies
@@ -453,3 +464,19 @@ otherwise they are reported as `SKIPPED`.
 - **Detects**: A handler (or its declaring class) is annotated @Deprecated but has no accompanying @Operation(deprecated = true). @Deprecated only communicates to compile-time Java consumers; HTTP clients need an OpenAPI deprecation marker and can also receive the standardized `Deprecation` response header defined by RFC 9745. Skipped when no OpenAPI annotations are present on the classpath (see RAPI-DOC-001).
 - **Recommendation**: Add @Operation(deprecated = true) alongside @Deprecated, and consider RFC 9745's `Deprecation` header plus RFC 8594's `Sunset` header for runtime notice and a concrete retirement date.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9745.html>
+
+## Deliberately deferred checks
+
+The 2026 source audit retained all 53 active rule IDs and severities. It changed only directly observable model facts;
+no rule was removed or broadened from a style preference alone.
+
+- JAX-RS `Response` and RESTEasy Reactive `RestResponse` builder chains can set statuses and headers imperatively. The
+  advisor does not perform interprocedural data-flow analysis just to infer those values.
+- JAX-RS sub-resource locators require a cross-class locator graph before their inherited path parameters can be
+  analyzed reliably. The current bounded model does not attempt that graph.
+- Retained Java parameter names are not exposed by ArchUnit's imported parameter model. The advisor therefore checks
+  explicit `@PathVariable`/`@PathParam`/`@RestPath` names and does not guess omitted names.
+- Reactive stream pagination needs return-media-type and runtime serialization evidence. `Flux`/`Multi` wrappers are
+  unwrapped for payload-shape rules, but no additional pagination conclusion is inferred from a wrapper alone.
+- Generated or static OpenAPI documents are not parsed. The `RAPI-DOC-*` rules remain annotation-level advisories rather
+  than claims that generated documentation is complete.

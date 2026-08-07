@@ -53,4 +53,15 @@ class RestApiRuleRegistryTests {
             assertThat(definition.severity()).isIn(severities);
         }
     }
+
+    @Test
+    void paginationVocabularyRuleUsesTheDocumentedGuideline() {
+        RestApiRule paginationVocabularyRule = RestApiRuleRegistry.activeRules().stream()
+                .filter(rule -> rule.definition().id().equals("RAPI-PAGE-003"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(paginationVocabularyRule.definition().learnMoreUrl())
+                .isEqualTo("https://opensource.zalando.com/restful-api-guidelines/#pagination");
+    }
 }
