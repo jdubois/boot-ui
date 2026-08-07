@@ -26,6 +26,7 @@ class GraalVmMetadataGeneratorTests {
         assertThat(json.strip()).endsWith("}");
         assertBalanced(json);
         assertThat(json).contains("\"comment\"");
+        assertThat(json).contains("<artifactId>-additional-hints");
         assertThat(json).contains("\"reflection\"");
         assertThat(json)
                 .contains("\"condition\": {\"typeReached\": \"com.example.Person\"}")
@@ -45,7 +46,7 @@ class GraalVmMetadataGeneratorTests {
         assertThat(json).contains("\"directUpcalls\": []");
         assertThat(json).contains("Dynamic proxy calls were detected");
         assertThat(json).contains("Unsafe.allocateInstance calls were detected");
-        assertThat(json).contains("FFM Linker usage was detected");
+        assertThat(json).contains("FFM Linker downcall/upcall creation was detected");
     }
 
     @Test

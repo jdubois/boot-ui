@@ -61,17 +61,6 @@ final class GraalVmClassPredicates {
         return List.copyOf(names);
     }
 
-    static List<String> nativeMethodTypeNames(JavaClasses classes) {
-        Set<String> names = new LinkedHashSet<>();
-        for (JavaClass javaClass : classes) {
-            if (javaClass.getMethods().stream()
-                    .anyMatch(method -> method.getModifiers().contains(JavaModifier.NATIVE))) {
-                names.add(javaClass.getName());
-            }
-        }
-        return List.copyOf(names);
-    }
-
     private static boolean isPersistenceType(JavaClass javaClass) {
         for (String annotation : ENTITY_ANNOTATIONS) {
             if (javaClass.isAnnotatedWith(annotation)) {

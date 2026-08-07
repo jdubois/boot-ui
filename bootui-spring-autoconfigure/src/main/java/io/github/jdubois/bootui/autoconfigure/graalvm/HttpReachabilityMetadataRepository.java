@@ -117,6 +117,7 @@ public final class HttpReachabilityMetadataRepository implements ReachabilityMet
             entries.add(new ReachabilityMetadataIndex.Entry(
                     text(entry, "metadata-version"),
                     stringList(entry.get("tested-versions")),
+                    text(entry, "default-for"),
                     entry.path("latest").asBoolean(false)));
         }
         return ReachabilityMetadataIndex.of(entries);
