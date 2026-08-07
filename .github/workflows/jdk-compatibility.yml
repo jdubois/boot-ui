@@ -1,39 +1,13 @@
 name: JDK compatibility (21/25)
 
-# Keeps Java 17 as the full CI-equivalent/build-release baseline (build.yml + release.yml), while adding
-# focused compatibility checks on newer supported JDKs for every PR/push and a weekly scheduled run.
-#
-# Mirrors build.yml's parallel-jobs-plus-cache shape: a `compat-shared` job installs the modules every
-# adapter depends on (bootui-core/-engine/-ui/-conformance) once per JDK, then `compat-spring` and
-# `compat-quarkus` restore those artifacts and build/test their own adapter in parallel instead of
-# sequentially, shortening the critical path per JDK to shared-time + max(spring-time, quarkus-time).
+# Keeps Java 17 as the full CI-equivalent/build-release baseline (build.yml + release.yml),
+# while adding focused compatibility checks on newer supported JDKs for every PR/push and
+# a weekly scheduled run.
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      # Keep this list identical to build.yml's: root project-meta markdown that no test reads, plus
-      # screenshot assets and the design-skill sidecar, both non-functional.
-      - 'CHANGELOG.md'
-      - 'CODE_OF_CONDUCT.md'
-      - 'CONTRIBUTING.md'
-      - 'SECURITY.md'
-      - 'README.md'
-      - 'PRODUCT.md'
-      - 'DESIGN.md'
-      - 'docs/images/**'
-      - '.impeccable/**'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - 'CHANGELOG.md'
-      - 'CODE_OF_CONDUCT.md'
-      - 'CONTRIBUTING.md'
-      - 'SECURITY.md'
-      - 'README.md'
-      - 'PRODUCT.md'
-      - 'DESIGN.md'
-      - 'docs/images/**'
-      - '.impeccable/**'
   schedule:
     # Every Monday at 07:05 UTC.
     - cron: '5 7 * * 1'
@@ -45,202 +19,38 @@ concurrency:
 
 permissions:
   contents: read
-  checks: write
 
 jobs:
-  compat-shared:
-    name: Compatibility (shared modules, Java ${{ matrix.java }})
-    # See build.yml's build-shared job comment for BOOTUI_CI_RUNNER; defaults to the standard free runner.
-    runs-on: ${{ vars.BOOTUI_CI_RUNNER || 'ubuntu-latest' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        java: [ '21', '25' ]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: ${{ matrix.java }}
-          cache: maven
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24.18.0'
-          cache: npm
-          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
-
-      # Restore-only: build.yml's own build-shared job is the sole writer of this key (same runner.os +
-      # pom.xml hash, independent of the JDK running the reactor), so a hit here skips the
-      # frontend-maven-plugin Node.js/npm download entirely; a miss falls through to the normal download.
-      - name: Restore frontend build tools cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: bootui-ui/node
-          key: frontend-tools-${{ runner.os }}-${{ hashFiles('pom.xml') }}
-
-      # Builds and installs only the modules every adapter depends on, exactly as build.yml's build-shared
-      # job does for Java 17, so compat-spring/compat-quarkus below can resolve them as ordinary
-      # dependencies instead of rebuilding them from source.
-      - name: Build shared modules
-        run: ./mvnw -T 1C -B -ntp -pl bootui-core,bootui-engine,bootui-ui,bootui-conformance -am clean install
-
-      # Scoped to this project's own group id and keyed per JDK + run, mirroring build.yml's
-      # bootui-m2-shared-${{ github.run_id }} cache but split per matrix.java so the 21 and 25 runs (which
-      # execute concurrently) never race to write or read each other's artifacts.
-      - name: Save shared Maven artifacts for downstream jobs
-        if: success()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-jdk${{ matrix.java }}-shared-${{ github.run_id }}
-
-      - name: Publish Java test report
-        if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-        with:
-          name: Java tests (Surefire, shared modules, Java ${{ matrix.java }})
-          path: '**/target/surefire-reports/TEST-*.xml'
-          reporter: java-junit
-          fail-on-error: false
-          fail-on-empty: false
-
-      - name: Upload JUnit test reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: junit-test-reports-jdk${{ matrix.java }}-shared
-          path: '**/target/surefire-reports/TEST-*.xml'
-          if-no-files-found: ignore
-          retention-days: 7
-
-  compat-spring:
-    name: Compatibility (Spring adapter, Java ${{ matrix.java }})
-    needs: compat-shared
-    runs-on: ${{ vars.BOOTUI_CI_RUNNER || 'ubuntu-latest' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        java: [ '21', '25' ]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: ${{ matrix.java }}
-          cache: maven
-
-      - name: Restore shared Maven artifacts
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-jdk${{ matrix.java }}-shared-${{ github.run_id }}
-          fail-on-cache-miss: true
-
-      # No -am: bootui-core/-engine/-ui/-conformance are resolved as ordinary dependencies from the
-      # restored local repository above instead of being rebuilt from source as reactor modules.
-      - name: Build and test Spring adapter modules
-        run: >
-          ./mvnw -T 1C -B -ntp
-          -pl bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-spring-sample-app,bootui-spring-webflux-sample-app
-          clean test
-
-      - name: Publish Java test report
-        if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-        with:
-          name: Java tests (Surefire, Spring adapter, Java ${{ matrix.java }})
-          path: '**/target/surefire-reports/TEST-*.xml'
-          reporter: java-junit
-          fail-on-error: false
-          fail-on-empty: false
-
-      - name: Upload JUnit test reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: junit-test-reports-jdk${{ matrix.java }}-spring
-          path: '**/target/surefire-reports/TEST-*.xml'
-          if-no-files-found: ignore
-          retention-days: 7
-
-  compat-quarkus:
-    name: Compatibility (Quarkus adapter, Java ${{ matrix.java }})
-    needs: compat-shared
-    runs-on: ${{ vars.BOOTUI_CI_RUNNER || 'ubuntu-latest' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        java: [ '21', '25' ]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: ${{ matrix.java }}
-          cache: maven
-
-      - name: Restore shared Maven artifacts
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-jdk${{ matrix.java }}-shared-${{ github.run_id }}
-          fail-on-cache-miss: true
-
-      # No -am: bootui-core/-engine/-ui/-conformance are resolved as ordinary dependencies from the
-      # restored local repository above instead of being rebuilt from source as reactor modules. The
-      # Quarkus base integration-tests submodule is listed directly because selecting its aggregator does
-      # not include child modules in a Maven -pl build. Installs (rather than just testing)
-      # bootui-quarkus/-quarkus-deployment so the sample-app augmentation step below can resolve them from
-      # the local repository too, instead of needing -am to rebuild them from source.
-      - name: Build and test Quarkus adapter modules
-        run: >
-          ./mvnw -T 1C -B -ntp
-          -pl bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-quarkus-integration-tests/base
-          clean install
-
-      # Ensures Quarkus build-time augmentation runs on supported JDKs (17/21/25) and catches
-      # ByteBuddy/build-plugin regressions without running browser tests. No -am: bootui-quarkus/
-      # -quarkus-deployment (and the shared modules) were already installed above/restored from cache.
-      - name: Exercise Quarkus sample app augmentation
-        run: ./mvnw -T 1C -B -ntp -pl bootui-quarkus-sample-app -DskipTests install
-
-      - name: Publish Java test report
-        if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-        with:
-          name: Java tests (Surefire, Quarkus adapter, Java ${{ matrix.java }})
-          path: '**/target/surefire-reports/TEST-*.xml'
-          reporter: java-junit
-          fail-on-error: false
-          fail-on-empty: false
-
-      - name: Upload JUnit test reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: junit-test-reports-jdk${{ matrix.java }}-quarkus
-          path: '**/target/surefire-reports/TEST-*.xml'
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # Aggregate gate job: keeps a job named "Focused compatibility" green/red as one required status check,
-  # exactly as build.yml's `build` gate job does, so branch protection rules keep working unchanged even
-  # though the actual work now happens per-JDK in the three matrixed jobs above.
   compatibility:
-    name: Focused compatibility
-    needs: [ compat-shared, compat-spring, compat-quarkus ]
+    name: Focused compatibility (Java ${{ matrix.java }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
     steps:
-      - name: All compatibility jobs succeeded
-        run: echo "compat-shared, compat-spring and compat-quarkus all succeeded on Java 21 and 25."
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Build and test shared engine + adapters
+        # Focused coverage for Java 21/25: run the servlet, reactive and Quarkus
+        # conformance suites while avoiding browser and optional-extension suites.
+        # Select the Quarkus base module directly because selecting its aggregator
+        # does not include child modules in a Maven -pl build.
+        run: >
+          ./mvnw -T 1C -B -ntp
+          -pl bootui-spring-sample-app,bootui-spring-webflux-sample-app,bootui-quarkus-integration-tests/base
+          -am test
+
+      - name: Exercise Quarkus sample app augmentation
+        # Ensures Quarkus build-time augmentation runs on supported JDKs (17/21/25) and
+        # catches ByteBuddy/build-plugin regressions without running browser tests.
+        run: ./mvnw -T 1C -B -ntp -pl bootui-quarkus-sample-app -am -DskipTests install

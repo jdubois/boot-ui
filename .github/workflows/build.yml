@@ -39,19 +39,17 @@ permissions:
   checks: write
 
 jobs:
-  # The full reactor `clean install` used to run sequentially in a single `build` job (shared modules,
-  # then the Spring adapter, then the Quarkus adapter, one after another). The two adapters don't depend
-  # on each other, only on the shared modules (bootui-core/-engine/-ui/-conformance), so they now build in
-  # parallel as their own jobs once `build-shared` has installed those shared artifacts. This shortens the
-  # critical path to shared-build-time + max(spring-build-time, quarkus-build-time) instead of the sum of
-  # all three.
-  build-shared:
-    name: Build (shared modules)
+  build:
+    name: Build (Java ${{ matrix.java }})
     # Opt-in larger/faster runner: set the BOOTUI_CI_RUNNER repository or organization variable (Settings >
     # Secrets and variables > Actions > Variables) to a larger GitHub-hosted runner label (e.g.
     # ubuntu-latest-4-cores) if your plan has one available. Defaults to the standard free runner, since
     # not every plan has larger runners enabled and an unavailable label would fail the job outright.
     runs-on: ${{ vars.BOOTUI_CI_RUNNER || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '17' ]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -59,11 +57,11 @@ jobs:
       - name: Check GitHub Action references
         run: bash .github/scripts/check-action-references.sh
 
-      - name: Set up JDK 17
+      - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ matrix.java }}
           cache: maven
 
       - name: Set up Node.js
@@ -84,41 +82,27 @@ jobs:
           path: bootui-ui/node
           key: frontend-tools-${{ runner.os }}-${{ hashFiles('pom.xml') }}
 
-      # Whole-reactor formatting check: fast (no compilation), so it stays here rather than being
-      # duplicated across the split build-spring/build-quarkus jobs below.
       - name: Check Maven formatting
         run: ./mvnw -B -ntp spotless:check
 
-      # Builds and installs only the modules every adapter depends on: bootui-core, bootui-engine,
-      # bootui-ui (the packaged Vue SPA), and bootui-conformance (the shared HTTP contract test-support
-      # library both adapters' sample apps depend on in test scope). Installing these into the local Maven
-      # repository lets build-spring/build-quarkus below resolve them as ordinary dependencies (restored
-      # from the cache saved at the end of this job) instead of rebuilding them from source.
-      - name: Build shared modules
-        run: ./mvnw -T 1C -B -ntp -pl bootui-core,bootui-engine,bootui-ui,bootui-conformance -am clean install
+      # -T 1C: one reactor thread per available CPU core. Safe because every module that triggers Quarkus
+      # build-time augmentation declares an explicit provided-scope dependency on bootui-quarkus-deployment
+      # (so the reactor always orders it first) and every @QuarkusTest-bearing module pins Surefire's
+      # forkCount to a value that does not race Quarkus's own test-bootstrap classloading (see the
+      # maven-surefire-plugin comment in the root pom and the forkCount comment in
+      # bootui-quarkus-integration-tests/base/pom.xml).
+      - name: Build all modules
+        run: ./mvnw -T 1C -B -ntp clean install
 
       - name: Check frontend formatting
         working-directory: bootui-ui/src/main/frontend
         run: npm run format:check
 
-      # Shares the shared-module Maven artifacts with the build-spring/build-quarkus jobs below (and,
-      # through them, the e2e/quarkus-e2e jobs) so those jobs never recompile bootui-core/-engine/-ui/
-      # -conformance from source. Scoped to this project's own group id (not the whole ~/.m2/repository,
-      # which setup-java's own `cache: maven` already handles per-job for third-party dependencies) and
-      # keyed uniquely per run so it is always a fresh write with no cross-run staleness or restore-key
-      # ambiguity.
-      - name: Save shared Maven artifacts for downstream jobs
-        if: success()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-shared-${{ github.run_id }}
-
       - name: Publish Java test report
         if: ${{ !cancelled() }}
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
-          name: Java tests (Surefire, shared modules)
+          name: Java tests (Surefire)
           path: '**/target/surefire-reports/TEST-*.xml'
           reporter: java-junit
           fail-on-error: false
@@ -138,68 +122,10 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: junit-test-reports-shared
+          name: junit-test-reports
           path: |
             **/target/surefire-reports/TEST-*.xml
             bootui-ui/src/main/frontend/test-results/vitest-junit.xml
-          if-no-files-found: ignore
-          retention-days: 7
-
-  build-spring:
-    name: Build (Spring adapter)
-    needs: build-shared
-    runs-on: ${{ vars.BOOTUI_CI_RUNNER || 'ubuntu-latest' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
-
-      - name: Restore shared Maven artifacts
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-shared-${{ github.run_id }}
-          fail-on-cache-miss: true
-
-      # No -am: bootui-core/-engine/-ui/-conformance are resolved as ordinary dependencies from the
-      # restored local repository above, instead of being rebuilt from source as reactor modules.
-      - name: Build Spring adapter modules
-        run: >
-          ./mvnw -T 1C -B -ntp
-          -pl bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-spring-sample-app,bootui-spring-webflux-sample-app
-          clean install
-
-      # Shares the now-installed Spring adapter artifacts with the `e2e` job below, so it can build only
-      # the sample-app module(s) it needs instead of the whole upstream Spring reactor again.
-      - name: Save Spring Maven artifacts for downstream jobs
-        if: success()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-spring-${{ github.run_id }}
-
-      - name: Publish Java test report
-        if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-        with:
-          name: Java tests (Surefire, Spring adapter)
-          path: '**/target/surefire-reports/TEST-*.xml'
-          reporter: java-junit
-          fail-on-error: false
-          fail-on-empty: false
-
-      - name: Upload JUnit test reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: junit-test-reports-spring
-          path: '**/target/surefire-reports/TEST-*.xml'
           if-no-files-found: ignore
           retention-days: 7
 
@@ -212,92 +138,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  build-quarkus:
-    name: Build (Quarkus adapter)
-    needs: build-shared
-    runs-on: ${{ vars.BOOTUI_CI_RUNNER || 'ubuntu-latest' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
-
-      - name: Restore shared Maven artifacts
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-shared-${{ github.run_id }}
-          fail-on-cache-miss: true
-
-      # No -am: bootui-core/-engine/-ui/-conformance are resolved as ordinary dependencies from the
-      # restored local repository above, instead of being rebuilt from source as reactor modules.
-      # bootui-quarkus-integration-tests submodules must be listed individually: selecting the aggregator
-      # module in -pl does not pull in its children (see the same note in jdk-compatibility.yml).
-      # bootui-quarkus-integration-tests/hibernate is normally wired into the root reactor only via the
-      # JDK-gated `quarkus-sample-app` profile ([17,26)); listing it explicitly here preserves that
-      # coverage since -pl bypasses the root <modules> list the profile contributes to.
-      - name: Build Quarkus adapter modules
-        run: >
-          ./mvnw -T 1C -B -ntp
-          -pl bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-quarkus-sample-app,bootui-quarkus-integration-tests/base,bootui-quarkus-integration-tests/otel,bootui-quarkus-integration-tests/health,bootui-quarkus-integration-tests/micrometer,bootui-quarkus-integration-tests/scheduler,bootui-quarkus-integration-tests/security,bootui-quarkus-integration-tests/cache,bootui-quarkus-integration-tests/email,bootui-quarkus-integration-tests/rabbit,bootui-quarkus-integration-tests/flyway,bootui-quarkus-integration-tests/liquibase,bootui-quarkus-integration-tests/datasource,bootui-quarkus-integration-tests/rest-client,bootui-quarkus-integration-tests/prod-shell-guard,bootui-quarkus-integration-tests/hibernate
-          clean install
-
-      # Shares the now-installed Quarkus adapter artifacts with the `quarkus-e2e` job below, so it can
-      # build only the sample-app module instead of the whole upstream Quarkus reactor again.
-      - name: Save Quarkus Maven artifacts for downstream jobs
-        if: success()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-quarkus-${{ github.run_id }}
-
-      - name: Publish Java test report
-        if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-        with:
-          name: Java tests (Surefire, Quarkus adapter)
-          path: '**/target/surefire-reports/TEST-*.xml'
-          reporter: java-junit
-          fail-on-error: false
-          fail-on-empty: false
-
-      - name: Upload JUnit test reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: junit-test-reports-quarkus
-          path: '**/target/surefire-reports/TEST-*.xml'
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # Aggregate gate job: keeps a job named "Build (Java 17)" green/red as one required status check,
-  # exactly as the single monolithic `build` job used to, so branch protection rules that require that
-  # check by name keep working unchanged even though the actual work now happens in the three jobs above.
-  build:
-    name: Build (Java 17)
-    needs: [ build-shared, build-spring, build-quarkus ]
-    runs-on: ubuntu-latest
-    steps:
-      - name: All build jobs succeeded
-        run: echo "build-shared, build-spring and build-quarkus all succeeded."
-
   # The three Spring Playwright suites (main MVC, WebFlux, custom-path) used to run sequentially in the
-  # old monolithic `build` job, only after the full reactor `clean install` finished. Each suite only
-  # needs its own sample-app module(s) built (mirroring the `quarkus-e2e` job's `-pl ... -DskipTests
-  # install` pattern below), so they run here as an independent parallel matrix that only waits on
-  # `build-spring` (not the whole reactor, and not `build-quarkus`, which runs concurrently).
+  # `build` job, only after the full reactor `clean install` finished. Each suite only needs its own
+  # sample-app module(s) built (mirroring the `quarkus-e2e` job's `-pl ... -am -DskipTests install`
+  # pattern below), so they run here as an independent parallel matrix, decoupled from the `build` job
+  # entirely: they can start as soon as a runner is available instead of waiting on the whole reactor.
   e2e:
     name: Spring end-to-end (${{ matrix.suite.name }})
-    # Needs build-spring (not just build-shared) because it restores the bootui-m2-spring cache below,
-    # which build-spring is the sole writer of: it contains both the shared modules and the already-built
-    # Spring adapter modules, so this job's own build step only needs to compile the sample app itself.
-    needs: build-spring
-    # See the `build-shared` job comment above for BOOTUI_CI_RUNNER; defaults to the standard free runner.
+    # See the `build` job comment above for BOOTUI_CI_RUNNER; defaults to the standard free runner.
     runs-on: ${{ vars.BOOTUI_CI_RUNNER || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -341,35 +189,22 @@ jobs:
             bootui-ui/src/main/frontend/package-lock.json
             bootui-spring-sample-app/e2e/package-lock.json
 
-      # Restore-only: the `build-shared` job is the sole writer of this key (see its comment above). With
-      # three matrix entries here plus `quarkus-e2e` also reading it, using the read+write `actions/cache`
-      # action in every job would race all of them to save the same key on a cache miss (e.g. right after
-      # the key changes) — actions/cache tolerates that (only the first save wins, the rest just warn), but
-      # it is wasted upload time on every job that loses the race. Restore-only avoids that entirely; a
-      # miss here simply falls through to frontend-maven-plugin's normal download, exactly as it would
-      # without any cache at all.
+      # Restore-only: the `build` job is the sole writer of this key (see its comment above). With three
+      # matrix entries here plus `quarkus-e2e` also reading it, using the read+write `actions/cache` action
+      # in every job would race all of them to save the same key on a cache miss (e.g. right after the key
+      # changes) — actions/cache tolerates that (only the first save wins, the rest just warn), but it is
+      # wasted upload time on every job that loses the race. Restore-only avoids that entirely; a miss here
+      # simply falls through to frontend-maven-plugin's normal download, exactly as it would without any
+      # cache at all.
       - name: Restore frontend build tools cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: bootui-ui/node
           key: frontend-tools-${{ runner.os }}-${{ hashFiles('pom.xml') }}
 
-      # Restores the shared modules + Spring adapter modules that build-spring already built and
-      # installed, so the step below only needs to compile the sample app module(s) themselves instead of
-      # rebuilding the whole upstream reactor (bootui-core/-engine/-ui/-conformance/-spring-autoconfigure/
-      # -spring-boot-starter*) a second time.
-      - name: Restore Spring Maven artifacts
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-spring-${{ github.run_id }}
-          fail-on-cache-miss: true
-
-      # No -am: upstream modules are resolved from the restored local repository above instead of being
-      # rebuilt from source as reactor modules, so only the module(s) this suite's webServer(s) actually
-      # boot are compiled.
+      # Only builds the module(s) this suite's webServer(s) actually boot, not the whole reactor.
       - name: Build sample app module(s) for this suite
-        run: ./mvnw -T 1C -B -ntp -pl "${{ matrix.suite.modules }}" -DskipTests install
+        run: ./mvnw -T 1C -B -ntp -pl "${{ matrix.suite.modules }}" -am -DskipTests install
 
       - name: Install Playwright dependencies
         working-directory: bootui-spring-sample-app/e2e
@@ -440,11 +275,7 @@ jobs:
 
   quarkus-e2e:
     name: Quarkus end-to-end (Java 17)
-    # Needs build-quarkus (not just build-shared) because it restores the bootui-m2-quarkus cache below,
-    # which build-quarkus is the sole writer of: it contains both the shared modules and the already-built
-    # Quarkus adapter modules, so this job's own build step only needs to compile the sample app itself.
-    needs: build-quarkus
-    # See the `build-shared` job comment above for BOOTUI_CI_RUNNER; defaults to the standard free runner.
+    # See the `build` job comment above for BOOTUI_CI_RUNNER; defaults to the standard free runner.
     runs-on: ${{ vars.BOOTUI_CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - name: Checkout
@@ -468,7 +299,7 @@ jobs:
             bootui-ui/src/main/frontend/package-lock.json
             bootui-quarkus-sample-app/e2e/package-lock.json
 
-      # Restore-only: see the same-named step's comment in the `e2e` job above — `build-shared` is the
+      # Restore-only: see the same-named step's comment in the `e2e` job above — the `build` job is the
       # sole writer of this key, so every other reader here avoids racing to save it.
       - name: Restore frontend build tools cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -476,22 +307,19 @@ jobs:
           path: bootui-ui/node
           key: frontend-tools-${{ runner.os }}-${{ hashFiles('pom.xml') }}
 
-      # Restores the shared modules + Quarkus adapter modules that build-quarkus already built and
-      # installed, so the step below only needs to compile the sample app module instead of rebuilding the
-      # whole upstream reactor (bootui-core/-engine/-ui/-conformance/-quarkus/-quarkus-deployment) again.
-      - name: Restore Quarkus Maven artifacts
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.m2/repository/com/julien-dubois
-          key: bootui-m2-quarkus-${{ github.run_id }}
-          fail-on-cache-miss: true
-
-      # Installs just the sample app into the local Maven repository so Playwright's `quarkus:dev` web
-      # server can resolve it. BootUI activates automatically under `quarkus:dev` (dev mode); it stays dark
-      # in a packaged prod run. No -am: bootui-quarkus/-quarkus-deployment are resolved from the restored
-      # local repository above instead of being rebuilt from source as reactor modules.
-      - name: Build BootUI Quarkus sample app
-        run: ./mvnw -T 1C -B -ntp -pl bootui-quarkus-sample-app -DskipTests install
+      # Build and install the BootUI Quarkus extension + the sample app into the local Maven
+      # repository so Playwright's `quarkus:dev` web server can resolve them. BootUI activates
+      # automatically under `quarkus:dev` (dev mode); it stays dark in a packaged prod run.
+      # bootui-quarkus-sample-app (and every Quarkus consumer module) declares an explicit provided-scope
+      # dependency on bootui-quarkus-deployment, so plain -am now resolves it into the reactor; Quarkus
+      # would otherwise only pull the -deployment counterpart in at augmentation time (not via Maven's
+      # dependency graph), which is invisible to -am and, under a parallel (-T) build, is also an
+      # unordered race with the deployment module's own build.
+      # -T 1C is safe here even without the Surefire forkCount guards above: -DskipTests means no
+      # @QuarkusTest classloading race is possible, and -am's ordering relies only on the same explicit
+      # provided-scope bootui-quarkus-deployment dependency called out above.
+      - name: Build BootUI Quarkus extension and sample app
+        run: ./mvnw -T 1C -B -ntp -pl bootui-quarkus-sample-app -am -DskipTests install
 
       - name: Install Playwright dependencies
         working-directory: bootui-quarkus-sample-app/e2e
