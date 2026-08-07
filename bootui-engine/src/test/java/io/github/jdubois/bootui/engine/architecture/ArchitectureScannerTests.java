@@ -24,7 +24,8 @@ class ArchitectureScannerTests {
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC);
 
     private ArchitectureScanner scanner(List<String> basePackages) {
-        return new ArchitectureScanner(() -> basePackages, new ClassFileArchitectureImporter(), CLOCK);
+        return new ArchitectureScanner(
+                () -> basePackages, new ClassFileArchitectureImporter(), ArchitecturePlatform.SPRING, CLOCK);
     }
 
     @Test
@@ -97,7 +98,8 @@ class ArchitectureScannerTests {
             await(release);
             return new ClassFileArchitectureImporter().importPackages(basePackages);
         };
-        ArchitectureScanner scanner = new ArchitectureScanner(() -> List.of(FIXTURES), importer, CLOCK);
+        ArchitectureScanner scanner =
+                new ArchitectureScanner(() -> List.of(FIXTURES), importer, ArchitecturePlatform.SPRING, CLOCK);
         Thread winner = new Thread(scanner::scan);
         winner.start();
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
