@@ -12,9 +12,8 @@ function memoryReport({
   kubernetesActuatorEnabled = true
 } = {}) {
   const requestMemory = kubernetesBurstableEnabled ? '512Mi' : '1024Mi'
-  const qosClass = kubernetesBurstableEnabled ? 'Burstable' : 'Guaranteed'
-  const javaToolOptions =
-    '-XX:+UseContainerSupport -XX:MaxRAMPercentage=62.5 -XX:InitialRAMPercentage=62.5 -XX:+UseG1GC'
+  const qosClass = kubernetesBurstableEnabled ? 'Burstable' : 'Depends on CPU'
+  const javaToolOptions = '-XX:MaxRAMPercentage=62.5 -XX:MinRAMPercentage=62.5 -XX:InitialRAMPercentage=62.5'
   const probeYaml = kubernetesActuatorEnabled
     ? '\n' +
       '  - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED\n' +
@@ -22,7 +21,7 @@ function memoryReport({
       'startupProbe:\n' +
       '  httpGet:\n' +
       '    path: /actuator/health/liveness\n' +
-      '    port: 8080'
+      '    port: http'
     : ''
 
   return {
@@ -30,15 +29,15 @@ function memoryReport({
     nonHeap: {name: 'Non-Heap', usedBytes: 64 * MB, committedBytes: 128 * MB, maxBytes: -1, usedPercent: 50},
     pools: [{name: 'G1 Eden Space', usedBytes: 32 * MB, committedBytes: 64 * MB, maxBytes: 128 * MB, usedPercent: 25}],
     jvmInputArguments: [],
-    suggestedJvmOptions: '-Xms512m -Xmx512m -XX:+UseG1GC',
+    suggestedJvmOptions: '-Xms512m -Xmx512m -XX:MaxMetaspaceSize=64m',
     calculation: {
       totalMemoryBytes: 1024 * MB,
       heapBytes: 512 * MB,
       metaspaceBytes: 64 * MB,
       codeCacheBytes: 240 * MB,
       directMemoryBytes: 10 * MB,
-      stackBytesPerThread: virtualThreadsEnabled ? MB / 2 : MB,
-      stackBytesTotal: virtualThreadsEnabled ? 125 * MB : 250 * MB,
+      stackBytesPerThread: MB,
+      stackBytesTotal: 250 * MB,
       headRoomBytes: 102 * MB,
       fixedRegionsBytes: 564 * MB,
       threadCount: 250,
@@ -48,7 +47,7 @@ function memoryReport({
       headRoomPercent: 10,
       virtualThreadsEnabled,
       virtualThreadsProperty,
-      jvmOptions: '-Xms512m -Xmx512m -XX:+UseG1GC',
+      jvmOptions: '-Xms512m -Xmx512m -XX:MaxMetaspaceSize=64m',
       valid: true,
       error: null
     },
@@ -64,10 +63,10 @@ function memoryReport({
       currentSnapshotMemory: '432Mi',
       detectedContainerLimitMemory: '1024Mi',
       qosClass,
-      confidence: 'High',
+      confidence: 'Medium',
       warnings: [
-        'Garbage collector: G1GC is selected for calculated heaps below 4 GiB; the advisor switches to ZGC for larger heaps.',
-        'Request equals limit for Kubernetes Guaranteed QoS.'
+        'Memory request equals memory limit. Kubernetes Guaranteed QoS additionally requires equal, non-zero CPU request and limit for every container in the Pod.',
+        'Direct memory is modeled from the current direct-buffer usage and is intentionally not hard-capped.'
       ],
       yaml:
         'resources:\n' +
@@ -130,27 +129,28 @@ describe('JvmTuning', () => {
     })
     expect(panelPositions).toEqual([...panelPositions].sort((a, b) => a - b))
     expect(renderedText).toContain('1024Mi')
-    expect(renderedText).toContain('Guaranteed')
+    expect(renderedText).toContain('Depends on CPU')
     expect(renderedText).not.toContain('Burstable alternative')
-    expect(renderedText).toContain('High confidence')
-    expect(renderedText).toContain('Request equals limit')
-    expect(renderedText).toContain('Garbage collector: G1GC')
+    expect(renderedText).toContain('Medium model confidence')
+    expect(renderedText).toContain('CPU request and limit')
+    expect(renderedText).not.toContain('Garbage collector:')
     expect(wrapper.find('.alert-info').text()).toContain('Sizing notes')
     expect(renderedText.indexOf('Deployment snippet')).toBeLessThan(renderedText.indexOf('Sizing notes'))
-    expect(renderedText.indexOf('Garbage collector: G1GC')).toBeLessThan(renderedText.indexOf('Request equals limit'))
     expect(renderedText).toContain('Burstable resources')
     expect(renderedText).toContain('Kubernetes health probes')
     const virtualThreadsStatus = wrapper.find('.virtual-threads-status')
     expect(virtualThreadsStatus.classes()).toContain('alert-warning')
     expect(virtualThreadsStatus.text()).toContain('Virtual threads not enabled')
-    expect(virtualThreadsStatus.text()).toContain('improve throughput')
+    expect(virtualThreadsStatus.text()).toContain('representative load')
     const optionsText = wrapper
       .findAll('.options-box code')
       .map((node) => node.text())
       .join('\n')
     expect(optionsText).toContain('JAVA_TOOL_OPTIONS')
     expect(optionsText).toContain('MaxRAMPercentage=62.5')
+    expect(optionsText).toContain('MinRAMPercentage=62.5')
     expect(optionsText).not.toContain('spring.threads.virtual.enabled=true')
+    expect(renderedText).toContain('62.5%')
     expect(optionsText).toContain('MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED')
     expect(wrapper.html()).not.toContain('value: &quot;-Xms512m')
     expect(wrapper.find('#virtualThreadsEnabled').exists()).toBe(false)
@@ -168,14 +168,25 @@ describe('JvmTuning', () => {
     const virtualThreadsStatus = wrapper.find('.virtual-threads-status')
     expect(virtualThreadsStatus.classes()).toContain('alert-info')
     expect(virtualThreadsStatus.text()).toContain('Virtual threads enabled')
-    expect(virtualThreadsStatus.text()).toContain('positive for performance')
+    expect(virtualThreadsStatus.text()).toContain('conservative platform-thread reserve')
     expect(wrapper.find('#virtualThreadsEnabled').exists()).toBe(false)
-    expect(wrapper.text()).toContain('virtual-thread mode uses')
+    expect(wrapper.text()).toContain('1024 KiB per platform thread')
     const optionsText = wrapper
       .findAll('.options-box code')
       .map((node) => node.text())
       .join('\n')
     expect(optionsText).not.toContain('spring.threads.virtual.enabled=true')
+  })
+
+  it('preserves sub-percent heap precision', async () => {
+    const report = memoryReport()
+    report.kubernetes.maxRamPercentage = 0.781
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report)))
+
+    wrapper = mount(JvmTuning)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('0.781%')
   })
 
   it('hides the virtual-threads advisory when no app-wide switch exists (Quarkus)', async () => {
@@ -208,6 +219,20 @@ describe('JvmTuning', () => {
     expect(wrapper.find('#kubernetesBurstableEnabled').element.checked).toBe(true)
     expect(wrapper.find('#kubernetesActuatorEnabled').element.checked).toBe(false)
     expect(wrapper.text()).toContain('Burstable')
+  })
+
+  it('keeps equal-request wording when burstable sizing reaches the limit', async () => {
+    const report = memoryReport({kubernetesBurstableEnabled: true})
+    report.kubernetes.requestMemoryBytes = report.kubernetes.limitMemoryBytes
+    report.kubernetes.requestMemory = report.kubernetes.limitMemory
+    report.kubernetes.qosClass = 'Depends on CPU'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report)))
+
+    wrapper = mount(JvmTuning)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Memory request equals limit')
+    expect(wrapper.text()).toContain('CPU settings also required')
   })
 
   it('reloads recommendations when Kubernetes toggles are changed', async () => {

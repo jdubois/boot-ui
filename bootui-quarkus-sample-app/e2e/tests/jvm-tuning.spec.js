@@ -33,23 +33,25 @@ test.describe('JVM Tuning view (Quarkus)', () => {
     const kubernetesYaml = kubernetesCard.locator('.options-box code')
     await expect(jvmOptionsCard).toBeVisible()
     await expect(kubernetesCard).toBeVisible()
-    await expect(kubernetesCard).toContainText('Guaranteed')
+    await expect(kubernetesCard).toContainText('Depends on CPU')
     await expect(kubernetesCard.locator('#kubernetesBurstableEnabled')).not.toBeChecked()
     // SmallRye Health is on the sample app's classpath, so
     // QuarkusMemoryRuntimeConfig.kubernetesHealthProbesEnabled() is true and the toggle starts checked.
     await expect(kubernetesCard.locator('#kubernetesActuatorEnabled')).toBeChecked()
     await expect(kubernetesYaml).toContainText('JAVA_TOOL_OPTIONS')
     await expect(kubernetesYaml).toContainText('MaxRAMPercentage')
+    await expect(kubernetesYaml).toContainText('MinRAMPercentage')
     // Quarkus renders SmallRye Health's own httpGet probe paths directly (no Spring Actuator
     // env-var toggle exists on this platform).
     await expect(kubernetesYaml).toContainText('startupProbe')
     await expect(kubernetesYaml).toContainText('readinessProbe')
     await expect(kubernetesYaml).toContainText('/q/health/ready')
     await expect(kubernetesYaml).toContainText('/q/health/live')
+    await expect(kubernetesYaml).toContainText('port: http')
     await expect(kubernetesYaml).not.toContainText('MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED')
     await expect(kubernetesYaml).not.toContainText('spring.threads.virtual.enabled=true')
     await expect(kubernetesYaml).not.toContainText('-Xmx')
-    await expect(kubernetesCard).toContainText('Garbage collector:')
+    await expect(kubernetesCard).not.toContainText('Garbage collector:')
     await expect(kubernetesCard).toContainText('Sizing notes')
 
     const optionsBlock = jvmOptionsCard.locator('.options-box code')
@@ -70,9 +72,9 @@ test.describe('JVM Tuning view (Quarkus)', () => {
     const actuatorToggle = kubernetesCard.locator('#kubernetesActuatorEnabled')
 
     await expect(kubernetesCard).toBeVisible()
-    const guaranteedYaml = await yamlBlock.innerText()
-    const guaranteedRequest = guaranteedYaml.match(/requests:\s+memory: "([^"]+)"/)?.[1]
-    expect(guaranteedRequest).toBeTruthy()
+    const equalRequestYaml = await yamlBlock.innerText()
+    const equalRequest = equalRequestYaml.match(/requests:\s+memory: "([^"]+)"/)?.[1]
+    expect(equalRequest).toBeTruthy()
 
     await burstableToggle.check()
     await expect
@@ -83,7 +85,7 @@ test.describe('JVM Tuning view (Quarkus)', () => {
         },
         {timeout: 5_000}
       )
-      .not.toBe(guaranteedRequest)
+      .not.toBe(equalRequest)
     await expect(kubernetesCard).toContainText('Burstable')
 
     // Unchecking the health-probes toggle removes SmallRye Health's startup/readiness/liveness

@@ -15,6 +15,8 @@ import java.util.OptionalLong;
  */
 public class MemoryReportProvider {
 
+    private static final long MEBIBYTE = 1024L * 1024L;
+
     private final MemoryCalculator calculator;
     private final ContainerMemoryLimitDetector containerMemoryLimitDetector;
     private final MemoryRuntimeConfig runtimeConfig;
@@ -73,22 +75,20 @@ public class MemoryReportProvider {
         int liveThreads = threadBean.getThreadCount();
         int liveClasses = classBean.getLoadedClassCount();
         OptionalLong detectedContainerMemoryLimit = containerMemoryLimitDetector.detectLimit();
+        OptionalLong detectedContainerCurrentUsage = containerMemoryLimitDetector.detectCurrentUsage();
+        long directBufferMemoryUsedBytes = directBufferMemoryUsedBytes();
         boolean resolvedVirtualThreadsEnabled = resolveVirtualThreadsEnabled();
         boolean resolvedKubernetesBurstableEnabled = kubernetesBurstableEnabled != null && kubernetesBurstableEnabled;
         boolean resolvedKubernetesActuatorEnabled = resolveKubernetesActuatorEnabled(kubernetesActuatorEnabled);
-        int defaultThreadCount = MemoryCalculator.defaultThreadCount(liveThreads, resolvedVirtualThreadsEnabled);
+        int defaultThreadCount = MemoryCalculator.defaultThreadCount(liveThreads);
 
         long resolvedTotalBytes = totalMemoryMb != null
-                ? totalMemoryMb * 1024L * 1024L
+                ? totalMemoryBytes(totalMemoryMb)
                 : detectedContainerMemoryLimit.orElseGet(() -> calculator.defaultTotalMemoryBytes(
-                        heapUsage.getCommitted(),
-                        nonHeapUsage.getCommitted(),
-                        defaultThreadCount,
-                        liveClasses,
-                        resolvedVirtualThreadsEnabled));
+                        heapUsage.getCommitted(), nonHeapUsage.getCommitted(), defaultThreadCount, liveClasses));
         int resolvedThreads = threadCount != null ? threadCount : defaultThreadCount;
         int resolvedHeadRoom =
-                headRoomPercent != null ? headRoomPercent : MemoryKubernetesSizer.RECOMMENDED_MIN_HEADROOM_PERCENT;
+                headRoomPercent != null ? headRoomPercent : MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT;
 
         MemoryCalculationDto calculation = calculator.calculate(
                 resolvedTotalBytes,
@@ -98,9 +98,12 @@ public class MemoryReportProvider {
                 liveThreads,
                 liveClasses,
                 resolvedVirtualThreadsEnabled,
-                runtimeConfig.virtualThreadsProperty());
+                runtimeConfig.virtualThreadsProperty(),
+                directBufferMemoryUsedBytes);
         Long detectedContainerMemoryLimitBytes =
                 detectedContainerMemoryLimit.isPresent() ? detectedContainerMemoryLimit.getAsLong() : null;
+        Long detectedContainerCurrentUsageBytes =
+                detectedContainerCurrentUsage.isPresent() ? detectedContainerCurrentUsage.getAsLong() : null;
         double maxRamPercentage = MemoryKubernetesSizer.heapPercentage(calculation);
         double initialRamPercentage = maxRamPercentage;
         String kubernetesJvmOptions =
@@ -109,9 +112,10 @@ public class MemoryReportProvider {
                 calculation,
                 heapUsage.getCommitted(),
                 nonHeapUsage.getCommitted(),
-                directBufferMemoryUsedBytes(),
+                directBufferMemoryUsedBytes,
                 nativeMemoryTrackingEnabled(inputArgs),
                 detectedContainerMemoryLimitBytes,
+                detectedContainerCurrentUsageBytes,
                 maxRamPercentage,
                 initialRamPercentage,
                 kubernetesJvmOptions,
@@ -120,6 +124,13 @@ public class MemoryReportProvider {
                 runtimeConfig.healthProbeManifest());
 
         return new LiveMemoryReport(heap, nonHeap, pools, inputArgs, calculation.jvmOptions(), calculation, kubernetes);
+    }
+
+    private long totalMemoryBytes(long requestedMebibytes) {
+        long minimumMebibytes = MemoryCalculator.MIN_TOTAL_MEMORY_BYTES / MEBIBYTE;
+        long maximumMebibytes = MemoryCalculator.MAX_TOTAL_MEMORY_BYTES / MEBIBYTE;
+        long clampedMebibytes = Math.max(minimumMebibytes, Math.min(maximumMebibytes, requestedMebibytes));
+        return clampedMebibytes * MEBIBYTE;
     }
 
     private boolean resolveVirtualThreadsEnabled() {

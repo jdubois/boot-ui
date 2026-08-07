@@ -3,41 +3,33 @@ package io.github.jdubois.bootui.engine.memory;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
-import io.github.jdubois.bootui.engine.memory.MemoryCalculator.JdkVersion;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for the Paketo {@code libjvm}-style {@link MemoryCalculator}.
  *
- * <p>Verifies the partition formula, libjvm-equivalent constants, and the JDK version gating that
- * controls {@code -XX:+UseCompactObjectHeaders}, {@code -XX:+ZGenerational}, and
- * {@code -XX:+UseStringDeduplication}.
+ * <p>Verifies the partition formula, live-observation adaptations, rendered-budget boundaries, and the
+ * intentionally small Java 17+ option surface.
  */
 class MemoryCalculatorTests {
 
     private static final long MB = 1024L * 1024L;
 
-    private static final JdkVersion JDK_25 = () -> 25;
-    private static final JdkVersion JDK_24 = () -> 24;
-    private static final JdkVersion JDK_23 = () -> 23;
-    private static final JdkVersion JDK_22 = () -> 22;
-    private static final JdkVersion JDK_21 = () -> 21;
-    private static final JdkVersion JDK_18 = () -> 18;
-    private static final JdkVersion JDK_17 = () -> 17;
+    private final MemoryCalculator calculator = new MemoryCalculator();
 
     @Test
-    void heapIsTotalMinusFixedRegionsAndHeadroom() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
+    void heapIsTotalMinusAlignedFixedRegionsAndHeadroom() {
+        MemoryCalculationDto result = calculator.calculate(1024 * MB, 250, 10_000, 0, 42, 10_000);
 
-        MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 10_000, 0, 42, 10_000);
-
-        long expectedMetaspace =
-                (long) Math.ceil((14_000_000L + 5_800L * 10_000L) * MemoryCalculator.META_SAFETY_FACTOR);
+        long rawMetaspace = (long) Math.ceil((14_000_000L + 5_800L * 10_000L) * MemoryCalculator.META_SAFETY_FACTOR);
+        long expectedMetaspace = roundUpToMiB(rawMetaspace);
         long expectedFixed = MemoryCalculator.DIRECT_MEMORY_BYTES
                 + expectedMetaspace
                 + MemoryCalculator.CODE_CACHE_BYTES
                 + MemoryCalculator.STACK_BYTES_PER_THREAD * 250L;
-        long expectedHeap = 1024 * MB - 0 - expectedFixed;
+        long expectedHeap = 1024 * MB - expectedFixed;
 
         assertThat(result.valid()).isTrue();
         assertThat(result.error()).isNull();
@@ -57,24 +49,21 @@ class MemoryCalculatorTests {
     }
 
     @Test
-    void metaspaceAppliesSafetyFactorOnLiveClassCount() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
+    void metaspaceAppliesSafetyFactorAndRoundsUpToAMebibyte() {
+        MemoryCalculationDto baseline = calculator.calculate(1024 * MB, 250, 0, 0, 1, 0);
+        long expectedBaseline = roundUpToMiB((long) Math.ceil(14_000_000L * MemoryCalculator.META_SAFETY_FACTOR));
+        assertThat(baseline.metaspaceBytes()).isEqualTo(expectedBaseline);
 
-        MemoryCalculationDto a = calc.calculate(1024 * MB, 250, 0, 0, 1, 0);
-        long expectedBaseline = (long) Math.ceil(14_000_000L * MemoryCalculator.META_SAFETY_FACTOR);
-        assertThat(a.metaspaceBytes()).isEqualTo(expectedBaseline);
-
-        MemoryCalculationDto b = calc.calculate(1024 * MB, 250, 1_000, 0, 1, 1_000);
-        long expected1k = (long) Math.ceil((14_000_000L + 5_800L * 1_000L) * MemoryCalculator.META_SAFETY_FACTOR);
-        assertThat(b.metaspaceBytes()).isEqualTo(expected1k);
+        MemoryCalculationDto oneThousandClasses = calculator.calculate(1024 * MB, 250, 1_000, 0, 1, 1_000);
+        long expected =
+                roundUpToMiB((long) Math.ceil((14_000_000L + 5_800L * 1_000L) * MemoryCalculator.META_SAFETY_FACTOR));
+        assertThat(oneThousandClasses.metaspaceBytes()).isEqualTo(expected);
     }
 
     @Test
-    void headRoomReducesAvailableHeap() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-
-        MemoryCalculationDto noHeadroom = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
-        MemoryCalculationDto withHeadroom = calc.calculate(1024 * MB, 250, 5_000, 10, 1, 5_000);
+    void headroomReducesAvailableHeap() {
+        MemoryCalculationDto noHeadroom = calculator.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
+        MemoryCalculationDto withHeadroom = calculator.calculate(1024 * MB, 250, 5_000, 10, 1, 5_000);
 
         long expectedHeadroom = (long) ((10 / 100.0) * (1024 * MB));
         assertThat(withHeadroom.headRoomBytes()).isEqualTo(expectedHeadroom);
@@ -83,210 +72,144 @@ class MemoryCalculatorTests {
     }
 
     @Test
-    void gcFlagFlipsToZgcAt4GiBHeap() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
+    void bareMetalOptionsContainOnlyTheModeledMemorySettings() {
+        MemoryCalculationDto result = calculator.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
 
-        MemoryCalculationDto small = calc.calculate(1024 * MB, 250, 1_000, 0, 1, 1_000);
-        MemoryCalculationDto large = calc.calculate(8L * 1024 * MB, 250, 1_000, 0, 1, 1_000);
-
-        assertThat(small.jvmOptions()).contains("-XX:+UseG1GC").doesNotContain("-XX:+UseZGC");
-        assertThat(large.jvmOptions()).contains("-XX:+UseZGC").doesNotContain("-XX:+UseG1GC");
-    }
-
-    @Test
-    void jvmOptionsSetXmsEqualToXmx() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-        MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
-
-        long heapMb = Math.round(result.heapBytes() / (double) MB);
-        assertThat(result.jvmOptions()).contains("-Xms" + heapMb + "m").contains("-Xmx" + heapMb + "m");
-    }
-
-    @Test
-    void bareMetalOptionsPreTouchTheFixedHeap() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-        MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
-
-        assertThat(result.jvmOptions()).contains("-XX:+AlwaysPreTouch");
-    }
-
-    @Test
-    void jvmOptionsExpressStackInKilobytes() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-        MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
-
-        assertThat(result.jvmOptions()).contains("-Xss1024k");
-    }
-
-    @Test
-    void jvmOptionsExpressFixedRegionsInMegabytes() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-        MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
-
-        long metaMb = Math.round(result.metaspaceBytes() / (double) MB);
         assertThat(result.jvmOptions())
-                .contains("-XX:ReservedCodeCacheSize=240m")
-                .contains("-XX:MaxDirectMemorySize=10m")
-                .contains("-XX:MaxMetaspaceSize=" + metaMb + "m");
+                .contains("-Xms", "-Xmx", "-XX:MaxMetaspaceSize=", "-XX:ReservedCodeCacheSize=240m", "-Xss1024k")
+                .doesNotContain(
+                        "-XX:MaxDirectMemorySize=",
+                        "-XX:+AlwaysPreTouch",
+                        "-XX:+UseG1GC",
+                        "-XX:+UseZGC",
+                        "-XX:+UseStringDeduplication",
+                        "-XX:+UseCompactObjectHeaders",
+                        "-XX:+ExitOnOutOfMemoryError",
+                        "-XX:+HeapDumpOnOutOfMemoryError",
+                        "-XX:HeapDumpPath=");
     }
 
     @Test
-    void compactObjectHeadersOnlyOnJdk25OrNewer() {
-        MemoryCalculator on25 = new MemoryCalculator(JDK_25);
-        MemoryCalculator on24 = new MemoryCalculator(JDK_24);
+    void renderedOptionsStayWithinTheModeledBudget() {
+        MemoryCalculationDto result = calculator.calculate(1024 * MB, 250, 5_001, 7, 40, 5_001);
 
-        MemoryCalculationDto result25 = on25.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
-        MemoryCalculationDto result24 = on24.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
+        long renderedHeap = optionMebibytes(result.jvmOptions(), "-Xmx") * MB;
+        long renderedMetaspace = optionMebibytes(result.jvmOptions(), "-XX:MaxMetaspaceSize=") * MB;
+        long renderedTotal = renderedHeap
+                + renderedMetaspace
+                + result.codeCacheBytes()
+                + result.directMemoryBytes()
+                + result.stackBytesTotal()
+                + result.headRoomBytes();
 
-        assertThat(result25.jvmOptions()).contains("-XX:+UseCompactObjectHeaders");
-        assertThat(result24.jvmOptions()).doesNotContain("-XX:+UseCompactObjectHeaders");
+        assertThat(renderedHeap).isLessThanOrEqualTo(result.heapBytes());
+        assertThat(renderedMetaspace).isGreaterThanOrEqualTo(result.metaspaceBytes());
+        assertThat(renderedTotal).isLessThanOrEqualTo(result.totalMemoryBytes());
     }
 
     @Test
-    void zGenerationalFlagOnlyAppliedOnJdk21And22() {
-        long largeHeap = 8L * 1024 * MB; // flips GC selection to ZGC
+    void observedDirectMemoryRaisesTheModelWithoutCreatingAHardCap() {
+        long observedDirectMemory = 33 * MB + 1;
 
-        MemoryCalculationDto on21 = new MemoryCalculator(JDK_21).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
-        MemoryCalculationDto on22 = new MemoryCalculator(JDK_22).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
-        MemoryCalculationDto on23 = new MemoryCalculator(JDK_23).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
-        MemoryCalculationDto on24 = new MemoryCalculator(JDK_24).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
-        MemoryCalculationDto on25 = new MemoryCalculator(JDK_25).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+        MemoryCalculationDto result = calculator.calculate(
+                2048 * MB, 250, 5_000, 10, 40, 5_000, false, "spring.threads.virtual.enabled", observedDirectMemory);
 
-        // JEP 439 (JDK 21) shipped generational ZGC as an experimental opt-in flag.
-        assertThat(on21.jvmOptions()).contains("-XX:+ZGenerational");
-        assertThat(on22.jvmOptions()).contains("-XX:+ZGenerational");
-        // JEP 474 (JDK 23) makes generational ZGC the default and deprecates the explicit flag
-        // (printing a warning if set); JEP 490 (JDK 24) obsoletes it further, and later releases
-        // stop recognizing it altogether, causing the JVM to refuse to start. It must never be
-        // emitted from JDK 23 onward.
-        assertThat(on23.jvmOptions()).doesNotContain("-XX:+ZGenerational");
-        assertThat(on24.jvmOptions()).doesNotContain("-XX:+ZGenerational");
-        assertThat(on25.jvmOptions()).doesNotContain("-XX:+ZGenerational");
+        assertThat(result.directMemoryBytes()).isEqualTo(34 * MB);
+        assertThat(result.jvmOptions()).doesNotContain("-XX:MaxDirectMemorySize=");
     }
 
     @Test
-    void stringDeduplicationSkippedForZgcBeforeJdk18() {
-        long largeHeap = 8L * 1024 * MB; // flips GC selection to ZGC
+    void kubernetesOptionsCoverSmallHeapErgonomicsWithoutChoosingACollector() {
+        MemoryCalculationDto result = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000);
 
-        MemoryCalculationDto on17 = new MemoryCalculator(JDK_17).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
-        MemoryCalculationDto on18 = new MemoryCalculator(JDK_18).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
-        MemoryCalculationDto on21 = new MemoryCalculator(JDK_21).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+        String options = calculator.buildKubernetesJvmOptions(result, 42.125, 42.125);
 
-        // ZGC did not support string deduplication until JDK 18. On JDK 17 the JVM would print a
-        // startup warning ("String Deduplication disabled: not supported by selected GC") and
-        // silently disable it anyway, so the flag must be omitted rather than emitted uselessly.
-        assertThat(on17.jvmOptions()).contains("-XX:+UseZGC").doesNotContain("-XX:+UseStringDeduplication");
-        assertThat(on18.jvmOptions()).contains("-XX:+UseZGC").contains("-XX:+UseStringDeduplication");
-        assertThat(on21.jvmOptions()).contains("-XX:+UseZGC").contains("-XX:+UseStringDeduplication");
+        assertThat(options)
+                .contains(
+                        "-XX:MaxRAMPercentage=42.125",
+                        "-XX:MinRAMPercentage=42.125",
+                        "-XX:InitialRAMPercentage=42.125",
+                        "-XX:MaxMetaspaceSize=",
+                        "-XX:ReservedCodeCacheSize=240m",
+                        "-Xss1024k")
+                .doesNotContain(
+                        "-Xmx",
+                        "-Xms",
+                        "-XX:+UseContainerSupport",
+                        "-XX:MaxDirectMemorySize=",
+                        "-XX:+UseG1GC",
+                        "-XX:+UseZGC");
     }
 
     @Test
-    void stringDeduplicationAlwaysPresentForG1RegardlessOfJdkVersion() {
-        long smallHeap = 1024 * MB; // stays under the ZGC flip threshold, selects G1
+    void rejectsAPlanThatCannotRenderAtLeastOneMebibyteOfHeap() {
+        MemoryCalculationDto invalid = calculator.calculate(517 * MB, 250, 0, 0, 10, 0);
+        MemoryCalculationDto boundary = calculator.calculate(518 * MB, 250, 0, 0, 10, 0);
 
-        MemoryCalculationDto on17 = new MemoryCalculator(JDK_17).calculate(smallHeap, 250, 1_000, 0, 1, 1_000);
+        assertThat(invalid.valid()).isFalse();
+        assertThat(invalid.error()).contains("less than 1 MiB");
+        assertThat(invalid.heapBytes()).isZero();
+        assertThat(invalid.jvmOptions()).isEmpty();
 
-        // G1 has supported string deduplication since JDK 8u20 (JEP 192), so it is always present.
-        assertThat(on17.jvmOptions()).contains("-XX:+UseG1GC").contains("-XX:+UseStringDeduplication");
+        assertThat(boundary.valid()).isTrue();
+        assertThat(boundary.heapBytes()).isEqualTo(MB);
+        assertThat(boundary.jvmOptions()).contains("-Xms1m", "-Xmx1m");
     }
 
     @Test
-    void invalidWhenTotalMemoryLeavesNoRoomForHeap() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
+    void clampsOutOfRangeInputsToTheUiContract() {
+        MemoryCalculationDto belowMinimum = calculator.calculate(-1, -1, -1, -50, 10, 0);
+        MemoryCalculationDto aboveMaximum =
+                calculator.calculate(Long.MAX_VALUE, Integer.MAX_VALUE, 10_000, 1_000, 10, 10_000);
 
-        MemoryCalculationDto result = calc.calculate(256 * MB, 5_000, 100_000, 0, 10, 100_000);
+        assertThat(belowMinimum.totalMemoryBytes()).isEqualTo(MemoryCalculator.MIN_TOTAL_MEMORY_BYTES);
+        assertThat(belowMinimum.threadCount()).isEqualTo(MemoryCalculator.MIN_THREAD_COUNT);
+        assertThat(belowMinimum.headRoomPercent()).isEqualTo(MemoryCalculator.MIN_HEAD_ROOM_PERCENT);
+        assertThat(belowMinimum.loadedClasses()).isZero();
 
-        assertThat(result.valid()).isFalse();
-        assertThat(result.error()).isNotNull().contains("No room for heap");
-        assertThat(result.heapBytes()).isZero();
-        assertThat(result.jvmOptions()).isEmpty();
+        assertThat(aboveMaximum.totalMemoryBytes()).isEqualTo(MemoryCalculator.MAX_TOTAL_MEMORY_BYTES);
+        assertThat(aboveMaximum.threadCount()).isEqualTo(MemoryCalculator.MAX_THREAD_COUNT);
+        assertThat(aboveMaximum.headRoomPercent()).isEqualTo(MemoryCalculator.MAX_HEAD_ROOM_PERCENT);
     }
 
     @Test
-    void clampsOutOfRangeInputs() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
+    void defaultTotalMemoryIsBoundedAndAlignedRegardlessOfHostFootprint() {
+        long onLargeHost = calculator.defaultTotalMemoryBytes(2L * 1024 * MB, 300L * MB, 40, 15_000);
+        long onTinyApp = calculator.defaultTotalMemoryBytes(32L * MB, 16L * MB, 10, 500);
 
-        MemoryCalculationDto result = calc.calculate(-1, -1, -1, -50, 10, 0);
-
-        assertThat(result.totalMemoryBytes()).isGreaterThanOrEqualTo(MemoryCalculator.MIN_TOTAL_MEMORY_BYTES);
-        assertThat(result.threadCount()).isGreaterThanOrEqualTo(MemoryCalculator.MIN_THREAD_COUNT);
-        assertThat(result.headRoomPercent()).isGreaterThanOrEqualTo(MemoryCalculator.MIN_HEAD_ROOM_PERCENT);
-        assertThat(result.loadedClasses()).isGreaterThanOrEqualTo(0);
+        assertThat(onLargeHost).isBetween(384L * MB, 2048L * MB);
+        assertThat(onTinyApp).isBetween(384L * MB, 2048L * MB);
+        assertThat(onLargeHost % (64L * MB)).isZero();
+        assertThat(onTinyApp % (64L * MB)).isZero();
     }
 
     @Test
-    void clampsOversizedInputs() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-
-        MemoryCalculationDto result = calc.calculate(Long.MAX_VALUE, Integer.MAX_VALUE, 10_000, 1_000, 10, 10_000);
-
-        assertThat(result.totalMemoryBytes()).isLessThanOrEqualTo(MemoryCalculator.MAX_TOTAL_MEMORY_BYTES);
-        assertThat(result.threadCount()).isLessThanOrEqualTo(MemoryCalculator.MAX_THREAD_COUNT);
-        assertThat(result.headRoomPercent()).isLessThanOrEqualTo(MemoryCalculator.MAX_HEAD_ROOM_PERCENT);
-    }
-
-    @Test
-    void defaultTotalMemoryIsClampedRegardlessOfHostFootprint() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-
-        long onLargeMac = calc.defaultTotalMemoryBytes(2L * 1024 * MB, 300L * MB, 40, 15_000);
-
-        long onTinyApp = calc.defaultTotalMemoryBytes(32L * MB, 16L * MB, 10, 500);
-
-        assertThat(onLargeMac).isLessThanOrEqualTo(2048L * MB);
-        assertThat(onLargeMac).isGreaterThanOrEqualTo(384L * MB);
-        assertThat(onTinyApp).isGreaterThanOrEqualTo(384L * MB);
-        assertThat(onTinyApp).isLessThanOrEqualTo(2048L * MB);
-    }
-
-    @Test
-    void defaultTotalMemoryIsAlignedTo64MbBoundary() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-
-        long result = calc.defaultTotalMemoryBytes(200L * MB, 100L * MB, 40, 10_000);
-
-        assertThat(result % (64L * MB)).isZero();
-    }
-
-    @Test
-    void defaultThreadCountFloorsAt250() {
+    void defaultThreadCountKeepsThePaketoPlatformThreadFloor() {
         assertThat(MemoryCalculator.defaultThreadCount(10)).isEqualTo(250);
         assertThat(MemoryCalculator.defaultThreadCount(250)).isEqualTo(250);
         assertThat(MemoryCalculator.defaultThreadCount(500)).isEqualTo(500);
     }
 
     @Test
-    void virtualThreadsReduceStackBudgetWithoutSettingSpringProperty() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-
-        MemoryCalculationDto platformThreads = calc.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000, false);
-        MemoryCalculationDto virtualThreads = calc.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000, true);
+    void virtualThreadDetectionDoesNotDiscountPlatformThreadStacks() {
+        MemoryCalculationDto platformThreads = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000, false);
+        MemoryCalculationDto virtualThreads = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000, true);
 
         assertThat(virtualThreads.virtualThreadsEnabled()).isTrue();
-        assertThat(virtualThreads.stackBytesPerThread())
-                .isEqualTo(MemoryCalculator.VIRTUAL_THREAD_STACK_BYTES_PER_THREAD);
-        assertThat(virtualThreads.stackBytesTotal()).isLessThan(platformThreads.stackBytesTotal());
-        assertThat(virtualThreads.heapBytes()).isGreaterThan(platformThreads.heapBytes());
-        assertThat(virtualThreads.jvmOptions()).contains("-Xss512k").doesNotContain("spring.threads.virtual.enabled");
-        assertThat(platformThreads.jvmOptions()).doesNotContain("spring.threads.virtual.enabled");
+        assertThat(virtualThreads.stackBytesPerThread()).isEqualTo(MemoryCalculator.STACK_BYTES_PER_THREAD);
+        assertThat(virtualThreads.stackBytesTotal()).isEqualTo(platformThreads.stackBytesTotal());
+        assertThat(virtualThreads.heapBytes()).isEqualTo(platformThreads.heapBytes());
+        assertThat(virtualThreads.jvmOptions()).contains("-Xss1024k").doesNotContain("spring.threads.virtual.enabled");
     }
 
-    @Test
-    void virtualThreadDefaultsUseSmallerPlatformThreadFloor() {
-        assertThat(MemoryCalculator.defaultThreadCount(10, true)).isEqualTo(80);
-        assertThat(MemoryCalculator.defaultThreadCount(80, true)).isEqualTo(80);
-        assertThat(MemoryCalculator.defaultThreadCount(120, true)).isEqualTo(120);
+    private static long roundUpToMiB(long bytes) {
+        return ((bytes + MB - 1) / MB) * MB;
     }
 
-    @Test
-    void jvmOptionsAlwaysIncludeOomSafetyAndStringDeduplication() {
-        MemoryCalculator calc = new MemoryCalculator(JDK_25);
-        MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
-
-        assertThat(result.jvmOptions())
-                .contains("-XX:+UseStringDeduplication")
-                .contains("-XX:+ExitOnOutOfMemoryError")
-                .contains("-XX:+HeapDumpOnOutOfMemoryError")
-                .contains("-XX:HeapDumpPath=/tmp");
+    private static long optionMebibytes(String options, String optionPrefix) {
+        Matcher matcher =
+                Pattern.compile(Pattern.quote(optionPrefix) + "(\\d+)m").matcher(options);
+        assertThat(matcher.find()).as("option %s in %s", optionPrefix, options).isTrue();
+        return Long.parseLong(matcher.group(1));
     }
 }

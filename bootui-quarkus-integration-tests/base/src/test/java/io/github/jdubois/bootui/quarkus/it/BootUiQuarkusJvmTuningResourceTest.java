@@ -87,7 +87,9 @@ class BootUiQuarkusJvmTuningResourceTest {
                 .as("forced-on probes must render the SmallRye startup/liveness/readiness paths")
                 .contains("/q/health/started")
                 .contains("/q/health/live")
-                .contains("/q/health/ready");
+                .contains("/q/health/ready")
+                .contains("port: http")
+                .doesNotContain("port: 8080");
         assertThat(yaml)
                 .as("Quarkus has no Spring Actuator enabling env var, so it must never appear")
                 .doesNotContain("MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED")

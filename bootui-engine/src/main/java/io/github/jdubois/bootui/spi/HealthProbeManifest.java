@@ -2,8 +2,10 @@ package io.github.jdubois.bootui.spi;
 
 /**
  * Framework-neutral description of how an application exposes its Kubernetes health-probe HTTP
- * endpoints. The engine uses this to render the Live Memory / JVM Tuning Kubernetes manifest without
- * hardcoding any one framework's URLs, enabling switch, or advisory copy.
+ * endpoints. The engine uses this to render the Live Memory / JVM Tuning Kubernetes fragment without
+ * hardcoding any one framework's default URLs, enabling switch, or advisory copy. The fragment uses the
+ * named container port {@code http}; callers must verify that name and these default paths against
+ * custom application or management-server configuration.
  *
  * <p>{@code enablingEnvVar} is nullable: Spring Boot turns its Actuator Kubernetes probe groups on with
  * an environment variable ({@code MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED}), whereas Quarkus/SmallRye
@@ -30,7 +32,7 @@ public record HealthProbeManifest(
             "/actuator/health/liveness",
             "/actuator/health/readiness",
             "MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED",
-            "Spring Boot Actuator probes are omitted from the snippet; enabling them is recommended so Kubernetes can restart or drain unhealthy pods.");
+            "Spring Boot Actuator probes are omitted from the snippet; add verified startup, readiness, and liveness probes for the deployment.");
 
     /**
      * Quarkus SmallRye Health endpoints. SmallRye serves a dedicated startup endpoint
@@ -41,5 +43,5 @@ public record HealthProbeManifest(
             "/q/health/live",
             "/q/health/ready",
             null,
-            "Kubernetes liveness/readiness health probes are omitted from the snippet; enabling them is recommended so Kubernetes can restart or drain unhealthy pods.");
+            "Kubernetes health probes are omitted from the snippet; add verified startup, readiness, and liveness probes for the deployment.");
 }

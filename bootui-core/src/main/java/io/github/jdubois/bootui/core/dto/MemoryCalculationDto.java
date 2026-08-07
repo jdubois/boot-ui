@@ -5,9 +5,10 @@ package io.github.jdubois.bootui.core.dto;
  *
  * <p>Computed by partitioning a target container memory budget into JVM regions:
  * {@code heap = totalMemory − headRoom − directMemory − metaspace − codeCache − stack×threads}.
- * Mirrors the formula in {@code paketo-buildpacks/libjvm/calc/calculator.go} with one
- * adaptation: we use the live loaded-class count from {@link java.lang.management.ClassLoadingMXBean}
- * with a safety factor instead of the buildpack's build-time JAR-entry estimate.
+ * Mirrors the formula in {@code paketo-buildpacks/libjvm/calc/calculator.go} with live-observation
+ * adaptations: the live loaded-class count replaces the buildpack's build-time JAR-entry estimate,
+ * direct memory is raised to at least current direct-buffer usage, and virtual-thread detection does
+ * not reduce the conservative platform-thread stack reserve.
  */
 public record MemoryCalculationDto(
         long totalMemoryBytes,
