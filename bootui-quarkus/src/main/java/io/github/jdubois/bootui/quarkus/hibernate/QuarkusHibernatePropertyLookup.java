@@ -2,7 +2,6 @@ package io.github.jdubois.bootui.quarkus.hibernate;
 
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 import org.eclipse.microprofile.config.Config;
 
@@ -26,18 +25,18 @@ import org.eclipse.microprofile.config.Config;
  *       {@code spring.jpa.open-in-view} resolves to {@code "false"} (its effective state). Without this the
  *       {@code HIB-CONFIG-001} rule — which treats an <em>absent</em> value as Spring Boot's web default of
  *       {@code true} — would render a hard false-positive on every Quarkus scan.</li>
- *   <li><strong>Reports Hibernate bytecode enhancement as always enabled</strong>: Quarkus enhances every entity
+ *   <li><strong>Reports Quarkus bytecode enhancement as adapter-verified</strong>: Quarkus enhances every entity
  *       at build time unconditionally (see {@code HibernateOrmProcessor.enhancerDomainObjects()}, an ungated
- *       build step) — there is no {@code quarkus.hibernate-orm.enhancement.*} switch to turn it off. The engine's
- *       {@code HIB-MAP-017}/{@code HIB-MAP-018} rules read the enable-lazy-initialization keys above to decide
- *       whether the enhancer is active; without this mapping they would read {@code null} (falsy) and flag every
- *       lazy/non-owning {@code @OneToOne} as a false positive on every Quarkus scan.</li>
- *   <li><strong>Maps batch fetching, JDBC time zone, statistics, IN-clause padding, pagination-over-collection
- *       and second-level/query caching</strong> to their real {@code quarkus.hibernate-orm.*} equivalents (all
- *       confirmed by decompiling the {@code quarkus-hibernate-orm}/{@code -deployment} 3.33.2.1 jars — see the
- *       per-alias notes on {@link #KEY_ALIASES}). Before this mapping existed, {@code HIB-FETCH-002} and
- *       {@code HIB-CONFIG-007}/{@code -009}/{@code -010}/{@code -011}/{@code -013}/{@code -016} could never
- *       observe an operator's setting on Quarkus, no matter which native property name they used.</li>
+ *       build step) — there is no {@code quarkus.hibernate-orm.enhancement.*} switch to turn it off. The engine
+ *       consumes this internal adapter fact separately from ordinary Hibernate enhancement settings, which request
+ *       enhancement features but do not prove that application classes were transformed.</li>
+ *   <li><strong>Maps batch fetching, slow-query logging, JDBC time zone, statistics, IN-clause padding,
+ *       pagination-over-collection and second-level/query caching</strong> to their real
+ *       {@code quarkus.hibernate-orm.*} equivalents (all confirmed by decompiling the
+ *       {@code quarkus-hibernate-orm}/{@code -deployment} 3.33.2.1 jars — see the per-alias notes on
+ *       {@link #KEY_ALIASES}). Before this mapping existed, {@code HIB-FETCH-002} and
+ *       {@code HIB-CONFIG-006}/{@code -007}/{@code -009}/{@code -010}/{@code -011}/{@code -013}/{@code -016}
+ *       could never observe an operator's setting on Quarkus, no matter which native property name they used.</li>
  *   <li><strong>Reads the Quarkus-native {@code quarkus.hibernate-orm.log.bind-parameters} convenience
  *       flag</strong> (and its deprecated {@code .bind-param} alias) as the synthetic {@code "trace"} value of
  *       the neutral {@code logging.level.org.hibernate.orm.jdbc.bind} key, matching Hibernate's own
@@ -45,13 +44,14 @@ import org.eclipse.microprofile.config.Config;
  *       {@code Logger.isTraceEnabled()} — so {@code HIB-CONFIG-018} sees bind-parameter logging as enabled
  *       however the operator configured it.</li>
  *   <li><strong>Falls back to the {@code quarkus.hibernate-orm.unsupported-properties."..."} escape
- *       hatch</strong> for any {@code hibernate.*} key with no first-class Quarkus config option. Decompiling
- *       {@code FastBootMetadataBuilder#createBuildTimeSettings} confirms Quarkus merges this map verbatim into
- *       Hibernate's real bootstrap settings, so a key set this way genuinely reaches Hibernate (unlike a bare,
- *       un-namespaced property in {@code application.properties}, which Quarkus never forwards). This is how an
- *       operator's {@code hibernate.order_inserts}/{@code order_updates} (HIB-CONFIG-005) or
- *       {@code hibernate.cache.region.factory_class} (HIB-CONFIG-010) setting can be read back even though
- *       Quarkus has no dedicated config property for either — see {@link #unsupportedPropertiesFallback}.</li>
+ *       hatch</strong> when a {@code hibernate.*} key has no first-class Quarkus config option or its first-class
+ *       equivalent is unset. Decompiling {@code FastBootMetadataBuilder#createBuildTimeSettings} confirms Quarkus
+ *       merges this map verbatim into Hibernate's real bootstrap settings, so a key set this way genuinely reaches
+ *       Hibernate (unlike a bare, un-namespaced property in {@code application.properties}, which Quarkus never
+ *       forwards). This is how an operator's {@code hibernate.order_inserts}/{@code order_updates}
+ *       (HIB-CONFIG-005), {@code hibernate.jdbc.batch_size}, or
+ *       {@code hibernate.cache.region.factory_class} (HIB-CONFIG-010) setting can be read back — see
+ *       {@link #unsupportedPropertiesFallback}.</li>
  * </ul>
  *
  * <p>Every other engine key falls through to a raw MicroProfile Config read, which returns {@code null} for
@@ -77,16 +77,6 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
 
     private static final String OPEN_IN_VIEW_KEY = "spring.jpa.open-in-view";
 
-    // The engine's HibernateContext.isHibernateEnhancementEnabled() ORs these four keys together to decide
-    // whether Hibernate bytecode enhancement is active. Quarkus enhances every entity unconditionally at build
-    // time (HibernateOrmProcessor.enhancerDomainObjects() is an ungated @BuildStep) and exposes no config
-    // property to disable it, so all four report "true" regardless of what (if anything) is actually set.
-    private static final Set<String> ENHANCEMENT_ENABLED_KEYS = Set.of(
-            "spring.jpa.properties.hibernate.enhancer.enableLazyInitialization",
-            "hibernate.enhancer.enableLazyInitialization",
-            "spring.jpa.properties.hibernate.bytecode.enhancer.enableLazyInitialization",
-            "hibernate.bytecode.enhancer.enableLazyInitialization");
-
     // The engine's HibernateContext exposes bind-parameter-value logging as the neutral property key
     // "logging.level.org.hibernate.orm.jdbc.bind", checked for a "trace" value (Hibernate's own
     // JdbcBindingLogging only ever logs bound values when Logger.isTraceEnabled()). Quarkus offers a
@@ -100,9 +90,9 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
 
     private static final String LEGACY_BIND_PARAM_PROPERTY = "quarkus.hibernate-orm.log.bind-param";
 
-    // Hibernate property keys have no first-class quarkus.hibernate-orm.* option but ARE genuinely readable
-    // if an operator sets them through Quarkus' generic "unsupported properties" escape hatch, which
-    // FastBootMetadataBuilder merges verbatim into Hibernate's real bootstrap settings
+    // Hibernate property keys are genuinely readable if an operator sets them through Quarkus' generic
+    // "unsupported properties" escape hatch, which FastBootMetadataBuilder merges verbatim into Hibernate's real
+    // bootstrap settings. This is also a fallback when the corresponding first-class Quarkus key is unset.
     // (RecordedConfig.getQuarkusConfigUnsupportedProperties() -> Map.putAll(...), confirmed by decompiling
     // quarkus-hibernate-orm-3.33.2.1.jar). unsupportedPropertiesFallback() below tries this for any
     // otherwise-unmapped hibernate.* key.
@@ -117,6 +107,10 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
     // "query-cache-enabled" property in Quarkus (verified against the generated config-doc model — only
     // second-level-caching-enabled exists).
     private static final String SECOND_LEVEL_CACHING_KEY = "quarkus.hibernate-orm.second-level-caching-enabled";
+
+    private static final String REGION_FACTORY_KEY = "hibernate.cache.region.factory_class";
+
+    private static final String QUARKUS_MANAGED_REGION_FACTORY = "quarkus-managed";
 
     // Engine key -> quarkus.hibernate-orm.* equivalent. Every mapping below is verified against the actual
     // quarkus-hibernate-orm{,-deployment} 3.33.2.1 jars (bytecode disassembly plus the generated
@@ -153,6 +147,16 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
             Map.entry(
                     "spring.jpa.properties.hibernate.query.in_clause_parameter_padding",
                     "quarkus.hibernate-orm.query.in-clause-parameter-padding"),
+            Map.entry(
+                    "hibernate.session.events.log.LOG_QUERIES_SLOWER_THAN_MS",
+                    "quarkus.hibernate-orm.log.queries-slower-than-ms"),
+            Map.entry(
+                    "spring.jpa.properties.hibernate.session.events.log.LOG_QUERIES_SLOWER_THAN_MS",
+                    "quarkus.hibernate-orm.log.queries-slower-than-ms"),
+            Map.entry("hibernate.log_slow_query", "quarkus.hibernate-orm.log.queries-slower-than-ms"),
+            Map.entry(
+                    "spring.jpa.properties.hibernate.log_slow_query",
+                    "quarkus.hibernate-orm.log.queries-slower-than-ms"),
             Map.entry("hibernate.cache.use_query_cache", SECOND_LEVEL_CACHING_KEY),
             Map.entry("spring.jpa.properties.hibernate.cache.use_query_cache", SECOND_LEVEL_CACHING_KEY),
             Map.entry("hibernate.cache.use_second_level_cache", SECOND_LEVEL_CACHING_KEY),
@@ -169,16 +173,25 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
         if (HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY.equals(key)) {
             return "false";
         }
+        if (HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY.equals(key)) {
+            return "true";
+        }
         if (OPEN_IN_VIEW_KEY.equals(key)) {
             // Quarkus has no Open-Session-in-View; report its effective state so HIB-CONFIG-001 passes
             // rather than assuming Spring Boot's enabled-by-default.
             return "false";
         }
-        if (ENHANCEMENT_ENABLED_KEYS.contains(key)) {
-            return "true";
-        }
         if (BIND_PARAMETER_LOGGING_KEY.equals(key)) {
             return isBindParameterLoggingEnabled() ? "trace" : raw(key);
+        }
+        if (isRegionFactoryKey(key)) {
+            String configured = raw(key);
+            if (configured == null) {
+                configured = unsupportedPropertiesFallback(key);
+            }
+            return configured != null
+                    ? configured
+                    : isSecondLevelCachingEnabled() ? QUARKUS_MANAGED_REGION_FACTORY : null;
         }
         String quarkusKey = KEY_ALIASES.get(key);
         if (SCHEMA_STRATEGY_KEY.equals(quarkusKey)) {
@@ -186,7 +199,8 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
             return "drop-and-create".equalsIgnoreCase(value) ? "create-drop" : value;
         }
         if (quarkusKey != null) {
-            return raw(quarkusKey);
+            String value = raw(quarkusKey);
+            return value != null ? value : unsupportedPropertiesFallback(key);
         }
         String direct = raw(key);
         return direct != null ? direct : unsupportedPropertiesFallback(key);
@@ -212,9 +226,18 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
                 || "true".equalsIgnoreCase(raw(LEGACY_BIND_PARAM_PROPERTY));
     }
 
+    private boolean isRegionFactoryKey(String key) {
+        return REGION_FACTORY_KEY.equals(key) || (SPRING_JPA_PROPERTIES_PREFIX + REGION_FACTORY_KEY).equals(key);
+    }
+
+    private boolean isSecondLevelCachingEnabled() {
+        return "true".equalsIgnoreCase(raw(SECOND_LEVEL_CACHING_KEY));
+    }
+
     /**
      * Falls back to Quarkus' generic {@code quarkus.hibernate-orm.unsupported-properties."..."} escape hatch
-     * for a native Hibernate property key with no first-class {@code quarkus.hibernate-orm.*} option. Only
+     * for a native Hibernate property key. This is used for keys with no first-class
+     * {@code quarkus.hibernate-orm.*} option and as a fallback when an equivalent native key is unset. It only
      * applies to keys that are (once any {@code spring.jpa.properties.} prefix is stripped) a bare
      * {@code hibernate.*} property, since that is the only key shape this passthrough can plausibly carry.
      */

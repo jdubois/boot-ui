@@ -24,6 +24,8 @@ import java.util.function.Supplier;
 public final class HibernateScanner {
 
     public static final String OPEN_IN_VIEW_APPLICABLE_PROPERTY = "bootui.internal.hibernate.open-in-view-applicable";
+    public static final String BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY =
+            "bootui.internal.hibernate.bytecode-enhancement-verified";
 
     private static final String ANALYZER = "BootUI Hibernate Advisor";
     private static final String DISCLAIMER =
