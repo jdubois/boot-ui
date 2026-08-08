@@ -236,8 +236,8 @@ public class BootUiEngineConfiguration {
         // The presence check must run BEFORE the .class literal below: referencing
         // RequestMappingInfoHandlerMapping.class unconditionally would resolve that constant-pool entry
         // as soon as this @Lazy factory method runs, throwing NoClassDefFoundError on such a classpath
-        // (confirmed against the reactive WebFlux sample app). Passing null here is safe -
-        // SpringPentestingObservationCollector treats an absent provider as an empty endpoint inventory.
+        // (confirmed against the reactive WebFlux sample app). Passing null here is safe:
+        // SpringPentestingObservationCollector marks the MVC endpoint inventory unavailable.
         ObjectProvider<RequestMappingInfoHandlerMapping> handlerMappingProvider = ClassUtils.isPresent(
                         "org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping",
                         applicationContext.getClassLoader())

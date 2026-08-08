@@ -547,29 +547,26 @@ rule evaluation and never receives Spring types or secret values. See [WEBFLUX-S
 ### Pentesting
 
 The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks against the host application, not
-BootUI's `/bootui` routes. It combines passive Spring metadata with bounded synthetic localhost requests under the
-application context path for missing or unsafe security headers, CORS behavior, cookie flags, verbose error exposure,
-Spring Security wiring, and actuator exposure. It also inspects Spring Boot configuration for common hardening gaps such
-as wildcard actuator exposure, health detail exposure, an enabled H2 console, in-config security credentials,
-value-revealing actuator endpoints, request-detail logging, and DevTools left on the classpath. It intentionally does not
-sweep discovered application endpoints, send SQL/XSS/destructive payloads, or store raw response bodies. Findings are
-heuristic review prompts, not proof of exploitability or a replacement for a full security assessment.
+BootUI's `/bootui` routes. On an explicit scan it combines bounded framework metadata with at most one `GET` and one
+`OPTIONS` request to literal `127.0.0.1` under the validated application context path. The two-second client never
+follows redirects or uses configured proxies. Checks cover missing or unsafe browser-document headers, CORS behavior,
+cookie flags, verbose error exposure, Spring Security wiring, actuator exposure, Quarkus CORS/OIDC/TLS configuration,
+and common Spring Boot hardening gaps. It intentionally does not crawl discovered endpoints, send SQL/XSS/destructive
+payloads, contact external hosts, or include raw response bodies, cookie values, credentials, or full issuer URLs in the
+report. Findings are heuristic review prompts, not proof of exploitability or a replacement for a full security
+assessment.
 
-Each hygiene check is registered with a stable identifier, OWASP 2025 category, evidence source, and recommendation so
-new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
-full catalogue of checks and what each one inspects.
+The 80 active checks each have a stable identifier, OWASP 2025 category, evidence source, and recommendation. No-finding
+category coverage is informational rather than a pass. Failed or bounded-away request/metadata evidence produces a
+`PARTIAL` scan, hides the advisor score, and marks affected coverage `INDETERMINATE`. See
+[PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the full catalogue, limits, mappings, and retired IDs.
 
-On Quarkus the panel is identical, running the same shared scanner over the same report contract and the same on-demand
-`POST /bootui/api/pentesting/scan` action. The framework-neutral value comes entirely from the engine's bounded synthetic
-loopback probes (missing or unsafe security headers, cookie flags, CORS, TRACE, technology disclosure, verbose error
-bodies); the Quarkus adapter supplies only the inputs those probes need — the live server port (resolved per scan by the
-same launch-mode-aware port supplier the HTTP Probe panel uses) and the `quarkus.http.root-path` context path. The
-Spring-specific inputs are deliberately neutral: the adapter reports an **empty endpoint inventory** (a non-zero mapping
-count would otherwise flag every Quarkus application as "spring-security-web is not present", a false positive), no Spring
-Security wiring, and an absent Spring/Actuator configuration snapshot, so the Spring-Security and Actuator-exposure checks
-stay correctly silent rather than misfiring. One honesty caveat: the OWASP coverage matrix copy is engine-owned and
-Spring-worded, so a category in which nothing fired (for example A07) renders a Spring-flavored `PASS`/`REVIEW` line even
-though no Spring-specific probe ran on Quarkus.
+Spring MVC is the complete reference collector. WebFlux still contributes Spring configuration and OAuth metadata, but
+explicitly reports MVC mapping and servlet-filter evidence unavailable; its reactive Security advisor owns
+`SecurityWebFilterChain` route policy. Quarkus runs the same shared scanner/report contract and supplies its live port,
+root path, CORS, OIDC, and direct-listener TLS configuration while explicitly marking Spring endpoint/security metadata
+unavailable. The coverage matrix uses platform-specific wording, so neither adapter turns unsupported checks into a
+false clean result.
 
 ![BootUI Pentesting panel](./images/bootui-pentesting.webp)
 

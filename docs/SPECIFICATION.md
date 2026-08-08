@@ -787,10 +787,12 @@ Purpose: run local OWASP-oriented hygiene checks without turning BootUI into an 
 
 Data sources:
 
-- Passive Spring application context metadata.
-- Spring MVC request mapping metadata when available.
-- Explicit synthetic localhost requests to a host-application missing-resource path under the application context path,
-  never under BootUI's `/bootui` or `/bootui/api` paths.
+- Passive Spring application-context or Quarkus CORS/OIDC/TLS metadata.
+- Spring MVC request-mapping and servlet-security metadata when available. WebFlux and Quarkus report this inventory as
+  unavailable rather than empty/clean.
+- At most one `GET` and one `OPTIONS` request to literal `127.0.0.1`, targeting a deliberately unlikely host-application
+  path under the validated application context path, never BootUI's `/bootui` or `/bootui/api` paths. The client has a
+  two-second timeout, follows no redirects, and uses no proxy.
 
 Features:
 
@@ -798,6 +800,8 @@ Features:
 - Run bounded local checks for common security headers, CORS behavior, cookie flags, verbose error exposure, Spring
   Security wiring, and actuator exposure against the host application rather than BootUI itself.
 - Cross-reference findings with OWASP Top 10 categories such as A01, A02, A04, A07, and A10.
+- Render no-finding category coverage as informational review guidance, never as a pass. Report unavailable or truncated
+  dependent evidence as `NOT_APPLICABLE` or `INDETERMINATE`.
 - Hand off dependency vulnerability coverage to the Vulnerabilities panel.
 - Clearly mark injection payloads and endpoint access-control probing as skipped.
 
@@ -805,10 +809,17 @@ Acceptance criteria:
 
 - The scan action is explicit and local-only.
 - BootUI UI/API paths are excluded from passive mapping inventory and active synthetic requests.
-- BootUI does not sweep discovered application endpoints or send exploit payloads.
+- The target is fail-closed: only ports `1..65535`, literal `127.0.0.1`, and an unambiguous context path up to 256
+  characters are accepted; rejected targets cause no request.
+- BootUI does not sweep discovered application endpoints, send exploit payloads, follow redirects, consult configured
+  proxies, resolve a probe hostname, or contact external hosts.
+- Probe bodies, headers, endpoint mappings, and enumerable framework metadata have deterministic retention/inspection
+  limits. Exceeding one produces a `PARTIAL` scan and `INDETERMINATE` dependent coverage instead of success-shaped
+  silence.
 - Individual checks have stable identifiers so additional checks can be registered without expanding the active HTTP
   probe surface.
-- Reports serialize through stable BootUI DTOs and do not include raw response bodies.
+- Reports serialize through stable BootUI DTOs and do not include raw response bodies, cookie values, credentials, or
+  full OAuth/OIDC issuer details.
 - Findings are presented as heuristic review prompts, not definitive exploit claims.
 
 ### 5.14 Log Tail Panel
@@ -1721,7 +1732,7 @@ Initial endpoints:
 | `/bootui/api/security`               | GET    | Latest Spring Security Advisor report                                                  |
 | `/bootui/api/security/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
 | `/bootui/api/pentesting`                        | GET    | Latest local OWASP hygiene report                                                      |
-| `/bootui/api/pentesting/scan`                   | POST   | Run explicit bounded localhost OWASP hygiene checks                                    |
+| `/bootui/api/pentesting/scan`                   | POST   | Run explicit bounded loopback OWASP hygiene checks                                    |
 | `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |
 | `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, token usage, explorer, raw reveal, SSE    |
 | `/bootui/api/mcp-server`                     | GET    | MCP Server panel status (enabled state, configured mode, transport, advertised tools)  |

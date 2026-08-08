@@ -297,11 +297,15 @@ opposed to a unit-test classpath that always carries both `spring-webmvc` and `s
 `RequestMappingInfoHandlerMapping.class` unconditionally in an `@Lazy` `@Bean` method body. Resolving that
 class-literal constant-pool entry throws when `spring-webmvc` is genuinely absent. Fixed with a
 `ClassUtils.isPresent(...)` guard before the `.class` literal, passing `null` to
-`SpringPentestingObservationCollector` when absent (already null-safe: an absent provider renders an empty endpoint
-inventory, the same "deliberately empty inventory" pattern the Quarkus adapter's Pentesting port already uses). This
-is the same defensive pattern the rest of the codebase already uses for optional-dependency adapters — the reactive
-starter was simply the first Spring-side consumer where an MVC type can be genuinely absent from the classpath, not
-just absent as a bean.
+`SpringPentestingObservationCollector` when absent. The collector now records that MVC endpoint metadata is
+**unavailable**, rather than returning an empty inventory that could be mistaken for "inspected and no mappings."
+Pentesting still evaluates bounded Spring configuration/OAuth metadata plus at most one GET and one OPTIONS loopback
+response, but A01 servlet coverage is `NOT_APPLICABLE` and no-finding mixed-category coverage uses WebFlux-specific
+`INFO` wording. The reactive Security advisor owns `SecurityWebFilterChain`, reactive CORS, and route-policy review.
+The collector uses `spring.webflux.base-path` for the validated loopback target instead of the servlet-only
+`server.servlet.context-path`. This is the same defensive pattern the rest of the codebase uses for optional-dependency
+adapters — the reactive starter was simply the first Spring-side consumer where an MVC type can be genuinely absent
+from the classpath, not just absent as a bean.
 
 A second gap of the same *class* — availability manifest disagreeing with actual wiring — was caught the same way:
 `PanelsController` unconditionally reported `mcp-server` and `activity` as `available: true` on every platform, even

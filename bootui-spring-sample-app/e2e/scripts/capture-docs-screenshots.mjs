@@ -1565,14 +1565,21 @@ const securityEndpoints = {
 }
 
 const pentesting = {
-  checksRun: 41,
+  localOnly: true,
+  checksRun: 80,
   findingsFound: 4,
-  disclaimer: 'These local-only checks target the host application and exclude BootUI /bootui paths.',
+  disclaimer:
+    'Heuristic local checks only against the host application; BootUI /bootui paths are excluded. ' +
+    'An explicit scan sends at most one GET and one OPTIONS request directly to 127.0.0.1. ' +
+    'This panel does not replace a manual security review or a full pentesting.',
   scan: {
-    status: 'COMPLETED',
+    status: 'SCANNED',
     scanner: 'BootUI local OWASP hygiene',
-    message: 'Completed 41 local checks with 4 heuristic finding(s).',
-    scannedAt: new Date(nowMillis - 45_000).toISOString()
+    message:
+      'Local OWASP hygiene checks completed against bounded host-application metadata and two direct loopback requests outside BootUI.',
+    scannedAt: nowMillis - 45_000,
+    checksRun: 80,
+    findingsFound: 4
   },
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -1582,78 +1589,107 @@ const pentesting = {
   ],
   coverage: [
     {
-      category: 'A01',
+      category: 'A01:2025',
       title: 'Broken Access Control',
-      description: 'Spring Security and handler mappings were inspected for authorization review prompts.',
+      description: 'Servlet Spring Security CSRF posture was inspected; route authorization still requires review.',
+      status: 'INFO'
+    },
+    {
+      category: 'A02:2025',
+      title: 'Security Misconfiguration',
+      description: 'Synthetic responses, Spring configuration, and MVC mappings produced findings that require review.',
       status: 'REVIEW'
     },
     {
-      category: 'A02',
-      title: 'Cryptographic Failures',
-      description: 'Cookie flags were checked on synthetic localhost responses.',
-      status: 'PASS'
-    },
-    {
-      category: 'A03',
-      title: 'Injection',
-      description: 'No payload-based SQL, XSS, or command injection probing is performed by BootUI.',
+      category: 'A03:2025',
+      title: 'Software Supply Chain Failures',
+      description: 'Use the Vulnerabilities panel for explicit OSV dependency scanning.',
       status: 'HANDOFF'
     },
     {
-      category: 'A05',
-      title: 'Security Misconfiguration',
-      description:
-        'Security headers, CORS behavior, verbose errors, and actuator mappings were reviewed outside BootUI paths.',
+      category: 'A04:2025',
+      title: 'Cryptographic Failures',
+      description: 'Cookie and transport signals were evaluated, but the deployed HTTPS edge still requires review.',
       status: 'REVIEW'
     },
     {
-      category: 'A06',
-      title: 'Vulnerable and Outdated Components',
-      description: 'Use the Vulnerabilities panel for explicit OSV dependency scanning.',
+      category: 'A05:2025',
+      title: 'Injection',
+      description: 'Payload-based injection probing is intentionally skipped.',
+      status: 'SKIPPED'
+    },
+    {
+      category: 'A06:2025',
+      title: 'Insecure Design',
+      description: 'Threat modeling and business-logic abuse cases require manual review.',
+      status: 'SKIPPED'
+    },
+    {
+      category: 'A07:2025',
+      title: 'Authentication Failures',
+      description: 'Authentication metadata produced no finding; runtime login policy still requires review.',
       status: 'INFO'
+    },
+    {
+      category: 'A08:2025',
+      title: 'Software or Data Integrity Failures',
+      description: 'Deserialization and update integrity require dedicated review.',
+      status: 'SKIPPED'
+    },
+    {
+      category: 'A09:2025',
+      title: 'Security Logging and Alerting Failures',
+      description: 'Operational logging and alerting coverage require manual review.',
+      status: 'SKIPPED'
+    },
+    {
+      category: 'A10:2025',
+      title: 'Mishandling of Exceptional Conditions',
+      description: 'The bounded error response produced an implementation-detail finding.',
+      status: 'REVIEW'
     }
   ],
   findings: [
     {
-      id: 'PT-SECURITY-MISSING',
+      id: 'PT-A05-007',
       severity: 'HIGH',
-      confidence: 'HIGH',
-      title: 'Spring Security is not present',
-      target: 'Application context',
-      owaspCategory: 'A01 Broken Access Control',
-      evidence: 'No SecurityFilterChain beans were detected in the application context.',
-      recommendation: 'Add Spring Security and define explicit authorization rules for application endpoints.'
+      confidence: 'High',
+      title: 'CORS allows credentialed cross-origin requests',
+      target: 'OPTIONS /__bootui_pentesting__/missing-resource',
+      owaspCategory: 'A02:2025 Security Misconfiguration',
+      evidence: 'Preflight reflected https://evil.example and allowed credentials.',
+      recommendation: 'Allow credentials only for an explicit set of trusted origins.'
     },
     {
-      id: 'PT-HEADERS-MISSING',
+      id: 'PT-A05-006',
       severity: 'MEDIUM',
-      confidence: 'MEDIUM',
-      title: 'Missing hardening response headers',
-      target: '/__bootui_pentesting__/missing-resource',
-      owaspCategory: 'A05 Security Misconfiguration',
-      evidence: 'Missing X-Content-Type-Options and Content-Security-Policy headers on the synthetic 404 response.',
-      recommendation: 'Configure security headers globally and verify they apply to error responses.'
+      confidence: 'High',
+      title: 'Error response appears to expose implementation details',
+      target: 'GET /__bootui_pentesting__/missing-resource',
+      owaspCategory: 'A10:2025 Mishandling of Exceptional Conditions',
+      evidence: 'Synthetic error response matched a Java source-line marker.',
+      recommendation: 'Return a generic error response without stack traces or implementation details.'
     },
     {
-      id: 'PT-ACTUATOR-MAPPINGS',
+      id: 'PT-A05-010',
       severity: 'LOW',
-      confidence: 'MEDIUM',
-      title: 'Actuator mappings are available',
-      target: 'Spring MVC handler mappings',
-      owaspCategory: 'A05 Security Misconfiguration',
-      evidence: 'Actuator request mappings were detected and should be reviewed for exposure.',
-      recommendation: 'Keep actuator endpoints local-only, authenticated, or disabled outside development.'
+      confidence: 'Medium',
+      title: 'Missing Content-Security-Policy header',
+      target: 'GET /__bootui_pentesting__/missing-resource',
+      owaspCategory: 'A02:2025 Security Misconfiguration',
+      evidence: 'Synthetic browser-document response did not include Content-Security-Policy.',
+      recommendation: 'Define a Content-Security-Policy to constrain script and content sources.'
     },
     {
-      id: 'PT-HSTS-MISSING',
+      id: 'PT-A05-063',
       severity: 'INFO',
-      confidence: 'LOW',
-      title: 'Strict-Transport-Security not observed',
-      target: '/__bootui_pentesting__/missing-resource',
-      owaspCategory: 'A05 Security Misconfiguration',
+      confidence: 'Low',
+      title: 'Local HTTP response advertises weak HSTS',
+      target: 'GET /__bootui_pentesting__/missing-resource',
+      owaspCategory: 'A04:2025 Cryptographic Failures',
       evidence:
-        'No Strict-Transport-Security header was seen on the synthetic localhost response (expected over plain HTTP).',
-      recommendation: 'Enable HSTS once the application is served over HTTPS in non-local environments.'
+        'The plaintext loopback response advertised HSTS without includeSubDomains; verify the deployed HTTPS edge.',
+      recommendation: 'Use at least a one-year max-age with includeSubDomains on deployed HTTPS responses.'
     }
   ]
 }
@@ -3955,7 +3991,7 @@ const screenshots = [
   ['spring-security', 'Spring Security', 'bootui-spring-security.webp', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.webp', waitForText('AUTHENTICATION_SUCCESS')],
   ['security', 'Security', 'bootui-security.webp', waitForText('SEC-ACT-002')],
-  ['pentesting', 'Pentesting', 'bootui-pentesting.webp', waitForText('Missing hardening response headers')],
+  ['pentesting', 'Pentesting', 'bootui-pentesting.webp', waitForText('CORS allows credentialed cross-origin requests')],
   [
     'vulnerabilities',
     'Vulnerabilities',

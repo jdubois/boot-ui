@@ -182,6 +182,13 @@ lookup, a thin Jackson-2 `QuarkusMcpEnvelope` codec + `QuarkusMcpTools` catalog 
 `LocalhostGuard` write floor) · `Dev Services` (**Implemented** — a Quarkus-native concept; build-time
 `DevServicesResultBuildItem` snapshot captured via recorder + synthetic bean, masked config, logs/restart unavailable).
 
+Pentesting uses the shared 80-check engine and report contract. Its thin Quarkus collector supplies the live port,
+`quarkus.http.root-path`, CORS, OIDC auth-server URL, and direct-listener TLS posture, with TLS property-name discovery
+bounded at 4096 entries. It explicitly marks Spring endpoint/security metadata unavailable; A01 is therefore
+`NOT_APPLICABLE`, while no-finding mixed categories use Quarkus-specific `INFO` wording rather than a false pass. The
+explicit scan sends at most one GET and one OPTIONS request directly to `127.0.0.1`, with no redirect, proxy, or external
+host access. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the exact evidence limits and mappings.
+
 ### 5.2 Ported by swapping the data source (11)
 
 Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quarkus API.
@@ -519,7 +526,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Metrics             | as-is       | Port    | Micrometer reader                | `MeterRegistrySupplier`                     |
 | Hibernate           | as-is       | Port    | Hibernate advisor engine         | `EntityManagerFactoryProvider`              |
 | Vulnerabilities     | as-is       | Port    | OSV scanner + dependency catalog | —                                           |
-| Pentesting          | as-is       | Port    | Pentesting engine                | deliberately empty endpoint inventory (avoids a false-positive `spring-security-web` finding) |
+| Pentesting          | as-is       | Port    | Pentesting engine                | CORS/OIDC/TLS metadata; Spring endpoint inventory explicitly unavailable |
 | HTTP Probe          | as-is       | Port    | HTTP probe service               | —                                           |
 | AI Framework        | as-is       | Port    | TelemetryStore (OTLP)            | —                                           |
 | Traces              | as-is       | Port    | OTLP receiver + TelemetryStore   | —                                           |
