@@ -254,8 +254,12 @@ class QuarkusPanelAccessFilterTest {
      * (deliberately not ported: GraalVM/CRaC compile native images and target the Spring startup model
      * respectively; DevTools and HTTP Sessions have no Quarkus analogue).
      */
-    private static final Set<String> NOT_APPLICABLE_ON_QUARKUS =
-            Set.of(BootUiPanels.HTTP_SESSIONS, BootUiPanels.GRAALVM, BootUiPanels.DEVTOOLS, BootUiPanels.CRAC);
+    private static final Set<String> NOT_APPLICABLE_ON_QUARKUS = Set.of(
+            BootUiPanels.HTTP_SESSIONS,
+            BootUiPanels.GRAALVM,
+            BootUiPanels.DEVTOOLS,
+            BootUiPanels.CRAC,
+            BootUiPanels.TRANSACTIONS);
 
     /** Action-capable in the shared registry (Spring has a write path), but Quarkus has none yet. */
     private static final Set<String> NO_WRITE_PATH_ON_QUARKUS_YET = Set.of(BootUiPanels.CONFIG, BootUiPanels.JMS);

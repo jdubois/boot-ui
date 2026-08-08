@@ -46,6 +46,7 @@
     { "id": "spring", "title": "Spring", "actionCapable": true },
     { "id": "crac", "title": "CRaC", "actionCapable": true },
     { "id": "sql-trace", "title": "SQL Trace", "actionCapable": true },
+    { "id": "transactions", "title": "Transactions", "actionCapable": true },
     { "id": "rest-client-trace", "title": "REST Client", "actionCapable": true },
     { "id": "ai", "title": "AI Framework", "actionCapable": false },
     { "id": "mcp-server", "title": "MCP Server", "actionCapable": true },

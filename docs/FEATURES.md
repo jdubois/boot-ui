@@ -1073,6 +1073,49 @@ cleanly while never leaking ORM parameter values. Both feeders are wired in dev/
 
 ![BootUI SQL Trace panel](./images/bootui-sql-trace.webp)
 
+### Transactions
+
+The Transactions panel shows the `@Transactional` boundaries your application recently ran — begin, commit, and rollback
+events — captured by BootUI's own listener wiring, **not** a third-party transaction-observability library. On Spring MVC
+and WebFlux, BootUI registers a `TransactionExecutionListener` (Spring Framework 6.1+) against every
+`ConfigurableTransactionManager` bean already in the context, composing with (never replacing) the application's own
+transaction management. Wiring **fails open**: if a listener cannot be registered against a given manager, that manager is
+left unobserved rather than disrupting real transaction processing.
+
+Each captured transaction records the declared boundary name (typically `ClassName.methodName`), a best-effort
+`propagation` classification (`NEW` when the manager actually started a transaction, `PARTICIPATING` when it joined one
+already active on the same thread — Spring's listener SPI does not expose the declared `Propagation` enum value itself),
+the JDBC isolation level active at begin time, the outcome (`COMMITTED`, `ROLLED_BACK`, or `UNKNOWN` when a begin/commit/
+rollback threw), start/end timestamps, wall-clock duration, the enclosing transaction's id (so nested transactions form a
+call tree), the executing thread, and — when present — the active Micrometer/W3C trace id. Each entry is also correlated,
+by thread and time window, to the executions already captured by the SQL Trace panel, surfacing the number of SQL
+statements and distinct JDBC connections a transaction touched without instrumenting anything twice.
+
+Transactions are retained in a bounded in-memory ring buffer (most recently completed first) alongside aggregate stats
+(total/average/max duration, slow- and connection-held counts, commit/rollback/unknown outcome counts, and the number of
+nested transactions). The panel renders a simple parent/child tree so a root transaction's nested calls are visible
+directly underneath it, and each row expands to reveal its thread, trace id, read-only flag, and any error. Configurable
+slow-transaction and connection-hold-time thresholds flag transactions worth a closer look, and local-only
+**Pause/Resume** and **Clear** actions let you stop recording without deregistering the listener or empty the buffer.
+
+The panel is read-mostly: transaction metadata (method names, propagation, isolation, thread names, trace ids) is not
+sensitive application data the way bound SQL parameters are, so none of it is masked or gated behind value-exposure
+settings. It fails closed — reporting unavailable with a clear reason — when no `PlatformTransactionManager` bean exists,
+or when a WebFlux application uses only a `ReactiveTransactionManager` (R2DBC), since Spring's transaction-execution
+listener hook exists solely on the blocking `PlatformTransactionManager` SPI. Capture, the initial recording state, buffer
+size, and the slow-transaction and connection-hold thresholds are all configurable under `bootui.transactions.*`.
+
+Like SQL Trace, the panel refreshes over **Server-Sent Events**: the browser subscribes to
+`/bootui/api/transactions/stream` and the server pushes a small coalesced notification whenever a transaction completes,
+the buffer is cleared, or recording is paused/resumed. When the auto-refresh toggle is off or the tab is hidden the stream
+is closed, and the panel falls back to its initial load when Server-Sent Events are unavailable.
+
+> **Quarkus is not applicable.** Quarkus' transaction management goes through Narayana's JTA `TransactionManager`/
+> `Synchronization` or the CDI `@Transactional` interceptor, neither of which exposes a comparable per-boundary listener
+> hook without much more invasive instrumentation than Spring's opt-in listener registration. Rather than force false
+> parity, the Quarkus endpoint always reports unavailable with a clear reason explaining the gap; see
+> `docs/QUARKUS-SUPPORT.md` for details.
+
 ### Spring Data
 
 The Spring Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query

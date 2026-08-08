@@ -306,7 +306,7 @@ the **Use a database** button/confirmation flow, so the panel behaves and looks 
 | `Cache`             | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven) |
 | `Security` advisor  | **Implemented** — a Quarkus-native ruleset (Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS, `@RolesAllowed`) under the same panel id `security`, replacing the Spring-Security-coupled checks. See [QUARKUS-CHECKS.md](QUARKUS-CHECKS.md) |
 
-### 5.5 Dropped on Quarkus (8)
+### 5.5 Dropped on Quarkus (9)
 
 No equivalent, low value, or superseded by Quarkus's own tooling:
 
@@ -321,18 +321,24 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - **Superseded or moot:** `GraalVM` readiness (Quarkus is native-first with its own build), `CRaC` (native focus makes
   it niche), `DevTools` (**Implemented as `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
   Spring-style DevTools restart/LiveReload to expose; the panel reports *not applicable* rather than *not yet*).
+- **No comparable capture hook:** `Transactions` — capture relies on Spring Framework's `TransactionExecutionListener`,
+  registered against `ConfigurableTransactionManager` beans. Quarkus's transaction management goes through Narayana's
+  JTA `TransactionManager`/`Synchronization` or the CDI `@Transactional` interceptor, neither of which exposes a
+  comparable per-boundary listener without far more invasive instrumentation (wrapping every `@Transactional` bean with
+  a custom interceptor ordered ahead of every other interceptor); the panel honestly reports *not applicable* rather
+  than forcing a lower-fidelity capture path.
 
 ### 5.6 Not yet available on Quarkus (1)
 
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 43 of the 52 panels ship on Quarkus: 25 are statically available and 18 are capability/detector-gated. The
-remaining 9 panels do not ship: 8 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
-Sessions, Spring Data, Spring Security, DevTools), and 1 (`JMS`) is not yet available. By portability strategy, the 43
-shipped panels comprise 17 ported as-is, 11 source-swapped, 12 capture-rebuilt, and 3 replaced with a Quarkus-native
-panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the advisor endpoints,
-and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
+**Result:** 43 of the 53 panels ship on Quarkus: 25 are statically available and 18 are capability/detector-gated. The
+remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
+Sessions, Spring Data, Spring Security, DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
+strategy, the 43 shipped panels comprise 17 ported as-is, 11 source-swapped, 12 capture-rebuilt, and 3 replaced with a
+Quarkus-native panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the
+advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
 ## 6. Activation & safety on Quarkus
 
@@ -563,3 +569,4 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Spring Security     | spring-only | Drop    | —                                | Elytron/OIDC, different model               |
 | Spring Data         | spring-only | Drop    | —                                | Panache, different model                    |
 | HTTP Sessions       | spring-only | Drop    | —                                | reactive/stateless stack                    |
+| Transactions        | spring-only | Drop    | —                                | `TransactionExecutionListener` has no Narayana/CDI-interceptor equivalent |

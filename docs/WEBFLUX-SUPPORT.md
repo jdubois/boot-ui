@@ -9,13 +9,13 @@ reactive analog genuinely exists, and an honest "not yet ported" / "not applicab
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 52-panel manifest the servlet adapter
+The WebFlux adapter serves the large majority of the panel surface — the same 53-panel manifest the servlet adapter
 reports, minus the one panel that stays unavailable for stack reasons described below. **Every action-capable panel
 that is available behaves identically to the servlet adapter**, behind the same shared `LocalhostGuard` write floor:
 Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Heap Dump
 (capture/analyze/delete/download), Threads (download), Traces (clear), SQL Trace (toggle recording/clear),
-REST Client (clear/toggle recording), the advisor scans (Architecture, Spring, Hibernate, Pentesting, REST API,
-Security, Memory, Vulnerabilities/OSV), and Exceptions triage.
+Transactions (clear/toggle recording), REST Client (clear/toggle recording), the advisor scans (Architecture, Spring,
+Hibernate, Pentesting, REST API, Security, Memory, Vulnerabilities/OSV), and Exceptions triage.
 
 The adapter also shares the exact per-scanner single-flight contract with MVC and Quarkus. Overlapping expensive advisor
 actions fail fast with canonical JSON `409` rather than queueing on Netty or repeating work; Heap Dump
@@ -141,14 +141,16 @@ accidentally inherit the Reactor Netty event loop.
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
 | HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies Actuator's reactive `HttpExchangeRepository` bean instead of the servlet one — same DTO, same UI, same capture semantics |
 
-### 6.3 Rebuilt with a new reactive capture layer (7 panels)
+### 6.3 Rebuilt with a new reactive capture layer (8 panels)
 
 The DTO and UI are reused unchanged; only the capture/streaming source was rewritten because the servlet original
-depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST Client) or `HandlerExceptionResolver` (Exceptions):
+depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST Client, Transactions) or
+`HandlerExceptionResolver` (Exceptions):
 
 | Panel         | Reactive source                                                                                                                                                                        |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SQL Trace     | `ReactiveSqlTraceController`, streaming over the new shared `ReactiveBootUiChangeStream` SSE primitive (`Flux<ServerSentEvent<T>>`), feeding the same `SqlTraceRecorder` engine class |
+| Transactions  | `ReactiveTransactionsController`, streaming over `ReactiveBootUiChangeStream`, feeding the same `TransactionRecorder` engine class. Capture itself is identical to the servlet adapter — `BootUiTransactionManagerBeanPostProcessor` registers a `TransactionExecutionListener` against every `ConfigurableTransactionManager` bean, which observes any blocking `PlatformTransactionManager` a WebFlux application still uses (e.g. JDBC repositories behind a thread-blocking data access layer). **Fidelity gap, accepted:** a WebFlux application backed only by a `ReactiveTransactionManager` (R2DBC) has no `ConfigurableTransactionManager` bean to observe — Spring's `TransactionExecutionListener` hook exists solely on the blocking SPI — so the panel reports the same "No PlatformTransactionManager bean is available" unavailable reason it would show if no transaction manager existed at all, rather than silently showing an empty table. |
 | Log Tail      | `ReactiveLogTailController` — same `LogTailBuffer`/Logback appender, SSE via `ReactiveBootUiChangeStream`               |
 | Security Logs | `ReactiveSecurityLogsController` over a fallback `InMemoryAuditEventRepository` (Spring's audit-event bus is itself framework-neutral, so no reactive-specific capture code was needed) |
 | Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below |

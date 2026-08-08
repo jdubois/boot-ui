@@ -9,6 +9,7 @@ const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vue')
 const SqlTrace = () => import('./views/SqlTrace.vue')
+const Transactions = () => import('./views/Transactions.vue')
 const RestClientTrace = () => import('./views/RestClientTrace.vue')
 const Data = () => import('./views/Data.vue')
 const Hibernate = () => import('./views/Hibernate.vue')
@@ -516,6 +517,28 @@ export const routes = [
       title: 'SQL Trace',
       shortcut: 'sq',
       keywords: ['sql', 'queries', 'slow queries', 'slow query', 'n+1', 'jdbc', 'statements', 'select', 'query log']
+    }
+  },
+  {
+    path: '/transactions',
+    name: 'transactions',
+    component: Transactions,
+    meta: {
+      group: groups.database,
+      icon: 'bi-diagram-3-fill',
+      title: 'Transactions',
+      shortcut: 'tx',
+      keywords: [
+        'transaction',
+        'transactional',
+        'propagation',
+        'isolation',
+        'commit',
+        'rollback',
+        'platformtransactionmanager',
+        'transaction boundaries',
+        'nested transactions'
+      ]
     }
   },
   {

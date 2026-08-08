@@ -373,7 +373,13 @@ public class QuarkusPanelAvailability {
             BootUiPanels.DEVTOOLS,
             "Not applicable on Quarkus: Spring Boot DevTools restart/LiveReload has no runtime analogue. Quarkus"
                     + " dev mode owns live reload through build-time augmentation, with no stable runtime API to"
-                    + " read or trigger it, so this panel is not used here.");
+                    + " read or trigger it, so this panel is not used here.",
+            BootUiPanels.TRANSACTIONS,
+            "Not applicable on Quarkus: transaction boundary capture relies on Spring Framework's"
+                    + " TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans."
+                    + " Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization"
+                    + " or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary"
+                    + " listener without far more invasive instrumentation, so this panel is not used here.");
 
     private static final Map<String, String> NOT_YET_AVAILABLE_REASONS = Map.of(
             BootUiPanels.JMS,

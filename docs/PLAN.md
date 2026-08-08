@@ -4,11 +4,12 @@
 
 BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot 4 (servlet and
 WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
-the same `/bootui/api/**` contract on every runtime. The released surface covers 52 panels across runtime introspection,
+the same `/bootui/api/**` contract on every runtime. The released surface covers 53 panels across runtime introspection,
 configuration, database migrations, services, diagnostics, project health, and developer tooling. The previous merged
-workstream — Live Activity correlation and event capture, the Beans dependency graph, and the Email panel — is complete.
-The next planned panel is a read-only **MongoDB** operational view, scoped in §3.5. A **Local Service Map** is retained
-as a later roadmap candidate in §3.6; it is not part of the current implementation.
+workstream — Live Activity correlation and event capture, the Beans dependency graph, the Email panel, and the
+**Transactions** panel — is complete. The next planned panel is a read-only **MongoDB** operational view, scoped in
+§3.5. A **Local Service Map** is retained as a later roadmap candidate in §3.6; it is not part of the current
+implementation.
 
 The priorities for every item below remain unchanged:
 
@@ -49,6 +50,13 @@ The priorities for every item below remain unchanged:
   pass-through-by-default capture, nests under
   the originating request as a child event when a shared trace id/serving thread/time window is available, and reuses
   the same masking, bounded-buffer, and panel-toggle model as the original four entry types.
+- Shipped a new **Transactions** panel (Database group): a bounded in-memory `TransactionRecorder` engine service
+  captures every `@Transactional` boundary's method, propagation, isolation, status, duration, and parent/child
+  nesting, following the same ring-buffer/aggregate-stats/pause/clear conventions as SQL Trace. Capture is wired via
+  Spring Framework's `TransactionExecutionListener` SPI against every `ConfigurableTransactionManager` bean (Spring
+  servlet and WebFlux), and correlates each transaction to its SQL statement/connection counts by reusing SQL Trace's
+  existing thread/time-window correlation rather than duplicating it. Quarkus reports the panel honestly unavailable —
+  see `docs/QUARKUS-SUPPORT.md` §5.5.
 
 Each new panel must:
 
@@ -68,10 +76,10 @@ five §3.4 event-type extensions (Scheduled Task runs, Cache operations, messagi
 shipped. The bean/dependency graph visualization (§3.2) has now also shipped as the **graph mode** of the existing Beans
 panel.
 
-The current cross-platform baseline is 52 shared routes. Spring Boot serves the full applicable surface. Quarkus serves
-43 panels; eight Spring-specific panels are intentionally not applicable there, and JMS is the only panel still awaiting
-a Quarkus-native implementation. `docs/QUARKUS-SUPPORT.md` remains authoritative for per-panel Quarkus fidelity and
-availability.
+The current cross-platform baseline is 53 shared routes. Spring Boot serves the full applicable surface. Quarkus serves
+43 panels; nine Spring-specific panels (including Transactions, see below) are intentionally not applicable there, and
+JMS is the only panel still awaiting a Quarkus-native implementation. `docs/QUARKUS-SUPPORT.md` remains authoritative
+for per-panel Quarkus fidelity and availability.
 
 MongoDB is the next bounded feature workstream. BootUI already recognizes Spring Data MongoDB repositories in the
 Spring Data panel, but it has no framework-neutral operational view of MongoDB clients, topology, databases,
@@ -87,6 +95,7 @@ will therefore be additive rather than an extension of the SQL-specific panels.
 | Done     | E-mail Viewer                         | Services      | Spring Mail / Quarkus Mailer capture adapters            | No (capture only) | Shipped |
 | Done     | Live Activity — REST call capture     | Diagnostics   | Spring HTTP clients / Quarkus MicroProfile REST clients  | No (capture only) | Shipped |
 | Done     | Live Activity — new event types       | Diagnostics   | Cache, scheduled-task, messaging, mail, and REST capture | No (capture only) | Shipped |
+| Done     | Transactions                          | Database      | Spring `TransactionExecutionListener` capture (Spring-only) | Yes (clear/pause) | Shipped |
 
 The Trace ↔ Log ↔ Request correlation work in §3.1 has shipped as the **Live Activity** panel, building on the
 already-shipped HTTP Exchanges panel and the existing Traces and Log Tail panels. The E-mail Viewer (§3.3) has shipped as
@@ -99,6 +108,17 @@ outbound `RestClient`/`RestTemplate`/`WebClient` capture. The bean/dependency gr
 graph mode in the existing Beans panel, completing this workstream. Each capture-oriented feature keeps pass-through
 application behaviour by default
 and makes any dev-trap mode explicitly opt-in.
+
+The **Transactions** panel (Database group) has also shipped: a bounded in-memory `TransactionRecorder`, following the
+same ring-buffer/aggregate-stats/pause/clear conventions as SQL Trace, captures every `@Transactional` boundary's
+method, propagation, isolation, status, duration, and parent/child nesting via Spring Framework's
+`TransactionExecutionListener` SPI, registered against every `ConfigurableTransactionManager` bean without replacing or
+wrapping the application's own transaction management. Completed transactions are correlated to their SQL statement and
+connection counts by reusing SQL Trace's existing thread/time-window correlation logic rather than duplicating it. The
+panel is Spring-only (both servlet and WebFlux, the latter observing any blocking `PlatformTransactionManager` a
+reactive application still uses); Quarkus has no comparable per-boundary listener hook on Narayana JTA or the CDI
+`@Transactional` interceptor without much more invasive instrumentation, so it honestly reports unavailable there
+rather than forcing false parity (see `docs/QUARKUS-SUPPORT.md` §5.5).
 
 ## 3. Feature specifications
 

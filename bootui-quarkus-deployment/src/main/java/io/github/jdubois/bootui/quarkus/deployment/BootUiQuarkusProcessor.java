@@ -51,6 +51,7 @@ import io.github.jdubois.bootui.quarkus.web.QuarkusExceptionCaptureFilter;
 import io.github.jdubois.bootui.quarkus.web.QuarkusHttpExchangeCaptureFilter;
 import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
 import io.github.jdubois.bootui.quarkus.web.SqlTraceResource;
+import io.github.jdubois.bootui.quarkus.web.TransactionsResource;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
 import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
@@ -299,6 +300,7 @@ class BootUiQuarkusProcessor {
                         QuarkusActivityCapture.class,
                         SecurityLogsResource.class,
                         SqlTraceResource.class,
+                        TransactionsResource.class,
                         AgentSessionProducer.class,
                         CopilotResource.class,
                         ClaudeCodeResource.class,

@@ -140,6 +140,10 @@ public class BootUiProperties {
      */
     private SqlTrace sqlTrace = new SqlTrace();
     /**
+     * Transactions panel settings.
+     */
+    private Transactions transactions = new Transactions();
+    /**
      * REST Client panel settings.
      */
     private RestClientTrace restClientTrace = new RestClientTrace();
@@ -430,6 +434,14 @@ public class BootUiProperties {
 
     public void setSqlTrace(SqlTrace sqlTrace) {
         this.sqlTrace = sqlTrace == null ? new SqlTrace() : sqlTrace;
+    }
+
+    public Transactions getTransactions() {
+        return transactions;
+    }
+
+    public void setTransactions(Transactions transactions) {
+        this.transactions = transactions == null ? new Transactions() : transactions;
     }
 
     public RestClientTrace getRestClientTrace() {
@@ -1157,6 +1169,80 @@ public class BootUiProperties {
 
         public void setNPlusOneThreshold(int nPlusOneThreshold) {
             this.nPlusOneThreshold = nPlusOneThreshold;
+        }
+    }
+
+    public static class Transactions {
+
+        /**
+         * Whether BootUI registers its transaction-execution listener against {@code
+         * PlatformTransactionManager} beans to capture transaction boundaries. When {@code false}, no
+         * listener is registered.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Whether new transactions are recorded into the in-memory buffer. Recording can be paused
+         * and resumed at runtime from the panel without unregistering the listener; this sets the
+         * initial state.
+         */
+        private boolean recording = true;
+
+        /**
+         * Maximum number of completed transactions retained in the in-memory ring buffer.
+         */
+        private int maxEntries = 200;
+
+        /**
+         * Transactions taking at least this many milliseconds are flagged as slow. Set to {@code 0}
+         * to disable slow-transaction flagging.
+         */
+        private long slowTransactionThresholdMillis = 200;
+
+        /**
+         * Transactions taking at least this many milliseconds are flagged as holding a pooled
+         * connection too long. Set to {@code 0} to disable connection-hold flagging.
+         */
+        private long connectionHoldThresholdMillis = 500;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isRecording() {
+            return recording;
+        }
+
+        public void setRecording(boolean recording) {
+            this.recording = recording;
+        }
+
+        public int getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public long getSlowTransactionThresholdMillis() {
+            return slowTransactionThresholdMillis;
+        }
+
+        public void setSlowTransactionThresholdMillis(long slowTransactionThresholdMillis) {
+            this.slowTransactionThresholdMillis = slowTransactionThresholdMillis;
+        }
+
+        public long getConnectionHoldThresholdMillis() {
+            return connectionHoldThresholdMillis;
+        }
+
+        public void setConnectionHoldThresholdMillis(long connectionHoldThresholdMillis) {
+            this.connectionHoldThresholdMillis = connectionHoldThresholdMillis;
         }
     }
 

@@ -194,6 +194,7 @@ public final class BootUiApiContractCatalog {
             advisor("spring", "/spring", "results"),
             advisor("crac", "/crac", "findings"),
             capture("sql-trace", "/sql-trace", "entries"),
+            capture("transactions", "/transactions", "entries"),
             capture("rest-client-trace", "/rest-client-trace", "entries"),
             read(
                     "mcp-server",
@@ -290,6 +291,8 @@ public final class BootUiApiContractCatalog {
         spring(actions, "crac.install-all", "crac", "POST", "/crac/install/all");
         all(actions, "sql-trace.clear", "sql-trace", "POST", "/sql-trace/clear");
         all(actions, "sql-trace.recording", "sql-trace", "POST", "/sql-trace/recording");
+        spring(actions, "transactions.clear", "transactions", "POST", "/transactions/clear");
+        spring(actions, "transactions.recording", "transactions", "POST", "/transactions/recording");
         all(actions, "rest-client-trace.clear", "rest-client-trace", "POST", "/rest-client-trace/clear");
         all(actions, "rest-client-trace.recording", "rest-client-trace", "POST", "/rest-client-trace/recording");
         all(actions, "mcp-server.toggle", "mcp-server", "POST", "/mcp-server/toggle");
