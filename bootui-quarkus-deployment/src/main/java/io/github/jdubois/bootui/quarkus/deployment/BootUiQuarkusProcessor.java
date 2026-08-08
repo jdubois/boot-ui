@@ -459,8 +459,9 @@ class BootUiQuarkusProcessor {
 
     /**
      * Captures build-time authorization-annotation counts for the Quarkus Security advisor: how many
-     * {@code @RolesAllowed}/{@code @PermitAll}/{@code @DenyAll}/{@code @Authenticated} sites and JAX-RS
-     * endpoints the application declares, emitted as runtime config defaults the advisor reads. Dev/test only.
+     * standard Jakarta annotations, {@code @Authenticated}, {@code @PermissionsAllowed}, and
+     * {@code @AuthorizationPolicy} sites and JAX-RS endpoints the application declares, emitted as runtime
+     * config defaults the advisor reads. Dev/test only.
      */
     @BuildStep
     void registerSecurityAnnotations(
@@ -479,6 +480,7 @@ class BootUiQuarkusProcessor {
                 .size();
         int authenticated = index.getAnnotations(DotName.createSimple("io.quarkus.security.Authenticated"))
                 .size();
+        int quarkusAuthorization = quarkusAuthorizationAnnotationCount(index);
         int endpoints = 0;
         int secured = 0;
         for (String http : List.of(
@@ -502,6 +504,7 @@ class BootUiQuarkusProcessor {
         emit(runtimeDefaults, "bootui.internal.sec.permit-all", permit);
         emit(runtimeDefaults, "bootui.internal.sec.deny-all", deny);
         emit(runtimeDefaults, "bootui.internal.sec.authenticated", authenticated);
+        emit(runtimeDefaults, "bootui.internal.sec.quarkus-authz", quarkusAuthorization);
         emit(runtimeDefaults, "bootui.internal.sec.endpoints", endpoints);
         emit(runtimeDefaults, "bootui.internal.sec.secured-endpoints", secured);
     }
@@ -547,14 +550,28 @@ class BootUiQuarkusProcessor {
                 "bootui.internal.sec.graphql-present", "" + capabilities.isPresent(Capability.SMALLRYE_GRAPHQL)));
     }
 
-    private static boolean isSecuredEndpoint(MethodInfo method) {
-        for (String sec : List.of(
-                "jakarta.annotation.security.RolesAllowed",
-                "jakarta.annotation.security.PermitAll",
-                "jakarta.annotation.security.DenyAll",
-                "io.quarkus.security.Authenticated")) {
+    private static final List<String> QUARKUS_AUTHORIZATION_ANNOTATIONS =
+            List.of("io.quarkus.security.PermissionsAllowed", "io.quarkus.vertx.http.security.AuthorizationPolicy");
+
+    private static final List<String> ENDPOINT_SECURITY_ANNOTATIONS = List.of(
+            "jakarta.annotation.security.RolesAllowed",
+            "jakarta.annotation.security.PermitAll",
+            "jakarta.annotation.security.DenyAll",
+            "io.quarkus.security.Authenticated",
+            "io.quarkus.security.PermissionsAllowed",
+            "io.quarkus.vertx.http.security.AuthorizationPolicy");
+
+    static int quarkusAuthorizationAnnotationCount(IndexView index) {
+        return QUARKUS_AUTHORIZATION_ANNOTATIONS.stream()
+                .mapToInt(annotation ->
+                        index.getAnnotations(DotName.createSimple(annotation)).size())
+                .sum();
+    }
+
+    static boolean isSecuredEndpoint(MethodInfo method) {
+        for (String sec : ENDPOINT_SECURITY_ANNOTATIONS) {
             DotName name = DotName.createSimple(sec);
-            if (method.hasAnnotation(name) || method.declaringClass().hasAnnotation(name)) {
+            if (method.hasAnnotation(name) || method.declaringClass().declaredAnnotation(name) != null) {
                 return true;
             }
         }

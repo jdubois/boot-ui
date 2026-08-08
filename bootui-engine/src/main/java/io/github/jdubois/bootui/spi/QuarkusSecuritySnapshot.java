@@ -11,21 +11,22 @@ import java.util.List;
  * records) so it never leaks an {@code io.quarkus.*} or framework type into the engine. All fields fail
  * safe: an unknown value is rendered as absent rather than throwing.</p>
  *
- * @param oidcConfigured whether {@code quarkus-oidc} is configured (an auth-server-url is set)
+ * @param oidcConfigured whether {@code quarkus-oidc} is configured with an auth-server URL, public key, or
+ *     certificate chain
  * @param jwtConfigured whether SmallRye JWT verification is configured
  * @param basicAuth whether {@code quarkus.http.auth.basic} is enabled
  * @param formAuth whether {@code quarkus.http.auth.form} is enabled
- * @param mtls whether mutual-TLS client auth is required
+ * @param mtls whether mutual-TLS client auth is requested or required
  * @param insecureRequests effective {@code quarkus.http.insecure-requests} ({@code enabled}/{@code redirect}/{@code disabled})
- * @param sslConfigured whether an HTTPS keystore/TLS registry is configured
+ * @param sslConfigured whether the main HTTP listener has an HTTPS keystore/TLS registry configured
  * @param corsEnabled whether {@code quarkus.http.cors} is enabled
- * @param corsOrigins the configured allowed origins, or {@code null} (treated as any)
+ * @param corsOrigins the configured allowed origins, or {@code null} (same-origin only)
  * @param corsCredentials whether CORS allows credentials
  * @param hstsHeader whether a Strict-Transport-Security response header is configured
  * @param cspHeader whether a Content-Security-Policy response header is configured
  * @param oidcTlsVerificationNone whether OIDC TLS verification is disabled
  * @param swaggerUiAlwaysInclude whether Swagger UI is always included
- * @param openApiAlwaysInclude whether the OpenAPI document is always included
+ * @param openApiAlwaysInclude legacy compatibility fact; Quarkus 3.33 has no matching configuration property
  * @param csrfPresent whether the CSRF reactive extension is present
  * @param permissions configured HTTP permission policies
  * @param rolesAllowedCount number of {@code @RolesAllowed} sites in app classes
@@ -35,13 +36,13 @@ import java.util.List;
  * @param endpointCount discovered JAX-RS endpoint methods
  * @param securedEndpointCount endpoints carrying an authorization annotation
  * @param suspectedSecretKeys config keys that look like literal secrets (already masked names)
- * @param behindProxy whether the app runs behind a TLS-terminating reverse proxy (forwarded headers trusted)
+ * @param behindProxy whether proxy address forwarding is enabled; this does not prove that a proxy terminates TLS
  * @param jwtIssuerConfigured whether a JWT issuer ({@code mp.jwt.verify.issuer}) is configured
  * @param proactiveAuthDisabled whether {@code quarkus.http.auth.proactive=false}
  * @param oidcAudienceConfigured whether every service/hybrid default or named OIDC tenant validates token audience
  * @param oidcApplicationType the {@code quarkus.oidc.application-type} (service/web-app/hybrid; may be empty)
  * @param oidcCookieForceSecure whether OIDC forces the Secure flag on its session cookie
- * @param tlsTrustAll whether outbound TLS certificate validation is globally disabled
+ * @param tlsTrustAll whether certificate validation is disabled on a default or named TLS registry bucket
  * @param corsMethods the configured {@code quarkus.http.cors.methods}, or {@code null}
  * @param corsHeaders the configured {@code quarkus.http.cors.headers}, or {@code null}
  * @param hstsHeaderValue the raw Strict-Transport-Security header value, or {@code null}
@@ -59,10 +60,8 @@ import java.util.List;
  * @param managementHostUnpinnedForProd whether the management interface is enabled but neither a literal
  *     {@code quarkus.management.host} nor {@code %prod.quarkus.management.host} key exists at all, meaning
  *     a real prod deployment would silently fall back to Quarkus's own {@code 0.0.0.0} prod default
- * @param jwtAlgorithmUnpinnedForRemoteJwks whether {@code mp.jwt.verify.publickey.location} points at a
- *     remote ({@code http}/{@code https}) JWKS endpoint while {@code mp.jwt.verify.publickey.algorithm} is
- *     left unset, relying on SmallRye JWT's implicit default (RS256-only) instead of explicitly pinning the
- *     expected algorithm(s) for a key source that can rotate/change independently of this application
+ * @param jwtAlgorithmUnpinnedForRemoteJwks legacy compatibility fact for retired rule QS-AUTH-006; MicroProfile
+ *     JWT 2.1 defaults an absent algorithm property to RS256
  * @param jdbcClearPasswordMapperEnabled whether a JDBC principal-query uses the clear-password mapper
  * @param embeddedUsersEnabled whether {@code quarkus.security.users.embedded.enabled=true}
  * @param jwtAudiencesConfigured whether {@code mp.jwt.verify.audiences} is configured
@@ -70,8 +69,7 @@ import java.util.List;
  * @param referrerPolicyHeader whether a Referrer-Policy response header is configured
  * @param permissionsPolicyHeader whether a Permissions-Policy response header is configured
  * @param nonApplicationRootPath the effective {@code quarkus.http.non-application-root-path} (health/metrics/
- *     openapi endpoints), default {@code /q}; used both to check permission coverage and to detect the
- *     Quarkus-specific footgun of collapsing it into the main application path (no Spring equivalent)
+ *     openapi endpoints), default relative path {@code q}
  * @param grpcReflectionEnabledInProd whether the gRPC server reflection service is enabled for the prod profile
  *     (Quarkus-specific; Spring has no first-party gRPC equivalent)
  * @param graphqlPresent whether the SmallRye GraphQL capability is present
@@ -94,6 +92,12 @@ import java.util.List;
  * @param insecureIdentityProviderUrl whether a configured OIDC auth-server or remote JWT key URL uses plain HTTP
  * @param oidcIssuerAny whether OIDC token issuer validation is explicitly bypassed with {@code token.issuer=any}
  * @param oidcServiceTokenConsumer whether any default or named OIDC tenant consumes service bearer tokens
+ * @param embeddedUsersPlainText whether embedded users explicitly store passwords in plain text
+ * @param tlsHostnameVerificationDisabled TLS registry buckets or OIDC tenants that disable hostname verification
+ * @param nonApplicationRootPathMerged whether non-application endpoints are merged into the HTTP root path
+ * @param quarkusAuthorizationAnnotationCount number of {@code @PermissionsAllowed}/{@code @AuthorizationPolicy}
+ *     sites in application classes
+ * @param defaultRolesAllowed whether a default role requirement protects otherwise-unannotated JAX-RS endpoints
  */
 public record QuarkusSecuritySnapshot(
         boolean oidcConfigured,
@@ -158,16 +162,158 @@ public record QuarkusSecuritySnapshot(
         boolean healthUiAlwaysInclude,
         boolean insecureIdentityProviderUrl,
         boolean oidcIssuerAny,
-        boolean oidcServiceTokenConsumer) {
+        boolean oidcServiceTokenConsumer,
+        boolean embeddedUsersPlainText,
+        List<String> tlsHostnameVerificationDisabled,
+        boolean nonApplicationRootPathMerged,
+        int quarkusAuthorizationAnnotationCount,
+        boolean defaultRolesAllowed) {
 
     public QuarkusSecuritySnapshot {
         permissions = permissions == null ? List.of() : List.copyOf(permissions);
         suspectedSecretKeys = suspectedSecretKeys == null ? List.of() : List.copyOf(suspectedSecretKeys);
         oidcApplicationType = oidcApplicationType == null ? "" : oidcApplicationType;
         nonApplicationRootPath =
-                nonApplicationRootPath == null || nonApplicationRootPath.isBlank() ? "/q" : nonApplicationRootPath;
+                nonApplicationRootPath == null || nonApplicationRootPath.isBlank() ? "q" : nonApplicationRootPath;
         insecureMessagingChannels =
                 insecureMessagingChannels == null ? List.of() : List.copyOf(insecureMessagingChannels);
+        tlsHostnameVerificationDisabled =
+                tlsHostnameVerificationDisabled == null ? List.of() : List.copyOf(tlsHostnameVerificationDisabled);
+    }
+
+    public QuarkusSecuritySnapshot(
+            boolean oidcConfigured,
+            boolean jwtConfigured,
+            boolean basicAuth,
+            boolean formAuth,
+            boolean mtls,
+            String insecureRequests,
+            boolean sslConfigured,
+            boolean corsEnabled,
+            String corsOrigins,
+            boolean corsCredentials,
+            boolean hstsHeader,
+            boolean cspHeader,
+            boolean oidcTlsVerificationNone,
+            boolean swaggerUiAlwaysInclude,
+            boolean openApiAlwaysInclude,
+            boolean csrfPresent,
+            List<QuarkusSecurityPermission> permissions,
+            int rolesAllowedCount,
+            int permitAllCount,
+            int denyAllCount,
+            int authenticatedCount,
+            int endpointCount,
+            int securedEndpointCount,
+            List<String> suspectedSecretKeys,
+            boolean behindProxy,
+            boolean jwtIssuerConfigured,
+            boolean proactiveAuthDisabled,
+            boolean oidcAudienceConfigured,
+            String oidcApplicationType,
+            boolean oidcCookieForceSecure,
+            boolean tlsTrustAll,
+            String corsMethods,
+            String corsHeaders,
+            String hstsHeaderValue,
+            String cspHeaderValue,
+            boolean xFrameOptionsHeader,
+            boolean xContentTypeOptionsHeader,
+            boolean denyUnannotatedEndpoints,
+            boolean managementEnabled,
+            boolean managementHostNonLoopback,
+            boolean managementHostUnpinnedForProd,
+            boolean jwtAlgorithmUnpinnedForRemoteJwks,
+            boolean jdbcClearPasswordMapperEnabled,
+            boolean embeddedUsersEnabled,
+            boolean jwtAudiencesConfigured,
+            boolean jwtInlinePublicKey,
+            boolean referrerPolicyHeader,
+            boolean permissionsPolicyHeader,
+            String nonApplicationRootPath,
+            boolean grpcReflectionEnabledInProd,
+            boolean graphqlPresent,
+            boolean graphqlIntrospectionEnabled,
+            boolean graphqlUiAlwaysInclude,
+            List<String> insecureMessagingChannels,
+            boolean formCookieHttpOnly,
+            boolean formCookieSameSiteNone,
+            boolean formSessionTimeoutExcessive,
+            boolean oidcHasClientSecret,
+            boolean oidcPkceRequired,
+            boolean healthUiAlwaysInclude,
+            boolean insecureIdentityProviderUrl,
+            boolean oidcIssuerAny,
+            boolean oidcServiceTokenConsumer) {
+        this(
+                oidcConfigured,
+                jwtConfigured,
+                basicAuth,
+                formAuth,
+                mtls,
+                insecureRequests,
+                sslConfigured,
+                corsEnabled,
+                corsOrigins,
+                corsCredentials,
+                hstsHeader,
+                cspHeader,
+                oidcTlsVerificationNone,
+                swaggerUiAlwaysInclude,
+                openApiAlwaysInclude,
+                csrfPresent,
+                permissions,
+                rolesAllowedCount,
+                permitAllCount,
+                denyAllCount,
+                authenticatedCount,
+                endpointCount,
+                securedEndpointCount,
+                suspectedSecretKeys,
+                behindProxy,
+                jwtIssuerConfigured,
+                proactiveAuthDisabled,
+                oidcAudienceConfigured,
+                oidcApplicationType,
+                oidcCookieForceSecure,
+                tlsTrustAll,
+                corsMethods,
+                corsHeaders,
+                hstsHeaderValue,
+                cspHeaderValue,
+                xFrameOptionsHeader,
+                xContentTypeOptionsHeader,
+                denyUnannotatedEndpoints,
+                managementEnabled,
+                managementHostNonLoopback,
+                managementHostUnpinnedForProd,
+                jwtAlgorithmUnpinnedForRemoteJwks,
+                jdbcClearPasswordMapperEnabled,
+                embeddedUsersEnabled,
+                jwtAudiencesConfigured,
+                jwtInlinePublicKey,
+                referrerPolicyHeader,
+                permissionsPolicyHeader,
+                nonApplicationRootPath,
+                grpcReflectionEnabledInProd,
+                graphqlPresent,
+                graphqlIntrospectionEnabled,
+                graphqlUiAlwaysInclude,
+                insecureMessagingChannels,
+                formCookieHttpOnly,
+                formCookieSameSiteNone,
+                formSessionTimeoutExcessive,
+                oidcHasClientSecret,
+                oidcPkceRequired,
+                healthUiAlwaysInclude,
+                insecureIdentityProviderUrl,
+                oidcIssuerAny,
+                oidcServiceTokenConsumer,
+                false,
+                List.of(),
+                false,
+                0,
+                false);
     }
 
     public QuarkusSecuritySnapshot(
@@ -306,6 +452,14 @@ public record QuarkusSecuritySnapshot(
     }
 
     public int annotationCount() {
-        return rolesAllowedCount + permitAllCount + denyAllCount + authenticatedCount;
+        return rolesAllowedCount
+                + permitAllCount
+                + denyAllCount
+                + authenticatedCount
+                + quarkusAuthorizationAnnotationCount;
+    }
+
+    public int protectiveAnnotationCount() {
+        return rolesAllowedCount + denyAllCount + authenticatedCount + quarkusAuthorizationAnnotationCount;
     }
 }

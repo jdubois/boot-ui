@@ -2,9 +2,12 @@ package io.github.jdubois.bootui.quarkus.deployment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.quarkus.security.PermissionsAllowed;
+import io.quarkus.vertx.http.security.AuthorizationPolicy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import jakarta.ws.rs.GET;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -13,6 +16,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.Index;
 import org.jboss.jandex.Indexer;
+import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.Type;
 import org.junit.jupiter.api.Test;
 import org.reactivestreams.Publisher;
@@ -76,6 +80,30 @@ class BootUiQuarkusProcessorAppIdiomsTest {
 
     private static Type classType(String fqcn) {
         return Type.create(DotName.createSimple(fqcn), Type.Kind.CLASS);
+    }
+
+    @Test
+    void securityAnnotationScanIncludesQuarkusPermissionAndPolicyAnnotations() throws IOException {
+        Index index = indexOf(QuarkusAuthorizationResource.class);
+
+        assertThat(BootUiQuarkusProcessor.quarkusAuthorizationAnnotationCount(index))
+                .isEqualTo(2);
+        assertThat(BootUiQuarkusProcessor.isSecuredEndpoint(method(index, "permissionProtected")))
+                .isTrue();
+        assertThat(BootUiQuarkusProcessor.isSecuredEndpoint(method(index, "policyProtected")))
+                .isTrue();
+        assertThat(BootUiQuarkusProcessor.isSecuredEndpoint(method(index, "unprotected")))
+                .isFalse();
+    }
+
+    private static MethodInfo method(Index index, String name) {
+        return index
+                .getClassByName(DotName.createSimple(QuarkusAuthorizationResource.class.getName()))
+                .methods()
+                .stream()
+                .filter(method -> name.equals(method.name()))
+                .findFirst()
+                .orElseThrow();
     }
 
     // ---- mutableFieldsOf (QA-CDI-001 / QA-CDI-003) ----
@@ -183,6 +211,25 @@ class BootUiQuarkusProcessorAppIdiomsTest {
 
     static class PlainBean {
         public String publicMutableField;
+    }
+
+    static class QuarkusAuthorizationResource {
+        @GET
+        @PermissionsAllowed("read")
+        String permissionProtected() {
+            return "permission";
+        }
+
+        @GET
+        @AuthorizationPolicy(name = "custom")
+        String policyProtected() {
+            return "policy";
+        }
+
+        @GET
+        String unprotected() {
+            return "open";
+        }
     }
 
     @io.smallrye.common.annotation.RunOnVirtualThread

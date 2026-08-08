@@ -29,6 +29,10 @@ test.describe('Security advisor (Quarkus)', () => {
     const basicAuthRow = page.locator('.list-group-item', {hasText: 'QS-AUTH-002'})
     await expect(basicAuthRow).toContainText('Basic authentication without TLS')
 
+    // Embedded demo credentials are explicitly configured as plain text.
+    const plainTextPasswordRow = page.locator('.list-group-item', {hasText: 'QS-AUTH-013'})
+    await expect(plainTextPasswordRow).toContainText('Embedded users stored with plain-text passwords')
+
     // quarkus.http.cors.origins=* combined with access-control-allow-credentials=true.
     const corsRow = page.locator('.list-group-item', {hasText: 'QS-CORS-002'})
     await expect(corsRow).toContainText('CORS wildcard origin with credentials')

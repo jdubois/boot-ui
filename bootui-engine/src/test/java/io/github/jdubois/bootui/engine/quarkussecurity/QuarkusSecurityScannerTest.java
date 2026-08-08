@@ -82,7 +82,7 @@ class QuarkusSecurityScannerTest {
         boolean referrerPolicy = true;
         boolean permissionsPolicy = true;
         // Quarkus-specific
-        String nonAppRootPath = "/q";
+        String nonAppRootPath = "q";
         boolean grpcReflectionProd = false;
         boolean graphqlPresent = false;
         boolean graphqlIntrospection = true;
@@ -99,6 +99,11 @@ class QuarkusSecurityScannerTest {
         boolean insecureIdentityProviderUrl = false;
         boolean oidcIssuerAny = false;
         boolean oidcServiceTokenConsumer = true;
+        boolean embeddedUsersPlainText = false;
+        List<String> tlsHostnameVerificationDisabled = List.of();
+        boolean nonAppRootPathMerged = false;
+        int quarkusAuthorizationAnnotations = 0;
+        boolean defaultRolesAllowed = false;
 
         QuarkusSecuritySnapshot build() {
             return new QuarkusSecuritySnapshot(
@@ -164,7 +169,12 @@ class QuarkusSecurityScannerTest {
                     healthUiAlwaysInclude,
                     insecureIdentityProviderUrl,
                     oidcIssuerAny,
-                    oidcServiceTokenConsumer);
+                    oidcServiceTokenConsumer,
+                    embeddedUsersPlainText,
+                    tlsHostnameVerificationDisabled,
+                    nonAppRootPathMerged,
+                    quarkusAuthorizationAnnotations,
+                    defaultRolesAllowed);
         }
     }
 
@@ -275,6 +285,19 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
+    void permitPolicyDoesNotMasqueradeAsProtectiveAuthorization() {
+        Snap s = new Snap();
+        s.basic = false;
+        s.authenticated = 0;
+        s.permissions = List.of(new QuarkusSecurityPermission("open", "/*", "permit", null));
+
+        assertThat(find(scan(s), "QS-AUTH-001")).isNotNull();
+
+        s.basic = true;
+        assertThat(find(scan(s), "QS-AUTHZ-001")).isNotNull();
+    }
+
+    @Test
     void permitAllOnScopedPathDoesNotFlagAuthz002() {
         // Regression: the old substring check matched "/public/*" against "/*".
         Snap s = new Snap();
@@ -326,7 +349,7 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void insecureRequestsFlagsTls001ButProxySuppresses() {
+    void insecureRequestsFlagsTls001EvenWhenForwardedHeadersAreTrusted() {
         Snap fires = new Snap();
         fires.insecure = "enabled";
         assertThat(find(scan(fires), "QS-TLS-001").severity()).isEqualTo("LOW");
@@ -334,11 +357,11 @@ class QuarkusSecurityScannerTest {
         Snap proxied = new Snap();
         proxied.insecure = "enabled";
         proxied.behindProxy = true;
-        assertThat(find(scan(proxied), "QS-TLS-001")).isNull();
+        assertThat(find(scan(proxied), "QS-TLS-001")).isNotNull();
     }
 
     @Test
-    void noTlsFlagsTls002ButProxySuppresses() {
+    void noTlsFlagsTls002EvenWhenForwardedHeadersAreTrusted() {
         Snap fires = new Snap();
         fires.ssl = false;
         assertThat(find(scan(fires), "QS-TLS-002").severity()).isEqualTo("INFO");
@@ -346,7 +369,7 @@ class QuarkusSecurityScannerTest {
         Snap proxied = new Snap();
         proxied.ssl = false;
         proxied.behindProxy = true;
-        assertThat(find(scan(proxied), "QS-TLS-002")).isNull();
+        assertThat(find(scan(proxied), "QS-TLS-002")).isNotNull();
     }
 
     @Test
@@ -403,6 +426,28 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
+    void pinnedCredentialedCorsWithUnsetMethodsFlagsCors003() {
+        Snap s = new Snap();
+        s.cors = true;
+        s.corsOrigins = "https://app.example";
+        s.corsCreds = true;
+        s.corsMethods = null;
+        s.corsHeaders = "Content-Type";
+        assertThat(find(scan(s), "QS-CORS-003").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void multiEntryCorsMethodsAreNotTreatedAsWildcard() {
+        Snap s = new Snap();
+        s.cors = true;
+        s.corsOrigins = "https://app.example";
+        s.corsCreds = true;
+        s.corsMethods = "*,GET";
+        s.corsHeaders = "Content-Type";
+        assertThat(find(scan(s), "QS-CORS-003")).isNull();
+    }
+
+    @Test
     void noSecurityHeadersFlagsHdr003AndHdr004() {
         Snap s = new Snap();
         s.hsts = false;
@@ -428,6 +473,14 @@ class QuarkusSecurityScannerTest {
         s.hstsValue = "max-age=31536000; includeSubDomains";
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-HDR-001")).isNull();
+    }
+
+    @Test
+    void hstsDoesNotRequireIncludeSubDomains() {
+        Snap s = new Snap();
+        s.hsts = true;
+        s.hstsValue = "max-age=31536000";
+        assertThat(find(scan(s), "QS-HDR-001")).isNull();
     }
 
     @Test
@@ -471,7 +524,7 @@ class QuarkusSecurityScannerTest {
         Snap s = new Snap();
         s.oidcTlsNone = true;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-DEV-001").severity()).isEqualTo("MEDIUM");
+        assertThat(find(r, "QS-DEV-001").severity()).isEqualTo("HIGH");
     }
 
     @Test
@@ -480,6 +533,14 @@ class QuarkusSecurityScannerTest {
         s.swagger = true;
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-DEV-002").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void nonexistentOpenApiAlwaysIncludeFactDoesNotFlagDev002() {
+        Snap s = new Snap();
+        s.openApi = true;
+
+        assertThat(find(scan(s), "QS-DEV-002")).isNull();
     }
 
     @Test
@@ -510,7 +571,7 @@ class QuarkusSecurityScannerTest {
         s.oidcAppType = "web-app";
         s.oidcCookieSecure = false;
         s.ssl = false;
-        s.behindProxy = true; // suppress TLS rules
+        s.behindProxy = true;
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-OIDC-002").severity()).isEqualTo("MEDIUM");
     }
@@ -545,11 +606,10 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void jwtAlgorithmUnpinnedForRemoteJwksFlagsAuth006() {
+    void jwtAlgorithmDefaultDoesNotFlagRetiredAuth006() {
         Snap s = new Snap();
         s.jwtAlgUnpinnedForRemoteJwks = true;
-        SecurityReport r = scan(s);
-        assertThat(find(r, "QS-AUTH-006").severity()).isEqualTo("MEDIUM");
+        assertThat(find(scan(s), "QS-AUTH-006")).isNull();
     }
 
     @Test
@@ -558,6 +618,22 @@ class QuarkusSecurityScannerTest {
         s.embeddedUsers = true;
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-AUTH-007").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void embeddedUsersWithPlainTextPasswordsFlagsAuth013() {
+        Snap s = new Snap();
+        s.embeddedUsers = true;
+        s.embeddedUsersPlainText = true;
+        assertThat(find(scan(s), "QS-AUTH-013").severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void plainTextSettingWithoutEmbeddedUsersDoesNotFlagAuth013() {
+        Snap s = new Snap();
+        s.embeddedUsers = false;
+        s.embeddedUsersPlainText = true;
+        assertThat(find(scan(s), "QS-AUTH-013")).isNull();
     }
 
     @Test
@@ -615,14 +691,14 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void formAuthBehindTlsTerminatingProxyDoesNotFlagAuth012() {
+    void formAuthBehindProxyStillFlagsAcceptedPlainHttpListener() {
         Snap s = new Snap();
         s.form = true;
         s.csrf = true;
         s.insecure = "enabled";
         s.behindProxy = true;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-AUTH-012")).isNull();
+        assertThat(find(r, "QS-AUTH-012")).isNotNull();
     }
 
     @Test
@@ -631,6 +707,16 @@ class QuarkusSecurityScannerTest {
         s.insecureIdentityProviderUrl = true;
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-TLS-004").severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void disabledTlsHostnameVerificationFlagsTls005() {
+        Snap s = new Snap();
+        s.tlsHostnameVerificationDisabled = List.of("default TLS registry bucket", "OIDC tenant partner");
+        SecurityRuleResultDto finding = find(scan(s), "QS-TLS-005");
+        assertThat(finding.severity()).isEqualTo("HIGH");
+        assertThat(finding.violationCount()).isEqualTo(2);
+        assertThat(finding.sampleViolations()).containsExactly("default TLS registry bucket", "OIDC tenant partner");
     }
 
     @Test
@@ -670,6 +756,7 @@ class QuarkusSecurityScannerTest {
     void nonApplicationRootPathCollapsedFlagsMgmt002() {
         Snap s = new Snap();
         s.nonAppRootPath = "/";
+        s.nonAppRootPathMerged = true;
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-MGMT-002").severity()).isEqualTo("MEDIUM");
     }
@@ -677,9 +764,17 @@ class QuarkusSecurityScannerTest {
     @Test
     void defaultNonApplicationRootPathDoesNotFlagMgmt002() {
         Snap s = new Snap();
-        s.nonAppRootPath = "/q";
+        s.nonAppRootPath = "q";
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-MGMT-002")).isNull();
+    }
+
+    @Test
+    void customHttpRootCollapseFlagsMgmt002() {
+        Snap s = new Snap();
+        s.nonAppRootPath = "/api";
+        s.nonAppRootPathMerged = true;
+        assertThat(find(scan(s), "QS-MGMT-002")).isNotNull();
     }
 
     @Test
@@ -962,6 +1057,40 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
+    void defaultRolesSuppressMissingAuthorizationFindings() {
+        Snap s = new Snap();
+        s.authenticated = 0;
+        s.secured = 0;
+        s.denyUnannotated = false;
+        s.defaultRolesAllowed = true;
+        SecurityReport report = scan(s);
+        assertThat(find(report, "QS-AUTHZ-001")).isNull();
+        assertThat(find(report, "QS-AUTHZ-004")).isNull();
+    }
+
+    @Test
+    void quarkusAuthorizationAnnotationsCountAsProtection() {
+        Snap s = new Snap();
+        s.basic = false;
+        s.authenticated = 0;
+        s.secured = 1;
+        s.quarkusAuthorizationAnnotations = 1;
+        assertThat(find(scan(s), "QS-AUTH-001")).isNull();
+    }
+
+    @Test
+    void quarkusAuthorizationAnnotationsContributeToCoverageReview() {
+        Snap s = new Snap();
+        s.authenticated = 0;
+        s.endpoints = 4;
+        s.secured = 1;
+        s.quarkusAuthorizationAnnotations = 1;
+        s.denyUnannotated = true;
+
+        assertThat(find(scan(s), "QS-AUTHZ-003")).isNotNull();
+    }
+
+    @Test
     void dismissalsHideMatchingFindings() {
         Snap s = new Snap();
         s.basic = false;
@@ -994,6 +1123,6 @@ class QuarkusSecurityScannerTest {
         s.secured = 0;
         SecurityReport r = scan(s);
         assertThat(r.results()).allSatisfy(x -> assertThat(x.id()).startsWith("QS-"));
-        assertThat(r.scan().rulesEvaluated()).isEqualTo(48);
+        assertThat(r.scan().rulesEvaluated()).isEqualTo(49);
     }
 }
