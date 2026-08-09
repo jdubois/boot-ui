@@ -246,7 +246,7 @@ final class SchemaIntrospector {
                 while (rs.next()) {
                     long lastValue = rs.getLong("last_value");
                     long maxValue = rs.getLong("max_value");
-                    int percentUsed = maxValue == 0 ? 0 : (int) ((lastValue * 100L) / maxValue);
+                    int percentUsed = maxValue <= 0 ? 0 : (int) ((lastValue * 100L) / maxValue);
                     findings.add(new PostgresSequenceNearingExhaustion(
                             rs.getString("sequencename"), lastValue, maxValue, percentUsed));
                 }
