@@ -122,14 +122,32 @@ final class SchemaIntrospector {
                 .toList();
     }
 
-    private static List<ForeignKeyModel> readForeignKeys(
-            DatabaseMetaData metaData, String catalog, String schema, String table) throws SQLException {
+    static List<ForeignKeyModel> readForeignKeys(DatabaseMetaData metaData, String catalog, String schema, String table)
+            throws SQLException {
         Map<String, List<String>> columnsByFkName = new LinkedHashMap<>();
         Map<String, String> referencedTableByFkName = new LinkedHashMap<>();
+        // JDBC guarantees getImportedKeys() rows are ordered by FKTABLE_CAT/SCHEM/NAME, KEY_SEQ, so all
+        // columns belonging to the same constraint are contiguous with an increasing KEY_SEQ starting at
+        // 1. Unnamed constraints (FK_NAME null) therefore only need a new synthetic key when KEY_SEQ
+        // restarts at 1 — otherwise a composite unnamed foreign key would be split into one fake
+        // single-column constraint per row.
+        String currentUnnamedKey = null;
+        int unnamedCount = 0;
         try (ResultSet rs = metaData.getImportedKeys(catalog, schema, table)) {
             while (rs.next()) {
                 String fkName = rs.getString("FK_NAME");
-                String key = fkName == null ? "fk#" + columnsByFkName.size() : fkName;
+                short keySeq = rs.getShort("KEY_SEQ");
+                String key;
+                if (fkName != null) {
+                    key = fkName;
+                } else {
+                    if (currentUnnamedKey == null || keySeq <= 1) {
+                        key = "fk#" + unnamedCount++;
+                        currentUnnamedKey = key;
+                    } else {
+                        key = currentUnnamedKey;
+                    }
+                }
                 columnsByFkName
                         .computeIfAbsent(key, ignored -> new ArrayList<>())
                         .add(rs.getString("FKCOLUMN_NAME"));
