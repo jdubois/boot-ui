@@ -72,7 +72,7 @@ final class HibernateMissingUniqueIndexRule extends AbstractDatabaseAdvisorRule 
                 .anyMatch(index -> index.unique() && normalized(index.columns()).equals(mappedColumns));
         if (!backed) {
             details.add(uniqueConstraint.description() + " declares a unique constraint on "
-                    + entity.explicitTableName() + uniqueConstraint.columns()
+                    + entity.explicitTableName() + " " + uniqueConstraint.columns()
                     + ", which has no backing unique index in the physical schema.");
         }
     }
