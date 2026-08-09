@@ -17,7 +17,8 @@ class DatabaseAdvisorRulesTests {
     private static final String SKIPPED = DatabaseAdvisorRuleSupport.SKIPPED;
 
     private static SchemaSnapshot snapshot(String name, Dialect dialect, List<TableModel> tables) {
-        return new SchemaSnapshot(name, dialect, dialect.name(), tables, List.of(), List.of(), List.of(), null);
+        return new SchemaSnapshot(
+                name, dialect, dialect.name(), tables, List.of(), List.of(), List.of(), List.of(), null);
     }
 
     private static DatabaseAdvisorContext context(List<SchemaSnapshot> schemas) {
@@ -154,6 +155,7 @@ class DatabaseAdvisorRulesTests {
                 List.of(new PostgresInvalidIndex("orders", "ix_broken")),
                 List.of(),
                 List.of(),
+                List.of(),
                 null);
         DatabaseAdvisorRuleResultDto result = new PostgresInvalidIndexRule().evaluate(context(List.of(schema)));
         assertThat(result.status()).isEqualTo(VIOLATION);
@@ -163,7 +165,7 @@ class DatabaseAdvisorRulesTests {
     @Test
     void postgresInvalidIndexRulePassesWhenPostgresHasNoInvalidIndexes() {
         SchemaSnapshot schema = new SchemaSnapshot(
-                "ds", Dialect.POSTGRESQL, "PostgreSQL", List.of(), List.of(), List.of(), List.of(), null);
+                "ds", Dialect.POSTGRESQL, "PostgreSQL", List.of(), List.of(), List.of(), List.of(), List.of(), null);
         DatabaseAdvisorRuleResultDto result = new PostgresInvalidIndexRule().evaluate(context(List.of(schema)));
         assertThat(result.status()).isEqualTo(PASS);
     }
@@ -186,6 +188,7 @@ class DatabaseAdvisorRulesTests {
                 List.of(),
                 List.of(),
                 List.of(new MySqlNonInnodbTable("legacy_sessions", "MyISAM")),
+                List.of(),
                 List.of(),
                 null);
         DatabaseAdvisorRuleResultDto result = new MySqlNonInnodbEngineRule().evaluate(context(List.of(schema)));
@@ -212,6 +215,7 @@ class DatabaseAdvisorRulesTests {
                 List.of(),
                 List.of(),
                 List.of(new MySqlNonUtf8mb4Column("customers", "name", "latin1")),
+                List.of(),
                 null);
         DatabaseAdvisorRuleResultDto result = new MySqlNonUtf8mb4CharsetRule().evaluate(context(List.of(schema)));
         assertThat(result.status()).isEqualTo(VIOLATION);
@@ -220,9 +224,43 @@ class DatabaseAdvisorRulesTests {
 
     @Test
     void mySqlNonUtf8mb4CharsetRulePassesWhenAllMySqlColumnsAreUtf8mb4() {
-        SchemaSnapshot schema =
-                new SchemaSnapshot("ds", Dialect.MYSQL, "MySQL", List.of(), List.of(), List.of(), List.of(), null);
+        SchemaSnapshot schema = new SchemaSnapshot(
+                "ds", Dialect.MYSQL, "MySQL", List.of(), List.of(), List.of(), List.of(), List.of(), null);
         DatabaseAdvisorRuleResultDto result = new MySqlNonUtf8mb4CharsetRule().evaluate(context(List.of(schema)));
+        assertThat(result.status()).isEqualTo(PASS);
+    }
+
+    // --- PostgresSequenceExhaustionRule ---
+
+    @Test
+    void postgresSequenceExhaustionRuleSkipsWhenNoPostgresDatasourceIsPresent() {
+        DatabaseAdvisorRuleResultDto result = new PostgresSequenceExhaustionRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of()))));
+        assertThat(result.status()).isEqualTo(SKIPPED);
+    }
+
+    @Test
+    void postgresSequenceExhaustionRuleFlagsSequencesNearingExhaustion() {
+        SchemaSnapshot schema = new SchemaSnapshot(
+                "ds",
+                Dialect.POSTGRESQL,
+                "PostgreSQL",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new PostgresSequenceNearingExhaustion("orders_id_seq", 1_900_000_000L, 2_147_483_647L, 88)),
+                null);
+        DatabaseAdvisorRuleResultDto result = new PostgresSequenceExhaustionRule().evaluate(context(List.of(schema)));
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.sampleViolations().get(0)).contains("orders_id_seq").contains("88%");
+    }
+
+    @Test
+    void postgresSequenceExhaustionRulePassesWhenNoSequenceIsNearingExhaustion() {
+        SchemaSnapshot schema = new SchemaSnapshot(
+                "ds", Dialect.POSTGRESQL, "PostgreSQL", List.of(), List.of(), List.of(), List.of(), List.of(), null);
+        DatabaseAdvisorRuleResultDto result = new PostgresSequenceExhaustionRule().evaluate(context(List.of(schema)));
         assertThat(result.status()).isEqualTo(PASS);
     }
 

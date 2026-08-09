@@ -64,6 +64,8 @@ final class SchemaIntrospector {
                 dialect == Dialect.MYSQL ? readMySqlNonInnodbTables(connection) : List.of();
         List<MySqlNonUtf8mb4Column> mysqlNonUtf8mb4Columns =
                 dialect == Dialect.MYSQL ? readMySqlNonUtf8mb4Columns(connection) : List.of();
+        List<PostgresSequenceNearingExhaustion> postgresSequencesNearingExhaustion =
+                dialect == Dialect.POSTGRESQL ? readPostgresSequencesNearingExhaustion(connection) : List.of();
 
         return new SchemaSnapshot(
                 dataSourceName,
@@ -73,6 +75,7 @@ final class SchemaIntrospector {
                 postgresInvalidIndexes,
                 mysqlNonInnodbTables,
                 mysqlNonUtf8mb4Columns,
+                postgresSequencesNearingExhaustion,
                 null);
     }
 
@@ -218,6 +221,38 @@ final class SchemaIntrospector {
             }
         } catch (SQLException ex) {
             // The catalog augmentation is best-effort: an unreadable pg_index (e.g. insufficient
+            // privileges) simply yields no dialect-specific findings, the generic scan still applies.
+            return List.of();
+        }
+        return findings;
+    }
+
+    private static List<PostgresSequenceNearingExhaustion> readPostgresSequencesNearingExhaustion(
+            Connection connection) {
+        String sql = """
+                select schemaname, sequencename, last_value, max_value
+                from pg_sequences
+                where last_value is not null
+                  and max_value > 0
+                  and schemaname not in ('pg_catalog', 'information_schema', 'pg_toast')
+                  and (last_value::numeric / max_value::numeric) * 100 >= ?
+                limit ?
+                """;
+        List<PostgresSequenceNearingExhaustion> findings = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, PostgresSequenceExhaustionRule.WARNING_PERCENT_USED);
+            statement.setInt(2, MAX_DIALECT_FINDINGS);
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    long lastValue = rs.getLong("last_value");
+                    long maxValue = rs.getLong("max_value");
+                    int percentUsed = maxValue == 0 ? 0 : (int) ((lastValue * 100L) / maxValue);
+                    findings.add(new PostgresSequenceNearingExhaustion(
+                            rs.getString("sequencename"), lastValue, maxValue, percentUsed));
+                }
+            }
+        } catch (SQLException ex) {
+            // The catalog augmentation is best-effort: an unreadable pg_sequences (e.g. insufficient
             // privileges) simply yields no dialect-specific findings, the generic scan still applies.
             return List.of();
         }

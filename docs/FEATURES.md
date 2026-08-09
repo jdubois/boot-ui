@@ -1133,7 +1133,8 @@ present or introspection fails.
 
 For **PostgreSQL** and **MySQL** — the two most widely used relational databases among Java developers — a small amount
 of dialect-specific catalog augmentation runs in addition to the generic checks: PostgreSQL invalid/broken indexes
-(`pg_index.indisvalid = false`, e.g. left behind by a failed `CREATE INDEX CONCURRENTLY`), MySQL tables using a
+(`pg_index.indisvalid = false`, e.g. left behind by a failed `CREATE INDEX CONCURRENTLY`), a PostgreSQL sequence
+nearing exhaustion of its underlying type's numeric range (`pg_sequences.last_value`), MySQL tables using a
 non-`InnoDB` storage engine, and MySQL columns using a character set other than `utf8mb4`. The dialect is detected from
 `DatabaseMetaData.getDatabaseProductName()` and the JDBC URL; every other database (H2, SQL Server, Oracle, MariaDB, etc.)
 still runs the full generic ruleset through the standard JDBC metadata fallback — it is never treated as unsupported. Both

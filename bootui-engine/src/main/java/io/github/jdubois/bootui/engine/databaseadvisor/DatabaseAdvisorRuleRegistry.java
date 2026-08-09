@@ -13,6 +13,7 @@ final class DatabaseAdvisorRuleRegistry {
             new RedundantPrimaryKeyUniqueIndexRule(),
             // Schema (dialect-specific catalog augmentation)
             new PostgresInvalidIndexRule(),
+            new PostgresSequenceExhaustionRule(),
             new MySqlNonInnodbEngineRule(),
             new MySqlNonUtf8mb4CharsetRule(),
             // Hibernate <-> physical schema cross-reference

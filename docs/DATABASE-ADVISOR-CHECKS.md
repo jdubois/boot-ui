@@ -133,6 +133,18 @@ as the MySQL dialect, so `DB-MYSQL-001` does not run against it.
 - **Recommendation**: convert the column (and ideally the table/database default) to `utf8mb4` (`ALTER TABLE ...
   CONVERT TO CHARACTER SET utf8mb4`).
 
+### DB-PG-002 - PostgreSQL sequence nearing exhaustion
+
+- **Severity**: HIGH
+- **Inspects**: `pg_sequences.last_value` against `pg_sequences.max_value` on PostgreSQL datasources only; skipped
+  when no PostgreSQL datasource is detected.
+- **Fires when**: a sequence has consumed at least 80% of the numeric range of its underlying data type (e.g. an
+  `int4`-backed sequence approaching ~2.1 billion).
+- **Why it matters**: a sequence that reaches the maximum value of its type causes every subsequent insert relying
+  on it to fail outright — a well-documented, real-world outage cause.
+- **Recommendation**: convert the sequence's backing column (and the sequence itself) to a wider type (e.g. `int4`
+  to `int8`/`bigint`), or restart the sequence after archiving/compacting old rows.
+
 ## Hibernate mapping
 
 These checks run only when a Hibernate `EntityManagerFactory`/metamodel is also available for the same application,

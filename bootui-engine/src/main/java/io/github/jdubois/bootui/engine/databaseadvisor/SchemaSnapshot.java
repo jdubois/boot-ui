@@ -15,6 +15,7 @@ record SchemaSnapshot(
         List<PostgresInvalidIndex> postgresInvalidIndexes,
         List<MySqlNonInnodbTable> mysqlNonInnodbTables,
         List<MySqlNonUtf8mb4Column> mysqlNonUtf8mb4Columns,
+        List<PostgresSequenceNearingExhaustion> postgresSequencesNearingExhaustion,
         String error) {
 
     SchemaSnapshot {
@@ -22,11 +23,12 @@ record SchemaSnapshot(
         postgresInvalidIndexes = List.copyOf(postgresInvalidIndexes);
         mysqlNonInnodbTables = List.copyOf(mysqlNonInnodbTables);
         mysqlNonUtf8mb4Columns = List.copyOf(mysqlNonUtf8mb4Columns);
+        postgresSequencesNearingExhaustion = List.copyOf(postgresSequencesNearingExhaustion);
     }
 
     static SchemaSnapshot failed(String dataSourceName, String error) {
         return new SchemaSnapshot(
-                dataSourceName, Dialect.GENERIC, null, List.of(), List.of(), List.of(), List.of(), error);
+                dataSourceName, Dialect.GENERIC, null, List.of(), List.of(), List.of(), List.of(), List.of(), error);
     }
 
     boolean available() {
