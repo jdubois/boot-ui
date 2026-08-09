@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * MySQL/MariaDB-specific: tables not using the InnoDB storage engine lose foreign-key enforcement, MVCC,
+ * MySQL-specific: tables not using the InnoDB storage engine lose foreign-key enforcement, MVCC,
  * and crash-safe transactions (MyISAM/MEMORY/ARCHIVE tables are table-locked and non-transactional).
  */
 final class MySqlNonInnodbEngineRule extends AbstractDatabaseAdvisorRule {
@@ -16,8 +16,7 @@ final class MySqlNonInnodbEngineRule extends AbstractDatabaseAdvisorRule {
                 "Tables not using the InnoDB storage engine",
                 DatabaseAdvisorCategory.SCHEMA,
                 DatabaseAdvisorRuleSupport.HIGH,
-                "Detects MySQL/MariaDB tables (information_schema.tables.ENGINE) whose storage engine is not "
-                        + "InnoDB.",
+                "Detects MySQL tables (information_schema.tables.ENGINE) whose storage engine is not " + "InnoDB.",
                 "Convert the table to InnoDB (ALTER TABLE ... ENGINE=InnoDB). Non-InnoDB engines such as MyISAM do "
                         + "not enforce foreign keys, do not support transactions/MVCC, and use table-level locking, "
                         + "which surprises most JPA/Hibernate applications that assume ACID semantics.",
@@ -34,12 +33,12 @@ final class MySqlNonInnodbEngineRule extends AbstractDatabaseAdvisorRule {
             }
             anyMySql = true;
             for (MySqlNonInnodbTable table : schema.mysqlNonInnodbTables()) {
-                details.add(schema.dataSourceName() + ": table " + table.tableName() + " uses engine "
-                        + table.engine() + " instead of InnoDB.");
+                details.add(schema.dataSourceName() + ": table " + table.tableName() + " uses engine " + table.engine()
+                        + " instead of InnoDB.");
             }
         }
         if (!anyMySql) {
-            return skipped("No MySQL/MariaDB datasource was detected.");
+            return skipped("No MySQL datasource was detected.");
         }
         return violation(details);
     }

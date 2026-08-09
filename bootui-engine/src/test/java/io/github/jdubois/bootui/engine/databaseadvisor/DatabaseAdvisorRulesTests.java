@@ -92,7 +92,9 @@ class DatabaseAdvisorRulesTests {
         DatabaseAdvisorRuleResultDto result = new MissingForeignKeyIndexRule()
                 .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of(table)))));
         assertThat(result.status()).isEqualTo(VIOLATION);
-        assertThat(result.sampleViolations().get(0)).contains("orders.customer_id").contains("customers");
+        assertThat(result.sampleViolations().get(0))
+                .contains("orders.customer_id")
+                .contains("customers");
     }
 
     // --- DuplicateIndexRule ---
@@ -226,7 +228,8 @@ class DatabaseAdvisorRulesTests {
                 List.of(new MappedForeignKeyFacts("Order.customer", List.of("customer_id"))),
                 List.of());
         DatabaseAdvisorRuleResultDto result = new HibernateMissingForeignKeyIndexRule()
-                .evaluate(contextWithHibernate(List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
         assertThat(result.status()).isEqualTo(VIOLATION);
         assertThat(result.sampleViolations().get(0)).contains("Order.customer").contains("orders.customer_id");
     }
@@ -247,7 +250,8 @@ class DatabaseAdvisorRulesTests {
                 List.of(new MappedForeignKeyFacts("Order.customer", List.of("customer_id"))),
                 List.of());
         DatabaseAdvisorRuleResultDto result = new HibernateMissingForeignKeyIndexRule()
-                .evaluate(contextWithHibernate(List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
         assertThat(result.status()).isEqualTo(PASS);
     }
 
@@ -267,7 +271,8 @@ class DatabaseAdvisorRulesTests {
                 List.of(new MappedForeignKeyFacts("Order.customer", List.of("customer_id"))),
                 List.of());
         DatabaseAdvisorRuleResultDto result = new HibernateMissingForeignKeyIndexRule()
-                .evaluate(contextWithHibernate(List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
         assertThat(result.status()).isEqualTo(PASS);
     }
 
@@ -286,7 +291,9 @@ class DatabaseAdvisorRulesTests {
         DatabaseAdvisorRuleResultDto result = new HibernateMissingTableRule()
                 .evaluate(contextWithHibernate(List.of(snapshot("ds", Dialect.GENERIC, List.of())), List.of(entity)));
         assertThat(result.status()).isEqualTo(VIOLATION);
-        assertThat(result.sampleViolations().get(0)).contains("com.example.Order").contains("orders");
+        assertThat(result.sampleViolations().get(0))
+                .contains("com.example.Order")
+                .contains("orders");
     }
 
     @Test
@@ -294,7 +301,8 @@ class DatabaseAdvisorRulesTests {
         TableModel table = new TableModel(null, null, "orders", List.of(), List.of(), List.of(), List.of());
         MappedEntityFacts entity = new MappedEntityFacts("com.example.Order", "orders", List.of(), List.of());
         DatabaseAdvisorRuleResultDto result = new HibernateMissingTableRule()
-                .evaluate(contextWithHibernate(List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
         assertThat(result.status()).isEqualTo(PASS);
     }
 
@@ -310,8 +318,8 @@ class DatabaseAdvisorRulesTests {
 
     @Test
     void hibernateColumnMismatchRuleSkipsWhenHibernateIsUnavailable() {
-        DatabaseAdvisorRuleResultDto result =
-                new HibernateColumnMismatchRule().evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of()))));
+        DatabaseAdvisorRuleResultDto result = new HibernateColumnMismatchRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of()))));
         assertThat(result.status()).isEqualTo(SKIPPED);
     }
 
@@ -331,7 +339,8 @@ class DatabaseAdvisorRulesTests {
                 List.of(),
                 List.of(new MappedColumnFacts("Order.total", "total", true, "BigDecimal")));
         DatabaseAdvisorRuleResultDto result = new HibernateColumnMismatchRule()
-                .evaluate(contextWithHibernate(List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
         assertThat(result.status()).isEqualTo(VIOLATION);
         assertThat(result.sampleViolations().get(0)).contains("type-family mismatch");
     }
@@ -352,7 +361,8 @@ class DatabaseAdvisorRulesTests {
                 List.of(),
                 List.of(new MappedColumnFacts("Order.total", "total", true, "BigDecimal")));
         DatabaseAdvisorRuleResultDto result = new HibernateColumnMismatchRule()
-                .evaluate(contextWithHibernate(List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
         assertThat(result.status()).isEqualTo(VIOLATION);
         assertThat(result.sampleViolations().get(0)).contains("NOT NULL").contains("nullable");
     }
@@ -373,7 +383,8 @@ class DatabaseAdvisorRulesTests {
                 List.of(),
                 List.of(new MappedColumnFacts("Order.total", "total", true, "BigDecimal")));
         DatabaseAdvisorRuleResultDto result = new HibernateColumnMismatchRule()
-                .evaluate(contextWithHibernate(List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
         assertThat(result.status()).isEqualTo(PASS);
     }
 

@@ -24,6 +24,8 @@ record DatabaseAdvisorContext(
     }
 
     int tableCount() {
-        return availableSchemas().stream().mapToInt(schema -> schema.tables().size()).sum();
+        return availableSchemas().stream()
+                .mapToInt(schema -> schema.tables().size())
+                .sum();
     }
 }

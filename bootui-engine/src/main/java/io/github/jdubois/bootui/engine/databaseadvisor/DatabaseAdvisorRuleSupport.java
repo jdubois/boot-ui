@@ -39,7 +39,10 @@ final class DatabaseAdvisorRuleSupport {
     }
 
     static DatabaseAdvisorRuleResultDto result(
-            DatabaseAdvisorRuleDefinition definition, String status, int violationCount, List<String> sampleViolations) {
+            DatabaseAdvisorRuleDefinition definition,
+            String status,
+            int violationCount,
+            List<String> sampleViolations) {
         return new DatabaseAdvisorRuleResultDto(
                 definition.id(),
                 definition.name(),

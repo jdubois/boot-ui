@@ -29,7 +29,8 @@ class DatabaseAdvisorScannerTests {
 
     @BeforeEach
     void setUp() throws SQLException {
-        dataSource = new H2DataSource("jdbc:h2:mem:database-advisor-scanner-" + System.nanoTime() + ";DB_CLOSE_DELAY=-1");
+        dataSource =
+                new H2DataSource("jdbc:h2:mem:database-advisor-scanner-" + System.nanoTime() + ";DB_CLOSE_DELAY=-1");
         try (Connection connection = dataSource.getConnection();
                 Statement statement = connection.createStatement()) {
             statement.execute("create table customers (id bigint primary key, name varchar(255) not null)");
@@ -49,7 +50,8 @@ class DatabaseAdvisorScannerTests {
 
     @Test
     void initialReportIsNotScannedAndHasNoResults() {
-        DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.using(List::of, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+        DatabaseAdvisorScanner scanner =
+                DatabaseAdvisorScanner.using(List::of, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
         DatabaseAdvisorReport report = scanner.initialReport();
         assertThat(report.scan().status()).isEqualTo("NOT_SCANNED");
         assertThat(report.results()).isEmpty();
@@ -57,7 +59,8 @@ class DatabaseAdvisorScannerTests {
 
     @Test
     void scanReportsDisabledWhenNoDataSourceIsAvailable() {
-        DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.using(List::of, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+        DatabaseAdvisorScanner scanner =
+                DatabaseAdvisorScanner.using(List::of, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
         DatabaseAdvisorReport report = scanner.scan();
         assertThat(report.scan().status()).isEqualTo("DISABLED");
         assertThat(report.dataSourceNames()).isEmpty();
@@ -121,7 +124,9 @@ class DatabaseAdvisorScannerTests {
     @Test
     void scanIntrospectsThePhysicalSchemaAndFlagsAMissingPrimaryKey() {
         DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.using(
-                () -> List.of(new NamedDataSource("primary", dataSource)), () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+                () -> List.of(new NamedDataSource("primary", dataSource)),
+                () -> EntityDiscovery.empty(null),
+                FIXED_CLOCK);
         DatabaseAdvisorReport report = scanner.scan();
 
         assertThat(report.scan().status()).isEqualTo("SCANNED");
@@ -133,27 +138,32 @@ class DatabaseAdvisorScannerTests {
         // DB-SCHEMA-002 (missing FK index) is exercised directly against synthetic models in
         // DatabaseAdvisorRulesTests instead; this end-to-end scan only asserts the primary-key check, which
         // genuinely requires the JDBC DatabaseMetaData round trip this test exists to cover.
-        assertThat(report.results())
-                .anySatisfy(result -> {
-                    assertThat(result.id()).isEqualTo("DB-SCHEMA-001");
-                    assertThat(result.status()).isEqualTo("VIOLATION");
-                    assertThat(result.sampleViolations().get(0)).containsIgnoringCase("audit_log");
-                });
+        assertThat(report.results()).anySatisfy(result -> {
+            assertThat(result.id()).isEqualTo("DB-SCHEMA-001");
+            assertThat(result.status()).isEqualTo("VIOLATION");
+            assertThat(result.sampleViolations().get(0)).containsIgnoringCase("audit_log");
+        });
     }
 
     @Test
     void scanNeverIncludesPassingOrSkippedRulesInTheResultsList() {
         DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.using(
-                () -> List.of(new NamedDataSource("primary", dataSource)), () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+                () -> List.of(new NamedDataSource("primary", dataSource)),
+                () -> EntityDiscovery.empty(null),
+                FIXED_CLOCK);
         DatabaseAdvisorReport report = scanner.scan();
-        assertThat(report.results()).allSatisfy(result -> assertThat(result.status()).isEqualTo("VIOLATION"));
-        assertThat(report.rulesEvaluated()).isEqualTo(DatabaseAdvisorRuleRegistry.activeRules().size());
+        assertThat(report.results())
+                .allSatisfy(result -> assertThat(result.status()).isEqualTo("VIOLATION"));
+        assertThat(report.rulesEvaluated())
+                .isEqualTo(DatabaseAdvisorRuleRegistry.activeRules().size());
     }
 
     @Test
     void applyDismissalsMarksDismissedResultsAndReducesTheViolationCount() {
         DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.using(
-                () -> List.of(new NamedDataSource("primary", dataSource)), () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+                () -> List.of(new NamedDataSource("primary", dataSource)),
+                () -> EntityDiscovery.empty(null),
+                FIXED_CLOCK);
         DatabaseAdvisorReport report = scanner.scan();
         String dismissedId = report.results().get(0).id();
 

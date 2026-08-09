@@ -42,8 +42,15 @@ final class HibernateColumnMismatchRule extends AbstractDatabaseAdvisorRule {
             "BigInteger");
     private static final Set<String> BOOLEAN_JAVA_TYPES = Set.of("boolean", "Boolean");
     private static final Set<String> DATE_TIME_JAVA_TYPES = Set.of(
-            "Date", "LocalDate", "LocalDateTime", "LocalTime", "Instant", "OffsetDateTime", "ZonedDateTime",
-            "Timestamp", "Time");
+            "Date",
+            "LocalDate",
+            "LocalDateTime",
+            "LocalTime",
+            "Instant",
+            "OffsetDateTime",
+            "ZonedDateTime",
+            "Timestamp",
+            "Time");
 
     HibernateColumnMismatchRule() {
         super(new DatabaseAdvisorRuleDefinition(

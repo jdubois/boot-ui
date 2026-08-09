@@ -34,14 +34,8 @@ final class SchemaIntrospector {
     static final int MAX_INDEXES_PER_TABLE = 100;
     static final int MAX_DIALECT_FINDINGS = 200;
 
-    private static final Set<String> SYSTEM_SCHEMAS = Set.of(
-            "information_schema",
-            "pg_catalog",
-            "pg_toast",
-            "mysql",
-            "performance_schema",
-            "sys",
-            "sys_config");
+    private static final Set<String> SYSTEM_SCHEMAS =
+            Set.of("information_schema", "pg_catalog", "pg_toast", "mysql", "performance_schema", "sys", "sys_config");
 
     private SchemaIntrospector() {}
 
@@ -162,7 +156,9 @@ final class SchemaIntrospector {
                     // tableIndexStatistic rows carry no column; skip them.
                     continue;
                 }
-                columnsByIndexName.computeIfAbsent(indexName, ignored -> new ArrayList<>()).add(columnName);
+                columnsByIndexName
+                        .computeIfAbsent(indexName, ignored -> new ArrayList<>())
+                        .add(columnName);
                 uniqueByIndexName.putIfAbsent(indexName, !rs.getBoolean("NON_UNIQUE"));
             }
         }
@@ -175,8 +171,7 @@ final class SchemaIntrospector {
     }
 
     private static List<PostgresInvalidIndex> readPostgresInvalidIndexes(Connection connection) {
-        String sql =
-                """
+        String sql = """
                 select t.relname as table_name, c.relname as index_name
                 from pg_index i
                 join pg_class c on c.oid = i.indexrelid
@@ -203,8 +198,7 @@ final class SchemaIntrospector {
     }
 
     private static List<MySqlNonInnodbTable> readMySqlNonInnodbTables(Connection connection) {
-        String sql =
-                """
+        String sql = """
                 select table_name, engine
                 from information_schema.tables
                 where table_schema = database()

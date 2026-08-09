@@ -22,7 +22,7 @@ unavailable, and only cross-reference entities with an explicit `@Table(name = .
 ## Severity scale
 
 - **HIGH** - a structural issue with a well-understood, common performance or data-integrity impact (a missing index
-  supporting a foreign key, an invalid PostgreSQL index, a non-InnoDB MySQL/MariaDB table).
+  supporting a foreign key, an invalid PostgreSQL index, a non-InnoDB MySQL table).
 - **MEDIUM** - a structural issue that usually warrants review before production use (a missing primary key, a mapped
   table or column that disagrees with the physical schema).
 - **LOW** - reserved for lower-impact hygiene findings (redundant indexes).
@@ -69,8 +69,9 @@ standard `DatabaseMetaData` calls.
 
 A small amount of dialect-specific catalog augmentation runs in addition to the generic checks above, for the two
 most widely used relational databases among Java developers. The dialect is detected from
-`DatabaseMetaData.getDatabaseProductName()` and the JDBC URL; every other database still runs the full generic
-ruleset above through the standard JDBC metadata fallback.
+`DatabaseMetaData.getDatabaseProductName()` and the JDBC URL; every other database (H2, SQL Server, Oracle, MariaDB,
+etc.) still runs the full generic ruleset above through the standard JDBC metadata fallback — MariaDB is not detected
+as the MySQL dialect, so `DB-MYSQL-001` does not run against it.
 
 ### DB-PG-001 - Invalid PostgreSQL indexes
 
@@ -86,8 +87,8 @@ ruleset above through the standard JDBC metadata fallback.
 ### DB-MYSQL-001 - Tables not using the InnoDB storage engine
 
 - **Severity**: HIGH
-- **Inspects**: `information_schema.tables.ENGINE` on MySQL/MariaDB datasources only; skipped when no MySQL/MariaDB
-  datasource is detected.
+- **Inspects**: `information_schema.tables.ENGINE` on MySQL datasources only; skipped when no MySQL datasource is
+  detected (MariaDB is not detected as the MySQL dialect and runs the generic Schema checks instead — see above).
 - **Fires when**: a table's storage engine is not `InnoDB`.
 - **Why it matters**: non-InnoDB engines such as MyISAM do not enforce foreign keys, do not support
   transactions/MVCC, and use table-level locking, which surprises most JPA/Hibernate applications that assume ACID

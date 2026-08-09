@@ -77,14 +77,20 @@ public final class DatabaseAdvisorScanner {
     private DatabaseAdvisorReport doScan() {
         List<NamedDataSource> dataSources = safeDataSources();
         if (dataSources.isEmpty()) {
-            return report("DISABLED", "No DataSource beans were found to inspect.", clock.millis(), List.of(), 0, List.of());
+            return report(
+                    "DISABLED", "No DataSource beans were found to inspect.", clock.millis(), List.of(), 0, List.of());
         }
 
-        List<SchemaSnapshot> schemas =
-                dataSources.stream().map(ds -> SchemaIntrospector.introspect(ds.name(), ds.dataSource())).toList();
-        List<SchemaSnapshot> available = schemas.stream().filter(SchemaSnapshot::available).toList();
+        List<SchemaSnapshot> schemas = dataSources.stream()
+                .map(ds -> SchemaIntrospector.introspect(ds.name(), ds.dataSource()))
+                .toList();
+        List<SchemaSnapshot> available =
+                schemas.stream().filter(SchemaSnapshot::available).toList();
         if (available.isEmpty()) {
-            String errors = schemas.stream().map(SchemaSnapshot::error).filter(java.util.Objects::nonNull).distinct()
+            String errors = schemas.stream()
+                    .map(SchemaSnapshot::error)
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
                     .reduce((a, b) -> a + "; " + b)
                     .orElse("Unknown error.");
             return report(
@@ -183,7 +189,9 @@ public final class DatabaseAdvisorScanner {
     private EntityDiscovery safeEntityDiscovery() {
         try {
             EntityDiscovery discovery = entityDiscoverySupplier.get();
-            return discovery == null ? EntityDiscovery.empty("No EntityManagerFactory beans are available.") : discovery;
+            return discovery == null
+                    ? EntityDiscovery.empty("No EntityManagerFactory beans are available.")
+                    : discovery;
         } catch (RuntimeException | LinkageError ex) {
             return EntityDiscovery.empty(ex.getMessage());
         }
@@ -198,11 +206,18 @@ public final class DatabaseAdvisorScanner {
     }
 
     private List<DatabaseAdvisorRuleResultDto> violationResults(List<DatabaseAdvisorRuleResultDto> results) {
-        return results.stream().filter(DatabaseAdvisorScanner::isViolation).sorted(IMPORTANCE_ORDER).toList();
+        return results.stream()
+                .filter(DatabaseAdvisorScanner::isViolation)
+                .sorted(IMPORTANCE_ORDER)
+                .toList();
     }
 
     private static List<String> dataSourceNames(List<NamedDataSource> dataSources) {
-        return dataSources.stream().map(NamedDataSource::name).distinct().sorted().toList();
+        return dataSources.stream()
+                .map(NamedDataSource::name)
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     private static boolean isViolation(DatabaseAdvisorRuleResultDto result) {

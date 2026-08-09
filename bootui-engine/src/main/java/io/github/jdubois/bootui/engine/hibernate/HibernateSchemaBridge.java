@@ -48,7 +48,10 @@ public final class HibernateSchemaBridge {
                 Boolean columnNullable = column == null ? null : attribute.annotationBooleanValue(column, "nullable");
                 boolean nullable = columnNullable == null ? attribute.isOptionalAttribute() : columnNullable;
                 columns.add(new MappedColumnFacts(
-                        attribute.description(), columnName, nullable, attribute.rawType().getSimpleName()));
+                        attribute.description(),
+                        columnName,
+                        nullable,
+                        attribute.rawType().getSimpleName()));
             }
             mapped.add(new MappedEntityFacts(entity.name(), tableName, foreignKeys, columns));
         }
@@ -83,7 +86,8 @@ public final class HibernateSchemaBridge {
         Class<?> current = javaType;
         while (current != null && current != Object.class) {
             for (Annotation annotation : current.getDeclaredAnnotations()) {
-                if (!"jakarta.persistence.Table".equals(annotation.annotationType().getName())) {
+                if (!"jakarta.persistence.Table"
+                        .equals(annotation.annotationType().getName())) {
                     continue;
                 }
                 try {
