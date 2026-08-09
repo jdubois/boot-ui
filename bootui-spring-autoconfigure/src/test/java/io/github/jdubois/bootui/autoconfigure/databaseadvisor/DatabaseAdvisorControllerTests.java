@@ -54,7 +54,8 @@ class DatabaseAdvisorControllerTests {
         when(dismissedRules.load()).thenReturn(Set.of("DB-IGNORED"));
         when(scanner.applyDismissals(eq(initial), eq(Set.of("DB-IGNORED")))).thenReturn(dismissedView);
 
-        MockMvc mvc = standaloneSetup(new DatabaseAdvisorController(scanner, dismissedRules)).build();
+        MockMvc mvc = standaloneSetup(new DatabaseAdvisorController(scanner, dismissedRules))
+                .build();
 
         mvc.perform(get("/bootui/api/database-advisor"))
                 .andExpect(status().isOk())
@@ -72,7 +73,8 @@ class DatabaseAdvisorControllerTests {
         when(dismissedRules.load()).thenReturn(Set.of());
         when(scanner.applyDismissals(eq(scanned), any())).thenReturn(scanned);
 
-        MockMvc mvc = standaloneSetup(new DatabaseAdvisorController(scanner, dismissedRules)).build();
+        MockMvc mvc = standaloneSetup(new DatabaseAdvisorController(scanner, dismissedRules))
+                .build();
 
         mvc.perform(post("/bootui/api/database-advisor/scan"))
                 .andExpect(status().isOk())
@@ -91,7 +93,8 @@ class DatabaseAdvisorControllerTests {
         when(dismissedRules.load()).thenReturn(Set.of());
         when(scanner.applyDismissals(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        MockMvc mvc = standaloneSetup(new DatabaseAdvisorController(scanner, dismissedRules)).build();
+        MockMvc mvc = standaloneSetup(new DatabaseAdvisorController(scanner, dismissedRules))
+                .build();
 
         mvc.perform(post("/bootui/api/database-advisor/scan")).andExpect(status().isOk());
         mvc.perform(get("/bootui/api/database-advisor"))

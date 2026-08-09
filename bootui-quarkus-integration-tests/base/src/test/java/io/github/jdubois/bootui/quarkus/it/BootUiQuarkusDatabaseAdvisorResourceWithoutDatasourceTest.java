@@ -61,7 +61,9 @@ class BootUiQuarkusDatabaseAdvisorResourceWithoutDatasourceTest {
         // A GET before any scan returns the local-only "not scanned" report; the scanner is wired even though
         // no DataSource bean exists.
         Response initial = probe().get("/bootui/api/database-advisor");
-        assertThat(initial.status()).as("GET /bootui/api/database-advisor status").isEqualTo(200);
+        assertThat(initial.status())
+                .as("GET /bootui/api/database-advisor status")
+                .isEqualTo(200);
         assertThat(initial.isJson())
                 .as("GET /bootui/api/database-advisor content-type (%s)", initial.contentType())
                 .isTrue();
@@ -76,7 +78,9 @@ class BootUiQuarkusDatabaseAdvisorResourceWithoutDatasourceTest {
         // POST /scan with no DataSource bean present renders DISABLED (not an error) — the panel degrades
         // gracefully instead of failing the request or attempting a connection that cannot exist.
         Response scan = probe().post("/bootui/api/database-advisor/scan", JSON_HEADERS);
-        assertThat(scan.status()).as("POST /bootui/api/database-advisor/scan status").isEqualTo(200);
+        assertThat(scan.status())
+                .as("POST /bootui/api/database-advisor/scan status")
+                .isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("scan").path("status").asText())
                 .as("with no DataSource bean the scan reports DISABLED")
