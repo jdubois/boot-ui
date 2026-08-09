@@ -5,8 +5,6 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedCol
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 
 /**
  * Cross-references mapped {@code @Column(name=...)} attributes against the physical column: a coarse
@@ -16,41 +14,6 @@ import java.util.Set;
  * class-cast/conversion failure rather than at compile time.
  */
 final class HibernateColumnMismatchRule extends AbstractDatabaseAdvisorRule {
-
-    private static final Set<String> STRING_TYPES = Set.of("char", "clob", "text");
-    private static final Set<String> NUMERIC_TYPES =
-            Set.of("int", "numeric", "decimal", "float", "double", "real", "serial", "money");
-    private static final Set<String> BOOLEAN_TYPES = Set.of("bool");
-    private static final Set<String> DATE_TIME_TYPES = Set.of("date", "time", "timestamp");
-    private static final Set<String> BINARY_TYPES = Set.of("blob", "binary", "bytea");
-
-    private static final Set<String> STRING_JAVA_TYPES = Set.of("String", "Character", "char");
-    private static final Set<String> NUMERIC_JAVA_TYPES = Set.of(
-            "byte",
-            "short",
-            "int",
-            "long",
-            "float",
-            "double",
-            "Byte",
-            "Short",
-            "Integer",
-            "Long",
-            "Float",
-            "Double",
-            "BigDecimal",
-            "BigInteger");
-    private static final Set<String> BOOLEAN_JAVA_TYPES = Set.of("boolean", "Boolean");
-    private static final Set<String> DATE_TIME_JAVA_TYPES = Set.of(
-            "Date",
-            "LocalDate",
-            "LocalDateTime",
-            "LocalTime",
-            "Instant",
-            "OffsetDateTime",
-            "ZonedDateTime",
-            "Timestamp",
-            "Time");
 
     HibernateColumnMismatchRule() {
         super(new DatabaseAdvisorRuleDefinition(
