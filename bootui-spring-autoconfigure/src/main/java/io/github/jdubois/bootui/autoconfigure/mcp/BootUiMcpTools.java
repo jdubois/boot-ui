@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
+import io.github.jdubois.bootui.autoconfigure.databaseadvisor.DatabaseAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
@@ -68,7 +69,8 @@ public class BootUiMcpTools {
             ObjectProvider<PentestingController> pentesting,
             ObjectProvider<RestApiController> restApi,
             ObjectProvider<GraalVmController> graalvm,
-            ObjectProvider<CracController> crac) {
+            ObjectProvider<CracController> crac,
+            ObjectProvider<DatabaseAdvisorController> databaseAdvisor) {
         // Resolve each (lazy) controller bean; conditionally-registered controllers (e.g. Hibernate,
         // Spring Security) may be absent depending on the host app's classpath, so the matching tool is
         // simply not advertised rather than failing the whole server.
@@ -93,6 +95,7 @@ public class BootUiMcpTools {
         RestApiController restApiBean = restApi.getIfAvailable();
         GraalVmController graalvmBean = graalvm.getIfAvailable();
         CracController cracBean = crac.getIfAvailable();
+        DatabaseAdvisorController databaseAdvisorBean = databaseAdvisor.getIfAvailable();
 
         List<McpTool> registry = new ArrayList<>();
 
@@ -156,6 +159,13 @@ public class BootUiMcpTools {
         if (cracBean != null) {
             registry.add(action(
                     "crac_scan", McpToolDescriptions.spring("crac_scan"), BootUiPanels.CRAC, args -> cracBean.scan()));
+        }
+        if (databaseAdvisorBean != null) {
+            registry.add(action(
+                    "database_advisor_scan",
+                    McpToolDescriptions.spring("database_advisor_scan"),
+                    BootUiPanels.DATABASE_ADVISOR,
+                    args -> databaseAdvisorBean.scan()));
         }
 
         // --- Diagnostics / runtime read tools (panel reads; allowed when the panel is enabled) ---

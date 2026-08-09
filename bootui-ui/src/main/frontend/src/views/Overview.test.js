@@ -73,6 +73,7 @@ const allPanels = {
     {id: 'pentesting', available: true},
     {id: 'architecture', available: true},
     {id: 'hibernate', available: true},
+    {id: 'database-advisor', available: true},
     {id: 'github', available: true}
   ]
 }
@@ -111,6 +112,7 @@ describe('Overview', () => {
         {id: 'pentesting', available: false},
         {id: 'architecture', available: true},
         {id: 'hibernate', available: false},
+        {id: 'database-advisor', available: false},
         {id: 'github', available: false}
       ]
     })
@@ -119,6 +121,7 @@ describe('Overview', () => {
     expect(wrapper.text()).toContain('Architecture')
     expect(wrapper.text()).not.toContain('Pentesting')
     expect(wrapper.text()).not.toContain('Hibernate')
+    expect(wrapper.text()).not.toContain('Database Advisor')
     expect(wrapper.text()).not.toContain('Connect to GitHub')
   })
 
@@ -167,6 +170,7 @@ describe('Overview', () => {
         {id: 'pentesting', available: false},
         {id: 'architecture', available: true},
         {id: 'hibernate', available: false},
+        {id: 'database-advisor', available: false},
         {id: 'github', available: false}
       ]
     })
@@ -195,6 +199,7 @@ describe('Overview', () => {
         {id: 'rest-api', available: false},
         {id: 'spring', available: false},
         {id: 'hibernate', available: false},
+        {id: 'database-advisor', available: false},
         {id: 'security', available: false},
         {id: 'pentesting', available: false},
         {id: 'vulnerabilities', available: true},
@@ -275,6 +280,7 @@ describe('Overview', () => {
         {id: 'rest-api', available: false},
         {id: 'spring', available: false},
         {id: 'hibernate', available: false},
+        {id: 'database-advisor', available: false},
         {id: 'security', available: false},
         {id: 'pentesting', available: false},
         {id: 'vulnerabilities', available: false},
@@ -301,6 +307,7 @@ describe('Overview', () => {
       'api/rest-api/scan': severityReport([]),
       'api/spring/scan': severityReport([]),
       'api/hibernate/scan': severityReport([]),
+      'api/database-advisor/scan': severityReport([]),
       'api/security/scan': severityReport([]),
       'api/github/refresh': githubReport({alerts: 0})
     })
@@ -311,9 +318,9 @@ describe('Overview', () => {
     await runAll.trigger('click')
     await flushPromises()
 
-    // Scores: vuln 75, all other advisors 100, github 100 => mean 875/9 => 97
-    expect(wrapper.text()).toContain('97')
-    expect(wrapper.text()).toContain('9 of 9 scanners scored')
+    // Scores: vuln 75, all other advisors 100, github 100 => mean 975/10 => 98
+    expect(wrapper.text()).toContain('98')
+    expect(wrapper.text()).toContain('10 of 10 scanners scored')
   })
 
   it('surfaces a dismissible MCP Server tip after running all scanners', async () => {
@@ -376,6 +383,7 @@ describe('Overview', () => {
         {id: 'pentesting', available: false},
         {id: 'architecture', available: false},
         {id: 'hibernate', available: false},
+        {id: 'database-advisor', available: false},
         {id: 'rest-api', available: false},
         {id: 'spring', available: false},
         {id: 'memory', available: false},
@@ -419,6 +427,7 @@ describe('Overview', () => {
         {id: 'rest-api', available: false},
         {id: 'spring', available: false},
         {id: 'hibernate', available: false},
+        {id: 'database-advisor', available: false},
         {id: 'security', available: false},
         {id: 'pentesting', available: false},
         {id: 'vulnerabilities', available: false},

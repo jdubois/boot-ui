@@ -169,7 +169,7 @@ those fields so the same UI build renders the correct sidebar and status on each
 > the canonical JSON `409` response, while Heap Dump capture/analyze/delete share one mutation-domain admission. MCP
 > returns the same busy message in-band, and passive reads continue serving the last completed report.
 
-### 5.1 Ported as-is — framework-agnostic or same library (17)
+### 5.1 Ported as-is — framework-agnostic or same library (18)
 
 Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
 
@@ -327,10 +327,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 43 of the 52 panels ship on Quarkus: 25 are statically available and 18 are capability/detector-gated. The
+**Result:** 44 of the 53 panels ship on Quarkus: 26 are statically available and 18 are capability/detector-gated. The
 remaining 9 panels do not ship: 8 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
-Sessions, Spring Data, Spring Security, DevTools), and 1 (`JMS`) is not yet available. By portability strategy, the 43
-shipped panels comprise 17 ported as-is, 11 source-swapped, 12 capture-rebuilt, and 3 replaced with a Quarkus-native
+Sessions, Spring Data, Spring Security, DevTools), and 1 (`JMS`) is not yet available. By portability strategy, the 44
+shipped panels comprise 18 ported as-is, 11 source-swapped, 12 capture-rebuilt, and 3 replaced with a Quarkus-native
 panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the advisor endpoints,
 and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -518,6 +518,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Threads             | as-is       | Port    | ThreadMXBean reader              | —                                           |
 | Metrics             | as-is       | Port    | Micrometer reader                | `MeterRegistrySupplier`                     |
 | Hibernate           | as-is       | Port    | Hibernate advisor engine         | `EntityManagerFactoryProvider`              |
+| Database Advisor    | as-is       | Port    | Database advisor rule engine     | `DataSourceProvider` (positional datasource naming; `javax.sql.DataSource` is unconditional, no capability gating) |
 | Vulnerabilities     | as-is       | Port    | OSV scanner + dependency catalog | —                                           |
 | Pentesting          | as-is       | Port    | Pentesting engine                | deliberately empty endpoint inventory (avoids a false-positive `spring-security-web` finding) |
 | HTTP Probe          | as-is       | Port    | HTTP probe service               | —                                           |

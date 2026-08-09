@@ -91,6 +91,7 @@ public final class BootUiApiContractCatalog {
             inventory("liquibase", "/liquibase/changesets", "liquibasePresent", "databases"),
             inventory("database-connection-pools", "/database-connection-pools/pools", "hikariPresent", "pools"),
             advisor("hibernate", "/hibernate", "results"),
+            advisor("database-advisor", "/database-advisor", "results"),
             read(
                     "cache",
                     "/cache",
@@ -267,6 +268,7 @@ public final class BootUiApiContractCatalog {
         all(actions, "security.scan", "security", "POST", "/security/scan");
         all(actions, "pentesting.scan", "pentesting", "POST", "/pentesting/scan");
         all(actions, "hibernate.scan", "hibernate", "POST", "/hibernate/scan");
+        all(actions, "database-advisor.scan", "database-advisor", "POST", "/database-advisor/scan");
         all(actions, "cache.clear", "cache", "POST", "/cache/clear");
         all(actions, "traces.clear", "traces", "DELETE", "/traces");
         all(actions, "exceptions.clear", "exceptions", "DELETE", "/exceptions");

@@ -15,6 +15,11 @@ public final class McpToolDescriptions {
                     "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and "
                             + "performance risks. Verify findings against actual query paths and database behavior."),
             Map.entry(
+                    "database_advisor_scan",
+                    "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only "
+                            + "JDBC metadata, plus PostgreSQL/MySQL-specific catalog checks and Hibernate mapping "
+                            + "cross-reference when available. Verify findings against the live schema before changing it."),
+            Map.entry(
                     "memory_scan",
                     "Actively analyze JVM memory and return prioritized findings. This can trigger a class histogram "
                             + "and full GC, so run only when memory evidence is needed."),

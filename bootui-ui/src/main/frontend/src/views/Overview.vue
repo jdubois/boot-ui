@@ -91,6 +91,15 @@ const scannerDefs = [
     reportEndpoint: 'api/hibernate'
   },
   {
+    id: 'database-advisor',
+    title: 'Database Advisor',
+    icon: 'bi-hdd-rack',
+    tone: 'info',
+    to: '/database-advisor',
+    endpoint: 'api/database-advisor/scan',
+    reportEndpoint: 'api/database-advisor'
+  },
+  {
     id: 'security',
     title: 'Security',
     icon: 'bi-shield-check',

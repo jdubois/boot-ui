@@ -432,7 +432,8 @@ public class QuarkusPanelAvailability {
             BootUiPanels.ACTIVITY,
             BootUiPanels.EXCEPTIONS,
             BootUiPanels.MCP_SERVER,
-            BootUiPanels.VULNERABILITIES);
+            BootUiPanels.VULNERABILITIES,
+            BootUiPanels.DATABASE_ADVISOR);
 
     private static final String CONFIG_READONLY =
             "Runtime config overrides are not available on Quarkus (they target the Spring bootstrap"

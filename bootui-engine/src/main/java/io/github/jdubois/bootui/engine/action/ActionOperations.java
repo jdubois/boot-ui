@@ -5,6 +5,7 @@ public final class ActionOperations {
 
     public static final String ARCHITECTURE_SCAN = "architecture.scan";
     public static final String CRAC_SCAN = "crac.scan";
+    public static final String DATABASE_ADVISOR_SCAN = "database-advisor.scan";
     public static final String GRAALVM_SCAN = "graalvm.scan";
     public static final String HEAP_DUMP_ANALYZE = "heap-dump.analyze";
     public static final String HEAP_DUMP_CAPTURE = "heap-dump.capture";
