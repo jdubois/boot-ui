@@ -23,6 +23,7 @@ const checkDocs = [
   'REST-API-CHECKS.md',
   'SPRING-CHECKS.md',
   'HIBERNATE-CHECKS.md',
+  'DATABASE-ADVISOR-CHECKS.md',
   'SECURITY-CHECKS.md',
   'MEMORY-CHECKS.md',
   'PENTEST-CHECKS.md',
