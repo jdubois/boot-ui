@@ -108,7 +108,8 @@ public class PanelsController {
                     BootUiPanels.PENTESTING,
                     BootUiPanels.SPRING,
                     BootUiPanels.VULNERABILITIES,
-                    BootUiPanels.ACTIVITY -> available();
+                    BootUiPanels.ACTIVITY,
+                    BootUiPanels.DATABASE_ADVISOR -> available();
             case BootUiPanels.MCP_SERVER -> availability(mcpServerAvailable(), mcpServerUnavailableReason());
             case BootUiPanels.JVM_TUNING ->
                 availability(
