@@ -60,9 +60,9 @@ final class HibernateColumnMismatchRule extends AbstractDatabaseAdvisorRule {
 
     private void checkTypeFamily(
             MappedEntityFacts entity, MappedColumnFacts column, ColumnModel physical, List<String> details) {
-        TypeFamily javaFamily = TypeFamily.ofJava(column.javaTypeSimpleName());
-        TypeFamily columnFamily = TypeFamily.ofJdbc(physical.typeName());
-        if (javaFamily != TypeFamily.OTHER && columnFamily != TypeFamily.OTHER && javaFamily != columnFamily) {
+        JdbcTypeFamily javaFamily = JdbcTypeFamily.ofJavaType(column.javaTypeSimpleName());
+        JdbcTypeFamily columnFamily = JdbcTypeFamily.ofJdbcType(physical.typeName());
+        if (javaFamily != JdbcTypeFamily.OTHER && columnFamily != JdbcTypeFamily.OTHER && javaFamily != columnFamily) {
             details.add(column.attributeDescription() + " (" + column.javaTypeSimpleName() + ") maps column "
                     + entity.explicitTableName() + "." + column.columnName() + " (" + physical.typeName()
                     + "), a type-family mismatch.");
@@ -90,60 +90,5 @@ final class HibernateColumnMismatchRule extends AbstractDatabaseAdvisorRule {
             }
         }
         return null;
-    }
-
-    private enum TypeFamily {
-        STRING,
-        NUMERIC,
-        BOOLEAN,
-        DATE_TIME,
-        BINARY,
-        OTHER;
-
-        static TypeFamily ofJava(String javaTypeSimpleName) {
-            if (javaTypeSimpleName == null) {
-                return OTHER;
-            }
-            if (STRING_JAVA_TYPES.contains(javaTypeSimpleName)) {
-                return STRING;
-            }
-            if (NUMERIC_JAVA_TYPES.contains(javaTypeSimpleName)) {
-                return NUMERIC;
-            }
-            if (BOOLEAN_JAVA_TYPES.contains(javaTypeSimpleName)) {
-                return BOOLEAN;
-            }
-            if (DATE_TIME_JAVA_TYPES.contains(javaTypeSimpleName)) {
-                return DATE_TIME;
-            }
-            return OTHER;
-        }
-
-        static TypeFamily ofJdbc(String jdbcTypeName) {
-            if (jdbcTypeName == null) {
-                return OTHER;
-            }
-            String normalized = jdbcTypeName.toLowerCase(Locale.ROOT);
-            if (containsAny(normalized, BOOLEAN_TYPES)) {
-                return BOOLEAN;
-            }
-            if (containsAny(normalized, DATE_TIME_TYPES)) {
-                return DATE_TIME;
-            }
-            if (containsAny(normalized, BINARY_TYPES)) {
-                return BINARY;
-            }
-            if (containsAny(normalized, STRING_TYPES)) {
-                return STRING;
-            }
-            if (containsAny(normalized, NUMERIC_TYPES)) {
-                return NUMERIC;
-            }
-            return OTHER;
-        }
-
-        private static boolean containsAny(String value, Set<String> needles) {
-            return needles.stream().anyMatch(value::contains);
-        }
     }
 }

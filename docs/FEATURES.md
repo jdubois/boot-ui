@@ -1124,26 +1124,31 @@ and degrades to a clear empty state when Liquibase is not on the classpath or no
 The Database Advisor panel introspects the physical schema of every discovered application `DataSource` bean through
 plain JDBC `DatabaseMetaData` — tables, columns, primary keys, foreign keys, and indexes — and evaluates a fixed,
 on-demand ruleset of deterministic, low-false-positive structural checks (a missing primary key, a foreign-key column
-with no supporting index, and duplicate/overlapping indexes). It reuses the same proxy-aware datasource discovery as
-Database Connection Pools and SQL Trace, skipping Spring's delegating/routing `DataSource` wrappers so a wrapped
-datasource is never introspected twice. It never executes DDL, never queries application data, and fails closed with a
-stable empty report and an explanatory status when no `DataSource` bean is present or introspection fails.
+with no supporting index, duplicate/overlapping indexes, a foreign-key column whose type disagrees with the
+referenced primary key's type, and a redundant unique index duplicating the primary key). It reuses the same
+proxy-aware datasource discovery as Database Connection Pools and SQL Trace, skipping Spring's delegating/routing
+`DataSource` wrappers so a wrapped datasource is never introspected twice. It never executes DDL, never queries
+application data, and fails closed with a stable empty report and an explanatory status when no `DataSource` bean is
+present or introspection fails.
 
 For **PostgreSQL** and **MySQL** — the two most widely used relational databases among Java developers — a small amount
 of dialect-specific catalog augmentation runs in addition to the generic checks: PostgreSQL invalid/broken indexes
-(`pg_index.indisvalid = false`, e.g. left behind by a failed `CREATE INDEX CONCURRENTLY`) and MySQL tables using a
-non-`InnoDB` storage engine. The dialect is detected from `DatabaseMetaData.getDatabaseProductName()` and the JDBC URL;
-every other database (H2, SQL Server, Oracle, MariaDB, etc.) still runs the full generic ruleset through the standard
-JDBC metadata fallback — it is never treated as unsupported. Both dialect-specific queries fail soft (an empty result)
-rather than propagating, since they may be blocked by restricted database privileges on some hosts.
+(`pg_index.indisvalid = false`, e.g. left behind by a failed `CREATE INDEX CONCURRENTLY`), MySQL tables using a
+non-`InnoDB` storage engine, and MySQL columns using a character set other than `utf8mb4`. The dialect is detected from
+`DatabaseMetaData.getDatabaseProductName()` and the JDBC URL; every other database (H2, SQL Server, Oracle, MariaDB, etc.)
+still runs the full generic ruleset through the standard JDBC metadata fallback — it is never treated as unsupported. Both
+dialect-specific queries fail soft (an empty result) rather than propagating, since they may be blocked by restricted
+database privileges on some hosts.
 
 When a Hibernate `EntityManagerFactory`/metamodel is also available for the same application, the panel additionally
 cross-references the physical schema against the mapped JPA entities the shared Hibernate metamodel reader already
 reads (the same reader `Hibernate` uses): a `@ManyToOne`/`@JoinColumn` foreign-key column with no supporting physical
-index (the highest-confidence check), an explicitly-`@Table`-named entity with no matching physical table, and basic
-type-family/nullability mismatches between a mapped `@Column` and its physical column. Only entities with an *explicit*
-`@Table(name = ...)` are cross-referenced — entities relying on the default naming strategy are skipped rather than
-guessed, keeping the false-positive rate low. This half of the panel is skipped (with a clear reason, not silently
+index (the highest-confidence check), an explicitly-`@Table`-named entity with no matching physical table, basic
+type-family/nullability mismatches between a mapped `@Column` and its physical column, a mapped `@Column(length=...)`
+longer than the physical column can hold (a truncation risk), and a mapped unique constraint
+(`@Column(unique=true)`/`@Table(uniqueConstraints=...)`) with no backing physical unique index. Only entities with an
+*explicit* `@Table(name = ...)` are cross-referenced — entities relying on the default naming strategy are skipped rather
+than guessed, keeping the false-positive rate low. This half of the panel is skipped (with a clear reason, not silently
 dropped) when either a `DataSource` or a Hibernate metamodel is unavailable. See
 [DATABASE-ADVISOR-CHECKS.md](DATABASE-ADVISOR-CHECKS.md) for the full rule catalogue and remediation links.
 

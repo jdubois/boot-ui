@@ -22,9 +22,10 @@ unavailable, and only cross-reference entities with an explicit `@Table(name = .
 ## Severity scale
 
 - **HIGH** - a structural issue with a well-understood, common performance or data-integrity impact (a missing index
-  supporting a foreign key, an invalid PostgreSQL index, a non-InnoDB MySQL table).
+  supporting a foreign key, an invalid PostgreSQL index, a non-InnoDB MySQL table, a foreign key/primary key type
+  mismatch, a mapped unique constraint with no backing physical index).
 - **MEDIUM** - a structural issue that usually warrants review before production use (a missing primary key, a mapped
-  table or column that disagrees with the physical schema).
+  table or column that disagrees with the physical schema, a non-utf8mb4 MySQL character set).
 - **LOW** - reserved for lower-impact hygiene findings (redundant indexes).
 
 The Rule results panel lists only checks that found findings, ordered by severity, finding count, and rule id. Each
@@ -65,6 +66,31 @@ standard `DatabaseMetaData` calls.
   index's column list is a prefix of another's, the shorter one is usually redundant.
 - **Recommendation**: review both index definitions before dropping the redundant one.
 
+### DB-SCHEMA-004 - Foreign key column type mismatch with the referenced primary key
+
+- **Severity**: HIGH
+- **Inspects**: `DatabaseMetaData.getImportedKeys()` foreign key columns against the referenced table's primary
+  key column, comparing each pair's JDBC-reported type family.
+- **Fires when**: a foreign key column's type family (numeric, string, boolean, date/time, binary) differs from
+  the referenced primary key column's type family — for example an `INT` foreign key referencing a `BIGINT`
+  primary key.
+- **Why it matters**: a coarse type-family mismatch between a child's foreign key and its parent's primary key can
+  silently truncate values, defeat query planner join optimizations, or fail outright on stricter databases.
+- **Recommendation**: align the foreign key column's type with the referenced primary key's type (e.g. both
+  `BIGINT`).
+
+### DB-SCHEMA-005 - Redundant unique index duplicating the primary key
+
+- **Severity**: LOW
+- **Inspects**: every unique index on a table against that table's primary key columns.
+- **Fires when**: at least two unique indexes on the same table have a column list that exactly matches the
+  primary key's columns — one is the primary key's own automatically-created backing index, so a lone match is
+  normal, not redundant.
+- **Why it matters**: every additional unique index slows down `INSERT`/`UPDATE`/`DELETE` and consumes storage; an
+  extra unique index matching the primary key's columns duplicates a uniqueness guarantee the primary key's own
+  backing index already enforces.
+- **Recommendation**: review both index definitions before dropping the redundant one.
+
 ## Dialect-specific (PostgreSQL and MySQL)
 
 A small amount of dialect-specific catalog augmentation runs in addition to the generic checks above, for the two
@@ -94,6 +120,18 @@ as the MySQL dialect, so `DB-MYSQL-001` does not run against it.
   transactions/MVCC, and use table-level locking, which surprises most JPA/Hibernate applications that assume ACID
   semantics.
 - **Recommendation**: convert the table to InnoDB (`ALTER TABLE ... ENGINE=InnoDB`).
+
+### DB-MYSQL-002 - Tables/columns using a non-utf8mb4 character set
+
+- **Severity**: MEDIUM
+- **Inspects**: `information_schema.columns.CHARACTER_SET_NAME` on MySQL datasources only; skipped when no MySQL
+  datasource is detected.
+- **Fires when**: a column's character set is not `utf8mb4` (e.g. the legacy `utf8` alias, or `latin1`).
+- **Why it matters**: the legacy `utf8` alias in MySQL is actually a 3-byte encoding that cannot store the full
+  Unicode range (emoji, many CJK supplementary characters), which surfaces as a silent truncation or an outright
+  insert failure.
+- **Recommendation**: convert the column (and ideally the table/database default) to `utf8mb4` (`ALTER TABLE ...
+  CONVERT TO CHARACTER SET utf8mb4`).
 
 ## Hibernate mapping
 
@@ -135,3 +173,30 @@ naming strategy are skipped rather than guessed, keeping the false-positive rate
 - **Why it matters**: these mismatches usually surface at runtime as a surprising constraint violation or
   class-cast/conversion failure rather than at compile time.
 - **Recommendation**: align the entity mapping with the physical column definition.
+
+### DB-HIB-004 - Mapped column length longer than the physical column size
+
+- **Severity**: MEDIUM
+- **Inspects**: mapped `@Column(length = ...)` attributes (JPA default of 255 when not explicit) against the
+  physical column's reported size; only string/char-family physical columns are compared.
+- **Fires when**: the entity's declared `@Column(length = ...)` permits more characters than the physical column
+  can hold.
+- **Why it matters**: a mapping that permits more characters than the database column can hold either silently
+  truncates input or fails with a data-truncation error, depending on the database's strictness — a surprise the
+  compile-time entity mapping gives no hint of.
+- **Recommendation**: align the entity's `@Column(length = ...)` with the physical column size, or widen the
+  physical column via a migration.
+
+### DB-HIB-005 - Mapped unique constraint has no backing physical unique index
+
+- **Severity**: HIGH
+- **Inspects**: single-column `@Column(unique = true)` attributes and multi-column
+  `@Table(uniqueConstraints = @UniqueConstraint(columnNames = {...}))` constraints against the physical schema's
+  actual unique indexes.
+- **Fires when**: a mapped unique constraint's column list has no matching physical unique index.
+- **Why it matters**: like `DB-HIB-001`'s missing foreign-key index check, this sees the database's actual indexes
+  (including ones created by a Flyway/Liquibase migration), so it only fires when the physical schema genuinely
+  enforces no such uniqueness. Without a physical unique index, the database never enforces the mapping's
+  uniqueness assumption, so concurrent inserts can create duplicate rows the application logic never expected — a
+  data-integrity risk on par with a missing foreign-key index.
+- **Recommendation**: add a unique index or constraint (via a migration) covering the same column(s).

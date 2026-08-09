@@ -62,9 +62,18 @@ final class SchemaIntrospector {
                 dialect == Dialect.POSTGRESQL ? readPostgresInvalidIndexes(connection) : List.of();
         List<MySqlNonInnodbTable> mysqlNonInnodbTables =
                 dialect == Dialect.MYSQL ? readMySqlNonInnodbTables(connection) : List.of();
+        List<MySqlNonUtf8mb4Column> mysqlNonUtf8mb4Columns =
+                dialect == Dialect.MYSQL ? readMySqlNonUtf8mb4Columns(connection) : List.of();
 
         return new SchemaSnapshot(
-                dataSourceName, dialect, productName, tables, postgresInvalidIndexes, mysqlNonInnodbTables, null);
+                dataSourceName,
+                dialect,
+                productName,
+                tables,
+                postgresInvalidIndexes,
+                mysqlNonInnodbTables,
+                mysqlNonUtf8mb4Columns,
+                null);
     }
 
     private static List<TableModel> readTables(Connection connection, DatabaseMetaData metaData) throws SQLException {
@@ -230,6 +239,33 @@ final class SchemaIntrospector {
             try (ResultSet rs = statement.executeQuery()) {
                 while (rs.next()) {
                     findings.add(new MySqlNonInnodbTable(rs.getString("table_name"), rs.getString("engine")));
+                }
+            }
+        } catch (SQLException ex) {
+            // Best-effort augmentation; fall back to no dialect-specific findings.
+            return List.of();
+        }
+        return findings;
+    }
+
+    private static List<MySqlNonUtf8mb4Column> readMySqlNonUtf8mb4Columns(Connection connection) {
+        String sql = """
+                select table_name, column_name, character_set_name
+                from information_schema.columns
+                where table_schema = database()
+                  and character_set_name is not null
+                  and upper(character_set_name) <> 'UTF8MB4'
+                limit ?
+                """;
+        List<MySqlNonUtf8mb4Column> findings = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, MAX_DIALECT_FINDINGS);
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    findings.add(new MySqlNonUtf8mb4Column(
+                            rs.getString("table_name"),
+                            rs.getString("column_name"),
+                            rs.getString("character_set_name")));
                 }
             }
         } catch (SQLException ex) {

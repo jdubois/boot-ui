@@ -14,16 +14,19 @@ record SchemaSnapshot(
         List<TableModel> tables,
         List<PostgresInvalidIndex> postgresInvalidIndexes,
         List<MySqlNonInnodbTable> mysqlNonInnodbTables,
+        List<MySqlNonUtf8mb4Column> mysqlNonUtf8mb4Columns,
         String error) {
 
     SchemaSnapshot {
         tables = List.copyOf(tables);
         postgresInvalidIndexes = List.copyOf(postgresInvalidIndexes);
         mysqlNonInnodbTables = List.copyOf(mysqlNonInnodbTables);
+        mysqlNonUtf8mb4Columns = List.copyOf(mysqlNonUtf8mb4Columns);
     }
 
     static SchemaSnapshot failed(String dataSourceName, String error) {
-        return new SchemaSnapshot(dataSourceName, Dialect.GENERIC, null, List.of(), List.of(), List.of(), error);
+        return new SchemaSnapshot(
+                dataSourceName, Dialect.GENERIC, null, List.of(), List.of(), List.of(), List.of(), error);
     }
 
     boolean available() {

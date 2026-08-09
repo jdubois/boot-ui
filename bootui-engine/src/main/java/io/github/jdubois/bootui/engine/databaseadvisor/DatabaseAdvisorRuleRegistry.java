@@ -9,13 +9,18 @@ final class DatabaseAdvisorRuleRegistry {
             new MissingPrimaryKeyRule(),
             new MissingForeignKeyIndexRule(),
             new DuplicateIndexRule(),
+            new ForeignKeyTypeMismatchRule(),
+            new RedundantPrimaryKeyUniqueIndexRule(),
             // Schema (dialect-specific catalog augmentation)
             new PostgresInvalidIndexRule(),
             new MySqlNonInnodbEngineRule(),
+            new MySqlNonUtf8mb4CharsetRule(),
             // Hibernate <-> physical schema cross-reference
             new HibernateMissingForeignKeyIndexRule(),
             new HibernateMissingTableRule(),
-            new HibernateColumnMismatchRule());
+            new HibernateColumnMismatchRule(),
+            new HibernateColumnLengthMismatchRule(),
+            new HibernateMissingUniqueIndexRule());
 
     private DatabaseAdvisorRuleRegistry() {}
 

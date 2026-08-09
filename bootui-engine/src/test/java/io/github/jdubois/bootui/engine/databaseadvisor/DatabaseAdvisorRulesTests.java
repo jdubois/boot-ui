@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedColumnFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedForeignKeyFacts;
+import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedUniqueConstraintFacts;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +17,7 @@ class DatabaseAdvisorRulesTests {
     private static final String SKIPPED = DatabaseAdvisorRuleSupport.SKIPPED;
 
     private static SchemaSnapshot snapshot(String name, Dialect dialect, List<TableModel> tables) {
-        return new SchemaSnapshot(name, dialect, dialect.name(), tables, List.of(), List.of(), null);
+        return new SchemaSnapshot(name, dialect, dialect.name(), tables, List.of(), List.of(), List.of(), null);
     }
 
     private static DatabaseAdvisorContext context(List<SchemaSnapshot> schemas) {
@@ -152,6 +153,7 @@ class DatabaseAdvisorRulesTests {
                 List.of(),
                 List.of(new PostgresInvalidIndex("orders", "ix_broken")),
                 List.of(),
+                List.of(),
                 null);
         DatabaseAdvisorRuleResultDto result = new PostgresInvalidIndexRule().evaluate(context(List.of(schema)));
         assertThat(result.status()).isEqualTo(VIOLATION);
@@ -160,8 +162,8 @@ class DatabaseAdvisorRulesTests {
 
     @Test
     void postgresInvalidIndexRulePassesWhenPostgresHasNoInvalidIndexes() {
-        SchemaSnapshot schema =
-                new SchemaSnapshot("ds", Dialect.POSTGRESQL, "PostgreSQL", List.of(), List.of(), List.of(), null);
+        SchemaSnapshot schema = new SchemaSnapshot(
+                "ds", Dialect.POSTGRESQL, "PostgreSQL", List.of(), List.of(), List.of(), List.of(), null);
         DatabaseAdvisorRuleResultDto result = new PostgresInvalidIndexRule().evaluate(context(List.of(schema)));
         assertThat(result.status()).isEqualTo(PASS);
     }
@@ -184,10 +186,162 @@ class DatabaseAdvisorRulesTests {
                 List.of(),
                 List.of(),
                 List.of(new MySqlNonInnodbTable("legacy_sessions", "MyISAM")),
+                List.of(),
                 null);
         DatabaseAdvisorRuleResultDto result = new MySqlNonInnodbEngineRule().evaluate(context(List.of(schema)));
         assertThat(result.status()).isEqualTo(VIOLATION);
         assertThat(result.sampleViolations().get(0)).contains("legacy_sessions").contains("MyISAM");
+    }
+
+    // --- MySqlNonUtf8mb4CharsetRule ---
+
+    @Test
+    void mySqlNonUtf8mb4CharsetRuleSkipsWhenNoMySqlDatasourceIsPresent() {
+        DatabaseAdvisorRuleResultDto result =
+                new MySqlNonUtf8mb4CharsetRule().evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of()))));
+        assertThat(result.status()).isEqualTo(SKIPPED);
+    }
+
+    @Test
+    void mySqlNonUtf8mb4CharsetRuleFlagsNonUtf8mb4Columns() {
+        SchemaSnapshot schema = new SchemaSnapshot(
+                "ds",
+                Dialect.MYSQL,
+                "MySQL",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new MySqlNonUtf8mb4Column("customers", "name", "latin1")),
+                null);
+        DatabaseAdvisorRuleResultDto result = new MySqlNonUtf8mb4CharsetRule().evaluate(context(List.of(schema)));
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.sampleViolations().get(0)).contains("customers.name").contains("latin1");
+    }
+
+    @Test
+    void mySqlNonUtf8mb4CharsetRulePassesWhenAllMySqlColumnsAreUtf8mb4() {
+        SchemaSnapshot schema =
+                new SchemaSnapshot("ds", Dialect.MYSQL, "MySQL", List.of(), List.of(), List.of(), List.of(), null);
+        DatabaseAdvisorRuleResultDto result = new MySqlNonUtf8mb4CharsetRule().evaluate(context(List.of(schema)));
+        assertThat(result.status()).isEqualTo(PASS);
+    }
+
+    // --- ForeignKeyTypeMismatchRule ---
+
+    @Test
+    void foreignKeyTypeMismatchRulePassesWhenTypeFamiliesMatch() {
+        TableModel customers = new TableModel(
+                null,
+                null,
+                "customers",
+                List.of(new ColumnModel("id", "bigint", false, 19)),
+                List.of("id"),
+                List.of(),
+                List.of());
+        TableModel orders = new TableModel(
+                null,
+                null,
+                "orders",
+                List.of(new ColumnModel("customer_id", "bigint", false, 19)),
+                List.of(),
+                List.of(new ForeignKeyModel("fk_orders_customer", List.of("customer_id"), "customers")),
+                List.of());
+        DatabaseAdvisorRuleResultDto result = new ForeignKeyTypeMismatchRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of(customers, orders)))));
+        assertThat(result.status()).isEqualTo(PASS);
+    }
+
+    @Test
+    void foreignKeyTypeMismatchRuleFlagsATypeFamilyMismatchAgainstTheReferencedPrimaryKey() {
+        TableModel customers = new TableModel(
+                null,
+                null,
+                "customers",
+                List.of(new ColumnModel("id", "bigint", false, 19)),
+                List.of("id"),
+                List.of(),
+                List.of());
+        TableModel orders = new TableModel(
+                null,
+                null,
+                "orders",
+                List.of(new ColumnModel("customer_id", "varchar", false, 36)),
+                List.of(),
+                List.of(new ForeignKeyModel("fk_orders_customer", List.of("customer_id"), "customers")),
+                List.of());
+        DatabaseAdvisorRuleResultDto result = new ForeignKeyTypeMismatchRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of(customers, orders)))));
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.sampleViolations().get(0))
+                .contains("orders.customer_id")
+                .contains("customers.id");
+    }
+
+    @Test
+    void foreignKeyTypeMismatchRuleIgnoresForeignKeysWithNoResolvableReferencedTable() {
+        TableModel orders = new TableModel(
+                null,
+                null,
+                "orders",
+                List.of(new ColumnModel("customer_id", "varchar", false, 36)),
+                List.of(),
+                List.of(new ForeignKeyModel("fk_orders_customer", List.of("customer_id"), "customers")),
+                List.of());
+        DatabaseAdvisorRuleResultDto result = new ForeignKeyTypeMismatchRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of(orders)))));
+        assertThat(result.status()).isEqualTo(PASS);
+    }
+
+    // --- RedundantPrimaryKeyUniqueIndexRule ---
+
+    @Test
+    void redundantPrimaryKeyUniqueIndexRulePassesWhenOnlyThePrimaryKeysOwnIndexMatches() {
+        TableModel table = new TableModel(
+                null,
+                null,
+                "accounts",
+                List.of(new ColumnModel("id", "int4", false, 10)),
+                List.of("id"),
+                List.of(),
+                List.of(new IndexModel("accounts_pkey", List.of("id"), true)));
+        DatabaseAdvisorRuleResultDto result = new RedundantPrimaryKeyUniqueIndexRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of(table)))));
+        assertThat(result.status()).isEqualTo(PASS);
+    }
+
+    @Test
+    void redundantPrimaryKeyUniqueIndexRuleFlagsASecondUniqueIndexDuplicatingThePrimaryKey() {
+        TableModel table = new TableModel(
+                null,
+                null,
+                "accounts",
+                List.of(new ColumnModel("id", "int4", false, 10)),
+                List.of("id"),
+                List.of(),
+                List.of(
+                        new IndexModel("accounts_pkey", List.of("id"), true),
+                        new IndexModel("ux_accounts_id", List.of("id"), true)));
+        DatabaseAdvisorRuleResultDto result = new RedundantPrimaryKeyUniqueIndexRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of(table)))));
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.sampleViolations().get(0)).contains("ux_accounts_id").contains("accounts");
+    }
+
+    @Test
+    void redundantPrimaryKeyUniqueIndexRuleIgnoresNonUniqueIndexesMatchingThePrimaryKeyColumns() {
+        TableModel table = new TableModel(
+                null,
+                null,
+                "accounts",
+                List.of(new ColumnModel("id", "int4", false, 10)),
+                List.of("id"),
+                List.of(),
+                List.of(
+                        new IndexModel("accounts_pkey", List.of("id"), true),
+                        new IndexModel("ix_accounts_id", List.of("id"), false)));
+        DatabaseAdvisorRuleResultDto result = new RedundantPrimaryKeyUniqueIndexRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of(table)))));
+        assertThat(result.status()).isEqualTo(PASS);
     }
 
     // --- HibernateMissingForeignKeyIndexRule ---
@@ -385,6 +539,147 @@ class DatabaseAdvisorRulesTests {
         DatabaseAdvisorRuleResultDto result = new HibernateColumnMismatchRule()
                 .evaluate(contextWithHibernate(
                         List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+        assertThat(result.status()).isEqualTo(PASS);
+    }
+
+    // --- HibernateColumnLengthMismatchRule ---
+
+    @Test
+    void hibernateColumnLengthMismatchRuleSkipsWhenHibernateIsUnavailable() {
+        DatabaseAdvisorRuleResultDto result = new HibernateColumnLengthMismatchRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of()))));
+        assertThat(result.status()).isEqualTo(SKIPPED);
+    }
+
+    @Test
+    void hibernateColumnLengthMismatchRuleFlagsADeclaredLengthLongerThanThePhysicalColumn() {
+        TableModel table = new TableModel(
+                null,
+                null,
+                "customers",
+                List.of(new ColumnModel("name", "varchar", true, 50)),
+                List.of(),
+                List.of(),
+                List.of());
+        MappedEntityFacts entity = new MappedEntityFacts(
+                "com.example.Customer",
+                "customers",
+                List.of(),
+                List.of(new MappedColumnFacts("Customer.name", "name", true, "String", 255)));
+        DatabaseAdvisorRuleResultDto result = new HibernateColumnLengthMismatchRule()
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.sampleViolations().get(0))
+                .contains("length=255")
+                .contains("customers.name")
+                .contains("varchar(50)");
+    }
+
+    @Test
+    void hibernateColumnLengthMismatchRulePassesWhenThePhysicalColumnIsAtLeastAsLarge() {
+        TableModel table = new TableModel(
+                null,
+                null,
+                "customers",
+                List.of(new ColumnModel("name", "varchar", true, 255)),
+                List.of(),
+                List.of(),
+                List.of());
+        MappedEntityFacts entity = new MappedEntityFacts(
+                "com.example.Customer",
+                "customers",
+                List.of(),
+                List.of(new MappedColumnFacts("Customer.name", "name", true, "String", 255)));
+        DatabaseAdvisorRuleResultDto result = new HibernateColumnLengthMismatchRule()
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+        assertThat(result.status()).isEqualTo(PASS);
+    }
+
+    @Test
+    void hibernateColumnLengthMismatchRuleIgnoresNonStringPhysicalColumns() {
+        TableModel table = new TableModel(
+                null,
+                null,
+                "customers",
+                List.of(new ColumnModel("balance", "numeric", true, 10)),
+                List.of(),
+                List.of(),
+                List.of());
+        MappedEntityFacts entity = new MappedEntityFacts(
+                "com.example.Customer",
+                "customers",
+                List.of(),
+                List.of(new MappedColumnFacts("Customer.balance", "balance", true, "BigDecimal", 255)));
+        DatabaseAdvisorRuleResultDto result = new HibernateColumnLengthMismatchRule()
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+        assertThat(result.status()).isEqualTo(PASS);
+    }
+
+    // --- HibernateMissingUniqueIndexRule ---
+
+    @Test
+    void hibernateMissingUniqueIndexRuleSkipsWhenHibernateIsUnavailable() {
+        DatabaseAdvisorRuleResultDto result = new HibernateMissingUniqueIndexRule()
+                .evaluate(context(List.of(snapshot("ds", Dialect.GENERIC, List.of()))));
+        assertThat(result.status()).isEqualTo(SKIPPED);
+    }
+
+    @Test
+    void hibernateMissingUniqueIndexRuleFlagsAMappedUniqueConstraintWithNoBackingIndex() {
+        TableModel table = new TableModel(
+                null,
+                null,
+                "customers",
+                List.of(new ColumnModel("email", "varchar", false, 255)),
+                List.of(),
+                List.of(),
+                List.of());
+        MappedEntityFacts entity = new MappedEntityFacts(
+                "com.example.Customer",
+                "customers",
+                List.of(),
+                List.of(),
+                List.of(new MappedUniqueConstraintFacts("Customer.email", List.of("email"))));
+        DatabaseAdvisorRuleResultDto result = new HibernateMissingUniqueIndexRule()
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.sampleViolations().get(0))
+                .contains("Customer.email")
+                .contains("customers")
+                .contains("email");
+    }
+
+    @Test
+    void hibernateMissingUniqueIndexRulePassesWhenAPhysicalUniqueIndexBacksTheConstraint() {
+        TableModel table = new TableModel(
+                null,
+                null,
+                "customers",
+                List.of(new ColumnModel("email", "varchar", false, 255)),
+                List.of(),
+                List.of(),
+                List.of(new IndexModel("ux_customers_email", List.of("email"), true)));
+        MappedEntityFacts entity = new MappedEntityFacts(
+                "com.example.Customer",
+                "customers",
+                List.of(),
+                List.of(),
+                List.of(new MappedUniqueConstraintFacts("Customer.email", List.of("email"))));
+        DatabaseAdvisorRuleResultDto result = new HibernateMissingUniqueIndexRule()
+                .evaluate(contextWithHibernate(
+                        List.of(snapshot("ds", Dialect.GENERIC, List.of(table))), List.of(entity)));
+        assertThat(result.status()).isEqualTo(PASS);
+    }
+
+    @Test
+    void hibernateMissingUniqueIndexRuleIgnoresEntitiesWithNoMappedUniqueConstraints() {
+        MappedEntityFacts entity = new MappedEntityFacts("com.example.Customer", "customers", List.of(), List.of());
+        DatabaseAdvisorRuleResultDto result = new HibernateMissingUniqueIndexRule()
+                .evaluate(contextWithHibernate(List.of(snapshot("ds", Dialect.GENERIC, List.of())), List.of(entity)));
         assertThat(result.status()).isEqualTo(PASS);
     }
 
