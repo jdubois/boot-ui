@@ -1140,6 +1140,9 @@ Acceptance criteria:
 - Messages are listed newest-first from a bounded ring buffer sized by `bootui.email.max-entries` (default 100, oldest
   evicted first); a message's HTML body renders in a sandboxed iframe (no script execution, no same-origin access) and
   each message can be downloaded as a `.eml` file.
+- Each captured text/HTML body is additionally truncated at `bootui.email.max-body-length` characters (default
+  200,000) so one oversized message cannot spike memory before the entry-count cap would evict it; attachment content
+  is never captured in the first place (metadata only), so no equivalent cap applies there.
 - Clearing the buffer is gated by `bootui.panels.email.read-only`, consistent with every other clearable capture panel.
 
 ### 5.14.5 REST Client Panel

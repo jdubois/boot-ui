@@ -371,7 +371,7 @@ public class BootUiEngineConfiguration {
     EmailCaptureService bootUiEmailCaptureService(BootUiProperties properties, BootUiExposure exposure) {
         BootUiProperties.Email emailProperties = properties.getEmail();
         return new EmailCaptureService(
-                new EmailStore(emailProperties.getMaxEntries()),
+                new EmailStore(emailProperties.getMaxEntries(), emailProperties.getMaxBodyLength()),
                 exposure,
                 emailProperties.isDevTrap(),
                 emailProperties.isMaskContent());

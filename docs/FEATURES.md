@@ -1325,6 +1325,11 @@ similar to MailDev/GreenMail; it is off by default so BootUI never silently swal
 available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear
 unavailable reason.
 
+Each captured message's text/HTML body is truncated at `bootui.email.max-body-length` characters (default 200,000,
+matching `EmailStore.DEFAULT_MAX_BODY_LENGTH`) so a single oversized message cannot spike memory before the
+`bootui.email.max-entries` entry-count cap would evict it — attachment content is never captured (metadata only), so
+this cap only applies to bodies.
+
 On Quarkus the panel is identical, running over the same shared engine `EmailCaptureService` and the same
 `/bootui/api/email` contract (list/detail/`.eml`/clear, with the `.eml` bytes produced by the shared engine renderer so
 they match Spring's). Because Quarkus's blocking/reactive/Mutiny `Mailer` beans all funnel through one internal mailer

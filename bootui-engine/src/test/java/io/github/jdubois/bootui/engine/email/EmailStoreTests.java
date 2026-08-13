@@ -70,6 +70,34 @@ class EmailStoreTests {
         assertThat(entry.thread()).isEqualTo(Thread.currentThread().getName());
     }
 
+    @Test
+    void truncatesOversizedBodiesAtConfiguredLimit() {
+        EmailStore store = new EmailStore(10, 5);
+        EmailStore.Entry entry = store.capture(
+                CapturedEmail.builder()
+                        .from("noreply@example.com")
+                        .to(List.of("user@example.com"))
+                        .subject("big")
+                        .textBody("abcdefghij")
+                        .htmlBody("<p>abcdefghij</p>")
+                        .build(),
+                true);
+
+        assertThat(entry.email().textBody())
+                .startsWith("abcde")
+                .contains("truncated")
+                .contains("5 of 10");
+        assertThat(entry.email().htmlBody()).startsWith("<p>ab").contains("truncated");
+    }
+
+    @Test
+    void leavesBodiesUnchangedWhenWithinLimit() {
+        EmailStore store = new EmailStore(10, 5);
+        EmailStore.Entry entry = store.capture(email("short"), true);
+
+        assertThat(entry.email().textBody()).isEqualTo("body");
+    }
+
     private static CapturedEmail email(String subject) {
         return CapturedEmail.builder()
                 .from("noreply@example.com")

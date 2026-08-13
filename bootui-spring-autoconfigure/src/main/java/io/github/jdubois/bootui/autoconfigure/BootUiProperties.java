@@ -2109,6 +2109,14 @@ public class BootUiProperties {
          */
         private boolean maskContent = false;
 
+        /**
+         * Maximum number of characters retained per captured text/HTML body; a longer body is truncated
+         * at capture time. Bounds memory for a single oversized message the same way {@link #maxEntries}
+         * bounds the number of retained messages (attachment content is never captured in the first
+         * place, so only bodies need this cap).
+         */
+        private int maxBodyLength = 200_000;
+
         public int getMaxEntries() {
             return maxEntries;
         }
@@ -2131,6 +2139,14 @@ public class BootUiProperties {
 
         public void setMaskContent(boolean maskContent) {
             this.maskContent = maskContent;
+        }
+
+        public int getMaxBodyLength() {
+            return maxBodyLength;
+        }
+
+        public void setMaxBodyLength(int maxBodyLength) {
+            this.maxBodyLength = maxBodyLength;
         }
     }
 
