@@ -15,7 +15,7 @@ public final class DevServiceTypeInference {
     private DevServiceTypeInference() {}
 
     public static String inferType(String name, String image, Map<?, ?> labels) {
-        String combined = (String.valueOf(name) + " " + String.valueOf(image) + " " + labels).toLowerCase(Locale.ROOT);
+        String combined = (name + " " + image + " " + labels).toLowerCase(Locale.ROOT);
         if (combined.contains("postgres")) {
             return "PostgreSQL";
         }
