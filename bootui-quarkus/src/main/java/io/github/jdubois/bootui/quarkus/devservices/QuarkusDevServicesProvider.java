@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.devservices;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.DevServiceDto;
+import io.github.jdubois.bootui.engine.devservices.DevServiceTypeInference;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.spi.DevServicesProvider;
 import jakarta.enterprise.inject.Instance;
@@ -23,7 +24,9 @@ import java.util.regex.Pattern;
  * non-production launch modes (Dev Services never run in production), so an unsatisfied {@code Instance} means
  * no dev services started — the panel renders empty. Config values (which include JDBC URLs and passwords) are
  * masked here through the same {@code SecretMasker} + {@link QuarkusExposurePolicy} the Configuration panel
- * uses, byte-compatibly with the Spring adapter.</p>
+ * uses, byte-compatibly with the Spring adapter. The service {@code type} (PostgreSQL, Redis, Kafka, ...) is
+ * classified via the shared {@link DevServiceTypeInference} engine helper, matching the Spring adapter's
+ * classification for an identical name/description/config.</p>
  */
 @Singleton
 public class QuarkusDevServicesProvider implements DevServicesProvider {
@@ -83,7 +86,7 @@ public class QuarkusDevServicesProvider implements DevServicesProvider {
         return new DevServiceDto(
                 "quarkus:" + slug(raw.name()),
                 raw.name().isBlank() ? "dev-service" : raw.name(),
-                "Dev Service",
+                DevServiceTypeInference.inferType(raw.name(), raw.description(), raw.config()),
                 "Quarkus Dev Services",
                 raw.description().isBlank() ? null : raw.description(),
                 "READY_AT_STARTUP",
