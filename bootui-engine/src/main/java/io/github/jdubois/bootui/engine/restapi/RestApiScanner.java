@@ -46,6 +46,7 @@ public final class RestApiScanner {
     private final Supplier<List<String>> basePackagesSupplier;
     private final RestApiClassImporter importer;
     private final BooleanSupplier openApiAnnotationsPresent;
+    private final BooleanSupplier globalVersioningConfigured;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
 
@@ -53,10 +54,12 @@ public final class RestApiScanner {
             Supplier<List<String>> basePackagesSupplier,
             RestApiClassImporter importer,
             BooleanSupplier openApiAnnotationsPresent,
+            BooleanSupplier globalVersioningConfigured,
             Clock clock) {
         this.basePackagesSupplier = basePackagesSupplier;
         this.importer = importer;
         this.openApiAnnotationsPresent = openApiAnnotationsPresent;
+        this.globalVersioningConfigured = globalVersioningConfigured;
         this.clock = clock;
     }
 
@@ -69,8 +72,20 @@ public final class RestApiScanner {
      */
     public static RestApiScanner usingClasspath(
             Supplier<List<String>> basePackagesSupplier, BooleanSupplier openApiAnnotationsPresent, Clock clock) {
+        return usingClasspath(basePackagesSupplier, openApiAnnotationsPresent, () -> false, clock);
+    }
+
+    public static RestApiScanner usingClasspath(
+            Supplier<List<String>> basePackagesSupplier,
+            BooleanSupplier openApiAnnotationsPresent,
+            BooleanSupplier globalVersioningConfigured,
+            Clock clock) {
         return new RestApiScanner(
-                basePackagesSupplier, new ClassFileRestApiImporter(), openApiAnnotationsPresent, clock);
+                basePackagesSupplier,
+                new ClassFileRestApiImporter(),
+                openApiAnnotationsPresent,
+                globalVersioningConfigured,
+                clock);
     }
 
     public RestApiReport initialReport() {
@@ -155,6 +170,7 @@ public final class RestApiScanner {
                 model.handlers(),
                 model.exceptionHandlers(),
                 safeOpenApiAnnotationsPresent(),
+                safeGlobalVersioningConfigured(),
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.framework());
@@ -205,6 +221,14 @@ public final class RestApiScanner {
     private boolean safeOpenApiAnnotationsPresent() {
         try {
             return openApiAnnotationsPresent.getAsBoolean();
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private boolean safeGlobalVersioningConfigured() {
+        try {
+            return globalVersioningConfigured.getAsBoolean();
         } catch (RuntimeException | LinkageError ex) {
             return false;
         }

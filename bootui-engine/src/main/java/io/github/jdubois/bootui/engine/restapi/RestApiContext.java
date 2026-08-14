@@ -15,6 +15,7 @@ record RestApiContext(
         List<HandlerMethodModel> handlers,
         List<ExceptionHandlerModel> exceptionHandlers,
         boolean openApiAnnotationsPresent,
+        boolean globalVersioningConfigured,
         boolean hasExceptionHandling,
         List<String> responseStatusExceptionClasses,
         RestApiModel.Framework framework) {

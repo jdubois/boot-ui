@@ -17,7 +17,7 @@ class RestApiScannerTests {
 
     private RestApiScanner scanner(List<String> basePackages, boolean openApiAnnotationsPresent) {
         return new RestApiScanner(
-                () -> basePackages, new ClassFileRestApiImporter(), () -> openApiAnnotationsPresent, CLOCK);
+                () -> basePackages, new ClassFileRestApiImporter(), () -> openApiAnnotationsPresent, () -> false, CLOCK);
     }
 
     @Test
@@ -82,6 +82,7 @@ class RestApiScannerTests {
                 basePackages -> {
                     throw new NoClassDefFoundError("simulated unresolvable class");
                 },
+                () -> false,
                 () -> false,
                 CLOCK);
 

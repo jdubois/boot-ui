@@ -28,6 +28,11 @@ class RestApiRulesTests {
             "io.github.jdubois.bootui.engine.restapi.newrules.responsecontracts";
 
     private RestApiContext context(boolean openApiAnnotationsPresent, String... packages) {
+        return context(openApiAnnotationsPresent, false, packages);
+    }
+
+    private RestApiContext context(
+            boolean openApiAnnotationsPresent, boolean globalVersioningConfigured, String... packages) {
         JavaClasses classes = new ClassFileImporter().importPackages(packages);
         RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
         return new RestApiContext(
@@ -36,6 +41,7 @@ class RestApiRulesTests {
                 model.handlers(),
                 model.exceptionHandlers(),
                 openApiAnnotationsPresent,
+                globalVersioningConfigured,
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.framework());
@@ -104,6 +110,11 @@ class RestApiRulesTests {
         assertThat(status(new ApiIsVersionedRule(), context(false, BAD))).isEqualTo("VIOLATION");
         // The good controller alone applies /api/v1 consistently.
         assertThat(status(new ApiIsVersionedRule(), context(false, GOOD))).isEqualTo("PASS");
+    }
+
+    @Test
+    void versioningRulePassesWhenGlobalVersioningIsConfigured() {
+        assertThat(status(new ApiIsVersionedRule(), context(false, true, BAD))).isEqualTo("PASS");
     }
 
     @Test

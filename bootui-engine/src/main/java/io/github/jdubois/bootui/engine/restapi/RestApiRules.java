@@ -1298,6 +1298,9 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
         if (context.handlers().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
+        if (!context.jaxRs() && context.globalVersioningConfigured()) {
+            return RestApiRuleSupport.pass(definition());
+        }
         List<HandlerMethodModel> versionable = new ArrayList<>();
         List<HandlerMethodModel> unversioned = new ArrayList<>();
         for (HandlerMethodModel handler : context.handlers()) {

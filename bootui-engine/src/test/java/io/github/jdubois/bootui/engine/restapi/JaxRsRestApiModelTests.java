@@ -36,6 +36,7 @@ class JaxRsRestApiModelTests {
                 model.handlers(),
                 model.exceptionHandlers(),
                 openApiAnnotationsPresent,
+                false,
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.framework());
