@@ -672,10 +672,12 @@ while BootUI itself is active, so it is never reachable in production. Tools inh
 read tools require the backing panel to be enabled, action (`*_scan`) tools are additionally refused when the panel is
 read-only, and all values flow through the same secret masking as the REST API.
 
-| Property                | Default | Description                                                                                                                       |
-| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `bootui.mcp.enabled`    | `OFF`   | Enable the local MCP server. `OFF` (default) and `AUTO` keep it disabled so it is never silently exposed; `ON` exposes the endpoint. |
-| `bootui.mcp.max-results` | `200`   | Maximum number of items returned by paginated read tools (config, beans, mappings, security logs, traces, HTTP exchanges) per call. |
+| Property                       | Default   | Description                                                                                                                       |
+| ------------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.mcp.enabled`           | `OFF`     | Enable the local MCP server. `OFF` (default) and `AUTO` keep it disabled so it is never silently exposed; `ON` exposes the endpoint. |
+| `bootui.mcp.max-results`       | `200`     | Maximum number of items returned by paginated read tools (config, beans, mappings, security logs, traces, HTTP exchanges) per call. |
+| `bootui.mcp.max-payload-bytes` | `1048576` | Maximum size (in bytes) of an incoming JSON-RPC request body; larger requests are rejected before parsing. |
+| `bootui.mcp.max-concurrent-calls` | `20`   | Maximum number of `tools/call` invocations the server executes concurrently; excess calls are refused with a rate-limited error. |
 
 
 

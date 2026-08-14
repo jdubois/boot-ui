@@ -1880,6 +1880,11 @@ Design rules:
   `GET /bootui/api/mcp-server` status response for human inspection. The transport endpoint itself returns 405 to `GET`
   because BootUI does not offer a server-to-client SSE stream. No new runtime dependencies beyond what BootUI already ships.
   The Spring AI MCP server starter is intentionally not used because it targets Spring Boot 3.x.
+- **Deliberately scoped method surface.** The server advertises only the `tools` and `prompts` capabilities. `resources/*`
+  and `completion/complete` are intentionally not implemented: every piece of runtime data BootUI exposes is already
+  reachable as a bounded, arguments-driven tool call, so a parallel MCP resource surface would duplicate the tool
+  catalog without adding capability. This is a scope decision, not an omission, and is revisited if a client-side use
+  case (e.g. a client that only walks `resources/list`) requires it.
 - **Detail-free internal errors.** Unexpected dispatch, tool, policy, or result-serialization failures return the standard
   JSON-RPC internal error (`-32603`, message `Internal error`) without exception text or debug fields. The original
   throwable and stack trace are logged once on the server; expected validation, disabled-server, panel-policy, and
