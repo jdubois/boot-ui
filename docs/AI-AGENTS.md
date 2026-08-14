@@ -97,7 +97,7 @@ the classpath) are simply not advertised.
   by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or `get_live_activity`) and
   returns that exception group's full stack trace, causes, and individual occurrences.
 - **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`,
-  `get_loggers`, `get_conditions` (Spring only), `get_scheduled_tasks`, `get_cache_stats`,
+  `get_loggers`, `get_conditions` (Spring MVC/WebFlux only), `get_scheduled_tasks`, `get_cache_stats`,
   `get_database_connection_pools`.
 
 ### Safety model
