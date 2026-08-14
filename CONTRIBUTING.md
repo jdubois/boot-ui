@@ -95,6 +95,23 @@ integration-test module and let Maven build its dependencies:
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests -am install
 ```
 
+### Software Bill of Materials (SBOM)
+
+Generate a CycloneDX SBOM covering every dependency across the whole reactor after an install:
+
+```bash
+./mvnw clean install
+./mvnw -B -ntp org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom
+```
+
+This writes `target/bootui-sbom.json` (CycloneDX 1.6, JSON). The `cyclonedx-maven-plugin` version and default
+configuration live in the root `pom.xml`'s `pluginManagement`, but the goal is deliberately not bound to any
+lifecycle phase there: bound, it would attach the BOM as an extra artifact during `install`/`deploy` and get
+swept into Maven Central publication by the `release` profile, counting against Central's per-file monthly
+quota for every published module (see the `central-publishing-maven-plugin` checksums comment in `pom.xml`).
+CI (`.github/workflows/build.yml`) runs the same standalone command after the main build and uploads the result
+as the `bootui-sbom` workflow artifact on every push and pull request.
+
 ## Testing
 
 Use the CI-equivalent build before opening or updating a pull request:

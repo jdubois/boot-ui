@@ -65,6 +65,22 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash .github/scripts/coverage-summary.sh >> "$GITHUB_STEP_SUMMARY"
 
+      # Aggregates dependencies from every reactor module (already installed above) into one CycloneDX
+      # SBOM. Invoked as a standalone goal (not bound to a lifecycle phase in pom.xml) so it never attaches
+      # to, or is published alongside, release artifacts - see the cyclonedx-maven-plugin comment in pom.xml.
+      - name: Generate CycloneDX SBOM
+        if: success()
+        run: ./mvnw -B -ntp org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom
+
+      - name: Upload SBOM
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bootui-sbom
+          path: target/bootui-sbom.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Check frontend formatting
         working-directory: bootui-ui/src/main/frontend
         run: npm run format:check

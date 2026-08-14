@@ -75,6 +75,7 @@
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
         <frontend-maven-plugin.version>2.0.2</frontend-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
+        <cyclonedx-maven-plugin.version>2.9.1</cyclonedx-maven-plugin.version>
         <native-build-tools-plugin.version>1.1.6</native-build-tools-plugin.version>
         <archunit.version>1.4.2</archunit.version>
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
@@ -279,6 +280,26 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-gpg-plugin</artifactId>
                     <version>${maven-gpg-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.cyclonedx</groupId>
+                    <artifactId>cyclonedx-maven-plugin</artifactId>
+                    <version>${cyclonedx-maven-plugin.version}</version>
+                    <!--
+                        Deliberately not bound to any lifecycle phase: cyclonedx-maven-plugin attaches its
+                        BOM as an extra artifact with a "cyclonedx" classifier during install/deploy, which
+                        would otherwise get swept into Maven Central publication by the release profile and
+                        count against Central's per-file monthly quota (see the checksums comment above) for
+                        every published module. CI instead invokes the makeAggregateBom goal explicitly
+                        (.github/workflows/build.yml) after the reactor build, producing one SBOM covering the
+                        whole build without touching release artifacts.
+                    -->
+                    <configuration>
+                        <projectType>application</projectType>
+                        <schemaVersion>1.6</schemaVersion>
+                        <outputFormat>json</outputFormat>
+                        <outputName>bootui-sbom</outputName>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.sonatype.central</groupId>
