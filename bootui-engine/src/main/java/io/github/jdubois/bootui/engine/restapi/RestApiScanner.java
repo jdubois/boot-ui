@@ -75,6 +75,12 @@ public final class RestApiScanner {
         return usingClasspath(basePackagesSupplier, openApiAnnotationsPresent, () -> false, clock);
     }
 
+    /**
+     * Variant of {@link #usingClasspath(Supplier, BooleanSupplier, Clock)} that also accepts a
+     * framework-supplied global API-versioning signal (for example Spring MVC's
+     * {@code spring.mvc.apiversion.*} configuration) so rules can honor runtime-wide versioning
+     * strategies that are not expressible per-handler in bytecode.
+     */
     public static RestApiScanner usingClasspath(
             Supplier<List<String>> basePackagesSupplier,
             BooleanSupplier openApiAnnotationsPresent,
