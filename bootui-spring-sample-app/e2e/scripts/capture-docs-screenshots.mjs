@@ -994,6 +994,12 @@ const mcpServerTools = [
     true
   ),
   mcpTool(
+    'vulnerabilities_scan',
+    'Actively query OSV.dev for known vulnerabilities in dependencies and return severity-ranked findings.',
+    'vulnerabilities',
+    true
+  ),
+  mcpTool(
     'get_exceptions',
     'List recent unhandled exceptions captured at runtime (most recent first).',
     'exceptions',
@@ -1032,6 +1038,36 @@ const mcpServerTools = [
     'get_mappings',
     'List request mappings (URL patterns to handlers). Optional query filters them.',
     'mappings',
+    false
+  ),
+  mcpTool(
+    'get_loggers',
+    'Search configured loggers by name and return their configured and effective levels.',
+    'loggers',
+    false
+  ),
+  mcpTool(
+    'get_conditions',
+    'Search Spring auto-configuration condition evaluation outcomes by name.',
+    'conditions',
+    false
+  ),
+  mcpTool(
+    'get_scheduled_tasks',
+    'Return the current scheduled task inventory and recent run history.',
+    'scheduled',
+    false
+  ),
+  mcpTool(
+    'get_cache_stats',
+    'Return current cache manager and cache statistics for each configured cache.',
+    'cache',
+    false
+  ),
+  mcpTool(
+    'get_database_connection_pools',
+    'Return current connection pool configuration and live metrics for each configured datasource.',
+    'database-connection-pools',
     false
   )
 ]

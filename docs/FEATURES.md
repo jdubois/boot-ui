@@ -1580,14 +1580,17 @@ rather than reimplementing anything, so every tool returns the same masked, boun
 groups:
 
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
-  `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`. Each triggers the same scan the panel's action button
-  runs and returns the report DTO.
+  `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`. Each triggers the same scan the
+  panel's action button runs and returns the report DTO; `vulnerabilities_scan` additionally makes outbound calls to
+  OSV.dev.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`. `get_live_activity` returns the correlated feed
   the [Live Activity panel](#live-activity) shows (HTTP requests, SQL statements, exceptions, security events,
   scheduled-task runs, and — Spring only — cache accesses, grouped by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or
   `get_live_activity`) and returns that exception group's full stack trace, causes, and individual occurrences.
-- **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`.
+- **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`,
+  `get_loggers`, `get_conditions` (Spring MVC/WebFlux only — Quarkus has no runtime condition-match graph),
+  `get_scheduled_tasks`, `get_cache_stats`, `get_database_connection_pools`.
 
 Tools whose backing panel/controller is not present (for example Hibernate or Spring Security when those libraries are
 absent) are simply not advertised. The server inherits BootUI's full safety model:
@@ -1630,8 +1633,8 @@ and the same working enable/disable toggle (the `bootui.mcp.*` keys are read fro
 core — method routing, per-panel gating, tool lookup, and the `max-results` cap — lives in the shared framework-neutral
 engine; each adapter only supplies a thin Jackson envelope codec (Jackson 2 on Quarkus) and its own tool catalog, so
 requests and responses are byte-identical across the two backends. The advertised tools track which panels are actually
-live on Quarkus: `graalvm_scan` and `crac_scan` (both deliberately not applicable on Quarkus) are not offered,
-`get_overview` is advertised (the Overview panel is available, its dashboard rendering client-side), and
+live on Quarkus: `graalvm_scan`, `crac_scan`, and `get_conditions` (all deliberately not applicable on Quarkus) are not
+offered, `get_overview` is advertised (the Overview panel is available, its dashboard rendering client-side), and
 `spring_scan` runs the Quarkus-native idiom advisor.
 
 ![BootUI MCP Server panel](./images/bootui-mcp-server.webp)

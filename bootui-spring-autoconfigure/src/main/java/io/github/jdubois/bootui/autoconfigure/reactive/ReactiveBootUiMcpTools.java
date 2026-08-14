@@ -9,12 +9,18 @@ import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.web.BeansController;
+import io.github.jdubois.bootui.autoconfigure.web.ConditionsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigController;
+import io.github.jdubois.bootui.autoconfigure.web.DatabaseConnectionPoolsController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
+import io.github.jdubois.bootui.autoconfigure.web.LoggersController;
 import io.github.jdubois.bootui.autoconfigure.web.MappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
+import io.github.jdubois.bootui.autoconfigure.web.ScheduledController;
+import io.github.jdubois.bootui.autoconfigure.web.SpringCacheController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.autoconfigure.web.VulnerabilitiesController;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
@@ -56,7 +62,13 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<PentestingController> pentesting,
             ObjectProvider<RestApiController> restApi,
             ObjectProvider<GraalVmController> graalvm,
-            ObjectProvider<CracController> crac) {
+            ObjectProvider<CracController> crac,
+            ObjectProvider<VulnerabilitiesController> vulnerabilities,
+            ObjectProvider<LoggersController> loggers,
+            ObjectProvider<ConditionsController> conditions,
+            ObjectProvider<ScheduledController> scheduled,
+            ObjectProvider<SpringCacheController> cache,
+            ObjectProvider<DatabaseConnectionPoolsController> connectionPools) {
         OverviewController overviewBean = overview.getIfAvailable();
         HealthController healthBean = health.getIfAvailable();
         ConfigController configBean = config.getIfAvailable();
@@ -78,6 +90,12 @@ public class ReactiveBootUiMcpTools {
         RestApiController restApiBean = restApi.getIfAvailable();
         GraalVmController graalvmBean = graalvm.getIfAvailable();
         CracController cracBean = crac.getIfAvailable();
+        VulnerabilitiesController vulnerabilitiesBean = vulnerabilities.getIfAvailable();
+        LoggersController loggersBean = loggers.getIfAvailable();
+        ConditionsController conditionsBean = conditions.getIfAvailable();
+        ScheduledController scheduledBean = scheduled.getIfAvailable();
+        SpringCacheController cacheBean = cache.getIfAvailable();
+        DatabaseConnectionPoolsController connectionPoolsBean = connectionPools.getIfAvailable();
 
         List<McpTool> registry = new ArrayList<>();
 
@@ -140,6 +158,13 @@ public class ReactiveBootUiMcpTools {
         if (cracBean != null) {
             registry.add(action(
                     "crac_scan", McpToolDescriptions.spring("crac_scan"), BootUiPanels.CRAC, args -> cracBean.scan()));
+        }
+        if (vulnerabilitiesBean != null) {
+            registry.add(action(
+                    "vulnerabilities_scan",
+                    McpToolDescriptions.spring("vulnerabilities_scan"),
+                    BootUiPanels.VULNERABILITIES,
+                    args -> vulnerabilitiesBean.scan()));
         }
 
         if (liveActivityBean != null) {
@@ -231,6 +256,41 @@ public class ReactiveBootUiMcpTools {
                     McpToolDescriptions.spring("get_mappings"),
                     BootUiPanels.MAPPINGS,
                     args -> mappingsBean.flatMappings(args.query(), null, args.limit())));
+        }
+        if (loggersBean != null) {
+            registry.add(searchRead(
+                    "get_loggers",
+                    McpToolDescriptions.spring("get_loggers"),
+                    BootUiPanels.LOGGERS,
+                    args -> loggersBean.loggers(args.query(), null, args.limit())));
+        }
+        if (conditionsBean != null) {
+            registry.add(searchRead(
+                    "get_conditions",
+                    McpToolDescriptions.spring("get_conditions"),
+                    BootUiPanels.CONDITIONS,
+                    args -> conditionsBean.conditions(args.query(), null, null, args.limit())));
+        }
+        if (scheduledBean != null) {
+            registry.add(read(
+                    "get_scheduled_tasks",
+                    McpToolDescriptions.spring("get_scheduled_tasks"),
+                    BootUiPanels.SCHEDULED,
+                    args -> scheduledBean.scheduled()));
+        }
+        if (cacheBean != null) {
+            registry.add(read(
+                    "get_cache_stats",
+                    McpToolDescriptions.spring("get_cache_stats"),
+                    BootUiPanels.CACHE,
+                    args -> cacheBean.springCache()));
+        }
+        if (connectionPoolsBean != null) {
+            registry.add(read(
+                    "get_database_connection_pools",
+                    McpToolDescriptions.spring("get_database_connection_pools"),
+                    BootUiPanels.DATABASE_CONNECTION_POOLS,
+                    args -> connectionPoolsBean.pools()));
         }
 
         this.tools = List.copyOf(registry);

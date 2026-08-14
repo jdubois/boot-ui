@@ -69,7 +69,31 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_mappings",
                     "Search request routes and handlers and return a bounded result. Use a path, HTTP concept, or handler "
-                            + "name as the query when locating an endpoint."));
+                            + "name as the query when locating an endpoint."),
+            Map.entry(
+                    "vulnerabilities_scan",
+                    "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return "
+                            + "severity-ranked findings. This makes outbound network calls to a public advisory database; "
+                            + "run only when needed and verify a finding's affected version range before changing a "
+                            + "dependency."),
+            Map.entry(
+                    "get_loggers",
+                    "Search configured loggers by case-insensitive name and return their configured and effective "
+                            + "levels, bounded by limit. Use to confirm actual logging levels before or after a code or "
+                            + "configuration change."),
+            Map.entry(
+                    "get_scheduled_tasks",
+                    "Return the current scheduled task inventory and recent run history, including timing and outcome. "
+                            + "Use to confirm a scheduled job actually ran, and when, rather than assuming from source "
+                            + "alone."),
+            Map.entry(
+                    "get_cache_stats",
+                    "Return current cache manager and cache statistics (hits, misses, size) for each configured cache. "
+                            + "Use to verify cache behavior before proposing a caching change."),
+            Map.entry(
+                    "get_database_connection_pools",
+                    "Return current connection pool configuration and live metrics (active, idle, pending connections) "
+                            + "for each configured datasource. Use to diagnose pool exhaustion or misconfiguration."));
 
     private McpToolDescriptions() {}
 
@@ -93,6 +117,10 @@ public final class McpToolDescriptions {
             case "get_beans" ->
                 "Search Spring beans by name or type and return a bounded result. Use this to verify runtime wiring, "
                         + "not as proof that a bean is exercised.";
+            case "get_conditions" ->
+                "Search Spring auto-configuration condition evaluation outcomes by case-insensitive name and return "
+                        + "matched, unmatched, and unconditional entries. Use to confirm why a bean or auto-configuration "
+                        + "was or was not applied, rather than guessing from source.";
             default -> common(name);
         };
     }

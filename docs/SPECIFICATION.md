@@ -1896,12 +1896,15 @@ Design rules:
   busy message. Panel disabled/read-only policy is checked first, and the aggregate MCP concurrent-call cap remains a
   separate capacity limit.
 - **Tool surface.** Advisor scans as action tools (`architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`,
-  `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`); diagnostics reads (`get_live_activity`,
-  `get_exceptions`, `get_exception_detail`, `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`,
-  `get_http_exchanges`); and core context reads (`get_overview`, `get_health`, `get_config`, `get_beans`,
-  `get_mappings`). `get_live_activity` returns the same correlated feed as the Live Activity panel; `get_exception_detail`
-  takes a required `id` argument and returns one exception group's full stack trace, causes, and occurrences. Tools whose
-  backing controller is absent (conditional on classpath, e.g. Hibernate or Spring Security) are not advertised.
+  `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`); diagnostics
+  reads (`get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`, `get_sql_traces`,
+  `get_traces`, `get_log_tail`, `get_http_exchanges`); and core context reads (`get_overview`, `get_health`,
+  `get_config`, `get_beans`, `get_mappings`, `get_loggers`, `get_conditions`, `get_scheduled_tasks`, `get_cache_stats`,
+  `get_database_connection_pools`). `get_live_activity` returns the same correlated feed as the Live Activity panel;
+  `get_exception_detail` takes a required `id` argument and returns one exception group's full stack trace, causes,
+  and occurrences. `vulnerabilities_scan` makes outbound calls to OSV.dev, unlike every other read/scan tool which
+  stays local. Tools whose backing controller is absent (conditional on classpath, e.g. Hibernate or Spring Security)
+  or not applicable to the running stack (e.g. `get_conditions` on Quarkus) are not advertised.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions
