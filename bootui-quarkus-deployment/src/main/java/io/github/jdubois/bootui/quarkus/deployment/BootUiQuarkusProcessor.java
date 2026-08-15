@@ -68,6 +68,7 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
+import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.DevServicesResultBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.GeneratedResourceBuildItem;
@@ -137,6 +138,15 @@ import org.jboss.jandex.Type;
 class BootUiQuarkusProcessor {
 
     private static final String FEATURE = "bootui";
+    private static final DotName JAX_RS_HTTP_METHOD = DotName.createSimple("jakarta.ws.rs.HttpMethod");
+    private static final Set<DotName> STANDARD_JAX_RS_HTTP_METHODS = Set.of(
+            DotName.createSimple("jakarta.ws.rs.GET"),
+            DotName.createSimple("jakarta.ws.rs.POST"),
+            DotName.createSimple("jakarta.ws.rs.PUT"),
+            DotName.createSimple("jakarta.ws.rs.DELETE"),
+            DotName.createSimple("jakarta.ws.rs.PATCH"),
+            DotName.createSimple("jakarta.ws.rs.HEAD"),
+            DotName.createSimple("jakarta.ws.rs.OPTIONS"));
 
     // BootUI's own resources are filtered out of the captured Mappings inventory by package and by path,
     // mirroring the Spring BootUiSelfDataFilter (which inspects the handler class and the request path).
@@ -430,33 +440,53 @@ class BootUiQuarkusProcessor {
     /**
      * Determines whether the application declares any JAX-RS resources and exposes the decision to runtime
      * config as {@link QuarkusPanelAvailability#REST_API_PRESENT_KEY} (default {@code false}) so the REST API
-     * advisor panel is available only when there are application controllers to analyse. Counts HTTP-method
-     * annotations ({@code @GET/@POST/...}) on methods in {@link ApplicationIndexBuildItem} (the app's own
-     * classes only — never BootUI's or dependency jars). A capability gate would be tautological because
-     * BootUI itself depends on quarkus-rest. Dev/test only; in {@link LaunchMode#NORMAL} the console is dark.
+     * advisor panel is available only when there are application controllers to analyse. Counts standard and
+     * custom {@code @HttpMethod} annotations on methods in {@link ApplicationIndexBuildItem} (the app's own
+     * classes only — never BootUI's or dependency jars), resolving custom annotation metadata through the
+     * combined index. A capability gate would be tautological because BootUI itself depends on quarkus-rest.
+     * Dev/test only; in {@link LaunchMode#NORMAL} the console is dark.
      */
     @BuildStep
     void registerRestApi(
             LaunchModeBuildItem launchMode,
             ApplicationIndexBuildItem applicationIndex,
+            CombinedIndexBuildItem combinedIndex,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
             return;
         }
         IndexView index = applicationIndex.getIndex();
-        boolean present = List.of(
-                        "jakarta.ws.rs.GET",
-                        "jakarta.ws.rs.POST",
-                        "jakarta.ws.rs.PUT",
-                        "jakarta.ws.rs.DELETE",
-                        "jakarta.ws.rs.PATCH",
-                        "jakarta.ws.rs.HEAD",
-                        "jakarta.ws.rs.OPTIONS")
-                .stream()
-                .anyMatch(http -> index.getAnnotations(DotName.createSimple(http)).stream()
-                        .anyMatch(ann -> ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.METHOD));
+        boolean present = hasRestApiEndpoint(index, combinedIndex.getComputingIndex());
         runtimeDefaults.produce(
                 new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.REST_API_PRESENT_KEY, "" + present));
+    }
+
+    static boolean hasRestApiEndpoint(IndexView index) {
+        return hasRestApiEndpoint(index, index);
+    }
+
+    static boolean hasRestApiEndpoint(IndexView applicationIndex, IndexView annotationIndex) {
+        for (ClassInfo classInfo : applicationIndex.getKnownClasses()) {
+            if (classInfo.declaredAnnotation(REGISTER_REST_CLIENT) != null) {
+                continue;
+            }
+            for (MethodInfo method : classInfo.methods()) {
+                for (AnnotationInstance annotation : method.annotations()) {
+                    if (isJaxRsHttpMethod(annotationIndex, annotation.name())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isJaxRsHttpMethod(IndexView index, DotName annotationName) {
+        if (STANDARD_JAX_RS_HTTP_METHODS.contains(annotationName)) {
+            return true;
+        }
+        ClassInfo annotationType = index.getClassByName(annotationName);
+        return annotationType != null && annotationType.declaredAnnotation(JAX_RS_HTTP_METHOD) != null;
     }
 
     /**

@@ -88,14 +88,17 @@ Tools whose backing panel/controller is absent (for example Hibernate or Spring 
 the classpath) are simply not advertised.
 
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
-  `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`. Each runs the same scan as the panel's action button and
-  returns the report DTO.
+  `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`. Each runs the same scan as the
+  panel's action button and returns the report DTO; `vulnerabilities_scan` additionally makes outbound calls to
+  OSV.dev to check dependencies for known vulnerabilities.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`. `get_live_activity` returns the correlated feed
   the [Live Activity panel](FEATURES.md) shows (HTTP requests, SQL statements, exceptions, and security events grouped
   by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or `get_live_activity`) and
   returns that exception group's full stack trace, causes, and individual occurrences.
-- **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`.
+- **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`,
+  `get_loggers`, `get_conditions` (Spring MVC/WebFlux only), `get_scheduled_tasks`, `get_cache_stats`,
+  `get_database_connection_pools`.
 
 ### Safety model
 

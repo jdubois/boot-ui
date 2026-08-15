@@ -1276,6 +1276,9 @@ Acceptance criteria:
 - Messages are listed newest-first from a bounded ring buffer sized by `bootui.email.max-entries` (default 100, oldest
   evicted first); a message's HTML body renders in a sandboxed iframe (no script execution, no same-origin access) and
   each message can be downloaded as a `.eml` file.
+- Each captured text/HTML body is additionally truncated at `bootui.email.max-body-length` characters (default
+  200,000) so one oversized message cannot spike memory before the entry-count cap would evict it; attachment content
+  is never captured in the first place (metadata only), so no equivalent cap applies there.
 - Clearing the buffer is gated by `bootui.panels.email.read-only`, consistent with every other clearable capture panel.
 
 ### 5.14.5 REST Client Panel
@@ -2016,6 +2019,11 @@ Design rules:
   `GET /bootui/api/mcp-server` status response for human inspection. The transport endpoint itself returns 405 to `GET`
   because BootUI does not offer a server-to-client SSE stream. No new runtime dependencies beyond what BootUI already ships.
   The Spring AI MCP server starter is intentionally not used because it targets Spring Boot 3.x.
+- **Deliberately scoped method surface.** The server advertises only the `tools` and `prompts` capabilities. `resources/*`
+  and `completion/complete` are intentionally not implemented: every piece of runtime data BootUI exposes is already
+  reachable as a bounded, arguments-driven tool call, so a parallel MCP resource surface would duplicate the tool
+  catalog without adding capability. This is a scope decision, not an omission, and is revisited if a client-side use
+  case (e.g. a client that only walks `resources/list`) requires it.
 - **Detail-free internal errors.** Unexpected dispatch, tool, policy, or result-serialization failures return the standard
   JSON-RPC internal error (`-32603`, message `Internal error`) without exception text or debug fields. The original
   throwable and stack trace are logged once on the server; expected validation, disabled-server, panel-policy, and
@@ -2027,12 +2035,15 @@ Design rules:
   busy message. Panel disabled/read-only policy is checked first, and the aggregate MCP concurrent-call cap remains a
   separate capacity limit.
 - **Tool surface.** Advisor scans as action tools (`architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`,
-  `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`); diagnostics reads (`get_live_activity`,
-  `get_exceptions`, `get_exception_detail`, `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`,
-  `get_http_exchanges`); and core context reads (`get_overview`, `get_health`, `get_config`, `get_beans`,
-  `get_mappings`). `get_live_activity` returns the same correlated feed as the Live Activity panel; `get_exception_detail`
-  takes a required `id` argument and returns one exception group's full stack trace, causes, and occurrences. Tools whose
-  backing controller is absent (conditional on classpath, e.g. Hibernate or Spring Security) are not advertised.
+  `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`); diagnostics
+  reads (`get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`, `get_sql_traces`,
+  `get_traces`, `get_log_tail`, `get_http_exchanges`); and core context reads (`get_overview`, `get_health`,
+  `get_config`, `get_beans`, `get_mappings`, `get_loggers`, `get_conditions`, `get_scheduled_tasks`, `get_cache_stats`,
+  `get_database_connection_pools`). `get_live_activity` returns the same correlated feed as the Live Activity panel;
+  `get_exception_detail` takes a required `id` argument and returns one exception group's full stack trace, causes,
+  and occurrences. `vulnerabilities_scan` makes outbound calls to OSV.dev, unlike every other read/scan tool which
+  stays local. Tools whose backing controller is absent (conditional on classpath, e.g. Hibernate or Spring Security)
+  or not applicable to the running stack (e.g. `get_conditions` on Quarkus) are not advertised.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions

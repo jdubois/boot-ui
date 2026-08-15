@@ -511,6 +511,7 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | `bootui.panels.email.enabled`     | `true`  | Show the Email Viewer panel when a supported mail sender is present (`JavaMailSender` on Spring or `quarkus-mailer` on Quarkus). |
 | `bootui.panels.email.read-only`   | `false` | Disable the clear action while keeping captured messages visible.                                                     |
 | `bootui.email.max-entries`        | `100`   | Maximum number of captured messages retained; the oldest is evicted once full.                                        |
+| `bootui.email.max-body-length`    | `200000` | Maximum number of characters retained per captured text/HTML body; a longer body is truncated at capture time so one oversized message cannot spike memory before `max-entries` would evict it. |
 | `bootui.email.dev-trap`           | `false` | On Spring, when `true`, captured messages are recorded but never actually handed to the real mail transport. On Quarkus, sent/not-sent instead reflects `quarkus.mailer.mock` because capture happens after send. |
 | `bootui.email.mask-content`       | `false` | When `true`, mask recipients/subject/body (like Configuration's secret masking) unless `bootui.expose-values=FULL`. Email content is not a config secret, so BootUI reveals it by default; enable this for teams that route real customer PII through a shared dev environment. |
 
@@ -672,10 +673,12 @@ while BootUI itself is active, so it is never reachable in production. Tools inh
 read tools require the backing panel to be enabled, action (`*_scan`) tools are additionally refused when the panel is
 read-only, and all values flow through the same secret masking as the REST API.
 
-| Property                | Default | Description                                                                                                                       |
-| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `bootui.mcp.enabled`    | `OFF`   | Enable the local MCP server. `OFF` (default) and `AUTO` keep it disabled so it is never silently exposed; `ON` exposes the endpoint. |
-| `bootui.mcp.max-results` | `200`   | Maximum number of items returned by paginated read tools (config, beans, mappings, security logs, traces, HTTP exchanges) per call. |
+| Property                       | Default   | Description                                                                                                                       |
+| ------------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.mcp.enabled`           | `OFF`     | Enable the local MCP server. `OFF` (default) and `AUTO` keep it disabled so it is never silently exposed; `ON` exposes the endpoint. |
+| `bootui.mcp.max-results`       | `200`     | Maximum number of items returned by paginated read tools (config, beans, mappings, security logs, traces, HTTP exchanges) per call. |
+| `bootui.mcp.max-payload-bytes` | `1048576` | Maximum size (in bytes) of an incoming JSON-RPC request body; larger requests are rejected before parsing. |
+| `bootui.mcp.max-concurrent-calls` | `20`   | Maximum number of `tools/call` invocations the server executes concurrently; excess calls are refused with a rate-limited error. |
 
 
 

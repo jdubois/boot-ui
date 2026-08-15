@@ -1424,6 +1424,11 @@ similar to MailDev/GreenMail; it is off by default so BootUI never silently swal
 available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear
 unavailable reason.
 
+Each captured message's text/HTML body is truncated at `bootui.email.max-body-length` characters (default 200,000,
+matching `EmailStore.DEFAULT_MAX_BODY_LENGTH`) so a single oversized message cannot spike memory before the
+`bootui.email.max-entries` entry-count cap would evict it — attachment content is never captured (metadata only), so
+this cap only applies to bodies.
+
 On Quarkus the panel is identical, running over the same shared engine `EmailCaptureService` and the same
 `/bootui/api/email` contract (list/detail/`.eml`/clear, with the `.eml` bytes produced by the shared engine renderer so
 they match Spring's). Because Quarkus's blocking/reactive/Mutiny `Mailer` beans all funnel through one internal mailer
@@ -1679,14 +1684,17 @@ rather than reimplementing anything, so every tool returns the same masked, boun
 groups:
 
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
-  `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`. Each triggers the same scan the panel's action button
-  runs and returns the report DTO.
+  `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`. Each triggers the same scan the
+  panel's action button runs and returns the report DTO; `vulnerabilities_scan` additionally makes outbound calls to
+  OSV.dev.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`. `get_live_activity` returns the correlated feed
   the [Live Activity panel](#live-activity) shows (HTTP requests, SQL statements, exceptions, security events,
   scheduled-task runs, and — Spring only — cache accesses, grouped by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or
   `get_live_activity`) and returns that exception group's full stack trace, causes, and individual occurrences.
-- **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`.
+- **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`,
+  `get_loggers`, `get_conditions` (Spring MVC/WebFlux only — Quarkus has no runtime condition-match graph),
+  `get_scheduled_tasks`, `get_cache_stats`, `get_database_connection_pools`.
 
 Tools whose backing panel/controller is not present (for example Hibernate or Spring Security when those libraries are
 absent) are simply not advertised. The server inherits BootUI's full safety model:
@@ -1729,8 +1737,8 @@ and the same working enable/disable toggle (the `bootui.mcp.*` keys are read fro
 core — method routing, per-panel gating, tool lookup, and the `max-results` cap — lives in the shared framework-neutral
 engine; each adapter only supplies a thin Jackson envelope codec (Jackson 2 on Quarkus) and its own tool catalog, so
 requests and responses are byte-identical across the two backends. The advertised tools track which panels are actually
-live on Quarkus: `graalvm_scan` and `crac_scan` (both deliberately not applicable on Quarkus) are not offered,
-`get_overview` is advertised (the Overview panel is available, its dashboard rendering client-side), and
+live on Quarkus: `graalvm_scan`, `crac_scan`, and `get_conditions` (all deliberately not applicable on Quarkus) are not
+offered, `get_overview` is advertised (the Overview panel is available, its dashboard rendering client-side), and
 `spring_scan` runs the Quarkus-native idiom advisor.
 
 ![BootUI MCP Server panel](./images/bootui-mcp-server.webp)

@@ -381,7 +381,13 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<PentestingController> pentesting,
                 ObjectProvider<RestApiController> restApi,
                 ObjectProvider<GraalVmController> graalvm,
-                ObjectProvider<CracController> crac) {
+                ObjectProvider<CracController> crac,
+                ObjectProvider<VulnerabilitiesController> vulnerabilities,
+                ObjectProvider<LoggersController> loggers,
+                ObjectProvider<ConditionsController> conditions,
+                ObjectProvider<ScheduledController> scheduled,
+                ObjectProvider<SpringCacheController> cache,
+                ObjectProvider<DatabaseConnectionPoolsController> connectionPools) {
             return new ReactiveBootUiMcpTools(
                     overview,
                     health,
@@ -403,7 +409,13 @@ public class BootUiReactiveAutoConfiguration {
                     pentesting,
                     restApi,
                     graalvm,
-                    crac);
+                    crac,
+                    vulnerabilities,
+                    loggers,
+                    conditions,
+                    scheduled,
+                    cache,
+                    connectionPools);
         }
 
         @Bean

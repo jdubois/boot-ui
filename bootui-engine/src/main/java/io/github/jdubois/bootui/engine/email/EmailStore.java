@@ -17,15 +17,23 @@ import java.util.concurrent.atomic.AtomicLong;
  * opt-in), so this store never itself decides whether to send.
  *
  * <p>Capped at {@code maxEntries}; the oldest entry is evicted once full so the buffer never grows
- * unbounded. Safe to call concurrently: {@link #capture} may run on the thread sending mail while
- * {@link #list} / {@link #get} run on an HTTP request thread.</p>
+ * unbounded. Attachment content is never captured (only metadata), but a single message's text/HTML
+ * body is otherwise an unbounded application-supplied string; each body is additionally truncated at
+ * {@code maxBodyLength} characters so one oversized message cannot spike memory before the entry-count
+ * cap would evict it (the same "bounded, no unbounded growth" discipline Mailtraxx documents via its
+ * own {@code --max-size} flag). Safe to call concurrently: {@link #capture} may run on the thread
+ * sending mail while {@link #list} / {@link #get} run on an HTTP request thread.</p>
  */
 public final class EmailStore {
+
+    /** Default cap (characters) applied to each captured text/HTML body when none is configured. */
+    public static final int DEFAULT_MAX_BODY_LENGTH = 200_000;
 
     /** One captured email, stamped with a stable id, capture timestamp, trace id, and thread. */
     public record Entry(String id, long timestamp, CapturedEmail email, boolean sent, String traceId, String thread) {}
 
     private final int maxEntries;
+    private final int maxBodyLength;
     private final Deque<Entry> entries = new ArrayDeque<>();
     private final AtomicLong sequence = new AtomicLong();
     private final Object lock = new Object();
@@ -33,11 +41,21 @@ public final class EmailStore {
     private volatile TraceIdProvider traceIdProvider = EmailStore::mdcTraceId;
 
     public EmailStore(int maxEntries) {
+        this(maxEntries, DEFAULT_MAX_BODY_LENGTH);
+    }
+
+    public EmailStore(int maxEntries, int maxBodyLength) {
         this.maxEntries = Math.max(1, maxEntries);
+        this.maxBodyLength = Math.max(1, maxBodyLength);
     }
 
     public int maxEntries() {
         return maxEntries;
+    }
+
+    /** Maximum number of characters retained per captured text/HTML body before truncation. */
+    public int maxBodyLength() {
+        return maxBodyLength;
     }
 
     /**
@@ -60,7 +78,7 @@ public final class EmailStore {
         Entry entry = new Entry(
                 "email-" + sequence.incrementAndGet(),
                 System.currentTimeMillis(),
-                email,
+                boundBodies(email),
                 sent,
                 resolveTraceId(),
                 Thread.currentThread().getName());
@@ -129,6 +147,34 @@ public final class EmailStore {
         } catch (RuntimeException ex) {
             return null;
         }
+    }
+
+    /**
+     * Returns {@code email} unchanged when both bodies are within {@link #maxBodyLength}, otherwise
+     * returns a copy with the oversized body/bodies truncated. Attachments are never touched here: their
+     * content is never captured in the first place (metadata only), so they carry no unbounded payload.
+     */
+    private CapturedEmail boundBodies(CapturedEmail email) {
+        boolean textTruncated = email.textBody() != null && email.textBody().length() > maxBodyLength;
+        boolean htmlTruncated = email.htmlBody() != null && email.htmlBody().length() > maxBodyLength;
+        if (!textTruncated && !htmlTruncated) {
+            return email;
+        }
+        return CapturedEmail.builder()
+                .from(email.from())
+                .to(email.to())
+                .cc(email.cc())
+                .bcc(email.bcc())
+                .subject(email.subject())
+                .textBody(textTruncated ? truncate(email.textBody()) : email.textBody())
+                .htmlBody(htmlTruncated ? truncate(email.htmlBody()) : email.htmlBody())
+                .attachments(email.attachments())
+                .build();
+    }
+
+    private String truncate(String body) {
+        return body.substring(0, maxBodyLength) + "\n…[truncated, showing " + maxBodyLength + " of " + body.length()
+                + " characters]";
     }
 
     private static String mdcTraceId() {

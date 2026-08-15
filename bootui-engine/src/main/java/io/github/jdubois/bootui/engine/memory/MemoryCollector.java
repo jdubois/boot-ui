@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.BufferPoolSnapshot;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.ClassLoadingData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.GcEvent;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.GcSample;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.GcTrend;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.HeapContentData;
@@ -80,12 +81,27 @@ final class MemoryCollector {
         // from the recent-overhead window; the post-histogram runtime reading becomes the baseline
         // for the next scan.
         GcSample preHistogramGc = currentGcSample();
+        GcEvent preHistogramGcEvent = readLastGcEvent().asGcEvent();
         HeapContentData heapContent = collectHeapContent();
+        GcSample postHistogramGc = currentGcSample();
+        GcEvent postHistogramGcEvent = readLastGcEvent().asGcEvent();
         PostGcHeapData postGcHeap = collectPostGcHeap(heapContent.available());
         ClassLoadingData classLoading = collectClassLoading();
-        RuntimeData runtime = collectRuntime();
+        RuntimeData runtime = collectRuntime(preHistogramGcEvent);
         return new MemoryContext(
-                memory, threads, heapContent, postGcHeap, classLoading, runtime, preHistogramGc, GcTrend.unavailable());
+                memory,
+                threads,
+                heapContent,
+                postGcHeap,
+                classLoading,
+                runtime,
+                preHistogramGc,
+                postHistogramGc,
+                preHistogramGcEvent,
+                postHistogramGcEvent,
+                GcTrend.unavailable(),
+                null,
+                null);
     }
 
     /**
@@ -124,9 +140,9 @@ final class MemoryCollector {
             if (count > 0) {
                 perCollectorCounts.put(gc.getName(), count);
             }
-            // Exclude concurrent-cycle beans (ZGC Cycles, Shenandoah Cycles, G1 Concurrent GC,
-            // ConcurrentMarkSweep) from the STW-only time/count totals. Including their concurrent
-            // phase time would inflate overhead for apps that deliberately chose a concurrent collector.
+            // Exclude concurrent-cycle beans (ZGC/Shenandoah Cycles and legacy ConcurrentMarkSweep)
+            // from the STW-only time/count totals. G1 Concurrent GC is retained because it records
+            // remark/cleanup VM operations rather than concurrent phase elapsed time.
             if (!isConcurrentCycleBean(gc.getName())) {
                 long time = gc.getCollectionTime();
                 if (time >= 0) {
@@ -152,9 +168,10 @@ final class MemoryCollector {
             return false;
         }
         String lower = name.toLowerCase(java.util.Locale.ROOT);
-        // "cycles" covers: ZGC Cycles, ZGC Major Cycles, ZGC Minor Cycles, Shenandoah Cycles
-        // "concurrent" covers: G1 Concurrent GC, ConcurrentMarkSweep (legacy CMS)
-        return lower.contains("cycles") || lower.contains("concurrent");
+        // "cycles" covers: ZGC Cycles, ZGC Major Cycles, ZGC Minor Cycles, Shenandoah Cycles.
+        // G1 Concurrent GC records its remark/cleanup VM operations, so its elapsed time remains
+        // relevant to a stop-the-world overhead metric.
+        return lower.contains("cycles") || "concurrentmarksweep".equals(lower);
     }
 
     private MemoryData collectMemory() {
@@ -194,10 +211,13 @@ final class MemoryCollector {
             gcNames.add(gc.getName());
         }
 
-        OptionalLong containerLimitValue = containerMemoryDetector.detectLimit();
+        ContainerMemoryLimitDetector.CgroupMemorySample containerMemory = containerMemoryDetector.detect();
+        OptionalLong containerLimitValue = containerMemory.limit();
         Long containerLimit = containerLimitValue.isPresent() ? containerLimitValue.getAsLong() : null;
-        OptionalLong containerCurrentValue = containerMemoryDetector.detectCurrentUsage();
+        OptionalLong containerCurrentValue = containerMemory.current();
         Long containerCurrent = containerCurrentValue.isPresent() ? containerCurrentValue.getAsLong() : null;
+        OptionalLong containerWorkingSetValue = containerMemory.workingSet();
+        Long containerWorkingSet = containerWorkingSetValue.isPresent() ? containerWorkingSetValue.getAsLong() : null;
 
         return new MemoryData(
                 heap.getUsed(),
@@ -215,6 +235,7 @@ final class MemoryCollector {
                 gcNames,
                 containerLimit,
                 containerCurrent,
+                containerWorkingSet,
                 bufferPools);
     }
 
@@ -236,7 +257,8 @@ final class MemoryCollector {
                 report.deadlockDetected(),
                 report.deadlockedThreadIds(),
                 report.stateCounts(),
-                report.threads());
+                report.threads(),
+                report.page() != null && report.page().hasMore());
     }
 
     private HeapContentData collectHeapContent() {
@@ -270,7 +292,7 @@ final class MemoryCollector {
                 bean.getLoadedClassCount(), bean.getTotalLoadedClassCount(), bean.getUnloadedClassCount());
     }
 
-    private RuntimeData collectRuntime() {
+    private RuntimeData collectRuntime(GcEvent latestGcEvent) {
         GcSample gc = currentGcSample();
         int pendingFinalization = ManagementFactory.getMemoryMXBean().getObjectPendingFinalizationCount();
         List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
@@ -281,7 +303,6 @@ final class MemoryCollector {
         long freePhysicalMemory = readOsBeanLong("FreePhysicalMemorySize");
         long totalPhysicalMemory = readOsBeanLong("TotalPhysicalMemorySize");
         Boolean useCompressedOops = readVmOptionBoolean("UseCompressedOops");
-        LastGcEvent lastGcEvent = readLastGcEvent();
 
         return new RuntimeData(
                 gc.uptimeMillis(),
@@ -295,22 +316,33 @@ final class MemoryCollector {
                 totalSwap,
                 useCompressedOops,
                 totalPhysicalMemory,
-                lastGcEvent.durationMillis(),
-                lastGcEvent.collectorName(),
+                latestGcEvent.durationMillis(),
+                latestGcEvent.collectorName(),
                 freePhysicalMemory);
     }
 
     /**
      * A collector's latest event on the shared JVM-uptime time base exposed by {@code GcInfo}.
      */
-    record LastGcEventCandidate(long endTimeMillis, long durationMillis, String collectorName) {}
+    record LastGcEventCandidate(long id, long endTimeMillis, long durationMillis, String collectorName) {
+
+        LastGcEventCandidate(long endTimeMillis, long durationMillis, String collectorName) {
+            this(-1, endTimeMillis, durationMillis, collectorName);
+        }
+    }
 
     /**
      * The duration and originating collector of the single most recently completed garbage collection.
      */
-    record LastGcEvent(long durationMillis, String collectorName) {
+    record LastGcEvent(long id, long endTimeMillis, long durationMillis, String collectorName) {
         static LastGcEvent unavailable() {
-            return new LastGcEvent(-1, null);
+            return new LastGcEvent(-1, -1, -1, null);
+        }
+
+        GcEvent asGcEvent() {
+            return durationMillis < 0
+                    ? GcEvent.unavailable()
+                    : new GcEvent(id, endTimeMillis, durationMillis, collectorName);
         }
     }
 
@@ -326,7 +358,8 @@ final class MemoryCollector {
                 if (bean instanceof com.sun.management.GarbageCollectorMXBean sunBean) {
                     com.sun.management.GcInfo info = sunBean.getLastGcInfo();
                     if (info != null) {
-                        candidates.add(new LastGcEventCandidate(info.getEndTime(), info.getDuration(), bean.getName()));
+                        candidates.add(new LastGcEventCandidate(
+                                info.getId(), info.getEndTime(), info.getDuration(), bean.getName()));
                     }
                 }
             }
@@ -340,7 +373,11 @@ final class MemoryCollector {
     static LastGcEvent latestGcEvent(List<LastGcEventCandidate> candidates) {
         return candidates.stream()
                 .max(Comparator.comparingLong(LastGcEventCandidate::endTimeMillis))
-                .map(candidate -> new LastGcEvent(candidate.durationMillis(), candidate.collectorName()))
+                .map(candidate -> new LastGcEvent(
+                        candidate.id(),
+                        candidate.endTimeMillis(),
+                        candidate.durationMillis(),
+                        candidate.collectorName()))
                 .orElseGet(LastGcEvent::unavailable);
     }
 
@@ -476,7 +513,7 @@ final class MemoryCollector {
         return RuntimeData.DEFAULT_THREAD_STACK_BYTES;
     }
 
-    private static long parseMemorySize(String value) {
+    static long parseMemorySize(String value) {
         if (value == null || value.isBlank()) {
             return -1;
         }
@@ -488,14 +525,15 @@ final class MemoryCollector {
             case 'k' -> multiplier = 1024L;
             case 'm' -> multiplier = 1024L * 1024;
             case 'g' -> multiplier = 1024L * 1024 * 1024;
+            case 't' -> multiplier = 1024L * 1024 * 1024 * 1024;
             default -> multiplier = 1;
         }
         if (multiplier != 1) {
             number = trimmed.substring(0, trimmed.length() - 1);
         }
         try {
-            return Long.parseLong(number.trim()) * multiplier;
-        } catch (NumberFormatException ex) {
+            return Math.multiplyExact(Long.parseLong(number.trim()), multiplier);
+        } catch (ArithmeticException | NumberFormatException ex) {
             return -1;
         }
     }

@@ -26,8 +26,14 @@ class RestApiRulesTests {
     private static final String NEWRULES_PAGINATION_PAGESIZE = NEWRULES_PAGINATION + ".pagesize";
     private static final String RESPONSE_CONTRACTS =
             "io.github.jdubois.bootui.engine.restapi.newrules.responsecontracts";
+    private static final String ACCURACY = "io.github.jdubois.bootui.engine.restapi.accuracy";
 
     private RestApiContext context(boolean openApiAnnotationsPresent, String... packages) {
+        return context(openApiAnnotationsPresent, false, packages);
+    }
+
+    private RestApiContext context(
+            boolean openApiAnnotationsPresent, boolean globalVersioningConfigured, String... packages) {
         JavaClasses classes = new ClassFileImporter().importPackages(packages);
         RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
         return new RestApiContext(
@@ -36,6 +42,7 @@ class RestApiRulesTests {
                 model.handlers(),
                 model.exceptionHandlers(),
                 openApiAnnotationsPresent,
+                globalVersioningConfigured,
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.framework());
@@ -104,6 +111,11 @@ class RestApiRulesTests {
         assertThat(status(new ApiIsVersionedRule(), context(false, BAD))).isEqualTo("VIOLATION");
         // The good controller alone applies /api/v1 consistently.
         assertThat(status(new ApiIsVersionedRule(), context(false, GOOD))).isEqualTo("PASS");
+    }
+
+    @Test
+    void versioningRulePassesWhenGlobalVersioningIsConfigured() {
+        assertThat(status(new ApiIsVersionedRule(), context(false, true, BAD))).isEqualTo("PASS");
     }
 
     @Test
@@ -449,5 +461,22 @@ class RestApiRulesTests {
 
         // page/size + offset/limit together in one scan must VIOLATION.
         assertThat(status(rule, context(false, NEWRULES_PAGINATION))).isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void modelAccuracyFixturesAvoidFalsePositivesAndExposeExplicitPathVariableMismatches() {
+        RestApiContext context = context(false, ACCURACY);
+
+        RestApiRuleResultDto pathVariables = new PathVariablesAreBoundRule().evaluate(context);
+        assertThat(pathVariables.status()).isEqualTo("VIOLATION");
+        assertThat(pathVariables.sampleViolations())
+                .anyMatch(violation -> violation.contains("explicitPathVariableMismatch"));
+        assertThat(pathVariables.sampleViolations()).noneMatch(violation -> violation.contains("inheritedPath"));
+        assertThat(pathVariables.sampleViolations()).noneMatch(violation -> violation.contains("interfacePath"));
+
+        assertThat(status(new NoDuplicateRouteMappingsRule(), context)).isEqualTo("PASS");
+        assertThat(status(new PathSegmentsAreKebabCaseRule(), context)).isEqualTo("PASS");
+        assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("PASS");
+        assertThat(status(new ExceptionHandlersSetErrorStatusRule(), context)).isEqualTo("PASS");
     }
 }

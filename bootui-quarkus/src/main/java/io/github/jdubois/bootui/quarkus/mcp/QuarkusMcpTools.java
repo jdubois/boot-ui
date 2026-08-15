@@ -8,23 +8,28 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.web.ArchitectureResource;
 import io.github.jdubois.bootui.quarkus.web.BeansResource;
+import io.github.jdubois.bootui.quarkus.web.CacheResource;
 import io.github.jdubois.bootui.quarkus.web.ConfigResource;
+import io.github.jdubois.bootui.quarkus.web.ConnectionPoolsResource;
 import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
 import io.github.jdubois.bootui.quarkus.web.HealthResource;
 import io.github.jdubois.bootui.quarkus.web.HibernateResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
 import io.github.jdubois.bootui.quarkus.web.LogTailResource;
+import io.github.jdubois.bootui.quarkus.web.LoggersResource;
 import io.github.jdubois.bootui.quarkus.web.MappingsResource;
 import io.github.jdubois.bootui.quarkus.web.MemoryResource;
 import io.github.jdubois.bootui.quarkus.web.OverviewResource;
 import io.github.jdubois.bootui.quarkus.web.PentestingResource;
 import io.github.jdubois.bootui.quarkus.web.RestApiResource;
+import io.github.jdubois.bootui.quarkus.web.ScheduledResource;
 import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
 import io.github.jdubois.bootui.quarkus.web.SecurityResource;
 import io.github.jdubois.bootui.quarkus.web.SpringResource;
 import io.github.jdubois.bootui.quarkus.web.SqlTraceResource;
 import io.github.jdubois.bootui.quarkus.web.TracesResource;
+import io.github.jdubois.bootui.quarkus.web.VulnerabilitiesResource;
 import jakarta.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,9 +54,11 @@ import java.util.function.Function;
  * app without Hibernate ORM). Gating on panel availability means a tool is advertised iff its backing
  * panel is live, matching the sidebar the user sees.
  *
- * <p>Two Spring advisor tools have no Quarkus counterpart and are deliberately absent:
- * {@code graalvm_scan} and {@code crac_scan} (GraalVM native-image readiness and CRaC are
- * Spring-specific concerns with no meaningful Quarkus equivalent). The {@code get_overview} tool
+ * <p>Three Spring tools have no Quarkus counterpart and are deliberately absent: {@code graalvm_scan}
+ * and {@code crac_scan} (GraalVM native-image readiness and CRaC are Spring-specific concerns with no
+ * meaningful Quarkus equivalent), and {@code get_conditions} (Spring's {@code @ConditionalOn…}
+ * auto-configuration match graph has no Quarkus runtime equivalent since Quarkus performs build-time
+ * augmentation instead). The {@code get_overview} tool
  * <em>is</em> advertised on Quarkus: the Overview panel is available here (its dashboard renders
  * client-side from the advisor endpoints), and the tool returns the same shell {@code OverviewDto}
  * the Spring adapter exposes.
@@ -81,7 +88,12 @@ public class QuarkusMcpTools {
             ConfigResource config,
             BeansResource beans,
             MappingsResource mappings,
-            OverviewResource overview) {
+            OverviewResource overview,
+            VulnerabilitiesResource vulnerabilities,
+            LoggersResource loggers,
+            ScheduledResource scheduled,
+            CacheResource cache,
+            ConnectionPoolsResource connectionPools) {
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
@@ -141,6 +153,14 @@ public class QuarkusMcpTools {
                         McpToolDescriptions.quarkus("rest_api_scan"),
                         BootUiPanels.REST_API,
                         args -> restApi.scan()));
+        addIfAvailable(
+                registry,
+                availability,
+                action(
+                        "vulnerabilities_scan",
+                        McpToolDescriptions.quarkus("vulnerabilities_scan"),
+                        BootUiPanels.VULNERABILITIES,
+                        args -> vulnerabilities.scan()));
 
         // --- Diagnostics / runtime read tools ---
         addIfAvailable(
@@ -249,6 +269,38 @@ public class QuarkusMcpTools {
                         McpToolDescriptions.quarkus("get_mappings"),
                         BootUiPanels.MAPPINGS,
                         args -> mappings.flatMappings(args.query(), null, args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                searchRead(
+                        "get_loggers",
+                        McpToolDescriptions.quarkus("get_loggers"),
+                        BootUiPanels.LOGGERS,
+                        args -> loggers.loggers(args.query(), null, args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                read(
+                        "get_scheduled_tasks",
+                        McpToolDescriptions.quarkus("get_scheduled_tasks"),
+                        BootUiPanels.SCHEDULED,
+                        args -> scheduled.scheduled()));
+        addIfAvailable(
+                registry,
+                availability,
+                read(
+                        "get_cache_stats",
+                        McpToolDescriptions.quarkus("get_cache_stats"),
+                        BootUiPanels.CACHE,
+                        args -> cache.cache()));
+        addIfAvailable(
+                registry,
+                availability,
+                read(
+                        "get_database_connection_pools",
+                        McpToolDescriptions.quarkus("get_database_connection_pools"),
+                        BootUiPanels.DATABASE_CONNECTION_POOLS,
+                        args -> connectionPools.pools()));
 
         this.tools = List.copyOf(registry);
     }

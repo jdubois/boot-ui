@@ -23,12 +23,24 @@ class McpToolDescriptionsTests {
             "get_http_exchanges",
             "get_overview",
             "get_config",
-            "get_mappings");
+            "get_mappings",
+            "vulnerabilities_scan",
+            "get_loggers",
+            "get_scheduled_tasks",
+            "get_cache_stats",
+            "get_database_connection_pools");
 
     @Test
     void everySpringToolHasAgentOrientedGuidance() {
         List<String> names = new java.util.ArrayList<>(COMMON_TOOLS);
-        names.addAll(List.of("spring_scan", "rest_api_scan", "graalvm_scan", "crac_scan", "get_health", "get_beans"));
+        names.addAll(List.of(
+                "spring_scan",
+                "rest_api_scan",
+                "graalvm_scan",
+                "crac_scan",
+                "get_health",
+                "get_beans",
+                "get_conditions"));
 
         assertDescriptions(names, McpToolDescriptions::spring);
     }

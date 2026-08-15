@@ -178,7 +178,7 @@ public class BootUiEngineConfiguration {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
-    RestApiScanner bootUiRestApiScanner(BasePackageProvider basePackageProvider) {
+    RestApiScanner bootUiRestApiScanner(BasePackageProvider basePackageProvider, Environment environment) {
         // Live policy: base packages are re-read on every scan via the shared BasePackageProvider SPI, the
         // OpenAPI annotation presence (Swagger's @Operation, honored by springdoc) is probed live, and the
         // ArchUnit import runs only on demand (POST /scan). The Quarkus adapter probes for the equivalent
@@ -187,6 +187,7 @@ public class BootUiEngineConfiguration {
                 basePackageProvider::basePackages,
                 () -> ClassUtils.isPresent(
                         "io.swagger.v3.oas.annotations.Operation", BootUiEngineConfiguration.class.getClassLoader()),
+                () -> isSpringMvcApiVersioningConfigured(environment),
                 Clock.systemUTC());
     }
 
@@ -373,7 +374,7 @@ public class BootUiEngineConfiguration {
     EmailCaptureService bootUiEmailCaptureService(BootUiProperties properties, BootUiExposure exposure) {
         BootUiProperties.Email emailProperties = properties.getEmail();
         return new EmailCaptureService(
-                new EmailStore(emailProperties.getMaxEntries()),
+                new EmailStore(emailProperties.getMaxEntries(), emailProperties.getMaxBodyLength()),
                 exposure,
                 emailProperties.isDevTrap(),
                 emailProperties.isMaskContent());
@@ -1013,5 +1014,19 @@ public class BootUiEngineConfiguration {
         } catch (NoUniqueBeanDefinitionException ex) {
             return dataSourceProvider.orderedStream().findFirst().orElse(null);
         }
+    }
+
+    private static boolean isSpringMvcApiVersioningConfigured(Environment environment) {
+        return hasTextProperty(environment, "spring.mvc.apiversion.supported")
+                || hasTextProperty(environment, "spring.mvc.apiversion.default")
+                || hasTextProperty(environment, "spring.mvc.apiversion.use.header")
+                || hasTextProperty(environment, "spring.mvc.apiversion.use.path")
+                || hasTextProperty(environment, "spring.mvc.apiversion.use.query-parameter")
+                || hasTextProperty(environment, "spring.mvc.apiversion.use.media-type");
+    }
+
+    private static boolean hasTextProperty(Environment environment, String name) {
+        String value = environment.getProperty(name);
+        return value != null && !value.isBlank();
     }
 }

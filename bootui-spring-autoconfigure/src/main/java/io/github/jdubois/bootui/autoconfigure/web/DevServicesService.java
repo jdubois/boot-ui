@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.DevServiceDto;
 import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
 import io.github.jdubois.bootui.core.dto.DevServicePortDto;
 import io.github.jdubois.bootui.core.dto.DevServiceRestartResult;
+import io.github.jdubois.bootui.engine.devservices.DevServiceTypeInference;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -244,7 +245,7 @@ class DevServicesService implements io.github.jdubois.bootui.spi.DevServicesProv
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("snapshot", "Captured when Spring Boot reported Docker Compose services ready");
         Map<?, ?> labels = asMap(invoke(runningService, "labels"));
-        String type = inferType(name, image, labels);
+        String type = DevServiceTypeInference.inferType(name, image, labels);
         String id = uniqueId("compose:" + slug(name), ids, warnings);
         return new DevServiceDto(
                 id,
@@ -277,7 +278,7 @@ class DevServicesService implements io.github.jdubois.bootui.spi.DevServicesProv
         return new DevServiceDto(
                 "bean:" + beanName,
                 name,
-                inferType(name, image, Map.of()),
+                DevServiceTypeInference.inferType(name, image, Map.of()),
                 "Testcontainers",
                 image,
                 running ? "RUNNING" : "STOPPED",
@@ -300,7 +301,7 @@ class DevServicesService implements io.github.jdubois.bootui.spi.DevServicesProv
         return new DevServiceDto(
                 "connection:" + beanName,
                 readableName(beanName),
-                inferType(beanName, image, Map.of()),
+                DevServiceTypeInference.inferType(beanName, image, Map.of()),
                 "Connection details",
                 image,
                 "AVAILABLE",
@@ -483,35 +484,6 @@ class DevServicesService implements io.github.jdubois.bootui.spi.DevServicesProv
             }
         }
         return hasTypeName(type.getSuperclass(), expectedName);
-    }
-
-    private String inferType(String name, String image, Map<?, ?> labels) {
-        String combined = (String.valueOf(name) + " " + String.valueOf(image) + " " + labels).toLowerCase(Locale.ROOT);
-        if (combined.contains("postgres")) {
-            return "PostgreSQL";
-        }
-        if (combined.contains("mysql") || combined.contains("mariadb")) {
-            return "MySQL";
-        }
-        if (combined.contains("redis")) {
-            return "Redis";
-        }
-        if (combined.contains("kafka") || combined.contains("redpanda")) {
-            return "Kafka";
-        }
-        if (combined.contains("mongo")) {
-            return "MongoDB";
-        }
-        if (combined.contains("rabbit")) {
-            return "RabbitMQ";
-        }
-        if (combined.contains("elasticsearch")) {
-            return "Elasticsearch";
-        }
-        if (combined.contains("zipkin")) {
-            return "Zipkin";
-        }
-        return "Service";
     }
 
     private String readableName(String beanName) {
