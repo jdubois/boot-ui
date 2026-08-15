@@ -54,7 +54,9 @@ class BootUiQuarkusDatabaseAdvisorTest {
     void scanIntrospectsThePhysicalSchemaAndRunsTheHibernateCrossReferenceRules() {
         // A GET before any scan returns the local-only "not scanned" report.
         Response initial = probe().get("/bootui/api/database-advisor");
-        assertThat(initial.status()).as("GET /bootui/api/database-advisor status").isEqualTo(200);
+        assertThat(initial.status())
+                .as("GET /bootui/api/database-advisor status")
+                .isEqualTo(200);
         assertThat(initial.isJson())
                 .as("GET /bootui/api/database-advisor content-type (%s)", initial.contentType())
                 .isTrue();
@@ -68,7 +70,9 @@ class BootUiQuarkusDatabaseAdvisorTest {
         // POST /scan introspects the physical H2 schema (Category/Product/Tag, DDL'd by Hibernate's
         // drop-and-create strategy) and cross-references it against the mapped entities.
         Response scan = probe().post("/bootui/api/database-advisor/scan", JSON_HEADERS);
-        assertThat(scan.status()).as("POST /bootui/api/database-advisor/scan status").isEqualTo(200);
+        assertThat(scan.status())
+                .as("POST /bootui/api/database-advisor/scan status")
+                .isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("scan").path("status").asText())
                 .as("after POST /scan against a real H2 datasource the report must be SCANNED")
