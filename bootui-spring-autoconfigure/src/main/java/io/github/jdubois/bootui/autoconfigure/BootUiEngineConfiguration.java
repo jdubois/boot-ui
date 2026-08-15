@@ -38,6 +38,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.architecture.ArchitecturePlatform;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
@@ -170,7 +171,8 @@ public class BootUiEngineConfiguration {
     ArchitectureScanner bootUiArchitectureScanner(BasePackageProvider basePackageProvider) {
         // Live policy: base packages are re-read on every scan via the BasePackageProvider SPI, and the
         // ArchUnit classpath import runs only on demand (POST /scan), never at bean construction.
-        return ArchitectureScanner.usingClasspath(basePackageProvider::basePackages, Clock.systemUTC());
+        return ArchitectureScanner.usingClasspath(
+                basePackageProvider::basePackages, ArchitecturePlatform.SPRING, Clock.systemUTC());
     }
 
     @Bean

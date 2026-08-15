@@ -65,6 +65,27 @@ describe('PanelHeader', () => {
     wrapper.unmount()
   })
 
+  it('keeps stream errors and retry inside the auto-refresh control', async () => {
+    const onRetryAutoRefresh = vi.fn()
+    const wrapper = mount(PanelHeader, {
+      props: {
+        title: 'Exceptions',
+        autoRefresh: true,
+        autoRefreshState: 'unavailable',
+        onRetryAutoRefresh
+      }
+    })
+
+    expect(wrapper.find('.auto-refresh-control').text()).toContain('Stream unavailable')
+    expect(wrapper.find('.stream-status-indicator').exists()).toBe(false)
+
+    await wrapper.get('button[aria-label="Retry auto-refresh stream connection now"]').trigger('click')
+
+    expect(onRetryAutoRefresh).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
+  })
+
   it('hides refresh controls when refresh is not available', () => {
     const wrapper = mount(PanelHeader, {
       props: {

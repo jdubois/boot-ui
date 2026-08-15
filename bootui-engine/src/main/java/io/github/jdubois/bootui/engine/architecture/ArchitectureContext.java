@@ -7,7 +7,7 @@ import java.util.List;
  * Read-only context shared by every architecture rule during a single scan: the imported host
  * application classes plus the base packages they were imported from.
  */
-record ArchitectureContext(JavaClasses classes, List<String> basePackages) {
+record ArchitectureContext(JavaClasses classes, List<String> basePackages, ArchitecturePlatform platform) {
 
     ArchitectureContext {
         basePackages = List.copyOf(basePackages);

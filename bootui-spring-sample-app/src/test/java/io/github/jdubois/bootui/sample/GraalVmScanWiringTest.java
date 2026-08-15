@@ -42,6 +42,6 @@ class GraalVmScanWiringTest {
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.basePackages()).contains("io.github.jdubois.bootui.sample");
         assertThat(report.classesAnalyzed()).isPositive();
-        assertThat(report.checksRun()).isPositive();
+        assertThat(report.checksRun()).isEqualTo(27);
     }
 }

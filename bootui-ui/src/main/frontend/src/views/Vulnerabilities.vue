@@ -84,8 +84,20 @@ function dismissalKey(vulnerabilityId, packageName) {
 }
 
 function toggleDismiss(dependency, vulnerability) {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   const key = dismissalKey(vulnerability.id, dependency.packageName)
   return vulnerability.dismissed ? restore(key) : dismiss(key)
+}
+
+function emptyAdvisoryText() {
+  const status = data.value?.scan?.status
+  if (status === 'NOT_SCANNED' || status === 'DISABLED') return 'Not scanned'
+  if (status === 'ERROR') return 'Unknown (scan failed)'
+  if (status === 'PARTIAL') return 'No finding in partial result'
+  return 'None found'
 }
 
 const filteredDependencies = computed(() => {
@@ -343,7 +355,9 @@ onMounted(loadDependencies)
                   </span>
                 </td>
                 <td>
-                  <span v-if="dependency.vulnerabilities.length === 0" class="text-muted">None found</span>
+                  <span v-if="dependency.vulnerabilities.length === 0" class="text-muted">
+                    {{ emptyAdvisoryText() }}
+                  </span>
                   <div v-else class="vulnerability-list">
                     <div
                       v-for="vulnerability in sortedVulnerabilities(dependency.vulnerabilities)"
@@ -381,12 +395,13 @@ onMounted(loadDependencies)
                           fixed in {{ vulnerability.fixedVersions.join(', ') }}
                         </span>
                         <span v-else-if="vulnerability.fixedVersions.length" class="small text-muted">
-                          already on a fixed version (&ge; {{ vulnerability.fixedVersions.join(', ') }})
+                          No newer fixed version reported by OSV (reported:
+                          {{ vulnerability.fixedVersions.join(', ') }})
                         </span>
                         <span v-else class="small text-muted fst-italic">No fixed version reported by OSV</span>
                         <span v-if="vulnerability.dismissed" class="badge text-bg-light border">Dismissed</span>
                         <button
-                          :disabled="dismissLoading"
+                          :disabled="dismissLoading || readOnly"
                           :title="vulnerability.dismissed ? 'Restore this vulnerability' : 'Dismiss this vulnerability'"
                           class="btn btn-sm btn-outline-secondary ms-auto"
                           type="button"

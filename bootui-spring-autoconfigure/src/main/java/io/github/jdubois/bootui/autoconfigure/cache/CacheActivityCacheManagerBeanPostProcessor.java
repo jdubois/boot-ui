@@ -48,7 +48,9 @@ public final class CacheActivityCacheManagerBeanPostProcessor implements BeanPos
             return bean;
         }
         try {
-            return new CacheActivityCacheManager(cacheManager, recorder, beanName);
+            CacheActivityCacheManager wrapped = new CacheActivityCacheManager(cacheManager, recorder, beanName);
+            recorder.markInstrumentedManager();
+            return wrapped;
         } catch (Throwable ex) {
             if (ex instanceof VirtualMachineError vme) {
                 throw vme;

@@ -14,10 +14,16 @@ const props = defineProps({
   refreshable: {type: Boolean, default: true},
   autoRefresh: {type: Boolean, default: null},
   autoRefreshable: {type: Boolean, default: true},
-  autoRefreshTitle: {type: String, default: 'Refresh every 10 seconds while this tab is visible'}
+  autoRefreshTitle: {type: String, default: 'Refresh every 10 seconds while this tab is visible'},
+  autoRefreshState: {
+    type: /** @type {import('vue').PropType<'connecting'|'connected'|'reconnecting'|'paused'|'unavailable'|null>} */ (
+      String
+    ),
+    default: null
+  }
 })
 
-const emit = defineEmits(['refresh', 'update:autoRefresh'])
+const emit = defineEmits(['refresh', 'update:autoRefresh', 'retryAutoRefresh'])
 
 const instance = getCurrentInstance()
 const hasRefresh = computed(() => props.refreshable && !!instance?.vnode.props?.onRefresh)
@@ -81,7 +87,9 @@ onBeforeUnmount(stopRelativeTimer)
         v-if="hasAutoRefresh"
         :model-value="autoRefresh"
         :title="autoRefreshTitle"
+        :connection-state="autoRefreshState"
         @update:model-value="updateAutoRefresh"
+        @retry="emit('retryAutoRefresh')"
       />
       <button
         v-if="hasRefresh"

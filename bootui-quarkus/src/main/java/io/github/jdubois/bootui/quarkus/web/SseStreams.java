@@ -5,6 +5,7 @@ import io.smallrye.mutiny.subscription.BackPressureStrategy;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -41,14 +42,10 @@ final class SseStreams {
      * Once {@code maxStreams} are already open the stream completes immediately (this is a local dev
      * tool, not a fan-out hub).
      *
-     * <p>Back-pressure is {@code BUFFER}, which is load-bearing for correctness, not a tuning choice: the
-     * engine change-sources notify their listeners <em>outside</em> their capture lock and from arbitrary
-     * (and concurrent) capture threads, so {@code emit} can be called from several threads at once.
-     * Mutiny's buffering emitter is backed by a multi-producer queue with a single serialised drain, so
-     * those concurrent emissions are delivered to the subscriber without violating the Reactive Streams
-     * serial contract — the same safety the raw {@code SseEventSink} provided via its internal send
-     * serialisation. The buffer only ever holds dev-rate {@code update} ticks (themselves bounded by the
-     * engine buffers), so it does not grow without bound.
+     * <p>Changes are serialized and coalesced: while downstream has no demand, any number of source
+     * notifications becomes one pending {@code update}. This preserves the notification semantics (the
+     * browser re-fetches the complete bounded snapshot) without an unbounded per-client queue when a tab or
+     * connection is slow.
      */
     static Multi<OutboundSseEvent> updates(Sse sse, AtomicInteger openStreams, int maxStreams, ChangeSource source) {
         return Multi.createFrom()
@@ -59,17 +56,59 @@ final class SseStreams {
                                 emitter.complete();
                                 return;
                             }
-                            Runnable unsubscribe = source.subscribe(() -> {
-                                if (!emitter.isCancelled()) {
-                                    emitter.emit(tick(sse));
-                                }
-                            });
+                            CoalescingTickEmitter ticks = new CoalescingTickEmitter(emitter, sse);
+                            emitter.onRequest(ignored -> ticks.drain());
+                            Runnable unsubscribe = source.subscribe(ticks::signal);
                             emitter.onTermination(() -> {
+                                ticks.terminate();
                                 unsubscribe.run();
                                 openStreams.decrementAndGet();
                             });
                         },
-                        BackPressureStrategy.BUFFER);
+                        BackPressureStrategy.DROP);
+    }
+
+    private static final class CoalescingTickEmitter {
+
+        private final io.smallrye.mutiny.subscription.MultiEmitter<? super OutboundSseEvent> emitter;
+        private final Sse sse;
+        private final AtomicBoolean pending = new AtomicBoolean();
+        private final AtomicBoolean terminated = new AtomicBoolean();
+        private final AtomicInteger drainWork = new AtomicInteger();
+
+        private CoalescingTickEmitter(
+                io.smallrye.mutiny.subscription.MultiEmitter<? super OutboundSseEvent> emitter, Sse sse) {
+            this.emitter = emitter;
+            this.sse = sse;
+        }
+
+        private void signal() {
+            if (!terminated.get()) {
+                pending.set(true);
+                drain();
+            }
+        }
+
+        private void drain() {
+            if (drainWork.getAndIncrement() != 0) {
+                return;
+            }
+            int missed = 1;
+            do {
+                if (!terminated.get()
+                        && !emitter.isCancelled()
+                        && emitter.requested() > 0
+                        && pending.compareAndSet(true, false)) {
+                    emitter.emit(tick(sse));
+                }
+                missed = drainWork.addAndGet(-missed);
+            } while (missed != 0);
+        }
+
+        private void terminate() {
+            terminated.set(true);
+            pending.set(false);
+        }
     }
 
     private static OutboundSseEvent tick(Sse sse) {

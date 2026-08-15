@@ -123,8 +123,9 @@ final class DuplicateObjectMapperRule extends AbstractSpringRule {
                 SpringCategory.BEAN_WIRING,
                 "LOW",
                 "Detects more than one Jackson JSON mapper bean (Jackson 2 ObjectMapper or the Jackson 3"
-                        + " JsonMapper that Spring Boot 4 auto-configures) with none marked @Primary, which can"
-                        + " lead to inconsistent JSON (de)serialization depending on which one is injected.",
+                        + " JsonMapper that Spring Boot 4 auto-configures) without primary/fallback/default"
+                        + " candidate selection, which can lead to inconsistent JSON"
+                        + " (de)serialization.",
                 "Keep a single primary JSON mapper. With Jackson 3 (the Spring Boot 4 default) customize the"
                         + " auto-configured mapper via a JsonMapperBuilderCustomizer, or mark one bean @Primary.",
                 "https://docs.spring.io/spring-boot/reference/features/json.html"));
@@ -133,9 +134,11 @@ final class DuplicateObjectMapperRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
         List<BeanRef> mappers = context.objectMappers();
-        if (mappers.size() > 1 && SpringModel.primaryCount(mappers) == 0) {
-            return violation(
-                    "Found " + mappers.size() + " JSON mapper beans and none is @Primary: " + names(mappers) + ".");
+        if (mappers.size() > 1 && !SpringModel.hasResolvedCandidateMetadata(mappers)) {
+            return violation("Found " + mappers.size()
+                    + " JSON mapper beans without primary/fallback/default-candidate selection: "
+                    + names(mappers)
+                    + ".");
         }
         return pass();
     }
@@ -149,10 +152,10 @@ final class AmbiguousTaskExecutorRule extends AbstractSpringRule {
                 "Multiple TaskExecutor beans need a primary",
                 SpringCategory.BEAN_WIRING,
                 "MEDIUM",
-                "Detects more than one TaskExecutor bean without a @Primary, so @Async and other"
-                        + " consumers may resolve an unexpected executor. A bean conventionally named"
-                        + " applicationTaskExecutor/taskExecutor, or an AsyncConfigurer, resolves the"
-                        + " ambiguity and suppresses this check.",
+                "Detects more than one TaskExecutor bean without primary/fallback/default-candidate selection,"
+                        + " so @Async and other consumers may resolve an unexpected executor. A bean"
+                        + " conventionally named applicationTaskExecutor/taskExecutor, or a custom AsyncConfigurer,"
+                        + " can resolve the ambiguity and suppresses this check.",
                 "Mark the intended executor @Primary, name it applicationTaskExecutor, implement"
                         + " AsyncConfigurer, or qualify each injection point with the executor bean name.",
                 "https://docs.spring.io/spring-framework/reference/integration/scheduling.html"));
@@ -162,11 +165,13 @@ final class AmbiguousTaskExecutorRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext context) {
         List<BeanRef> executors = context.taskExecutors();
         if (executors.size() > 1
-                && SpringModel.primaryCount(executors) == 0
-                && !context.asyncConfigurerPresent()
+                && !SpringModel.hasResolvedCandidateMetadata(executors)
+                && !context.customAsyncConfigurerPresent()
                 && !SpringModel.hasName(executors, "applicationTaskExecutor", "taskExecutor")) {
-            return violation("Found " + executors.size() + " TaskExecutor beans and none is @Primary: "
-                    + names(executors) + ".");
+            return violation("Found " + executors.size()
+                    + " TaskExecutor beans without primary/fallback/default-candidate selection: "
+                    + names(executors)
+                    + ".");
         }
         return pass();
     }
@@ -180,8 +185,9 @@ final class AmbiguousDataSourceRule extends AbstractSpringRule {
                 "Multiple DataSource beans need a primary",
                 SpringCategory.BEAN_WIRING,
                 "MEDIUM",
-                "Detects more than one DataSource bean without a @Primary, which makes auto-configured"
-                        + " consumers (JPA, JdbcTemplate) fail or pick an unexpected source.",
+                "Detects more than one DataSource bean without primary/fallback/default-candidate selection,"
+                        + " which makes auto-configured consumers (JPA, JdbcTemplate) fail or pick an"
+                        + " unexpected source.",
                 "Mark the main DataSource @Primary and qualify any secondary DataSource explicitly.",
                 "https://docs.spring.io/spring-boot/reference/data/sql.html"));
     }
@@ -189,9 +195,11 @@ final class AmbiguousDataSourceRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
         List<BeanRef> dataSources = context.dataSources();
-        if (dataSources.size() > 1 && SpringModel.primaryCount(dataSources) == 0) {
-            return violation("Found " + dataSources.size() + " DataSource beans and none is @Primary: "
-                    + names(dataSources) + ".");
+        if (dataSources.size() > 1 && !SpringModel.hasResolvedCandidateMetadata(dataSources)) {
+            return violation("Found " + dataSources.size()
+                    + " DataSource beans without primary/fallback/default-candidate selection: "
+                    + names(dataSources)
+                    + ".");
         }
         return pass();
     }
@@ -205,8 +213,9 @@ final class AmbiguousTransactionManagerRule extends AbstractSpringRule {
                 "Multiple transaction managers need a primary",
                 SpringCategory.BEAN_WIRING,
                 "MEDIUM",
-                "Detects more than one PlatformTransactionManager bean without a @Primary, so @Transactional"
-                        + " methods may bind to an unexpected manager. A bean named transactionManager or a"
+                "Detects more than one PlatformTransactionManager bean without"
+                        + " primary/fallback/default-candidate selection, so @Transactional methods may bind to"
+                        + " an unexpected manager. A bean named transactionManager or a"
                         + " TransactionManagementConfigurer resolves the default and suppresses this check.",
                 "Mark the main transaction manager @Primary, name it transactionManager, implement"
                         + " TransactionManagementConfigurer, or set @Transactional(\"<name>\") on each usage.",
@@ -217,11 +226,13 @@ final class AmbiguousTransactionManagerRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext context) {
         List<BeanRef> managers = context.transactionManagers();
         if (managers.size() > 1
-                && SpringModel.primaryCount(managers) == 0
+                && !SpringModel.hasResolvedCandidateMetadata(managers)
                 && !context.transactionManagementConfigurerPresent()
                 && !SpringModel.hasName(managers, "transactionManager")) {
-            return violation("Found " + managers.size() + " PlatformTransactionManager beans and none is @Primary: "
-                    + names(managers) + ".");
+            return violation("Found " + managers.size()
+                    + " PlatformTransactionManager beans without primary/fallback/default-candidate selection: "
+                    + names(managers)
+                    + ".");
         }
         return pass();
     }
@@ -345,10 +356,10 @@ final class DebugOrTraceLoggingRule extends AbstractSpringRule {
                 "Disable global debug or trace logging",
                 SpringCategory.CONFIGURATION,
                 "LOW",
-                "Detects debug=true or trace=true, which switch on verbose auto-configuration logging"
-                        + " and can leak internal details or slow down the application. Raised to MEDIUM when a"
-                        + " production-like profile is active, since the performance and data-leak cost of"
-                        + " verbose logging is highest there.",
+                "Detects debug=true, trace=true, or broad root/web/sql/Spring/Hibernate loggers at"
+                        + " DEBUG/TRACE/ALL, which can leak internal details or slow down the application."
+                        + " Raised to MEDIUM when a production-like profile is active, since the performance"
+                        + " and data-leak cost of verbose logging is highest there.",
                 "Remove the debug/trace flags and configure logging levels per package instead.",
                 "https://docs.spring.io/spring-boot/reference/features/logging.html"));
     }
@@ -695,7 +706,8 @@ final class VirtualThreadsAvailableRule extends AbstractSpringRule {
                 "The JVM supports virtual threads (Java 21+) but spring.threads.virtual.enabled is not"
                         + " set. Blocking workloads — request-per-thread web handlers, and blocking @Async /"
                         + " @Scheduled work on either the servlet or WebFlux stack — can often scale further on"
-                        + " virtual threads. An opportunity to evaluate, not a defect.",
+                        + " virtual threads. On WebFlux, this applies only to explicitly offloaded blocking"
+                        + " work. An opportunity to evaluate, not a defect.",
                 "Consider spring.threads.virtual.enabled=true after verifying that blocking code paths do"
                         + " not hold synchronized monitors that would pin carrier threads.",
                 "https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html"));
@@ -711,7 +723,7 @@ final class VirtualThreadsAvailableRule extends AbstractSpringRule {
                 return violation("Virtual threads are supported but spring.threads.virtual.enabled is not true."
                         + " On WebFlux this only benefits blocking work still offloaded to a thread pool (@Async,"
                         + " @Scheduled, or Schedulers.boundedElastic()-backed calls) — the reactive HTTP path"
-                        + " itself already runs non-blocking on Reactor Netty's event loop and is unaffected.");
+                        + " itself is non-blocking and does not directly benefit.");
             }
             return violation("Virtual threads are supported but spring.threads.virtual.enabled is not true.");
         }
@@ -762,10 +774,10 @@ final class AsyncWithoutCustomExecutorRule extends AbstractSpringRule {
                 SpringCategory.PERFORMANCE,
                 "MEDIUM",
                 "@EnableAsync is active but the application either defines no TaskExecutor bean at all,"
-                        + " or relies solely on Spring Boot's auto-configured 'applicationTaskExecutor' left"
-                        + " at its default pool settings — a bounded ThreadPoolTaskExecutor with a core pool"
-                        + " size of 8 and an effectively unbounded queue — sized for a generic default, not"
-                        + " this application's actual @Async workload.",
+                        + " or uses Spring Boot's auto-configured 'applicationTaskExecutor' left at its default"
+                        + " pool settings — a bounded ThreadPoolTaskExecutor with a core pool size of 8 and an"
+                        + " effectively unbounded queue — sized for a generic default, not this application's"
+                        + " actual @Async workload.",
                 "Define a dedicated executor sized for the workload, or explicitly review and set"
                         + " spring.task.execution.pool.core-size / max-size instead of relying on the"
                         + " unreviewed default, or enable spring.threads.virtual.enabled so @Async work is"
@@ -778,23 +790,21 @@ final class AsyncWithoutCustomExecutorRule extends AbstractSpringRule {
         if (!context.asyncEnabled() || context.isVirtualThreadsEnabled()) {
             return pass();
         }
-        List<BeanRef> executors = context.taskExecutors();
-        if (executors.isEmpty()) {
+        List<BeanRef> taskExecutors = context.taskExecutors();
+        if (taskExecutors.isEmpty() && !SpringModel.hasName(context.executors(), "taskExecutor")) {
             // Rare in practice: TaskExecutionAutoConfiguration always registers a default TaskExecutor
             // bean unless it was explicitly excluded, so this branch only fires when that
             // auto-configuration itself is absent — the one case where @Async genuinely falls back to
             // an unbounded SimpleAsyncTaskExecutor (one new platform thread per task).
-            return violation("@EnableAsync is active with no TaskExecutor bean at all, so @Async uses the"
-                    + " unbounded SimpleAsyncTaskExecutor (a new platform thread per task).");
+            return violation("@EnableAsync is active with no TaskExecutor and no Executor named taskExecutor, so"
+                    + " @Async uses the unbounded SimpleAsyncTaskExecutor (a new platform thread per task).");
         }
-        boolean onlyBootDefault = executors.size() == 1 && SpringModel.hasName(executors, DEFAULT_TASK_EXECUTOR_BEAN);
         boolean poolSizeReviewed = context.hasProperty("spring.task.execution.pool.core-size")
                 || context.hasProperty("spring.task.execution.pool.max-size");
-        if (onlyBootDefault && !poolSizeReviewed) {
-            return violation("@EnableAsync is active but the only TaskExecutor is Boot's auto-configured"
-                    + " 'applicationTaskExecutor' left at its default size (core pool size 8, unbounded"
-                    + " queue); this single pool backs every @Async method and has not been reviewed for"
-                    + " this workload.");
+        if (context.bootApplicationTaskExecutorPresent() && !poolSizeReviewed) {
+            return violation("@EnableAsync is active and Boot's auto-configured 'applicationTaskExecutor' is"
+                    + " left at its default size (core pool size 8, unbounded queue); this pool backs every"
+                    + " @Async method and has not been reviewed for this workload.");
         }
         return pass();
     }
@@ -870,9 +880,9 @@ final class UnboundedAsyncQueueRule extends AbstractSpringRule {
                 "Bound the @Async executor queue",
                 SpringCategory.PERFORMANCE,
                 "LOW",
-                "@EnableAsync is active and spring.task.execution.pool.queue-capacity is not set, so the"
-                        + " auto-configured task executor uses an effectively unbounded queue that can hide a"
-                        + " backlog and grow heap usage under load.",
+                "@EnableAsync uses Boot's auto-configured applicationTaskExecutor and"
+                        + " spring.task.execution.pool.queue-capacity is not set, so that executor uses an"
+                        + " effectively unbounded queue that can hide a backlog and grow heap usage under load.",
                 "Set spring.task.execution.pool.queue-capacity (and a matching max pool size) to a bounded"
                         + " value, or enable virtual threads so async work is not pooled.",
                 "https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html"));
@@ -881,6 +891,9 @@ final class UnboundedAsyncQueueRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
         if (!context.asyncEnabled() || context.isVirtualThreadsEnabled()) {
+            return pass();
+        }
+        if (!context.bootApplicationTaskExecutorPresent()) {
             return pass();
         }
         if (!context.hasProperty("spring.task.execution.pool.queue-capacity")) {
@@ -1193,24 +1206,23 @@ final class RedundantTomcatThreadsRule extends AbstractSpringRule {
                 "Tomcat thread cap is redundant with virtual threads",
                 SpringCategory.WEB,
                 "LOW",
-                "Virtual threads are enabled but server.tomcat.threads.max is set explicitly. With virtual"
-                        + " threads handling requests, a small platform-thread cap can needlessly limit"
-                        + " concurrency, while a large one has little effect.",
-                "Remove server.tomcat.threads.max when running on virtual threads, or confirm the cap is a"
-                        + " deliberate back-pressure limit.",
+                "An embedded Tomcat application enables virtual threads but also sets"
+                        + " server.tomcat.threads.max. Spring Boot replaces Tomcat's protocol-handler executor"
+                        + " with a virtual-thread executor, making the thread cap ineffective.",
+                "Remove server.tomcat.threads.max when running on virtual threads because it no longer"
+                        + " controls Tomcat request concurrency.",
                 "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
     }
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.reactive()) {
-            // WebFlux uses Reactor Netty's event-loop group, not a Tomcat servlet thread pool, so
-            // server.tomcat.threads.max has no effect on this application at all.
-            return skipped("This is a WebFlux application; server.tomcat.threads.max does not apply.");
+        if (!context.tomcatWebServerPresent()) {
+            return skipped(
+                    "The application is not using embedded Tomcat, so server.tomcat.threads.max does not apply.");
         }
         if (context.isVirtualThreadsEnabled() && context.hasProperty("server.tomcat.threads.max")) {
-            return violation("Virtual threads are enabled but server.tomcat.threads.max is set, which can cap"
-                    + " request concurrency unnecessarily.");
+            return violation("Virtual threads are enabled but server.tomcat.threads.max is set, even though"
+                    + " Spring Boot's virtual-thread executor makes that cap ineffective.");
         }
         return pass();
     }
@@ -1565,11 +1577,11 @@ final class ReactiveHandlerWithBlockingDatasourceRule extends AbstractSpringRule
                 SpringCategory.REACTIVE,
                 "INFO",
                 "This is a WebFlux application with Mono/Flux-returning handler methods, and a blocking JDBC"
-                        + " DataSource is also configured. WebFlux runs on a small, fixed Reactor Netty event-loop"
-                        + " group; a blocking JDBC call made directly inside a reactive chain (instead of offloaded"
-                        + " to a bounded scheduler) stalls that event loop and can starve every other in-flight"
-                        + " request. This check cannot see inside method bodies, so it cannot tell whether"
-                        + " offloading is already done correctly — treat it as a prompt to verify, not a finding.",
+                        + " DataSource is also configured. A blocking JDBC call made directly inside a reactive"
+                        + " chain (instead of offloaded to a bounded scheduler) can block request processing and"
+                        + " reduce concurrent capacity. This check cannot see inside method bodies, so it cannot"
+                        + " tell whether offloading is already done correctly — treat it as a prompt to verify,"
+                        + " not a finding.",
                 "Offload blocking database calls, for example with"
                         + " Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic()), or migrate to a"
                         + " reactive driver such as R2DBC; verify this per endpoint.",
@@ -1586,8 +1598,8 @@ final class ReactiveHandlerWithBlockingDatasourceRule extends AbstractSpringRule
         }
         return violation(context.reactiveHandlerMethodCount() + " reactive (Mono/Flux) handler method(s) found"
                 + " alongside " + context.dataSources().size() + " blocking JDBC DataSource bean(s); verify"
-                + " blocking calls are offloaded to a bounded scheduler rather than invoked directly on the"
-                + " event loop.");
+                + " blocking calls are offloaded to a bounded scheduler rather than invoked directly in the"
+                + " reactive request pipeline.");
     }
 }
 

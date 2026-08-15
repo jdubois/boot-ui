@@ -3,10 +3,11 @@
 The Spring advisor panel, on Quarkus, runs a fixed, on-demand ruleset against the host application's
 **Quarkus idioms** — not the Spring application context. It reads build-time counts of CDI scope
 annotations, `@ConfigProperty` injection sites, `@ConfigMapping` interfaces, JAX-RS endpoints, reactive
-(`Uni`/`Multi`/`CompletionStage`/`CompletableFuture`/`Publisher`) signatures, `@Blocking`/`@Transactional`
-sites, `@Scheduled` methods, `@RegisterRestClient` interfaces, `@RunOnVirtualThread` (method- or class-level)
-/`synchronized` combinations, the build JDK version, public mutable fields on JAX-RS resources (excluding
-`@RequestScoped` ones), and shared mutable fields on `@ApplicationScoped` and `@Singleton` beans, plus
+(`Uni`/`Multi`/`RestMulti`/`CompletionStage`/`CompletableFuture`/`Flow.Publisher`/Reactive Streams `Publisher`)
+signatures, `@Blocking`/`@Transactional` sites, `@Scheduled` methods, `@RegisterRestClient` interfaces,
+`@RunOnVirtualThread`/`synchronized` combinations, the build JDK version, public mutable fields on JAX-RS
+resources (excluding resources that Quarkus scopes per request), and shared mutable fields on
+`@ApplicationScoped` and `@Singleton` beans, plus
 active/`%prod.` profile keys (Hibernate schema strategy, the legacy `database.generation` property, datasource
 kind/URL/pool size, SQL logging, log level, Dev Services, clustered scheduler) and HTTP settings (response
 compression, graceful-shutdown timeout presence/value, REST client timeouts) from MicroProfile config. It
@@ -44,9 +45,11 @@ or expose an immutable value, or move per-request state to a `@RequestScoped` be
 ### QA-CDI-002 - Public mutable field on a JAX-RS resource (MEDIUM)
 JAX-RS resources default to `@Singleton`, so a public non-final (non-static) field is process-wide shared
 mutable state accessed concurrently across requests. A resource explicitly annotated `@RequestScoped` gets a
-fresh instance per request and carries no shared-state risk, so it is excluded from this scan. Make the field
-`private final`, inject it, or move per-request state to a `@RequestScoped` bean. (Private fields set in
-`@PostConstruct`, e.g. injected Micrometer meters, are not flagged.)
+fresh instance per request and carries no shared-state risk. Quarkus REST also automatically scopes resources
+with JAX-RS parameter fields (for example `@QueryParam` or `@RestQuery`, including inherited fields) per
+request; both cases are excluded from this scan. Make the field `private final`, inject it, or move per-request
+state to a `@RequestScoped` bean.
+(Private fields set in `@PostConstruct`, e.g. injected Micrometer meters, are not flagged.)
 
 ### QA-CDI-003 - Shared mutable state on a @Singleton bean (MEDIUM)
 `@Singleton` beans are a single instance shared across threads, exactly like `@ApplicationScoped` — the same
@@ -78,16 +81,18 @@ accepts the same values: `none`/`create`/`drop-and-create`/`drop`/`update`/`vali
 ## Reactive
 
 ### QA-RX-001 - Reactive endpoints with a blocking JDBC datasource (HIGH)
-One or more endpoints return `Uni`/`Multi`/`CompletionStage`/`CompletableFuture`/`Publisher` (run on the I/O
-event loop), and neither the method nor its declaring resource class carries a `@Blocking` or `@Transactional`
-guard (Quarkus REST dispatches a `@Transactional` method to a worker thread just like `@Blocking` — see the
-[latest stable REST execution-model guide](https://quarkus.io/guides/rest#execution-model-blocking-non-blocking)),
-while a blocking JDBC datasource is configured; a JDBC call on the event loop stalls it and throws
+One or more endpoints return `Uni`/`Multi`/`RestMulti`/`CompletionStage`/`CompletableFuture`/
+`Flow.Publisher`/Reactive Streams `Publisher` (run on the I/O event loop), and neither the method nor its
+declaring resource class carries a `@Blocking` or `@Transactional` guard (Quarkus REST dispatches a
+`@Transactional` method to a worker thread just like `@Blocking` — see the [latest stable REST
+execution-model guide](https://quarkus.io/guides/rest#execution-model-blocking-non-blocking)), while Quarkus's
+Agroal JDBC capability is present; a JDBC call on the event loop stalls it and throws
 `BlockingOperationNotAllowedException` at runtime. This is one of the most common and severe Quarkus
 production footguns, hence HIGH rather than an informational note. Annotate blocking work with `@Blocking`
 (or make the method `@Transactional`), or use a reactive datasource client. (Only raised when a JDBC
-datasource is present, so fully-reactive apps are not flagged. The check is correlated per endpoint — an
-unrelated guard elsewhere in the app does not suppress a finding on a genuinely unguarded reactive endpoint.)
+datasource capability is present, so a fully reactive datasource configuration is not flagged. The check is
+correlated per endpoint — an unrelated guard elsewhere in the app does not suppress a finding on a genuinely
+unguarded reactive endpoint.)
 
 ## Scheduling
 
@@ -134,8 +139,8 @@ externalised (env vars, Secrets/ConfigMaps); otherwise prod shares dev defaults 
 ## Database
 
 ### QA-DB-001 - JDBC datasource without an explicit pool size (LOW)
-A JDBC datasource is configured, but `quarkus.datasource.jdbc.max-size` is never set. Agroal (Quarkus's
-connection pool) defaults to a max pool size of 50. Under high concurrency — especially with virtual threads
+A JDBC datasource capability is present, but `quarkus.datasource.jdbc.max-size` is never set. Agroal
+(Quarkus's connection pool) defaults to a max pool size of 50. Under high concurrency — especially with virtual threads
 increasing request parallelism — the default pool can become a bottleneck or exhaust the database's own
 connection limit. Set `quarkus.datasource.jdbc.max-size` (with a `%prod` override if it should differ from
 dev) to a value sized for the target database and expected concurrency.
@@ -148,9 +153,9 @@ dev) to a value sized for the target database and expected concurrency.
 `quarkus.http.enable-compression=true` (tune `quarkus.http.compress-media-types` if needed).
 
 ### QA-WEB-002 - Graceful shutdown grace period zeroed (MEDIUM)
-`quarkus.shutdown.timeout` or `quarkus.http.shutdown.timeout` is explicitly set to `0`, disabling the
-graceful-shutdown grace period; in-flight requests are dropped instead of being allowed to complete on
-`SIGTERM`. Remove the override (or set a positive duration) so in-flight requests can drain before shutdown.
+`quarkus.shutdown.timeout` is explicitly set to `0`, disabling the graceful-shutdown grace period; in-flight
+requests are dropped instead of being allowed to complete on `SIGTERM`. Remove the override (or set a positive
+duration) so in-flight requests can drain before shutdown.
 
 ### QA-WEB-003 - REST client connect/read timeout disabled or excessive (MEDIUM)
 A connect-timeout or read-timeout for a `@RegisterRestClient` interface is explicitly set to `0` (no timeout)
@@ -162,29 +167,23 @@ override to keep Quarkus's 15s/30s defaults, or set a specific, bounded timeout 
 service.
 
 ### QA-WEB-004 - Graceful shutdown timeout never configured (INFO)
-Neither `quarkus.shutdown.timeout` nor `quarkus.http.shutdown.timeout` is set anywhere. Quarkus's graceful
-shutdown is opt-in and disabled by default — with no timeout configured at all, the application exits
-immediately on `SIGTERM` instead of draining in-flight requests. Because this is Quarkus's documented default,
-it is informational rather than a configuration error. This is distinct from QA-WEB-002 (which fires
-only when the timeout is explicitly disabled via `=0`); the two are mutually exclusive; see the
-[lifecycle guide](https://quarkus.io/guides/lifecycle#graceful-shutdown). Set `quarkus.shutdown.timeout` to a
-positive duration (e.g. `10s`) so in-flight requests can drain before shutdown.
+`quarkus.shutdown.timeout` is not set anywhere. Quarkus's graceful shutdown is opt-in and disabled by default
+— with no timeout configured at all, the application exits immediately on `SIGTERM` instead of draining
+in-flight requests. Because this is Quarkus's documented default, it is informational rather than a
+configuration error. This is distinct from QA-WEB-002 (which fires only when the timeout is explicitly
+disabled via `=0`); the two are mutually exclusive; see the
+[lifecycle guide](https://quarkus.io/guides/lifecycle#graceful-shutdown). Set
+`quarkus.shutdown.timeout` to a positive duration (e.g. `10s`) so in-flight requests can drain before
+shutdown.
 
 ## Performance
-
-### QA-PERF-001 - No virtual-thread adoption (INFO)
-The app declares JAX-RS endpoint(s) but none use `@RunOnVirtualThread` at the method or class level (checked
-only from JDK 21, when virtual threads became stable/mainstream). If any endpoint performs blocking I/O
-(JDBC, file access, blocking REST calls), running it on a virtual thread can improve throughput without
-sizing a worker thread pool. Annotate blocking I/O-bound endpoint methods (or the resource class) with
-`@RunOnVirtualThread`.
 
 ### QA-PERF-002 - Virtual-thread pinning via synchronized (HIGH)
 **Quarkus/JDK-specific — no Spring equivalent.** One or more methods that run on a virtual thread — via a
 method-level `@RunOnVirtualThread`, or because their declaring class carries a class-level
 `@RunOnVirtualThread` (which makes every method in that class run on a virtual thread) — are also declared
-`synchronized`. On JDK 21-23, entering a `synchronized` method or block pins the carrier thread instead of
-yielding it, defeating the scalability benefit of virtual threads under load; [JEP
+`synchronized`. On JDK 21-23, a blocking operation inside a `synchronized` method or block pins the carrier
+thread instead of yielding it, defeating the scalability benefit of virtual threads under load; [JEP
 491](https://openjdk.org/jeps/491) removes this pinning starting in JDK 24. Replace `synchronized` with a
 `java.util.concurrent.locks.ReentrantLock`, or upgrade to JDK 24+. (Detected via the method's `synchronized`
 modifier; a `synchronized(lock) { }` block inside an otherwise-unsynchronized method is not visible to this

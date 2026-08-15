@@ -13,7 +13,6 @@ import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
-import StreamStatusIndicator from './components/StreamStatusIndicator.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -185,7 +184,9 @@ function clearTrace() {
       :error="error"
       :last-fetched="lastFetched"
       v-model:auto-refresh="autoRefresh"
+      :auto-refresh-state="connectionState"
       @refresh="load"
+      @retry-auto-refresh="retryConnection"
     >
       <template #actions>
         <SpinnerButton
@@ -209,8 +210,6 @@ function clearTrace() {
     </PanelHeader>
 
     <FlashBanner :message="banner" @dismiss="clearBanner" />
-
-    <StreamStatusIndicator :connection-state="connectionState" @retry="retryConnection" />
 
     <PanelSkeleton v-if="initialLoading && !report" />
 

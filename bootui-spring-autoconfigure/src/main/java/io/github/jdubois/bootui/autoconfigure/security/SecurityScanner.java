@@ -43,6 +43,7 @@ import org.springframework.security.web.access.intercept.RequestMatcherDelegatin
 import org.springframework.security.web.authentication.RememberMeServices;
 import org.springframework.security.web.authentication.rememberme.AbstractRememberMeServices;
 import org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter;
+import org.springframework.security.web.debug.DebugFilter;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -56,8 +57,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  *
  * <p>The scanner reads the registered {@code SecurityFilterChain} beans and related security beans,
  * builds a read-only model, and runs a curated registry of static best-practice checks. It never
- * intercepts live requests beyond simulating an anonymous authorization decision against an in-memory
- * stub, and never surfaces credentials, keys, or session identifiers.</p>
+ * intercepts live requests beyond simulating bounded anonymous authorization decisions against
+ * in-memory stubs, and never surfaces credentials, keys, or session identifiers.</p>
  */
 final class SecurityScanner {
 
@@ -68,6 +69,25 @@ final class SecurityScanner {
                     + "validated against the application's threat model.";
     private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final int MAX_BEAN_SCAN = 5000;
+    private static final List<AuthorizationProbe> AUTHORIZATION_PROBES = List.of(
+            new AuthorizationProbe("GET", "/"),
+            new AuthorizationProbe("GET", "/login"),
+            new AuthorizationProbe("GET", "/admin"),
+            new AuthorizationProbe("GET", "/api"),
+            new AuthorizationProbe("GET", "/actuator/env"),
+            new AuthorizationProbe("GET", "/bootui-authz-probe-8f3c1d20"),
+            new AuthorizationProbe("HEAD", "/bootui-authz-probe-8f3c1d20"),
+            new AuthorizationProbe("POST", "/bootui-authz-probe-8f3c1d20"),
+            new AuthorizationProbe("PUT", "/bootui-authz-probe-8f3c1d20"),
+            new AuthorizationProbe("PATCH", "/bootui-authz-probe-8f3c1d20"),
+            new AuthorizationProbe("DELETE", "/bootui-authz-probe-8f3c1d20"),
+            new AuthorizationProbe("OPTIONS", "/bootui-authz-probe-8f3c1d20"));
+    private static final String SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME = "springSecurityFilterChain";
+    private static final String MVC_HANDLER_MAPPING_INTROSPECTOR_BEAN_NAME = "mvcHandlerMappingIntrospector";
+    private static final String MVC_HANDLER_MAPPING_INTROSPECTOR_CLASS_NAME =
+            "org.springframework.web.servlet.handler.HandlerMappingIntrospector";
+    private static final String OBSERVATION_AUTHORIZATION_MANAGER_CLASS_NAME =
+            "org.springframework.security.authorization.ObservationAuthorizationManager";
 
     private static final Comparator<SecurityRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (SecurityRuleResultDto result) -> severityRank(result.severity()))
@@ -226,11 +246,27 @@ final class SecurityScanner {
             ObjectProvider<FilterChainProxy> filterChainProxies,
             ObjectProvider<ListableBeanFactory> beanFactories,
             Environment environment) {
+        ListableBeanFactory beanFactory;
+        try {
+            beanFactory = beanFactories.getIfAvailable();
+        } catch (RuntimeException | LinkageError ex) {
+            return SecurityDiscovery.empty(safeMessage(ex));
+        }
         FilterChainProxy proxy;
         try {
             proxy = filterChainProxies.getIfAvailable();
         } catch (RuntimeException | LinkageError ex) {
             return SecurityDiscovery.empty(safeMessage(ex));
+        }
+        boolean securityDebugFilterPresent = false;
+        if (proxy == null && beanFactory != null && beanFactory.containsBean(SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME)) {
+            Object securityFilter = beanFactory.getBean(SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME);
+            if (securityFilter instanceof FilterChainProxy filterChainProxy) {
+                proxy = filterChainProxy;
+            } else if (securityFilter instanceof DebugFilter debugFilter) {
+                proxy = debugFilter.getFilterChainProxy();
+                securityDebugFilterPresent = true;
+            }
         }
         if (proxy == null) {
             return SecurityDiscovery.empty("No Spring Security FilterChainProxy is available.");
@@ -251,7 +287,6 @@ final class SecurityScanner {
             errors.add("Filter chains: " + safeMessage(ex));
         }
 
-        ListableBeanFactory beanFactory = beanFactories.getIfAvailable();
         List<PasswordEncoderModel> passwordEncoders = discoverPasswordEncoders(beanFactory);
         List<String> jwtDecoderTypes = beanTypeNames(beanFactory, "org.springframework.security.oauth2.jwt.JwtDecoder");
         List<String> oauth2TokenValidatorTypes =
@@ -293,6 +328,7 @@ final class SecurityScanner {
                 hideUserNotFoundExceptionsDisabled,
                 opaqueTokenIntrospectorTypes,
                 generatedUserDetailsManagerPresent,
+                securityDebugFilterPresent,
                 environment);
         return new SecurityDiscovery(context, errors);
     }
@@ -338,15 +374,25 @@ final class SecurityScanner {
         if (manager == null) {
             return null;
         }
-        try {
-            Authentication anonymous = new AnonymousAuthenticationToken(
-                    "bootui-advisor", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
-            HttpServletRequest request = simulatedRequest();
-            AuthorizationResult result = manager.authorize(() -> anonymous, request);
-            return result != null && result.isGranted();
-        } catch (RuntimeException | LinkageError ex) {
+        AuthorizationManager<HttpServletRequest> unwrappedManager = unwrapObservationAuthorizationManager(manager);
+        if (unwrappedManager == null) {
             return null;
         }
+        Authentication anonymous = new AnonymousAuthenticationToken(
+                "bootui-advisor", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
+        boolean indeterminate = false;
+        for (AuthorizationProbe probe : AUTHORIZATION_PROBES) {
+            try {
+                AuthorizationResult result =
+                        unwrappedManager.authorize(() -> anonymous, simulatedRequest(probe.method(), probe.path()));
+                if (result == null || !result.isGranted()) {
+                    return Boolean.FALSE;
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                indeterminate = true;
+            }
+        }
+        return indeterminate ? null : Boolean.TRUE;
     }
 
     private static AuthorizationManager<HttpServletRequest> authorizationManager(List<Filter> filters) {
@@ -371,31 +417,30 @@ final class SecurityScanner {
     private static final Pattern UNCONDITIONAL_CATCH_ALL_PATTERN = Pattern.compile("\\[/\\*\\*]");
 
     /**
-     * {@code true} when {@code null} (indeterminate -- the chain's {@code AuthorizationManager} could
-     * not be introspected), {@code true} when an earlier, broader {@code authorizeHttpRequests}
-     * matcher shadows a later, narrower one (so the later rule can never take effect since Spring
-     * Security's {@code RequestMatcherDelegatingAuthorizationManager} evaluates matchers in
-     * declaration order and returns on the first match), {@code false} when no such shadowing was
-     * detected. Only an unconditional, method-agnostic catch-all matcher (Spring Security's
-     * {@code AnyRequestMatcher}, or an explicit {@code "/**"} pattern with no HTTP-method
-     * restriction) is treated as shadowing -- a method-scoped catch-all such as
-     * {@code requestMatchers(HttpMethod.GET, "/**")} is deliberately not flagged, since it only
-     * shadows requests using that one method and determining general matcher subsumption across
-     * methods and path patterns is out of scope for this bounded, low-false-positive check.
+     * {@code null} when the chain's {@code AuthorizationManager} could not be introspected, {@code
+     * true} when an earlier, broader {@code authorizeHttpRequests} matcher shadows a later, narrower
+     * one, or {@code false} when no such shadowing was detected. Only an unconditional,
+     * method-agnostic catch-all matcher is treated as shadowing.
      */
     private static Boolean detectAuthorizationRuleShadowed(AuthorizationManager<HttpServletRequest> manager) {
-        if (!(manager instanceof RequestMatcherDelegatingAuthorizationManager)) {
+        AuthorizationManager<HttpServletRequest> unwrappedManager = unwrapObservationAuthorizationManager(manager);
+        if (!(unwrappedManager instanceof RequestMatcherDelegatingAuthorizationManager)) {
             return null;
         }
-        Object mappingsField = readField(manager, "mappings");
-        if (!(mappingsField instanceof List<?> mappings) || mappings.size() < 2) {
+        Object mappingsField = readField(unwrappedManager, "mappings");
+        if (!(mappingsField instanceof List<?> mappings)) {
+            return null;
+        }
+        if (mappings.size() < 2) {
             return false;
         }
         // The last entry is allowed to be a catch-all (it is the final fallback rule and shadows
         // nothing after it), so only entries before it are checked.
         for (int i = 0; i < mappings.size() - 1; i++) {
-            if (mappings.get(i) instanceof RequestMatcherEntry<?> matcherEntry
-                    && isUnconditionalCatchAllMatcher(matcherEntry.getRequestMatcher())) {
+            if (!(mappings.get(i) instanceof RequestMatcherEntry<?> matcherEntry)) {
+                return null;
+            }
+            if (isUnconditionalCatchAllMatcher(matcherEntry.getRequestMatcher())) {
                 return true;
             }
         }
@@ -557,8 +602,14 @@ final class SecurityScanner {
         if (sources.isEmpty()) {
             return NO_CORS_SOURCES;
         }
+        boolean sourcePresent = false;
         boolean customSourcePresent = false;
-        for (CorsConfigurationSource source : sources.values()) {
+        for (Map.Entry<String, CorsConfigurationSource> sourceEntry : sources.entrySet()) {
+            CorsConfigurationSource source = sourceEntry.getValue();
+            if (isMvcHandlerMappingIntrospector(sourceEntry.getKey(), source)) {
+                continue;
+            }
+            sourcePresent = true;
             if (source instanceof UrlBasedCorsConfigurationSource urlSource) {
                 try {
                     Map<String, CorsConfiguration> configurations = urlSource.getCorsConfigurations();
@@ -582,7 +633,7 @@ final class SecurityScanner {
                 customSourcePresent = true;
             }
         }
-        return new CorsDiscoveryResult(true, customSourcePresent);
+        return sourcePresent ? new CorsDiscoveryResult(true, customSourcePresent) : NO_CORS_SOURCES;
     }
 
     private static boolean discoverMethodSecurityAnnotations(ListableBeanFactory beanFactory) {
@@ -756,18 +807,50 @@ final class SecurityScanner {
         return null;
     }
 
-    private static HttpServletRequest simulatedRequest() {
+    @SuppressWarnings("unchecked")
+    private static AuthorizationManager<HttpServletRequest> unwrapObservationAuthorizationManager(
+            AuthorizationManager<HttpServletRequest> manager) {
+        AuthorizationManager<?> current = manager;
+        for (int depth = 0;
+                depth < 8
+                        && current != null
+                        && OBSERVATION_AUTHORIZATION_MANAGER_CLASS_NAME.equals(
+                                current.getClass().getName());
+                depth++) {
+            Object delegate = readField(current, "delegate");
+            if (!(delegate instanceof AuthorizationManager<?> authorizationManager) || delegate == current) {
+                return null;
+            }
+            current = authorizationManager;
+        }
+        if (current == null
+                || OBSERVATION_AUTHORIZATION_MANAGER_CLASS_NAME.equals(
+                        current.getClass().getName())) {
+            return null;
+        }
+        return (AuthorizationManager<HttpServletRequest>) current;
+    }
+
+    private static boolean isMvcHandlerMappingIntrospector(String beanName, CorsConfigurationSource source) {
+        if (MVC_HANDLER_MAPPING_INTROSPECTOR_BEAN_NAME.equals(beanName)) {
+            return true;
+        }
+        Class<?> introspectorType = classForName(MVC_HANDLER_MAPPING_INTROSPECTOR_CLASS_NAME);
+        return introspectorType != null && introspectorType.isInstance(source);
+    }
+
+    private static HttpServletRequest simulatedRequest(String requestMethod, String requestPath) {
         InvocationHandler handler = (proxy, method, args) -> {
             String name = method.getName();
             return switch (name) {
-                case "getMethod" -> "GET";
-                case "getServletPath", "getRequestURI", "getPathInfo" -> "/";
+                case "getMethod" -> requestMethod;
+                case "getServletPath", "getRequestURI", "getPathInfo" -> requestPath;
                 case "getContextPath" -> "";
                 case "getScheme" -> "http";
                 case "getProtocol" -> "HTTP/1.1";
                 case "getServerName", "getRemoteHost", "getLocalName" -> "localhost";
                 case "getRemoteAddr", "getLocalAddr" -> "127.0.0.1";
-                case "getRequestURL" -> new StringBuffer("http://localhost/");
+                case "getRequestURL" -> new StringBuffer("http://localhost" + requestPath);
                 default -> defaultValue(method);
             };
         };
@@ -912,6 +995,8 @@ final class SecurityScanner {
     private static boolean isViolation(SecurityRuleResultDto result) {
         return SecurityRuleSupport.VIOLATION.equals(result.status());
     }
+
+    private record AuthorizationProbe(String method, String path) {}
 
     private record SecurityDiscovery(SecurityContext context, List<String> errors) {
 

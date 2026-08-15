@@ -142,17 +142,8 @@ record HibernateContext(
         return hibernateVersion.display();
     }
 
-    boolean isHibernateEnhancementEnabled() {
-        return isPropertyTrue(
-                        "spring.jpa.properties.hibernate.enhancer.enableLazyInitialization",
-                        "hibernate.enhancer.enableLazyInitialization")
-                || isPropertyTrue(
-                        "spring.jpa.properties.hibernate.bytecode.enhancer.enableLazyInitialization",
-                        "hibernate.bytecode.enhancer.enableLazyInitialization");
-    }
-
     boolean isHibernateEnhancementEnabled(HibernateEntityModel entity) {
-        return isHibernateEnhancementEnabled() || entity.isBytecodeEnhanced();
+        return isPropertyTrue(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY) || entity.isBytecodeEnhanced();
     }
 
     boolean isOpenInViewApplicable() {

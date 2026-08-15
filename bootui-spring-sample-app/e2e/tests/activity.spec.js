@@ -202,4 +202,53 @@ test.describe('Live Activity view', () => {
       .click()
     await expect(page).toHaveURL(/\/http-exchanges\?q=/)
   })
+
+  test('shows a Live flow service map of dependencies derived from retained evidence', async ({openView, page}) => {
+    // product-search always runs SQL, so the map has real JDBC evidence to attribute.
+    await page.request.get('/api/sample/product-search')
+
+    await openView('activity', 'Live Activity')
+    await page.getByRole('button', {name: 'Live flow view'}).click()
+
+    const map = page.locator('.flow-map')
+    await expect(map).toBeVisible({timeout: 15_000})
+    // The feed is replaced, not stacked beside the map.
+    await expect(page.locator('.activity-table')).toHaveCount(0)
+    // The running application is the centre of the map, and the map states plainly that it contacts nothing.
+    await expect(map.locator('.flow-node--app')).toBeVisible()
+    await expect(map).toContainText('contacts nothing and probes nothing')
+
+    // The configured H2 datasource is drawn as a dependency of this application.
+    const database = map.locator('.flow-node--jdbc').first()
+    await expect(database).toBeVisible()
+    await expect(database).toHaveAttribute('aria-label', /jdbc:h2:mem:bootui_sample/)
+
+    // Selecting it opens the evidence detail with a deep link back to the source panel.
+    await database.click()
+    const detail = map.locator('.flow-detail')
+    await expect(detail).toContainText('Retained interactions')
+    await expect(detail).toContainText('Declared by configuration')
+    await detail.locator('.flow-detail__link').click()
+    await expect(page).toHaveURL(/\/(database-connection-pools|sql-trace)/)
+  })
+
+  test('keeps the Live flow map usable by keyboard and readable as text', async ({openView, page}) => {
+    await page.request.get('/api/sample/product-search')
+
+    await openView('activity', 'Live Activity')
+    await page.getByRole('button', {name: 'Live flow view'}).click()
+
+    const map = page.locator('.flow-map')
+    await expect(map.locator('.flow-node[role="button"]').first()).toBeVisible({timeout: 15_000})
+
+    // Arrow keys move between nodes and Enter selects, without needing a pointer.
+    await map.locator('.flow-node[role="button"]').first().focus()
+    await page.keyboard.press('Enter')
+    await expect(map.locator('.flow-node--selected')).toHaveCount(1)
+
+    // Everything the graph conveys is also available as text for assistive technology.
+    const textual = map.locator('ul[aria-label="Service map relationships as text"]')
+    await expect(textual).toHaveCount(1)
+    await expect(textual).toContainText('retained')
+  })
 })

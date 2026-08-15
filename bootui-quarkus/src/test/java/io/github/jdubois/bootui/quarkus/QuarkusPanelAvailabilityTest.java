@@ -28,10 +28,21 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
-    void graalVmCracConditionsAndStartupAreDeliberatelyNotApplicableOnQuarkus() {
+    void graalVmAdvisorIsExplicitlyNotApplicableOnQuarkus() {
+        PanelDto graalVm = manifestById().get(BootUiPanels.GRAALVM);
+
+        assertThat(graalVm).isNotNull();
+        assertThat(graalVm.available()).isFalse();
+        assertThat(graalVm.unavailableReason())
+                .containsIgnoringCase("Not applicable on Quarkus")
+                .containsIgnoringCase("reachability metadata")
+                .containsIgnoringCase("build time");
+    }
+
+    @Test
+    void springOnlyPanelsAreDeliberatelyNotApplicableOnQuarkus() {
         Map<String, PanelDto> panels = manifestById();
         for (String id : new String[] {
-            BootUiPanels.GRAALVM,
             BootUiPanels.CRAC,
             BootUiPanels.CONDITIONS,
             BootUiPanels.STARTUP,

@@ -30,13 +30,15 @@ class HttpReachabilityMetadataRepositoryTests {
         Result result = fetch(
                 POSTGRES,
                 200,
-                "[{\"metadata-version\":\"42.7.3\",\"tested-versions\":[\"42.7.3\",\"42.7.11\"],\"latest\":true}]");
+                "[{\"metadata-version\":\"42.7.3\",\"tested-versions\":[\"42.7.3\",\"42.7.11\"],"
+                        + "\"default-for\":\"42\\\\.7\\\\..*\",\"latest\":true}]");
 
         assertThat(result.index().lookupError()).isNull();
         assertThat(result.index().entries()).hasSize(1);
         ReachabilityMetadataIndex.Entry entry = result.index().entries().get(0);
         assertThat(entry.metadataVersion()).isEqualTo("42.7.3");
         assertThat(entry.testedVersions()).containsExactly("42.7.3", "42.7.11");
+        assertThat(entry.defaultFor()).isEqualTo("42\\.7\\..*");
         assertThat(entry.latest()).isTrue();
         assertThat(result.requestedPath()).isEqualTo("/metadata/org.postgresql/postgresql/index.json");
     }

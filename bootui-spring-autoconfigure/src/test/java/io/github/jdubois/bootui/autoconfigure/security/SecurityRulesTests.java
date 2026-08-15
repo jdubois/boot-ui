@@ -105,9 +105,11 @@ class SecurityRulesTests {
                 chain("PathPattern [/api/**]", List.of("HttpsRedirectFilter", "AuthorizationFilter"));
         FilterChainModel formChain =
                 chain("PathPattern [/**]", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
 
         SecurityRuleResultDto result =
-                new FormLoginWithoutTlsRule().evaluate(context(List.of(apiChain, formChain), new MockEnvironment()));
+                new FormLoginWithoutTlsRule().evaluate(context(List.of(apiChain, formChain), environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
     }
@@ -117,8 +119,10 @@ class SecurityRulesTests {
         FilterChainModel formChain = chain(
                 "PathPattern [/**]",
                 List.of("HttpsRedirectFilter", "UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
 
-        SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(singleChain(formChain));
+        SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(context(List.of(formChain), environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
@@ -592,6 +596,18 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
+    @Test
+    void corsSourcePassesWhenSpringSecurityInstallsPreFlightRequestFilter() {
+        FilterChainModel chain = chain("any request", List.of("PreFlightRequestFilter", "AuthorizationFilter"));
+        CorsConfigModel cors =
+                new CorsConfigModel("/**", List.of("https://example.com"), List.of(), List.of("GET"), List.of(), false);
+        SecurityContext context = context(List.of(chain), List.of(), List.of(cors), List.of(), new MockEnvironment());
+
+        SecurityRuleResultDto result = new CorsNotInSecurityChainRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
     // --- SEC-AUTHZ-002 / 003: stop over-claiming blanket permitAll --------------------------
 
     @Test
@@ -706,12 +722,12 @@ class SecurityRulesTests {
     }
 
     @Test
-    void authorizationRuleShadowedPassesWhenTheAuthorizationManagerCouldNotBeIntrospected() {
+    void authorizationRuleShadowedIsSkippedWhenTheAuthorizationManagerCouldNotBeIntrospected() {
         FilterChainModel chain = chain("any request", List.of("AuthorizationFilter"));
 
         SecurityRuleResultDto result = new AuthorizationRuleShadowedRule().evaluate(singleChain(chain));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     // --- SEC-CSRF-001: Spring Security 6 form-login statefulness ----------------------------
@@ -888,11 +904,13 @@ class SecurityRulesTests {
     // --- SEC-AUTH-010: form login requires TLS -----------------------------------------------
 
     @Test
-    void formLoginWithoutTlsFires() {
+    void formLoginWithoutTlsFiresInProduction() {
         FilterChainModel chain =
                 chain("any request", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
 
-        SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(singleChain(chain));
+        SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(context(List.of(chain), environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo("HIGH");
@@ -901,10 +919,21 @@ class SecurityRulesTests {
     @Test
     void formLoginWithTlsPasses() {
         MockEnvironment environment = new MockEnvironment().withProperty("server.ssl.enabled", "true");
+        environment.setActiveProfiles("prod");
         FilterChainModel chain =
                 chain("any request", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
 
         SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void formLoginWithoutTlsIsIgnoredOutsideProduction() {
+        FilterChainModel chain =
+                chain("any request", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
@@ -1050,6 +1079,25 @@ class SecurityRulesTests {
         SecurityContext context = context(new MockEnvironment(), List.of(), false, false, List.of(), false);
 
         SecurityRuleResultDto result = new StrictHttpFirewallWeakenedRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-CONFIG-001: @EnableWebSecurity debug filter ------------------------------------
+
+    @Test
+    void securityDebugFilterFires() {
+        SecurityRuleResultDto result =
+                new SecurityDebugRule().evaluate(contextWithSecurityDebug(true, new MockEnvironment()));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void unsupportedSpringSecurityDebugPropertyDoesNotFire() {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.security.debug", "true");
+
+        SecurityRuleResultDto result = new SecurityDebugRule().evaluate(contextWithSecurityDebug(false, environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
@@ -1644,6 +1692,27 @@ class SecurityRulesTests {
                 false,
                 opaqueTokenIntrospectorTypes,
                 false,
+                environment);
+    }
+
+    private static SecurityContext contextWithSecurityDebug(
+            boolean securityDebugFilterPresent, Environment environment) {
+        return new SecurityContext(
+                List.of(),
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                false,
+                false,
+                List.of(),
+                false,
+                securityDebugFilterPresent,
                 environment);
     }
 }

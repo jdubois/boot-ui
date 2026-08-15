@@ -108,4 +108,16 @@ class CvssV3BaseScoreTests {
         assertThat(CvssV3BaseScore.baseScore("CVSS:3.1/AV:N/GARBAGE/PR:N/UI:N/S:U/C:H/I:H/A:H"))
                 .isNull();
     }
+
+    @Test
+    void returnsNullWhenAMetricAppearsMoreThanOnce() {
+        assertThat(CvssV3BaseScore.baseScore("CVSS:3.1/AV:N/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))
+                .isNull();
+    }
+
+    @Test
+    void returnsNullWhenASegmentContainsMoreThanOneColon() {
+        assertThat(CvssV3BaseScore.baseScore("CVSS:3.1/AV:N:EXTRA/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))
+                .isNull();
+    }
 }

@@ -5,6 +5,8 @@ import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyScanStatusDto;
 import io.github.jdubois.bootui.core.dto.DependencySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -12,19 +14,33 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public final class DependencyReports {
 
     private static final List<String> VULNERABILITY_SEVERITIES =
-            List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN");
+            List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN", "NONE");
+
+    /**
+     * FIRST's public EPSS API documents a 2,000-character maximum for the comma-separated {@code cve}
+     * parameter.
+     */
+    public static final int EPSS_CVE_PARAMETER_MAX_LENGTH = 2000;
+
+    private static final Pattern CVE_ID = Pattern.compile("CVE-[0-9]{4}-[0-9]{4,}");
 
     private static final Comparator<String> ALPHABETIC =
             Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER.thenComparing(Comparator.naturalOrder()));
 
+    private static final Comparator<String> MAVEN_VERSION_ORDER = (left, right) -> {
+        Integer compared = MavenVersionComparator.compare(left, right);
+        return compared != null && compared != 0 ? compared : ALPHABETIC.compare(left, right);
+    };
+
     private static final Comparator<DependencyDto> DEPENDENCY_ORDER = Comparator.comparingInt(
                     (DependencyDto dependency) -> severityRank(dependency.highestSeverity()))
             .thenComparing(DependencyDto::packageName, ALPHABETIC)
-            .thenComparing(DependencyDto::version, ALPHABETIC);
+            .thenComparing(DependencyDto::version, MAVEN_VERSION_ORDER);
 
     /**
      * Not-yet-reviewed vulnerabilities sort first (by severity, then id); dismissed vulnerabilities always
@@ -34,7 +50,7 @@ public final class DependencyReports {
     public static final Comparator<DependencyVulnerabilityDto> VULNERABILITY_ORDER = Comparator.comparing(
                     DependencyVulnerabilityDto::dismissed)
             .thenComparingInt((DependencyVulnerabilityDto v) -> severityRank(v.severity()))
-            .thenComparing(DependencyVulnerabilityDto::id);
+            .thenComparing(DependencyVulnerabilityDto::id, ALPHABETIC);
 
     private DependencyReports() {}
 
@@ -132,6 +148,9 @@ public final class DependencyReports {
     }
 
     public static String normalizeSeverity(double score) {
+        if (!Double.isFinite(score) || score < 0.0d || score > 10.0d) {
+            return "UNKNOWN";
+        }
         if (score >= 9.0d) {
             return "CRITICAL";
         }
@@ -141,37 +160,31 @@ public final class DependencyReports {
         if (score >= 4.0d) {
             return "MEDIUM";
         }
-        return "LOW";
+        return score > 0.0d ? "LOW" : "NONE";
     }
 
     /**
-     * Parses a supported OSV {@code severity[].score} value into a numeric Base Score.
+     * Parses a supported OSV severity entry into a numeric Base Score.
      *
-     * <p>Per the <a href="https://ossf.github.io/osv-schema/">OSV schema</a>, {@code score} is a CVSS
-     * vector string for {@code CVSS_V2}/{@code CVSS_V3}/{@code CVSS_V4} severity types. This method computes
-     * only prefixed CVSS v3.0/v3.1 vectors via {@link CvssV3BaseScore}; the unprefixed CVSS v2 notation and
-     * CVSS v4 vectors are left to the caller's database-specific severity fallback. A bare numeric string,
-     * although not a CVSS value in the OSV schema, is accepted defensively.
+     * <p>Per the <a href="https://ossf.github.io/osv-schema/">OSV schema</a>, {@code type} identifies how
+     * {@code score} must be interpreted. This method computes only {@code CVSS_V3} entries carrying a
+     * prefixed CVSS v3.0/v3.1 vector via {@link CvssV3BaseScore}; CVSS v2/v4 and provider-specific score
+     * types are left to the caller's database-specific severity fallback.
      *
-     * @return the Base Score, or {@code null} if it can't be determined from {@code value}
+     * @return the Base Score, or {@code null} if it can't be determined from {@code type}/{@code value}
+     */
+    public static Double parseScore(String type, String value) {
+        if (!"CVSS_V3".equals(type) || value == null) {
+            return null;
+        }
+        return CvssV3BaseScore.baseScore(value);
+    }
+
+    /**
+     * Compatibility overload for callers that already know they have a {@code CVSS_V3} entry.
      */
     public static Double parseScore(String value) {
-        if (value == null) {
-            return null;
-        }
-        if (value.startsWith("CVSS:3.0/") || value.startsWith("CVSS:3.1/")) {
-            return CvssV3BaseScore.baseScore(value);
-        }
-        if (value.startsWith("CVSS:")) {
-            // CVSS v4.0 (and any future major version): no closed-form Base Score equation exists; not
-            // computed here. Falls through to null so callers keep the database_specific.severity label.
-            return null;
-        }
-        try {
-            return Double.parseDouble(value);
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        return parseScore("CVSS_V3", value);
     }
 
     /**
@@ -204,6 +217,7 @@ public final class DependencyReports {
         }
         List<DependencyDto> marked = report.dependencies().stream()
                 .map(dependency -> markDismissals(dependency, dismissedIds))
+                .sorted(DEPENDENCY_ORDER)
                 .toList();
         int vulnerable = (int) marked.stream()
                 .filter(dependency -> dependency.vulnerabilityCount() > 0)
@@ -247,9 +261,10 @@ public final class DependencyReports {
      * Whether at least one of {@code fixedVersions} is newer than {@code currentVersion}, using the
      * lightweight {@link MavenVersionComparator} (BootUI takes no dependency on Maven's own
      * {@code ComparableVersion}). Backs {@link DependencyVulnerabilityDto#fixAvailable()}, which lets the UI
-     * distinguish a reported fixed-version upgrade target from an advisory without a {@code fixed} event.
-     * The latter does not prove that no fix exists: OSV ranges may instead close with {@code last_affected},
-     * which identifies the final vulnerable version without naming the first non-vulnerable version.
+     * distinguish a newer reported fixed-version upgrade target from an advisory without one. A false
+     * result means only that OSV reported no fixed event newer than the current version; it does not prove
+     * that the current dependency is unaffected, because OSV already matched it as vulnerable and ranges may
+     * be reintroduced or branch-specific.
      *
      * <p>An inconclusive per-version comparison (blank/unparseable input) is treated as "a fix is
      * available": OSV positively reported a {@code fixed} event for this advisory, so failing to parse the
@@ -294,23 +309,79 @@ public final class DependencyReports {
     }
 
     /**
-     * Every distinct {@code CVE-*} alias referenced by any vulnerability across {@code dependencies},
-     * preserving first-seen order. Feeds an adapter's batched FIRST.org EPSS lookup (one request per scan,
-     * mirroring the OSV batch query) &mdash; EPSS is scored only per-CVE, so non-CVE aliases (bare
-     * {@code GHSA-*}/{@code OSV-*} ids with no CVE cross-reference) are not included.
+     * Every distinct canonical CVE id referenced by any vulnerability across {@code dependencies},
+     * preserving first-seen order. The advisory's own id is considered before its aliases because OSV
+     * records may themselves be CVE records.
      */
     public static List<String> cveAliases(List<DependencyDto> dependencies) {
         Set<String> ids = new LinkedHashSet<>();
         for (DependencyDto dependency : dependencies) {
             for (DependencyVulnerabilityDto vulnerability : dependency.vulnerabilities()) {
-                for (String alias : vulnerability.aliases()) {
-                    if (alias != null && alias.startsWith("CVE-")) {
-                        ids.add(alias);
-                    }
-                }
+                ids.addAll(cveIds(vulnerability));
             }
         }
         return List.copyOf(ids);
+    }
+
+    /**
+     * Splits canonical CVE ids into deterministic chunks whose comma-separated {@code cve} parameter never
+     * exceeds FIRST.org's documented {@value #EPSS_CVE_PARAMETER_MAX_LENGTH}-character maximum.
+     */
+    public static List<List<String>> epssCveChunks(List<String> cveIds) {
+        if (cveIds == null || cveIds.isEmpty()) {
+            return List.of();
+        }
+        List<List<String>> chunks = new ArrayList<>();
+        List<String> chunk = new ArrayList<>();
+        int chunkLength = 0;
+        Set<String> seen = new LinkedHashSet<>();
+        for (String value : cveIds) {
+            String cveId = canonicalCveId(value);
+            if (cveId == null || !seen.add(cveId) || cveId.length() > EPSS_CVE_PARAMETER_MAX_LENGTH) {
+                continue;
+            }
+            int addedLength = cveId.length() + (chunk.isEmpty() ? 0 : 1);
+            if (!chunk.isEmpty() && chunkLength + addedLength > EPSS_CVE_PARAMETER_MAX_LENGTH) {
+                chunks.add(List.copyOf(chunk));
+                chunk.clear();
+                chunkLength = 0;
+                addedLength = cveId.length();
+            }
+            chunk.add(cveId);
+            chunkLength += addedLength;
+        }
+        if (!chunk.isEmpty()) {
+            chunks.add(List.copyOf(chunk));
+        }
+        return List.copyOf(chunks);
+    }
+
+    /**
+     * Returns a canonical uppercase CVE id, or {@code null} for malformed input.
+     */
+    public static String canonicalCveId(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return CVE_ID.matcher(normalized).matches() ? normalized : null;
+    }
+
+    /**
+     * De-duplicates and orders reported Maven fixed-version candidates using Maven version semantics,
+     * falling back to stable lexical ordering when comparison is inconclusive.
+     */
+    public static List<String> orderFixedVersions(Collection<String> versions, int limit) {
+        if (versions == null || versions.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+        return versions.stream()
+                .filter(version -> version != null && !version.isBlank())
+                .map(String::trim)
+                .distinct()
+                .sorted(MAVEN_VERSION_ORDER)
+                .limit(limit)
+                .toList();
     }
 
     /**
@@ -349,12 +420,29 @@ public final class DependencyReports {
 
     private static DependencyVulnerabilityDto applyEpssScore(
             DependencyVulnerabilityDto vulnerability, Map<String, EpssScore> epssByCve) {
-        for (String alias : vulnerability.aliases()) {
-            EpssScore epssScore = epssByCve.get(alias);
+        for (String cveId : cveIds(vulnerability)) {
+            EpssScore epssScore = epssByCve.get(cveId);
             if (epssScore != null) {
                 return vulnerability.withEpss(epssScore.probability(), epssScore.percentile());
             }
         }
         return vulnerability;
+    }
+
+    private static List<String> cveIds(DependencyVulnerabilityDto vulnerability) {
+        Set<String> ids = new LinkedHashSet<>();
+        String ownId = canonicalCveId(vulnerability.id());
+        if (ownId != null) {
+            ids.add(ownId);
+        }
+        if (vulnerability.aliases() != null) {
+            for (String alias : vulnerability.aliases()) {
+                String cveId = canonicalCveId(alias);
+                if (cveId != null) {
+                    ids.add(cveId);
+                }
+            }
+        }
+        return List.copyOf(ids);
     }
 }

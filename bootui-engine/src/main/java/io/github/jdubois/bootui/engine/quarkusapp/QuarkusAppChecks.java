@@ -15,7 +15,7 @@ import java.util.List;
 final class QuarkusAppChecks {
 
     private static final String VIOLATION = "VIOLATION";
-    private static final int RULE_COUNT = 20;
+    private static final int RULE_COUNT = 19;
     private static final String GUIDE = "https://quarkus.io/guides/cdi-reference";
     private static final String CONFIG_GUIDE = "https://quarkus.io/guides/config-reference";
     private static final String REACTIVE_GUIDE = "https://quarkus.io/guides/getting-started-reactive";
@@ -97,10 +97,11 @@ final class QuarkusAppChecks {
                     "Reactive endpoints with a blocking JDBC datasource",
                     "Reactive",
                     "HIGH",
-                    "Endpoint(s) return Uni/Multi/CompletionStage/CompletableFuture/Publisher (run on the I/O"
-                            + " event loop), lack a @Blocking or @Transactional guard on the method or resource"
-                            + " class, and a blocking JDBC datasource is configured; a JDBC call on the event loop"
-                            + " stalls it and can throw BlockingOperationNotAllowedException at runtime.",
+                    "Endpoint(s) return Uni/Multi/RestMulti/CompletionStage/CompletableFuture/Flow.Publisher/"
+                            + "Publisher (run on the I/O event loop), lack a @Blocking or @Transactional guard on"
+                            + " the method or resource class, and a blocking JDBC datasource is configured; a JDBC"
+                            + " call on the event loop stalls it and can throw BlockingOperationNotAllowedException"
+                            + " at runtime.",
                     s.reactiveEndpointsWithoutBlockingCount(),
                     List.of(s.reactiveEndpointsWithoutBlockingCount()
                             + " reactive endpoint(s) without @Blocking/@Transactional, JDBC datasource present"),
@@ -264,9 +265,8 @@ final class QuarkusAppChecks {
                     "Graceful shutdown grace period zeroed",
                     "Web",
                     "MEDIUM",
-                    "quarkus.shutdown.timeout or quarkus.http.shutdown.timeout is explicitly set to 0, disabling"
-                            + " the graceful-shutdown grace period; in-flight requests are dropped instead of"
-                            + " being allowed to complete on SIGTERM.",
+                    "quarkus.shutdown.timeout is explicitly set to 0, disabling the graceful-shutdown grace period;"
+                            + " in-flight requests are dropped instead of being allowed to complete on SIGTERM.",
                     1,
                     List.of("shutdown timeout=0"),
                     "Remove the override (or set a positive duration) so in-flight requests can drain before"
@@ -279,9 +279,9 @@ final class QuarkusAppChecks {
                     "Graceful shutdown timeout never configured",
                     "Web",
                     "INFO",
-                    "Neither quarkus.shutdown.timeout nor quarkus.http.shutdown.timeout is set. Quarkus's"
-                            + " graceful shutdown is opt-in: with no timeout configured, the application exits"
-                            + " immediately on SIGTERM instead of draining in-flight requests.",
+                    "quarkus.shutdown.timeout is not set. Quarkus's graceful shutdown is opt-in: with no timeout"
+                            + " configured, the application exits immediately on SIGTERM instead of draining"
+                            + " in-flight requests.",
                     1,
                     List.of("no shutdown timeout configured"),
                     "Set quarkus.shutdown.timeout to a positive duration (e.g. 10s) so in-flight requests can"
@@ -305,21 +305,6 @@ final class QuarkusAppChecks {
                             + " appropriate for the remote service.",
                     REST_CLIENT_GUIDE));
         }
-        if (s.endpointCount() > 0 && s.virtualThreadEndpointCount() == 0 && s.jdkMajorVersion() >= 21) {
-            v.add(rule(
-                    "QA-PERF-001",
-                    "No virtual-thread adoption",
-                    "Performance",
-                    "INFO",
-                    "The app declares " + s.endpointCount() + " JAX-RS endpoint(s) but none use"
-                            + " @RunOnVirtualThread. If any perform blocking I/O (JDBC, file access, blocking"
-                            + " REST calls), running them on virtual threads can improve throughput without"
-                            + " sizing a worker thread pool.",
-                    s.endpointCount(),
-                    List.of(s.endpointCount() + " JAX-RS endpoint(s), 0 @RunOnVirtualThread"),
-                    "Annotate blocking I/O-bound endpoint methods (or the resource class) with @RunOnVirtualThread.",
-                    VIRTUAL_THREADS_GUIDE));
-        }
         if (s.virtualThreadSynchronizedCount() > 0 && s.jdkMajorVersion() >= 21 && s.jdkMajorVersion() < 24) {
             v.add(rule(
                     "QA-PERF-002",
@@ -327,9 +312,10 @@ final class QuarkusAppChecks {
                     "Performance",
                     "HIGH",
                     s.virtualThreadSynchronizedCount() + " @RunOnVirtualThread method(s) are also declared"
-                            + " synchronized. On JDK " + s.jdkMajorVersion() + " (21-23), entering a synchronized"
-                            + " method pins the carrier thread instead of yielding it, defeating the scalability"
-                            + " benefit of virtual threads; JEP 491 removes this pinning starting in JDK 24.",
+                            + " synchronized. On JDK " + s.jdkMajorVersion()
+                            + " (21-23), a blocking operation inside a synchronized method pins the carrier thread"
+                            + " instead of yielding it, defeating the scalability benefit of virtual threads; JEP"
+                            + " 491 removes this pinning starting in JDK 24.",
                     s.virtualThreadSynchronizedCount(),
                     List.of(s.virtualThreadSynchronizedCount() + " @RunOnVirtualThread synchronized method(s), JDK "
                             + s.jdkMajorVersion()),

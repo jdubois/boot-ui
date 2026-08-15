@@ -57,12 +57,12 @@ public class HttpExchangesController {
     }
 
     /**
-     * Installed only by {@code BootUiReactiveAutoConfiguration} once OpenTelemetry is present, so the
-     * reactive adapter can stamp a real trace id despite Actuator's {@link HttpExchange} model carrying
-     * none natively; left {@code null} on the servlet adapter, where {@link #capturedTraceId} simply
-     * returns {@code null} and {@link HttpExchangesService#resolveTraceId} falls back to its existing
-     * header-derived extraction unchanged. See {@link HttpExchangeTraceRegistry}.
+     * Installed whenever either Spring adapter contributes a registry, so a server-created trace id can
+     * be stamped despite Actuator's {@link HttpExchange} model carrying none natively. When no registry
+     * exists, {@link #capturedTraceId} returns {@code null} and {@link
+     * HttpExchangesService#resolveTraceId} keeps its header-derived fallback unchanged.
      */
+    @Autowired(required = false)
     public void setTraceRegistry(HttpExchangeTraceRegistry traceRegistry) {
         this.traceRegistry = traceRegistry;
     }
@@ -114,8 +114,8 @@ public class HttpExchangesController {
     /**
      * Looks up the trace id {@link HttpExchangeTraceRegistry} captured for this exchange (method + path +
      * overlapping time window, see {@link HttpExchangeTraceRegistry#match}); returns {@code null} when no
-     * registry is installed (the servlet adapter, or OpenTelemetry absent on the reactive one) so callers
-     * fall back to header-derived extraction unchanged.
+     * registry is installed (or OpenTelemetry is absent on the reactive adapter) so callers fall back to
+     * header-derived extraction unchanged.
      */
     private String capturedTraceId(HttpExchange exchange, HttpExchange.Request request, Long durationMs) {
         if (traceRegistry == null || request == null || exchange.getTimestamp() == null) {

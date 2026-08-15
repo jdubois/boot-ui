@@ -59,6 +59,35 @@ test.describe('BootUI on Spring WebFlux', () => {
     }
   })
 
+  test("Live Activity's Live flow map renders the same contract on the reactive stack", async ({
+    page,
+    request,
+    baseURL
+  }) => {
+    // Give the map something real to derive: a request the reactive stack has actually served.
+    const warmup = await request.get(`${baseURL}/api/greetings/Ada`)
+    expect(warmup.ok()).toBeTruthy()
+
+    const map = await (await request.get(`${baseURL}/bootui/api/activity/service-map`)).json()
+    expect(typeof map.available).toBe('boolean')
+    expect(Array.isArray(map.nodes)).toBe(true)
+    expect(map.truncation.dependencyLimit).toBeGreaterThan(0)
+
+    await page.goto('/bootui/#/activity')
+    await expect(
+      page
+        .locator('main h2')
+        .filter({hasText: /Live Activity/})
+        .first()
+    ).toBeVisible({timeout: 15_000})
+    await page.getByRole('button', {name: 'Live flow view'}).click()
+
+    const flow = page.locator('.flow-map')
+    await expect(flow).toBeVisible({timeout: 15_000})
+    await expect(flow).toContainText('contacts nothing and probes nothing')
+    await expect(page.locator('.activity-table')).toHaveCount(0)
+  })
+
   test('raw Spring Security panel exposes reactive chains and mappings without blocking', async ({
     page,
     request,

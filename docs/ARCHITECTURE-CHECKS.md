@@ -351,10 +351,9 @@ include up to a handful of sample detail lines from ArchUnit.
   passes through the proxy — a real correctness bug, not just a style issue.
 - **Recommendation**: refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or,
   only if necessary, inject a `@Lazy` self-reference and call through it.
-- **Quarkus/CDI note**: this is a deliberate dual-framework true positive, not a false-positive risk to guard against —
-  self-invocation bypasses a CDI client proxy exactly the same way it bypasses a Spring proxy (Jakarta CDI specification,
-  "Client proxy invocation"), so a CDI bean that self-invokes its own `jakarta.transaction.Transactional` method has the
-  identical bug and should be flagged. See `ArchitectureCdiNeutralityTests` for the pinned true-positive case.
+- **Quarkus/CDI note**: this rule is skipped on Quarkus. Arc deliberately supports intercepted self-invocation, unlike
+  standard proxy-based Spring AOP, so reporting the Spring limitation there would be a false positive. See the
+  [Quarkus CDI reference](https://quarkus.io/version/3.33/guides/cdi-reference#intercepted-self-invocation).
 
 ### ARCH-SPRING-005 — Spring stereotypes should not reside in the default package
 
@@ -388,26 +387,22 @@ include up to a handful of sample detail lines from ArchUnit.
   behave differently across proxy modes and may be silently ignored with AspectJ weaving.
 - **Recommendation**: move transaction annotations to concrete implementation classes or methods.
 
-### ARCH-SPRING-010 — Proxy-driven methods should be publicly overridable
+### ARCH-SPRING-010 — Proxy-driven methods should be interceptable
 
 - **Severity**: MEDIUM
 - **Inspects**: methods annotated with `@Transactional` (Spring's own or the portable
   `jakarta.transaction.Transactional`), `@Async`, or a Spring cache operation (`@Cacheable`, `@CachePut`, `@CacheEvict`,
   or `@Caching`).
-- **Fires when**: `@Async`, a Spring cache operation, or Spring's own `@Transactional` is applied to a method that is
-  private, protected, package-private, static, or final; or the portable `jakarta.transaction.Transactional` is applied
-  to a method that is private, static, or final.
-- **Why it matters**: interface-based JDK proxies and the default CGLIB subclass proxy only intercept public, overridable
-  instance methods — CGLIB additionally warns and silently calls the original, un-intercepted method when a `final`
-  method carries the annotation — so the proxy behaviour can be silently skipped.
-- **Recommendation**: make the annotated method public, non-static, and non-final so it can be invoked through a Spring
-  proxy, or move the annotation to a method that can be invoked through one.
-- **Quarkus/CDI note**: the portable `jakarta.transaction.Transactional` annotation is held to a different, more
-  permissive bar than Spring's own annotations. Per the Jakarta CDI specification's "Unproxyable bean types" section, a
-  CDI client proxy can intercept public, protected, **and** package-private methods alike — only `private`, `static`, or
-  `final` methods are excluded. Applying Spring's stricter "public only" bar to the shared annotation would false-positive
-  on a protected or package-private `jakarta.transaction.Transactional` method in a Quarkus/CDI application, where the
-  container's own client-proxy mechanism intercepts it correctly.
+- **Fires on Spring when**: a proxy-driven annotation is applied to a private, static, or final method. Spring Framework
+  6+ supports protected and package-private transactional and cache methods on class-based proxies, which Spring Boot
+  uses by default. Applications that explicitly select interface-based JDK proxies should keep annotated methods public.
+- **Fires on Quarkus when**: `jakarta.transaction.Transactional` is applied to a private method. Arc supports intercepted
+  static methods and transforms final intercepted methods by default, so applying Spring's modifier bar would create
+  false positives.
+- **Why it matters**: an annotation on a method the active runtime cannot intercept silently loses its transaction,
+  asynchronous, or caching behavior.
+- **Recommendation**: for portable Spring proxy behavior, use a public, non-static, non-final method. On Quarkus, avoid
+  private interceptor-bound methods.
 
 ### ARCH-SPRING-011 — Async methods should return void or Future
 

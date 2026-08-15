@@ -30,12 +30,17 @@ public record ReachabilityMetadataIndex(List<Entry> entries, String lookupError)
 
     /**
      * One {@code index.json} row: a published {@code metadata-version}, the library versions it was
-     * tested against, and whether it is flagged as the {@code latest} metadata for the library.
+     * tested against, an optional Java regular expression selecting default library versions, and
+     * whether it is flagged as the {@code latest} metadata for the library.
      */
-    public record Entry(String metadataVersion, List<String> testedVersions, boolean latest) {
+    public record Entry(String metadataVersion, List<String> testedVersions, String defaultFor, boolean latest) {
 
         public Entry {
             testedVersions = testedVersions == null ? List.of() : List.copyOf(testedVersions);
+        }
+
+        public Entry(String metadataVersion, List<String> testedVersions, boolean latest) {
+            this(metadataVersion, testedVersions, null, latest);
         }
     }
 }
