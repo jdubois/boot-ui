@@ -1,17 +1,24 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
+import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
+import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.net.URI;
+import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Records, for every application request, which worker thread served it and the wall-clock window it
- * ran in, feeding {@link RequestCorrelationRegistry}. This is what lets the per-request profiler
- * correlate JDBC statements to a request exactly by serving thread when no trace id is present.
+ * Records, for every application request, which worker thread served it, its wall-clock window, and the
+ * distributed-trace id active at completion. The thread/window record feeds {@link
+ * RequestCorrelationRegistry}; the trace record feeds {@link HttpExchangeTraceRegistry}, because
+ * Actuator's {@code HttpExchange} model has no trace-id field of its own. Together they let the
+ * per-request profiler and Live Flow correlate downstream evidence without relying on an inbound
+ * propagation header.
  *
  * <p>It is intentionally a thin wrapper around the filter chain: it reads the current thread name and
  * two timestamps and never touches the request or response, so it cannot alter application behaviour.
@@ -22,10 +29,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public final class RequestCorrelationFilter extends OncePerRequestFilter {
 
     private final RequestCorrelationRegistry registry;
+    private final HttpExchangeTraceRegistry traceRegistry;
     private final String bootUiPathPrefix;
 
-    public RequestCorrelationFilter(RequestCorrelationRegistry registry, String bootUiPathPrefix) {
+    public RequestCorrelationFilter(
+            RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, String bootUiPathPrefix) {
         this.registry = registry;
+        this.traceRegistry = traceRegistry;
         this.bootUiPathPrefix = bootUiPathPrefix;
     }
 
@@ -39,7 +49,28 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         try {
             chain.doFilter(request, response);
         } finally {
-            registry.record(new RequestCorrelation(start, System.currentTimeMillis(), thread, method, path));
+            long end = System.currentTimeMillis();
+            registry.record(new RequestCorrelation(start, end, thread, method, path));
+            traceRegistry.record(new HttpExchangeTrace(start, end, method, decodedPath(path), currentTraceId()));
+        }
+    }
+
+    private String decodedPath(String path) {
+        if (path == null) {
+            return null;
+        }
+        try {
+            return URI.create(path).getPath();
+        } catch (IllegalArgumentException ex) {
+            return path;
+        }
+    }
+
+    private String currentTraceId() {
+        try {
+            return MDC.get("traceId");
+        } catch (RuntimeException | NoClassDefFoundError ex) {
+            return null;
         }
     }
 

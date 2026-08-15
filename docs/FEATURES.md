@@ -266,14 +266,11 @@ application's own `WebClient` calls are captured and merged here as well. Correl
 and REST-client entries — the same shared-engine rule SQL/exceptions/security already use on WebFlux and Quarkus —
 because Reactor Netty has no thread-per-request model to correlate by (a request isn't served start-to-finish on one
 dedicated worker thread), so the servlet adapter's thread-based/time-window correlation tiers, including its
-serving-thread fallback for `CACHE` (the same one it uses for `SQL`), do not apply. It is still narrower than on
-Quarkus in one respect: the HTTP exchange capture shared with the servlet adapter does not stamp the active tracing
-span's id at capture time the way Quarkus's Vert.x filter does, so a request only carries a trace id when the inbound
-call itself propagates one (for example a `traceparent` header from an upstream caller), not merely because
-`micrometer-tracing`/OTLP is configured server-side; SQL, exception, security, cache, and REST-client trace ids all
-fall back to the same SLF4J MDC value the servlet adapter already uses, whose propagation across Reactor's
-event-loop→worker-thread hop for blocking calls is best-effort rather than guaranteed. When a shared trace id is
-present on both sides, matching signals nest under the request exactly as on Quarkus; without one, every signal
+serving-thread fallback for `CACHE` (the same one it uses for `SQL`), do not apply. Both Spring adapters stamp the
+server-created trace id onto Actuator's trace-id-less HTTP exchange model through the same bounded
+`HttpExchangeTraceRegistry`: MVC reads the SLF4J MDC value already used by its SQL/cache/REST capture, while WebFlux
+reads the active OpenTelemetry span across Reactor hops. When a shared trace id is present on both sides, matching
+signals nest under the request exactly as on Quarkus; without one, every signal
 still appears in the feed, just flat/top-level rather than nested per-request. The per-request **profiler** drawer is
 available too, in the same reduced, trace-id-only form as Quarkus: it correlates by exact trace id when the request
 has one, and honestly reports itself unavailable rather than fabricating a partial profile when it does not. N+1
@@ -284,6 +281,85 @@ identically on WebFlux too, over the same shared engine machinery. The dedicated
 on WebFlux (see [docs/WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full detail), delivering the same
 pause/resume controls, retained-call table, and "Most frequent calls" grouping over `WebClient` calls captured via
 the reactive adapter.
+
+#### Live flow (service map)
+
+Live Activity has a second reading of the same evidence: a **Live flow** mode, reached from the Feed / Live flow switch
+next to the panel title. Where the feed answers "what just happened, in order?", the map answers "what does this
+application actually talk to?" — the running application at the centre, a single generic **Local HTTP clients** lane
+feeding into it, and one node per outbound dependency, grouped by safe identity. It is served by
+`GET /bootui/api/activity/service-map` on Spring MVC, Spring WebFlux, and Quarkus.
+
+Nothing new is instrumented and nothing is contacted. The map is assembled entirely from bounded buffers other panels
+already fill: completed inbound requests (HTTP Exchanges), outbound HTTP calls grouped to a `scheme://host[:port]`
+origin (REST Client), configured JDBC pools with a target that the map independently strips of JDBC user-info and
+driver parameters even under full value exposure, retained SQL
+statements (SQL Trace), cache accesses grouped by cache manager/cache name (Cache — see below), Kafka **producer**
+topics, and RabbitMQ **publisher** exchange/routing destinations. Opening the
+map performs no network call, probe, DNS lookup, connection attempt, or scan. Consumed Kafka records and consumed AMQP
+messages are inbound work this application performs, so they are deliberately never drawn as outbound dependencies.
+
+**Cache is a first-class dependency on Spring MVC and Spring WebFlux when at least one `CacheManager` was successfully
+instrumented.** The same recorder behind the Cache panel and Live Activity's `CACHE` entries feeds a `CACHE`-protocol
+node here too, filterable and iconed like every other dependency, grouped by cache manager and cache name — never the
+accessed key or value — and showing the same `HIT`/`MISS`/`PUT`/`EVICT`/`CLEAR` operations. An enabled recorder without
+an instrumented manager does not advertise a source that cannot receive runtime evidence. Selecting a cache node
+deep-links into the Cache panel. A cache `MISS` is a normal, expected outcome, never a retained failure. Quarkus
+honestly reports no cache dependency at all here: `quarkus-cache`'s built-in interceptors leave no comparable
+interception seam, the same reason its Live Activity feed has no `CACHE` entries either.
+
+The map separates what is **configured** from what has been **observed**, and never collapses the two: a declared
+datasource with no traffic is drawn with a dashed outline and reads "configured, no recent evidence" rather than
+disappearing, and an observed HTTP origin is never presented as a declared dependency. Selecting any node — by click or
+by keyboard — opens an evidence panel with the retained interaction and failure counts, the distinct-operation count
+where the source can report one honestly, when it was last seen, an explicit note about what that node does and does not
+prove, the small tail of recent interactions, and a deep link into the panel the evidence came from. A retained failure
+is reported as debugging evidence, never as a health check of the remote system, because BootUI has not contacted it.
+
+Statement evidence is only attributed to a pool when attribution is unambiguous — exactly one configured pool and
+exactly one traced datasource whose name matches that pool. With multiple or unmatched sources, or with no pool metadata
+at all, the statements are summarized on their own **SQL statements** node, the pools stay configured-only, and the
+reason is stated as a warning. BootUI does not invent a statement-to-pool relationship it cannot prove.
+
+Identity is deliberately subtractive. An HTTP dependency is only ever an origin: user-info credentials, paths, query
+strings, and fragments are dropped before anything is serialized, and a call that cannot be reduced to a safe origin is
+left off the map with a visible warning rather than shown under a guessed identity. JDBC targets reuse the existing
+masking and independently lose authority/Oracle credentials plus any driver parameter tail. Complete sanitized
+identities drive grouping and stable opaque ids; only display labels are truncated, so shared long prefixes do not
+collapse distinct dependencies. SQL text, bound parameters, message keys, payloads, and headers
+never reach this contract at all. Cardinality is capped before rendering (28 dependencies, with a small per-edge
+interaction tail); anything withheld is reported as a visible count, never dropped silently.
+
+Motion is evidence, not decoration. The map refreshes off the same Server-Sent Events tick as the feed, and animates a
+short particle only when a **stable** edge — one present both before and after the refresh — carries an interaction id
+the previous snapshot did not. A first load animates nothing, a brand-new dependency simply appears, and an idle
+application is completely still. Bursts are coalesced to a small per-edge count and a hard concurrent cap rather than
+queued, so motion can never lag behind reality.
+
+When freshly animated interactions share a non-null opaque flow id, the inbound pulse starts immediately and downstream
+pulses replay only after it would have arrived at the application, in retained completion-time order with a small,
+bounded stagger. A downstream pulse whose current batch carries no retained inbound item fires immediately rather than
+waiting for evidence that may already have scrolled out of the retained tail; uncorrelated pulses are never delayed.
+Sequencing changes only the pacing of already-completed evidence, never the evidence itself or the queue's existing
+concurrency and per-edge bounds.
+
+Slow interactions pulse a calm amber for longer than normal completions or failures, with a restrained trailing halo,
+so timing carries meaning without relying on color alone. A matching temporary target ring and text chip (`SLOW · 1.3
+s` or `ERROR`) appears only for the pulse's scheduled window: inbound HTTP targets the application and outbound
+evidence targets its dependency. Retained failures remain visible in counts, details, recent rows, and accessible text,
+but never leave the map's nodes or edges permanently red. Under `prefers-reduced-motion`, particles are replaced by a
+brief static target/edge highlight plus a polite live-region sentence naming what changed and its duration.
+
+The spatial model is hybrid and deterministic: inbound lane on the left, application hub in the centre, and an airy
+right-facing fan for up to six dependencies before denser maps switch to a two-column rack. The fan uses a fixed
+288-pixel radius and 72-pixel vertical pitch, keeping typical maps around 800–844 logical pixels wide. The dense rack
+uses a 72-pixel application gap, 32-pixel column gap, and 72-pixel row pitch, and is bounded at 1,040 pixels wide and
+1,046 pixels tall at the 28-dependency cap inside the scrollable stage. Smooth fan connectors and deterministic
+collision-free rack routes are reused exactly by each pulse and slow trail through CSS Motion Path, so dynamically
+inserted evidence starts on its own mount-relative delay instead of the SVG document timeline. The whole map is keyboard
+navigable (arrow keys move between nodes, Enter or Space selects), carries a hidden textual list of every node and
+relationship for screen readers, and supports protocol and free-text filters plus zoom. Evidence from a disabled or
+unavailable source panel never reaches the map.
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
@@ -383,11 +459,11 @@ violating rules, sorted by severity and violation count. See
 
 On Quarkus the panel is identical, running the same shared ArchUnit ruleset and on-demand scan over the same report
 contract — the framework-agnostic hygiene rules apply unchanged, while the Spring-stereotype rules simply find no
-matching classes on a Quarkus application. A handful of these rules are deliberately dual-framework instead of
-Spring-only, because they also key on the portable `jakarta.*` annotations a CDI container recognizes: self-invocation
-and proxy-visibility checks also fire on `jakarta.transaction.Transactional`, held to the CDI-accurate, more permissive
-visibility bar (a CDI client proxy can intercept protected and package-private methods, unlike Spring's stricter
-public-only proxies) so they degrade gracefully rather than false-positive — see
+matching classes on a Quarkus application. Framework-sensitive proxy rules receive the active platform explicitly:
+the Spring self-invocation rule is skipped because Arc supports intercepted self-invocation, while proxy visibility
+follows Arc's support for static interception and final-method transformation instead of applying Spring's proxy
+restrictions. On Spring, protected and package-private methods are accepted for Spring Boot's default class-based
+proxies, matching Spring Framework 6+ behavior — see
 [ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the per-rule detail. The one platform
 difference is base-package discovery: Quarkus has no
 `@SpringBootApplication` to read and no reliable runtime package scan under its classloader, so the application's base
@@ -580,20 +656,22 @@ vulnerable dependencies from the running project's dependency set during the loc
 ordered by severity first (dismissed findings sink to the bottom regardless of severity), with dependencies and
 advisories alphabetized within the same severity.
 
-Severity is derived from [OSV.dev](https://osv.dev/)'s `severity[]` entries, whose `score` field is a CVSS vector string
-for `CVSS_V3`/`CVSS_V4` types (for example `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`), never a bare number. Per the
+Severity is derived from [OSV.dev](https://osv.dev/)'s `severity[]` entries, whose `type` identifies how its `score`
+must be interpreted. BootUI computes only `CVSS_V3` entries carrying a CVSS v3.0/v3.1 vector (for example
+`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`); it never treats a bare number or another provider's scale as CVSS. Per the
 [OSV schema](https://ossf.github.io/osv-schema/#severity), a package-level `affected[].severity` entry — when present for
 the specific dependency being scored — takes priority over the advisory's top-level `severity[]` (the schema states the
 two are mutually exclusive, and some advisories only carry severity at the package level), so the scanner looks there
-first before falling back to the top-level array. A CVSS v3.0/v3.1 vector (from either level) is parsed into a real
-numeric Base Score using the formula from the
+first before falling back to the top-level array. When an array contains multiple valid CVSS v3 entries, the highest
+Base Score is used conservatively. A CVSS v3.0/v3.1 vector is parsed using the formula from the
 [FIRST.org CVSS v3.1 specification](https://www.first.org/cvss/v3-1/specification-document); CVSS v4.0 has no
 closed-form Base Score equation (its MacroVector lookup table is a much larger undertaking), and BootUI's calculator is
 intentionally v3-specific rather than implementing the separate CVSS v2 formula, so both fall back to the advisory's
 `database_specific.severity` label (`CRITICAL`/`HIGH`/`MODERATE`/`LOW`, normalized to BootUI's `MEDIUM` label) when no
-v3 score is present at either level. An advisory with neither a parseable CVSS v3 score nor a `database_specific` label
-renders as `UNKNOWN` rather than being silently dropped. Advisories carrying a `withdrawn` timestamp are excluded from
-results entirely, since OSV does not filter withdrawn records out of its API responses itself. A single advisory detail
+v3 score is present at either level. CVSS `0.0` is reported as `NONE`, matching FIRST's qualitative scale. An advisory
+with neither a parseable CVSS v3 score nor a `database_specific` label renders as `UNKNOWN` rather than being silently
+dropped. Advisories carrying a `withdrawn` timestamp are excluded from results. OSV omits withdrawn records from POST
+query responses but returns them from `GET /v1/vulns/{id}`, so the scanner keeps a defensive detail-stage check. A single advisory detail
 fetch that fails (network hiccup, rate limiting) no longer aborts the whole scan: it is counted and the scan degrades to
 `PARTIAL`, keeping every advisory that *did* fetch successfully instead of discarding the whole result. Advisory detail
 fetches (`GET /v1/vulns/{id}`) run with a small bounded concurrency (up to 10 at a time) rather than one at a time, so a
@@ -607,12 +685,19 @@ limit so a pathological advisory can't loop the scan forever (degrading to `PART
 pagination is exhausted, rather than silently truncating). Independently, OSV also enforces a hard limit of 1,000
 queries per `/v1/querybatch` request; the scanner partitions the (already `max-packages`-bounded) package list into
 batches of at most 1,000 before querying, so configuring `max-packages` above 1,000 no longer causes OSV to reject the
-whole batch with an HTTP 400.
+whole batch with an HTTP 400. Every successful response must contain exactly one structurally valid result per query,
+and every reported vulnerability reference must carry a non-blank id. Missing, short, or malformed result arrays fail
+visibly instead of being interpreted as a clean scan. Repeated advisory
+ids are fetched/reported once per dependency, and a detail response whose id does not match the requested advisory is
+counted as a failed fetch. If a later query chunk fails after an earlier chunk completed, the completed results are
+preserved as `PARTIAL` and `packagesScanned` reports only the completed package queries.
 
-Each advisory whose `aliases` includes a `CVE-*` id is additionally enriched with
+Each advisory whose own id or `aliases` includes a canonical `CVE-*` id is additionally enriched with
 [EPSS](https://www.first.org/epss/) (Exploit Prediction Scoring System) data from FIRST.org's free, unauthenticated API
-— one batched `GET /data/v1/epss?cve=...` request per scan, alongside the OSV calls, following the same
-"network call only on the user-initiated scan action" pattern. EPSS reports the modeled probability that a CVE will be
+— one or more batched `GET /data/v1/epss?cve=...` requests per scan, each respecting FIRST's documented 2,000-character
+maximum for the comma-separated `cve` parameter, alongside the OSV calls and following the same "network call only on
+the user-initiated scan action" pattern. Returned ids must belong to the request and probability/percentile values must
+be finite numbers from 0 to 1. EPSS reports the modeled probability that a CVE will be
 exploited in the wild in the next 30 days, plus the percentile that probability ranks against every other scored CVE —
 a likelihood-of-exploitation signal that deliberately complements (rather than replaces) CVSS's severity-if-exploited
 score, and is rendered as a secondary badge next to the severity/CVSS badge (for example "2.3% EPSS", with a tooltip
@@ -621,10 +706,12 @@ spelling out the percentile). EPSS lookups can be disabled independently of OSV 
 the OSV results — it simply omits the badge for that scan.
 
 Each advisory also carries a derived `fixAvailable` boolean, computed by comparing the dependency's currently-resolved
-version against the advisory's `fixedVersions` with Maven `ComparableVersion` qualifier ordering, including
-alpha/beta/milestone/RC/SNAPSHOT/release/service-pack semantics. This lets the UI distinguish a genuine upgrade target
-("fixed in `x.y.z`") from a dependency already at or above every fixed version OSV reported. When OSV reports no
-`fixed` event, the UI says only "No fixed version reported by OSV": under the OSV 1.8 schema a range may instead close
+version against the advisory's Maven fixed-version candidates with `ComparableVersion` qualifier ordering, including
+alpha/beta/milestone/RC/SNAPSHOT/release/service-pack semantics. Git commit hashes from `GIT` ranges are not presented as
+Maven upgrades, and candidates are de-duplicated and sorted using Maven semantics. The UI renders a newer candidate as
+"fixed in `x.y.z`"; if every reported candidate is at or below the installed version, it says only that OSV reported no
+newer fixed version, never that the installed dependency is fixed when OSV just matched it as affected. When OSV reports no
+`fixed` event, the UI says only "No fixed version reported by OSV": under the OSV schema a range may instead close
 with a mutually exclusive `last_affected` event, which identifies the final vulnerable version without naming the first
 non-vulnerable version, so absence of `fixedVersions` is not proof that no fix exists.
 
@@ -635,7 +722,9 @@ vulnerability is scoped to one dependency, it is keyed by `<vulnerability id>::<
 `GHSA-xxxx-xxxx-xxxx::org.example:sample`) rather than a bare rule id, so dismissing a finding for one dependency never
 accidentally hides the same advisory id reported against a different dependency, and a dismissal survives a
 patch-version bump of the still-vulnerable dependency. Dismissed vulnerabilities stay visible (dimmed, with a
-_Restore_ button) rather than disappearing, and are excluded from the per-dependency and panel-level vulnerable counts.
+_Restore_ button) rather than disappearing, are excluded from the per-dependency and panel-level vulnerable counts, and
+trigger a fresh deterministic dependency ordering from the recomputed active severity. Dismiss/restore controls are
+disabled when the Vulnerabilities panel is read-only.
 
 On Quarkus the panel is identical, listing the local inventory first and contacting OSV.dev only on the user-initiated
 scan, over the same report contract, the same CVSS/withdrawn/partial-failure handling, the same pagination/batch-
@@ -643,7 +732,10 @@ chunking, the same EPSS enrichment, and the same dismiss/restore workflow. The o
 discovery: the Spring adapter scans the classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the
 Quarkus runtime classloader. For JARs without embedded metadata, Spring also reads an adjacent Maven POM (including in
 nonstandard local-repository paths), and only falls back to path-derived coordinates when a literal `repository`
-directory makes the group path unambiguous; it never guesses a group id from an arbitrary cache path. The Quarkus
+directory makes the group path unambiguous; it never guesses a group id from an arbitrary cache path. Unreadable
+individual `pom.properties` resources are logged and skipped instead of failing the complete inventory, and classpath
+JAR filenames must match the resolved artifact/version exactly (with an optional classifier) rather than merely sharing
+a version prefix. The Quarkus
 inventory is captured at build time from the application's resolved runtime
 dependency model and read back at runtime (mirroring the Architecture panel's build-time base-package discovery). The
 OSV and EPSS lookups are identical, and `bootui.vulnerabilities.osv-enabled=false` /
@@ -793,15 +885,18 @@ unavailable, the panel shows an empty state instead of failing.
 ### GraalVM
 
 The GraalVM panel surveys the host application for [GraalVM native-image](https://www.graalvm.org/latest/reference-manual/native-image/)
-readiness. On demand it imports the application's own classes (bounded to the detected base package(s)) and runs a
-curated set of heuristic checks for constructs that native-image cannot resolve at build time — reflection, dynamic
-class loading, deep reflection, dynamic proxies, runtime resource loading, resource bundles, service loading,
-serialization, build-time-initialization side effects, and native access. With the _Include dependencies_ toggle on (it is
-on by default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
-`META-INF/native-image/`, and — for libraries that do not — looks up Oracle's
+readiness. On demand it imports the application's own classes (bounded to the detected base package(s)) and runs **27
+curated checks (22 GraalVM and 5 Spring AOT)** for constructs that native-image or Spring AOT cannot resolve reliably —
+reflection, dynamic class loading, deep reflection, dynamic proxies, runtime resource loading, resource bundles,
+serialization, native access, runtime class generation, classpath scanning, MethodHandles, security providers, JMX, FFM,
+and Spring AOT boundaries. With the _Include dependencies_ toggle on (it is
+on by default), it also surveys the classpath to report which third-party libraries already ship unified or canonical
+legacy reachability metadata under `META-INF/native-image/` (arbitrary JSON is ignored), and — for libraries that do not
+— looks up Oracle's
 [GraalVM reachability metadata repository](https://github.com/oracle/graalvm-reachability-metadata) to show whether the
 detected dependency version is `covered`, only `partial` (the repository has metadata for a different version), or has
-`none`, with links to the matching repository entry and metadata file. That repository lookup is the panel's only
+`none`, with links to the matching repository entry and metadata file. Repository matching prefers exact tested versions
+and then honors the repository's `default-for` Java regular expressions. That repository lookup is the panel's only
 outbound network call; it is user-initiated, time-bounded, and can be disabled with
 `bootui.graalvm.repository-lookup-enabled=false`. Long dependency lookups report progress and can be aborted from the
 panel. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
@@ -809,8 +904,10 @@ panel. From the same scan the panel generates a downloadable `reachability-metad
 standard configuration resource globs. When BootUI detects the application is running from an exploded build (for
 example `mvn spring-boot:run` or an IDE) rather than a packaged jar, the panel also offers a **Write into project**
 action that writes the same scaffold directly to
-`src/main/resources/META-INF/native-image/<groupId>/<artifactId>/reachability-metadata.json` (resolving coordinates from
-`build-info.properties` or the project `pom.xml`, falling back to a `bootui-generated` namespace). The install is
+`src/main/resources/META-INF/native-image/<groupId>/<artifactId>-additional-hints/reachability-metadata.json` (resolving
+coordinates from `build-info.properties` or the project `pom.xml`, falling back to
+`bootui-generated/additional-hints`). The non-clashing suffix follows Spring Boot 4.1 guidance because Spring AOT writes
+generated hints to `<groupId>/<artifactId>/`. The install is
 fail-closed: it is confined under `src/main/resources` and never overwrites a `reachability-metadata.json` that BootUI
 did not generate. Alongside the metadata scaffold the panel also generates a tailored, multi-stage
 **`Dockerfile-native`** that builds a GraalVM native image of the host application. It detects the project's build
@@ -1325,6 +1422,11 @@ similar to MailDev/GreenMail; it is off by default so BootUI never silently swal
 available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`); otherwise it reports a clear
 unavailable reason.
 
+Each captured message's text/HTML body is truncated at `bootui.email.max-body-length` characters (default 200,000,
+matching `EmailStore.DEFAULT_MAX_BODY_LENGTH`) so a single oversized message cannot spike memory before the
+`bootui.email.max-entries` entry-count cap would evict it — attachment content is never captured (metadata only), so
+this cap only applies to bodies.
+
 On Quarkus the panel is identical, running over the same shared engine `EmailCaptureService` and the same
 `/bootui/api/email` contract (list/detail/`.eml`/clear, with the `.eml` bytes produced by the shared engine renderer so
 they match Spring's). Because Quarkus's blocking/reactive/Mutiny `Mailer` beans all funnel through one internal mailer
@@ -1580,14 +1682,17 @@ rather than reimplementing anything, so every tool returns the same masked, boun
 groups:
 
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
-  `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`. Each triggers the same scan the panel's action button
-  runs and returns the report DTO.
+  `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`. Each triggers the same scan the
+  panel's action button runs and returns the report DTO; `vulnerabilities_scan` additionally makes outbound calls to
+  OSV.dev.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`. `get_live_activity` returns the correlated feed
   the [Live Activity panel](#live-activity) shows (HTTP requests, SQL statements, exceptions, security events,
   scheduled-task runs, and — Spring only — cache accesses, grouped by request/trace); `get_exception_detail` takes a required `id` (from `get_exceptions` or
   `get_live_activity`) and returns that exception group's full stack trace, causes, and individual occurrences.
-- **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`.
+- **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`,
+  `get_loggers`, `get_conditions` (Spring MVC/WebFlux only — Quarkus has no runtime condition-match graph),
+  `get_scheduled_tasks`, `get_cache_stats`, `get_database_connection_pools`.
 
 Tools whose backing panel/controller is not present (for example Hibernate or Spring Security when those libraries are
 absent) are simply not advertised. The server inherits BootUI's full safety model:
@@ -1630,8 +1735,8 @@ and the same working enable/disable toggle (the `bootui.mcp.*` keys are read fro
 core — method routing, per-panel gating, tool lookup, and the `max-results` cap — lives in the shared framework-neutral
 engine; each adapter only supplies a thin Jackson envelope codec (Jackson 2 on Quarkus) and its own tool catalog, so
 requests and responses are byte-identical across the two backends. The advertised tools track which panels are actually
-live on Quarkus: `graalvm_scan` and `crac_scan` (both deliberately not applicable on Quarkus) are not offered,
-`get_overview` is advertised (the Overview panel is available, its dashboard rendering client-side), and
+live on Quarkus: `graalvm_scan`, `crac_scan`, and `get_conditions` (all deliberately not applicable on Quarkus) are not
+offered, `get_overview` is advertised (the Overview panel is available, its dashboard rendering client-side), and
 `spring_scan` runs the Quarkus-native idiom advisor.
 
 ![BootUI MCP Server panel](./images/bootui-mcp-server.webp)

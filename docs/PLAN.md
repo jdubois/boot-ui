@@ -7,8 +7,9 @@ WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutra
 the same `/bootui/api/**` contract on every runtime. The released surface covers 52 panels across runtime introspection,
 configuration, database migrations, services, diagnostics, project health, and developer tooling. The previous merged
 workstream — Live Activity correlation and event capture, the Beans dependency graph, and the Email panel — is complete.
-The next planned panel is a read-only **MongoDB** operational view, scoped in §3.5. A **Local Service Map** is retained
-as a later roadmap candidate in §3.6; it is not part of the current implementation.
+The next planned panel is a read-only **MongoDB** operational view, scoped in §3.5. The **Local Service Map** (§3.6) has
+shipped — not as a panel of its own, but as the **Live flow** mode of the existing Live Activity panel, on all three
+runtimes.
 
 The priorities for every item below remain unchanged:
 
@@ -50,6 +51,18 @@ The priorities for every item below remain unchanged:
   the originating request as a child event when a shared trace id/serving thread/time window is available, and reuses
   the same masking, bounded-buffer, and panel-toggle model as the original four entry types.
 
+- Shipped §3.6 (Local Service Map) as Live Activity's **Live flow** mode rather than a separate panel: a
+  `GET /bootui/api/activity/service-map` contract on Spring MVC, Spring WebFlux, and Quarkus that assembles a read-only
+  topology from evidence BootUI already retains — inbound HTTP exchanges folded into one generic local-client lane, and
+  outbound dependencies grouped by safe identity (HTTP origin, configured JDBC pool, produced Kafka topic, published
+  RabbitMQ destination). Assembly, identity normalization, configured-versus-observed state, conservative SQL
+  attribution, and hard cardinality bounds live in a framework-neutral `ServiceMapAssembler`; the adapters only gather
+  beans they already own. The native SVG/Vue map reuses the Beans graph's layout, keyboard, zoom, and hidden-textual-list
+  patterns, and animates a short particle only when a stable edge gains a newly completed interaction after an SSE
+  refresh — never on first load, never for a new dependency, never perpetually — with reduced motion replaced by a brief
+  static edge highlight plus a polite live-region update. Two long-standing Quarkus SSE source-subscription gaps (SQL
+  trace and the exception store) were closed in the same change, since the map refreshes off that same tick.
+
 Each new panel must:
 
 - be **read-only or read-mostly**, with any mutating control explicitly confirmation-gated like the existing Cache
@@ -73,6 +86,10 @@ The current cross-platform baseline is 52 shared routes. Spring Boot serves the 
 a Quarkus-native implementation. `docs/QUARKUS-SUPPORT.md` remains authoritative for per-panel Quarkus fidelity and
 availability.
 
+The Local Service Map (§3.6) has since shipped as Live Activity's **Live flow** mode on all three runtimes, reusing the
+Live Activity panel id, route, and availability rather than adding a route, so the cross-platform baseline stays at 52
+shared routes.
+
 MongoDB is the next bounded feature workstream. BootUI already recognizes Spring Data MongoDB repositories in the
 Spring Data panel, but it has no framework-neutral operational view of MongoDB clients, topology, databases,
 collections, or indexes, and the existing JDBC/Flyway/Liquibase panels cannot represent those concepts. The new panel
@@ -81,7 +98,7 @@ will therefore be additive rather than an extension of the SQL-specific panels.
 | Priority | Feature                               | Group         | Primary data source                                      | Mutation?         | Status  |
 | -------- | ------------------------------------- | ------------- | -------------------------------------------------------- | ----------------- | ------- |
 | Next     | MongoDB operational view              | Database      | Spring/Quarkus MongoDB client adapters                   | No                | Planned |
-| Later    | Local Service Map                     | Overview      | Existing HTTP, JDBC, Kafka, and RabbitMQ evidence        | No                | Candidate |
+| Done     | Local Service Map (Live flow mode)    | Diagnostics   | Existing HTTP, JDBC, Kafka, and RabbitMQ evidence        | No                | Shipped |
 | Done     | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data       | No                | Shipped |
 | Done     | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                       | No                | Shipped |
 | Done     | E-mail Viewer                         | Services      | Spring Mail / Quarkus Mailer capture adapters            | No (capture only) | Shipped |
@@ -415,10 +432,20 @@ Acceptance criteria:
 - The sample applications cover absent-client, unreachable-server, insufficient-permission, empty-database, and
   multi-client states without requiring MongoDB for the default Docker-free test path.
 
-### 3.6 Local Service Map — Overview 💡 Candidate
+### 3.6 Local Service Map — Live Activity ✅ Completed
 
-The Local Service Map would answer: "What external systems does this running application depend on, and what evidence
-has BootUI recently observed for each relationship?" It would assemble a single, read-only topology from data BootUI
+**Status: completed.** Shipped as the **Live flow** mode of the Live Activity panel (see `docs/FEATURES.md` →
+*Live Activity → Live flow*, and `docs/SPECIFICATION.md` §5.14.2.1), on Spring MVC, Spring WebFlux, and Quarkus in one
+step rather than the MVC-only MVP originally sketched below — the framework-neutral `ServiceMapAssembler` made the two
+extra adapters thin enough that a stack-specific phase would have cost more than it saved. It is a **mode**, not a new
+panel: the map is a second reading of evidence Live Activity already merges, so it reuses that panel's id, route,
+availability, read-only policy, and SSE tick instead of adding a 53rd route. The original scope is retained below, with
+two deliberate deviations recorded inline: the surface is a Live Activity mode rather than an Overview panel, and one
+generic inbound local-HTTP-client lane was added so the map shows what reaches the application as well as what it
+reaches out to.
+
+The Local Service Map answers: "What external systems does this running application depend on, and what evidence
+has BootUI recently observed for each relationship?" It assembles a single, read-only topology from data BootUI
 already owns rather than introducing distributed tracing infrastructure, network discovery, or active health probes.
 
 User value:
@@ -436,6 +463,9 @@ Initial scope:
 
 - Center the running application and group outbound dependencies by safe identity: HTTP origin
   (`scheme://host:port`), JDBC pool/target, Kafka topic, and RabbitMQ exchange/routing destination.
+- **Added during implementation:** fold completed *incoming* requests into a single generic local HTTP client lane
+  feeding the application. Per-caller nodes are deliberately not derived — a remote address is neither a stable identity
+  nor safe to display here — so the lane stays one honest node rather than a guessed caller inventory.
 - Show protocol, configured/observed state, retained interaction and failure counts, distinct operation count, and
   last-seen time where the source supports them.
 - Reuse only existing bounded sources: REST-client trace capture, masked connection-pool reports, Kafka activity, and
@@ -457,14 +487,69 @@ Safety and interpretation:
 
 Architecture and sequencing:
 
-- Phase 1 would be a Spring Boot MVC-only MVP to validate usefulness and interaction design, using a framework-neutral,
-  JSON-free aggregation service over existing DTOs/recorders and a thin servlet controller.
-- The MVP must not add instrumentation. If a relationship cannot be derived safely from existing evidence, it is absent
-  rather than guessed.
-- A later production phase would define the stable core DTO contract, add Spring WebFlux and Quarkus adapters, and run
-  the same availability-driven conformance tests on every runtime before the feature is considered shared.
+- **Shipped as delivered:** a framework-neutral, JSON-free `ServiceMapAssembler` (`bootui-engine`) over existing core
+  DTOs and recorders, plus a stable core DTO contract (`ServiceMapReport`/`ServiceMapNodeDto`/`ServiceMapEdgeDto`/
+  `ServiceMapInteractionDto`/`ServiceMapTruncationDto`) and three thin bindings: one shared `LiveServiceMapController`
+  registered in both Spring autoconfigurations, and a `LiveServiceMapResource` on Quarkus.
+- No instrumentation was added. A relationship that cannot be derived safely from existing evidence is absent rather
+  than guessed.
+- The shared availability-driven conformance suite asserts the contract, bounds, and identity safety on all three
+  runtimes.
 - Keep graph layout in the Vue client and report assembly, grouping, sorting, bounds, and interpretation in the engine.
   Do not introduce a graph database or a new visualization dependency unless native SVG proves insufficient.
+
+**Later increment — opaque flow correlation, Cache as a first-class dependency, and causal motion sequencing.** The
+map's animation originally treated every stable edge's new evidence as an independent blip; it had no notion that an
+inbound request, a cache access, a SQL statement, and an outbound call could be evidence of the very same request's
+path through the application. This increment closes that gap without adding any new capture:
+
+- `ServiceMapAssembler` now derives an opaque `ServiceMapInteractionDto.flowId` from whatever distributed-trace id
+  (already captured by the HTTP Exchanges, SQL Trace, REST Client, and Cache recorders) was active when each
+  interaction completed — one-way SHA-256 (`ServiceMapIdentities.flowId`), never the raw trace id, and `null` for a
+  blank/absent trace or for Kafka/RabbitMQ (which never carry a trace id at capture time and stay uncorrelated).
+  Interactions sharing a trace share a `flowId`, letting the client recognize one causal flow across edges instead of
+  treating every edge as unrelated.
+- **Cache joins the map as a first-class dependency (Spring MVC and Spring WebFlux only).** The same
+  `CacheActivityRecorder` behind the Cache panel and Live Activity's `CACHE` entries now also feeds
+  `ServiceMapSources.cacheEvents`, gated identically (Cache panel enabled *and* the recorder itself capturing).
+  Accesses group by the safe cache-manager/cache-name identity — never the accessed key or value — and surface the
+  same `HIT`/`MISS`/`PUT`/`EVICT`/`CLEAR` operations Live Activity already shows. Cache dependencies are
+  observed-only (`configured: false`), the same honesty rule Kafka/RabbitMQ dependencies use, since no independent
+  cache-configuration evidence is wired in yet. A `MISS` is never a retained failure, since it is a normal outcome.
+  Quarkus continues to honestly report `cacheAvailable: false` — it has no comparable interception seam for
+  `quarkus-cache` (see `docs/QUARKUS-SUPPORT.md`) — with no invented capture path. One notable side effect: because
+  `ServiceMapAssembler` is fully shared, Quarkus's and Spring WebFlux's existing OpenTelemetry-backed trace id
+  stamping on HTTP/SQL/REST capture already gives both adapters the same `flowId` correlation for those three
+  sources at no extra cost; only cache participates on Spring MVC/WebFlux alone.
+- **A new pure `sequenceFlowPulses` helper (`bootui-ui`)** paces a batch of freshly diffed pulses: within a shared,
+  non-null `flowId`, the inbound leg always starts immediately and downstream pulses start only once that inbound pulse
+  would have finished arriving at the application. Downstream completions replay in ascending retained timestamp order
+  (cache precedes JDBC/outbound HTTP only as an equal-millisecond tie-break), so the UI never invents an execution order,
+  and further downstream pulses in the same flow are staggered by a small, bounded step. Pulses with no `flowId`, and any
+  flow whose current batch carries no retained inbound pulse, are left untouched — they animate immediately exactly
+  as before, so an orphaned downstream pulse never waits for an inbound arrival that batch will never carry. The
+  animation queue's existing concurrency and per-edge caps apply unchanged regardless of sequencing, so a
+  causally-sequenced burst can never exceed the same bounds an unrelated one would.
+- **Slow interactions are now unmistakable by timing, not color alone:** duration itself now differs by tone — a calm
+  amber pulse (with a restrained trailing halo) for a slow completion runs 1200–1500ms, a normal completion
+  650–850ms, and a failure 900–1100ms — and a non-color "slow" text label appears in the node detail view and in
+  live-region announcements alongside the existing amber/red styling. A sequenced pulse's CSS Motion Path animation
+  stays fully transparent for its entire mount-relative delay, so it never flashes into view before its causal
+  predecessor has arrived; every pulse still plays exactly once, linearly, with no bounce, loop, or drift.
+- Reduced motion is deliberately unchanged in timing: it never sequences or delays anything (there is no travel to
+  pace), so every changed edge is still emphasized immediately. Its live-region announcement was extended with a
+  `describeFlowSequence` narration so a screen-reader user gets the same causal story — "Flow: &lt;inbound&gt; →
+  &lt;cache&gt; → &lt;outbound&gt;" — that sighted users read from the sequenced motion.
+
+**Later refinement — bounded hybrid layout and transient target evidence.** Typical maps now use a fixed-radius
+right-facing fan through six dependencies, while denser maps switch to a spacious two-column rack bounded at 1,040
+logical pixels wide. A 72-pixel row pitch reserves the SLOW/ERROR chip and ring envelope; the 28-node rack is 1,046
+pixels tall inside the existing scrollable stage. Smooth fan paths and deterministic dense routes keep every connector
+clear of unrelated nodes, and CSS Motion Path consumes each connector's exact path with mount-relative timing. Retained
+failures no longer permanently color topology nodes or edges. Accepted slow/failure pulses instead schedule
+reference-counted target rings and explicit `SLOW · <duration>` / `ERROR` chips for exactly their own delay and duration;
+inbound targets the application, outbound targets the dependency, and failure wins only while overlapping slow.
+Reduced-motion users receive the same target semantics as a brief static emphasis plus explicit live narration.
 
 Complexity and risks:
 
@@ -476,15 +561,15 @@ Complexity and risks:
 - The largest technical risks are leaking endpoint/configuration details, creating unbounded/high-cardinality graphs,
   misclassifying incoming messaging as outbound, and coupling the engine to framework-specific recorder types.
 
-Acceptance criteria for an MVP:
+Acceptance criteria (met):
 
 - A Spring MVC sample with JDBC configuration and a retained outbound HTTP failure renders both relationships without
   making any request from the map itself.
 - Empty, source-disabled, unavailable, malformed-identity, and high-cardinality inputs render safely and clearly.
 - No secret, HTTP path/query value, message payload, or unmasked JDBC credential reaches the response.
 - The panel remains usable by keyboard and screen reader and at desktop and mobile widths.
-- The feature stays explicitly experimental until user testing demonstrates that the cross-panel synthesis is more
-  useful than navigating the source panels independently.
+- The feature ships inside Live Activity rather than as its own sidebar entry, so the cross-panel synthesis has to earn
+  attention next to the feed it complements before it would ever justify a route of its own.
 
 ## 4. Cross-cutting work for every new panel
 
@@ -519,8 +604,8 @@ For each feature above, the following must move together, consistent with the ex
 | MongoDB optional drivers break applications without the extension | 3.5 | High | Keep driver types in adapter-only providers and use Spring classpath gates plus Quarkus capability/exclusion build steps. |
 | Large MongoDB catalog or partial permissions make inspection slow or misleading | 3.5 | Medium | Hard caps, paging, configurable timeouts, partial-result DTOs, and per-target permission errors. |
 | Scope creep beyond the planned MongoDB inventory/advisor surface | 3.5 | High | Keep document browsing, arbitrary commands, writes, tracing, and migrations out of the first release. |
-| Incomplete service-map evidence creates false confidence or false health claims | 3.6 | High | Label configured, observed, stale, and unknown states explicitly; retained failures are evidence, never a health check. |
-| Service-map identities expose secrets or create an unbounded topology | 3.6 | High | Reuse masking, sanitize HTTP origins, omit payloads, enforce hard cardinality limits, and make truncation visible. |
+| Incomplete service-map evidence creates false confidence or false health claims | 3.6 | High | **Shipped:** `configured` and `observed` are separate fields that are never collapsed, `outcome` is `NO_EVIDENCE`/`OBSERVED_OK`/`RETAINED_FAILURES`, statement-to-pool attribution is refused when ambiguous, and the copy states plainly that a retained failure is evidence, not a health check. |
+| Service-map identities expose secrets or create an unbounded topology | 3.6 | High | **Shipped:** HTTP identities are reduced to `scheme://host[:port]` (user-info, path, query, and fragment dropped); JDBC targets independently strip authority/Oracle credentials and parameter tails regardless of exposure mode; complete sanitized identities drive grouping and SHA-256-derived stable ids while only labels are truncated; payloads/keys/SQL text never enter the contract; and 28 dependencies / 6 interactions per edge are enforced before serialization with visible truncation. |
 
 ## 6. Validation checklist
 

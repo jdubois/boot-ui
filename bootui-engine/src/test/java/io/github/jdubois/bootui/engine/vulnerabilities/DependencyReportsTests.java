@@ -6,7 +6,9 @@ import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -146,15 +148,26 @@ class DependencyReportsTests {
     }
 
     @Test
+    void normalizeSeverityScoreUsesTheOfficialCvssBands() {
+        assertThat(DependencyReports.normalizeSeverity(0.0d)).isEqualTo("NONE");
+        assertThat(DependencyReports.normalizeSeverity(0.1d)).isEqualTo("LOW");
+        assertThat(DependencyReports.normalizeSeverity(4.0d)).isEqualTo("MEDIUM");
+        assertThat(DependencyReports.normalizeSeverity(7.0d)).isEqualTo("HIGH");
+        assertThat(DependencyReports.normalizeSeverity(9.0d)).isEqualTo("CRITICAL");
+        assertThat(DependencyReports.normalizeSeverity(Double.NaN)).isEqualTo("UNKNOWN");
+        assertThat(DependencyReports.normalizeSeverity(10.1d)).isEqualTo("UNKNOWN");
+    }
+
+    @Test
     void parseScoreComputesTheBaseScoreForARealCvssV31Vector() {
         // CVE-2021-44228 "Log4Shell" -- NVD-published Base Score 10.0.
-        assertThat(DependencyReports.parseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"))
+        assertThat(DependencyReports.parseScore("CVSS_V3", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"))
                 .isEqualTo(10.0d);
     }
 
     @Test
     void parseScoreSupportsTheCvss30Prefix() {
-        assertThat(DependencyReports.parseScore("CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))
+        assertThat(DependencyReports.parseScore("CVSS_V3", "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))
                 .isEqualTo(9.8d);
     }
 
@@ -162,19 +175,23 @@ class DependencyReportsTests {
     void parseScoreReturnsNullForACvss40VectorRatherThanGuessing() {
         // No closed-form v4.0 Base Score equation exists (see CvssV3BaseScore's class Javadoc); callers
         // fall back to the database_specific.severity label for these advisories.
-        assertThat(DependencyReports.parseScore("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:L/SA:N"))
+        assertThat(DependencyReports.parseScore(
+                        "CVSS_V4", "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:L/SA:N"))
                 .isNull();
     }
 
     @Test
-    void parseScoreFallsBackToABareNumericStringForNonCvssValues() {
-        assertThat(DependencyReports.parseScore("7.5")).isEqualTo(7.5d);
+    void parseScoreDoesNotInterpretOtherSeverityTypesAsCvssV3() {
+        assertThat(DependencyReports.parseScore("Ubuntu", "7.5")).isNull();
+        assertThat(DependencyReports.parseScore("CVSS_V2", "7.5")).isNull();
+        assertThat(DependencyReports.parseScore("CVSS_V3", "7.5")).isNull();
     }
 
     @Test
     void parseScoreReturnsNullForAnUnparseableOrMissingValue() {
-        assertThat(DependencyReports.parseScore("not-a-score")).isNull();
-        assertThat(DependencyReports.parseScore(null)).isNull();
+        assertThat(DependencyReports.parseScore("CVSS_V3", "not-a-score")).isNull();
+        assertThat(DependencyReports.parseScore("CVSS_V3", null)).isNull();
+        assertThat(DependencyReports.parseScore(null, "CVSS:3.1/AV:N")).isNull();
     }
 
     @Test
@@ -262,6 +279,20 @@ class DependencyReportsTests {
     }
 
     @Test
+    void applyDismissalsReordersDependenciesUsingTheirRecomputedSeverity() {
+        DependencyDto critical = vulnerableDependency("org.example", "critical", "1.0.0", "CRITICAL");
+        DependencyDto high = vulnerableDependency("org.example", "high", "1.0.0", "HIGH");
+        DependenciesReport report = DependencyReports.report(true, "SCANNED", "done", 1L, 2, List.of(high, critical));
+
+        DependenciesReport updated = DependencyReports.applyDismissals(
+                report, Set.of(DependencyReports.dismissalKey("V-critical", "org.example:critical")));
+
+        assertThat(updated.dependencies())
+                .extracting(DependencyDto::packageName)
+                .containsExactly("org.example:high", "org.example:critical");
+    }
+
+    @Test
     void scanCandidatesDeduplicatesPackageVersionsBeforeApplyingTheLimit() {
         DependencyDto first = dependency("org.example", "first", "1.0.0");
         DependencyDto duplicate = dependency("org.example", "first", "1.0.0");
@@ -271,5 +302,58 @@ class DependencyReportsTests {
                 .containsExactly(first, second);
         assertThat(DependencyReports.scanCandidateCount(List.of(first, duplicate, second)))
                 .isEqualTo(2);
+    }
+
+    @Test
+    void cveAliasesIncludesTheAdvisoryIdAndRejectsMalformedAliases() {
+        DependencyVulnerabilityDto vulnerability = new DependencyVulnerabilityDto(
+                "cve-2024-1234",
+                null,
+                null,
+                "HIGH",
+                null,
+                List.of("CVE-2024-5678", "CVE-2024-5678", "CVE-2024-12&bad"),
+                List.of(),
+                List.of());
+        DependencyDto dependency = new DependencyDto(
+                "org.example", "lib", "1.0.0", "org.example:lib", "test", 1, "HIGH", List.of(vulnerability));
+
+        assertThat(DependencyReports.cveAliases(List.of(dependency))).containsExactly("CVE-2024-1234", "CVE-2024-5678");
+    }
+
+    @Test
+    void epssCveChunksRespectFirstsCharacterLimitWithoutDroppingIds() {
+        List<String> ids = new ArrayList<>();
+        for (int i = 1000; i < 1300; i++) {
+            ids.add("CVE-2024-" + i);
+        }
+
+        List<List<String>> chunks = DependencyReports.epssCveChunks(ids);
+
+        assertThat(chunks).hasSizeGreaterThan(1);
+        assertThat(chunks)
+                .allSatisfy(chunk -> assertThat(String.join(",", chunk))
+                        .hasSizeLessThanOrEqualTo(DependencyReports.EPSS_CVE_PARAMETER_MAX_LENGTH));
+        assertThat(chunks.stream().flatMap(List::stream).toList()).containsExactlyElementsOf(ids);
+    }
+
+    @Test
+    void applyEpssScoresMatchesACveAdvisoryWithoutRequiringAnAlias() {
+        DependencyVulnerabilityDto vulnerability = new DependencyVulnerabilityDto(
+                "CVE-2024-1234", null, null, "HIGH", null, List.of(), List.of(), List.of());
+        DependencyDto dependency = new DependencyDto(
+                "org.example", "lib", "1.0.0", "org.example:lib", "test", 1, "HIGH", List.of(vulnerability));
+
+        List<DependencyDto> enriched = DependencyReports.applyEpssScores(
+                List.of(dependency), Map.of("CVE-2024-1234", new EpssScore(0.25d, 0.75d)));
+
+        assertThat(enriched.get(0).vulnerabilities().get(0).epssScore()).isEqualTo(0.25d);
+        assertThat(enriched.get(0).vulnerabilities().get(0).epssPercentile()).isEqualTo(0.75d);
+    }
+
+    @Test
+    void orderFixedVersionsUsesMavenSemanticsAndStableDeduplication() {
+        assertThat(DependencyReports.orderFixedVersions(List.of("1.0-sp1", "1.0", "1.0-rc1", "1.0", "2.0"), 4))
+                .containsExactly("1.0-rc1", "1.0", "1.0-sp1", "2.0");
     }
 }

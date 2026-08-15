@@ -6,10 +6,10 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.Http
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests for {@link HttpExchangeTraceRegistry}: the reactive adapter's side-buffer that lets {@link
- * HttpExchangesController} stamp a captured OpenTelemetry trace id onto an Actuator {@code HttpExchange}
- * it has no trace-id field of its own to carry one in. Mirrors {@code RequestCorrelationRegistryTests}'
- * matching conventions (method + path + overlapping time window, unique-candidate-only).
+ * Tests for {@link HttpExchangeTraceRegistry}: the bounded side-buffer that lets either Spring adapter
+ * stamp a captured server trace id onto an Actuator {@code HttpExchange} it has no trace-id field of its
+ * own to carry one in. Mirrors {@code RequestCorrelationRegistryTests}' matching conventions (method +
+ * path + overlapping time window, unique-candidate-only).
  */
 class HttpExchangeTraceRegistryTests {
 
@@ -61,12 +61,23 @@ class HttpExchangeTraceRegistryTests {
     }
 
     @Test
-    void ignoresRecordsWithNoUsableTraceId() {
+    void retainsRecordsWithNoUsableTraceIdAsAmbiguityBlockers() {
         HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
         registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/a", null));
         registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/b", ""));
         registry.record(null);
 
-        assertThat(registry.snapshot()).isEmpty();
+        assertThat(registry.snapshot()).hasSize(2);
+        assertThat(registry.match("GET", "/a", 1000, 1100)).isNull();
+        assertThat(registry.match("GET", "/b", 1000, 1100)).isNull();
+    }
+
+    @Test
+    void untracedOverlapBlocksAttributionToTracedRequest() {
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
+        registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/a", "trace-1"));
+        registry.record(new HttpExchangeTrace(1025, 1125, "GET", "/a", null));
+
+        assertThat(registry.match("GET", "/a", 1030, 1090)).isNull();
     }
 }

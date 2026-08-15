@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.activity.LiveServiceMapController;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiPathPropertySource;
@@ -255,6 +256,7 @@ import tools.jackson.databind.ObjectMapper;
     ReactiveRestClientTraceController.class,
     ReactiveSecurityLogsController.class,
     ReactiveLiveActivityController.class,
+    LiveServiceMapController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -315,6 +317,7 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveRestClientTraceController.class.getName(),
             ReactiveSecurityLogsController.class.getName(),
             ReactiveLiveActivityController.class.getName(),
+            LiveServiceMapController.class.getName(),
             ReactiveBootUiMcpController.class.getName(),
             ReactiveBootUiMcpServerController.class.getName(),
             EmailController.class.getName(),
@@ -378,7 +381,13 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<PentestingController> pentesting,
                 ObjectProvider<RestApiController> restApi,
                 ObjectProvider<GraalVmController> graalvm,
-                ObjectProvider<CracController> crac) {
+                ObjectProvider<CracController> crac,
+                ObjectProvider<VulnerabilitiesController> vulnerabilities,
+                ObjectProvider<LoggersController> loggers,
+                ObjectProvider<ConditionsController> conditions,
+                ObjectProvider<ScheduledController> scheduled,
+                ObjectProvider<SpringCacheController> cache,
+                ObjectProvider<DatabaseConnectionPoolsController> connectionPools) {
             return new ReactiveBootUiMcpTools(
                     overview,
                     health,
@@ -400,7 +409,13 @@ public class BootUiReactiveAutoConfiguration {
                     pentesting,
                     restApi,
                     graalvm,
-                    crac);
+                    crac,
+                    vulnerabilities,
+                    loggers,
+                    conditions,
+                    scheduled,
+                    cache,
+                    connectionPools);
         }
 
         @Bean

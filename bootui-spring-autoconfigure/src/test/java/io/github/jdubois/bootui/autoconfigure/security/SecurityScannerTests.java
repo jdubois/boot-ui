@@ -1,25 +1,48 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChainModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.http.HttpMethod;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationManager;
+import org.springframework.security.authorization.ObservationAuthorizationManager;
+import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.FilterChainProxy;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
+import org.springframework.security.web.access.intercept.RequestMatcherDelegatingAuthorizationManager;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.debug.DebugFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
 class SecurityScannerTests {
 
@@ -42,7 +65,6 @@ class SecurityScannerTests {
                 List.of());
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("management.endpoints.web.exposure.include", "*")
-                .withProperty("spring.security.debug", "true")
                 .withProperty("spring.security.user.name", "admin")
                 .withProperty("spring.security.user.password", "admin");
         SecurityContext context = new SecurityContext(
@@ -60,6 +82,7 @@ class SecurityScannerTests {
                 false,
                 List.of(),
                 false,
+                true,
                 environment);
         SecurityScanner scanner = new SecurityScanner(context, CLOCK);
 
@@ -301,6 +324,127 @@ class SecurityScannerTests {
     }
 
     @Test
+    void blanketPermitAllRequiresEveryBoundedPathProbeToBeGranted() {
+        AuthorizationManager<HttpServletRequest> publicResourcesOnly =
+                RequestMatcherDelegatingAuthorizationManager.builder()
+                        .requestMatchers(
+                                PathPatternRequestMatcher.pathPattern("/"),
+                                PathPatternRequestMatcher.pathPattern("/login"),
+                                PathPatternRequestMatcher.pathPattern("/css/**"))
+                        .permitAll()
+                        .anyRequest()
+                        .authenticated()
+                        .build();
+
+        SecurityReport report = scannerFor(filterChainProxy(publicResourcesOnly), new DefaultListableBeanFactory())
+                .scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-AUTHZ-002");
+    }
+
+    @Test
+    void blanketPermitAllRequiresEveryBoundedHttpMethodProbeToBeGranted() {
+        AuthorizationManager<HttpServletRequest> getOnly = RequestMatcherDelegatingAuthorizationManager.builder()
+                .requestMatchers(PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/**"))
+                .permitAll()
+                .anyRequest()
+                .authenticated()
+                .build();
+
+        SecurityReport report = scannerFor(filterChainProxy(getOnly), new DefaultListableBeanFactory())
+                .scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-AUTHZ-002");
+    }
+
+    @Test
+    void blanketPermitAllFiresWhenEveryBoundedProbeIsGranted() {
+        AuthorizationManager<HttpServletRequest> permitAll = RequestMatcherDelegatingAuthorizationManager.builder()
+                .anyRequest()
+                .permitAll()
+                .build();
+
+        SecurityReport report = scannerFor(filterChainProxy(permitAll), new DefaultListableBeanFactory())
+                .scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-AUTHZ-002");
+    }
+
+    @Test
+    void observationAuthorizationManagerIsUnwrappedWithoutEmittingSyntheticObservations() {
+        AtomicInteger observationsStarted = new AtomicInteger();
+        ObservationRegistry observationRegistry = ObservationRegistry.create();
+        observationRegistry.observationConfig().observationHandler(new ObservationHandler<Observation.Context>() {
+            @Override
+            public void onStart(Observation.Context context) {
+                observationsStarted.incrementAndGet();
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        AuthorizationManager<RequestAuthorizationContext> permitAll =
+                (authentication, context) -> new AuthorizationDecision(true);
+        RequestMatcherDelegatingAuthorizationManager delegate = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(new DescribedRequestMatcher("PathPattern [/**]", true), permitAll)
+                .add(new DescribedRequestMatcher("PathPattern [/admin/**]", false), permitAll)
+                .build();
+        AuthorizationManager<HttpServletRequest> observed =
+                new ObservationAuthorizationManager<>(observationRegistry, delegate);
+
+        SecurityReport report = scannerFor(filterChainProxy(observed), new DefaultListableBeanFactory())
+                .scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-AUTHZ-005");
+        assertThat(observationsStarted).hasValue(0);
+    }
+
+    @Test
+    void debugFilterKeepsTheAdvisorAvailableAndProducesTheDebugFinding() {
+        AuthorizationManager<HttpServletRequest> denyAll =
+                (authentication, request) -> new AuthorizationDecision(false);
+        FilterChainProxy proxy = filterChainProxy(denyAll);
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerSingleton("springSecurityFilterChain", new DebugFilter(proxy));
+
+        SecurityReport report = scannerFor(null, beanFactory).scan();
+
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-CONFIG-001");
+    }
+
+    @Test
+    @SuppressWarnings("removal")
+    void mvcHandlerMappingIntrospectorIsNotTreatedAsApplicationCorsConfiguration() {
+        AuthorizationManager<HttpServletRequest> denyAll =
+                (authentication, request) -> new AuthorizationDecision(false);
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerSingleton("mvcHandlerMappingIntrospector", new HandlerMappingIntrospector());
+
+        SecurityReport report =
+                scannerFor(filterChainProxy(denyAll), beanFactory).scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-CORS-003");
+    }
+
+    @Test
+    void applicationCorsConfigurationStillRequiresSecurityChainIntegration() {
+        AuthorizationManager<HttpServletRequest> denyAll =
+                (authentication, request) -> new AuthorizationDecision(false);
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        CorsConfigurationSource applicationCorsSource = request -> null;
+        beanFactory.registerSingleton("corsConfigurationSource", applicationCorsSource);
+
+        SecurityReport report =
+                scannerFor(filterChainProxy(denyAll), beanFactory).scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-CORS-003");
+    }
+
+    @Test
     void initialReportDoesNotInspectConfigurationBeforeExplicitScan() {
         FilterChainModel chain =
                 new FilterChainModel(0, "any request", List.of("AuthorizationFilter"), null, null, List.of());
@@ -450,6 +594,22 @@ class SecurityScannerTests {
         return new MockEnvironment();
     }
 
+    private static FilterChainProxy filterChainProxy(AuthorizationManager<HttpServletRequest> authorizationManager) {
+        return new FilterChainProxy(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new UsernamePasswordAuthenticationFilter(),
+                new AuthorizationFilter(authorizationManager)));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static SecurityScanner scannerFor(FilterChainProxy proxy, ListableBeanFactory beanFactory) {
+        ObjectProvider<FilterChainProxy> filterChains = mock(ObjectProvider.class);
+        ObjectProvider<ListableBeanFactory> beanFactories = mock(ObjectProvider.class);
+        when(filterChains.getIfAvailable()).thenReturn(proxy);
+        when(beanFactories.getIfAvailable()).thenReturn(beanFactory);
+        return new SecurityScanner(filterChains, beanFactories, new MockEnvironment(), CLOCK);
+    }
+
     private static SecurityContext hardenedContext(List<PasswordEncoderModel> encoders, MockEnvironment environment) {
         return new SecurityContext(
                 List.of(hardenedChain()),
@@ -587,6 +747,19 @@ class SecurityScannerTests {
         @Override
         SecurityRuleResultDto evaluateRule(SecurityContext context) {
             return skipped("Not applicable in this context.");
+        }
+    }
+
+    private record DescribedRequestMatcher(String description, boolean matches) implements RequestMatcher {
+
+        @Override
+        public boolean matches(HttpServletRequest request) {
+            return matches;
+        }
+
+        @Override
+        public String toString() {
+            return description;
         }
     }
 

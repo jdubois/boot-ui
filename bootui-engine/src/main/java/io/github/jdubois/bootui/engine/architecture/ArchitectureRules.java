@@ -670,8 +670,9 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                         "are proxied through @Transactional, @Async, or @Cacheable on the method (or @Async/@Cacheable on the declaring class)") {
                     @Override
                     public boolean test(MethodCallTarget target) {
-                        return SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(target)
-                                || SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(target.getOwner());
+                        return context.platform() == ArchitecturePlatform.SPRING
+                                && (SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(target)
+                                        || SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(target.getOwner()));
                     }
                 });
     }
@@ -1036,35 +1037,24 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
  * Flags methods annotated with proxy-driven annotations that the runtime's proxy mechanism cannot
  * actually intercept.
  *
- * <p>Spring's own proxy-driven annotations ({@code @Async}, Spring cache annotations, and Spring's
- * own {@code @Transactional}) require a public, non-static, non-final method: interface-based JDK
- * proxies and the default CGLIB subclass proxy only ever intercept public instance methods (Spring's
- * transaction-management reference documents this restriction explicitly, and {@code CglibAopProxy}
- * logs a warning and silently calls the original, un-intercepted method for a {@code final} method).
+ * <p>Spring Boot's default class-based proxies support public, protected, and package-private
+ * methods. Private, static, and final methods still cannot be intercepted. Interface-based proxies
+ * remain public-only, so accepting non-public methods avoids false positives for the default while
+ * the recommendation calls out that portability caveat.
  *
- * <p>The portable {@code jakarta.transaction.Transactional} annotation is held to a different,
- * CDI-accurate bar instead of Spring's stricter one: the Jakarta CDI specification's "Unproxyable
- * bean types" section lists only classes "which have non-static, final methods with public,
- * protected or default visibility" as breaking proxyability, and a private no-arg constructor
- * separately &mdash; i.e. a CDI client proxy can intercept public, protected, <em>and</em>
- * package-private methods alike; only {@code private}, {@code static}, or {@code final} methods are
- * excluded. Applying Spring's stricter "must be public" bar to the shared annotation would false
- * positive on a protected or package-private {@code jakarta.transaction.Transactional} method in a
- * Quarkus/CDI application, where the container's own client-proxy mechanism intercepts it correctly.
- * A {@code final} class-level self-invocation combined with a proxy annotation on a CDI-managed bean
- * would instead fail Arc's bean deployment outright, so the final-class case never applies to a class
- * that could exist in a running Quarkus application in the first place.</p>
+ * <p>Quarkus Arc additionally supports intercepted static methods and transforms final intercepted
+ * methods by default, so only private methods are reported there.</p>
  */
 final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchitectureRule {
 
     ProxiedMethodsShouldNotBePrivateOrStaticRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-SPRING-010",
-                "Proxy-driven methods should be publicly overridable",
+                "Proxy-driven methods should be interceptable",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Async, Spring cache annotations, or Spring's own @Transactional on a non-public, static, or final method, and jakarta.transaction.Transactional on a private, static, or final method. Interface-based and CGLIB proxies can only intercept public, overridable instance methods, while a CDI client proxy can also intercept protected and package-private ones, so the proxy behaviour can be silently skipped.",
-                "Make the annotated method public, non-static, and non-final so it can be intercepted by a Spring proxy (or at least package-visible, non-static, and non-final for the portable jakarta.transaction.Transactional annotation, which a CDI client proxy can also intercept), or move the annotation to a method that can be.",
+                "Detects proxy-driven annotations on methods the active runtime cannot intercept. Spring class-based proxies cannot intercept private, static, or final methods. Quarkus Arc cannot intercept private methods, but supports static interception and transforms final intercepted methods by default.",
+                "Use a non-private, non-static, non-final method for portable Spring proxy behaviour; keep it public when the application uses interface-based JDK proxies. On Quarkus, avoid private interceptor-bound methods.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
@@ -1075,7 +1065,7 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         for (JavaMethod method : javaClass.getMethods()) {
-                            proxyabilityProblem(method)
+                            proxyabilityProblem(method, context.platform())
                                     .ifPresent(reason -> events.add(SimpleConditionEvent.violated(
                                             method,
                                             "Method " + method.getFullName()
@@ -1093,51 +1083,35 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
      * a method annotated only with the portable {@code jakarta.transaction.Transactional} is held to
      * the more permissive bar a CDI client proxy actually supports.
      */
-    private static Optional<String> proxyabilityProblem(JavaMethod method) {
+    private static Optional<String> proxyabilityProblem(JavaMethod method, ArchitecturePlatform platform) {
         boolean springAnnotated = method.isAnnotatedWith(SpringStereotypes.TRANSACTIONAL)
                 || method.isAnnotatedWith(SpringStereotypes.ASYNC)
                 || SpringStereotypes.CACHE_OPERATION_ANNOTATED.test(method);
-        if (springAnnotated) {
-            return visibilityProblem(method, JavaModifier.PUBLIC);
+        if (springAnnotated && platform == ArchitecturePlatform.SPRING) {
+            return visibilityProblem(method, false);
         }
         if (method.isAnnotatedWith(SpringStereotypes.JAKARTA_TRANSACTIONAL)) {
-            return visibilityProblem(method, null);
+            return visibilityProblem(method, platform == ArchitecturePlatform.QUARKUS);
         }
         return Optional.empty();
     }
 
     /**
-     * @param requiredVisibility the minimum {@link JavaModifier} visibility the proxy mechanism
-     *     requires, or {@code null} to only exclude {@code private} (the CDI-permissive bar, which
-     *     also accepts protected and package-private methods).
+     * @param quarkus whether Arc's static-interception and final-method transformation semantics apply
      */
-    private static Optional<String> visibilityProblem(JavaMethod method, JavaModifier requiredVisibility) {
+    private static Optional<String> visibilityProblem(JavaMethod method, boolean quarkus) {
         Set<JavaModifier> modifiers = method.getModifiers();
         List<String> problems = new ArrayList<>();
-        if (requiredVisibility == JavaModifier.PUBLIC) {
-            if (!modifiers.contains(JavaModifier.PUBLIC)) {
-                problems.add(visibilityLabel(modifiers));
-            }
-        } else if (modifiers.contains(JavaModifier.PRIVATE)) {
+        if (modifiers.contains(JavaModifier.PRIVATE)) {
             problems.add("private");
         }
-        if (modifiers.contains(JavaModifier.STATIC)) {
+        if (!quarkus && modifiers.contains(JavaModifier.STATIC)) {
             problems.add("static");
         }
-        if (modifiers.contains(JavaModifier.FINAL)) {
+        if (!quarkus && modifiers.contains(JavaModifier.FINAL)) {
             problems.add("final");
         }
         return problems.isEmpty() ? Optional.empty() : Optional.of(String.join(" and ", problems));
-    }
-
-    private static String visibilityLabel(Set<JavaModifier> modifiers) {
-        if (modifiers.contains(JavaModifier.PRIVATE)) {
-            return "private";
-        }
-        if (modifiers.contains(JavaModifier.PROTECTED)) {
-            return "protected";
-        }
-        return "package-private";
     }
 }
 

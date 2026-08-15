@@ -71,6 +71,8 @@ final class RestApiRuleHelp {
             "https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html";
     static final String PAGINATION_DOCS =
             "https://docs.spring.io/spring-data/commons/reference/repositories/core-extensions.html";
+    static final String PAGINATION_VOCABULARY_DOCS =
+            "https://opensource.zalando.com/restful-api-guidelines/#pagination";
     static final String OPENAPI_DOCS = "https://springdoc.org/";
     static final String CREATED_DOCS = "https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.2";
     static final String PATCH_DOCS = "https://www.rfc-editor.org/rfc/rfc5789.html";
@@ -198,7 +200,7 @@ final class RestApiRuleHelp {
     }
 
     static boolean isVariable(String segment) {
-        return segment.startsWith("{") || segment.startsWith(":");
+        return segment.startsWith("{") || segment.startsWith(":") || segment.contains("${") || segment.contains("#{");
     }
 
     static List<String> staticSegments(String path) {
@@ -489,10 +491,10 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
      */
     private static String conditionKey(HandlerMethodModel handler) {
         List<String> parts = new ArrayList<>();
-        parts.addAll(handler.effectiveConsumes());
-        parts.addAll(handler.effectiveProduces());
-        parts.addAll(handler.params());
-        parts.addAll(handler.headers());
+        addConditionParts(parts, "consumes:", handler.effectiveConsumes());
+        addConditionParts(parts, "produces:", handler.effectiveProduces());
+        addConditionParts(parts, "params:", handler.params());
+        addConditionParts(parts, "headers:", handler.headers());
         if (!handler.mappingVersion().isBlank()) {
             parts.add("version=" + handler.mappingVersion());
         }
@@ -501,6 +503,12 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
         }
         parts.sort(String::compareTo);
         return " {" + String.join(",", parts) + "}";
+    }
+
+    private static void addConditionParts(List<String> target, String kind, List<String> values) {
+        for (String value : values) {
+            target.add(kind + value);
+        }
     }
 }
 
@@ -1250,7 +1258,7 @@ final class ConsistentPaginationVocabularyRule extends AbstractRestApiRule {
                         + " clients must handle specially depending on which endpoint they call.",
                 "Settle on a single pagination parameter vocabulary (page/size, offset/limit, or"
                         + " cursor/after/before) and apply it uniformly across all paginated endpoints.",
-                RestApiRuleHelp.PAGINATION_DOCS));
+                RestApiRuleHelp.PAGINATION_VOCABULARY_DOCS));
     }
 
     @Override
@@ -1296,6 +1304,9 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         if (context.handlers().isEmpty()) {
+            return RestApiRuleSupport.pass(definition());
+        }
+        if (!context.jaxRs() && context.globalVersioningConfigured()) {
             return RestApiRuleSupport.pass(definition());
         }
         List<HandlerMethodModel> versionable = new ArrayList<>();
@@ -1671,10 +1682,10 @@ final class CreatedResponsesExposeLocationRule extends AbstractRestApiRule {
                 RestApiCategory.RESPONSES,
                 "MEDIUM",
                 "A handler annotated @ResponseStatus(CREATED) that returns a plain body (not ResponseEntity and with"
-                        + " no servlet response argument) has no way to set the Location header of the newly created"
+                        + " no response-mutating MVC/WebFlux argument) has no way to set the Location header of the newly created"
                         + " resource.",
-                "Return ResponseEntity.created(uri).body(...) so the 201 response also carries the Location of the new"
-                        + " resource.",
+                "Return ResponseEntity.created(uri).body(...) so the 201 response carries the Location of the new"
+                        + " resource, or set it through an explicit response argument.",
                 RestApiRuleHelp.CREATED_DOCS));
     }
 

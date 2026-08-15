@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
+import io.github.jdubois.bootui.autoconfigure.activity.LiveServiceMapController;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationFilter;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry;
 import io.github.jdubois.bootui.autoconfigure.activity.SecurityEventCorrelationRegistry;
@@ -161,6 +162,7 @@ import tools.jackson.databind.ObjectMapper;
     GraalVmController.class,
     CracController.class,
     LiveActivityController.class,
+    LiveServiceMapController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -199,6 +201,7 @@ public class BootUiAutoConfiguration {
             GraalVmController.class.getName(),
             CracController.class.getName(),
             LiveActivityController.class.getName(),
+            LiveServiceMapController.class.getName(),
             EmailController.class.getName(),
             KafkaController.class.getName(),
             RabbitController.class.getName(),
@@ -411,7 +414,13 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<PentestingController> pentesting,
                 ObjectProvider<RestApiController> restApi,
                 ObjectProvider<GraalVmController> graalvm,
-                ObjectProvider<CracController> crac) {
+                ObjectProvider<CracController> crac,
+                ObjectProvider<VulnerabilitiesController> vulnerabilities,
+                ObjectProvider<LoggersController> loggers,
+                ObjectProvider<ConditionsController> conditions,
+                ObjectProvider<ScheduledController> scheduled,
+                ObjectProvider<SpringCacheController> cache,
+                ObjectProvider<DatabaseConnectionPoolsController> connectionPools) {
             return new BootUiMcpTools(
                     overview,
                     health,
@@ -433,7 +442,13 @@ public class BootUiAutoConfiguration {
                     pentesting,
                     restApi,
                     graalvm,
-                    crac);
+                    crac,
+                    vulnerabilities,
+                    loggers,
+                    conditions,
+                    scheduled,
+                    cache,
+                    connectionPools);
         }
 
         @Bean
@@ -576,6 +591,11 @@ public class BootUiAutoConfiguration {
         // it would evict an API request's correlation before the feed or profiler reads it back.
         int capacity = Math.max(properties.getActivity().getMaxEntries() * 4, 512);
         return new RequestCorrelationRegistry(capacity);
+    }
+
+    @Bean
+    public HttpExchangeTraceRegistry bootUiHttpExchangeTraceRegistry(BootUiProperties properties) {
+        return new HttpExchangeTraceRegistry(properties.getHttpExchanges().getMaxExchanges());
     }
 
     @Bean
@@ -743,9 +763,9 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public FilterRegistrationBean<RequestCorrelationFilter> bootUiRequestCorrelationFilterRegistration(
-            RequestCorrelationRegistry registry, BootUiProperties properties) {
-        FilterRegistrationBean<RequestCorrelationFilter> registration =
-                new FilterRegistrationBean<>(new RequestCorrelationFilter(registry, properties.getPath()));
+            RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, BootUiProperties properties) {
+        FilterRegistrationBean<RequestCorrelationFilter> registration = new FilterRegistrationBean<>(
+                new RequestCorrelationFilter(registry, traceRegistry, properties.getPath()));
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);
         registration.setName("bootUiRequestCorrelationFilter");

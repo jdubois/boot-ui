@@ -400,20 +400,31 @@ public class LiveActivityResource {
                         combined(
                                 combined(
                                         combined(
-                                                combined(buffer::subscribe, scheduledTaskRunStore::subscribe),
-                                                kafkaRecorder::subscribe),
-                                        rabbitRecorder::subscribe),
-                                emailChangeSource()),
-                        restClientChangeSource()));
+                                                combined(
+                                                        combined(
+                                                                combined(
+                                                                        buffer::subscribe,
+                                                                        scheduledTaskRunStore::subscribe),
+                                                                kafkaRecorder::subscribe),
+                                                        rabbitRecorder::subscribe),
+                                                emailChangeSource()),
+                                        restClientChangeSource()),
+                                sqlChangeSource()),
+                        exceptionStore::subscribe));
     }
 
     /**
      * Combines two {@link SseStreams.ChangeSource}s into one that notifies {@code onChange} when either
      * fires, so the merged Live Activity stream ticks on a new HTTP exchange, a new captured
-     * {@code @Scheduled} execution, a new captured Kafka message, a new captured email, <em>or</em> a REST
-     * Client call (nested at the call site to fan in all five) — mirroring the Spring adapter, whose single
-     * {@code BootUiChangeStream} already fans in every signal source (including
-     * {@link ScheduledTaskRunStore}, the Kafka recorder, and captured email) to the same effect.
+     * {@code @Scheduled} execution, a new captured Kafka or RabbitMQ message, a new captured email, a REST
+     * Client call, a new traced SQL statement, <em>or</em> a newly captured exception (nested at the call
+     * site to fan in all of them) — mirroring the Spring adapter, whose single {@code BootUiChangeStream}
+     * already fans in every signal source to the same effect.
+     *
+     * <p>SQL and exception capture were previously the two sources that fed {@link #activity} but never
+     * ticked this stream, so a purely database-driven or purely failing workload left the panel — and the
+     * Live Flow map that refreshes from the same stream — silently stale until an unrelated signal arrived.
+     * Both now subscribe like every other source.</p>
      */
     private static SseStreams.ChangeSource combined(SseStreams.ChangeSource first, SseStreams.ChangeSource second) {
         return onChange -> {
@@ -461,6 +472,20 @@ public class LiveActivityResource {
                 onChange.run();
             }
         });
+    }
+
+    /**
+     * Ticks the merged stream whenever a new JDBC statement is traced. The recorder is an optional bean (no
+     * datasource means no recorder), so an unresolvable instance yields an inert source rather than failing
+     * the stream.
+     */
+    private SseStreams.ChangeSource sqlChangeSource() {
+        return onChange -> {
+            if (!sqlRecorder.isResolvable()) {
+                return () -> {};
+            }
+            return sqlRecorder.get().subscribe(onChange);
+        };
     }
 
     private boolean restClientActivityAvailable() {

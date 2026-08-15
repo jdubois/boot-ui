@@ -20,6 +20,18 @@ class SpringRulesTests {
         return SpringContext.builder(environment).beanDefinitionCount(50);
     }
 
+    private static BeanRef fallbackCandidate(String name) {
+        return new BeanRef(name, false, true, true, true);
+    }
+
+    private static BeanRef nonAutowireCandidate(String name) {
+        return new BeanRef(name, false, false, false, true);
+    }
+
+    private static BeanRef nonDefaultCandidate(String name) {
+        return new BeanRef(name, false, true, false, false);
+    }
+
     // ── SPRING-WEB-002: only flag explicit server.shutdown=immediate ──────────────
 
     @Test
@@ -91,10 +103,50 @@ class SpringRulesTests {
                 .isEqualTo("PASS");
         assertThat(rule.evaluate(context(env())
                                 .taskExecutors(two)
-                                .asyncConfigurerPresent(true)
+                                .customAsyncConfigurerPresent(true)
                                 .build())
                         .status())
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void beanAmbiguityRulesHonorFrameworkCandidateMetadata() {
+        List<BeanRef> ambiguous = List.of(new BeanRef("first", false), new BeanRef("second", false));
+        List<BeanRef> preferredAndFallback = List.of(new BeanRef("preferred", false), fallbackCandidate("fallback"));
+
+        assertThat(new AmbiguousDataSourceRule()
+                        .evaluate(context(env()).dataSources(ambiguous).build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(new DuplicateObjectMapperRule()
+                        .evaluate(context(env())
+                                .objectMappers(preferredAndFallback)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(new AmbiguousTaskExecutorRule()
+                        .evaluate(context(env())
+                                .taskExecutors(preferredAndFallback)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(new AmbiguousDataSourceRule()
+                        .evaluate(
+                                context(env()).dataSources(preferredAndFallback).build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(new AmbiguousTransactionManagerRule()
+                        .evaluate(context(env())
+                                .transactionManagers(preferredAndFallback)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(SpringModel.hasResolvedCandidateMetadata(
+                        List.of(new BeanRef("default", false), nonDefaultCandidate("restricted"))))
+                .isTrue();
+        assertThat(SpringModel.hasResolvedCandidateMetadata(
+                        List.of(new BeanRef("eligible", false), nonAutowireCandidate("internal"))))
+                .isTrue();
     }
 
     // ── SPRING-PERF-003: @Async left on the unreviewed Boot-default executor ──────
@@ -127,20 +179,40 @@ class SpringRulesTests {
         assertThat(rule.evaluate(context(env())
                                 .asyncEnabled(true)
                                 .taskExecutors(bootDefaultOnly)
+                                .bootApplicationTaskExecutorPresent(true)
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env())
+                                .asyncEnabled(true)
+                                .taskExecutors(List.of(
+                                        new BeanRef("applicationTaskExecutor", false),
+                                        new BeanRef("taskScheduler", false)))
+                                .bootApplicationTaskExecutorPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+
+        // Spring Framework also accepts an Executor (not necessarily a TaskExecutor) named taskExecutor.
+        assertThat(rule.evaluate(context(env())
+                                .asyncEnabled(true)
+                                .executors(List.of(new BeanRef("taskExecutor", false)))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
 
         // Reviewing the pool size (core-size or max-size) suppresses the finding.
         assertThat(rule.evaluate(context(env().withProperty("spring.task.execution.pool.core-size", "16"))
                                 .asyncEnabled(true)
                                 .taskExecutors(bootDefaultOnly)
+                                .bootApplicationTaskExecutorPresent(true)
                                 .build())
                         .status())
                 .isEqualTo("PASS");
         assertThat(rule.evaluate(context(env().withProperty("spring.task.execution.pool.max-size", "32"))
                                 .asyncEnabled(true)
                                 .taskExecutors(bootDefaultOnly)
+                                .bootApplicationTaskExecutorPresent(true)
                                 .build())
                         .status())
                 .isEqualTo("PASS");
@@ -332,6 +404,38 @@ class SpringRulesTests {
         assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
     }
 
+    @Test
+    void lazyInitializationIsSuggestedOnlyForLargeEagerContexts() {
+        LazyInitializationDisabledRule rule = new LazyInitializationDisabledRule();
+
+        assertThat(rule.evaluate(context(env()).beanDefinitionCount(300).build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env()).beanDefinitionCount(301).build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.main.lazy-initialization", "true"))
+                                .beanDefinitionCount(301)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void pooledExecutorIsFlaggedWhenVirtualThreadsAreEnabled() {
+        VirtualThreadsOverriddenByPoolRule rule = new VirtualThreadsOverriddenByPoolRule();
+
+        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
+                                .pooledTaskExecutorPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
     // ── SPRING-PERF-005 / 006 ────────────────────────────────────────────────────
 
     @Test
@@ -355,10 +459,33 @@ class SpringRulesTests {
                 .isEqualTo("PASS");
 
         UnboundedAsyncQueueRule async = new UnboundedAsyncQueueRule();
-        assertThat(async.evaluate(context(env()).asyncEnabled(true).build()).status())
+        List<BeanRef> bootDefaultOnly = List.of(new BeanRef("applicationTaskExecutor", false));
+        assertThat(async.evaluate(context(env())
+                                .asyncEnabled(true)
+                                .taskExecutors(bootDefaultOnly)
+                                .bootApplicationTaskExecutorPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(async.evaluate(context(env())
+                                .asyncEnabled(true)
+                                .taskExecutors(List.of(
+                                        new BeanRef("applicationTaskExecutor", false),
+                                        new BeanRef("taskScheduler", false)))
+                                .bootApplicationTaskExecutorPresent(true)
+                                .build())
+                        .status())
                 .isEqualTo("VIOLATION");
         assertThat(async.evaluate(context(env().withProperty("spring.task.execution.pool.queue-capacity", "100"))
                                 .asyncEnabled(true)
+                                .taskExecutors(bootDefaultOnly)
+                                .bootApplicationTaskExecutorPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(async.evaluate(context(env())
+                                .asyncEnabled(true)
+                                .taskExecutors(List.of(new BeanRef("reportingExecutor", false)))
                                 .build())
                         .status())
                 .isEqualTo("PASS");
@@ -622,29 +749,29 @@ class SpringRulesTests {
     // ── SPRING-WEB-007 ───────────────────────────────────────────────────────────
 
     @Test
-    void tomcatThreadCapRedundantWithVirtualThreads() {
+    void tomcatThreadCapRequiresAnEmbeddedTomcatServer() {
         RedundantTomcatThreadsRule rule = new RedundantTomcatThreadsRule();
 
         assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true")
                                         .withProperty("server.tomcat.threads.max", "200"))
+                                .tomcatWebServerPresent(true)
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
         assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
+                                .tomcatWebServerPresent(true)
                                 .build())
                         .status())
                 .isEqualTo("PASS");
-    }
-
-    @Test
-    void tomcatThreadCapSkippedOnReactiveApplications() {
-        RedundantTomcatThreadsRule rule = new RedundantTomcatThreadsRule();
-
-        // WebFlux has no Tomcat servlet thread pool at all, so the rule is inapplicable regardless of
-        // virtual threads / server.tomcat.threads.max.
         assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true")
                                         .withProperty("server.tomcat.threads.max", "200"))
                                 .reactive(true)
+                                .tomcatWebServerPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true")
+                                        .withProperty("server.tomcat.threads.max", "200"))
                                 .build())
                         .status())
                 .isEqualTo("SKIPPED");
@@ -730,6 +857,17 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
+                                        .withProperty("management.endpoints.enabled-by-default", "false"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
+                                        .withProperty("management.endpoints.access.default", "none")
+                                        .withProperty("management.endpoint.env.enabled", "true"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
     }
 
     // ── SPRING-MGMT-003: show-values / show-details = always ─────────────────────
@@ -780,6 +918,12 @@ class SpringRulesTests {
         // Boot 4 access model.
         assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "shutdown")
                                         .withProperty("management.endpoint.shutdown.access", "unrestricted"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // The still-supported global legacy setting also raises shutdown's default access.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "shutdown")
+                                        .withProperty("management.endpoints.enabled-by-default", "true"))
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
@@ -930,7 +1074,7 @@ class SpringRulesTests {
     }
 
     @Test
-    void virtualThreadsAvailableMentionsEventLoopOnlyWhenReactive() {
+    void virtualThreadsAvailableMentionsWebFluxOnlyWhenReactive() {
         VirtualThreadsAvailableRule rule = new VirtualThreadsAvailableRule();
 
         SpringRuleResultDto servletResult =
@@ -942,6 +1086,7 @@ class SpringRulesTests {
                 context(env()).virtualThreadsSupported(true).reactive(true).build());
         assertThat(reactiveResult.status()).isEqualTo("VIOLATION");
         assertThat(reactiveResult.sampleViolations().get(0)).contains("WebFlux");
+        assertThat(reactiveResult.sampleViolations().get(0)).doesNotContain("Reactor Netty");
     }
 
     // ── Reactive-only "learn more" links stay accurate per adapter ────────────────
@@ -1026,6 +1171,7 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
+        assertThat(rule.definition().description()).doesNotContain("Reactor Netty");
     }
 
     // ── SPRING-REACTIVE-002: codec in-memory buffer limit ─────────────────────────

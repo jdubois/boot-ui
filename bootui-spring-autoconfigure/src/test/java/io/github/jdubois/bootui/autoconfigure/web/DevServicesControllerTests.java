@@ -317,6 +317,27 @@ class DevServicesControllerTests {
     }
 
     @Test
+    void dockerComposeInfersMariaDbAndNeo4jTypesDistinctly() throws Exception {
+        DevServicesService service = new DevServicesService(new GenericApplicationContext(), new BootUiProperties());
+        Method method =
+                DevServicesService.class.getDeclaredMethod("dockerComposeDto", Object.class, Map.class, List.class);
+        method.setAccessible(true);
+        Map<String, Integer> ids = new HashMap<>();
+        List<String> warnings = new ArrayList<>();
+
+        DevServiceDto mariadb =
+                (DevServiceDto) method.invoke(service, new FakeComposeService("mariadb", "mariadb:11"), ids, warnings);
+        DevServiceDto mysql =
+                (DevServiceDto) method.invoke(service, new FakeComposeService("mysql", "mysql:8"), ids, warnings);
+        DevServiceDto neo4j =
+                (DevServiceDto) method.invoke(service, new FakeComposeService("neo4j", "neo4j:5"), ids, warnings);
+
+        assertThat(mariadb.type()).isEqualTo("MariaDB");
+        assertThat(mysql.type()).isEqualTo("MySQL");
+        assertThat(neo4j.type()).isEqualTo("Neo4j");
+    }
+
+    @Test
     void listMasksQueryParameterCredentialsInConnectionDetails() throws Exception {
         GenericApplicationContext context = new GenericApplicationContext();
         context.registerBean("queryCredConnectionDetails", QueryCredentialConnectionDetails.class);

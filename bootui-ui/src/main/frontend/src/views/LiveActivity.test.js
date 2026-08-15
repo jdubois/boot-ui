@@ -1,6 +1,7 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
+import {safeLocalStorage} from '../utils/safeStorage.js'
 import LiveActivity from './LiveActivity.vue'
 
 vi.mock('../utils/useConfirm.js', () => ({
@@ -571,5 +572,121 @@ describe('LiveActivity', () => {
 
     const switchButton = wrapper.findAll('button').find((b) => b.text().includes('Use the existing datasource'))
     expect(switchButton.attributes('disabled')).toBeDefined()
+  })
+
+  it('opens on the feed and offers Live flow as a second reading of the same evidence', async () => {
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    const options = wrapper.findAll('.activity-view-switcher__option')
+    expect(options.map((option) => option.text())).toEqual(['Feed', 'Live flow'])
+    expect(options[0].attributes('aria-pressed')).toBe('true')
+    expect(options[1].attributes('aria-pressed')).toBe('false')
+    expect(wrapper.find('.activity-table').exists()).toBe(true)
+  })
+
+  it('swaps the feed for the Live flow map without fetching the map until that mode is opened', async () => {
+    const fetchMock = stubFetch(activityReport(), requestProfile())
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('service-map'))).toBe(false)
+
+    await wrapper.findAll('.activity-view-switcher__option')[1].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.activity-table').exists()).toBe(false)
+    expect(wrapper.findAll('.activity-view-switcher__option')[1].attributes('aria-pressed')).toBe('true')
+  })
+
+  it('keeps feed unavailability scoped to Feed while Live flow renders configured JDBC evidence', async () => {
+    safeLocalStorage.removeItem('bootui.activity.mode')
+    const configuredJdbcMap = {
+      available: true,
+      unavailableReason: null,
+      generatedAt: 1700000000000,
+      application: {
+        id: 'app',
+        kind: 'APPLICATION',
+        protocol: 'APPLICATION',
+        label: 'This application',
+        configured: true,
+        observed: true,
+        interactions: 0,
+        failures: 0,
+        outcome: 'OBSERVED_OK'
+      },
+      nodes: [
+        {
+          id: 'jdbc:pool:dataSource',
+          kind: 'DEPENDENCY',
+          protocol: 'JDBC',
+          label: 'jdbc:postgresql://localhost:5432/shop',
+          detail: 'Connection pool dataSource',
+          configured: true,
+          observed: false,
+          interactions: 0,
+          failures: 0,
+          distinctOperations: null,
+          lastSeen: null,
+          outcome: 'NO_EVIDENCE',
+          sourcePanelId: 'connection-pools',
+          sourceRoute: '/connection-pools',
+          sourceLabel: 'Connection Pools',
+          note: 'Configured pool with no retained SQL evidence.'
+        }
+      ],
+      edges: [
+        {
+          id: 'app->jdbc:pool:dataSource',
+          fromId: 'app',
+          toId: 'jdbc:pool:dataSource',
+          protocol: 'JDBC',
+          direction: 'OUTBOUND',
+          interactions: 0,
+          failures: 0,
+          lastSeen: null,
+          outcome: 'NO_EVIDENCE',
+          recentInteractions: []
+        }
+      ],
+      truncation: {
+        truncated: false,
+        dependencyLimit: 28,
+        dependenciesShown: 1,
+        dependenciesOmitted: 0,
+        interactionLimit: 6
+      },
+      sources: ['Connection Pools'],
+      warnings: []
+    }
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(
+        jsonResponse(String(url).includes('service-map') ? configuredJdbcMap : activityReport({available: false}))
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    const feedUnavailable =
+      'No live activity sources are available yet. Enable HTTP exchange recording, SQL tracing, REST client tracing, exception capture, or security logs to populate this stream.'
+    expect(wrapper.text()).toContain(feedUnavailable)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('service-map'))).toBe(false)
+
+    await wrapper.findAll('.activity-view-switcher__option')[1].trigger('click')
+    await vi.waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('service-map'))).toBe(true)
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain(feedUnavailable)
+    const jdbcNode = wrapper.get('.flow-node--jdbc')
+    expect(jdbcNode.attributes('aria-label')).toContain('jdbc:postgresql://localhost:5432/shop')
+    expect(jdbcNode.attributes('aria-label')).toContain('configured, no recent evidence')
   })
 })

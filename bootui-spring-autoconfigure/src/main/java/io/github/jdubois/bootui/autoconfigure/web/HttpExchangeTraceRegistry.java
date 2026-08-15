@@ -6,16 +6,16 @@ import java.util.Deque;
 import java.util.List;
 
 /**
- * Bounded, in-memory record of the distributed-trace id active when each recent HTTP request completed on
- * the reactive (WebFlux) adapter, captured by {@code ReactiveHttpExchangeTraceFilter}.
+ * Bounded, in-memory record of the distributed-trace id active when each recent HTTP request completed.
+ * Spring MVC feeds it from {@code RequestCorrelationFilter}; WebFlux feeds it from {@code
+ * ReactiveHttpExchangeTraceFilter}.
  *
  * <p>Spring Boot's Actuator {@code HttpExchange} model has no trace-id field (see
  * {@code CapturedHttpExchange}'s javadoc), so {@link HttpExchangesController} cannot read one back from
- * the exchange it maps for either stack. This side-buffer supplies it for WebFlux, where
- * {@code Span.current()} - not thread identity - is the only signal that survives the Reactor Netty
- * event-loop / {@code boundedElastic} hop a request may take (see {@code ReactiveOtelTraceIdProvider}).
- * The servlet adapter never registers a bean of this type, so {@link HttpExchangesController#toCaptured}
- * simply finds none and keeps its existing header-derived behavior unchanged.</p>
+ * the exchange it maps for either stack. This side-buffer supplies the server-created trace id. MVC reads
+ * the same SLF4J MDC {@code traceId} used by its SQL/cache/REST capture; WebFlux reads {@code
+ * Span.current()}, which survives Reactor Netty event-loop / {@code boundedElastic} hops when automatic
+ * context propagation is enabled (see {@code ReactiveOtelTraceIdProvider}).</p>
  *
  * <p>Matched by method + path + overlapping time window, exactly like
  * {@code RequestCorrelationRegistry} - including requiring a <em>unique</em> candidate, so two genuinely
@@ -36,11 +36,12 @@ public final class HttpExchangeTraceRegistry {
     }
 
     /**
-     * Records one completed request's captured trace id, evicting the oldest entry when the buffer is
-     * full. A blank/missing trace id is not recorded at all - there is nothing useful to correlate later.
+     * Records one completed request, evicting the oldest entry when the buffer is full. Requests without a
+     * usable trace id are retained as ambiguity blockers: otherwise an overlapping traced request with the
+     * same method and path could be incorrectly assigned to the untraced exchange.
      */
     public void record(HttpExchangeTrace trace) {
-        if (trace == null || trace.traceId() == null || trace.traceId().isBlank()) {
+        if (trace == null) {
             return;
         }
         synchronized (lock) {
@@ -76,7 +77,7 @@ public final class HttpExchangeTraceRegistry {
                 found = candidate;
             }
         }
-        return found == null ? null : found.traceId();
+        return found == null || found.traceId() == null || found.traceId().isBlank() ? null : found.traceId();
     }
 
     /** Test-only snapshot of the retained records, oldest first. */

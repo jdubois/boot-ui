@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -76,6 +77,27 @@ class LiveActivityControllerTests {
         controller.stream(); // open an SSE emitter so a signal schedules a flush
         java.util.Set<Thread> before = streamThreads();
         recorder.clear(); // notifies the subscribed change stream → schedules a flush → starts its thread
+
+        Thread scheduler = awaitNewStreamThread(before);
+        assertThat(scheduler).as("scheduler thread should have started").isNotNull();
+
+        controller.shutdown();
+
+        // close() shuts the scheduler down so a DevTools restart does not leak one daemon thread
+        // (and, through it, the discarded context's class loader) per live reload.
+        assertThat(awaitNotAlive(scheduler)).isTrue();
+    }
+
+    @Test
+    void shutdownClosesChangeStreamAndTerminatesSchedulerThreadForCacheActivityRecorderToo() throws Exception {
+        // Preserves/verifies that cache accesses feed the exact same SSE tick the Feed and the Live Flow
+        // map both refresh from - Live Flow's service map has no stream of its own, it rides this one.
+        CacheActivityRecorder recorder = new CacheActivityRecorder(true, 100);
+        LiveActivityController controller = controllerWithCacheActivityRecorder(provider(recorder));
+
+        controller.stream(); // open an SSE emitter so a signal schedules a flush
+        java.util.Set<Thread> before = streamThreads();
+        recorder.recordHit("cacheManager", "products", "product-1"); // notifies the subscribed change stream
 
         Thread scheduler = awaitNewStreamThread(before);
         assertThat(scheduler).as("scheduler thread should have started").isNotNull();
@@ -498,6 +520,34 @@ class LiveActivityControllerTests {
                 empty(RequestCorrelationRegistry.class),
                 empty(SecurityEventCorrelationRegistry.class),
                 empty(io.github.jdubois.bootui.engine.cache.CacheActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
+                empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.jms.JmsActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder.class),
+                empty(io.github.jdubois.bootui.engine.email.EmailCaptureService.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                empty(DataSource.class),
+                new BootUiProperties());
+    }
+
+    private static LiveActivityController controllerWithCacheActivityRecorder(
+            ObjectProvider<CacheActivityRecorder> cacheActivityRecorder) {
+        return new LiveActivityController(
+                empty(HttpExchangesController.class),
+                empty(SqlTraceController.class),
+                empty(RestClientTraceController.class),
+                empty(ExceptionsController.class),
+                empty(SecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(ExceptionStore.class),
+                empty(RequestCorrelationRegistry.class),
+                empty(SecurityEventCorrelationRegistry.class),
+                cacheActivityRecorder,
                 empty(io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.class),
                 empty(io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.class),
                 empty(io.github.jdubois.bootui.engine.jms.JmsActivityRecorder.class),

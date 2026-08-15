@@ -46,6 +46,7 @@ import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.core.env.Environment;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
@@ -102,6 +103,27 @@ class BootUiEngineConfigurationTests {
 
         assertThat(initial.scan().status()).isEqualTo("NOT_SCANNED");
         assertThat(initial.basePackages()).containsExactly("com.example.wiring");
+    }
+
+    @Test
+    void springMvcApiVersioningPropertyDetectionHonorsConfiguredKeys() {
+        MockEnvironment environment = new MockEnvironment();
+
+        assertThat(isSpringMvcApiVersioningConfigured(environment)).isFalse();
+        environment.setProperty("spring.mvc.apiversion.use.path", " ");
+        assertThat(isSpringMvcApiVersioningConfigured(environment)).isFalse();
+
+        for (String key : List.of(
+                "spring.mvc.apiversion.supported",
+                "spring.mvc.apiversion.default",
+                "spring.mvc.apiversion.use.header",
+                "spring.mvc.apiversion.use.path",
+                "spring.mvc.apiversion.use.query-parameter",
+                "spring.mvc.apiversion.use.media-type")) {
+            environment = new MockEnvironment();
+            environment.setProperty(key, "v1");
+            assertThat(isSpringMvcApiVersioningConfigured(environment)).isTrue();
+        }
     }
 
     @Test
@@ -418,6 +440,17 @@ class BootUiEngineConfigurationTests {
     private static Object defaultValue(Method method) {
         Class<?> returnType = method.getReturnType();
         return returnType == boolean.class ? Boolean.FALSE : null;
+    }
+
+    private static boolean isSpringMvcApiVersioningConfigured(Environment environment) {
+        try {
+            Method method = BootUiEngineConfiguration.class.getDeclaredMethod(
+                    "isSpringMvcApiVersioningConfigured", Environment.class);
+            method.setAccessible(true);
+            return (boolean) method.invoke(null, environment);
+        } catch (ReflectiveOperationException ex) {
+            throw new AssertionError("Failed to invoke isSpringMvcApiVersioningConfigured", ex);
+        }
     }
 
     private static final class SampleEntity {}

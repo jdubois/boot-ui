@@ -7,9 +7,12 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ActiveSerializer;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AnnotationReader;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.AotFriendlyBeanRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AutoConfigurationExpression;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.BooleanPropertyConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CglibProxyGenerator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ClassGraphScanner;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.ClasspathConditionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ClasspathScanner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CleanComponent;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CompilerUser;
@@ -21,27 +24,32 @@ import io.github.jdubois.bootui.engine.graalvm.fixtures.DynamicMBeanUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ExpressionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FieldMetadataReader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FieldValueAccessor;
-import io.github.jdubois.bootui.engine.graalvm.fixtures.FilesMetadataInitializer;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.GeneratedInstanceSupplierRegistrar;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.GeneratedSecondaryContextCreator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.InstanceSupplierRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.IntentionalAutoConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.JmxUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.MessagesLoader;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.MethodHandleClassLookup;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.MethodHandleUser;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.ModuleResourceLoader;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.NativeLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.NativeMethodHolder;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.PropertyExpressionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ProxyClassFactory;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.QuotedAtExpressionConfiguration;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.ReflectionMetadataLookup;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ReflectionsScanner;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.ResourceLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.RuntimeClassGenerator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.RuntimeSingletonRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.Sample__BeanDefinitions;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ScriptEngineUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SecondaryContextCreator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SecurityProviderRegistrar;
-import io.github.jdubois.bootui.engine.graalvm.fixtures.ServiceConsumer;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.SecurityProviderSubclass;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SpelUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.StandardMBeanSubclass;
-import io.github.jdubois.bootui.engine.graalvm.fixtures.StateCapturingInitializer;
-import io.github.jdubois.bootui.engine.graalvm.fixtures.StaticInitializerComponent;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SupplierBeanDefiner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.UnrelatedSupplierHolder;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.UnsafeAllocator;
@@ -63,6 +71,46 @@ class GraalVmChecksTests {
                         .as("learnMoreUrl for %s", check.definition().id())
                         .isNotBlank()
                         .startsWith("https://"));
+    }
+
+    @Test
+    void activeCheckInventoryHasStableUniqueIds() {
+        List<String> ids = GraalVmCheckRegistry.activeChecks().stream()
+                .map(check -> check.definition().id())
+                .toList();
+
+        assertThat(ids)
+                .containsExactly(
+                        "GRAAL-REFLECT-001",
+                        "GRAAL-REFLECT-002",
+                        "GRAAL-REFLECT-003",
+                        "GRAAL-REFLECT-004",
+                        "GRAAL-REFLECT-005",
+                        "GRAAL-PROXY-001",
+                        "GRAAL-RES-001",
+                        "GRAAL-RES-002",
+                        "GRAAL-SER-001",
+                        "GRAAL-SER-002",
+                        "GRAAL-NATIVE-001",
+                        "GRAAL-NATIVE-002",
+                        "GRAAL-CLASSGEN-001",
+                        "GRAAL-JDK-001",
+                        "GRAAL-JDK-002",
+                        "GRAAL-SCAN-001",
+                        "SPRING-AOT-001",
+                        "SPRING-AOT-002",
+                        "SPRING-AOT-003",
+                        "SPRING-AOT-005",
+                        "SPRING-AOT-004",
+                        "GRAAL-SPEL-001",
+                        "GRAAL-MH-001",
+                        "GRAAL-SEC-001",
+                        "GRAAL-JMX-001",
+                        "GRAAL-JMX-002",
+                        "GRAAL-FFM-001")
+                .doesNotHaveDuplicates();
+        assertThat(ids).filteredOn(id -> id.startsWith("GRAAL-")).hasSize(22);
+        assertThat(ids).filteredOn(id -> id.startsWith("SPRING-AOT-")).hasSize(5);
     }
 
     private GraalVmFindingDto evaluate(GraalVmCheck check, Class<?>... classes) {
@@ -129,21 +177,13 @@ class GraalVmChecksTests {
     }
 
     @Test
-    void serviceLoaderCheckDetectsServiceLoad() {
-        GraalVmFindingDto finding = evaluate(new ServiceLoaderCheck(), ServiceConsumer.class);
-        assertThat(finding.id()).isEqualTo("GRAAL-SERVICE-001");
-        assertThat(finding.status()).isEqualTo("REVIEW");
-        assertThat(evaluate(new ServiceLoaderCheck(), CleanComponent.class).status())
-                .isEqualTo("OK");
-    }
-
-    @Test
-    void buildTimeInitializationCheckDetectsStaticInitializerSideEffects() {
-        GraalVmFindingDto finding = evaluate(new BuildTimeInitializationCheck(), StaticInitializerComponent.class);
-        assertThat(finding.id()).isEqualTo("GRAAL-INIT-001");
-        assertThat(finding.status()).isEqualTo("REVIEW");
-        assertThat(evaluate(new BuildTimeInitializationCheck(), CleanComponent.class)
+    void resourceAccessCheckDetectsClassAndModuleLookups() {
+        assertThat(evaluate(new ResourceAccessCheck(), ResourceLoader.class).status())
+                .isEqualTo("REVIEW");
+        assertThat(evaluate(new ResourceAccessCheck(), ModuleResourceLoader.class)
                         .status())
+                .isEqualTo("REVIEW");
+        assertThat(evaluate(new ResourceAccessCheck(), CleanComponent.class).status())
                 .isEqualTo("OK");
     }
 
@@ -166,6 +206,9 @@ class GraalVmChecksTests {
         assertThat(evaluate(new ReflectionUsageCheck(), FieldMetadataReader.class)
                         .status())
                 .isEqualTo("OK");
+        assertThat(evaluate(new ReflectionUsageCheck(), ReflectionMetadataLookup.class)
+                        .status())
+                .isEqualTo("REVIEW");
     }
 
     @Test
@@ -174,14 +217,6 @@ class GraalVmChecksTests {
         assertThat(finding.id()).isEqualTo("GRAAL-PROXY-001");
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(evaluate(new DynamicProxyCheck(), CleanComponent.class).status())
-                .isEqualTo("OK");
-    }
-
-    @Test
-    void buildTimeInitializationCheckIgnoresFilesMetadataCalls() {
-        // Files.exists is a metadata helper, not filesystem-touching I/O, so it must not be flagged.
-        assertThat(evaluate(new BuildTimeInitializationCheck(), FilesMetadataInitializer.class)
-                        .status())
                 .isEqualTo("OK");
     }
 
@@ -195,17 +230,6 @@ class GraalVmChecksTests {
                         .status())
                 .isEqualTo("REVIEW");
         assertThat(evaluate(new RuntimeClassGenerationCheck(), CleanComponent.class)
-                        .status())
-                .isEqualTo("OK");
-    }
-
-    @Test
-    void buildTimeStateCaptureCheckDetectsEnvironmentAndSeedCapture() {
-        GraalVmFindingDto finding = evaluate(new BuildTimeStateCaptureCheck(), StateCapturingInitializer.class);
-        assertThat(finding.id()).isEqualTo("GRAAL-INIT-002");
-        assertThat(finding.status()).isEqualTo("REVIEW");
-        assertThat(finding.occurrenceCount()).isPositive();
-        assertThat(evaluate(new BuildTimeStateCaptureCheck(), CleanComponent.class)
                         .status())
                 .isEqualTo("OK");
     }
@@ -273,6 +297,12 @@ class GraalVmChecksTests {
         assertThat(evaluate(new RuntimeInstanceSupplierCheck(), Sample__BeanDefinitions.class)
                         .status())
                 .isEqualTo("OK");
+        assertThat(evaluate(new RuntimeInstanceSupplierCheck(), GeneratedInstanceSupplierRegistrar.class)
+                        .status())
+                .isEqualTo("OK");
+        assertThat(evaluate(new RuntimeInstanceSupplierCheck(), AotFriendlyBeanRegistrar.class)
+                        .status())
+                .isEqualTo("OK");
     }
 
     @Test
@@ -288,17 +318,27 @@ class GraalVmChecksTests {
     }
 
     @Test
-    void springAotConditionedBeansCheckTreatsExpressionsAsHighAndIgnoresAutoConfiguration() {
-        GraalVmFindingDto finding = evaluate(new SpringAotConditionedBeansCheck(), ExpressionConfiguration.class);
+    void springAotConditionChecksUseSeparateStableIdsAndIgnoreAutoConfiguration() {
+        GraalVmFindingDto finding = evaluate(new SpringAotBeanExpressionCheck(), ExpressionConfiguration.class);
+        assertThat(finding.id()).isEqualTo("SPRING-AOT-005");
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(finding.severity()).isEqualTo("HIGH");
         assertThat(evaluate(new SpringAotConditionedBeansCheck(), PropertyExpressionConfiguration.class)
                         .severity())
                 .isEqualTo("MEDIUM");
+        assertThat(evaluate(new SpringAotBeanExpressionCheck(), PropertyExpressionConfiguration.class)
+                        .status())
+                .isEqualTo("OK");
+        assertThat(evaluate(new SpringAotBeanExpressionCheck(), QuotedAtExpressionConfiguration.class)
+                        .status())
+                .isEqualTo("OK");
+        assertThat(evaluate(new SpringAotConditionedBeansCheck(), QuotedAtExpressionConfiguration.class)
+                        .status())
+                .isEqualTo("REVIEW");
         assertThat(evaluate(new SpringAotConditionedBeansCheck(), IntentionalAutoConfiguration.class)
                         .status())
                 .isEqualTo("OK");
-        assertThat(evaluate(new SpringAotConditionedBeansCheck(), AutoConfigurationExpression.class)
+        assertThat(evaluate(new SpringAotBeanExpressionCheck(), AutoConfigurationExpression.class)
                         .severity())
                 .isEqualTo("HIGH");
     }
@@ -309,6 +349,16 @@ class GraalVmChecksTests {
                 evaluate(new SpringAotConditionedBeansCheck(), CustomConditionedConfiguration.class);
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(finding.severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void springAotConditionedBeansCheckCoversBooleanPropertiesButNotClasspathConditions() {
+        assertThat(evaluate(new SpringAotConditionedBeansCheck(), BooleanPropertyConfiguration.class)
+                        .status())
+                .isEqualTo("REVIEW");
+        assertThat(evaluate(new SpringAotConditionedBeansCheck(), ClasspathConditionConfiguration.class)
+                        .status())
+                .isEqualTo("OK");
     }
 
     @Test
@@ -336,6 +386,9 @@ class GraalVmChecksTests {
         assertThat(evaluate(new RuntimeApplicationContextCheck(), CleanComponent.class)
                         .status())
                 .isEqualTo("OK");
+        assertThat(evaluate(new RuntimeApplicationContextCheck(), GeneratedSecondaryContextCreator.class)
+                        .status())
+                .isEqualTo("OK");
     }
 
     @Test
@@ -359,6 +412,9 @@ class GraalVmChecksTests {
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(evaluate(new MethodHandleUsageCheck(), CleanComponent.class).status())
                 .isEqualTo("OK");
+        assertThat(evaluate(new MethodHandleUsageCheck(), MethodHandleClassLookup.class)
+                        .status())
+                .isEqualTo("REVIEW");
     }
 
     @Test
@@ -368,6 +424,9 @@ class GraalVmChecksTests {
         assertThat(finding.severity()).isEqualTo("MEDIUM");
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(evaluate(new SecurityProviderCheck(), CleanComponent.class).status())
+                .isEqualTo("OK");
+        assertThat(evaluate(new SecurityProviderCheck(), SecurityProviderSubclass.class)
+                        .status())
                 .isEqualTo("OK");
     }
 
@@ -396,14 +455,14 @@ class GraalVmChecksTests {
     }
 
     @Test
-    void foreignFunctionCheckMatchesLinkerByName() {
-        assertThat(ForeignFunctionUsageCheck.isForeignLinkerClass("java.lang.foreign.Linker"))
+    void foreignFunctionCheckMatchesOnlyLinkerCallCreation() {
+        assertThat(ForeignFunctionUsageCheck.isForeignLinkerCall("java.lang.foreign.Linker", "downcallHandle"))
                 .isTrue();
-        assertThat(ForeignFunctionUsageCheck.isForeignLinkerClass("java.lang.foreign.Linker$Option"))
+        assertThat(ForeignFunctionUsageCheck.isForeignLinkerCall("java.lang.foreign.Linker", "upcallStub"))
                 .isTrue();
-        assertThat(ForeignFunctionUsageCheck.isForeignLinkerClass("java.lang.foreign.MemorySegment"))
+        assertThat(ForeignFunctionUsageCheck.isForeignLinkerCall("java.lang.foreign.Linker", "nativeLinker"))
                 .isFalse();
-        assertThat(ForeignFunctionUsageCheck.isForeignLinkerClass("java.lang.String"))
+        assertThat(ForeignFunctionUsageCheck.isForeignLinkerCall("java.lang.foreign.MemorySegment", "downcallHandle"))
                 .isFalse();
     }
 
@@ -417,7 +476,7 @@ class GraalVmChecksTests {
     }
 
     @Test
-    void foreignFunctionCheckDetectsLinkerDependencyOnJava17(@TempDir Path directory) throws IOException {
+    void foreignFunctionCheckIgnoresPassiveLinkerDependencyOnJava17(@TempDir Path directory) throws IOException {
         Path classFile = directory.resolve("synthetic/FfmUser.class");
         Files.createDirectories(classFile.getParent());
         writeFfmFixture(classFile);
@@ -426,8 +485,38 @@ class GraalVmChecksTests {
                 evaluate(new ForeignFunctionUsageCheck(), new ClassFileImporter().importPath(directory));
 
         assertThat(finding.id()).isEqualTo("GRAAL-FFM-001");
+        assertThat(finding.status()).isEqualTo("OK");
+    }
+
+    @Test
+    void foreignFunctionCheckDetectsDowncallOnJava17(@TempDir Path directory) throws IOException {
+        Path classFile = directory.resolve("synthetic/FfmCaller.class");
+        Files.createDirectories(classFile.getParent());
+        writeSyntheticCallFixture(classFile, "synthetic/FfmCaller", "java/lang/foreign/Linker", "downcallHandle", true);
+
+        GraalVmFindingDto finding =
+                evaluate(new ForeignFunctionUsageCheck(), new ClassFileImporter().importPath(directory));
+
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(finding.occurrenceCount()).isPositive();
+    }
+
+    @Test
+    void unsafeClassDefinitionBelongsToClassGenerationCheck(@TempDir Path directory) throws IOException {
+        Path classFile = directory.resolve("synthetic/UnsafeClassDefiner.class");
+        Files.createDirectories(classFile.getParent());
+        writeSyntheticCallFixture(classFile, "synthetic/UnsafeClassDefiner", "sun/misc/Unsafe", "defineClass", false);
+        JavaClasses classes = new ClassFileImporter().importPath(directory);
+
+        assertThat(evaluate(new NativeAccessCheck(), classes).status()).isEqualTo("OK");
+        assertThat(evaluate(new RuntimeClassGenerationCheck(), classes).status())
+                .isEqualTo("REVIEW");
+    }
+
+    @Test
+    void nativeAccessCheckDetectsLibraryLoading() {
+        assertThat(evaluate(new NativeAccessCheck(), NativeLoader.class).status())
+                .isEqualTo("REVIEW");
     }
 
     private static void writeFfmFixture(Path classFile) throws IOException {
@@ -452,6 +541,64 @@ class GraalVmChecksTests {
             out.writeShort(0x0001);
             out.writeShort(5);
             out.writeShort(6);
+            out.writeShort(0);
+            out.writeShort(0);
+            out.writeShort(0);
+        }
+    }
+
+    private static void writeSyntheticCallFixture(
+            Path classFile, String className, String ownerName, String methodName, boolean interfaceCall)
+            throws IOException {
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(classFile))) {
+            out.writeInt(0xCAFEBABE);
+            out.writeShort(0);
+            out.writeShort(61);
+            out.writeShort(14);
+            writeUtf8(out, className);
+            out.writeByte(7);
+            out.writeShort(1);
+            writeUtf8(out, "java/lang/Object");
+            out.writeByte(7);
+            out.writeShort(3);
+            writeUtf8(out, "call");
+            writeUtf8(out, "()V");
+            writeUtf8(out, "Code");
+            writeUtf8(out, ownerName);
+            out.writeByte(7);
+            out.writeShort(8);
+            writeUtf8(out, methodName);
+            writeUtf8(out, "()V");
+            out.writeByte(12);
+            out.writeShort(10);
+            out.writeShort(11);
+            out.writeByte(interfaceCall ? 11 : 10);
+            out.writeShort(9);
+            out.writeShort(12);
+            out.writeShort(0x0021);
+            out.writeShort(2);
+            out.writeShort(4);
+            out.writeShort(0);
+            out.writeShort(0);
+            out.writeShort(1);
+            out.writeShort(0x0009);
+            out.writeShort(5);
+            out.writeShort(6);
+            out.writeShort(1);
+            out.writeShort(7);
+            int codeLength = interfaceCall ? 7 : 5;
+            out.writeInt(12 + codeLength);
+            out.writeShort(1);
+            out.writeShort(0);
+            out.writeInt(codeLength);
+            out.writeByte(0x01);
+            out.writeByte(interfaceCall ? 0xb9 : 0xb6);
+            out.writeShort(13);
+            if (interfaceCall) {
+                out.writeByte(1);
+                out.writeByte(0);
+            }
+            out.writeByte(0xb1);
             out.writeShort(0);
             out.writeShort(0);
             out.writeShort(0);
