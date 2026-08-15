@@ -508,7 +508,10 @@ as absence.
 This catalogue was audited against Spring Boot 4.1.0 / Spring Security 7.1.0. The audit removed two unsupported
 conclusions while keeping the total at 25: `SEC-RXF-OAUTH2-001` could not establish decoder-local audience validation
 from unrelated validator beans, and `SEC-RXF-CONFIG-001` targeted an unsupported `spring.security.debug` property.
-Their replacements are the directly observable `SEC-RXF-ACT-005` and the RFC-backed `SEC-RXF-OAUTH2-004`.
+Their replacements are the directly observable `SEC-RXF-ACT-005` and the RFC-backed `SEC-RXF-OAUTH2-004`. A follow-up
+review closed two MVC/WebFlux parity gaps, bringing the total to 26: `SEC-RXF-CSRF-001` and `SEC-RXF-SESSION-001` now
+also recognize `formLogin()` chains (previously only OAuth2/OIDC login filters were detected), and the new
+`SEC-RXF-CORS-003` flags broad `allowedOriginPatterns` (e.g. `https://*`) to match the servlet stack's `SEC-CORS-006`.
 
 ### SEC-RXF-AUTHZ-001 - Reactive chain has no AuthorizationWebFilter
 
@@ -534,10 +537,10 @@ claim to distinguish `permitAll`, `authenticated`, role-based, or custom authori
 - **Recommendation**: Define authentication and authorization rules for non-public endpoints, or verify equivalent custom filters.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/authorization/authorize-http-requests.html>
 
-### SEC-RXF-CSRF-001 - Observed OAuth2/OIDC login chain missing CsrfWebFilter
+### SEC-RXF-CSRF-001 - Observed OAuth2/OIDC or formLogin() chain missing CsrfWebFilter
 
 - **Severity**: HIGH
-- **Detects**: A chain with an observed OAuth2/OIDC login filter has no `CsrfWebFilter`.
+- **Detects**: A chain with an observed OAuth2/OIDC login filter or a `formLogin()` authentication converter has no `CsrfWebFilter`.
 - **Recommendation**: Keep CSRF enabled for browser login chains; configure the appropriate reactive token repository.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/csrf.html>
 
@@ -564,6 +567,13 @@ claim to distinguish `permitAll`, `authenticated`, role-based, or custom authori
 
 Spring separately rejects `allowedOrigins="*"` with credentials; that invalid combination remains covered by
 `SEC-RXF-CORS-001`, not misreported as a live credentialed wildcard policy.
+
+### SEC-RXF-CORS-003 - Reactive CORS should not allow broad origin patterns
+
+- **Severity**: MEDIUM (HIGH when any broad pattern has allowCredentials=true)
+- **Detects**: `allowedOriginPatterns` that match a dangerously broad set of origins (wildcard scheme or host, e.g. `https://*`, `*://*`, `*.com`) beyond the exact `"*"` already covered by `SEC-RXF-CORS-001`/`SEC-RXF-CORS-002`.
+- **Recommendation**: Replace broad patterns with the exact origins (or tightly-scoped subdomain wildcards such as `https://*.example.com`) the application trusts; broad patterns combined with credentials let untrusted sites make authenticated cross-site calls.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webflux-cors.html>
 
 ### SEC-RXF-HEAD-001 - Reactive chain missing HSTS header writer
 
@@ -691,10 +701,10 @@ authorization is not exposed as stable runtime metadata.
 - **Recommendation**: Keep `org.springframework.security` logging at INFO or WARN in production.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/index.html>
 
-### SEC-RXF-SESSION-001 - Reactive chain mixes bearer-token and browser OAuth2 filters
+### SEC-RXF-SESSION-001 - Reactive chain mixes bearer-token and browser login filters
 
 - **Severity**: LOW
-- **Detects**: One chain combines Spring Security's bearer-token converter with an observed OAuth2/OIDC login or authorization-code client filter.
+- **Detects**: One chain combines Spring Security's bearer-token converter with an observed OAuth2/OIDC login, authorization-code client, or `formLogin()` filter.
 - **Recommendation**: Prefer separate ordered chains. For a pure bearer chain, use
   `securityContextRepository(NoOpServerSecurityContextRepository.getInstance())`; WebFlux has no
   `SessionCreationPolicy` API.

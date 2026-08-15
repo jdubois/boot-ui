@@ -57,6 +57,14 @@ class SpringReactiveSecurityObservationCollectorTests {
         }
     }
 
+    private static final class ServerFormLoginAuthenticationConverter implements ServerAuthenticationConverter {
+
+        @Override
+        public Mono<org.springframework.security.core.Authentication> convert(ServerWebExchange exchange) {
+            return Mono.empty();
+        }
+    }
+
     private static final class CyclicServerHttpHeadersWriter implements ServerHttpHeadersWriter {
 
         @SuppressWarnings("FieldCanBeLocal")
@@ -295,6 +303,39 @@ class SpringReactiveSecurityObservationCollectorTests {
 
         assertThat(collector.collect().chains().get(0).bearerTokenAuthentication())
                 .isTrue();
+    }
+
+    @Test
+    void recognizesFormLoginAuthenticationConverterWithoutReadingCredentials() {
+        ReactiveAuthenticationManager authenticationManager = authentication -> Mono.empty();
+        AuthenticationWebFilter formLoginFilter = new AuthenticationWebFilter(authenticationManager);
+        formLoginFilter.setServerAuthenticationConverter(new ServerFormLoginAuthenticationConverter());
+        SecurityWebFilterChain chain =
+                new MatcherSecurityWebFilterChain(ServerWebExchangeMatchers.anyExchange(), List.of(formLoginFilter));
+
+        SpringReactiveSecurityObservationCollector collector = new SpringReactiveSecurityObservationCollector(
+                chainProvider(List.of(chain)), beanFactoryProvider(null), new MockEnvironment());
+
+        WebFilterChainObservation observation = collector.collect().chains().get(0);
+        assertThat(observation.formLoginAuthentication()).isTrue();
+        // A formLogin() converter must not also be mistaken for a bearer-token converter.
+        assertThat(observation.bearerTokenAuthentication()).isFalse();
+    }
+
+    @Test
+    void doesNotRecognizeAnUnrelatedAuthenticationConverterAsBearerOrFormLogin() {
+        ReactiveAuthenticationManager authenticationManager = authentication -> Mono.empty();
+        AuthenticationWebFilter basicFilter = new AuthenticationWebFilter(authenticationManager);
+        basicFilter.setServerAuthenticationConverter(exchange -> Mono.empty());
+        SecurityWebFilterChain chain =
+                new MatcherSecurityWebFilterChain(ServerWebExchangeMatchers.anyExchange(), List.of(basicFilter));
+
+        SpringReactiveSecurityObservationCollector collector = new SpringReactiveSecurityObservationCollector(
+                chainProvider(List.of(chain)), beanFactoryProvider(null), new MockEnvironment());
+
+        WebFilterChainObservation observation = collector.collect().chains().get(0);
+        assertThat(observation.bearerTokenAuthentication()).isFalse();
+        assertThat(observation.formLoginAuthentication()).isFalse();
     }
 
     @Test

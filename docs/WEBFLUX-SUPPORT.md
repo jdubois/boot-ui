@@ -276,7 +276,7 @@ collection, chain match, and authorization simulation remains a Reactor `Mono`/`
 
 ### 6.6 Security advisor (`security`) — live on WebFlux
 
-The advisor uses a dedicated 25-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
+The advisor uses a dedicated 26-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
 the application's `SecurityWebFilterChain` configuration. It stays distinct from the raw `spring-security` panel:
 the raw panel explains the configured chains and mappings, while the advisor turns the observed posture into bounded,
 deterministic findings across authorization, CSRF, CORS, headers, Actuator exposure, OAuth2/JWT, configuration, and
@@ -301,6 +301,10 @@ legal `allowedOriginPatterns="*"` case, CSP absence is a LOW contextual review (
 as non-enforcing), static JWT keys are LOW rotation advice, HTTPS/Actuator findings avoid claiming knowledge of external
 deployment policy, and the mixed bearer/login rule uses WebFlux's real `NoOpServerSecurityContextRepository`
 remediation rather than servlet-only `SessionCreationPolicy`.
+
+A follow-up parity review brought the catalogue to 26 rules: `SEC-RXF-CSRF-001` and `SEC-RXF-SESSION-001` now also
+recognize `formLogin()` chains, not just OAuth2/OIDC login filters, and the new `SEC-RXF-CORS-003` flags broad
+`allowedOriginPatterns` (e.g. `https://*`) to match the servlet stack's `SEC-CORS-006`.
 
 ### 6.7 Not applicable (1 panel)
 

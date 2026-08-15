@@ -4,7 +4,7 @@ import java.util.List;
 
 final class ReactiveSecurityRuleRegistry {
 
-    static final int RULE_COUNT = 25;
+    static final int RULE_COUNT = 26;
 
     private static final List<ReactiveSecurityRule> ACTIVE_RULES = List.of(
             // Authorization
@@ -17,6 +17,7 @@ final class ReactiveSecurityRuleRegistry {
             // CORS
             new ReactiveCorsWildcardOriginRule(),
             new ReactiveCorsWildcardWithCredentialsRule(),
+            new ReactiveBroadCorsOriginPatternRule(),
             // Transport & security headers
             new ReactiveHstsHeaderRule(),
             new ReactiveFrameOptionsRule(),

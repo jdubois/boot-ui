@@ -119,12 +119,12 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(page.getByText(/Spring MVC mapping/)).toHaveCount(0)
   })
 
-  test('Security advisor runs the 25-rule reactive catalogue', async ({page}) => {
+  test('Security advisor runs the 26-rule reactive catalogue', async ({page}) => {
     await page.goto('/bootui/#/security')
     await expect(page.locator('.panel-availability-alert')).toHaveCount(0)
     await page.getByRole('button', {name: 'Run security checks'}).click()
     await expect(page.getByText('Scan complete', {exact: true})).toBeVisible({timeout: 15_000})
-    await expect(page.getByText('Rules evaluated').locator('..')).toContainText('25')
+    await expect(page.getByText('Rules evaluated').locator('..')).toContainText('26')
   })
 
   test('REST Client records WebClient calls, streams updates, and protects actions with CSRF', async ({

@@ -116,7 +116,7 @@ docker run --rm -p 8081:8081 \
 
 The large majority of panels work identically to the servlet image. The raw **Spring Security** panel shows the
 sample's reactive `SecurityWebFilterChain` and `WebFilter` pipeline with clearly marked best-effort explanations, and
-the **Security advisor** runs its WebFlux-native 25-rule catalogue. The **REST Client** panel captures calls from Spring
+the **Security advisor** runs its WebFlux-native 26-rule catalogue. The **REST Client** panel captures calls from Spring
 Boot's auto-configured `WebClient.Builder`, including live SSE updates and pause/resume/clear actions. **HTTP Sessions**
 stays not applicable (WebFlux has no `HttpSession`). See
 [WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full current status.

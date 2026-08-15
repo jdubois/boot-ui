@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Pure unit tests for the framework-neutral reactive Spring Security advisor: {@link
- * ReactiveSecurityScanner}, {@link ReactiveSecurityRuleRegistry}, and the 25 {@code SEC-RXF-*} rules.
+ * ReactiveSecurityScanner}, {@link ReactiveSecurityRuleRegistry}, and the 26 {@code SEC-RXF-*} rules.
  * Everything here builds a plain {@link ReactiveSecurityObservation} — no Spring, no reflection, no
  * {@code MockEnvironment} — mirroring how {@code SpringReactiveSecurityObservationCollector} feeds the
  * scanner in production.
@@ -307,6 +307,82 @@ class ReactiveSecurityScannerTests {
     }
 
     @Test
+    void scanDetectsCsrfWebFilterAbsenceForFormLoginChain() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextServerWebExchangeWebFilter",
+                        "AuthorizationWebFilter",
+                        "AuthenticationWebFilter"),
+                Boolean.FALSE,
+                false,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null,
+                true,
+                true);
+        SecurityReport report = scan(chain, List.of(), false);
+
+        // Observed formLogin() converter without CsrfWebFilter should trigger SEC-RXF-CSRF-001, same
+        // as an OAuth2/OIDC login filter.
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-RXF-CSRF-001");
+    }
+
+    @Test
+    void formLoginChainWithCsrfWebFilterDoesNotTriggerCsrfRule() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextServerWebExchangeWebFilter",
+                        "AuthorizationWebFilter",
+                        "AuthenticationWebFilter",
+                        "CsrfWebFilter"),
+                Boolean.FALSE,
+                false,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null,
+                true,
+                true);
+        SecurityReport report = scan(chain, List.of(), false);
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-CSRF-001");
+    }
+
+    @Test
+    void plainAuthenticationWebFilterWithoutFormLoginConverterDoesNotTriggerLoginRules() {
+        // A generic AuthenticationWebFilter (e.g. HTTP Basic) whose converter is not
+        // ServerFormLoginAuthenticationConverter must not be mistaken for a formLogin() chain.
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextServerWebExchangeWebFilter",
+                        "AuthorizationWebFilter",
+                        "AuthenticationWebFilter"),
+                Boolean.FALSE,
+                false,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null,
+                true,
+                false);
+        SecurityReport report = scan(chain, List.of(), false);
+
+        assertThat(report.results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-CSRF-001", "SEC-RXF-SESSION-001");
+    }
+
+    @Test
     void scanDetectsWildcardCorsOrigin() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0,
@@ -371,6 +447,145 @@ class ReactiveSecurityScannerTests {
                 .singleElement()
                 .extracting(SecurityRuleResultDto::severity)
                 .isEqualTo("HIGH");
+    }
+
+    @Test
+    void broadWildcardSchemeOriginPatternTriggersMediumSeverityRule() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthorizationWebFilter", "CorsWebFilter"),
+                Boolean.FALSE,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null);
+        SecurityReport report = scan(
+                chain,
+                List.of(new CorsConfigObservation(
+                        "/**", List.of(), List.of("https://*"), List.of(), List.of(), Boolean.FALSE)),
+                true);
+
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-CORS-003"))
+                .singleElement()
+                .extracting(SecurityRuleResultDto::severity)
+                .isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void broadTopLevelDomainSuffixOriginPatternTriggersMediumSeverityRule() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthorizationWebFilter", "CorsWebFilter"),
+                Boolean.FALSE,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null);
+        SecurityReport report = scan(
+                chain,
+                List.of(new CorsConfigObservation(
+                        "/**", List.of(), List.of("https://*.com"), List.of(), List.of(), Boolean.FALSE)),
+                true);
+
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-CORS-003"))
+                .singleElement()
+                .extracting(SecurityRuleResultDto::severity)
+                .isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void credentialedBroadOriginPatternTriggersHighSeverityBroadPatternRule() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthorizationWebFilter", "CorsWebFilter"),
+                Boolean.FALSE,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null);
+        SecurityReport report = scan(
+                chain,
+                List.of(new CorsConfigObservation(
+                        "/**", List.of(), List.of("*://*"), List.of(), List.of(), Boolean.TRUE)),
+                true);
+
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-CORS-003"))
+                .singleElement()
+                .extracting(SecurityRuleResultDto::severity)
+                .isEqualTo("HIGH");
+    }
+
+    @Test
+    void scopedSubdomainWildcardOriginPatternDoesNotTriggerBroadPatternRule() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthorizationWebFilter", "CorsWebFilter"),
+                Boolean.FALSE,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null);
+        SecurityReport report = scan(
+                chain,
+                List.of(new CorsConfigObservation(
+                        "/**", List.of(), List.of("https://*.example.com"), List.of(), List.of(), Boolean.TRUE)),
+                true);
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-CORS-003");
+    }
+
+    @Test
+    void exactWildcardOriginPatternDoesNotDuplicateBroadPatternRule() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthorizationWebFilter", "CorsWebFilter"),
+                Boolean.FALSE,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null);
+        SecurityReport report = scan(
+                chain,
+                List.of(new CorsConfigObservation("/**", List.of(), List.of("*"), List.of(), List.of(), Boolean.TRUE)),
+                true);
+
+        // The exact "*" pattern is already covered by SEC-RXF-CORS-001/002; the broad-pattern rule
+        // must not fire a duplicate finding for it.
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-CORS-003");
+    }
+
+    @Test
+    void safeExplicitOriginDoesNotTriggerBroadPatternRule() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthorizationWebFilter", "CorsWebFilter"),
+                Boolean.FALSE,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null);
+        SecurityReport report = scan(
+                chain,
+                List.of(new CorsConfigObservation(
+                        "/**", List.of(), List.of("https://app.example.com"), List.of(), List.of(), Boolean.TRUE)),
+                true);
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-CORS-003");
     }
 
     @Test
@@ -702,6 +917,50 @@ class ReactiveSecurityScannerTests {
     }
 
     @Test
+    void scanDetectsMixedBearerTokenAndFormLoginFilters() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthorizationWebFilter", "AuthenticationWebFilter"),
+                Boolean.FALSE,
+                true,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                true,
+                true);
+
+        SecurityReport report = scan(chain, List.of(), false);
+
+        // A chain that mixes a bearer-token converter with a formLogin() converter should trigger
+        // SEC-RXF-SESSION-001, the same as mixing bearer-token with an OAuth2/OIDC login filter.
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-RXF-SESSION-001");
+    }
+
+    @Test
+    void bearerTokenAloneWithoutFormLoginDoesNotTriggerMixedSessionRule() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthorizationWebFilter", "AuthenticationWebFilter"),
+                Boolean.FALSE,
+                true,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                true,
+                false);
+
+        SecurityReport report = scan(chain, List.of(), false);
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-SESSION-001");
+    }
+
+    @Test
     void plainHttpOpaqueTokenIntrospectionIsHighSeverityOnlyInProduction() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0, "any request", List.of("AuthorizationWebFilter"), Boolean.FALSE, List.of(), null, null, null, null);
@@ -767,7 +1026,7 @@ class ReactiveSecurityScannerTests {
     @Test
     void ruleCountMatchesRegistry() {
         assertThat(ReactiveSecurityRuleRegistry.activeRules()).hasSize(RULE_COUNT);
-        assertThat(RULE_COUNT).isEqualTo(25);
+        assertThat(RULE_COUNT).isEqualTo(26);
     }
 
     @Test
@@ -783,9 +1042,9 @@ class ReactiveSecurityScannerTests {
                 .map(r -> r.definition().id())
                 .toList();
         assertThat(ids).doesNotHaveDuplicates();
-        assertThat(ids).hasSize(25);
+        assertThat(ids).hasSize(26);
         assertThat(ids)
-                .contains("SEC-RXF-ACT-005", "SEC-RXF-OAUTH2-004")
+                .contains("SEC-RXF-ACT-005", "SEC-RXF-OAUTH2-004", "SEC-RXF-CORS-003")
                 .doesNotContain("SEC-RXF-CONFIG-001", "SEC-RXF-OAUTH2-001");
         List<String> sorted = ids.stream().sorted().toList();
         // Registry order need not be alphabetical, but must be stable/deterministic across calls.

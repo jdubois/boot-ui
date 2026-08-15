@@ -315,7 +315,7 @@ threads. This applies automatically at custom `bootui.api-path` mounts and does 
 
 The large majority of BootUI's panels are live on the reactive adapter, including every advisor scan,
 plus Flyway/Liquibase, Database Connection Pools, Cache, SQL Trace, Log Tail, Security Logs, Exceptions, and Live
-Activity (over a rebuilt reactive streaming/capture layer). The raw **Spring Security** panel and the 25-rule
+Activity (over a rebuilt reactive streaming/capture layer). The raw **Spring Security** panel and the 26-rule
 **Security advisor** are live whenever the application contributes a `SecurityWebFilterChain`; the raw panel's
 path/method-only explanations are clearly marked as best effort. The **REST Client** panel is live after the application
 builds a `WebClient` from Spring Boot's auto-configured `WebClient.Builder`; it provides the same report and actions as the

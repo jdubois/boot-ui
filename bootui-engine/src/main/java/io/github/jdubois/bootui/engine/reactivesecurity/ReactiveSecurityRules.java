@@ -111,10 +111,10 @@ final class ReactiveCsrfDisabledLoginRule extends AbstractReactiveSecurityRule {
     ReactiveCsrfDisabledLoginRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-CSRF-001",
-                "Reactive OAuth2/OIDC login chains should enable CSRF protection",
+                "Reactive OAuth2/OIDC or formLogin() chains should enable CSRF protection",
                 ReactiveSecurityCategory.CSRF,
                 "HIGH",
-                "Detects a reactive chain with an observed OAuth2/OIDC login filter but no CsrfWebFilter. Without CSRF protection, cross-origin state-changing requests can be forged.",
+                "Detects a reactive chain with an observed OAuth2/OIDC login filter or a formLogin() authentication converter but no CsrfWebFilter. Without CSRF protection, cross-origin state-changing requests can be forged.",
                 "Keep CSRF enabled for browser login chains, using .csrf(Customizer.withDefaults()) or a CookieServerCsrfTokenRepository as appropriate.",
                 "https://docs.spring.io/spring-security/reference/reactive/exploits/csrf.html"));
     }
@@ -124,7 +124,8 @@ final class ReactiveCsrfDisabledLoginRule extends AbstractReactiveSecurityRule {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
             if (chain.hasObservedInteractiveLoginFilter() && !chain.hasCsrfWebFilter()) {
-                details.add(chain.describe() + " has an OAuth2/OIDC login filter but no CsrfWebFilter is installed.");
+                details.add(chain.describe()
+                        + " has an OAuth2/OIDC or formLogin() login filter but no CsrfWebFilter is installed.");
             }
         }
         return filterViolation(context, details);
@@ -215,6 +216,41 @@ final class ReactiveCorsWildcardWithCredentialsRule extends AbstractReactiveSecu
             }
         }
         return corsViolation(context, details);
+    }
+}
+
+final class ReactiveBroadCorsOriginPatternRule extends AbstractReactiveSecurityRule {
+
+    ReactiveBroadCorsOriginPatternRule() {
+        super(new ReactiveSecurityRuleDefinition(
+                "SEC-RXF-CORS-003",
+                "Reactive CORS should not allow broad origin patterns",
+                ReactiveSecurityCategory.CORS,
+                "MEDIUM",
+                "Detects allowedOriginPatterns that match a dangerously broad set of origins (wildcard scheme or host, e.g. https://*, *://*, *.com) beyond the exact \"*\" already covered by SEC-RXF-CORS-001/002.",
+                "Replace broad patterns with the exact origins (or tightly-scoped subdomain wildcards such as https://*.example.com) the application trusts; broad patterns combined with credentials let untrusted sites make authenticated cross-site calls.",
+                "https://docs.spring.io/spring-framework/reference/web/webflux-cors.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
+        List<String> details = new ArrayList<>();
+        boolean credentialed = false;
+        for (CorsConfigObservation config : context.corsConfigs()) {
+            List<String> broad = config.broadOriginPatterns();
+            if (broad.isEmpty()) {
+                continue;
+            }
+            boolean allowsCredentials = Boolean.TRUE.equals(config.allowCredentials());
+            credentialed = credentialed || allowsCredentials;
+            String suffix = allowsCredentials ? " with allowCredentials=true" : "";
+            details.add("CORS config for pattern '" + config.pattern() + "' uses broad origin patterns " + broad
+                    + suffix + ".");
+        }
+        if (details.isEmpty()) {
+            return corsViolation(context, details);
+        }
+        return violation(credentialed ? "HIGH" : "MEDIUM", details);
     }
 }
 
@@ -721,11 +757,11 @@ final class ReactiveMixedBearerAndLoginRule extends AbstractReactiveSecurityRule
     ReactiveMixedBearerAndLoginRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-SESSION-001",
-                "Review reactive chains that mix bearer-token and browser OAuth2 filters",
+                "Review reactive chains that mix bearer-token and browser login filters",
                 ReactiveSecurityCategory.SESSION,
                 "LOW",
-                "Detects a chain with both Spring Security's bearer-token converter and an observed OAuth2/OIDC login or authorization-code client filter. This mixed topology may be intentional; filter presence does not prove SecurityContext persistence.",
-                "Prefer separate ordered SecurityWebFilterChain beans for browser OAuth2 and resource-server paths. For a pure bearer chain, use securityContextRepository(NoOpServerSecurityContextRepository.getInstance()); WebFlux has no SessionCreationPolicy API.",
+                "Detects a chain with both Spring Security's bearer-token converter and an observed OAuth2/OIDC login, authorization-code client, or formLogin() filter. This mixed topology may be intentional; filter presence does not prove SecurityContext persistence.",
+                "Prefer separate ordered SecurityWebFilterChain beans for browser login and resource-server paths. For a pure bearer chain, use securityContextRepository(NoOpServerSecurityContextRepository.getInstance()); WebFlux has no SessionCreationPolicy API.",
                 "https://docs.spring.io/spring-security/reference/reactive/authentication/index.html"));
     }
 
@@ -736,7 +772,7 @@ final class ReactiveMixedBearerAndLoginRule extends AbstractReactiveSecurityRule
             if (chain.bearerTokenAuthentication() && chain.hasObservedInteractiveLoginFilter()) {
                 details.add(
                         chain.describe()
-                                + " configures both bearer-token authentication and an OAuth2/OIDC browser filter; review whether separate chains would express the two security models more safely.");
+                                + " configures both bearer-token authentication and an OAuth2/OIDC or formLogin() browser filter; review whether separate chains would express the two security models more safely.");
             }
         }
         return filterViolation(context, details);

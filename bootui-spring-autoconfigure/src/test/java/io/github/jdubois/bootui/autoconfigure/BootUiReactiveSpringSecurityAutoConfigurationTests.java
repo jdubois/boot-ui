@@ -171,7 +171,7 @@ class BootUiReactiveSpringSecurityAutoConfigurationTests {
                     .jsonPath("$.filterChainsAnalyzed")
                     .isEqualTo(1)
                     .jsonPath("$.rulesEvaluated")
-                    .isEqualTo(25);
+                    .isEqualTo(26);
         });
     }
 

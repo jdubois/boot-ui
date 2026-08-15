@@ -28,6 +28,9 @@ import java.util.Locale;
  * @param cspReportOnly whether the CSP writer emits Content-Security-Policy-Report-Only
  * @param headerWritersObserved whether header-writer extraction completed; {@code false} means
  *     rules that require writer details must remain inconclusive
+ * @param formLoginAuthentication whether the chain contains an {@code AuthenticationWebFilter}
+ *     backed by Spring Security's reactive {@code ServerFormLoginAuthenticationConverter}, i.e. a
+ *     {@code formLogin()} chain
  */
 public record WebFilterChainObservation(
         int index,
@@ -40,7 +43,36 @@ public record WebFilterChainObservation(
         Boolean hstsIncludeSubdomains,
         String cspPolicyDirectives,
         Boolean cspReportOnly,
-        boolean headerWritersObserved) {
+        boolean headerWritersObserved,
+        boolean formLoginAuthentication) {
+
+    /** Compatibility constructor for observations created before formLogin() detection was added. */
+    public WebFilterChainObservation(
+            int index,
+            String matcher,
+            List<String> webFilterNames,
+            Boolean permitsAllAnonymous,
+            boolean bearerTokenAuthentication,
+            List<String> headerWriterNames,
+            Long hstsMaxAgeSeconds,
+            Boolean hstsIncludeSubdomains,
+            String cspPolicyDirectives,
+            Boolean cspReportOnly,
+            boolean headerWritersObserved) {
+        this(
+                index,
+                matcher,
+                webFilterNames,
+                permitsAllAnonymous,
+                bearerTokenAuthentication,
+                headerWriterNames,
+                hstsMaxAgeSeconds,
+                hstsIncludeSubdomains,
+                cspPolicyDirectives,
+                cspReportOnly,
+                headerWritersObserved,
+                false);
+    }
 
     private static final long HSTS_MIN_MAX_AGE_SECONDS = 31536000L;
 
@@ -208,6 +240,7 @@ public record WebFilterChainObservation(
     boolean hasObservedInteractiveLoginFilter() {
         return hasWebFilter("OAuth2LoginAuthenticationWebFilter")
                 || hasWebFilter("OidcSessionRegistryAuthenticationWebFilter")
-                || hasWebFilter("OAuth2AuthorizationCodeGrantWebFilter");
+                || hasWebFilter("OAuth2AuthorizationCodeGrantWebFilter")
+                || formLoginAuthentication;
     }
 }

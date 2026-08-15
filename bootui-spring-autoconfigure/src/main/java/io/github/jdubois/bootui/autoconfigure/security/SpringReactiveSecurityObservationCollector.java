@@ -156,6 +156,8 @@ public final class SpringReactiveSecurityObservationCollector {
         }
         boolean bearerTokenAuthentication = webFilters != null
                 && webFilters.stream().anyMatch(SpringReactiveSecurityObservationCollector::isBearerTokenFilter);
+        boolean formLoginAuthentication = webFilters != null
+                && webFilters.stream().anyMatch(SpringReactiveSecurityObservationCollector::isFormLoginFilter);
         HeaderWriterInfo headerWriters = detectHeaderWriters(webFilters, index, errors);
         return new WebFilterChainObservation(
                 index,
@@ -168,7 +170,8 @@ public final class SpringReactiveSecurityObservationCollector {
                 headerWriters.hstsIncludeSubdomains(),
                 headerWriters.cspPolicyDirectives(),
                 headerWriters.cspReportOnly(),
-                headerWriters.observed());
+                headerWriters.observed(),
+                formLoginAuthentication);
     }
 
     /**
@@ -266,6 +269,14 @@ public final class SpringReactiveSecurityObservationCollector {
         }
         Object converter = readField(filter, "authenticationConverter");
         return converter != null && converter.getClass().getName().endsWith("ServerBearerTokenAuthenticationConverter");
+    }
+
+    private static boolean isFormLoginFilter(WebFilter filter) {
+        if (!"AuthenticationWebFilter".equals(filter.getClass().getSimpleName())) {
+            return false;
+        }
+        Object converter = readField(filter, "authenticationConverter");
+        return converter != null && converter.getClass().getName().endsWith("ServerFormLoginAuthenticationConverter");
     }
 
     private static HeaderWriterInfo detectHeaderWriters(List<WebFilter> filters, int chainIndex, List<String> errors) {
