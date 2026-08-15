@@ -17,6 +17,7 @@ class RestApiHandlerModelBuilderTests {
     private static final String EDGE = "io.github.jdubois.bootui.engine.restapi.edgecases";
     private static final String PHASE3_BAD = "io.github.jdubois.bootui.engine.restapi.phase3.bad";
     private static final String PHASE3_FIXES = "io.github.jdubois.bootui.engine.restapi.phase3.fixes";
+    private static final String ACCURACY = "io.github.jdubois.bootui.engine.restapi.accuracy";
 
     private RestApiHandlerModelBuilder model() {
         JavaClasses classes = new ClassFileImporter().importPackages(FIXTURES);
@@ -236,5 +237,28 @@ class RestApiHandlerModelBuilderTests {
 
         assertThat(model.responseStatusExceptionClasses()).isNotEmpty();
         assertThat(model.responseStatusExceptionClasses()).anyMatch(name -> name.contains("BizException"));
+    }
+
+    @Test
+    void modelsInheritedMappingsAndReactiveResponseArguments() {
+        JavaClasses classes = new ClassFileImporter().importPackages(ACCURACY);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        HandlerMethodModel inheritedPath = handler(model, "inheritedPath");
+        assertThat(inheritedPath.effectivePaths()).containsExactly("/accounts/{accountId}/widgets");
+        assertThat(inheritedPath.pathVariableNames()).containsExactly("accountId");
+
+        HandlerMethodModel interfacePath = handler(model, "interfacePath");
+        assertThat(interfacePath.effectivePaths()).containsExactly("/interfaces/{interfaceId}/widgets");
+        assertThat(interfacePath.pathVariableNames()).containsExactly("interfaceId");
+
+        HandlerMethodModel reactiveCreate = handler(model, "createWithReactiveResponse");
+        assertThat(reactiveCreate.hasResponseParam()).isTrue();
+
+        ExceptionHandlerModel reactiveAdvice = model.exceptionHandlers().stream()
+                .filter(candidate -> candidate.methodName().equals("handle"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(reactiveAdvice.hasResponseParam()).isTrue();
     }
 }

@@ -146,4 +146,15 @@ class CacheActivityRecorderTests {
         assertThat(new CacheActivityRecorder(true, 10).isEnabled()).isTrue();
         assertThat(new CacheActivityRecorder(false, 10).isEnabled()).isFalse();
     }
+
+    @Test
+    void tracksWhetherAnAdapterInstrumentedACacheManager() {
+        CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10);
+
+        assertThat(recorder.hasInstrumentedManager()).isFalse();
+
+        recorder.markInstrumentedManager();
+
+        assertThat(recorder.hasInstrumentedManager()).isTrue();
+    }
 }

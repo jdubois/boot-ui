@@ -13,23 +13,27 @@ class CacheActivityCacheManagerBeanPostProcessorTests {
 
     @Test
     void wrapsCacheManagerBeanWhenRecorderEnabled() {
+        CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10);
         CacheActivityCacheManagerBeanPostProcessor bpp = new CacheActivityCacheManagerBeanPostProcessor(
-                provider(new CacheActivityRecorder(true, 10)), provider(BootUiSelfDataFilter.defaults()));
+                provider(recorder), provider(BootUiSelfDataFilter.defaults()));
 
         Object result = bpp.postProcessAfterInitialization(new ConcurrentMapCacheManager("orders"), "cacheManager");
 
         assertThat(result).isInstanceOf(CacheActivityAware.class);
+        assertThat(recorder.hasInstrumentedManager()).isTrue();
     }
 
     @Test
     void leavesBeanUnwrappedWhenRecorderDisabled() {
+        CacheActivityRecorder recorder = new CacheActivityRecorder(false, 10);
         CacheActivityCacheManagerBeanPostProcessor bpp = new CacheActivityCacheManagerBeanPostProcessor(
-                provider(new CacheActivityRecorder(false, 10)), provider(BootUiSelfDataFilter.defaults()));
+                provider(recorder), provider(BootUiSelfDataFilter.defaults()));
         CacheManager original = new ConcurrentMapCacheManager("orders");
 
         Object result = bpp.postProcessAfterInitialization(original, "cacheManager");
 
         assertThat(result).isSameAs(original);
+        assertThat(recorder.hasInstrumentedManager()).isFalse();
     }
 
     @Test

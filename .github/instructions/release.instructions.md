@@ -9,7 +9,8 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
 - Keep `quarkus.platform.version` independent from the BootUI project version.
 - Published artifacts are the parent POM, core, engine, UI, Spring autoconfigure, both Spring starters (MVC and
   reactive), Quarkus parent, Quarkus runtime, and Quarkus deployment. Sample apps, integration tests, and conformance
-  must retain `maven.deploy.skip=true`.
+  must retain `maven.deploy.skip=true`, remain in the Central plugin's `excludeArtifacts` list, and stay outside the
+  publication-only reactor in `release.yml`.
 - The source-less published modules (`bootui-ui`, `bootui-spring-boot-starter`, and
   `bootui-spring-boot-starter-reactive`) must attach their empty `javadoc.jar` during `package`, before release-profile
   signing at `verify`.

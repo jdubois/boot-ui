@@ -40,6 +40,17 @@ class BootUiPanelsTests {
     }
 
     @Test
+    void liveActivitySubResourcesResolveToTheLiveActivityPanel() {
+        // The Live Flow service map is a mode of Live Activity, not a panel of its own, so it must inherit
+        // that panel's enable/read-only gating rather than escaping the registry as an ungated path.
+        assertThat(BootUiPanels.byApiPath("/activity/service-map"))
+                .as("the Live Flow service map is gated by the Live Activity panel")
+                .map(Panel::id)
+                .contains(BootUiPanels.ACTIVITY);
+        assertThat(BootUiPanels.byApiPath("/activity/stream")).map(Panel::id).contains(BootUiPanels.ACTIVITY);
+    }
+
+    @Test
     void catalogRejectsInvalidPanelMetadata() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new Panel("", "Title", false, "/sample"))

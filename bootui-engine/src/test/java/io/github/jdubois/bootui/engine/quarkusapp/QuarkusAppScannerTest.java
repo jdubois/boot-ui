@@ -18,7 +18,7 @@ class QuarkusAppScannerTest {
 
     /**
      * Mutable builder whose defaults describe a clean Quarkus app that fires zero rules, so each test can flip
-     * exactly the fields under test. Mirrors the 36-field {@link QuarkusAppSnapshot} positional record.
+     * exactly the fields under test. Mirrors the 35-field {@link QuarkusAppSnapshot} positional record.
      */
     private static final class Snap {
         // CDI / beans (beanCount = applicationScoped + singleton + requestScoped + dependentScoped = 4)
@@ -62,8 +62,7 @@ class QuarkusAppScannerTest {
         boolean shutdownTimeoutConfigured = true;
         boolean restClientsRegistered = false;
         boolean restClientTimeoutZeroOrExcessive = false;
-        // Performance / virtual threads (jdkMajorVersion=21 + 1 adopting endpoint is a clean modern baseline)
-        int virtualThreadEndpoints = 1;
+        // Performance / virtual threads
         int virtualThreadSynchronized = 0;
         int jdkMajorVersion = 21;
 
@@ -98,7 +97,6 @@ class QuarkusAppScannerTest {
                     shutdownTimeoutZeroed,
                     restClientsRegistered,
                     restClientTimeoutZeroOrExcessive,
-                    virtualThreadEndpoints,
                     virtualThreadSynchronized,
                     jdkMajorVersion,
                     mutableSingletonFields,
@@ -426,32 +424,6 @@ class QuarkusAppScannerTest {
     }
 
     @Test
-    void noVirtualThreadAdoptionIsFlagged() {
-        Snap s = new Snap();
-        s.virtualThreadEndpoints = 0;
-        SpringReport r = scan(s);
-        assertThat(find(r, "QA-PERF-001").severity()).isEqualTo("INFO");
-    }
-
-    @Test
-    void virtualThreadAdoptionSuppressesPerf001() {
-        Snap s = new Snap();
-        s.virtualThreadEndpoints = 1;
-        SpringReport r = scan(s);
-        assertThat(find(r, "QA-PERF-001")).isNull();
-    }
-
-    @Test
-    void oldJdkDoesNotFlagPerf001() {
-        // Virtual threads are not a mainstream concern before JDK 21; the rule intentionally does not fire.
-        Snap s = new Snap();
-        s.virtualThreadEndpoints = 0;
-        s.jdkMajorVersion = 17;
-        SpringReport r = scan(s);
-        assertThat(find(r, "QA-PERF-001")).isNull();
-    }
-
-    @Test
     void virtualThreadSynchronizedPinningIsFlagged() {
         Snap s = new Snap();
         s.virtualThreadSynchronized = 1;
@@ -482,7 +454,7 @@ class QuarkusAppScannerTest {
     @Test
     void rulesEvaluatedMatchesTotalRuleCount() {
         SpringReport r = scan(new Snap());
-        assertThat(r.scan().rulesEvaluated()).isEqualTo(20);
+        assertThat(r.scan().rulesEvaluated()).isEqualTo(19);
     }
 
     @Test

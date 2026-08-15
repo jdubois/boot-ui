@@ -39,8 +39,7 @@ public interface SampleOrderRepository extends JpaRepository<SampleOrder, Long> 
     @Query("update SampleOrder o set o.status = :status")
     int markAllAs(SampleOrderStatus status);
 
-    // Intentionally a native paged @Query without countQuery to trigger HIB-QUERY-003 (Spring Data cannot derive
-    // COUNT).
+    // Intentionally a native Page query without countQuery to trigger HIB-QUERY-003's count-derivation review.
     @Query(value = "select * from sample_advisor_orders where status = :status", nativeQuery = true)
     Page<SampleOrder> findPageNative(String status, Pageable pageable);
 

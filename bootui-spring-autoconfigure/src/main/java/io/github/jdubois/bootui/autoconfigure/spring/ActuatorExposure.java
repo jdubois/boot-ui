@@ -22,6 +22,7 @@ final class ActuatorExposure {
     private static final String EXCLUDE = "management.endpoints.web.exposure.exclude";
     private static final String ACCESS_DEFAULT = "management.endpoints.access.default";
     private static final String ACCESS_MAX = "management.endpoints.access.max-permitted";
+    private static final String ENABLED_BY_DEFAULT = "management.endpoints.enabled-by-default";
 
     private static final int ACCESS_NONE = 0;
     private static final int ACCESS_READ_ONLY = 1;
@@ -83,37 +84,52 @@ final class ActuatorExposure {
      * never when capped to read-only or disabled. The default ({@code access=none}) is not flagged.
      */
     static boolean shutdownAccessible(SpringContext context) {
-        if (!isWebExposed(context, "shutdown")) {
-            return false;
-        }
-        if (isPropertyFalse(context, "management.endpoint.shutdown.enabled")) {
-            return false;
-        }
-        String access = context.firstProperty("management.endpoint.shutdown.access", ACCESS_DEFAULT);
-        boolean unrestricted = "unrestricted".equalsIgnoreCase(access);
-        boolean legacyEnabled = context.isPropertyTrue("management.endpoint.shutdown.enabled");
-        boolean writable = unrestricted || legacyEnabled;
-        return writable && maxPermitted(context) >= ACCESS_UNRESTRICTED;
+        return isWebExposed(context, "shutdown")
+                && effectiveAccess(context, "shutdown", ACCESS_NONE) >= ACCESS_UNRESTRICTED;
     }
 
     /** True when the {@code heapdump} endpoint is web-exposed and at least readable (its default). */
     static boolean heapdumpAccessible(SpringContext context) {
-        if (isPropertyFalse(context, "management.endpoint.heapdump.enabled")) {
-            return false;
-        }
         return isReadable(context, "heapdump");
     }
 
     private static int effectiveAccess(SpringContext context, String id, int defaultRank) {
-        if (isPropertyFalse(context, "management.endpoint." + id + ".enabled")) {
+        String endpointAccess = context.firstProperty("management.endpoint." + id + ".access");
+        if (endpointAccess != null) {
+            return capped(context, rankOrDefault(endpointAccess, defaultRank));
+        }
+        String endpointEnabled = context.firstProperty("management.endpoint." + id + ".enabled");
+        if (endpointEnabled != null) {
+            return capped(context, enabledOrDefault(endpointEnabled, defaultRank));
+        }
+        String defaultAccess = context.firstProperty(ACCESS_DEFAULT);
+        if (defaultAccess != null) {
+            return capped(context, rankOrDefault(defaultAccess, defaultRank));
+        }
+        String enabledByDefault = context.firstProperty(ENABLED_BY_DEFAULT);
+        if (enabledByDefault != null) {
+            return capped(context, enabledOrDefault(enabledByDefault, defaultRank));
+        }
+        return capped(context, defaultRank);
+    }
+
+    private static int capped(SpringContext context, int access) {
+        return Math.min(access, maxPermitted(context));
+    }
+
+    private static int rankOrDefault(String access, int defaultRank) {
+        int rank = rank(access);
+        return rank >= 0 ? rank : defaultRank;
+    }
+
+    private static int enabledOrDefault(String enabled, int defaultRank) {
+        if ("true".equalsIgnoreCase(enabled)) {
+            return ACCESS_UNRESTRICTED;
+        }
+        if ("false".equalsIgnoreCase(enabled)) {
             return ACCESS_NONE;
         }
-        String access = context.firstProperty("management.endpoint." + id + ".access", ACCESS_DEFAULT);
-        int rank = access != null ? rank(access) : defaultRank;
-        if (rank < 0) {
-            rank = defaultRank;
-        }
-        return Math.min(rank, maxPermitted(context));
+        return defaultRank;
     }
 
     private static int maxPermitted(SpringContext context) {
@@ -132,11 +148,6 @@ final class ActuatorExposure {
             case "unrestricted" -> ACCESS_UNRESTRICTED;
             default -> -1;
         };
-    }
-
-    private static boolean isPropertyFalse(SpringContext context, String key) {
-        String value = context.firstProperty(key);
-        return value != null && "false".equalsIgnoreCase(value);
     }
 
     /** Binds the include/exclude property as a Set so comma strings and YAML lists both resolve. */

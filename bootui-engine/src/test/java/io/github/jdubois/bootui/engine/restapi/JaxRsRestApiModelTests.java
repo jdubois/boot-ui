@@ -18,6 +18,7 @@ class JaxRsRestApiModelTests {
 
     private static final String GOOD = "io.github.jdubois.bootui.engine.restapi.jaxrs";
     private static final String BAD = "io.github.jdubois.bootui.engine.restapi.jaxrs.bad";
+    private static final String CUSTOM = GOOD + ".custom";
 
     private RestApiHandlerModelBuilder build(String pkg) {
         JavaClasses classes = new ClassFileImporter().importPackages(pkg);
@@ -36,6 +37,7 @@ class JaxRsRestApiModelTests {
                 model.handlers(),
                 model.exceptionHandlers(),
                 openApiAnnotationsPresent,
+                false,
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.framework());
@@ -259,6 +261,19 @@ class JaxRsRestApiModelTests {
         assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
         assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("CatchAllRegexResource"));
         assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("ConstrainedIdResource"));
+    }
+
+    @Test
+    void recognizesCustomJaxRsHttpMethodAnnotations() {
+        RestApiHandlerModelBuilder model = build(CUSTOM);
+
+        HandlerMethodModel purge = model.handlers().stream()
+                .filter(handler -> handler.methodName().equals("purge"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(model.framework()).isEqualTo(RestApiModel.Framework.JAX_RS);
+        assertThat(purge.httpMethods()).containsExactly("PURGE");
+        assertThat(purge.effectivePaths()).containsExactly("/widgets/{id}");
     }
 
     @Test

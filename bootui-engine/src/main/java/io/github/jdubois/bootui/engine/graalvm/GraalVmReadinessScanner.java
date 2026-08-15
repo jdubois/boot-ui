@@ -205,7 +205,7 @@ public final class GraalVmReadinessScanner {
         GraalVmMetadata metadata = new GraalVmMetadata(
                 GraalVmClassPredicates.reflectionCandidateTypeNames(classes),
                 GraalVmClassPredicates.serializationCandidateTypeNames(classes),
-                GraalVmClassPredicates.nativeMethodTypeNames(classes),
+                List.of(),
                 GraalVmMetadata.DEFAULT_RESOURCE_GLOBS,
                 hasReviewFinding(results, "GRAAL-PROXY-001"),
                 hasReviewFinding(results, "GRAAL-REFLECT-005"),

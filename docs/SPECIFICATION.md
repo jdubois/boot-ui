@@ -695,31 +695,45 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
-- Derive severity from a real CVSS v3.0/v3.1 Base Score computed from the advisory's CVSS vector (per the FIRST.org
-  specification) when present, preferring a package-level `affected[].severity` entry matching the scanned dependency
-  over the advisory's top-level `severity[]` (the OSV schema states the two are mutually exclusive), falling back to
-  the advisory's `database_specific` severity label when no CVSS vector is present at either level; render `UNKNOWN`
-  only when none of these is available, never silently drop the finding.
+- Derive severity only from OSV entries explicitly typed `CVSS_V3` and carrying a valid CVSS v3.0/v3.1 vector (per the
+  FIRST.org specification), choosing the highest valid v3 Base Score when multiple entries exist. Prefer a
+  package-level `affected[].severity` entry matching the scanned dependency over the advisory's top-level
+  `severity[]` (the OSV schema states the two are mutually exclusive), falling back to the advisory's
+  `database_specific` severity label when no supported vector is present; render CVSS `0.0` as `NONE` and `UNKNOWN`
+  only when no supported score/label is available. Never reinterpret bare numbers, CVSS v2/v4, or provider-specific
+  scales as CVSS v3, and never silently drop the finding.
 - Exclude advisories marked `withdrawn` by OSV from results and counts.
 - Follow OSV `/v1/querybatch` pagination (`next_page_token`) until every query is exhausted or a bounded page-count
-  safety limit is hit, and partition the outgoing package list into batches of at most 1,000 queries (OSV's documented
-  hard limit per request), merging every page/batch back into one result set.
+  safety limit is hit, and partition the outgoing package list into batches of at most 1,000 queries (the OSV server
+  implementation's hard limit), merging every page/batch back into one result set. Validate that every response
+  contains exactly one structurally valid result per submitted query; never reinterpret a missing/short/malformed
+  response as an empty result. Require every returned vulnerability reference to be an object with a non-blank id.
+  Preserve completed chunks as `PARTIAL` if a later chunk fails and report only completed package queries in
+  `packagesScanned`.
 - Fetch distinct advisory details (`GET /v1/vulns/{id}`) with a small bounded concurrency (up to 10 at a time) instead of
-  one at a time, so scans against a dependency tree with many distinct advisories stay responsive.
-- Enrich each CVE-aliased advisory with FIRST.org [EPSS](https://www.first.org/epss/) exploit-probability data
-  (probability + percentile) in one batched request per scan, alongside the OSV calls; EPSS is a likelihood-of-
+  one at a time, so scans against a dependency tree with many distinct advisories stay responsive. De-duplicate repeated
+  ids per dependency and require each detail response id to match the requested id; mismatch/missing-id responses count
+  as failed fetches. Keep the detail-stage withdrawn check because POST queries omit withdrawn records while
+  `GET /v1/vulns/{id}` can return them.
+- Enrich each advisory linked to a canonical CVE through either its own id or an alias with FIRST.org
+  [EPSS](https://www.first.org/epss/) exploit-probability data (probability + percentile) in one or more batched requests
+  per scan, each respecting FIRST's 2,000-character maximum for the comma-separated `cve` parameter, alongside the OSV calls; EPSS is a likelihood-of-
   exploitation signal that deliberately complements, rather than replaces, the CVSS severity-if-exploited score. EPSS
-  lookups can be disabled independently of OSV scanning, and a failed/unreachable EPSS request never fails the scan or
-  discards the underlying OSV results — it just omits the EPSS figures.
+  responses may enrich only CVEs requested in that chunk and must contain finite probability/percentile values from
+  0 to 1. Lookups can be disabled independently of OSV scanning, and a failed/unreachable EPSS request never fails the
+  scan or discards the underlying OSV results — it just omits the EPSS figures.
 - Derive an explicit `fixAvailable` signal per advisory by comparing the dependency's currently-resolved version
-  against the advisory's `fixedVersions` using Maven `ComparableVersion` qualifier semantics. An empty list means only
+  against the advisory's non-`GIT` `fixedVersions` using Maven `ComparableVersion` qualifier semantics; de-duplicate and
+  order candidates using those same semantics. A false signal means only that OSV reported no candidate newer than the
+  installed version, not that the installed dependency is unaffected. An empty list means only
   that OSV reported no `fixed` event: a range may instead end with `last_affected`, which names the final vulnerable
   version but does not identify the first non-vulnerable upgrade target. The UI must not conflate that state with proof
   that no fix exists.
 - Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
 - Allow dismissing/restoring an individual vulnerability finding for a specific dependency, excluding it from the
   vulnerable count and severity rollups until restored, consistent with the dismiss/restore workflow shared by every
-  other advisor.
+  other advisor. Recompute dependency ordering from active severity after every dismissal change, and disable the
+  Vulnerabilities panel's dismissal controls under panel read-only policy.
 
 Acceptance criteria:
 
@@ -729,6 +743,9 @@ Acceptance criteria:
   inventory; a failure fetching one advisory's details does not discard advisories that were already fetched
   successfully, degrading the scan to a partial-success status instead of an outright error.
 - Scan size is bounded by configuration so large classpaths remain responsive.
+- Initial/error/partial UI states must not label an empty advisory list as a clean "None found" result.
+- An unreadable Spring `pom.properties` resource is logged and skipped without discarding readable inventory entries;
+  Quarkus continues to use its build-time resolved runtime dependency model and fails soft on malformed entries.
 
 Known limitation: the dependency inventory on both adapters is coordinate-based (one resolved JAR = one artifact
 coordinate). A vulnerable library relocated/repackaged inside a shaded or uber JAR has no `pom.properties`/build-time
@@ -842,7 +859,7 @@ Data sources:
 Features:
 
 - Show recent exchanges with timestamp, method, path, status, duration, response size when available, and trace id when a
-  common propagation header is present.
+  common propagation header or the server's active tracing context supplies one.
 - Show request and response headers in row details.
 - Provide server-side filtering by path/URL/trace id, method, and status class with bounded paging.
 - Hide BootUI self-requests by default through `bootui.monitoring.exclude-self`.
@@ -1069,6 +1086,125 @@ Acceptance criteria:
   `SuccessfulExecution`/`FailedExecution` events the scheduler always fires, gated on the `SCHEDULER` capability
   (`quarkus-scheduler` is a `provided`-scope, R2-excluded dependency, mirroring `QuarkusSecurityEventCapture`).
 
+#### 5.14.2.1 Live Flow service map (Live Activity mode)
+
+Purpose: answer "what external systems does this running application depend on, and what evidence has BootUI recently
+observed for each relationship?" without introducing distributed tracing infrastructure, network discovery, or active
+health probes. Delivered as a second mode of the Live Activity panel, not as a separate panel, because it is a second
+reading of the same already-captured evidence.
+
+Contract: `GET {api}/activity/service-map` on Spring MVC, Spring WebFlux, and Quarkus, returning `ServiceMapReport`
+(`available`, `unavailableReason`, `generatedAt`, `application`, `nodes`, `edges`, `truncation`, `sources`, `warnings`).
+Because it lives under `/activity`, the Live Activity panel's own enable/read-only policy and the shared
+localhost/Host/cross-site-write guard already cover it with no extra registration.
+
+Data sources — reused only, never newly instrumented:
+
+- Completed inbound requests from the HTTP Exchanges buffer, folded into one generic `INBOUND` lane. Per-caller nodes
+  are deliberately not derived: a remote address is neither a stable identity nor safe to display here.
+- Outbound HTTP calls from the REST Client recorder, grouped to a `scheme://host[:port]` origin.
+- Configured JDBC pools from the Connection Pools service. The map independently strips JDBC authority
+  user-info, Oracle driver-style credentials, and driver parameter tails even when full value exposure is enabled.
+- Retained JDBC statements from the SQL Trace recorder, reduced to their coarse category.
+- Kafka **producer** records grouped by topic and RabbitMQ **publisher** records grouped by exchange/routing
+  destination. Consumed records and messages are inbound work and are never modelled as outbound dependencies.
+- Cache accesses (`HIT`/`MISS`/`PUT`/`EVICT`/`CLEAR`) from the same `CacheActivityRecorder` the Cache panel and Live
+  Activity's `CACHE` entries already read, grouped by the safe cache-manager/cache-name identity — never the accessed
+  key or value. Gathered only when the Cache panel is enabled, the recorder is itself capturing, and at least one
+  `CacheManager` was successfully instrumented, on Spring MVC and Spring WebFlux; Quarkus has no comparable interception
+  seam (see `docs/QUARKUS-SUPPORT.md`) and always reports `cacheAvailable: false` here, exactly as it does for the Live
+  Activity feed.
+
+Assembly is framework- and JSON-free (`ServiceMapAssembler` in `bootui-engine`); each adapter only gathers evidence from
+beans it already owns and passes a neutral `ServiceMapSources` record, so all three runtimes serve a byte-identical
+contract.
+
+Interpretation rules:
+
+- `configured` and `observed` are reported separately on every node and are never collapsed, so absence of traffic is
+  never presented as absence of a dependency. Cache dependencies are always `configured: false` in this contract: only
+  observed capture evidence feeds them today, the same honesty rule Kafka and RabbitMQ dependencies already follow.
+- `outcome` is one of `NO_EVIDENCE`, `OBSERVED_OK`, or `RETAINED_FAILURES`, and describes retained evidence only. It is
+  never a health check of the remote system. A cache `MISS` is never counted as a failure — it is a normal, expected
+  outcome — so a cache dependency's `outcome` can only ever be `NO_EVIDENCE` or `OBSERVED_OK`.
+- Statement evidence is attributed to a pool only when exactly one pool is configured and exactly one traced datasource
+  has a matching name. Otherwise statements are summarized on a separate aggregate node, the pools stay
+  configured-only, and the reason is surfaced as a warning. A statement-to-pool relationship is never fabricated.
+- `distinctOperations` is `null` where the source cannot report one honestly rather than defaulting to a meaningless
+  count.
+- Evidence whose identity cannot be reduced safely is omitted with a warning, never shown under a guessed identity.
+
+Flow correlation:
+
+- `ServiceMapInteractionDto.flowId` is a nullable, opaque, one-way SHA-256-derived identifier
+  (`ServiceMapIdentities.flowId`) computed from whatever distributed-trace id was active when an inbound HTTP request,
+  a SQL statement, an outbound REST call, or a cache access completed. Interactions sharing the same trace id — the
+  same request's actual path through the application — share the same `flowId`, so the client can recognize and
+  sequence them as one causal flow; the raw trace id itself never reaches this contract, and a blank/absent trace id
+  yields `flowId: null` rather than a synthetic one. Kafka and RabbitMQ interactions carry no trace id at capture time
+  and are therefore never correlated into a flow — they remain exactly as uncorrelated here as everywhere else in
+  BootUI's Live Activity model.
+
+Bounds and motion:
+
+- Dependencies are capped at 28 and each edge carries at most 6 retained interactions. Configured dependencies rank
+  ahead of purely observed ones so a burst of one-off origins cannot push a declared database off the map. Any omission
+  is reported through `truncation` and a warning.
+- The client lays the map out as a bounded hybrid left-to-right topology: inbound HTTP lane, central application hub,
+  then an airy right-facing fan through six dependencies or a two-column rack above that threshold. The fan uses a fixed
+  288-pixel radius and 72-pixel vertical pitch, producing an 800–844-pixel-wide typical map with readable connector
+  travel. The dense rack increases the application gap to 72 pixels, column gap to 32 pixels, and row pitch to 72 pixels;
+  it is bounded at 1,040 logical SVG pixels wide and 1,046 pixels tall at the 28-dependency cap inside the stage's
+  scroll area. Fan connectors use smooth cubic paths; dense routes use deterministic shortest clear paths around node
+  rectangles. Every pulse and slow trail uses CSS Motion Path with the visible connector's exact path.
+- `ServiceMapInteractionDto.id` is derived from the originating buffer's monotonic sequence, so it is stable across
+  refreshes. The client animates a short particle only when a **stable** edge (present in both the previous and the next
+  snapshot) carries an interaction id the previous snapshot did not. A first load, a newly appearing dependency, and an
+  idle application therefore produce no motion at all. Bursts are coalesced to a small per-edge count and a hard
+  concurrent cap rather than queued.
+- When freshly animated interactions share a non-null `flowId`, the client sequences their motion into a causal story
+  rather than animating unrelated-looking simultaneous blips: an inbound-HTTP pulse always starts first, and downstream
+  pulses start only once that inbound pulse would have finished arriving at the application. Downstream evidence then
+  replays in ascending retained completion-time order; cache precedes JDBC/outbound HTTP only as a deterministic
+  same-millisecond tie-break, so the UI never invents an order the completed evidence does not support. Further
+  same-flow downstream pulses are staggered by a small, bounded step so a fan-out still reads as distinguishable beats
+  rather than one instant flash. A downstream pulse whose batch carries no retained inbound
+  pulse for its flow — the common case once the inbound leg has already scrolled out of the retained tail — fires
+  immediately rather than waiting for an inbound arrival that batch will never carry, and a pulse with no `flowId` is
+  never delayed at all. Sequencing only ever paces *when* already-completed evidence is shown; it never delays a
+  pulse's underlying evidence from appearing at all, and the animation queue's existing concurrency cap and per-edge
+  cap apply identically whether or not a pulse happens to be sequenced.
+- Slow interactions pulse a calm, unmistakable amber with a restrained trailing halo — 1200–1500ms, longer than a
+  normal completion (650–850ms) or a failure (900–1100ms) — so timing itself, not color alone, carries the "slow"
+  meaning. During exactly the same delayed animation window, its causal target carries a temporary amber ring and a
+  `SLOW · <duration>` chip; failure uses a temporary red ring and `ERROR` chip. Inbound evidence targets the application,
+  while outbound evidence targets the remote dependency; overlapping failure takes visual precedence over slow without
+  clearing the slow window early. Retained failures never permanently color topology nodes or edges — they remain in
+  counts, details, recent rows, accessible text, and source links. No pulse flashes, bounces, loops, or drifts: each plays
+  exactly once, linearly, and a sequenced pulse and its target signal stay hidden for their entire causal delay. Motion
+  uses CSS `offset-path`/`offset-distance`, whose delay starts when the dynamic pulse mounts in the supported Chromium
+  browser, rather than SMIL `begin` timestamps tied to the document timeline.
+
+Acceptance criteria:
+
+- Rendering the map performs no network call, probe, DNS lookup, connection attempt, scan, or new interception, and adds
+  no instrumentation.
+- No secret, remote HTTP path/query value/user-info/fragment, message payload, message key, cache key/value, SQL text,
+  bound parameter, unmasked JDBC credential, or raw distributed-trace id reaches the response.
+- Dependencies are grouped by their complete sanitized identity. Public node ids are stable SHA-256-derived opaque
+  values, while only display labels are truncated, so long identities with a shared prefix remain separate.
+- Evidence from a source panel that is disabled or unavailable on the running adapter never reaches the map, and when no
+  source is available the report is `available: false` with a clear reason rather than an empty graph.
+- The rendered graph is bounded before serialization and every omission is visible.
+- The map is usable by keyboard and screen reader (focusable nodes, arrow-key traversal, an accessible detail view, and
+  a hidden textual list of every node and relationship) and honors `prefers-reduced-motion` by replacing motion with a
+  brief, immediate static target/edge highlight (never delayed or sequenced) plus a polite live-region update that
+  narrates slow/failure duration and a sequenced flow's complete causal story in one sentence.
+- Pausing cancels every pulse, target state, reduced-motion highlight, announcement, and associated timer. A response
+  already in flight may refresh the retained report while paused, but becomes the new comparison baseline without
+  scheduling or replaying its evidence after resume.
+- Spring MVC, Spring WebFlux, and Quarkus serve the same shape, verified by the shared conformance suite.
+
 ### 5.14.3 Traces Panel
 
 Purpose: show distributed-trace waterfalls captured locally, so a request that fans out across cooperating local
@@ -1140,6 +1276,9 @@ Acceptance criteria:
 - Messages are listed newest-first from a bounded ring buffer sized by `bootui.email.max-entries` (default 100, oldest
   evicted first); a message's HTML body renders in a sandboxed iframe (no script execution, no same-origin access) and
   each message can be downloaded as a `.eml` file.
+- Each captured text/HTML body is additionally truncated at `bootui.email.max-body-length` characters (default
+  200,000) so one oversized message cannot spike memory before the entry-count cap would evict it; attachment content
+  is never captured in the first place (metadata only), so no equivalent cap applies there.
 - Clearing the buffer is gated by `bootui.panels.email.read-only`, consistent with every other clearable capture panel.
 
 ### 5.14.5 REST Client Panel
@@ -1880,6 +2019,11 @@ Design rules:
   `GET /bootui/api/mcp-server` status response for human inspection. The transport endpoint itself returns 405 to `GET`
   because BootUI does not offer a server-to-client SSE stream. No new runtime dependencies beyond what BootUI already ships.
   The Spring AI MCP server starter is intentionally not used because it targets Spring Boot 3.x.
+- **Deliberately scoped method surface.** The server advertises only the `tools` and `prompts` capabilities. `resources/*`
+  and `completion/complete` are intentionally not implemented: every piece of runtime data BootUI exposes is already
+  reachable as a bounded, arguments-driven tool call, so a parallel MCP resource surface would duplicate the tool
+  catalog without adding capability. This is a scope decision, not an omission, and is revisited if a client-side use
+  case (e.g. a client that only walks `resources/list`) requires it.
 - **Detail-free internal errors.** Unexpected dispatch, tool, policy, or result-serialization failures return the standard
   JSON-RPC internal error (`-32603`, message `Internal error`) without exception text or debug fields. The original
   throwable and stack trace are logged once on the server; expected validation, disabled-server, panel-policy, and
@@ -1891,12 +2035,15 @@ Design rules:
   busy message. Panel disabled/read-only policy is checked first, and the aggregate MCP concurrent-call cap remains a
   separate capacity limit.
 - **Tool surface.** Advisor scans as action tools (`architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`,
-  `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`); diagnostics reads (`get_live_activity`,
-  `get_exceptions`, `get_exception_detail`, `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`,
-  `get_http_exchanges`); and core context reads (`get_overview`, `get_health`, `get_config`, `get_beans`,
-  `get_mappings`). `get_live_activity` returns the same correlated feed as the Live Activity panel; `get_exception_detail`
-  takes a required `id` argument and returns one exception group's full stack trace, causes, and occurrences. Tools whose
-  backing controller is absent (conditional on classpath, e.g. Hibernate or Spring Security) are not advertised.
+  `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`); diagnostics
+  reads (`get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`, `get_sql_traces`,
+  `get_traces`, `get_log_tail`, `get_http_exchanges`); and core context reads (`get_overview`, `get_health`,
+  `get_config`, `get_beans`, `get_mappings`, `get_loggers`, `get_conditions`, `get_scheduled_tasks`, `get_cache_stats`,
+  `get_database_connection_pools`). `get_live_activity` returns the same correlated feed as the Live Activity panel;
+  `get_exception_detail` takes a required `id` argument and returns one exception group's full stack trace, causes,
+  and occurrences. `vulnerabilities_scan` makes outbound calls to OSV.dev, unlike every other read/scan tool which
+  stays local. Tools whose backing controller is absent (conditional on classpath, e.g. Hibernate or Spring Security)
+  or not applicable to the running stack (e.g. `get_conditions` on Quarkus) are not advertised.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions
@@ -1954,6 +2101,7 @@ Top-level navigation:
 - Database:
   - Database Connection Pools.
   - SQL Trace.
+  - Transactions.
   - Spring Data.
   - Flyway.
   - Liquibase.

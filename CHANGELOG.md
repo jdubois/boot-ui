@@ -7,6 +7,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Quarkus Security advisor rules now match Quarkus 3.33 LTS effective behavior.** The 49-rule catalogue
+  recognizes implicit Basic auth and `client-auth=request`, the mTLS-driven insecure-request default, only the TLS
+  registry bucket selected by the HTTP server, disabled permission policies, Quarkus authorization annotations,
+  default JAX-RS roles, unset CORS method/header wildcards, and custom-root non-application endpoint collapse. Literal
+  secret checks now use raw config/source metadata so environment/system properties, expressions, dev/test values, and
+  non-secret `token.*` settings do not become CRITICAL findings. Added checks for plain-text embedded passwords and
+  disabled TLS hostname verification; retired `QS-AUTH-006` because MicroProfile JWT already pins the absent algorithm
+  property to RS256.
+
 ## [1.13.1] - 2026-08-07
 
 Patch release that restores accurate scanner scores with customized Jackson mappers and removes Quarkus split-package

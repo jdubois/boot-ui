@@ -75,18 +75,11 @@
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
         <frontend-maven-plugin.version>2.0.2</frontend-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
-        <native-build-tools-plugin.version>1.1.6</native-build-tools-plugin.version>
+        <cyclonedx-maven-plugin.version>2.9.1</cyclonedx-maven-plugin.version>
+        <native-build-tools-plugin.version>1.1.7</native-build-tools-plugin.version>
         <archunit.version>1.4.2</archunit.version>
-        <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
+        <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
         <central.autoPublish>true</central.autoPublish>
-        <!--
-            central-publishing-maven-plugin does NOT honor maven.deploy.skip (it implements its own
-            skip mechanism). Default it here so every module inherits it, then tie the plugin's own
-            <skip> to it below - modules that already set <maven.deploy.skip>true</maven.deploy.skip>
-            (sample apps, integration tests, conformance) now also skip Central publishing instead of
-            silently uploading multi-hundred-MB fat jars on every release.
-        -->
-        <maven.deploy.skip>false</maven.deploy.skip>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
@@ -281,6 +274,26 @@
                     <version>${maven-gpg-plugin.version}</version>
                 </plugin>
                 <plugin>
+                    <groupId>org.cyclonedx</groupId>
+                    <artifactId>cyclonedx-maven-plugin</artifactId>
+                    <version>${cyclonedx-maven-plugin.version}</version>
+                    <!--
+                        Deliberately not bound to any lifecycle phase: cyclonedx-maven-plugin attaches its
+                        BOM as an extra artifact with a "cyclonedx" classifier during install/deploy, which
+                        would otherwise get swept into Maven Central publication by the release profile and
+                        count against Central's per-file monthly quota (see the checksums comment above) for
+                        every published module. CI instead invokes the makeAggregateBom goal explicitly
+                        (.github/workflows/build.yml) after the reactor build, producing one SBOM covering the
+                        whole build without touching release artifacts.
+                    -->
+                    <configuration>
+                        <projectType>application</projectType>
+                        <schemaVersion>1.6</schemaVersion>
+                        <outputFormat>json</outputFormat>
+                        <outputName>bootui-sbom</outputName>
+                    </configuration>
+                </plugin>
+                <plugin>
                     <groupId>org.sonatype.central</groupId>
                     <artifactId>central-publishing-maven-plugin</artifactId>
                     <version>${central-publishing-maven-plugin.version}</version>
@@ -288,7 +301,35 @@
                     <configuration>
                         <publishingServerId>central</publishingServerId>
                         <autoPublish>${central.autoPublish}</autoPublish>
-                        <skip>${maven.deploy.skip}</skip>
+                        <!--
+                            This extension stages the whole reactor from its root execution. Per-module
+                            maven.deploy.skip values are therefore not sufficient to keep non-distribution
+                            modules out of the Central bundle. Exclude them explicitly with the plugin's
+                            supported reactor-level filter.
+                        -->
+                        <excludeArtifacts>
+                            <excludeArtifact>bootui-conformance</excludeArtifact>
+                            <excludeArtifact>bootui-coverage</excludeArtifact>
+                            <excludeArtifact>bootui-spring-sample-app</excludeArtifact>
+                            <excludeArtifact>bootui-spring-webflux-sample-app</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-sample-app</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-integration-tests-aggregator</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-cache-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-datasource-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-email-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-flyway-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-health-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-hibernate-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-liquibase-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-micrometer-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-otel-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-prod-shell-guard-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-rabbit-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-rest-client-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-scheduler-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-security-integration-tests</excludeArtifact>
+                        </excludeArtifacts>
                         <!--
                             Sonatype only mandates md5+sha1 checksums (sha256/sha512 are optional, see
                             https://central.sonatype.org/publish/requirements/#provide-file-checksums). The

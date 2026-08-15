@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
+import io.github.jdubois.bootui.autoconfigure.activity.LiveServiceMapController;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationFilter;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry;
 import io.github.jdubois.bootui.autoconfigure.activity.SecurityEventCorrelationRegistry;
@@ -45,6 +46,8 @@ import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
+import io.github.jdubois.bootui.autoconfigure.transactions.BootUiTransactionManagerBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.transactions.TransactionsController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
@@ -52,6 +55,7 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
+import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import java.nio.file.Paths;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -163,11 +167,13 @@ import tools.jackson.databind.ObjectMapper;
     GraalVmController.class,
     CracController.class,
     LiveActivityController.class,
+    LiveServiceMapController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
     JmsController.class,
     SqlTraceController.class,
+    TransactionsController.class,
     RestClientTraceController.class,
     ThreadDumpController.class,
     MemoryController.class,
@@ -201,11 +207,13 @@ public class BootUiAutoConfiguration {
             GraalVmController.class.getName(),
             CracController.class.getName(),
             LiveActivityController.class.getName(),
+            LiveServiceMapController.class.getName(),
             EmailController.class.getName(),
             KafkaController.class.getName(),
             RabbitController.class.getName(),
             JmsController.class.getName(),
             SqlTraceController.class.getName(),
+            TransactionsController.class.getName(),
             RestClientTraceController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),
@@ -414,7 +422,13 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<RestApiController> restApi,
                 ObjectProvider<GraalVmController> graalvm,
                 ObjectProvider<CracController> crac,
-                ObjectProvider<DatabaseAdvisorController> databaseAdvisor) {
+                ObjectProvider<DatabaseAdvisorController> databaseAdvisor,
+                ObjectProvider<VulnerabilitiesController> vulnerabilities,
+                ObjectProvider<LoggersController> loggers,
+                ObjectProvider<ConditionsController> conditions,
+                ObjectProvider<ScheduledController> scheduled,
+                ObjectProvider<SpringCacheController> cache,
+                ObjectProvider<DatabaseConnectionPoolsController> connectionPools) {
             return new BootUiMcpTools(
                     overview,
                     health,
@@ -437,7 +451,13 @@ public class BootUiAutoConfiguration {
                     restApi,
                     graalvm,
                     crac,
-                    databaseAdvisor);
+                    databaseAdvisor,
+                    vulnerabilities,
+                    loggers,
+                    conditions,
+                    scheduled,
+                    cache,
+                    connectionPools);
         }
 
         @Bean
@@ -583,6 +603,11 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
+    public HttpExchangeTraceRegistry bootUiHttpExchangeTraceRegistry(BootUiProperties properties) {
+        return new HttpExchangeTraceRegistry(properties.getHttpExchanges().getMaxExchanges());
+    }
+
+    @Bean
     public SecurityEventCorrelationRegistry bootUiSecurityEventCorrelationRegistry(BootUiProperties properties) {
         return new SecurityEventCorrelationRegistry(properties.getActivity().getMaxEntries());
     }
@@ -627,6 +652,53 @@ public class BootUiAutoConfiguration {
     static SqlTraceDataSourceBeanPostProcessor bootUiSqlTraceDataSourceBeanPostProcessor(
             org.springframework.beans.factory.ObjectProvider<SqlTraceRecorder> recorderProvider) {
         return new SqlTraceDataSourceBeanPostProcessor(recorderProvider);
+    }
+
+    /**
+     * Correlates the Transactions panel to SQL Trace's already-captured executions (see {@link
+     * TransactionRecorder}'s class Javadoc), so it must be created after {@code
+     * bootUiSqlTraceRecorder}. Depending on the {@code SqlTraceRecorder} bean rather than injecting it
+     * as an {@code ObjectProvider} is deliberate: both beans are always registered by this
+     * auto-configuration, so there is no "may be absent" case to defer.
+     */
+    @Bean
+    public TransactionRecorder bootUiTransactionRecorder(
+            BootUiProperties properties, SqlTraceRecorder sqlTraceRecorder) {
+        BootUiProperties.Transactions transactions = properties.getTransactions();
+        boolean enabled = transactions.isEnabled() && properties.isPanelEnabled(BootUiPanels.TRANSACTIONS);
+        return new TransactionRecorder(
+                enabled,
+                transactions.isRecording(),
+                transactions.getMaxEntries(),
+                transactions.getSlowTransactionThresholdMillis(),
+                transactions.getConnectionHoldThresholdMillis(),
+                sqlTraceRecorder);
+    }
+
+    /**
+     * Bridges the framework-neutral {@link TransactionRecorder} (implements {@code
+     * spi.IdleReclaimable}) to BootUI's Spring idle-reclaim mechanism, exactly as {@code
+     * bootUiSqlTraceRecorderIdleReclaimable} does for SQL Trace.
+     */
+    @Bean
+    public IdleReclaimable bootUiTransactionRecorderIdleReclaimable(TransactionRecorder recorder) {
+        return new IdleReclaimable() {
+            @Override
+            public void suspendForIdle() {
+                recorder.suspendForIdle();
+            }
+
+            @Override
+            public void resumeFromIdle() {
+                recorder.resumeFromIdle();
+            }
+        };
+    }
+
+    @Bean
+    static BootUiTransactionManagerBeanPostProcessor bootUiTransactionManagerBeanPostProcessor(
+            org.springframework.beans.factory.ObjectProvider<TransactionRecorder> recorderProvider) {
+        return new BootUiTransactionManagerBeanPostProcessor(recorderProvider);
     }
 
     /**
@@ -747,9 +819,9 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public FilterRegistrationBean<RequestCorrelationFilter> bootUiRequestCorrelationFilterRegistration(
-            RequestCorrelationRegistry registry, BootUiProperties properties) {
-        FilterRegistrationBean<RequestCorrelationFilter> registration =
-                new FilterRegistrationBean<>(new RequestCorrelationFilter(registry, properties.getPath()));
+            RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, BootUiProperties properties) {
+        FilterRegistrationBean<RequestCorrelationFilter> registration = new FilterRegistrationBean<>(
+                new RequestCorrelationFilter(registry, traceRegistry, properties.getPath()));
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);
         registration.setName("bootUiRequestCorrelationFilter");

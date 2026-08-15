@@ -48,6 +48,14 @@ function latestSource() {
   return instances[instances.length - 1]
 }
 
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => {
+    resolve = done
+  })
+  return {promise, resolve}
+}
+
 async function failUntilUnavailable() {
   for (const delay of [1_000, 2_000, 4_000, 8_000]) {
     latestSource().emit('error')
@@ -94,6 +102,29 @@ describe('useEventStreamRefresh', () => {
     latestSource().emit('update', '{"ts":1}')
     await flushPromises()
 
+    expect(callback).toHaveBeenCalledTimes(2)
+
+    wrapper.unmount()
+  })
+
+  it('coalesces a burst during an in-flight load into one pending follow-up', async () => {
+    const initial = deferred()
+    const followUp = deferred()
+    const callback = vi.fn().mockReturnValueOnce(initial.promise).mockReturnValueOnce(followUp.promise)
+    const {wrapper} = harness('api/exceptions/stream', callback)
+
+    await nextTick()
+    latestSource().emit('update')
+    latestSource().emit('update')
+    latestSource().emit('update')
+    expect(callback).toHaveBeenCalledTimes(1)
+
+    initial.resolve()
+    await flushPromises()
+    expect(callback).toHaveBeenCalledTimes(2)
+
+    followUp.resolve()
+    await flushPromises()
     expect(callback).toHaveBeenCalledTimes(2)
 
     wrapper.unmount()
@@ -525,12 +556,12 @@ describe('useEventStreamRefresh – connectionState', () => {
     await nextTick()
 
     // Fire two update ticks synchronously. The first triggers a load (inFlight=true);
-    // the second arrives before any microtasks run and is coalesced (load returns early).
+    // the second becomes exactly one follow-up rather than running concurrently or being lost.
     source.emit('update')
     source.emit('update')
     await flushPromises()
 
-    expect(callback).toHaveBeenCalledTimes(2)
+    expect(callback).toHaveBeenCalledTimes(3)
 
     wrapper.unmount()
   })

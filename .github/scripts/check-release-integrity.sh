@@ -3,9 +3,14 @@
 set -euo pipefail
 
 readonly WORKFLOW="${1:-.github/workflows/release.yml}"
+readonly ROOT_POM="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/pom.xml"
 
 if [[ ! -r "$WORKFLOW" ]]; then
   printf 'Cannot read release workflow: %s\n' "$WORKFLOW" >&2
+  exit 2
+fi
+if [[ ! -r "$ROOT_POM" ]]; then
+  printf 'Cannot read root POM: %s\n' "$ROOT_POM" >&2
   exit 2
 fi
 
@@ -54,6 +59,51 @@ require_literal 'git verify-tag "$EXPECTED_TAG"' 'existing tag signature verific
 require_literal 'ref: ${{ env.RELEASE_SHA }}' 'immutable release checkout'
 require_literal "if: env.RESUME_AFTER_PUBLISH != 'true'" 'deploy skip for publication continuation'
 require_literal 'gh workflow run pages.yml --ref "$RELEASE_TAG"' 'tag-pinned documentation deployment'
+require_literal '-pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment' \
+  'publication-only Maven reactor'
+
+excluded_artifacts="$(
+  sed -n '/<excludeArtifacts>/,/<\/excludeArtifacts>/p' "$ROOT_POM"
+)"
+readonly excluded_artifacts
+readonly expected_exclusions=(
+  bootui-conformance
+  bootui-coverage
+  bootui-spring-sample-app
+  bootui-spring-webflux-sample-app
+  bootui-quarkus-sample-app
+  bootui-quarkus-integration-tests-aggregator
+  bootui-quarkus-integration-tests
+  bootui-quarkus-cache-integration-tests
+  bootui-quarkus-datasource-integration-tests
+  bootui-quarkus-email-integration-tests
+  bootui-quarkus-flyway-integration-tests
+  bootui-quarkus-health-integration-tests
+  bootui-quarkus-hibernate-integration-tests
+  bootui-quarkus-liquibase-integration-tests
+  bootui-quarkus-micrometer-integration-tests
+  bootui-quarkus-otel-integration-tests
+  bootui-quarkus-prod-shell-guard-integration-tests
+  bootui-quarkus-rabbit-integration-tests
+  bootui-quarkus-rest-client-integration-tests
+  bootui-quarkus-scheduler-integration-tests
+  bootui-quarkus-security-integration-tests
+)
+for artifact in "${expected_exclusions[@]}"; do
+  if ! grep -Fq "<excludeArtifact>${artifact}</excludeArtifact>" <<<"$excluded_artifacts"; then
+    report_error "root POM must exclude non-distribution artifact '$artifact' from Central publishing"
+  fi
+done
+
+actual_exclusion_count="$(grep -c '<excludeArtifact>' <<<"$excluded_artifacts" || true)"
+readonly actual_exclusion_count
+if [[ "$actual_exclusion_count" -ne "${#expected_exclusions[@]}" ]]; then
+  report_error "root POM Central exclusion list contains unexpected artifacts"
+fi
+
+if grep -Fq '<skip>${maven.deploy.skip}</skip>' "$ROOT_POM"; then
+  report_error "Central publishing does not support the legacy per-module <skip> configuration"
+fi
 
 require_order './mvnw -B -ntp -Prelease clean verify' 'git commit -m "Release $TAG"' \
   'release verification must happen before the release commit'

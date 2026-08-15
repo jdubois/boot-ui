@@ -36,6 +36,7 @@ public final class CacheActivityRecorder {
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     private volatile TraceIdProvider traceIdProvider = CacheActivityRecorder::mdcTraceId;
+    private volatile boolean instrumentedManager;
 
     public CacheActivityRecorder(boolean enabled, int maxEntries) {
         this.enabled = enabled;
@@ -45,6 +46,16 @@ public final class CacheActivityRecorder {
     /** Whether this recorder is capturing new events; {@code false} disables recording entirely. */
     public boolean isEnabled() {
         return enabled;
+    }
+
+    /** Records that an adapter successfully installed capture around at least one cache manager. */
+    public void markInstrumentedManager() {
+        instrumentedManager = true;
+    }
+
+    /** Whether this recorder can receive events from at least one instrumented cache manager. */
+    public boolean hasInstrumentedManager() {
+        return instrumentedManager;
     }
 
     /**

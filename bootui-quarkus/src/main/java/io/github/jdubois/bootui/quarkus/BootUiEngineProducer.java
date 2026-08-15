@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.architecture.ArchitecturePlatform;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
@@ -235,7 +236,9 @@ public class BootUiEngineProducer {
      * When {@code quarkus-mailer} <em>is</em> present, {@code QuarkusEmailCapture} (registered by the
      * deployment {@code registerEmail} build step) observes {@code io.quarkus.mailer.SentMail} and feeds this
      * service's {@link EmailStore}. Capacity bounds memory ({@code bootui.email.max-entries}, default 100,
-     * matching the Spring panel cap).
+     * matching the Spring panel cap), and each captured body is additionally bounded by
+     * {@code bootui.email.max-body-length} (default {@link EmailStore#DEFAULT_MAX_BODY_LENGTH}) so one
+     * oversized message cannot spike memory before the entry-count cap would evict it.
      *
      * <p>Unlike Spring's {@code bootui.email.dev-trap} (which intercepts <em>before</em> the send and can block
      * it), Quarkus fires {@code SentMail} <em>after</em> the send, so BootUI cannot trap the message. Instead the
@@ -255,11 +258,14 @@ public class BootUiEngineProducer {
             QuarkusExposurePolicy exposure, Config config, Instance<TraceIdProvider> traceIdProvider) {
         int maxEntries = config.getOptionalValue("bootui.email.max-entries", Integer.class)
                 .orElse(100);
+        int maxBodyLength = config.getOptionalValue("bootui.email.max-body-length", Integer.class)
+                .orElse(EmailStore.DEFAULT_MAX_BODY_LENGTH);
         boolean mock = config.getOptionalValue("quarkus.mailer.mock", Boolean.class)
                 .orElseGet(() -> LaunchMode.current().isDevOrTest());
         boolean maskContent = config.getOptionalValue("bootui.email.mask-content", Boolean.class)
                 .orElse(false);
-        EmailCaptureService service = new EmailCaptureService(new EmailStore(maxEntries), exposure, mock, maskContent);
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(maxEntries, maxBodyLength), exposure, mock, maskContent);
         if (traceIdProvider.isResolvable()) {
             service.setTraceIdProvider(traceIdProvider.get());
         }
@@ -556,7 +562,8 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public ArchitectureScanner architectureScanner(QuarkusBasePackageProvider basePackages) {
-        return ArchitectureScanner.usingClasspath(basePackages::basePackages, Clock.systemUTC());
+        return ArchitectureScanner.usingClasspath(
+                basePackages::basePackages, ArchitecturePlatform.QUARKUS, Clock.systemUTC());
     }
 
     /**

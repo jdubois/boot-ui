@@ -40,6 +40,17 @@ class GraalVmDependencyScannerTests {
     }
 
     @Test
+    void arbitraryJsonUnderNativeImageDoesNotCountAsMetadata(@TempDir Path dir) throws IOException {
+        Path jar =
+                jar(dir, "arbitrary-json.jar", Map.of("META-INF/native-image/com.example/app/build-output.json", "{}"));
+
+        GraalVmDependencyDto dependency = onlyDependency(jar);
+
+        assertThat(dependency.shipsMetadata()).isFalse();
+        assertThat(dependency.note()).contains("No bundled reachability metadata");
+    }
+
+    @Test
     void nativeImagePropertiesAloneIsNotMetadata(@TempDir Path dir) throws IOException {
         Path jar = jar(
                 dir,
@@ -116,6 +127,48 @@ class GraalVmDependencyScannerTests {
         assertThat(dependency.note()).contains("metadata for this library, but not for 9.9.9");
         assertThat(dependency.note()).doesNotContain("No bundled");
         assertThat(dependency.note()).doesNotContain("Tested versions");
+    }
+
+    @Test
+    void repositoryDefaultForRegexCoversMatchingVersions(@TempDir Path dir) throws IOException {
+        Path jar = dependencyJar(dir, "sample-1.9.0.jar", "com.example", "sample", "1.9.0");
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        jar::toString,
+                        coordinates -> ReachabilityMetadataIndex.of(java.util.List.of(
+                                new ReachabilityMetadataIndex.Entry("1.8.0", java.util.List.of(), "1\\..*", true))))
+                .scan();
+
+        GraalVmDependencyDto dependency = survey.dependencies().get(0);
+        assertThat(dependency.repositoryMetadata()).isTrue();
+        assertThat(dependency.repositoryMetadataVersion()).isEqualTo("1.8.0");
+    }
+
+    @Test
+    void repositoryExactVersionWinsOverEarlierDefaultForRegex(@TempDir Path dir) throws IOException {
+        Path jar = dependencyJar(dir, "sample-1.9.0.jar", "com.example", "sample", "1.9.0");
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        jar::toString,
+                        coordinates -> ReachabilityMetadataIndex.of(java.util.List.of(
+                                new ReachabilityMetadataIndex.Entry("1.8.0", java.util.List.of(), "1\\..*", true),
+                                new ReachabilityMetadataIndex.Entry("1.9.0", java.util.List.of(), false))))
+                .scan();
+
+        assertThat(survey.dependencies().get(0).repositoryMetadataVersion()).isEqualTo("1.9.0");
+    }
+
+    @Test
+    void repositoryInvalidDefaultForRegexIsIgnored(@TempDir Path dir) throws IOException {
+        Path jar = dependencyJar(dir, "sample-1.9.0.jar", "com.example", "sample", "1.9.0");
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        jar::toString,
+                        coordinates -> ReachabilityMetadataIndex.of(java.util.List.of(
+                                new ReachabilityMetadataIndex.Entry("1.8.0", java.util.List.of(), "[", true))))
+                .scan();
+
+        assertThat(survey.dependencies().get(0).repositoryMetadata()).isFalse();
     }
 
     @Test
@@ -352,6 +405,16 @@ class GraalVmDependencyScannerTests {
             }
         }
         return jar;
+    }
+
+    private static Path dependencyJar(Path dir, String name, String groupId, String artifactId, String version)
+            throws IOException {
+        return jar(
+                dir,
+                name,
+                Map.of(
+                        "META-INF/maven/" + groupId + "/" + artifactId + "/pom.properties",
+                        "groupId=" + groupId + "\nartifactId=" + artifactId + "\nversion=" + version + "\n"));
     }
 
     /** Builds a jar's raw bytes in memory, for embedding as a {@code BOOT-INF/lib/} nested entry. */

@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.engine.hibernate;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import java.io.Serializable;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -441,8 +443,8 @@ final class ManyToManyListRule extends AbstractHibernateRule {
                         "Many-to-many associations should use Set semantics",
                         HibernateCategory.MAPPING,
                         "MEDIUM",
-                        "Detects @ManyToMany associations declared as List, which can trigger delete-and-reinsert DML.",
-                        "Use Set for many-to-many associations, or model the join table as an entity when it has business meaning.",
+                        "Detects @ManyToMany associations declared as List. Their link-table lifecycle remains less efficient than a bidirectional one-to-many, even when @OrderColumn persists the list order.",
+                        "Use Set when ordering is not domain-significant. When order or link attributes matter, model the join table as an entity instead.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-many-to-many"));
     }
 
@@ -452,7 +454,13 @@ final class ManyToManyListRule extends AbstractHibernateRule {
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 if (attribute.isManyToMany() && attribute.isListAttribute()) {
-                    details.add(attribute.description() + " is @ManyToMany and declared as a List.");
+                    String ordering = attribute.hasOrderColumn()
+                            ? " with @OrderColumn; preserve the order only when it is domain-significant."
+                            : " without @OrderColumn.";
+                    details.add(attribute.description()
+                            + " is @ManyToMany and declared as a List"
+                            + ordering
+                            + " Consider a link entity when link lifecycle or attributes matter.");
                 }
             }
         }
@@ -1123,8 +1131,8 @@ final class QueryCacheRegionFactoryRule extends AbstractHibernateRule {
                         "Query cache requires a second-level cache provider",
                         HibernateCategory.CONFIGURATION,
                         "HIGH",
-                        "Detects hibernate.cache.use_query_cache=true without a second-level cache provider.",
-                        "Disable query caching or configure a second-level cache region factory and cache the entities returned by cacheable entity queries.",
+                        "Detects hibernate.cache.use_query_cache=true without an effective second-level cache provider.",
+                        "Disable query caching or configure an effective second-level cache region factory and cache the entities returned by cacheable entity queries.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-query"));
     }
 
@@ -1140,7 +1148,7 @@ final class QueryCacheRegionFactoryRule extends AbstractHibernateRule {
                 "spring.jpa.properties.hibernate.cache.use_second_level_cache",
                 "hibernate.cache.use_second_level_cache");
         if (regionFactory == null || secondLevelCacheDisabled) {
-            return violation(List.of("Query cache is enabled without a configured second-level cache region factory."));
+            return violation(List.of("Query cache is enabled without an effective second-level cache region factory."));
         }
         return pass();
     }
@@ -1155,8 +1163,8 @@ final class CacheableWithoutCacheStrategyRule extends AbstractHibernateRule {
                         "Cacheable entities should declare an explicit cache strategy",
                         HibernateCategory.CONFIGURATION,
                         "MEDIUM",
-                        "Detects JPA @Cacheable entities without Hibernate @Cache when second-level caching appears configured.",
-                        "Add an explicit Hibernate cache concurrency strategy or remove @Cacheable if the entity should not use the second-level cache.",
+                        "Detects JPA @Cacheable entities without Hibernate @Cache or hibernate.cache.default_cache_concurrency_strategy when second-level caching appears configured.",
+                        "Add an explicit Hibernate cache concurrency strategy, configure a valid default cache concurrency strategy, or remove @Cacheable if the entity should not use the second-level cache.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching"));
     }
 
@@ -1170,13 +1178,27 @@ final class CacheableWithoutCacheStrategyRule extends AbstractHibernateRule {
                         "hibernate.cache.use_second_level_cache")) {
             return skipped("Second-level caching is not configured.");
         }
+        boolean hasDefaultCacheStrategy = hasDefaultCacheStrategy(context);
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
-            if (entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation()) {
+            if (entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation() && !hasDefaultCacheStrategy) {
                 details.add(entity.name() + " uses @Cacheable without an explicit Hibernate @Cache strategy.");
             }
         }
         return violation(details);
+    }
+
+    private boolean hasDefaultCacheStrategy(HibernateContext context) {
+        String value = context.firstProperty(
+                "spring.jpa.properties.hibernate.cache.default_cache_concurrency_strategy",
+                "hibernate.cache.default_cache_concurrency_strategy");
+        if (value == null) {
+            return false;
+        }
+        return switch (value.trim().toUpperCase(Locale.ROOT).replace('-', '_')) {
+            case "READ_ONLY", "NONSTRICT_READ_WRITE", "READ_WRITE", "TRANSACTIONAL" -> true;
+            default -> false;
+        };
     }
 }
 
@@ -1527,9 +1549,9 @@ final class FinalEntityRule extends AbstractHibernateRule {
                 "HIB-MAP-011",
                 "Entity classes should not be final",
                 HibernateCategory.MAPPING,
-                "HIGH",
-                "Detects @Entity classes declared as final, which prevents Hibernate from creating runtime proxies for lazy associations.",
-                "Remove the final modifier from entities (and avoid Kotlin classes without `open`) so lazy to-one associations and bytecode enhancement work correctly.",
+                "INFO",
+                "Detects final entity classes that are not proven bytecode-enhanced. Final entities are not Jakarta-portable and cannot use subclass proxies for lazy to-one associations.",
+                "Prefer non-final entities (and `open` Kotlin entities) when lazy subclass proxies are needed. Bytecode-enhanced entities are exempt.",
                 "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity"));
     }
 
@@ -1537,8 +1559,10 @@ final class FinalEntityRule extends AbstractHibernateRule {
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
-            if (entity.isFinalClass()) {
-                details.add(entity.name() + " is declared final.");
+            if (entity.isFinalClass() && !context.isHibernateEnhancementEnabled(entity)) {
+                details.add(
+                        entity.name()
+                                + " is declared final and is not proven bytecode-enhanced, so Hibernate cannot create subclass proxies for lazy to-one associations.");
             }
         }
         return violation(details);
@@ -1709,51 +1733,6 @@ final class ManyToOneOptionalRule extends AbstractHibernateRule {
     }
 }
 
-final class LazyOneToOneEnhancementRule extends AbstractHibernateRule {
-
-    LazyOneToOneEnhancementRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-MAP-017",
-                        "Lazy owning @OneToOne requires bytecode enhancement",
-                        HibernateCategory.MAPPING,
-                        "INFO",
-                        "Detects optional owning @OneToOne associations declared LAZY without Hibernate bytecode enhancement enabled, so Hibernate silently fetches them eagerly.",
-                        "Enable hibernate.bytecode.enhancer.enableLazyInitialization (and configure the enhancement plugin), or switch the relation to @MapsId so the existing foreign key drives loading.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#BytecodeEnhancement-lazy-loading"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.isHibernateEnhancementEnabled()) {
-            return pass();
-        }
-        List<String> details = new ArrayList<>();
-        for (HibernateEntityModel entity : context.entities()) {
-            for (HibernateAttributeModel attribute : entity.attributes()) {
-                Annotation oneToOne = attribute.oneToOneAnnotation();
-                if (oneToOne == null) {
-                    continue;
-                }
-                String mappedBy = attribute.annotationStringValue(oneToOne, "mappedBy");
-                if (mappedBy != null && !mappedBy.isBlank()) {
-                    continue;
-                }
-                if (attribute.hasMapsId()) {
-                    continue;
-                }
-                String fetch = attribute.annotationValueName(oneToOne, "fetch");
-                Boolean optional = attribute.annotationBooleanValue(oneToOne, "optional");
-                if ("LAZY".equals(fetch) && !Boolean.FALSE.equals(optional)) {
-                    details.add(attribute.description()
-                            + " is a lazy owning @OneToOne but bytecode enhancement is disabled.");
-                }
-            }
-        }
-        return violation(details);
-    }
-}
-
 final class EqualsHashCodeAssociationsRule extends AbstractHibernateRule {
 
     EqualsHashCodeAssociationsRule() {
@@ -1855,11 +1834,11 @@ final class ModifyingClearAutomaticallyRule extends AbstractHibernateRule {
     ModifyingClearAutomaticallyRule() {
         super(new HibernateRuleDefinition(
                 "HIB-QUERY-001",
-                "@Modifying queries should clear or flush the persistence context",
+                "@Modifying bulk queries should clear stale persistence context",
                 HibernateCategory.QUERY,
-                "HIGH",
-                "Detects Spring Data @Modifying queries that do not set clearAutomatically or flushAutomatically, so the persistence context can hold stale entities after the bulk update or delete.",
-                "Set @Modifying(clearAutomatically=true) (and flushAutomatically=true when pending changes must be applied first), or evict affected entities before issuing the bulk statement.",
+                "INFO",
+                "Detects Spring Data @Modifying queries that do not set clearAutomatically, so the persistence context can hold stale entities after the bulk update or delete. flushAutomatically synchronizes pending changes before the query but does not clear those stale entities afterward.",
+                "Set @Modifying(clearAutomatically=true), or explicitly evict affected entities after the bulk statement. Set flushAutomatically=true as well when pending changes must be applied first.",
                 "https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.modifying-queries"));
     }
 
@@ -1874,8 +1853,11 @@ final class ModifyingClearAutomaticallyRule extends AbstractHibernateRule {
                 if (!method.modifying()) {
                     continue;
                 }
-                if (!method.modifyingClearsAutomatically() && !method.modifyingFlushesAutomatically()) {
-                    details.add(method.description() + " is @Modifying without clearAutomatically/flushAutomatically.");
+                if (!method.modifyingClearsAutomatically()) {
+                    String flushDetail = method.modifyingFlushesAutomatically()
+                            ? " flushAutomatically=true does not clear stale managed entities."
+                            : "";
+                    details.add(method.description() + " is @Modifying without clearAutomatically." + flushDetail);
                 }
             }
         }
@@ -1919,11 +1901,11 @@ final class NativePagedQueryCountRule extends AbstractHibernateRule {
     NativePagedQueryCountRule() {
         super(new HibernateRuleDefinition(
                 "HIB-QUERY-003",
-                "Native paged @Query must declare countQuery",
+                "Native Page queries should review count derivation",
                 HibernateCategory.QUERY,
-                "HIGH",
-                "Detects native @Query methods with a Pageable parameter or Page<> return type that do not declare countQuery, leaving Spring Data unable to derive a correct COUNT statement.",
-                "Add countQuery=... to the @Query so paging can compute totals; without it Spring Data either fails to start or executes a wrong COUNT.",
+                "INFO",
+                "Detects native @Query methods returning Page without an explicit countQuery. Spring Data can derive counts for some simple native SQL, but complex queries may require an explicit count query or JSqlParser.",
+                "Review the generated count query. Add countQuery=... when Spring Data cannot derive a correct count, especially for complex native SQL.",
                 "https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.query-methods.at-query"));
     }
 
@@ -1938,7 +1920,7 @@ final class NativePagedQueryCountRule extends AbstractHibernateRule {
                 if (!method.nativeQuery() || !method.hasQuery()) {
                     continue;
                 }
-                if (!method.hasPageableParameter() && !method.returnsPage()) {
+                if (!method.returnsPage()) {
                     continue;
                 }
                 if (!method.hasCountQuery()) {
@@ -2062,11 +2044,11 @@ final class DeferDatasourceInitializationRule extends AbstractHibernateRule {
     DeferDatasourceInitializationRule() {
         super(new HibernateRuleDefinition(
                 "HIB-CONFIG-015",
-                "spring.jpa.defer-datasource-initialization is only safe with embedded DDL flows",
+                "Deferred script initialization should have an intentional order",
                 HibernateCategory.CONFIGURATION,
-                "MEDIUM",
-                "Detects spring.jpa.defer-datasource-initialization=true while ddl-auto is none/validate; the setting is meaningful only when Hibernate generates the schema (create/create-drop/update).",
-                "Combine defer-datasource-initialization=true with ddl-auto=create or create-drop, or remove it when relying on Flyway/Liquibase so data.sql is loaded by the migration tool instead.",
+                "INFO",
+                "Detects spring.jpa.defer-datasource-initialization=true, which moves script-based datasource initialization until after JPA initialization.",
+                "Verify that script-based initialization has the intended owner and order. This setting is valid with schema validation or externally managed schemas when scripts intentionally seed an existing schema.",
                 "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.datasource.initialization"));
     }
 
@@ -2079,18 +2061,11 @@ final class DeferDatasourceInitializationRule extends AbstractHibernateRule {
                 "spring.jpa.hibernate.ddl-auto",
                 "spring.jpa.properties.hibernate.hbm2ddl.auto",
                 "hibernate.hbm2ddl.auto");
-        if (ddlAuto == null) {
-            return skipped(
-                    "ddl-auto is not set; for an embedded database Spring Boot defaults to create-drop, which makes defer-datasource-initialization meaningful, so this cannot be flagged without knowing the datasource.");
-        }
-        String normalized = ddlAuto.toLowerCase(Locale.ROOT);
-        if (normalized.equals("create") || normalized.equals("create-drop") || normalized.equals("update")) {
-            return pass();
-        }
-        return violation(
-                List.of(
-                        "spring.jpa.defer-datasource-initialization=true while ddl-auto=" + ddlAuto
-                                + "; Hibernate does not generate the schema, so the property has no effect and data.sql must be loaded by your migration tool."));
+        String detail = "spring.jpa.defer-datasource-initialization=true defers script-based datasource initialization"
+                + " until after JPA initialization"
+                + (ddlAuto == null ? "." : " (ddl-auto=" + ddlAuto + ").")
+                + " Verify that this ordering is intentional.";
+        return violation(HibernateRuleSupport.INFO, detail);
     }
 }
 
@@ -2100,11 +2075,11 @@ final class CacheAssociationCoverageRule extends AbstractHibernateRule {
         super(
                 new HibernateRuleDefinition(
                         "HIB-CACHE-001",
-                        "Cached entities should also cache their associations",
+                        "Cached entity association coverage should be reviewed",
                         HibernateCategory.CACHING,
-                        "MEDIUM",
-                        "Detects entities annotated with @Cacheable or Hibernate @Cache whose associations do not declare @Cache themselves; loading a cached aggregate then re-hits the database for every uncached association.",
-                        "Annotate the associated entities (or the association attributes) with @org.hibernate.annotations.Cache so the second-level cache covers the whole graph; otherwise the cache yields little benefit.",
+                        "INFO",
+                        "Detects cached entities whose associations target uncached entities. Association coverage is a workload-specific second-level-cache optimization, not a correctness requirement.",
+                        "Measure cache hit rates and access patterns before caching associated entities or collection roles. Leave mutable or low-hit targets uncached when that better fits the workload.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-entity"));
     }
 
@@ -2252,8 +2227,8 @@ final class FormatSqlInProductionRule extends AbstractHibernateRule {
                         "Disable SQL formatting in production",
                         HibernateCategory.CONFIGURATION,
                         "LOW",
-                        "Detects hibernate.format_sql=true while a production profile is active.",
-                        "Disable hibernate.format_sql in production profiles to save CPU and memory, as formatting occurs even when SQL logging is off.",
+                        "Detects hibernate.format_sql=true while SQL logging is enabled in a production profile.",
+                        "Disable hibernate.format_sql when verbose SQL logging is enabled in production to avoid formatting every logged statement.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#configurations-logging"));
     }
 
@@ -2262,8 +2237,10 @@ final class FormatSqlInProductionRule extends AbstractHibernateRule {
         if (!context.isProductionProfileActive()) {
             return pass();
         }
-        if (context.isPropertyTrue("spring.jpa.properties.hibernate.format_sql", "hibernate.format_sql")) {
-            return violation(List.of("hibernate.format_sql is enabled while a production profile is active."));
+        if (context.isPropertyTrue("spring.jpa.properties.hibernate.format_sql", "hibernate.format_sql")
+                && context.isSqlLoggingEnabled()) {
+            return violation(
+                    List.of("hibernate.format_sql and SQL logging are enabled while a production profile is active."));
         }
         return pass();
     }
@@ -2311,11 +2288,11 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.isHibernateEnhancementEnabled()) {
-            return pass();
-        }
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
+            if (context.isHibernateEnhancementEnabled(entity)) {
+                continue;
+            }
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 java.lang.annotation.Annotation oneToOne = attribute.oneToOneAnnotation();
                 if (oneToOne == null) {
@@ -2389,6 +2366,9 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
     }
 
     private boolean isOwningToOne(HibernateAttributeModel attribute) {
+        if (attribute.hasMapsId()) {
+            return false;
+        }
         if (attribute.manyToOneAnnotation() != null) {
             return true;
         }
@@ -2562,7 +2542,7 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                         "Assigned IDs should implement Persistable",
                         HibernateCategory.ENTITY_DESIGN,
                         "MEDIUM",
-                        "Detects entities with assigned identifiers and no @Version that do not implement org.springframework.data.domain.Persistable.",
+                        "Detects Spring Data repository domain entities with assigned identifiers and no @Version that do not implement org.springframework.data.domain.Persistable.",
                         "Implement Persistable<ID> and manage the isNew() flag manually so Spring Data avoids a SELECT before every insert.",
                         "https://docs.spring.io/spring-data/jpa/reference/jpa/entity-persistence.html#jpa.entity-persistence.saving-entities.strategies"));
     }
@@ -2572,12 +2552,19 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
         // The concern is specific to Spring Data JPA's generic save(): it inspects the id/version to guess whether
         // an entity is new. Quarkus/Panache calls entityManager.persist() directly and has no such ambiguity, so
         // without Spring Data Commons on the classpath there is nothing to recommend implementing Persistable for.
-        if (!HibernateRuleModelSupport.isSpringDataPersistableAvailable()) {
+        if (!HibernateRuleModelSupport.isSpringDataPersistableAvailable()
+                || context.repositories().isEmpty()) {
             return skipped(
-                    "Spring Data Commons was not detected; this check only applies to Spring Data JPA repositories.");
+                    "No Spring Data repository metadata was detected; this check only applies to Spring Data JPA repository domain types.");
         }
+        Set<Class<?>> repositoryDomainTypes = context.repositories().stream()
+                .map(HibernateRepositoryModel::domainType)
+                .collect(java.util.stream.Collectors.toSet());
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
+            if (entity.javaType() == null || !repositoryDomainTypes.contains(entity.javaType())) {
+                continue;
+            }
             boolean hasGeneratedId = entity.attributes().stream().anyMatch(a -> a.generatedValueAnnotation() != null);
             boolean hasVersion = entity.hasVersionAttribute();
             if (hasGeneratedId || hasVersion) {
@@ -2917,8 +2904,8 @@ final class CompositeIdentifierContractRule extends AbstractHibernateRule {
                         "Composite identifier classes must satisfy the JPA contract",
                         HibernateCategory.IDENTIFIERS,
                         "HIGH",
-                        "Detects @EmbeddedId / @IdClass primary-key classes that are not Serializable, lack a public no-arg constructor, or do not override both equals and hashCode. JPA and Hibernate require all four for a composite identifier class to work correctly.",
-                        "Make the composite identifier class implement Serializable, declare a public no-arg constructor, and override both equals and hashCode over every identifier field; violating any of these can silently break entity equality, second-level caching, and collection lookups.",
+                        "Detects @EmbeddedId / @IdClass primary-key classes that are not Serializable, lack a public or protected no-arg constructor (unless declared as a record), or do not override both equals and hashCode.",
+                        "Make a non-record composite identifier class implement Serializable, declare a public or protected no-arg constructor, and override both equals and hashCode over every identifier field.",
                         "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-composite"));
     }
 
@@ -2950,8 +2937,8 @@ final class CompositeIdentifierContractRule extends AbstractHibernateRule {
         if (!Serializable.class.isAssignableFrom(idClass)) {
             problems.add("not Serializable");
         }
-        if (!hasPublicNoArgConstructor(idClass)) {
-            problems.add("no public no-arg ctor");
+        if (!idClass.isRecord() && !hasPublicOrProtectedNoArgConstructor(idClass)) {
+            problems.add("no public/protected no-arg ctor");
         }
         if (!overrides(idClass, "equals", Object.class)) {
             problems.add("no equals() override");
@@ -2967,12 +2954,11 @@ final class CompositeIdentifierContractRule extends AbstractHibernateRule {
         }
     }
 
-    private static boolean hasPublicNoArgConstructor(Class<?> type) {
+    private static boolean hasPublicOrProtectedNoArgConstructor(Class<?> type) {
         try {
-            // getConstructor() (as opposed to getDeclaredConstructor()) only ever returns public constructors,
-            // so success alone already proves the "public no-arg constructor" requirement.
-            type.getConstructor();
-            return true;
+            Constructor<?> constructor = type.getDeclaredConstructor();
+            int modifiers = constructor.getModifiers();
+            return Modifier.isPublic(modifiers) || Modifier.isProtected(modifiers);
         } catch (NoSuchMethodException ex) {
             return false;
         }

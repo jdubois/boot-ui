@@ -24,6 +24,8 @@ final class DependencyCatalog implements DependencyProvider {
 
     private static final String MAVEN_PROPERTIES_PATTERN = "classpath*:META-INF/maven/*/*/pom.properties";
 
+    private static final System.Logger LOGGER = System.getLogger(DependencyCatalog.class.getName());
+
     private final ResourcePatternResolver resolver;
 
     DependencyCatalog() {
@@ -55,7 +57,11 @@ final class DependencyCatalog implements DependencyProvider {
         try {
             return resolver.getResources(MAVEN_PROPERTIES_PATTERN);
         } catch (IOException ex) {
-            throw new IllegalStateException("Could not inspect classpath Maven metadata", ex);
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Could not inspect classpath Maven metadata; continuing with java.class.path: {0}",
+                    ex.getMessage());
+            return new Resource[0];
         }
     }
 
@@ -64,7 +70,12 @@ final class DependencyCatalog implements DependencyProvider {
         try (InputStream input = resource.getInputStream()) {
             properties.load(input);
         } catch (IOException ex) {
-            throw new IllegalStateException("Could not read Maven metadata from " + resource.getDescription(), ex);
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Could not read Maven metadata from {0}; skipping it: {1}",
+                    resource.getDescription(),
+                    ex.getMessage());
+            return null;
         }
         String groupId = BlankStrings.blankToNullTrimmed(properties.getProperty("groupId"));
         String artifactId = BlankStrings.blankToNullTrimmed(properties.getProperty("artifactId"));
@@ -100,7 +111,11 @@ final class DependencyCatalog implements DependencyProvider {
         String artifactId = artifactPath.getFileName().toString();
         String version = versionPath.getFileName().toString();
         String fileName = jar.getFileName().toString();
-        if (!fileName.startsWith(artifactId + "-" + version) || !fileName.endsWith(".jar")) {
+        String expectedBaseName = artifactId + "-" + version;
+        boolean mainArtifact = fileName.equals(expectedBaseName + ".jar");
+        boolean classifiedArtifact =
+                fileName.startsWith(expectedBaseName + "-") && fileName.length() > expectedBaseName.length() + 5;
+        if ((!mainArtifact && !classifiedArtifact) || !fileName.endsWith(".jar")) {
             return null;
         }
         DependencyDto pomDependency = dependencyFromAdjacentPom(versionPath, artifactId, version);

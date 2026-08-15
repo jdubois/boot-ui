@@ -249,6 +249,7 @@ describe('routes', () => {
       'Mappings',
       'Database Connection Pools',
       'SQL Trace',
+      'Transactions',
       'Spring Data',
       'Flyway',
       'Liquibase',

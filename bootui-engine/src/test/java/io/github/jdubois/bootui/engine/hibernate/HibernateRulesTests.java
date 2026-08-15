@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import jakarta.persistence.Basic;
+import jakarta.persistence.Cacheable;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
@@ -20,6 +21,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.MapsId;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderBy;
@@ -40,6 +42,7 @@ import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.NaturalId;
 import org.hibernate.annotations.Where;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Persistable;
 
 class HibernateRulesTests {
@@ -82,6 +85,30 @@ class HibernateRulesTests {
                 false,
                 false,
                 parameterTypes);
+    }
+
+    private static HibernateRepositoryMethodModel repositoryMethod(
+            String name,
+            Class<?> returnType,
+            String query,
+            boolean nativeQuery,
+            boolean hasPageableParameter,
+            boolean modifying,
+            boolean clearAutomatically,
+            boolean flushAutomatically) {
+        return new HibernateRepositoryMethodModel(
+                "com.example.Repo",
+                name,
+                Object.class,
+                returnType,
+                query,
+                nativeQuery,
+                null,
+                hasPageableParameter,
+                modifying,
+                clearAutomatically,
+                flushAutomatically,
+                List.of());
     }
 
     // --- HIB-ID-006 ---------------------------------------------------------
@@ -336,13 +363,13 @@ class HibernateRulesTests {
     }
 
     @Test
-    void lobLazyFetchRuleRecommendsLazyWhenEnhancementIsEnabled() {
+    void lobLazyFetchRuleDoesNotTrustAnUnverifiedEnhancementSetting() {
         TestEnvironment environment =
                 new TestEnvironment().withProperty("hibernate.enhancer.enableLazyInitialization", "true");
 
         HibernateRuleResultDto result = new LobLazyFetchRule().evaluate(context(environment, EagerLobEntity.class));
 
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
     @Test
@@ -356,9 +383,30 @@ class HibernateRulesTests {
     }
 
     @Test
-    void lazyBasicRulePassesWhenEnhancementIsEnabled() {
+    void lobLazyFetchRuleRecommendsLazyWhenAnAdapterVerifiesEnhancement() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY, "true");
+
+        HibernateRuleResultDto result = new LobLazyFetchRule().evaluate(context(environment, EagerLobEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void lazyBasicRuleDoesNotTrustAnUnverifiedEnhancementSetting() {
         TestEnvironment environment =
                 new TestEnvironment().withProperty("hibernate.enhancer.enableLazyInitialization", "true");
+
+        HibernateRuleResultDto result =
+                new LazyBasicWithoutEnhancementRule().evaluate(context(environment, LazyLobEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void lazyBasicRulePassesWhenAnAdapterVerifiesEnhancement() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY, "true");
 
         HibernateRuleResultDto result =
                 new LazyBasicWithoutEnhancementRule().evaluate(context(environment, LazyLobEntity.class));
@@ -456,20 +504,101 @@ class HibernateRulesTests {
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
+    // --- HIB-CONFIG-011 -----------------------------------------------------
+
+    @Test
+    void cacheableWithoutCacheStrategyRuleHonorsConfiguredDefaultStrategy() {
+        TestEnvironment environment = new TestEnvironment()
+                .withProperty("hibernate.cache.use_second_level_cache", "true")
+                .withProperty("hibernate.cache.default_cache_concurrency_strategy", "read-write");
+
+        HibernateRuleResultDto result = new CacheableWithoutCacheStrategyRule()
+                .evaluate(context(environment, CacheableDefaultStrategyEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    // --- HIB-QUERY-001 ------------------------------------------------------
+
+    @Test
+    void modifyingRuleFlagsFlushWithoutClearAutomatically() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.Repo",
+                Object.class,
+                List.of(repositoryMethod(
+                        "updateAll", int.class, "update Entity e set e.value = 1", false, false, true, false, true)));
+
+        HibernateRuleResultDto result =
+                new ModifyingClearAutomaticallyRule().evaluate(context(new TestEnvironment(), List.of(repository)));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.INFO);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("flushAutomatically=true does not clear"));
+    }
+
+    @Test
+    void modifyingRulePassesWhenClearAutomaticallyIsEnabled() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.Repo",
+                Object.class,
+                List.of(repositoryMethod(
+                        "updateAll", int.class, "update Entity e set e.value = 1", false, false, true, true, false)));
+
+        HibernateRuleResultDto result =
+                new ModifyingClearAutomaticallyRule().evaluate(context(new TestEnvironment(), List.of(repository)));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    // --- HIB-QUERY-003 ------------------------------------------------------
+
+    @Test
+    void nativePageQueryWithoutCountQueryIsAnInformationalReview() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.Repo",
+                Object.class,
+                List.of(repositoryMethod(
+                        "findPage", Page.class, "select * from entity_table", true, true, false, false, false)));
+
+        HibernateRuleResultDto result =
+                new NativePagedQueryCountRule().evaluate(context(new TestEnvironment(), List.of(repository)));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.INFO);
+    }
+
+    @Test
+    void nativeListQueryWithPageableDoesNotRequireCountQuery() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.Repo",
+                Object.class,
+                List.of(repositoryMethod(
+                        "findSlice", List.class, "select * from entity_table", true, true, false, false, false)));
+
+        HibernateRuleResultDto result =
+                new NativePagedQueryCountRule().evaluate(context(new TestEnvironment(), List.of(repository)));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
     // --- HIB-CONFIG-015 -----------------------------------------------------
 
     @Test
-    void deferDatasourceInitializationRuleSkipsWhenDdlAutoUnset() {
+    void deferDatasourceInitializationRuleReportsOrderingWhenDdlAutoIsUnset() {
         TestEnvironment environment =
                 new TestEnvironment().withProperty("spring.jpa.defer-datasource-initialization", "true");
 
         HibernateRuleResultDto result = new DeferDatasourceInitializationRule().evaluate(context(environment));
 
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.INFO);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("after JPA initialization"));
     }
 
     @Test
-    void deferDatasourceInitializationRuleViolatesForValidate() {
+    void deferDatasourceInitializationRuleDoesNotClaimValidateMakesItIneffective() {
         TestEnvironment environment = new TestEnvironment()
                 .withProperty("spring.jpa.defer-datasource-initialization", "true")
                 .withProperty("spring.jpa.hibernate.ddl-auto", "validate");
@@ -477,17 +606,44 @@ class HibernateRulesTests {
         HibernateRuleResultDto result = new DeferDatasourceInitializationRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.INFO);
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("has no effect"));
     }
 
     @Test
-    void deferDatasourceInitializationRulePassesForCreate() {
+    void deferDatasourceInitializationRuleReportsOrderingForCreate() {
         TestEnvironment environment = new TestEnvironment()
                 .withProperty("spring.jpa.defer-datasource-initialization", "true")
                 .withProperty("spring.jpa.hibernate.ddl-auto", "create");
 
         HibernateRuleResultDto result = new DeferDatasourceInitializationRule().evaluate(context(environment));
 
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.INFO);
+    }
+
+    // --- HIB-CONFIG-017 -----------------------------------------------------
+
+    @Test
+    void formatSqlInProductionRulePassesWhenSqlLoggingIsOff() {
+        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.format_sql", "true");
+        environment.setActiveProfiles("prod");
+
+        HibernateRuleResultDto result = new FormatSqlInProductionRule().evaluate(context(environment));
+
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void formatSqlInProductionRuleFlagsFormattedSqlWhenLoggingIsEnabled() {
+        TestEnvironment environment = new TestEnvironment()
+                .withProperty("hibernate.format_sql", "true")
+                .withProperty("hibernate.show_sql", "true");
+        environment.setActiveProfiles("prod");
+
+        HibernateRuleResultDto result = new FormatSqlInProductionRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
     }
 
     // --- HIB-MAP-006 --------------------------------------------------------
@@ -508,6 +664,52 @@ class HibernateRulesTests {
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.LOW);
+    }
+
+    // --- HIB-MAP-002 --------------------------------------------------------
+
+    @Test
+    void manyToManyListRuleRetainsOrderedListsAsAnAdvisory() {
+        HibernateRuleResultDto result =
+                new ManyToManyListRule().evaluate(context(new TestEnvironment(), OrderedManyToManyEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("@OrderColumn"));
+    }
+
+    // --- HIB-MAP-011 / HIB-MAP-018 -----------------------------------------
+
+    @Test
+    void finalEntityRulePassesWhenAnAdapterVerifiesEnhancement() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY, "true");
+
+        HibernateRuleResultDto result = new FinalEntityRule().evaluate(context(environment, FinalEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void nonOwningOneToOneRuleDoesNotTrustAnUnverifiedEnhancementSetting() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("hibernate.enhancer.enableLazyInitialization", "true");
+
+        HibernateRuleResultDto result =
+                new NonOwningOneToOneEnhancementRule().evaluate(context(environment, InverseOneToOneEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void nonOwningOneToOneRulePassesWhenAnAdapterVerifiesEnhancement() {
+        TestEnvironment environment =
+                new TestEnvironment().withProperty(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY, "true");
+
+        HibernateRuleResultDto result =
+                new NonOwningOneToOneEnhancementRule().evaluate(context(environment, InverseOneToOneEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
     // --- HIB-MAP-019 --------------------------------------------------------
@@ -557,6 +759,16 @@ class HibernateRulesTests {
 
         HibernateRuleResultDto result =
                 new MissingForeignKeyIndexRule().evaluate(context(environment, ImplicitJoinColumnEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void missingForeignKeyIndexRuleSkipsSharedPrimaryKeyAssociations() {
+        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.hbm2ddl.auto", "create");
+
+        HibernateRuleResultDto result =
+                new MissingForeignKeyIndexRule().evaluate(context(environment, SharedPrimaryKeyEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -851,11 +1063,10 @@ class HibernateRulesTests {
 
     @Test
     void assignedIdPersistableRuleFlagsAssignedIdWithoutPersistable() {
-        // Spring Data Commons' real Persistable interface is on this module's test classpath, so
-        // isSpringDataPersistableAvailable() is always true here; the "Spring Data absent" skip branch is not
-        // reachable from this module (matching the AiFrameworkDetector classpath-presence precedent).
-        HibernateRuleResultDto result =
-                new AssignedIdPersistableRule().evaluate(context(new TestEnvironment(), AssignedIdEntity.class));
+        HibernateRepositoryModel repository =
+                new HibernateRepositoryModel("com.example.Repo", AssignedIdEntity.class, List.of());
+        HibernateRuleResultDto result = new AssignedIdPersistableRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), AssignedIdEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.sampleViolations())
@@ -864,18 +1075,30 @@ class HibernateRulesTests {
 
     @Test
     void assignedIdPersistableRulePassesWhenEntityImplementsPersistable() {
+        HibernateRepositoryModel repository =
+                new HibernateRepositoryModel("com.example.Repo", PersistableAssignedIdEntity.class, List.of());
         HibernateRuleResultDto result = new AssignedIdPersistableRule()
-                .evaluate(context(new TestEnvironment(), PersistableAssignedIdEntity.class));
+                .evaluate(context(new TestEnvironment(), List.of(repository), PersistableAssignedIdEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
     @Test
     void assignedIdPersistableRulePassesForGeneratedIdentifiers() {
-        HibernateRuleResultDto result =
-                new AssignedIdPersistableRule().evaluate(context(new TestEnvironment(), IdentityEntity.class));
+        HibernateRepositoryModel repository =
+                new HibernateRepositoryModel("com.example.Repo", IdentityEntity.class, List.of());
+        HibernateRuleResultDto result = new AssignedIdPersistableRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), IdentityEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void assignedIdPersistableRuleSkipsEntitiesWithoutRepositoryMetadata() {
+        HibernateRuleResultDto result =
+                new AssignedIdPersistableRule().evaluate(context(new TestEnvironment(), AssignedIdEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
     }
 
     @Test
@@ -903,7 +1126,7 @@ class HibernateRulesTests {
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample)
                         .contains("not Serializable")
-                        .contains("no public no-arg ctor")
+                        .contains("no public/protected no-arg ctor")
                         .contains("no equals() override")
                         .contains("no hashCode() override"));
     }
@@ -912,6 +1135,22 @@ class HibernateRulesTests {
     void compositeIdentifierContractRulePassesForWellFormedIdClass() {
         HibernateRuleResultDto result = new CompositeIdentifierContractRule()
                 .evaluate(context(new TestEnvironment(), WellFormedIdClassEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void compositeIdentifierContractRuleAcceptsProtectedNoArgConstructor() {
+        HibernateRuleResultDto result = new CompositeIdentifierContractRule()
+                .evaluate(context(new TestEnvironment(), ProtectedConstructorEmbeddedIdEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void compositeIdentifierContractRuleAcceptsRecordPrimaryKeys() {
+        HibernateRuleResultDto result = new CompositeIdentifierContractRule()
+                .evaluate(context(new TestEnvironment(), RecordEmbeddedIdEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -1116,6 +1355,31 @@ class HibernateRulesTests {
     }
 
     @Entity
+    static class InverseOneToOneEntity {
+        @Id
+        Long id;
+
+        @OneToOne(mappedBy = "owner", fetch = FetchType.LAZY)
+        Child child;
+    }
+
+    @Entity
+    static class OrderedManyToManyEntity {
+        @Id
+        Long id;
+
+        @ManyToMany
+        @OrderColumn(name = "child_order")
+        List<Child> children;
+    }
+
+    @Entity
+    static final class FinalEntity {
+        @Id
+        Long id;
+    }
+
+    @Entity
     static class EagerLobEntity {
         @Id
         Long id;
@@ -1171,6 +1435,17 @@ class HibernateRulesTests {
     }
 
     @Entity
+    static class SharedPrimaryKeyEntity {
+        @Id
+        Long id;
+
+        @OneToOne
+        @MapsId
+        @JoinColumn(name = "id")
+        Child child;
+    }
+
+    @Entity
     static class ImplicitJoinColumnEntity {
         @Id
         Long id;
@@ -1198,6 +1473,13 @@ class HibernateRulesTests {
     @Immutable
     @Cache(usage = CacheConcurrencyStrategy.READ_ONLY)
     static class ImmutableReadOnlyCacheEntity {
+        @Id
+        Long id;
+    }
+
+    @Entity
+    @Cacheable
+    static class CacheableDefaultStrategyEntity {
         @Id
         Long id;
     }
@@ -1360,6 +1642,37 @@ class HibernateRulesTests {
     static class WellFormedEmbeddedIdEntity {
         @EmbeddedId
         WellFormedEmbeddedIdKey id;
+    }
+
+    /** A protected no-arg constructor is valid for a non-record composite primary-key class. */
+    static class ProtectedConstructorEmbeddedIdKey implements Serializable {
+        private Long value;
+
+        protected ProtectedConstructorEmbeddedIdKey() {}
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof ProtectedConstructorEmbeddedIdKey key && java.util.Objects.equals(value, key.value);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(value);
+        }
+    }
+
+    @Entity
+    static class ProtectedConstructorEmbeddedIdEntity {
+        @EmbeddedId
+        ProtectedConstructorEmbeddedIdKey id;
+    }
+
+    record RecordEmbeddedIdKey(Long orderId, Long lineNumber) implements Serializable {}
+
+    @Entity
+    static class RecordEmbeddedIdEntity {
+        @EmbeddedId
+        RecordEmbeddedIdKey id;
     }
 
     /** Composite identifier class violating every part of the JPA contract HIB-ID-007 checks. */

@@ -380,7 +380,12 @@ jobs:
           # No -Dgpg.passphrase here: that user property is deprecated by maven-gpg-plugin
           # ("may leak sensitive information"). The plugin already reads the passphrase from
           # the MAVEN_GPG_PASSPHRASE env var above (its passphraseEnvName default) instead.
+          # Build only Central distribution modules and their required reactor dependencies during
+          # publication. The complete reactor was already verified before the immutable release
+          # commit and tag were created.
           ./mvnw -B -ntp -Prelease clean deploy \
+            -pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment \
+            -am \
             -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}"
 
       - name: Wait for Maven Central availability
@@ -392,7 +397,7 @@ jobs:
           BASE="https://repo1.maven.org/maven2/com/julien-dubois/bootui"
 
           # Every published artifact: the parent POM and one JAR per published module.
-          # This list must stay in sync with the modules that have maven.deploy.skip != true.
+          # This list must stay in sync with the publication reactor and Central exclusions.
           # Missing any one artifact causes the release to fail with the coordinate in the error.
           ARTIFACTS=(
             "bootui-parent/${VERSION}/bootui-parent-${VERSION}.pom"
