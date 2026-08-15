@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.memory;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -90,6 +91,59 @@ class MemoryCalculatorTests {
     }
 
     @Test
+    void bareMetalOptionsAreSpaceSeparatedTokensAcrossRepresentativeInputs() {
+        // Regression test for a StringBuilder bug where "-Xms" and "-Xmx" were appended
+        // without a separating space, producing an unparseable token such as
+        // "-Xms369m-Xmx369m". containsExactly on the split tokens fails loudly if any two
+        // options are concatenated instead of separated by exactly one space.
+        long[][] representativeInputs = {
+            // {totalMemoryBytes, threadCount, loadedClasses, headRoomPercent, liveThreadCount, liveLoadedClasses}
+            {1024 * MB, 250, 5_000, 0, 1, 5_000},
+            {2048 * MB, 250, 5_000, 10, 40, 5_000},
+            {64L * 1024 * MB, 10_000, 200_000, 30, 5_000, 200_000},
+            {518 * MB, 250, 0, 0, 10, 0}, // boundary: smallest total that still renders a 1 MiB heap
+        };
+
+        for (long[] input : representativeInputs) {
+            MemoryCalculationDto result = calculator.calculate(
+                    input[0], (int) input[1], (int) input[2], (int) input[3], (int) input[4], (int) input[5]);
+
+            assertThat(result.valid()).as("input %s", (Object) input).isTrue();
+
+            long heapMb = result.heapBytes() / MB;
+            long metaMb = result.metaspaceBytes() / MB;
+
+            List<String> tokens = List.of(result.jvmOptions().split(" "));
+            assertThat(tokens)
+                    .as("tokens for input %s", (Object) input)
+                    .containsExactly(
+                            "-Xms" + heapMb + "m",
+                            "-Xmx" + heapMb + "m",
+                            "-XX:MaxMetaspaceSize=" + metaMb + "m",
+                            "-XX:ReservedCodeCacheSize=240m",
+                            "-Xss1024k");
+        }
+    }
+
+    @Test
+    void kubernetesOptionsAreSpaceSeparatedTokensWithoutConcatenation() {
+        MemoryCalculationDto result = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000);
+
+        String options = calculator.buildKubernetesJvmOptions(result, 42.125, 33.5);
+        long metaMb = result.metaspaceBytes() / MB;
+
+        List<String> tokens = List.of(options.split(" "));
+        assertThat(tokens)
+                .containsExactly(
+                        "-XX:MaxRAMPercentage=42.125",
+                        "-XX:MinRAMPercentage=42.125",
+                        "-XX:InitialRAMPercentage=33.5",
+                        "-XX:MaxMetaspaceSize=" + metaMb + "m",
+                        "-XX:ReservedCodeCacheSize=240m",
+                        "-Xss1024k");
+    }
+
+    @Test
     void renderedOptionsStayWithinTheModeledBudget() {
         MemoryCalculationDto result = calculator.calculate(1024 * MB, 250, 5_001, 7, 40, 5_001);
 
@@ -153,7 +207,9 @@ class MemoryCalculatorTests {
 
         assertThat(boundary.valid()).isTrue();
         assertThat(boundary.heapBytes()).isEqualTo(MB);
-        assertThat(boundary.jvmOptions()).contains("-Xms1m", "-Xmx1m");
+        // Exact token equality (not mere substring containment) so a missing separator between
+        // "-Xms1m" and "-Xmx1m" (e.g. a concatenated "-Xms1m-Xmx1m") fails this assertion.
+        assertThat(List.of(boundary.jvmOptions().split(" "))).contains("-Xms1m", "-Xmx1m");
     }
 
     @Test

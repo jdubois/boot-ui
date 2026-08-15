@@ -325,7 +325,7 @@ final class MemoryCalculator {
 
         StringBuilder sb = new StringBuilder(256);
         sb.append("-Xms").append(heapMb).append("m");
-        sb.append("-Xmx").append(heapMb).append("m");
+        sb.append(" -Xmx").append(heapMb).append("m");
         sb.append(" -XX:MaxMetaspaceSize=").append(metaMb).append("m");
         sb.append(" -XX:ReservedCodeCacheSize=").append(ccMb).append("m");
         sb.append(" -Xss").append(stackKb).append("k");
