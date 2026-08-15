@@ -1162,6 +1162,12 @@ or the tab is hidden the stream is closed, and the panel falls back to its initi
 > native executable. If a proxy ever cannot be created (for example an interface set that was not registered), wrapping
 > still fails open and the `DataSource` is left untraced rather than breaking application startup.
 
+On the JVM (Spring MVC and WebFlux), the traced proxy also advertises every interface the original `DataSource` bean's
+concrete class implements, so a vendor-specific contract — such as Oracle UCP's `PoolDataSource` — survives wrapping and
+by-type/by-interface injection of that vendor interface keeps resolving to the traced proxy. This extra interface set is
+not used in a GraalVM native image, where the interface set must be known and registered at build time; native images
+keep using the fixed, pre-registered set above.
+
 On Quarkus the panel is identical, running over the same framework-neutral engine recorder (the bounded buffer, grouping,
 stats, N+1 detection, and call-site capture are byte-identical to Spring — call site capture runs once, at the single
 `SqlTraceRecorder.record(...)` choke point both feeders below call into, so neither feeder needs its own stack-walking
