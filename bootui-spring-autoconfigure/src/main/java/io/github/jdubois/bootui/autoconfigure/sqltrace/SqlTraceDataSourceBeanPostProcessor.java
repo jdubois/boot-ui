@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.sqltrace;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import javax.sql.DataSource;
@@ -101,9 +102,7 @@ public final class SqlTraceDataSourceBeanPostProcessor implements BeanPostProces
             return new Class<?>[0];
         }
         Set<Class<?>> extra = new LinkedHashSet<>(ClassUtils.getAllInterfacesForClassAsSet(dataSourceClass));
-        extra.remove(DataSource.class);
-        extra.remove(AutoCloseable.class);
-        extra.remove(SqlTracedDataSource.class);
+        extra.removeAll(Arrays.asList(SqlTracingProxies.dataSourceInterfaces()));
         return extra.toArray(new Class<?>[0]);
     }
 
