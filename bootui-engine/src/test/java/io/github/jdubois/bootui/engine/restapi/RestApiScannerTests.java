@@ -17,7 +17,11 @@ class RestApiScannerTests {
 
     private RestApiScanner scanner(List<String> basePackages, boolean openApiAnnotationsPresent) {
         return new RestApiScanner(
-                () -> basePackages, new ClassFileRestApiImporter(), () -> openApiAnnotationsPresent, () -> false, CLOCK);
+                () -> basePackages,
+                new ClassFileRestApiImporter(),
+                () -> openApiAnnotationsPresent,
+                () -> false,
+                CLOCK);
     }
 
     @Test

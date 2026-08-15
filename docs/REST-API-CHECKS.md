@@ -336,7 +336,7 @@ otherwise they are reported as `SKIPPED`.
 ### RAPI-VER-001 - API uses a consistent versioning strategy
 
 - **Severity**: INFO
-- **Detects**: No version signal (no /vN path segment, version header/param, versioned media type, or Spring Framework 7 version attribute) was found, or only some handlers are versioned, which makes breaking changes hard to roll out consistently. Recognises JAX-RS's @HeaderParam/@QueryParam and Quarkus's @RestHeader/@RestQuery for header/query-param versioning, matching Spring's @RequestHeader/@RequestParam.
+- **Detects**: No version signal (no /vN path segment, version header/param, versioned media type, or Spring Framework 7 version attribute) was found, or only some handlers are versioned, which makes breaking changes hard to roll out consistently. Recognises JAX-RS's @HeaderParam/@QueryParam and Quarkus's @RestHeader/@RestQuery for header/query-param versioning, matching Spring's @RequestHeader/@RequestParam. On Spring MVC, also passes when runtime-wide versioning is configured via `spring.mvc.apiversion.*` properties (default, supported, or any `use.*` key), since that strategy is not expressible per-handler in bytecode.
 - **Recommendation**: Adopt one versioning strategy (path, header/param, media-type, or Spring Framework 7 version attribute) and apply it across all API endpoints before the API is consumed externally.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html>
 
