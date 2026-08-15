@@ -7,6 +7,8 @@ import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.junit.QuarkusTestProfile;
+import io.quarkus.test.junit.TestProfile;
 import java.net.URL;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -21,8 +23,17 @@ import org.junit.jupiter.api.Test;
  * {@code quarkus-hibernate-orm} is also present here — the Hibernate cross-reference rules run (not skipped)
  * against the same {@code EntityDiscoverySource} the Hibernate advisor uses, reusing the shared engine rule
  * registry unmodified.
+ *
+ * <p>Runs under a dedicated, empty {@link QuarkusTestProfile} so it gets its own isolated application
+ * instance. {@code POST /scan} resolves every {@code Instance<DataSource>} CDI bean (including the
+ * {@code @Alternative} traced {@code DataSource} that {@code BootUiSqlTraceProducer} wires ahead of the real
+ * Agroal pool), which is the first thing in the whole test module to actually instantiate that bean and — as
+ * a side effect — register it with the SQL Trace panel's recorder. Sharing the default-profile application
+ * instance with {@code BootUiQuarkusSqlTraceOrmCaptureTest} would make that unrelated test's "the panel starts
+ * unavailable" assertion order-dependent on whichever test class happens to touch the DataSource first.</p>
  */
 @QuarkusTest
+@TestProfile(BootUiQuarkusDatabaseAdvisorTest.IsolatedProfile.class)
 class BootUiQuarkusDatabaseAdvisorTest {
 
     private static final Map<String, String> JSON_HEADERS = Map.of("Content-Type", "application/json");
@@ -90,4 +101,7 @@ class BootUiQuarkusDatabaseAdvisorTest {
                 .as("the last report is cached across requests")
                 .isEqualTo("SCANNED");
     }
+
+    /** Empty on purpose: its only job is to give this class its own isolated Quarkus test instance. */
+    public static final class IsolatedProfile implements QuarkusTestProfile {}
 }
