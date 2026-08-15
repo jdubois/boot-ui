@@ -3,9 +3,12 @@ package io.github.jdubois.bootui.engine.graalvm;
 import java.util.List;
 
 /**
- * Candidate entries for the generated GraalVM 25 {@code reachability-metadata.json} scaffold,
- * derived from the last scan. The booleans record dynamic shapes that static analysis cannot safely
- * infer so the generator can emit accurate completion guidance instead of invented registrations.
+ * Candidate entries for the generated GraalVM 25 {@code reachability-metadata.json} scaffold. The
+ * scanner derives reflection and serialization candidates, but leaves {@code jniTypes} empty because
+ * Java {@code native} declarations do not identify native-to-Java dynamic lookups; that component is
+ * retained for callers that have an explicit JNI target. The booleans record dynamic shapes that
+ * static analysis cannot safely infer so the generator can emit accurate completion guidance instead
+ * of invented registrations.
  */
 public record GraalVmMetadata(
         List<String> reflectionTypes,

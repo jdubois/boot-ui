@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
 import UnavailableState from './components/UnavailableState.vue'
@@ -24,9 +24,15 @@ import {
   nestEntries
 } from '../utils/activityStream.js'
 
+// Live Flow is a second reading of the same evidence, so it ships as a mode of this panel rather than a
+// panel of its own. Keeping it in a route-level async chunk means the feed — the default view — never
+// pays for the map's layout and motion code.
+const LiveFlowMode = defineAsyncComponent(() => import('./LiveFlowMode.vue'))
+
 const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY', 'CACHE', 'SCHEDULED', 'MESSAGING', 'MAIL', 'REST_CLIENT']
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
 const FILTERS_STORAGE_KEY = 'bootui.activity.filters'
+const MODE_STORAGE_KEY = 'bootui.activity.mode'
 const PERSISTENCE_DOCS_URL = 'https://www.julien-dubois.com/boot-ui/properties#live-activity-durable-persistence'
 
 const props = defineProps(panelProps)
@@ -37,6 +43,12 @@ const {message: banner, flash, clear: clearBanner} = useFlashMessage()
 const report = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
+// 'feed' (default) or 'flow'. Remembered per browser so a developer who works in the map does not have
+// to reselect it on every visit.
+const mode = ref(safeLocalStorage.getItem(MODE_STORAGE_KEY) === 'flow' ? 'flow' : 'feed')
+// Incremented after every successful feed refresh so the map re-reads the same evidence off the same
+// SSE tick instead of running a second poll of its own.
+const flowRefreshTick = ref(0)
 const typeFilter = ref('')
 const severityFilter = ref('')
 const textFilter = ref('')
@@ -111,6 +123,7 @@ async function loadActivity() {
     report.value = await response.json()
     error.value = null
     lastFetched.value = Date.now()
+    flowRefreshTick.value += 1
   } catch (err) {
     error.value = err.message || 'Could not load activity'
     throw err
@@ -558,6 +571,13 @@ function clearFilters() {
   textFilter.value = ''
   errorsOnly.value = false
 }
+
+const flowMode = computed(() => mode.value === 'flow')
+
+function setMode(next) {
+  mode.value = next
+  safeLocalStorage.setItem(MODE_STORAGE_KEY, next)
+}
 </script>
 
 <template>
@@ -575,6 +595,32 @@ function clearFilters() {
       @refresh="refreshNow"
       @retry-auto-refresh="retryConnection"
     >
+      <template #actions>
+        <div class="activity-view-switcher" role="group" aria-label="Live Activity view">
+          <button
+            type="button"
+            class="activity-view-switcher__option"
+            title="Reverse-chronological event feed"
+            aria-label="Feed view"
+            :aria-pressed="!flowMode"
+            @click="setMode('feed')"
+          >
+            <i class="bi bi-list-ul" aria-hidden="true"></i>
+            <span>Feed</span>
+          </button>
+          <button
+            type="button"
+            class="activity-view-switcher__option"
+            title="Service map of recently observed dependencies"
+            aria-label="Live flow view"
+            :aria-pressed="flowMode"
+            @click="setMode('flow')"
+          >
+            <i class="bi bi-diagram-2" aria-hidden="true"></i>
+            <span>Live flow</span>
+          </button>
+        </div>
+      </template>
       <template #subtitle-actions>
         <span v-if="report && !persistent">
           Currently saving {{ formatNumber(memoryEventCount) }} event{{ memoryEventCount === 1 ? '' : 's' }} in memory
@@ -644,7 +690,7 @@ function clearFilters() {
     <UnavailableState v-if="!manifestAvailable" icon="bi-broadcast" :message="manifestUnavailableReason" />
 
     <UnavailableState
-      v-else-if="report && !available"
+      v-else-if="report && !available && !flowMode"
       icon="bi-broadcast"
       message="No live activity sources are available yet. Enable HTTP exchange recording, SQL tracing, REST client tracing, exception capture, or security logs to populate this stream."
     />
@@ -802,220 +848,224 @@ function clearFilters() {
         </div>
       </div>
 
-      <div class="d-flex flex-wrap align-items-end gap-2 mb-3">
-        <div class="activity-text-filter">
-          <label class="form-label small mb-1" for="activity-text-filter">Filter</label>
-          <input
-            id="activity-text-filter"
-            v-model="textFilter"
-            type="search"
-            class="form-control form-control-sm"
-            placeholder="Path, status, SQL, exception…"
-          />
+      <LiveFlowMode v-if="flowMode" :refresh-tick="flowRefreshTick" :paused="paused" />
+
+      <template v-else>
+        <div class="d-flex flex-wrap align-items-end gap-2 mb-3">
+          <div class="activity-text-filter">
+            <label class="form-label small mb-1" for="activity-text-filter">Filter</label>
+            <input
+              id="activity-text-filter"
+              v-model="textFilter"
+              type="search"
+              class="form-control form-control-sm"
+              placeholder="Path, status, SQL, exception…"
+            />
+          </div>
+          <div>
+            <label class="form-label small mb-1" for="activity-type-filter">Type</label>
+            <select id="activity-type-filter" v-model="typeFilter" class="form-select form-select-sm">
+              <option value="">All types</option>
+              <option v-for="type in TYPES" :key="type" :value="type">{{ type }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label small mb-1" for="activity-severity-filter">Severity</label>
+            <select id="activity-severity-filter" v-model="severityFilter" class="form-select form-select-sm">
+              <option value="">All severities</option>
+              <option v-for="severity in SEVERITIES" :key="severity" :value="severity">{{ severity }}</option>
+            </select>
+          </div>
+          <div class="form-check mb-1">
+            <input id="activity-errors-only" v-model="errorsOnly" class="form-check-input" type="checkbox" />
+            <label class="form-check-label small" for="activity-errors-only">Errors only</label>
+          </div>
+          <button v-if="hasActiveFilters" class="btn btn-sm btn-outline-secondary" type="button" @click="clearFilters">
+            Clear
+          </button>
+          <div class="ms-auto">
+            <button
+              class="btn btn-sm"
+              :class="paused ? 'btn-success' : 'btn-outline-secondary'"
+              type="button"
+              @click="togglePause"
+            >
+              <i :class="['bi', paused ? 'bi-play-fill' : 'bi-pause-fill', 'me-1']"></i>
+              {{ paused ? 'Resume' : 'Pause' }}
+            </button>
+          </div>
         </div>
-        <div>
-          <label class="form-label small mb-1" for="activity-type-filter">Type</label>
-          <select id="activity-type-filter" v-model="typeFilter" class="form-select form-select-sm">
-            <option value="">All types</option>
-            <option v-for="type in TYPES" :key="type" :value="type">{{ type }}</option>
-          </select>
+
+        <div v-for="warning in warnings" :key="warning" class="alert alert-warning py-2 small" role="alert">
+          {{ warning }}
         </div>
-        <div>
-          <label class="form-label small mb-1" for="activity-severity-filter">Severity</label>
-          <select id="activity-severity-filter" v-model="severityFilter" class="form-select form-select-sm">
-            <option value="">All severities</option>
-            <option v-for="severity in SEVERITIES" :key="severity" :value="severity">{{ severity }}</option>
-          </select>
+
+        <figure v-if="sparkBars.length" class="activity-sparkline mb-3" aria-hidden="true">
+          <figcaption class="text-muted small mb-1">Events over time (red = errors)</figcaption>
+          <svg viewBox="0 0 100 36" preserveAspectRatio="none" class="w-100 activity-sparkline-svg">
+            <g v-for="bar in sparkBars" :key="bar.key">
+              <rect :x="bar.x" :y="bar.y" :width="bar.width" :height="bar.height" class="activity-spark-bar">
+                <title>{{ bar.count }} events, {{ bar.errors }} errors</title>
+              </rect>
+              <rect
+                v-if="bar.errors"
+                :x="bar.x"
+                :y="36 - bar.errorHeight"
+                :width="bar.width"
+                :height="bar.errorHeight"
+                class="activity-spark-error"
+              />
+            </g>
+          </svg>
+        </figure>
+
+        <div class="table-responsive">
+          <table class="table table-sm align-middle activity-table">
+            <colgroup>
+              <col class="activity-col-time" />
+              <col class="activity-col-type" />
+              <col class="activity-col-severity" />
+              <col class="activity-col-summary" />
+              <col class="activity-col-duration" />
+              <col class="activity-col-actions" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th class="text-nowrap">Time</th>
+                <th>Type</th>
+                <th>Severity</th>
+                <th>Activity</th>
+                <th class="text-end text-nowrap">Duration</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="entry in visibleEntries" :key="entry.id">
+                <tr
+                  :class="[
+                    rowClass(entry),
+                    entry.profileable ? 'activity-row-clickable' : '',
+                    hasChildren(entry) ? 'activity-parent-row' : ''
+                  ]"
+                  data-keyboard-delegate="openProfileFromButton(entry, $event)"
+                  @click="onRowClick(entry, $event)"
+                >
+                  <td class="text-nowrap small">{{ formatClockTime(entry.timestamp) }}</td>
+                  <td class="text-nowrap"><i :class="['bi', typeIcon(entry.type), 'me-1']"></i>{{ entry.type }}</td>
+                  <td>
+                    <span :class="['badge', severityBadgeClass(entry.severity)]">{{ entry.severity }}</span>
+                  </td>
+                  <td class="activity-summary-cell">
+                    <button
+                      v-if="hasChildren(entry)"
+                      class="btn btn-link btn-sm p-0 me-2 align-baseline activity-disclosure"
+                      type="button"
+                      :aria-expanded="!isCollapsed(entry.id)"
+                      :title="isCollapsed(entry.id) ? 'Expand correlated signals' : 'Collapse correlated signals'"
+                      @click.stop="toggleExpand(entry.id)"
+                    >
+                      <i :class="['bi', isCollapsed(entry.id) ? 'bi-chevron-right' : 'bi-chevron-down']"></i>
+                    </button>
+                    <i
+                      v-if="entry.securedPrincipal != null"
+                      class="bi bi-lock-fill text-secondary me-1"
+                      title="Authenticated request"
+                    ></i>
+                    <span>{{ entry.summary }}</span>
+                    <span
+                      v-if="entry.securedPrincipal"
+                      class="badge rounded-pill text-bg-light ms-2 activity-principal-tag"
+                      :title="`Authenticated as ${entry.securedPrincipal}`"
+                      ><i class="bi bi-person me-1"></i>{{ entry.securedPrincipal }}</span
+                    >
+                    <span v-if="entry.count > 1" class="badge rounded-pill text-bg-light ms-2">×{{ entry.count }}</span>
+                    <span
+                      v-if="hasChildren(entry)"
+                      class="badge rounded-pill text-bg-light ms-2"
+                      title="Correlated SQL, exceptions and security events"
+                      >+{{ entry.children.length }}</span
+                    >
+                    <span
+                      v-if="entry.sqlNPlusOneSuspected"
+                      class="badge rounded-pill text-bg-danger ms-2"
+                      title="Correlated SQL includes a suspected N+1 query pattern — open the profile for details"
+                      >N+1</span
+                    >
+                    <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
+                  </td>
+                  <td class="text-end text-nowrap small">
+                    <span v-if="slowLevel(entry) > 0" :class="['badge', latencyBadgeClass(entry)]">{{
+                      formatDurationMs(entry.durationMs)
+                    }}</span>
+                    <template v-else>{{ formatDurationMs(entry.durationMs) }}</template>
+                  </td>
+                  <td class="text-end text-nowrap" @click.stop>
+                    <router-link
+                      v-if="entryLink(entry)"
+                      :to="{path: entryLink(entry).path, query: entryLink(entry).query}"
+                      class="btn btn-outline-secondary btn-sm rounded-pill me-1"
+                      :title="entryLink(entry).label"
+                    >
+                      <i class="bi bi-box-arrow-up-right"></i>
+                    </router-link>
+                    <button
+                      v-if="entry.profileable"
+                      class="btn btn-outline-primary btn-sm rounded-pill bootui-keyboard-target"
+                      type="button"
+                      @click="openProfileFromButton(entry, $event)"
+                    >
+                      <i class="bi bi-search me-1"></i>Profile
+                    </button>
+                  </td>
+                </tr>
+                <tr
+                  v-for="child in hasChildren(entry) && !isCollapsed(entry.id) ? entry.children : []"
+                  :key="child.id"
+                  :class="['activity-child-row']"
+                >
+                  <td class="text-nowrap small">{{ formatClockTime(child.timestamp) }}</td>
+                  <td class="text-nowrap activity-child-type">
+                    <i :class="['bi', typeIcon(child.type), 'me-1']"></i>{{ child.type }}
+                  </td>
+                  <td>
+                    <span :class="['badge', severityBadgeClass(child.severity)]">{{ child.severity }}</span>
+                  </td>
+                  <td class="activity-summary-cell">
+                    <span>{{ child.summary }}</span>
+                    <span v-if="child.detail" class="d-block text-muted small">{{ child.detail }}</span>
+                  </td>
+                  <td class="text-end text-nowrap small">{{ formatDurationMs(child.durationMs) }}</td>
+                  <td class="text-end text-nowrap" @click.stop>
+                    <router-link
+                      v-if="entryLink(child)"
+                      :to="{path: entryLink(child).path, query: entryLink(child).query}"
+                      class="btn btn-outline-secondary btn-sm rounded-pill"
+                      :title="entryLink(child).label"
+                    >
+                      <i class="bi bi-box-arrow-up-right"></i>
+                    </router-link>
+                  </td>
+                </tr>
+              </template>
+              <tr v-if="!visibleEntries.length">
+                <td colspan="6" class="text-center text-muted py-4">No activity matches the current filters.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div class="form-check mb-1">
-          <input id="activity-errors-only" v-model="errorsOnly" class="form-check-input" type="checkbox" />
-          <label class="form-check-label small" for="activity-errors-only">Errors only</label>
-        </div>
-        <button v-if="hasActiveFilters" class="btn btn-sm btn-outline-secondary" type="button" @click="clearFilters">
-          Clear
-        </button>
-        <div class="ms-auto">
-          <button
-            class="btn btn-sm"
-            :class="paused ? 'btn-success' : 'btn-outline-secondary'"
-            type="button"
-            @click="togglePause"
-          >
-            <i :class="['bi', paused ? 'bi-play-fill' : 'bi-pause-fill', 'me-1']"></i>
-            {{ paused ? 'Resume' : 'Pause' }}
+
+        <div v-if="canLoadOlder || loadingOlder" class="text-center my-3">
+          <button class="btn btn-sm btn-outline-secondary" type="button" :disabled="loadingOlder" @click="loadOlder">
+            <span
+              v-if="loadingOlder"
+              class="spinner-border spinner-border-sm me-1"
+              role="status"
+              aria-hidden="true"
+            ></span>
+            {{ loadingOlder ? 'Loading…' : 'Load older activity' }}
           </button>
         </div>
-      </div>
-
-      <div v-for="warning in warnings" :key="warning" class="alert alert-warning py-2 small" role="alert">
-        {{ warning }}
-      </div>
-
-      <figure v-if="sparkBars.length" class="activity-sparkline mb-3" aria-hidden="true">
-        <figcaption class="text-muted small mb-1">Events over time (red = errors)</figcaption>
-        <svg viewBox="0 0 100 36" preserveAspectRatio="none" class="w-100 activity-sparkline-svg">
-          <g v-for="bar in sparkBars" :key="bar.key">
-            <rect :x="bar.x" :y="bar.y" :width="bar.width" :height="bar.height" class="activity-spark-bar">
-              <title>{{ bar.count }} events, {{ bar.errors }} errors</title>
-            </rect>
-            <rect
-              v-if="bar.errors"
-              :x="bar.x"
-              :y="36 - bar.errorHeight"
-              :width="bar.width"
-              :height="bar.errorHeight"
-              class="activity-spark-error"
-            />
-          </g>
-        </svg>
-      </figure>
-
-      <div class="table-responsive">
-        <table class="table table-sm align-middle activity-table">
-          <colgroup>
-            <col class="activity-col-time" />
-            <col class="activity-col-type" />
-            <col class="activity-col-severity" />
-            <col class="activity-col-summary" />
-            <col class="activity-col-duration" />
-            <col class="activity-col-actions" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th class="text-nowrap">Time</th>
-              <th>Type</th>
-              <th>Severity</th>
-              <th>Activity</th>
-              <th class="text-end text-nowrap">Duration</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="entry in visibleEntries" :key="entry.id">
-              <tr
-                :class="[
-                  rowClass(entry),
-                  entry.profileable ? 'activity-row-clickable' : '',
-                  hasChildren(entry) ? 'activity-parent-row' : ''
-                ]"
-                data-keyboard-delegate="openProfileFromButton(entry, $event)"
-                @click="onRowClick(entry, $event)"
-              >
-                <td class="text-nowrap small">{{ formatClockTime(entry.timestamp) }}</td>
-                <td class="text-nowrap"><i :class="['bi', typeIcon(entry.type), 'me-1']"></i>{{ entry.type }}</td>
-                <td>
-                  <span :class="['badge', severityBadgeClass(entry.severity)]">{{ entry.severity }}</span>
-                </td>
-                <td class="activity-summary-cell">
-                  <button
-                    v-if="hasChildren(entry)"
-                    class="btn btn-link btn-sm p-0 me-2 align-baseline activity-disclosure"
-                    type="button"
-                    :aria-expanded="!isCollapsed(entry.id)"
-                    :title="isCollapsed(entry.id) ? 'Expand correlated signals' : 'Collapse correlated signals'"
-                    @click.stop="toggleExpand(entry.id)"
-                  >
-                    <i :class="['bi', isCollapsed(entry.id) ? 'bi-chevron-right' : 'bi-chevron-down']"></i>
-                  </button>
-                  <i
-                    v-if="entry.securedPrincipal != null"
-                    class="bi bi-lock-fill text-secondary me-1"
-                    title="Authenticated request"
-                  ></i>
-                  <span>{{ entry.summary }}</span>
-                  <span
-                    v-if="entry.securedPrincipal"
-                    class="badge rounded-pill text-bg-light ms-2 activity-principal-tag"
-                    :title="`Authenticated as ${entry.securedPrincipal}`"
-                    ><i class="bi bi-person me-1"></i>{{ entry.securedPrincipal }}</span
-                  >
-                  <span v-if="entry.count > 1" class="badge rounded-pill text-bg-light ms-2">×{{ entry.count }}</span>
-                  <span
-                    v-if="hasChildren(entry)"
-                    class="badge rounded-pill text-bg-light ms-2"
-                    title="Correlated SQL, exceptions and security events"
-                    >+{{ entry.children.length }}</span
-                  >
-                  <span
-                    v-if="entry.sqlNPlusOneSuspected"
-                    class="badge rounded-pill text-bg-danger ms-2"
-                    title="Correlated SQL includes a suspected N+1 query pattern — open the profile for details"
-                    >N+1</span
-                  >
-                  <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
-                </td>
-                <td class="text-end text-nowrap small">
-                  <span v-if="slowLevel(entry) > 0" :class="['badge', latencyBadgeClass(entry)]">{{
-                    formatDurationMs(entry.durationMs)
-                  }}</span>
-                  <template v-else>{{ formatDurationMs(entry.durationMs) }}</template>
-                </td>
-                <td class="text-end text-nowrap" @click.stop>
-                  <router-link
-                    v-if="entryLink(entry)"
-                    :to="{path: entryLink(entry).path, query: entryLink(entry).query}"
-                    class="btn btn-outline-secondary btn-sm rounded-pill me-1"
-                    :title="entryLink(entry).label"
-                  >
-                    <i class="bi bi-box-arrow-up-right"></i>
-                  </router-link>
-                  <button
-                    v-if="entry.profileable"
-                    class="btn btn-outline-primary btn-sm rounded-pill bootui-keyboard-target"
-                    type="button"
-                    @click="openProfileFromButton(entry, $event)"
-                  >
-                    <i class="bi bi-search me-1"></i>Profile
-                  </button>
-                </td>
-              </tr>
-              <tr
-                v-for="child in hasChildren(entry) && !isCollapsed(entry.id) ? entry.children : []"
-                :key="child.id"
-                :class="['activity-child-row']"
-              >
-                <td class="text-nowrap small">{{ formatClockTime(child.timestamp) }}</td>
-                <td class="text-nowrap activity-child-type">
-                  <i :class="['bi', typeIcon(child.type), 'me-1']"></i>{{ child.type }}
-                </td>
-                <td>
-                  <span :class="['badge', severityBadgeClass(child.severity)]">{{ child.severity }}</span>
-                </td>
-                <td class="activity-summary-cell">
-                  <span>{{ child.summary }}</span>
-                  <span v-if="child.detail" class="d-block text-muted small">{{ child.detail }}</span>
-                </td>
-                <td class="text-end text-nowrap small">{{ formatDurationMs(child.durationMs) }}</td>
-                <td class="text-end text-nowrap" @click.stop>
-                  <router-link
-                    v-if="entryLink(child)"
-                    :to="{path: entryLink(child).path, query: entryLink(child).query}"
-                    class="btn btn-outline-secondary btn-sm rounded-pill"
-                    :title="entryLink(child).label"
-                  >
-                    <i class="bi bi-box-arrow-up-right"></i>
-                  </router-link>
-                </td>
-              </tr>
-            </template>
-            <tr v-if="!visibleEntries.length">
-              <td colspan="6" class="text-center text-muted py-4">No activity matches the current filters.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="canLoadOlder || loadingOlder" class="text-center my-3">
-        <button class="btn btn-sm btn-outline-secondary" type="button" :disabled="loadingOlder" @click="loadOlder">
-          <span
-            v-if="loadingOlder"
-            class="spinner-border spinner-border-sm me-1"
-            role="status"
-            aria-hidden="true"
-          ></span>
-          {{ loadingOlder ? 'Loading…' : 'Load older activity' }}
-        </button>
-      </div>
+      </template>
     </template>
 
     <!-- Per-request profiler drawer -->
@@ -1163,6 +1213,36 @@ function clearFilters() {
 </template>
 
 <style scoped>
+/* View switcher — same shape as the Beans panel's list/graph switcher so the two graph surfaces read
+   as one system. The gradient marks the selected option and nothing else. */
+.activity-view-switcher {
+  border: 1px solid var(--bootui-border-alt);
+  border-radius: var(--bootui-radius-pill);
+  display: inline-flex;
+  overflow: hidden;
+}
+
+.activity-view-switcher__option {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--bootui-text-muted);
+  display: inline-flex;
+  font-size: 0.85rem;
+  gap: 0.35rem;
+  padding: 0.25rem 0.75rem;
+}
+
+.activity-view-switcher__option[aria-pressed='true'] {
+  background: var(--bootui-nav-active-bg);
+  color: #fff;
+}
+
+.activity-view-switcher__option:focus-visible {
+  outline: 2px solid var(--bootui-green-dark);
+  outline-offset: -2px;
+}
+
 .activity-drawer-backdrop {
   position: fixed;
   inset: 0;

@@ -45,11 +45,11 @@ test.describe('Hibernate Advisor view', () => {
     await expect(
       page.getByText(/SampleAuditEntry#amount is a BigDecimal column without explicit precision/)
     ).toBeVisible()
-    await expect(page.getByText('@Modifying queries should clear or flush the persistence context')).toBeVisible()
+    await expect(page.getByText('@Modifying bulk queries should clear stale persistence context')).toBeVisible()
     await expect(
       page.getByText(/SampleOrderRepository#markAllAs is @Modifying without clearAutomatically/)
     ).toBeVisible()
-    await expect(page.getByText('Native paged @Query must declare countQuery')).toBeVisible()
+    await expect(page.getByText('Native Page queries should review count derivation')).toBeVisible()
     await expect(page.getByText(/SampleOrderRepository#findPageNative/)).toBeVisible()
     await expect(page.getByRole('link', {name: 'Learn more'}).first()).toBeVisible()
   })

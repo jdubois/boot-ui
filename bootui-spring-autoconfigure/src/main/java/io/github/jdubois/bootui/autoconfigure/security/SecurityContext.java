@@ -38,6 +38,7 @@ record SecurityContext(
         boolean hideUserNotFoundExceptionsDisabled,
         List<String> opaqueTokenIntrospectorTypes,
         boolean generatedUserDetailsManagerPresent,
+        boolean securityDebugFilterPresent,
         Environment environment) {
     SecurityContext {
         chains = List.copyOf(chains);
@@ -46,6 +47,41 @@ record SecurityContext(
         jwtDecoderTypes = List.copyOf(jwtDecoderTypes);
         oauth2TokenValidatorTypes = List.copyOf(oauth2TokenValidatorTypes);
         opaqueTokenIntrospectorTypes = List.copyOf(opaqueTokenIntrospectorTypes);
+    }
+
+    SecurityContext(
+            List<FilterChainModel> chains,
+            List<PasswordEncoderModel> passwordEncoders,
+            List<CorsConfigModel> corsConfigs,
+            boolean corsSourcePresent,
+            List<String> jwtDecoderTypes,
+            boolean methodSecurityEnabled,
+            boolean globalMethodSecurityLegacyPresent,
+            boolean methodSecurityAnnotationsPresent,
+            boolean customCorsSourcePresent,
+            List<String> oauth2TokenValidatorTypes,
+            boolean strictHttpFirewallWeakened,
+            boolean hideUserNotFoundExceptionsDisabled,
+            List<String> opaqueTokenIntrospectorTypes,
+            boolean generatedUserDetailsManagerPresent,
+            Environment environment) {
+        this(
+                chains,
+                passwordEncoders,
+                corsConfigs,
+                corsSourcePresent,
+                jwtDecoderTypes,
+                methodSecurityEnabled,
+                globalMethodSecurityLegacyPresent,
+                methodSecurityAnnotationsPresent,
+                customCorsSourcePresent,
+                oauth2TokenValidatorTypes,
+                strictHttpFirewallWeakened,
+                hideUserNotFoundExceptionsDisabled,
+                opaqueTokenIntrospectorTypes,
+                generatedUserDetailsManagerPresent,
+                false,
+                environment);
     }
 
     /** The fully-qualified type names of the discovered {@code PasswordEncoder} beans. */

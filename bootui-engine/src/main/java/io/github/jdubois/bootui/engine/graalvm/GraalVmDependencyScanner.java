@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -26,13 +27,14 @@ import java.util.jar.JarFile;
 import java.util.jar.JarInputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * Inspects the classpath JARs to report which third-party dependencies ship GraalVM reachability
  * metadata under {@code META-INF/native-image/}, and whether Oracle's GraalVM reachability metadata
- * repository has an entry for the dependency version. Only an actual reachability-metadata JSON file
- * (e.g. {@code reachability-metadata.json} or a {@code *-config.json}) counts as bundled metadata; a
- * bare {@code native-image.properties} only carries build arguments, not reachability metadata.
+ * repository has an entry for the dependency version. Only the unified metadata filename or a
+ * canonical legacy configuration filename counts as bundled metadata; arbitrary JSON and a bare
+ * {@code native-image.properties} do not.
  * Dependencies without bundled metadata may still be covered by the GraalVM reachability metadata
  * repository, or may need manual hints.
  *
@@ -52,6 +54,14 @@ final class GraalVmDependencyScanner {
     private static final String METADATA_PREFIX = "META-INF/native-image/";
     private static final String MAVEN_POM_PREFIX = "META-INF/maven/";
     private static final String NESTED_LIBRARY_PREFIX = "BOOT-INF/lib/";
+    private static final Set<String> METADATA_FILES = Set.of(
+            "reachability-metadata.json",
+            "reflect-config.json",
+            "resource-config.json",
+            "proxy-config.json",
+            "serialization-config.json",
+            "jni-config.json",
+            "predefined-classes-config.json");
     private static final int MAX_DEPENDENCIES = 500;
     /**
      * Bounded fan-out for the repository-coverage network lookups below, matching the concurrency
@@ -64,7 +74,7 @@ final class GraalVmDependencyScanner {
     private static final String REPOSITORY_BROWSER_FILE_BASE_URL =
             "https://github.com/oracle/graalvm-reachability-metadata/blob/master/metadata/";
     private static final String SHIPS_NOTE =
-            "Ships GraalVM reachability metadata (reachability-metadata.json / *-config.json).";
+            "Ships GraalVM reachability metadata (unified or canonical legacy configuration).";
     private static final String BUILD_ARGS_NOTE =
             "Bundles native-image build arguments (native-image.properties) but no reachability metadata JSON; "
                     + "runtime features may still need hints.";
@@ -316,8 +326,9 @@ final class GraalVmDependencyScanner {
      * Applies the engine's coverage-matching policy to the raw index rows returned by the repository
      * adapter. A {@code lookupError} becomes an unavailable result (sanitized via {@link
      * GraalVmCheckSupport#detail(String)}); otherwise a row whose metadata version equals — or whose
-     * tested versions contain — the dependency version marks it covered, and the {@code latest} row
-     * drives the "has metadata but not for this version" note.
+     * tested versions contain — the dependency version marks it covered. If no exact match exists,
+     * the first valid {@code default-for} Java regular expression that matches the version is used.
+     * The {@code latest} row drives the "has metadata but not for this version" note.
      */
     private RepositoryCoverage toCoverage(Coordinates coordinates, ReachabilityMetadataIndex index) {
         if (index.lookupError() != null && !index.lookupError().isBlank()) {
@@ -334,6 +345,19 @@ final class GraalVmDependencyScanner {
             }
             if (coordinates.version().equals(metadataVersion) || testedVersions.contains(coordinates.version())) {
                 return new RepositoryCoverage(true, metadataVersion, testedVersions, null);
+            }
+        }
+        for (ReachabilityMetadataIndex.Entry entry : index.entries()) {
+            String defaultFor = entry.defaultFor();
+            if (defaultFor == null || defaultFor.isBlank()) {
+                continue;
+            }
+            try {
+                if (Pattern.matches(defaultFor, coordinates.version())) {
+                    return new RepositoryCoverage(true, entry.metadataVersion(), entry.testedVersions(), null);
+                }
+            } catch (PatternSyntaxException ex) {
+                // External repository data must not abort the dependency survey; ignore malformed regex rows.
             }
         }
         return new RepositoryCoverage(
@@ -363,7 +387,7 @@ final class GraalVmDependencyScanner {
                 String name = entry.getName();
                 if (name.startsWith(METADATA_PREFIX)) {
                     String lower = name.toLowerCase(Locale.ROOT);
-                    if (lower.endsWith(".json")) {
+                    if (isReachabilityMetadataFile(name)) {
                         hasMetadataJson = true;
                     } else if (lower.endsWith("native-image.properties")) {
                         hasBuildArgs = true;
@@ -416,7 +440,7 @@ final class GraalVmDependencyScanner {
                 String name = inner.getName();
                 if (name.startsWith(METADATA_PREFIX)) {
                     String lower = name.toLowerCase(Locale.ROOT);
-                    if (lower.endsWith(".json")) {
+                    if (isReachabilityMetadataFile(name)) {
                         hasMetadataJson = true;
                     } else if (lower.endsWith("native-image.properties")) {
                         hasBuildArgs = true;
@@ -446,6 +470,15 @@ final class GraalVmDependencyScanner {
             return new InspectedDependency(name, false, BUILD_ARGS_NOTE, coordinates);
         }
         return new InspectedDependency(name, false, MISSING_NOTE, coordinates);
+    }
+
+    private static boolean isReachabilityMetadataFile(String entryName) {
+        if (!entryName.startsWith(METADATA_PREFIX)) {
+            return false;
+        }
+        int lastSlash = entryName.lastIndexOf('/');
+        String fileName = lastSlash >= 0 ? entryName.substring(lastSlash + 1) : entryName;
+        return METADATA_FILES.contains(fileName);
     }
 
     private static boolean isNestedLibraryJar(String entryName) {

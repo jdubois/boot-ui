@@ -49,7 +49,9 @@ class ArchitectureRulesTests {
         JavaClasses importedClasses = new ClassFileImporter().importClasses(AlphaComponent.class, BetaComponent.class);
         ArchitectureRuleResultDto result = new FreeOfPackageCyclesRule()
                 .evaluate(new ArchitectureContext(
-                        importedClasses, List.of("io.github.jdubois.bootui.engine.architecture.cyclefixtures")));
+                        importedClasses,
+                        List.of("io.github.jdubois.bootui.engine.architecture.cyclefixtures"),
+                        ArchitecturePlatform.SPRING));
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(result.id()).isEqualTo("ARCH-PKG-001");
@@ -295,11 +297,9 @@ class ArchitectureRulesTests {
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(result.id()).isEqualTo("ARCH-SPRING-010");
-        assertThat(result.violationCount()).isEqualTo(5);
+        assertThat(result.violationCount()).isEqualTo(4);
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("private"));
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("protected"));
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("static"));
     }
@@ -513,14 +513,12 @@ class ArchitectureRulesTests {
     }
 
     @Test
-    void proxiedMethodsShouldBePublicAndNonStaticFlagsProtectedMethods() {
+    void proxiedMethodsAllowProtectedMethodsOnSpringClassBasedProxies() {
         ArchitectureRuleResultDto result =
                 evaluate(new ProxiedMethodsShouldNotBePrivateOrStaticRule(), ProtectedProxyAnnotationComponent.class);
 
-        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
         assertThat(result.id()).isEqualTo("ARCH-SPRING-010");
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("protected"));
     }
 
     @Test
@@ -693,7 +691,9 @@ class ArchitectureRulesTests {
                 new ClassFileImporter().importPackages("io.github.jdubois.bootui.engine.architecture.modulefixtures");
         ArchitectureRuleResultDto result = new InternalPackagesShouldNotBeAccessedExternallyRule()
                 .evaluate(new ArchitectureContext(
-                        importedClasses, List.of("io.github.jdubois.bootui.engine.architecture.modulefixtures")));
+                        importedClasses,
+                        List.of("io.github.jdubois.bootui.engine.architecture.modulefixtures"),
+                        ArchitecturePlatform.SPRING));
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(result.id()).isEqualTo("ARCH-MOD-001");
@@ -900,8 +900,8 @@ class ArchitectureRulesTests {
 
     private static ArchitectureRuleResultDto evaluate(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = new ClassFileImporter().importClasses(classes);
-        return rule.evaluate(
-                new ArchitectureContext(importedClasses, List.of(ArchitectureRulesTests.class.getPackageName())));
+        return rule.evaluate(new ArchitectureContext(
+                importedClasses, List.of(ArchitectureRulesTests.class.getPackageName()), ArchitecturePlatform.SPRING));
     }
 
     @RestController

@@ -46,6 +46,7 @@ export function useEventStreamRefresh(
   /** @type {EventSource | null} */
   let eventSource = null
   let inFlight = false
+  let pendingRefresh = false
   let retryCount = 0
   /** @type {ReturnType<typeof setTimeout> | null} */
   let retryTimer = null
@@ -54,12 +55,22 @@ export function useEventStreamRefresh(
 
   async function load(...args) {
     if (!refreshEnabled.value) return
-    if (inFlight) return
+    if (inFlight) {
+      pendingRefresh = true
+      return
+    }
     inFlight = true
     try {
       return await refresh(...args)
     } finally {
       inFlight = false
+      if (pendingRefresh) {
+        pendingRefresh = false
+        // Coalesce everything observed during this request into one immediate follow-up. A notification
+        // arriving during that follow-up starts a new single follow-up cycle rather than an unbounded
+        // synchronous drain loop.
+        void load()
+      }
     }
   }
 

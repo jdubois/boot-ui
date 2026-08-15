@@ -113,8 +113,8 @@ final class CvssV3BaseScore {
     /**
      * Parses the {@code Metric:Value} segments of a vector string into a map, requiring the
      * {@code CVSS:3.0/} or {@code CVSS:3.1/} prefix. Returns {@code null} for any structurally invalid
-     * vector: missing/wrong prefix, or a segment without exactly one non-edge {@code :}. Duplicate metric
-     * keys keep the last occurrence, matching how the reference calculator behaves.
+     * vector: missing/wrong prefix, a segment without exactly one non-edge {@code :}, or a duplicate metric
+     * key (which the CVSS v3.1 specification forbids).
      */
     private static Map<String, String> parseMetrics(String vector) {
         if (vector == null) {
@@ -134,10 +134,13 @@ final class CvssV3BaseScore {
                 continue;
             }
             int separator = segment.indexOf(':');
-            if (separator <= 0 || separator == segment.length() - 1) {
+            if (separator <= 0 || separator == segment.length() - 1 || segment.indexOf(':', separator + 1) >= 0) {
                 return null;
             }
-            metrics.put(segment.substring(0, separator), segment.substring(separator + 1));
+            String metric = segment.substring(0, separator);
+            if (metrics.putIfAbsent(metric, segment.substring(separator + 1)) != null) {
+                return null;
+            }
         }
         return metrics;
     }

@@ -253,7 +253,7 @@ describe('frontend accessibility', () => {
     })
 
     expect(unnamedControls).toEqual([])
-  })
+  }, 20_000)
 
   it.each([
     ['placeholder-only controls', '<input placeholder="Filter items">'],

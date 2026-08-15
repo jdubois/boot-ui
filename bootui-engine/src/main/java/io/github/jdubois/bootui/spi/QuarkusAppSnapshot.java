@@ -21,10 +21,10 @@ import java.util.List;
  * @param configPropertyCount number of {@code @ConfigProperty} injection sites
  * @param endpointCount discovered JAX-RS endpoint methods
  * @param defaultScopeResourceCount JAX-RS resources with no explicit CDI scope
- * @param reactiveEndpointCount endpoints returning {@code Uni}/{@code Multi}
- * @param reactiveEndpointsWithoutBlockingCount reactive ({@code Uni}/{@code Multi}) endpoints whose method and
- *     declaring class both lack {@code @Blocking} — the exact endpoints QA-RX-001 should flag, correlated
- *     per-endpoint rather than against the app's total {@code @Blocking} count
+ * @param reactiveEndpointCount endpoints whose return type Quarkus REST dispatches as non-blocking
+ * @param reactiveEndpointsWithoutBlockingCount reactive endpoints whose method and declaring class both lack a
+ *     blocking guard — the exact endpoints QA-RX-001 should flag, correlated per-endpoint rather than against the
+ *     app's total {@code @Blocking} count
  * @param blockingAnnotationCount {@code @Blocking} sites
  * @param scheduledCount {@code @Scheduled} methods
  * @param activeProfiles the SmallRye active profiles
@@ -32,7 +32,7 @@ import java.util.List;
  * @param prodDevServicesEnabled whether a {@code %prod.*devservices.enabled=true} key is present
  * @param nativeBuild whether the snapshot was taken during a native build
  * @param configMappingCount number of {@code @ConfigMapping} interfaces (type-safe config groups)
- * @param jdbcDatasourcePresent whether a JDBC datasource (db-kind or jdbc url) is configured
+ * @param jdbcDatasourcePresent whether Quarkus's Agroal (JDBC datasource) capability was captured at build time
  * @param prodSchemaGeneration effective {@code %prod} Hibernate schema strategy (normalised, may be empty)
  * @param prodDbKind the {@code %prod.quarkus.datasource.db-kind} value (may be empty)
  * @param prodJdbcUrlInMemory whether a {@code %prod} JDBC url points at an in-memory database
@@ -46,7 +46,6 @@ import java.util.List;
  * @param restClientTimeoutZeroOrExcessive whether a global or per-client REST client connect/read timeout is
  *     explicitly set to {@code 0} (disabled) or to an excessively high value — Quarkus REST clients already
  *     default to a 15s connect-timeout/30s read-timeout, so merely leaving the timeout unset is not flagged
- * @param virtualThreadEndpointCount {@code @RunOnVirtualThread} sites (methods or classes)
  * @param virtualThreadSynchronizedCount {@code @RunOnVirtualThread} sites that are also {@code synchronized}
  *     (a class-level {@code @RunOnVirtualThread} counts every {@code synchronized} method in that class)
  * @param jdkMajorVersion the build JDK's major version (0 if undetermined)
@@ -55,8 +54,8 @@ import java.util.List;
  * @param legacySchemaGenerationPropertyUsed whether the deprecated {@code quarkus.hibernate-orm.database.generation}
  *     property (or a profile/named-persistence-unit variant) is used instead of the current
  *     {@code quarkus.hibernate-orm.schema-management.strategy}
- * @param shutdownTimeoutConfigured whether {@code quarkus.shutdown.timeout} or
- *     {@code quarkus.http.shutdown.timeout} is set at all (to any value, including {@code 0})
+ * @param shutdownTimeoutConfigured whether {@code quarkus.shutdown.timeout} is set at all (to any value,
+ *     including {@code 0})
  * @param datasourceMaxSizeConfigured whether {@code quarkus.datasource.jdbc.max-size} is explicitly set
  *     (globally or via a {@code %prod} override)
  */
@@ -90,7 +89,6 @@ public record QuarkusAppSnapshot(
         boolean shutdownTimeoutZeroed,
         boolean restClientsRegistered,
         boolean restClientTimeoutZeroOrExcessive,
-        int virtualThreadEndpointCount,
         int virtualThreadSynchronizedCount,
         int jdkMajorVersion,
         List<String> mutableSingletonFields,

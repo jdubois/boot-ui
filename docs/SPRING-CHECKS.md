@@ -1,12 +1,12 @@
 # Spring Advisor checks
 
-The Spring panel runs a fixed, on-demand ruleset against the host application's **running Spring application context** and `Environment`. It takes a read-only snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s, `DataSource`s) and feature flags, then evaluates a curated set of configuration and best-practice checks. It never mutates the context, intercepts live traffic, or surfaces secrets.
+The Spring panel runs a fixed, on-demand ruleset against the host application's **running Spring application context** and `Environment`. It takes a read-only snapshot of selected bean groups (Jackson `ObjectMapper`s, `Executor`s/`TaskExecutor`s, `DataSource`s) and feature flags, then evaluates a curated set of configuration and best-practice checks. It never mutates the context, intercepts live traffic, or surfaces secrets.
 
 Because the advisor runs inside the *started* application, it focuses on "started but suboptimal" states: settings that let the app boot yet deviate from production best practices. Conditions that would prevent startup entirely are out of scope. The checks are heuristic review prompts; the right remediation still depends on the application's requirements and deployment topology.
 
 This advisor is complementary to the **Architecture** panel: Architecture statically analyzes compiled bytecode with ArchUnit, whereas the Spring Advisor inspects the live, wired runtime context.
 
-The same ruleset runs on both the servlet (Spring MVC) and reactive (Spring WebFlux) adapters; the advisor detects which one is running (the same reactive-context check the panel-availability code uses) and adjusts a handful of rules accordingly: SPRING-WEB-007 does not apply to WebFlux at all (no Tomcat thread pool exists to cap), SPRING-WEB-005 also treats a `WebClient` bean as an HTTP client needing timeouts, SPRING-PERF-001's virtual-threads guidance is worded for whichever stack is running, and four rules (SPRING-WEB-001, -003, -004, -006) link their "Learn more" reference at the reactive web docs instead of the servlet ones when running on WebFlux. Two additional rules, SPRING-REACTIVE-001 and SPRING-REACTIVE-002, only evaluate (are not `SKIPPED`) on a WebFlux application; see the [Reactive](#reactive-webflux-only) section.
+The same ruleset runs on both the servlet (Spring MVC) and reactive (Spring WebFlux) adapters; the advisor detects which one is running (the same reactive-context check the panel-availability code uses) and adjusts a handful of rules accordingly: SPRING-WEB-007 evaluates only when the active embedded server is Tomcat, whether servlet or reactive, SPRING-WEB-005 also treats a `WebClient` bean as an HTTP client needing timeouts, SPRING-PERF-001's virtual-threads guidance is worded for whichever stack is running, and four rules (SPRING-WEB-001, -003, -004, -006) link their "Learn more" reference at the reactive web docs instead of the servlet ones when running on WebFlux. Two additional rules, SPRING-REACTIVE-001 and SPRING-REACTIVE-002, only evaluate (are not `SKIPPED`) on a WebFlux application; see the [Reactive](#reactive-webflux-only) section.
 
 ## Availability and bounds
 
@@ -41,28 +41,28 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WIRING-003 - Avoid multiple JSON mapper beans
 
 - **Severity**: LOW
-- **Detects**: Detects more than one Jackson JSON mapper bean (Jackson 2 ObjectMapper or the Jackson 3 JsonMapper that Spring Boot 4 auto-configures) with none marked @Primary, which can lead to inconsistent JSON (de)serialization depending on which one is injected.
+- **Detects**: Detects more than one Jackson JSON mapper bean (Jackson 2 ObjectMapper or the Jackson 3 JsonMapper that Spring Boot 4 auto-configures) without a `@Primary`, single non-`@Fallback`, or single default candidate. Qualifier and priority resolution remain application-specific review concerns.
 - **Recommendation**: Keep a single primary JSON mapper. With Jackson 3 (the Spring Boot 4 default) customize the auto-configured mapper via a JsonMapperBuilderCustomizer, or mark one bean @Primary.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/json.html>
 
 ### SPRING-WIRING-004 - Multiple TaskExecutor beans need a primary
 
 - **Severity**: MEDIUM
-- **Detects**: Detects more than one TaskExecutor bean without a @Primary, so @Async and other consumers may resolve an unexpected executor. A bean conventionally named applicationTaskExecutor/taskExecutor, or an AsyncConfigurer, resolves the ambiguity and suppresses this check.
+- **Detects**: Detects more than one TaskExecutor bean without a `@Primary`, single non-`@Fallback`, or single default candidate, so @Async and other consumers may resolve an unexpected executor. A bean conventionally named applicationTaskExecutor/taskExecutor, or a custom AsyncConfigurer, can resolve the ambiguity and suppresses this check.
 - **Recommendation**: Mark the intended executor @Primary, name it applicationTaskExecutor, implement AsyncConfigurer, or qualify each injection point with the executor bean name.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/integration/scheduling.html>
 
 ### SPRING-WIRING-005 - Multiple DataSource beans need a primary
 
 - **Severity**: MEDIUM
-- **Detects**: Detects more than one DataSource bean without a @Primary, which makes auto-configured consumers (JPA, JdbcTemplate) fail or pick an unexpected source.
+- **Detects**: Detects more than one DataSource bean without a `@Primary`, single non-`@Fallback`, or single default candidate, which makes auto-configured consumers (JPA, JdbcTemplate) fail or pick an unexpected source.
 - **Recommendation**: Mark the main DataSource @Primary and qualify any secondary DataSource explicitly.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html>
 
 ### SPRING-WIRING-006 - Multiple transaction managers need a primary
 
 - **Severity**: MEDIUM
-- **Detects**: Detects more than one PlatformTransactionManager bean without a @Primary, so @Transactional methods may bind to an unexpected manager. A bean named transactionManager or a TransactionManagementConfigurer resolves the default and suppresses this check.
+- **Detects**: Detects more than one PlatformTransactionManager bean without a `@Primary`, single non-`@Fallback`, or single default candidate, so @Transactional methods may bind to an unexpected manager. A bean named transactionManager or a TransactionManagementConfigurer resolves the default and suppresses this check.
 - **Recommendation**: Mark the main transaction manager @Primary, name it transactionManager, implement TransactionManagementConfigurer, or set `@Transactional("<name>")` on each usage.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/data-access/transaction.html>
 
@@ -80,7 +80,7 @@ The panel is always available (a Spring application context always exists). Bean
 - **Recommendation**: Move these classes into a named package (for example com.example.app) so component scanning is bounded to your application's packages.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html>
 
-### SPRING-WIRING-009 - Avoid mutable public fields on singleton beans
+### SPRING-WIRING-009 - Avoid public mutable fields on singleton beans
 
 - **Severity**: MEDIUM
 - **Detects**: Detects a public, non-final, non-static field on a singleton-scoped application bean that is not an injection point (not annotated @Autowired, @Value, @Qualifier, @Inject, @Resource, @PersistenceContext, or @PersistenceUnit). Because the default bean scope is a shared singleton, such a field is effectively unsynchronized mutable global state: any caller can reassign it, and concurrent requests reading and writing it race without a memory barrier.
@@ -159,7 +159,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-PERF-001 - Consider enabling virtual threads
 
 - **Severity**: INFO
-- **Detects**: The JVM supports virtual threads (Java 21+) but spring.threads.virtual.enabled is not set. Blocking workloads - request-per-thread web handlers, and blocking @Async/@Scheduled work on either the servlet or WebFlux stack - can often scale further on virtual threads - an opportunity to evaluate, not a defect. On a WebFlux application, the finding message clarifies that the benefit applies only to blocking work still offloaded to a thread pool (@Async, @Scheduled, or `Schedulers.boundedElastic()`), since the reactive HTTP path itself already runs non-blocking on Reactor Netty's event loop.
+- **Detects**: The JVM supports virtual threads (Java 21+) but spring.threads.virtual.enabled is not set. Blocking workloads - request-per-thread web handlers, and blocking @Async/@Scheduled work on either the servlet or WebFlux stack - can often scale further on virtual threads - an opportunity to evaluate, not a defect. On a WebFlux application, the finding message clarifies that the benefit applies only to blocking work still offloaded to a thread pool (@Async, @Scheduled, or `Schedulers.boundedElastic()`), because the reactive HTTP path is already non-blocking.
 - **Recommendation**: Consider spring.threads.virtual.enabled=true after verifying that blocking code paths do not hold synchronized monitors that would pin carrier threads.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
@@ -173,7 +173,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-PERF-003 - @Async should use a reviewed executor
 
 - **Severity**: MEDIUM
-- **Detects**: @EnableAsync is active and virtual threads are not enabled, and either (a) no TaskExecutor bean exists at all - rare, since Spring Boot auto-configures one, but when it happens @Async falls back to the unbounded SimpleAsyncTaskExecutor (a new platform thread per task) - or (b) the only TaskExecutor is Spring Boot's auto-configured `applicationTaskExecutor` left at its default settings (a bounded ThreadPoolTaskExecutor with a core pool size of 8 and an effectively unbounded queue) with neither spring.task.execution.pool.core-size nor .max-size customized, so a generic default - not a size chosen for this application's @Async workload - backs every @Async method unreviewed.
+- **Detects**: @EnableAsync is active and virtual threads are not enabled. The rule then detects either (a) no TaskExecutor and no Executor named `taskExecutor` - rare, since Spring Boot auto-configures one, but when it happens @Async falls back to the unbounded SimpleAsyncTaskExecutor (a new platform thread per task) - or (b) Spring Boot's auto-configured `applicationTaskExecutor` is left at its default settings (a bounded ThreadPoolTaskExecutor with a core pool size of 8 and an effectively unbounded queue) with neither spring.task.execution.pool.core-size nor .max-size customized, so a generic default - not a size chosen for this application's @Async workload - backs every @Async method unreviewed. If a custom AsyncConfigurer supplies another executor, verify that executor's settings directly before dismissing the prompt.
 - **Recommendation**: Define a dedicated executor sized for the workload, or explicitly review and set spring.task.execution.pool.core-size / max-size instead of relying on the unreviewed default, or enable spring.threads.virtual.enabled so @Async work is not pooled at all.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
@@ -194,7 +194,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-PERF-006 - Bound the @Async executor queue
 
 - **Severity**: LOW
-- **Detects**: @EnableAsync is active and spring.task.execution.pool.queue-capacity is not set, so the auto-configured task executor uses an effectively unbounded queue that can hide a backlog and grow heap usage under load.
+- **Detects**: @EnableAsync uses Spring Boot's auto-configured `applicationTaskExecutor` and spring.task.execution.pool.queue-capacity is not set, so that executor uses an effectively unbounded queue that can hide a backlog and grow heap usage under load. If a custom AsyncConfigurer supplies another executor, verify that executor's queue before dismissing the prompt.
 - **Recommendation**: Set spring.task.execution.pool.queue-capacity (and a matching max pool size) to a bounded value, or enable virtual threads so async work is not pooled.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
@@ -252,8 +252,8 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WEB-007 - Tomcat thread cap is redundant with virtual threads
 
 - **Severity**: LOW
-- **Detects**: Virtual threads are enabled but server.tomcat.threads.max is set explicitly. With virtual threads handling requests, a small platform-thread cap can needlessly limit concurrency, while a large one has little effect. On a WebFlux application this rule is always `SKIPPED`: WebFlux runs on Reactor Netty's event-loop group, not a Tomcat servlet thread pool, so server.tomcat.threads.max has no effect there at all.
-- **Recommendation**: Remove server.tomcat.threads.max when running on virtual threads, or confirm the cap is a deliberate back-pressure limit.
+- **Detects**: The active embedded server is Tomcat, virtual threads are enabled, and server.tomcat.threads.max is set explicitly. Spring Boot replaces Tomcat's protocol-handler executor with a virtual-thread executor, making the thread cap ineffective on either servlet or reactive Tomcat. The rule is `SKIPPED` for a non-Tomcat server such as Reactor Netty or Jetty.
+- **Recommendation**: Remove server.tomcat.threads.max when running on virtual threads because it no longer controls Tomcat request concurrency.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
 ## Data and persistence
@@ -265,7 +265,7 @@ The panel is always available (a Spring application context always exists). Bean
 - **Recommendation**: Set spring.jpa.open-in-view=false and load the associations each request needs explicitly (fetch joins, entity graphs, or DTO projections).
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-entity-manager-in-view>
 
-### SPRING-DATA-001 - Do not run production on an in-memory database
+### SPRING-DATA-001 - Avoid an in-memory database in production
 
 - **Severity**: MEDIUM
 - **Detects**: A production-like profile is active while spring.datasource.url points at an in-process, in-memory database (an H2 jdbc:h2:mem: or HSQLDB jdbc:hsqldb:mem: URL, or a Derby jdbc:derby:memory: URL). These engines keep their data only in the JVM heap of a single instance: a restart, redeploy, or crash silently discards everything, and the data is invisible to any other instance in a multi-instance deployment. A file-backed embedded URL (for example jdbc:h2:file:) is not flagged.
@@ -280,6 +280,8 @@ The panel is always available (a Spring application context always exists). Bean
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.r2dbc.embedded>
 
 ## Actuator and management
+
+The access-aware rules resolve Spring Boot 4 endpoint-specific and global `access` settings, their `max-permitted` cap, and the still-supported deprecated `enabled` settings in the same precedence order as Boot.
 
 ### SPRING-MGMT-001 - Avoid exposing all Actuator endpoints
 
@@ -316,7 +318,7 @@ Both rules in this category are `SKIPPED` unconditionally on a servlet (Spring M
 ### SPRING-REACTIVE-001 - Reactive endpoints alongside a blocking JDBC datasource
 
 - **Severity**: INFO
-- **Detects**: This is a WebFlux application with Mono/Flux-returning handler methods, and a blocking JDBC DataSource is also configured. WebFlux runs on a small, fixed Reactor Netty event-loop group; a blocking JDBC call made directly inside a reactive chain (instead of offloaded to a bounded scheduler) stalls that event loop and can starve every other in-flight request. Modeled after the Quarkus advisor's QA-RX-001, but deliberately coarser: this reflection-only scanner cannot see inside a handler method's body, so it cannot tell whether offloading is already done correctly. It is an app-level prompt to verify, not a per-endpoint finding.
+- **Detects**: This is a WebFlux application with Mono/Flux-returning handler methods, and a blocking JDBC DataSource is also configured. A blocking JDBC call made directly inside a reactive chain (instead of offloaded to a bounded scheduler) can block request processing and reduce concurrent capacity. Modeled after the Quarkus advisor's QA-RX-001, but deliberately coarser: this reflection-only scanner cannot see inside a handler method's body, so it cannot tell whether offloading is already done correctly. It is an app-level prompt to verify, not a per-endpoint finding.
 - **Recommendation**: Offload blocking database calls, for example with `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`, or migrate to a reactive driver such as R2DBC; verify this per endpoint.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webflux/reactive-spring.html>
 

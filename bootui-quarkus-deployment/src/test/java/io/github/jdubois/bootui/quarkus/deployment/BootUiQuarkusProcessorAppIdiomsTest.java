@@ -2,13 +2,21 @@ package io.github.jdubois.bootui.quarkus.deployment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.quarkus.deployment.Capabilities;
+import io.quarkus.deployment.Capability;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.UriInfo;
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Flow;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.Index;
@@ -21,8 +29,9 @@ import org.reactivestreams.Publisher;
  * Unit tests for the pure Jandex-index-processing helpers behind the Quarkus application advisor's
  * build-time idiom counts: {@link BootUiQuarkusProcessor#isReactive(Type)} (QA-RX-001),
  * {@link BootUiQuarkusProcessor#mutableFieldsOf(org.jboss.jandex.IndexView, DotName)} (QA-CDI-001/QA-CDI-003),
- * {@link BootUiQuarkusProcessor#classAnnotations(org.jboss.jandex.IndexView, DotName)}, and
- * {@link BootUiQuarkusProcessor#virtualThreadSitesOf(org.jboss.jandex.IndexView)} (QA-PERF-001/QA-PERF-002).
+ * {@link BootUiQuarkusProcessor#classAnnotations(org.jboss.jandex.IndexView, DotName)},
+ * {@link BootUiQuarkusProcessor#publicResourceFieldsOf(org.jboss.jandex.IndexView)}, and
+ * {@link BootUiQuarkusProcessor#virtualThreadSynchronizedSitesOf(org.jboss.jandex.IndexView)} (QA-PERF-002).
  *
  * <p>These build a real Jandex index from the small fixture classes below (compiled by Maven, indexed via
  * {@link Indexer#indexClass(Class)}) so the assertions exercise the exact bytecode-level annotation/flag
@@ -65,6 +74,10 @@ class BootUiQuarkusProcessorAppIdiomsTest {
                 .isTrue();
         assertThat(BootUiQuarkusProcessor.isReactive(classType(Publisher.class.getName())))
                 .isTrue();
+        assertThat(BootUiQuarkusProcessor.isReactive(classType("org.jboss.resteasy.reactive.RestMulti")))
+                .isTrue();
+        assertThat(BootUiQuarkusProcessor.isReactive(classType(Flow.Publisher.class.getName())))
+                .isTrue();
     }
 
     @Test
@@ -72,6 +85,14 @@ class BootUiQuarkusProcessorAppIdiomsTest {
         assertThat(BootUiQuarkusProcessor.isReactive(classType("java.lang.String")))
                 .isFalse();
         assertThat(BootUiQuarkusProcessor.isReactive(null)).isFalse();
+    }
+
+    @Test
+    void hasJdbcDatasourceUsesTheAgroalCapability() {
+        assertThat(BootUiQuarkusProcessor.hasJdbcDatasource(new Capabilities(Set.of(Capability.AGROAL))))
+                .isTrue();
+        assertThat(BootUiQuarkusProcessor.hasJdbcDatasource(new Capabilities(Set.of())))
+                .isFalse();
     }
 
     private static Type classType(String fqcn) {
@@ -115,7 +136,22 @@ class BootUiQuarkusProcessorAppIdiomsTest {
         assertThat(BootUiQuarkusProcessor.mutableFieldsOf(index, SINGLETON)).isEmpty();
     }
 
-    // ---- classAnnotations / virtualThreadSitesOf (QA-PERF-001 / QA-PERF-002) ----
+    // ---- publicResourceFieldsOf (QA-CDI-002) ----
+
+    @Test
+    void publicResourceFieldsOfExcludesResourcesQuarkusMakesRequestScopedForFieldInjection() throws IOException {
+        Index index = indexOf(
+                DefaultScopeResource.class,
+                FieldParameterResource.class,
+                ContextResource.class,
+                FieldParameterBase.class,
+                InheritedFieldParameterResource.class);
+
+        assertThat(BootUiQuarkusProcessor.publicResourceFieldsOf(index))
+                .containsExactlyInAnyOrder("DefaultScopeResource.cachedResult", "ContextResource.lastRequestId");
+    }
+
+    // ---- classAnnotations / virtualThreadSynchronizedSitesOf (QA-PERF-002) ----
 
     @Test
     void classAnnotationsCountsOnlyClassLevelTargetsNotMethodLevel() throws IOException {
@@ -127,35 +163,32 @@ class BootUiQuarkusProcessorAppIdiomsTest {
     }
 
     @Test
-    void virtualThreadSitesOfCountsClassLevelAsOneSiteButScansAllItsMethodsForSynchronized() throws IOException {
+    void virtualThreadSynchronizedSitesOfScansAllMethodsCoveredByClassLevelAnnotation() throws IOException {
         Index index = indexOf(ClassLevelVirtualThreadBean.class);
 
-        BootUiQuarkusProcessor.VirtualThreadCounts counts = BootUiQuarkusProcessor.virtualThreadSitesOf(index);
+        int synchronizedSites = BootUiQuarkusProcessor.virtualThreadSynchronizedSitesOf(index);
 
-        assertThat(counts.sites()).isEqualTo(1);
-        assertThat(counts.synchronizedSites())
+        assertThat(synchronizedSites)
                 .as("the class-level annotation makes synchronizedMethod run on a virtual thread too")
                 .isEqualTo(1);
     }
 
     @Test
-    void virtualThreadSitesOfCountsEachMethodLevelSiteIndividually() throws IOException {
+    void virtualThreadSynchronizedSitesOfCountsSynchronizedMethodLevelAnnotations() throws IOException {
         Index index = indexOf(MethodLevelVirtualThreadBean.class);
 
-        BootUiQuarkusProcessor.VirtualThreadCounts counts = BootUiQuarkusProcessor.virtualThreadSitesOf(index);
+        int synchronizedSites = BootUiQuarkusProcessor.virtualThreadSynchronizedSitesOf(index);
 
-        assertThat(counts.sites()).isEqualTo(2);
-        assertThat(counts.synchronizedSites()).isEqualTo(1);
+        assertThat(synchronizedSites).isEqualTo(1);
     }
 
     @Test
-    void virtualThreadSitesOfCombinesClassAndMethodLevelSites() throws IOException {
+    void virtualThreadSynchronizedSitesOfCombinesClassAndMethodLevelAnnotations() throws IOException {
         Index index = indexOf(ClassLevelVirtualThreadBean.class, MethodLevelVirtualThreadBean.class);
 
-        BootUiQuarkusProcessor.VirtualThreadCounts counts = BootUiQuarkusProcessor.virtualThreadSitesOf(index);
+        int synchronizedSites = BootUiQuarkusProcessor.virtualThreadSynchronizedSitesOf(index);
 
-        assertThat(counts.sites()).isEqualTo(3);
-        assertThat(counts.synchronizedSites()).isEqualTo(2);
+        assertThat(synchronizedSites).isEqualTo(2);
     }
 
     // ---- Fixtures ----
@@ -183,6 +216,35 @@ class BootUiQuarkusProcessorAppIdiomsTest {
 
     static class PlainBean {
         public String publicMutableField;
+    }
+
+    @Path("/default-scope")
+    static class DefaultScopeResource {
+        public String cachedResult;
+    }
+
+    @Path("/field-parameter")
+    static class FieldParameterResource {
+        @QueryParam("query")
+        public String query;
+    }
+
+    @Path("/context")
+    static class ContextResource {
+        @Context
+        UriInfo uriInfo;
+
+        public String lastRequestId;
+    }
+
+    static class FieldParameterBase {
+        @QueryParam("query")
+        String query;
+    }
+
+    @Path("/inherited-field-parameter")
+    static class InheritedFieldParameterResource extends FieldParameterBase {
+        public String cachedResult;
     }
 
     @io.smallrye.common.annotation.RunOnVirtualThread

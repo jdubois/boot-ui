@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.architecture.ArchitecturePlatform;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
@@ -553,7 +554,8 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public ArchitectureScanner architectureScanner(QuarkusBasePackageProvider basePackages) {
-        return ArchitectureScanner.usingClasspath(basePackages::basePackages, Clock.systemUTC());
+        return ArchitectureScanner.usingClasspath(
+                basePackages::basePackages, ArchitecturePlatform.QUARKUS, Clock.systemUTC());
     }
 
     /**

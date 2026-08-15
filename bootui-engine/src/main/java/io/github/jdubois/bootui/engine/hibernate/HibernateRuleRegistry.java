@@ -39,7 +39,6 @@ final class HibernateRuleRegistry {
             new BigDecimalPrecisionRule(),
             new LegacyDateTimeRule(),
             new ManyToOneOptionalRule(),
-            new LazyOneToOneEnhancementRule(),
             new NonOwningOneToOneEnhancementRule(),
             new MissingForeignKeyIndexRule(),
             new LegacyWhereAnnotationRule(),
