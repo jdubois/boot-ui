@@ -16,7 +16,7 @@ test.describe('Database Advisor view', () => {
     // sample_app_preferences_enabled_features) have no primary key, a real, deterministic finding from
     // plain JDBC DatabaseMetaData introspection.
     await expect(page.getByText('Tables without a primary key')).toBeVisible()
-    await expect(page.getByText(/has no primary key/)).toBeVisible()
+    await expect(page.getByText(/has no primary key/).first()).toBeVisible()
     await expect(page.getByRole('link', {name: 'Learn more'}).first()).toBeVisible()
   })
 })
