@@ -10,10 +10,12 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaMethod;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.JavaStaticInitializer;
 import com.tngtech.archunit.lang.ArchRule;
 import io.github.jdubois.bootui.core.dto.CracFindingDto;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -102,17 +104,45 @@ final class ManagedLifecycleCallSites {
         }
         for (JavaMethod method : javaClass.getMethods()) {
             boolean cleanupCallback = isResourceCallback(method, "beforeCheckpoint") || isSpringStopCallback(method);
-            if (cleanupCallback
-                    && method.getCallsFromSelf().stream()
-                            .anyMatch(call -> CLEANUP_METHODS.contains(
-                                            call.getTarget().getName())
-                                    && field.getRawType()
-                                            .isAssignableTo(
-                                                    call.getTarget().getOwner().getName()))) {
+            if (cleanupCallback && delegatesCleanup(method, field, javaClass, new HashSet<>())) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Recognizes a matching cleanup call made directly by {@code codeUnit}, or delegated to a
+     * private helper method declared on the same {@code owner} class (a common refactor of
+     * checkpoint callbacks). Traversal only follows calls resolving to a <b>private</b> method
+     * declared on {@code owner} itself, not arbitrary collaborators or broader-visibility methods
+     * that may be reused elsewhere for unrelated purposes, and {@code visited} guards against call
+     * cycles so this stays a bounded walk rather than an unbounded whole-program call graph search.
+     */
+    private static boolean delegatesCleanup(
+            JavaCodeUnit codeUnit, JavaField field, JavaClass owner, Set<JavaCodeUnit> visited) {
+        if (!visited.add(codeUnit)) {
+            return false;
+        }
+        for (JavaCall<?> call : codeUnit.getCallsFromSelf()) {
+            CodeUnitCallTarget target = call.getTarget();
+            if (CLEANUP_METHODS.contains(target.getName())
+                    && field.getRawType().isAssignableTo(target.getOwner().getName())) {
+                return true;
+            }
+            if (owner.equals(target.getOwner())
+                    && target.resolveMember()
+                            .filter(ManagedLifecycleCallSites::isPrivateHelper)
+                            .isPresent()
+                    && delegatesCleanup(target.resolveMember().get(), field, owner, visited)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isPrivateHelper(JavaCodeUnit codeUnit) {
+        return codeUnit.getModifiers().contains(JavaModifier.PRIVATE);
     }
 
     private static boolean isResourceCallback(JavaCodeUnit codeUnit, String methodName) {

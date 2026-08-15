@@ -159,6 +159,52 @@ class CracReadinessScannerTests {
     }
 
     @Test
+    void cleanupDelegatedToAPrivateHelperMethodIsRecognizedAsEvidence() {
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        // A single hop (beforeCheckpoint -> helper -> close()) and a transitive chain
+        // (beforeCheckpoint -> helperA -> helperB -> close()) must both count as cleanup evidence.
+        assertThat(findingSamples(report, "CRAC-RES-001"))
+                .noneMatch(sample -> sample.contains("ManagedHelperDelegatedCleanup"));
+        assertThat(findingSamples(report, "CRAC-RES-001"))
+                .noneMatch(sample -> sample.contains("ManagedTransitiveHelperCleanup"));
+    }
+
+    @Test
+    void cyclicHelperDelegationWithoutCleanupIsStillFlaggedAndDoesNotHang() {
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        // helperA()/helperB() call each other but never close the field; the visited-call guard
+        // must terminate the traversal instead of looping, and the field must still be flagged.
+        assertThat(findingSamples(report, "CRAC-RES-001"))
+                .anyMatch(sample -> sample.contains("ManagedCyclicHelperWithoutCleanup"));
+    }
+
+    @Test
+    void delegationToANonPrivateSameClassHelperIsNotRecognizedAsEvidence() {
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        // Traversal is scoped to private helpers only; a public method could be called from
+        // elsewhere for unrelated reasons, so it must not be trusted as checkpoint cleanup evidence.
+        assertThat(findingSamples(report, "CRAC-RES-001"))
+                .anyMatch(sample -> sample.contains("ManagedPublicHelperNotRecognized"));
+    }
+
+    @Test
+    void delegationToADifferentClassIsNotRecognizedAsEvidence() {
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        // Only calls resolving to the same declaring class are followed; a collaborator class
+        // performing the close is not visible ownership evidence for this class's field.
+        assertThat(findingSamples(report, "CRAC-RES-001"))
+                .anyMatch(sample -> sample.contains("ManagedCrossClassHelperDelegation"));
+    }
+
+    @Test
     void scanSeparatesPredictableRandomFromUnseededSecureRandomAndFlagsSecrets() {
         CracReadinessScanner scanner = scanner(List.of(FIXTURES));
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);

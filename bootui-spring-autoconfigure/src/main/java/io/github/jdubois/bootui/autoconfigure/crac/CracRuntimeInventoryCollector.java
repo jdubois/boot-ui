@@ -113,13 +113,19 @@ public final class CracRuntimeInventoryCollector {
         }
 
         List<String> issues = new ArrayList<>();
-        boolean lifecycleMappingIsUnambiguous = hikariPools.size() == 1 && lifecycleBeans.size() == 1;
+        // Boot's auto-configuration only wires a HikariCheckpointRestoreLifecycle bean automatically for the
+        // single-candidate DataSource case; a multi-pool application must register the remaining lifecycle
+        // beans itself, typically one per pool. Equal counts are therefore treated as sufficient bean-count
+        // evidence for coverage, not a verified 1:1 pairing (e.g. two lifecycle beans could still wrap the
+        // same pool while another pool goes uncovered). Any other count keeps the conservative "can't verify"
+        // stance rather than guessing which bean covers which pool.
+        boolean poolAndLifecycleCountsMatch = hikariPools.size() == lifecycleBeans.size();
         for (BeanObservation pool : hikariPools) {
             String issue = null;
             ExistingHikariPool existingPool = existingHikariPool(applicationContext, pool.name());
             if (lifecycleBeans.isEmpty()) {
                 issue = "Spring Boot HikariCheckpointRestoreLifecycle bean is missing";
-            } else if (!lifecycleMappingIsUnambiguous) {
+            } else if (!poolAndLifecycleCountsMatch) {
                 issue = "checkpoint lifecycle coverage cannot be matched across " + hikariPools.size()
                         + " Hikari pool(s) and " + lifecycleBeans.size() + " lifecycle bean(s)";
             } else {

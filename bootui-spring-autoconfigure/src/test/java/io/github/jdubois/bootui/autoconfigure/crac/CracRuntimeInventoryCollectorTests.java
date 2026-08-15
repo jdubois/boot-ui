@@ -110,6 +110,47 @@ class CracRuntimeInventoryCollectorTests {
     }
 
     @Test
+    void treatsMatchingMultiPoolAndLifecycleCountsAsUnambiguous() {
+        try (AnnotationConfigApplicationContext context = multiHikariContext(true, true, true, true)) {
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            // Two pools and two lifecycle beans is Spring Boot's normal multi-datasource wiring
+            // (one HikariCheckpointRestoreLifecycle per pool); equal counts must not be reported as
+            // an unmatched/ambiguous pairing when every pool itself allows suspension.
+            assertThat(inventory.hikariPoolIssues()).isEmpty();
+        }
+    }
+
+    @Test
+    void reportsOnlyTheMisconfiguredPoolWhenMultiPoolCountsMatch() {
+        try (AnnotationConfigApplicationContext context = multiHikariContext(true, true, false, true)) {
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.hikariPoolIssues())
+                    .singleElement()
+                    .asString()
+                    .contains("second")
+                    .contains("allowPoolSuspension=false");
+        }
+    }
+
+    @Test
+    void reportsUnmatchedCoverageWhenMultiPoolCountsDiffer() {
+        try (AnnotationConfigApplicationContext context = multiHikariContext(true, true, true, false)) {
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            // Two pools but only one lifecycle bean cannot be assumed 1:1; keep the conservative
+            // "can't verify" stance instead of guessing which pool the single bean covers.
+            assertThat(inventory.hikariPoolIssues())
+                    .hasSize(2)
+                    .allSatisfy(
+                            issue -> assertThat(issue)
+                                    .contains(
+                                            "checkpoint lifecycle coverage cannot be matched across 2 Hikari pool(s) and 1 lifecycle bean(s)"));
+        }
+    }
+
+    @Test
     void recognizesAnExistingHikariPoolBehindADataSourceProxy() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.refresh();
@@ -271,6 +312,44 @@ class CracRuntimeInventoryCollectorTests {
                     .registerSingleton(
                             "hikariCheckpointRestoreLifecycle",
                             new HikariCheckpointRestoreLifecycle(context.getBean(DataSource.class), context));
+        }
+        return context;
+    }
+
+    /**
+     * Registers two independent Hikari pools, mirroring a multi-datasource application where
+     * Spring Boot's auto-configuration only wires a {@code HikariCheckpointRestoreLifecycle} for
+     * the single-candidate case; additional pools each need their own lifecycle bean registered by
+     * the application.
+     */
+    private static AnnotationConfigApplicationContext multiHikariContext(
+            boolean firstAllowsSuspension,
+            boolean registerFirstLifecycle,
+            boolean secondAllowsSuspension,
+            boolean registerSecondLifecycle) {
+        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+        context.registerBean("first", HikariDataSource.class, () -> {
+            HikariDataSource dataSource = new HikariDataSource();
+            dataSource.setAllowPoolSuspension(firstAllowsSuspension);
+            return dataSource;
+        });
+        context.registerBean("second", HikariDataSource.class, () -> {
+            HikariDataSource dataSource = new HikariDataSource();
+            dataSource.setAllowPoolSuspension(secondAllowsSuspension);
+            return dataSource;
+        });
+        context.refresh();
+        if (registerFirstLifecycle) {
+            context.getBeanFactory()
+                    .registerSingleton(
+                            "firstLifecycle",
+                            new HikariCheckpointRestoreLifecycle(context.getBean("first", DataSource.class), context));
+        }
+        if (registerSecondLifecycle) {
+            context.getBeanFactory()
+                    .registerSingleton(
+                            "secondLifecycle",
+                            new HikariCheckpointRestoreLifecycle(context.getBean("second", DataSource.class), context));
         }
         return context;
     }

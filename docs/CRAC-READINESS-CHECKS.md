@@ -144,9 +144,10 @@ No active CRaC check emits `CRITICAL`.
   zip/jar file, NIO channel/selector/lock, `WatchService`, `Process`, or JDBC `Connection`.
 - **Suppressed only when:** the declaring class implements a CRaC or Spring lifecycle and the exact
   `beforeCheckpoint(Context)`/`stop()` callback contains a compatible cleanup call such as `close`, `shutdown`, or
-  `disconnect` for that field type.
-- **Boundary:** interface implementation, an overloaded callback name, or cleanup of an unrelated field type is not
-  suppression.
+  `disconnect` for that field type, either directly or delegated to a private helper method declared on the same
+  class (including transitively, through further private helpers).
+- **Boundary:** interface implementation, an overloaded callback name, cleanup of an unrelated field type, or
+  delegation to a non-private method or a different class is not suppression.
 - **Action:** verify the field's runtime lifecycle, close before checkpoint, and recreate after restore.
 
 ### CRAC-FILE-001 -- Direct file handle acquisition needs checkpoint lifecycle review
@@ -184,6 +185,8 @@ No active CRaC check emits `CRITICAL`.
 - **Signal:** an application field is typed as JDK `HttpClient`, Apache `CloseableHttpClient`, OkHttp `OkHttpClient`,
   Reactor Netty `ConnectionProvider`, or gRPC `ManagedChannel`.
 - **Excluded:** Spring `RestClient`, Spring `WebClient`, and Reactor Netty `HttpClient` facades.
+- **Suppressed only when:** cleanup evidence is present using the same rule as `CRAC-RES-001` (a compatible call in
+  the exact callback, directly or via a private same-class helper).
 - **Boundary:** the field is ownership evidence, not proof of an active socket or worker.
 - **Action:** verify and manage the concrete transport owner, not merely the injected facade.
 
@@ -193,9 +196,12 @@ No active CRaC check emits `CRITICAL`.
 - **Signal:** a detected Hikari pool lacks an unambiguous
   `HikariCheckpointRestoreLifecycle`, has `allowPoolSuspension=false`, or cannot be inspected without initializing a lazy
   bean.
-- **Positive evidence:** exactly one Hikari pool, exactly one lifecycle bean, and the already-created pool reports
-  `allowPoolSuspension=true`.
-- **Boundary:** multiple pools/lifecycle beans are reported as unmatched rather than guessed.
+- **Positive evidence:** the Hikari pool count equals the `HikariCheckpointRestoreLifecycle` bean count (Boot only
+  auto-wires a lifecycle bean for the single-candidate `DataSource` case, so multi-pool apps must register the
+  remaining beans themselves; equal counts are treated as sufficient bean-count evidence for this heuristic), and
+  each already-created pool reports `allowPoolSuspension=true`.
+- **Boundary:** mismatched pool/lifecycle-bean counts are reported as unmatched rather than guessed. Equal counts do
+  not prove that each lifecycle bean wraps a distinct pool; it is a bean-count heuristic, not a verified pairing.
 - **Action:** keep `org.crac:crac` present, retain Boot's lifecycle auto-configuration, and set
   `spring.datasource.hikari.allow-pool-suspension=true`.
 
