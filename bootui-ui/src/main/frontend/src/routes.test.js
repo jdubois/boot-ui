@@ -465,6 +465,7 @@ describe('routes', () => {
       groups.database,
       groups.database,
       groups.database,
+      groups.database,
       groups.security,
       groups.security,
       groups.services,
