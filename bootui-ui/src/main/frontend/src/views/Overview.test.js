@@ -185,11 +185,12 @@ describe('Overview', () => {
     expect(wrapper.text()).toContain('1 high')
   })
 
-  it('accepts valid vulnerability findings when the summary includes its UNKNOWN bucket', async () => {
+  it('accepts valid vulnerability findings when the summary includes UNKNOWN and NONE buckets', async () => {
     stubFetch({
       'api/vulnerabilities/scan': severityReport([
         {severity: 'HIGH', count: 1},
-        {severity: 'UNKNOWN', count: 0}
+        {severity: 'UNKNOWN', count: 0},
+        {severity: 'NONE', count: 0}
       ])
     })
     const wrapper = mountOverview({

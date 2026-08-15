@@ -124,7 +124,7 @@ const scannerDefs = [
     tone: 'danger',
     to: '/vulnerabilities',
     endpoint: 'api/vulnerabilities/scan',
-    additionalSeverities: ['UNKNOWN']
+    additionalSeverities: ['UNKNOWN', 'NONE']
   }
 ]
 
