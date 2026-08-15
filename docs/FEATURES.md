@@ -1188,10 +1188,10 @@ cleanly while never leaking ORM parameter values. Both feeders are wired in dev/
 
 The Transactions panel shows the `@Transactional` boundaries your application recently ran — begin, commit, and rollback
 events — captured by BootUI's own listener wiring, **not** a third-party transaction-observability library. On Spring MVC
-and WebFlux, BootUI registers a `TransactionExecutionListener` (Spring Framework 6.1+) against every
-`ConfigurableTransactionManager` bean already in the context, composing with (never replacing) the application's own
-transaction management. Wiring **fails open**: if a listener cannot be registered against a given manager, that manager is
-left unobserved rather than disrupting real transaction processing.
+and WebFlux, BootUI contributes a `TransactionExecutionListener` (Spring Framework 6.1+) through Spring Boot's standard
+transaction-manager customization and completes registration for user-defined `ConfigurableTransactionManager` beans
+after singleton initialization. It composes with (never replaces) the application's own transaction management and
+listeners. Managers that do not implement the configurable listener SPI remain unobserved.
 
 Each captured transaction records the declared boundary name (typically `ClassName.methodName`), a best-effort
 `propagation` classification (`NEW` when the manager actually started a transaction, `PARTICIPATING` when it joined one
@@ -1215,11 +1215,16 @@ settings. It fails closed — reporting unavailable with a clear reason — when
 or when a WebFlux application uses only a `ReactiveTransactionManager` (R2DBC), since Spring's transaction-execution
 listener hook exists solely on the blocking `PlatformTransactionManager` SPI. Capture, the initial recording state, buffer
 size, and the slow-transaction and connection-hold thresholds are all configurable under `bootui.transactions.*`.
+The Spring sample's product list and uncached product-search operations use explicit read-only service transactions, so
+loading or checking products produces representative entries in this panel as well as SQL Trace.
 
 Like SQL Trace, the panel refreshes over **Server-Sent Events**: the browser subscribes to
 `/bootui/api/transactions/stream` and the server pushes a small coalesced notification whenever a transaction completes,
 the buffer is cleared, or recording is paused/resumed. When the auto-refresh toggle is off or the tab is hidden the stream
 is closed, and the panel falls back to its initial load when Server-Sent Events are unavailable.
+
+When the opt-in MCP Server is enabled on Spring MVC or WebFlux, `get_transactions` exposes the same bounded, local-only
+report to an agent. It is not advertised on Quarkus because transaction capture is not available there.
 
 > **Quarkus is not applicable.** Quarkus' transaction management goes through Narayana's JTA `TransactionManager`/
 > `Synchronization` or the CDI `@Transactional` interceptor, neither of which exposes a comparable per-boundary listener

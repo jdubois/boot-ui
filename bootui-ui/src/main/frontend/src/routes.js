@@ -509,18 +509,6 @@ export const routes = [
     }
   },
   {
-    path: '/sql-trace',
-    name: 'sql-trace',
-    component: SqlTrace,
-    meta: {
-      group: groups.database,
-      icon: 'bi-stopwatch',
-      title: 'SQL Trace',
-      shortcut: 'sq',
-      keywords: ['sql', 'queries', 'slow queries', 'slow query', 'n+1', 'jdbc', 'statements', 'select', 'query log']
-    }
-  },
-  {
     path: '/transactions',
     name: 'transactions',
     component: Transactions,
@@ -540,6 +528,18 @@ export const routes = [
         'transaction boundaries',
         'nested transactions'
       ]
+    }
+  },
+  {
+    path: '/sql-trace',
+    name: 'sql-trace',
+    component: SqlTrace,
+    meta: {
+      group: groups.database,
+      icon: 'bi-stopwatch',
+      title: 'SQL Trace',
+      shortcut: 'sq',
+      keywords: ['sql', 'queries', 'slow queries', 'slow query', 'n+1', 'jdbc', 'statements', 'select', 'query log']
     }
   },
   {

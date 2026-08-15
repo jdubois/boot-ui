@@ -30,6 +30,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.PropertySource;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
+import org.springframework.transaction.ConfigurableTransactionManager;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -179,6 +180,10 @@ public class PanelsController {
             case BootUiPanels.CRAC -> availability(cracAvailable(), cracUnavailableReason());
             case BootUiPanels.SQL_TRACE ->
                 availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
+            case BootUiPanels.TRANSACTIONS ->
+                availability(
+                        beanPresent(ConfigurableTransactionManager.class),
+                        "No configurable PlatformTransactionManager bean is available");
             case BootUiPanels.REST_CLIENT_TRACE ->
                 availability(restClientTraceAvailable(), restClientTraceUnavailableReason());
             case BootUiPanels.THREADS ->

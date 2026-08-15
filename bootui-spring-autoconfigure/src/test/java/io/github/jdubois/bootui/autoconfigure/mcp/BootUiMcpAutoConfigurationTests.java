@@ -7,6 +7,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration;
+import io.github.jdubois.bootui.core.dto.TransactionReport;
+import io.github.jdubois.bootui.engine.mcp.McpArguments;
+import io.github.jdubois.bootui.engine.mcp.McpTool;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
@@ -47,7 +50,11 @@ class BootUiMcpAutoConfigurationTests {
             assertThat(context).hasSingleBean(BootUiMcpController.class);
             assertThat(context).hasSingleBean(BootUiMcpService.class);
             assertThat(context.getBean(McpServerState.class).isEnabled()).isTrue();
-            assertThat(context.getBean(BootUiMcpTools.class).tools()).isNotEmpty();
+            McpTool transactions = context.getBean(BootUiMcpTools.class).tools().stream()
+                    .filter(tool -> tool.name().equals("get_transactions"))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(transactions.invoke(new McpArguments(null, 100, null))).isInstanceOf(TransactionReport.class);
         });
     }
 

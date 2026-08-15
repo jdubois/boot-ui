@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
+import io.github.jdubois.bootui.autoconfigure.transactions.TransactionsController;
 import io.github.jdubois.bootui.autoconfigure.web.BeansController;
 import io.github.jdubois.bootui.autoconfigure.web.ConditionsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigController;
@@ -64,6 +65,7 @@ public class BootUiMcpTools {
             ObjectProvider<LiveActivityController> liveActivity,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<SqlTraceController> sqlTrace,
+            ObjectProvider<TransactionsController> transactions,
             ObjectProvider<TracesController> traces,
             ObjectProvider<LogTailController> logTail,
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -95,6 +97,7 @@ public class BootUiMcpTools {
         LiveActivityController liveActivityBean = liveActivity.getIfAvailable();
         SecurityLogsController securityLogsBean = securityLogs.getIfAvailable();
         SqlTraceController sqlTraceBean = sqlTrace.getIfAvailable();
+        TransactionsController transactionsBean = transactions.getIfAvailable();
         TracesController tracesBean = traces.getIfAvailable();
         LogTailController logTailBean = logTail.getIfAvailable();
         HttpExchangesController httpExchangesBean = httpExchanges.getIfAvailable();
@@ -226,6 +229,13 @@ public class BootUiMcpTools {
                     McpToolDescriptions.spring("get_sql_traces"),
                     BootUiPanels.SQL_TRACE,
                     args -> sqlTraceBean.trace()));
+        }
+        if (transactionsBean != null) {
+            registry.add(read(
+                    "get_transactions",
+                    McpToolDescriptions.spring("get_transactions"),
+                    BootUiPanels.TRANSACTIONS,
+                    args -> transactionsBean.trace()));
         }
         if (tracesBean != null) {
             registry.add(limitRead(

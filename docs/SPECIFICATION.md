@@ -2116,8 +2116,8 @@ Top-level navigation:
   - Mappings.
 - Database:
   - Database Connection Pools.
-  - SQL Trace.
   - Transactions.
+  - SQL Trace.
   - Spring Data.
   - Flyway.
   - Liquibase.

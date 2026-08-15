@@ -527,6 +527,26 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
+    void productSearchProducesACapturedTransactionBoundary() {
+        Map<?, ?> before = getMap("/bootui/api/transactions").getBody();
+        assertThat(before).isNotNull();
+        long capturedBefore = ((Number) before.get("totalCaptured")).longValue();
+
+        ResponseEntity<List> search = client().get()
+                .uri("/api/sample/product-search?term=console")
+                .retrieve()
+                .toEntity(List.class);
+        assertThat(search.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        Map<?, ?> after = getMap("/bootui/api/transactions").getBody();
+        assertThat(after).isNotNull();
+        assertThat(((Number) after.get("totalCaptured")).longValue()).isGreaterThan(capturedBefore);
+        assertThat((Iterable<?>) after.get("entries"))
+                .anySatisfy(entry -> assertThat(((Map<?, ?>) entry).get("methodName"))
+                        .isEqualTo("io.github.jdubois.bootui.sample.catalog.SampleCatalog.searchProducts"));
+    }
+
+    @Test
     void flywayEndpointListsAppliedAndPendingCatalogMigrations() {
         ResponseEntity<Map> response = getMap("/bootui/api/flyway/migrations");
 

@@ -18,6 +18,7 @@ class McpToolDescriptionsTests {
             "get_exception_detail",
             "get_security_logs",
             "get_sql_traces",
+            "get_transactions",
             "get_traces",
             "get_log_tail",
             "get_http_exchanges",

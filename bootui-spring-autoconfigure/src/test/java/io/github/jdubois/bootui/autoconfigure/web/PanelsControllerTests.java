@@ -22,6 +22,8 @@ import org.springframework.boot.web.context.reactive.GenericReactiveWebApplicati
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.ConfigurableTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 
 class PanelsControllerTests {
 
@@ -117,6 +119,10 @@ class PanelsControllerTests {
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".unavailableReason")
                             .value("No database connection pool beans are available"))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".unavailableReason")
+                            .value("No configurable PlatformTransactionManager bean is available"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE) + ".unavailableReason")
@@ -137,6 +143,48 @@ class PanelsControllerTests {
                             jsonPath(panelPath(BootUiPanels.JMS) + ".available").value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.JMS) + ".unavailableReason")
                             .value("No JmsTemplate bean is available"));
+        }
+    }
+
+    @Test
+    void panelsMarksTransactionsAvailableWhenAConfigurableTransactionManagerIsPresent() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(
+                    "transactionManager",
+                    ConfigurableTransactionManager.class,
+                    () -> mock(ConfigurableTransactionManager.class));
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".available")
+                            .value(true))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".unavailableReason")
+                            .doesNotExist());
+        }
+    }
+
+    @Test
+    void panelsMarksTransactionsUnavailableWhenTransactionManagerIsNotConfigurable() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(
+                    "transactionManager",
+                    PlatformTransactionManager.class,
+                    () -> mock(PlatformTransactionManager.class));
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".unavailableReason")
+                            .value("No configurable PlatformTransactionManager bean is available"));
         }
     }
 

@@ -10,14 +10,14 @@ import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder.Status;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.ConfigurableTransactionManager;
 
 class TransactionsControllerSupportTests {
 
     @Test
     void traceReportsUnavailableWhenRecorderIsAbsent() {
-        TransactionReport report =
-                TransactionsControllerSupport.trace(provider(null), provider(mock(PlatformTransactionManager.class)));
+        TransactionReport report = TransactionsControllerSupport.trace(
+                provider(null), provider(mock(ConfigurableTransactionManager.class)));
 
         assertThat(report.available()).isFalse();
         assertThat(report.unavailableReason()).isEqualTo("Transaction capture is not configured");
@@ -27,7 +27,7 @@ class TransactionsControllerSupportTests {
     void traceReportsUnavailableWhenRecorderIsDisabled() {
         TransactionRecorder recorder = new TransactionRecorder(false, true, 10, 100, 100, null);
         TransactionReport report = TransactionsControllerSupport.trace(
-                provider(recorder), provider(mock(PlatformTransactionManager.class)));
+                provider(recorder), provider(mock(ConfigurableTransactionManager.class)));
 
         assertThat(report.available()).isFalse();
         assertThat(report.unavailableReason()).contains("disabled");
@@ -39,7 +39,8 @@ class TransactionsControllerSupportTests {
         TransactionReport report = TransactionsControllerSupport.trace(provider(recorder), provider(null));
 
         assertThat(report.available()).isFalse();
-        assertThat(report.unavailableReason()).isEqualTo("No PlatformTransactionManager bean is available");
+        assertThat(report.unavailableReason())
+                .isEqualTo("No configurable PlatformTransactionManager bean is available");
     }
 
     @Test
@@ -49,7 +50,7 @@ class TransactionsControllerSupportTests {
         recorder.completeTransaction(id, Status.COMMITTED, null);
 
         TransactionReport report = TransactionsControllerSupport.trace(
-                provider(recorder), provider(mock(PlatformTransactionManager.class)));
+                provider(recorder), provider(mock(ConfigurableTransactionManager.class)));
 
         assertThat(report.available()).isTrue();
         assertThat(report.entries()).hasSize(1);
@@ -60,8 +61,8 @@ class TransactionsControllerSupportTests {
         TransactionRecorder recorder = new TransactionRecorder(true, true, 10, 100, 100, null);
         long id = recorder.beginTransaction("Service.method", false, "READ_COMMITTED", "main", null);
         recorder.completeTransaction(id, Status.COMMITTED, null);
-        ObjectProvider<PlatformTransactionManager> transactionManagerProvider =
-                provider(mock(PlatformTransactionManager.class));
+        ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider =
+                provider(mock(ConfigurableTransactionManager.class));
 
         TransactionReport report = TransactionsControllerSupport.clear(provider(recorder), transactionManagerProvider);
 
@@ -71,8 +72,8 @@ class TransactionsControllerSupportTests {
 
     @Test
     void clearReportsUnavailableWhenRecorderIsAbsent() {
-        TransactionReport report =
-                TransactionsControllerSupport.clear(provider(null), provider(mock(PlatformTransactionManager.class)));
+        TransactionReport report = TransactionsControllerSupport.clear(
+                provider(null), provider(mock(ConfigurableTransactionManager.class)));
 
         assertThat(report.available()).isFalse();
     }
@@ -80,8 +81,8 @@ class TransactionsControllerSupportTests {
     @Test
     void recordingTogglesWhenNoExplicitValueIsGiven() {
         TransactionRecorder recorder = new TransactionRecorder(true, true, 10, 100, 100, null);
-        ObjectProvider<PlatformTransactionManager> transactionManagerProvider =
-                provider(mock(PlatformTransactionManager.class));
+        ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider =
+                provider(mock(ConfigurableTransactionManager.class));
 
         TransactionsControllerSupport.recording(
                 provider(recorder), transactionManagerProvider, new TransactionRecordingRequest(null));
@@ -95,8 +96,8 @@ class TransactionsControllerSupportTests {
     @Test
     void recordingSetsExplicitValueWhenGiven() {
         TransactionRecorder recorder = new TransactionRecorder(true, true, 10, 100, 100, null);
-        ObjectProvider<PlatformTransactionManager> transactionManagerProvider =
-                provider(mock(PlatformTransactionManager.class));
+        ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider =
+                provider(mock(ConfigurableTransactionManager.class));
 
         TransactionsControllerSupport.recording(
                 provider(recorder), transactionManagerProvider, new TransactionRecordingRequest(false));
@@ -107,7 +108,7 @@ class TransactionsControllerSupportTests {
     void recordingReportsUnavailableWhenRecorderIsAbsent() {
         TransactionReport report = TransactionsControllerSupport.recording(
                 provider(null),
-                provider(mock(PlatformTransactionManager.class)),
+                provider(mock(ConfigurableTransactionManager.class)),
                 new TransactionRecordingRequest(true));
 
         assertThat(report.available()).isFalse();
@@ -117,6 +118,9 @@ class TransactionsControllerSupportTests {
     private static <T> ObjectProvider<T> provider(T value) {
         ObjectProvider<T> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(value);
+        when(provider.stream())
+                .thenAnswer(
+                        ignored -> value == null ? java.util.stream.Stream.empty() : java.util.stream.Stream.of(value));
         return provider;
     }
 }

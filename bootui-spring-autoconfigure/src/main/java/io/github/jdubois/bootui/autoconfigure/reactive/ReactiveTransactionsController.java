@@ -10,7 +10,7 @@ import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.ConfigurableTransactionManager;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,9 +23,9 @@ import reactor.core.publisher.Flux;
  * semantics over the same framework-neutral {@link TransactionRecorder}, with the {@code /stream}
  * endpoint rebuilt on {@link ReactiveBootUiChangeStream} instead of a servlet {@code SseEmitter}.
  *
- * <p>Capture itself is wired the same way as Spring MVC: BootUI's {@code
- * BootUiTransactionManagerBeanPostProcessor} registers a {@code TransactionExecutionListener} against
- * every {@code ConfigurableTransactionManager} bean, which observes any blocking {@code
+ * <p>Capture itself is wired the same way as Spring MVC: BootUI contributes a {@code
+ * TransactionExecutionListener} bean through Spring Boot's standard transaction-manager customization,
+ * which registers it against every {@code ConfigurableTransactionManager} and observes any blocking {@code
  * PlatformTransactionManager} a WebFlux application still uses (e.g. wrapping JDBC repositories). A
  * WebFlux application backed only by a {@code ReactiveTransactionManager} (R2DBC) has no such bean to
  * observe — Spring's transaction-execution listener hook exists solely on the blocking SPI — so the
@@ -36,13 +36,13 @@ import reactor.core.publisher.Flux;
 public class ReactiveTransactionsController {
 
     private final ObjectProvider<TransactionRecorder> recorderProvider;
-    private final ObjectProvider<PlatformTransactionManager> transactionManagerProvider;
+    private final ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider;
     private final ReactiveBootUiChangeStream changeStream;
     private Runnable recorderUnsubscribe;
 
     public ReactiveTransactionsController(
             ObjectProvider<TransactionRecorder> recorderProvider,
-            ObjectProvider<PlatformTransactionManager> transactionManagerProvider) {
+            ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider) {
         this.recorderProvider = recorderProvider;
         this.transactionManagerProvider = transactionManagerProvider;
         this.changeStream = new ReactiveBootUiChangeStream("transactions");

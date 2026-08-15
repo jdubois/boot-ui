@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiExceptionHandler;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiHandlerAdapter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiIndexController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpTools;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResourceConfigurer;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveClaudeCodeController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveCopilotController;
@@ -93,17 +94,21 @@ class BootUiReactiveAutoConfigurationTests {
 
     @Test
     void activatesWhenEnabledOn() {
-        runner.withPropertyValues("bootui.enabled=ON")
-                .run(context -> assertThat(context)
-                        .hasSingleBean(BootUiReactiveAutoConfiguration.class)
-                        .hasSingleBean(ReactiveLocalhostOnlyFilter.class)
-                        .hasSingleBean(ReactivePanelAccessFilter.class)
-                        .hasSingleBean(ReactiveBootUiHandlerAdapter.class)
-                        .hasSingleBean(KafkaActivityRecorder.class)
-                        .hasSingleBean(JmsActivityRecorder.class)
-                        .hasSingleBean(ReactiveBootUiIndexController.class)
-                        .hasSingleBean(OverviewController.class)
-                        .hasSingleBean(BootUiActivation.class));
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            assertThat(context)
+                    .hasSingleBean(BootUiReactiveAutoConfiguration.class)
+                    .hasSingleBean(ReactiveLocalhostOnlyFilter.class)
+                    .hasSingleBean(ReactivePanelAccessFilter.class)
+                    .hasSingleBean(ReactiveBootUiHandlerAdapter.class)
+                    .hasSingleBean(KafkaActivityRecorder.class)
+                    .hasSingleBean(JmsActivityRecorder.class)
+                    .hasSingleBean(ReactiveBootUiIndexController.class)
+                    .hasSingleBean(OverviewController.class)
+                    .hasSingleBean(BootUiActivation.class);
+            assertThat(context.getBean(ReactiveBootUiMcpTools.class).tools())
+                    .extracting("name")
+                    .contains("get_transactions");
+        });
     }
 
     @Test

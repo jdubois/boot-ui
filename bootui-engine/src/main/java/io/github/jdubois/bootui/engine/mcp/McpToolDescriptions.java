@@ -52,6 +52,11 @@ public final class McpToolDescriptions {
                     "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may "
                             + "contain sensitive values; correlate it locally with request or trace identifiers."),
             Map.entry(
+                    "get_transactions",
+                    "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and "
+                            + "correlated SQL counts. Use it to verify which local operations actually ran in a "
+                            + "transaction."),
+            Map.entry(
                     "get_traces",
                     "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI. Use "
                             + "trace ids to correlate activity, exceptions, SQL, and HTTP exchanges."),

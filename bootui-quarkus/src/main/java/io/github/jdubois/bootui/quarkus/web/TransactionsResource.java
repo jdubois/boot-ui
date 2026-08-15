@@ -10,8 +10,8 @@ import jakarta.ws.rs.core.MediaType;
  * JAX-RS resource for the Transactions panel ({@code GET /bootui/api/transactions}).
  *
  * <p>Honestly unavailable on Quarkus: the Spring adapter captures transaction boundaries through Spring
- * Framework's {@code TransactionExecutionListener} SPI, registered against {@code
- * ConfigurableTransactionManager} beans (see {@code BootUiTransactionManagerBeanPostProcessor}). Quarkus'
+ * Framework's {@code TransactionExecutionListener} SPI, registered by Spring Boot's standard
+ * transaction-manager customization against {@code ConfigurableTransactionManager} beans. Quarkus'
  * transaction management goes through Narayana's JTA {@code TransactionManager}/{@code Synchronization} or
  * the CDI {@code @Transactional} interceptor, neither of which exposes a comparable per-boundary listener
  * hook without either wrapping every {@code @Transactional} bean with a custom CDI interceptor (a much more

@@ -128,8 +128,9 @@ and makes any dev-trap mode explicitly opt-in.
 The **Transactions** panel (Database group) has also shipped: a bounded in-memory `TransactionRecorder`, following the
 same ring-buffer/aggregate-stats/pause/clear conventions as SQL Trace, captures every `@Transactional` boundary's
 method, propagation, isolation, status, duration, and parent/child nesting via Spring Framework's
-`TransactionExecutionListener` SPI, registered against every `ConfigurableTransactionManager` bean without replacing or
-wrapping the application's own transaction management. Completed transactions are correlated to their SQL statement and
+`TransactionExecutionListener` SPI, contributed through Spring Boot's standard transaction-manager customization and
+completed for user-defined configurable managers after singleton initialization, without replacing or wrapping the
+application's own transaction management. Completed transactions are correlated to their SQL statement and
 connection counts by reusing SQL Trace's existing thread/time-window correlation logic rather than duplicating it. The
 panel is Spring-only (both servlet and WebFlux, the latter observing any blocking `PlatformTransactionManager` a
 reactive application still uses); Quarkus has no comparable per-boundary listener hook on Narayana JTA or the CDI

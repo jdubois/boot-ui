@@ -52,6 +52,7 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<ReactiveLiveActivityController> liveActivity,
             ObjectProvider<ReactiveSecurityLogsController> securityLogs,
             ObjectProvider<ReactiveSqlTraceController> sqlTrace,
+            ObjectProvider<ReactiveTransactionsController> transactions,
             ObjectProvider<TracesController> traces,
             ObjectProvider<ReactiveLogTailController> logTail,
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -80,6 +81,7 @@ public class ReactiveBootUiMcpTools {
         ReactiveLiveActivityController liveActivityBean = liveActivity.getIfAvailable();
         ReactiveSecurityLogsController securityLogsBean = securityLogs.getIfAvailable();
         ReactiveSqlTraceController sqlTraceBean = sqlTrace.getIfAvailable();
+        ReactiveTransactionsController transactionsBean = transactions.getIfAvailable();
         TracesController tracesBean = traces.getIfAvailable();
         ReactiveLogTailController logTailBean = logTail.getIfAvailable();
         HttpExchangesController httpExchangesBean = httpExchanges.getIfAvailable();
@@ -209,6 +211,13 @@ public class ReactiveBootUiMcpTools {
                     McpToolDescriptions.spring("get_sql_traces"),
                     BootUiPanels.SQL_TRACE,
                     args -> sqlTraceBean.trace()));
+        }
+        if (transactionsBean != null) {
+            registry.add(read(
+                    "get_transactions",
+                    McpToolDescriptions.spring("get_transactions"),
+                    BootUiPanels.TRANSACTIONS,
+                    args -> transactionsBean.trace()));
         }
         if (tracesBean != null) {
             registry.add(limitRead(

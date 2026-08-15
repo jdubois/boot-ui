@@ -11,10 +11,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
  * Bridges Spring Framework's {@code TransactionExecutionListener} (Spring 6.1+) to the
- * framework-neutral {@link TransactionRecorder}. Registered against every {@code
- * ConfigurableTransactionManager} bean by {@link BootUiTransactionManagerBeanPostProcessor}; it
- * composes with, and never replaces, the application's own transaction management or any other
- * listener already registered on the manager.
+ * framework-neutral {@link TransactionRecorder}. Exposed as a Spring bean so Spring Boot's standard
+ * transaction-manager customization registers it against every {@code ConfigurableTransactionManager};
+ * it composes with, and never replaces, the application's own transaction management or any other
+ * listener.
  *
  * <p>The recorder is told about a boundary at {@code afterBegin} rather than {@code beforeBegin} so
  * that, on success, {@link TransactionSynchronizationManager#getCurrentTransactionIsolationLevel()} is

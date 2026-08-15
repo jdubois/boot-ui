@@ -4,7 +4,7 @@ import io.github.jdubois.bootui.core.dto.TransactionRecordingRequest;
 import io.github.jdubois.bootui.core.dto.TransactionReport;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.ConfigurableTransactionManager;
 
 /**
  * Shared read/clear/recording business logic for the BootUI Transactions panel, used by both the
@@ -22,7 +22,7 @@ public final class TransactionsControllerSupport {
 
     public static TransactionReport trace(
             ObjectProvider<TransactionRecorder> recorderProvider,
-            ObjectProvider<PlatformTransactionManager> transactionManagerProvider) {
+            ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider) {
         TransactionRecorder recorder = recorderProvider.getIfAvailable();
         if (recorder == null) {
             return TransactionReport.unavailable(NOT_CONFIGURED);
@@ -32,7 +32,7 @@ public final class TransactionsControllerSupport {
 
     public static TransactionReport clear(
             ObjectProvider<TransactionRecorder> recorderProvider,
-            ObjectProvider<PlatformTransactionManager> transactionManagerProvider) {
+            ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider) {
         TransactionRecorder recorder = recorderProvider.getIfAvailable();
         if (recorder == null) {
             return TransactionReport.unavailable(NOT_CONFIGURED);
@@ -43,7 +43,7 @@ public final class TransactionsControllerSupport {
 
     public static TransactionReport recording(
             ObjectProvider<TransactionRecorder> recorderProvider,
-            ObjectProvider<PlatformTransactionManager> transactionManagerProvider,
+            ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider,
             TransactionRecordingRequest request) {
         TransactionRecorder recorder = recorderProvider.getIfAvailable();
         if (recorder == null) {
@@ -55,14 +55,14 @@ public final class TransactionsControllerSupport {
     }
 
     private static TransactionReport report(
-            TransactionRecorder recorder, ObjectProvider<PlatformTransactionManager> transactionManagerProvider) {
+            TransactionRecorder recorder, ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider) {
         if (!recorder.isEnabled()) {
             return TransactionReport.unavailable(
                     "Transaction capture is disabled (set bootui.transactions.enabled=true in a trusted local"
                             + " profile).");
         }
-        if (transactionManagerProvider.getIfAvailable() == null) {
-            return TransactionReport.unavailable("No PlatformTransactionManager bean is available");
+        if (transactionManagerProvider.stream().findAny().isEmpty()) {
+            return TransactionReport.unavailable("No configurable PlatformTransactionManager bean is available");
         }
         return recorder.report();
     }

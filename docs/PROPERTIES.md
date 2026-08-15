@@ -68,7 +68,7 @@ default — on both adapters. This includes the safety keys (`bootui.allow-non-l
 `bootui.monitoring.exclude-self`, `bootui.http-exchanges.max-exchanges` (default `200`),
 `bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
-`bootui.sql-trace.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
+`bootui.sql-trace.*`, `bootui.transactions.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
 `bootui.exceptions.*`, `bootui.security-logs.*`, `bootui.cache.*` (except `.activity-capture-enabled` and
 `.activity-max-events`, Spring only — see above), `bootui.mcp.*`, `bootui.ai.*`,
 `bootui.copilot.*`, and `bootui.claude-code.*` families. It also includes the per-panel access keys —
@@ -351,6 +351,18 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | `bootui.sql-trace.max-sql-length`         | `2000`  | Maximum retained SQL text length; longer statements are truncated. Plain `Statement` batches preview at most five statements and 256 characters per statement before this report-level limit is applied. |
 | `bootui.sql-trace.max-parameter-length`   | `200`   | Maximum retained length of a single captured parameter value.                                                                                |
 | `bootui.sql-trace.n-plus-one-threshold`   | `5`     | Number of times an identical `SELECT` must repeat within the buffer before it is flagged as a likely N+1 access pattern (minimum `2`).       |
+
+### Transactions
+
+| Property                                                | Default | Description |
+| ------------------------------------------------------- | ------- | ----------- |
+| `bootui.panels.transactions.enabled`                    | `true`  | Show the Transactions panel and register transaction capture. |
+| `bootui.panels.transactions.read-only`                  | `false` | Disable Pause/Resume and Clear while keeping captured transactions visible. |
+| `bootui.transactions.enabled`                           | `true`  | Contribute BootUI's listener to configurable blocking Spring transaction managers. |
+| `bootui.transactions.recording`                         | `true`  | Initial recording state; the panel can pause or resume it at runtime. |
+| `bootui.transactions.max-entries`                       | `200`   | Maximum completed transaction boundaries retained in the bounded in-memory buffer. |
+| `bootui.transactions.slow-transaction-threshold-millis` | `200`   | Transactions at or above this duration are flagged as slow; `0` disables the flag. |
+| `bootui.transactions.connection-hold-threshold-millis`  | `500`   | Transactions at or above this duration are flagged as holding a connection; `0` disables the flag. |
 
 ### REST Client
 

@@ -122,6 +122,39 @@ describe('Transactions', () => {
     expect(text).toContain('captured since startup')
   })
 
+  it('refreshes on an SSE update and closes the stream on unmount', async () => {
+    const sources = []
+    class MockEventSource {
+      constructor() {
+        this.listeners = {}
+        this.close = vi.fn()
+        sources.push(this)
+      }
+      addEventListener(type, listener) {
+        this.listeners[type] = listener
+      }
+      emit(type) {
+        this.listeners[type]?.()
+      }
+    }
+    vi.stubGlobal('EventSource', MockEventSource)
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(transactionReport()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(Transactions, {props: {panel: {id: 'transactions'}}})
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    sources[0].emit('update')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    const source = sources[0]
+    wrapper.unmount()
+    wrapper = null
+    expect(source.close).toHaveBeenCalledOnce()
+  })
+
   it('renders the nested child transaction under its parent row', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(transactionReport())))
 

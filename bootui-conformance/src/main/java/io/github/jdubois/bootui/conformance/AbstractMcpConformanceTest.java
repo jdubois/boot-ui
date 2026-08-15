@@ -166,6 +166,50 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testMcpTransactionsToolMatchesAdapterSupport() {
+        assumeTrue(enableMcp());
+        try {
+            Response panelsResponse = probe().get("/bootui/api/panels");
+            boolean expected =
+                    !"quarkus".equals(panelsResponse.json().path("platform").asText());
+
+            Response listResponse = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}");
+            boolean advertised = false;
+            for (JsonNode tool : listResponse.json().path("result").path("tools")) {
+                if ("get_transactions".equals(tool.path("name").asText())) {
+                    advertised = true;
+                    break;
+                }
+            }
+            assertThat(advertised).isEqualTo(expected);
+
+            if (advertised) {
+                Response callResponse = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                Map.of("Content-Type", "application/json"),
+                                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\","
+                                        + "\"params\":{\"name\":\"get_transactions\"}}");
+                assertThat(callResponse.status()).isEqualTo(200);
+                assertThat(callResponse
+                                .json()
+                                .path("result")
+                                .path("content")
+                                .get(0)
+                                .path("text")
+                                .asText())
+                        .contains("\"entries\"");
+            }
+        } finally {
+            disableMcp();
+        }
+    }
+
+    @Test
     void testMcpPingWhenEnabled() {
         assumeTrue(enableMcp());
         try {

@@ -21,12 +21,14 @@ public class SampleCatalog {
     }
 
     @Cacheable(cacheNames = "sample-products", key = "'active'", unless = "#result.isEmpty()")
+    @Transactional(readOnly = true)
     public List<ProductSummary> activeProducts() {
         return products.findByActiveTrueOrderByNameAsc().stream()
                 .map(ProductSummary::from)
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<ProductSummary> searchProducts(String term) {
         // Intentionally uncached so every call runs a live SQL SELECT for the SQL Trace panel to capture.
         return products.searchByName(term).stream().map(ProductSummary::from).toList();

@@ -46,7 +46,8 @@ import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
-import io.github.jdubois.bootui.autoconfigure.transactions.BootUiTransactionManagerBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.transactions.BootUiTransactionExecutionListener;
+import io.github.jdubois.bootui.autoconfigure.transactions.BootUiTransactionManagerListenerRegistrar;
 import io.github.jdubois.bootui.autoconfigure.transactions.TransactionsController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
@@ -410,6 +411,7 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<LiveActivityController> liveActivity,
                 ObjectProvider<SecurityLogsController> securityLogs,
                 ObjectProvider<SqlTraceController> sqlTrace,
+                ObjectProvider<TransactionsController> transactions,
                 ObjectProvider<TracesController> traces,
                 ObjectProvider<LogTailController> logTail,
                 ObjectProvider<HttpExchangesController> httpExchanges,
@@ -439,6 +441,7 @@ public class BootUiAutoConfiguration {
                     liveActivity,
                     securityLogs,
                     sqlTrace,
+                    transactions,
                     traces,
                     logTail,
                     httpExchanges,
@@ -696,9 +699,21 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
-    static BootUiTransactionManagerBeanPostProcessor bootUiTransactionManagerBeanPostProcessor(
-            org.springframework.beans.factory.ObjectProvider<TransactionRecorder> recorderProvider) {
-        return new BootUiTransactionManagerBeanPostProcessor(recorderProvider);
+    @ConditionalOnProperty(prefix = "bootui.transactions", name = "enabled", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "bootui.panels.transactions", name = "enabled", matchIfMissing = true)
+    public BootUiTransactionExecutionListener bootUiTransactionExecutionListener(TransactionRecorder recorder) {
+        return new BootUiTransactionExecutionListener(recorder);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "bootui.transactions", name = "enabled", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "bootui.panels.transactions", name = "enabled", matchIfMissing = true)
+    public BootUiTransactionManagerListenerRegistrar bootUiTransactionManagerListenerRegistrar(
+            org.springframework.beans.factory.ObjectProvider<
+                            org.springframework.transaction.ConfigurableTransactionManager>
+                    transactionManagers,
+            BootUiTransactionExecutionListener bootUiTransactionExecutionListener) {
+        return new BootUiTransactionManagerListenerRegistrar(transactionManagers, bootUiTransactionExecutionListener);
     }
 
     /**
