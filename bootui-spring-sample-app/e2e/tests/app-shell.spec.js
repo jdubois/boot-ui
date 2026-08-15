@@ -314,7 +314,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Advisors', count: 8},
       {title: 'Runtime', count: 10},
       {title: 'Configuration', count: 6},
-      {title: 'Database', count: 6},
+      {title: 'Database', count: 7},
       {title: 'Security', count: 2},
       {title: 'Services', count: 8},
       {title: 'Diagnostics', count: 5},
@@ -338,7 +338,7 @@ test.describe('BootUI app shell', () => {
       'Vulnerabilities'
     ])
 
-    await page.getByRole('button', {name: /Database\s+6/}).click()
+    await page.getByRole('button', {name: /Database\s+7/}).click()
     await expect(page.getByRole('group', {name: 'Database panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Database Connection Pools',
       'SQL Trace',
