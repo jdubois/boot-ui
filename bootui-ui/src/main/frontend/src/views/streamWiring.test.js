@@ -95,7 +95,7 @@ describe('streaming panel SSE wiring', () => {
     instances[0].emit('error')
     await nextTick()
 
-    expect(wrapper.get('.stream-status-indicator').text()).toContain('Reconnecting')
+    expect(wrapper.get('.auto-refresh-control').text()).toContain('Reconnecting')
 
     wrapper.unmount()
   })
@@ -112,14 +112,14 @@ describe('streaming panel SSE wiring', () => {
     instances.at(-1).emit('error')
     await nextTick()
 
-    const retry = wrapper.get('.stream-status-retry')
+    const retry = wrapper.get('.auto-refresh-retry')
     expect(retry.text()).toBe('Retry now')
     expect(instances).toHaveLength(5)
 
     await retry.trigger('click')
 
     expect(instances).toHaveLength(6)
-    expect(wrapper.get('.stream-status-indicator').text()).toContain('Reconnecting')
+    expect(wrapper.get('.auto-refresh-control').text()).toContain('Reconnecting')
 
     wrapper.unmount()
   })

@@ -269,4 +269,28 @@ test.describe('Live Activity view (Quarkus)', () => {
       .click()
     await expect(page).toHaveURL(/\/http-exchanges\?q=/)
   })
+
+  test('shows a Live flow service map of dependencies derived from retained evidence', async ({openView, page}) => {
+    await page.request.get('/api/sample/product-search')
+
+    await openView('activity', 'Live Activity')
+    await page.getByRole('button', {name: 'Live flow view'}).click()
+
+    const map = page.locator('.flow-map')
+    await expect(map).toBeVisible({timeout: 15_000})
+    await expect(page.locator('.activity-table')).toHaveCount(0)
+    await expect(map.locator('.flow-node--app')).toBeVisible()
+    await expect(map).toContainText('contacts nothing and probes nothing')
+
+    // Quarkus serves the same contract, so the Agroal datasource is drawn exactly like Spring's pool.
+    const database = map.locator('.flow-node--jdbc').first()
+    await expect(database).toBeVisible()
+    await expect(database).toHaveAttribute('aria-label', /JDBC/)
+
+    await database.click()
+    await expect(map.locator('.flow-detail')).toContainText('Retained interactions')
+
+    const textual = map.locator('ul[aria-label="Service map relationships as text"]')
+    await expect(textual).toHaveCount(1)
+  })
 })

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus.it;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager;
@@ -26,6 +27,8 @@ public class OsvStubTestResource implements QuarkusTestResourceLifecycleManager 
 
     static final String ADVISORY_ID = "GHSA-it-vuln-0001";
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private HttpServer server;
 
     @Override
@@ -38,7 +41,10 @@ public class OsvStubTestResource implements QuarkusTestResourceLifecycleManager 
         // Only the first queried package is reported vulnerable; the remainder come back clean.
         server.createContext(
                 "/v1/querybatch",
-                exchange -> respond(exchange, 200, "{\"results\":[{\"vulns\":[{\"id\":\"" + ADVISORY_ID + "\"}]}]}"));
+                exchange -> respond(
+                        exchange,
+                        200,
+                        queryBatchResponse(exchange.getRequestBody().readAllBytes())));
         server.createContext(
                 "/v1/vulns/",
                 exchange -> respond(
@@ -56,6 +62,18 @@ public class OsvStubTestResource implements QuarkusTestResourceLifecycleManager 
         return Map.of(
                 "bootui.vulnerabilities.osv-base-uri",
                 "http://127.0.0.1:" + server.getAddress().getPort());
+    }
+
+    private static String queryBatchResponse(byte[] requestBody) throws IOException {
+        int queryCount = OBJECT_MAPPER.readTree(requestBody).path("queries").size();
+        StringBuilder response = new StringBuilder("{\"results\":[");
+        for (int i = 0; i < queryCount; i++) {
+            if (i > 0) {
+                response.append(',');
+            }
+            response.append(i == 0 ? "{\"vulns\":[{\"id\":\"" + ADVISORY_ID + "\"}]}" : "{}");
+        }
+        return response.append("]}").toString();
     }
 
     @Override

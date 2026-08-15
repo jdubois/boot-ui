@@ -264,13 +264,16 @@ final class FormLoginWithoutTlsRule extends AbstractSecurityRule {
                         "Form login should run only over HTTPS",
                         SecurityCategory.AUTHENTICATION,
                         "HIGH",
-                        "Detects an interactive form-login chain while no server-side TLS, HTTPS redirect, or forwarded-header strategy is configured. Submitting credentials over HTTP exposes them to passive network observers and active interception.",
-                        "Enforce HTTPS via server.ssl.* (or a forwarded-headers strategy when TLS terminates upstream) for every formLogin() chain.",
+                        "Detects an interactive form-login chain while a production profile is active and no server-side TLS, HTTPS redirect, or forwarded-header strategy is configured. Submitting credentials over HTTP exposes them to passive network observers and active interception.",
+                        "Enforce HTTPS via server.ssl.* (or a forwarded-headers strategy when TLS terminates upstream) for every production formLogin() chain.",
                         "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#transmit-passwords-only-over-tls-or-other-strong-transport"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        if (!context.isProductionProfileActive()) {
+            return pass();
+        }
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
             if (chain.hasFilter("UsernamePasswordAuthenticationFilter") && !context.isTlsConfiguredFor(chain)) {
@@ -379,7 +382,7 @@ final class PermitAllCatchAllRule extends AbstractSecurityRule {
                 "Avoid blanket permitAll authorization",
                 SecurityCategory.AUTHORIZATION,
                 "HIGH",
-                "Detects a chain whose authorization grants every request to anonymous callers (permitAll catch-all).",
+                "Detects a catch-all chain whose authorization grants every bounded anonymous path/method probe.",
                 "Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints.",
                 "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
     }
@@ -408,7 +411,7 @@ final class EffectivelyDisabledSecurityRule extends AbstractSecurityRule {
                 "Application security should not be effectively disabled",
                 SecurityCategory.AUTHORIZATION,
                 "HIGH",
-                "Detects when every filter chain permits all requests anonymously and no chain requires authentication.",
+                "Detects when every determinable filter chain grants every bounded anonymous path/method probe and none requires authentication.",
                 "Define authorization rules that require authentication for non-public endpoints instead of leaving the app fully open.",
                 "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
     }
@@ -487,6 +490,10 @@ final class AuthorizationRuleShadowedRule extends AbstractSecurityRule {
                         chain.describe()
                                 + " registers a broader matcher before a narrower one in its authorizeHttpRequests rules; the narrower rule is unreachable.");
             }
+        }
+        if (details.isEmpty()
+                && context.chains().stream().noneMatch(chain -> chain.authorizationRuleShadowed() != null)) {
+            return skipped("Authorization matcher order could not be inspected for any filter chain.");
         }
         return violation(details);
     }
@@ -666,8 +673,8 @@ final class SessionTimeoutRule extends AbstractSecurityRule {
                 "An explicit session timeout should be configured",
                 SecurityCategory.SESSION,
                 "INFO",
-                "Detects that server.servlet.session.timeout is unset, leaving the container's default timeout.",
-                "Set server.servlet.session.timeout to a bounded value appropriate for the application's risk profile.",
+                "Detects that server.servlet.session.timeout is unset, which uses Spring Boot's 30-minute default.",
+                "Confirm that the 30-minute default suits the application's risk profile or set server.servlet.session.timeout explicitly.",
                 "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
     }
 
@@ -1142,7 +1149,7 @@ final class CorsNotInSecurityChainRule extends AbstractSecurityRule {
                 "CORS should be wired through the security filter chain",
                 SecurityCategory.CORS,
                 "INFO",
-                "Detects a CorsConfigurationSource bean while no filter chain installs a CorsFilter.",
+                "Detects an application CorsConfigurationSource bean while no filter chain installs Spring's CorsFilter or PreFlightRequestFilter.",
                 "Enable .cors(...) on the HttpSecurity so preflight handling is consistent with the security chain rather than MVC-only.",
                 "https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html"));
     }
@@ -1152,12 +1159,14 @@ final class CorsNotInSecurityChainRule extends AbstractSecurityRule {
         if (!context.corsSourcePresent()) {
             return pass();
         }
-        boolean anyCorsFilter = context.chains().stream().anyMatch(chain -> chain.hasFilter("CorsFilter"));
+        boolean anyCorsFilter = context.chains().stream()
+                .anyMatch(chain -> chain.hasFilter("CorsFilter") || chain.hasFilter("PreFlightRequestFilter"));
         if (anyCorsFilter) {
             return pass();
         }
-        return violation(List.of(
-                "A CorsConfigurationSource bean is present but no security filter chain installs a CorsFilter."));
+        return violation(
+                List.of(
+                        "A CorsConfigurationSource bean is present but no security filter chain installs CorsFilter or PreFlightRequestFilter."));
     }
 }
 
@@ -1270,7 +1279,7 @@ final class LegacyGlobalMethodSecurityRule extends AbstractSecurityRule {
                 "Replace @EnableGlobalMethodSecurity with @EnableMethodSecurity",
                 SecurityCategory.METHOD_SECURITY,
                 "LOW",
-                "Detects the legacy @EnableGlobalMethodSecurity configuration removed/deprecated in Spring Security 6+.",
+                "Detects @EnableGlobalMethodSecurity, deprecated since Spring Security 6 and still present in Spring Security 7.",
                 "Migrate to @EnableMethodSecurity, which enables @PreAuthorize/@PostAuthorize by default and uses the modern AuthorizationManager API.",
                 "https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html"));
     }
@@ -1385,9 +1394,8 @@ final class HealthDetailsExposureRule extends AbstractSecurityRule {
                         "HIGH",
                         "Detects management.endpoint.health.show-details=always or show-components=always, either of"
                                 + " which leaks infrastructure/component details (disk space, database, custom health"
-                                + " indicators, dependency versions) to anonymous callers. Spring Boot's own default"
-                                + " for both properties is 'never' (not 'when-authorized', which was the default"
-                                + " prior to Spring Boot 3.0).",
+                                + " indicators, dependency versions) to anonymous callers. Spring Boot's default for"
+                                + " both properties is 'never'.",
                         "Leave show-details/show-components at 'never' (the default), or set them to 'when-authorized'"
                                 + " and require authentication for the health endpoint.",
                         "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details"));
@@ -1655,15 +1663,16 @@ final class SecurityDebugRule extends AbstractSecurityRule {
                 "Spring Security debug mode should be off",
                 SecurityCategory.CONFIGURATION,
                 "MEDIUM",
-                "Detects spring.security.debug=true (or a DebugFilter), which logs filter chains and request details.",
+                "Detects Spring Security's DebugFilter, installed by @EnableWebSecurity(debug = true), which logs filter chains and request details.",
                 "Disable security debug mode outside local development; it leaks configuration and request information.",
                 "https://docs.spring.io/spring-security/reference/servlet/configuration/java.html"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        boolean debugFilter = context.chains().stream().anyMatch(chain -> chain.hasFilterContaining("DebugFilter"));
-        if (context.isPropertyTrue("spring.security.debug") || debugFilter) {
+        boolean debugFilterPresent = context.securityDebugFilterPresent()
+                || context.chains().stream().anyMatch(chain -> chain.hasFilter("DebugFilter"));
+        if (debugFilterPresent) {
             String suffix = context.isProductionProfileActive() ? " while a production profile is active" : "";
             return violation(List.of("Spring Security debug mode is enabled" + suffix + "."));
         }
@@ -1808,7 +1817,7 @@ final class SecurityDebugLoggingProductionRule extends AbstractSecurityRule {
                 "Spring Security framework logging should not run at DEBUG/TRACE in production",
                 SecurityCategory.CONFIGURATION,
                 "MEDIUM",
-                "Detects logging.level.org.springframework.security=DEBUG (or TRACE) while a production profile is active, which logs filter chain decisions, header values, and request/response details. Distinct from spring.security.debug (SEC-CONFIG-001), Spring Security's own dedicated debug filter.",
+                "Detects logging.level.org.springframework.security=DEBUG (or TRACE) while a production profile is active, which logs filter chain decisions, header values, and request/response details. Distinct from @EnableWebSecurity(debug = true), which SEC-CONFIG-001 detects through Spring Security's dedicated debug filter.",
                 "Keep org.springframework.security logging at INFO or WARN in production; reserve DEBUG/TRACE for local troubleshooting.",
                 "https://docs.spring.io/spring-boot/reference/features/logging.html#features.logging.log-levels"));
     }

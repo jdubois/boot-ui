@@ -149,7 +149,8 @@ function vulnerability(id, severity, summary, fixedVersion, aliases = [], fixAva
     // Every call site here uses a fixedVersion strictly newer than the mocked dependency's current
     // version, i.e. a genuine upgrade target -- so fixAvailable defaults to true, matching what the
     // real DependencyReports.fixAvailable() derivation would compute for these fixtures. Override it
-    // explicitly for a scenario that should render "already on a fixed version" or "No fix published yet".
+    // explicitly for a scenario that should render "No newer fixed version reported by OSV" or
+    // "No fixed version reported by OSV".
     fixAvailable
   }
 }

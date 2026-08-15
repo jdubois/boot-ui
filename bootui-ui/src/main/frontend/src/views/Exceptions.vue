@@ -13,7 +13,6 @@ import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
-import StreamStatusIndicator from './components/StreamStatusIndicator.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -215,7 +214,9 @@ onMounted(() => {
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
+      :auto-refresh-state="connectionState"
       @refresh="load"
+      @retry-auto-refresh="retryConnection"
     >
       <template #actions>
         <SpinnerButton
@@ -230,8 +231,6 @@ onMounted(() => {
     </PanelHeader>
 
     <FlashBanner :message="banner" @dismiss="clear" />
-
-    <StreamStatusIndicator :connection-state="connectionState" @retry="retryConnection" />
 
     <PanelSkeleton v-if="loading && !report" />
 

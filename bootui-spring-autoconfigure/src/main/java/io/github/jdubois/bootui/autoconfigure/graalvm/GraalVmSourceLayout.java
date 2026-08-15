@@ -16,11 +16,12 @@ import org.jspecify.annotations.Nullable;
  * into the host application's source tree, and performs that write.
  *
  * <p>This is the GraalVM-specific layer over the shared {@link ProjectSourceTree}: it adds the
- * GraalVM-recommended metadata location
- * {@code src/main/resources/META-INF/native-image/<groupId>/<artifactId>/reachability-metadata.json}
- * (falling back to a {@code bootui-generated} namespace when Maven coordinates cannot be resolved),
- * while delegating the project-root {@code Dockerfile-native} write and the fail-closed write
- * mechanics to {@link ProjectSourceTree}.
+ * Spring Boot-recommended static-hints location
+ * {@code src/main/resources/META-INF/native-image/<groupId>/<artifactId>-additional-hints/reachability-metadata.json}
+ * (falling back to {@code bootui-generated/additional-hints} when Maven coordinates cannot be
+ * resolved), while delegating the project-root {@code Dockerfile-native} write and the fail-closed
+ * write mechanics to {@link ProjectSourceTree}. The suffix prevents BootUI's scaffold from colliding
+ * with Spring AOT's generated {@code <groupId>/<artifactId>/reachability-metadata.json}.
  *
  * <p>Installing in place is only offered when the application is detectably running from an exploded
  * build (e.g. {@code target/classes} via {@code mvn spring-boot:run} or an IDE), <em>not</em> from a
@@ -33,6 +34,8 @@ final class GraalVmSourceLayout {
     static final String DOCKERFILE_FILE = "Dockerfile-native";
 
     private static final String FALLBACK_NAMESPACE = "bootui-generated";
+    private static final String ADDITIONAL_HINTS = "additional-hints";
+    private static final String ADDITIONAL_HINTS_SUFFIX = "-additional-hints";
     private static final Path RESOURCES_RELATIVE = Path.of("src", "main", "resources");
 
     private final Supplier<Path> projectRootSupplier;
@@ -100,9 +103,9 @@ final class GraalVmSourceLayout {
         Coordinates resolved = coordinates.filter(Coordinates::isValid).orElse(null);
         if (resolved != null) {
             target = target.resolve(ProjectSourceTree.sanitize(resolved.groupId()))
-                    .resolve(ProjectSourceTree.sanitize(resolved.artifactId()));
+                    .resolve(ProjectSourceTree.sanitize(resolved.artifactId()) + ADDITIONAL_HINTS_SUFFIX);
         } else {
-            target = target.resolve(FALLBACK_NAMESPACE);
+            target = target.resolve(FALLBACK_NAMESPACE).resolve(ADDITIONAL_HINTS);
         }
         Path targetFile = target.resolve(METADATA_FILE).normalize();
         if (!targetFile.startsWith(resources)) {
@@ -135,7 +138,9 @@ final class GraalVmSourceLayout {
     static String metadataDirectory(Optional<Coordinates> coordinates) {
         Coordinates resolved = coordinates.filter(Coordinates::isValid).orElse(null);
         String group = resolved != null ? ProjectSourceTree.sanitize(resolved.groupId()) : "<groupId>";
-        String artifact = resolved != null ? ProjectSourceTree.sanitize(resolved.artifactId()) : "<artifactId>";
+        String artifact = resolved != null
+                ? ProjectSourceTree.sanitize(resolved.artifactId()) + ADDITIONAL_HINTS_SUFFIX
+                : "<artifactId>-additional-hints";
         return "src/main/resources/META-INF/native-image/" + group + "/" + artifact + "/";
     }
 

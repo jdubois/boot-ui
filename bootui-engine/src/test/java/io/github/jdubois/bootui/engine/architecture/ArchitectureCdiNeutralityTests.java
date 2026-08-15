@@ -73,15 +73,39 @@ class ArchitectureCdiNeutralityTests {
     }
 
     @Test
-    void transactionalSelfInvocationStillFiresOnPlainJakartaTransactional() {
-        // Documents that ARCH-SPRING-004 is an intentional dual-framework true positive: CDI/JTA
-        // self-invocation bypasses the container-managed transaction interceptor exactly like a Spring
-        // proxy, so this is not a false positive to guard against, unlike the field-injection case above.
+    void transactionalSelfInvocationPassesOnQuarkusArc() {
         ArchitectureRuleResultDto result =
                 evaluate(new NoSelfInvocationOfProxiedMethodsRule(), CdiSelfInvokingTransactionalBean.class);
 
-        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
         assertThat(result.id()).isEqualTo("ARCH-SPRING-004");
+    }
+
+    @Test
+    void proxyabilityRuleUsesQuarkusArcStaticAndFinalMethodSemantics() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ProxiedMethodsShouldNotBePrivateOrStaticRule(), CdiStaticAndFinalTransactionalBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-010");
+    }
+
+    @Test
+    void proxyabilityRuleIgnoresSpringOnlyAnnotationsOnQuarkus() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ProxiedMethodsShouldNotBePrivateOrStaticRule(), SpringAnnotatedMethodOnCdiBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void proxyabilityRuleStillRejectsPrivateInterceptorBoundMethodsOnQuarkus() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ProxiedMethodsShouldNotBePrivateOrStaticRule(), CdiPrivateTransactionalBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("private"));
     }
 
     @Test
@@ -101,13 +125,18 @@ class ArchitectureCdiNeutralityTests {
     private static ArchitectureContext importCdiFixtures() {
         JavaClasses importedClasses = new ClassFileImporter()
                 .importClasses(CdiResource.class, CdiService.class, CdiRepository.class, CdiFieldInjectedBean.class);
-        return new ArchitectureContext(importedClasses, List.of(ArchitectureCdiNeutralityTests.class.getPackageName()));
+        return new ArchitectureContext(
+                importedClasses,
+                List.of(ArchitectureCdiNeutralityTests.class.getPackageName()),
+                ArchitecturePlatform.QUARKUS);
     }
 
     private static ArchitectureRuleResultDto evaluate(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = new ClassFileImporter().importClasses(classes);
         return rule.evaluate(new ArchitectureContext(
-                importedClasses, List.of(ArchitectureCdiNeutralityTests.class.getPackageName())));
+                importedClasses,
+                List.of(ArchitectureCdiNeutralityTests.class.getPackageName()),
+                ArchitecturePlatform.QUARKUS));
     }
 
     /** A JAX-RS resource, constructor-injected — the idiomatic CDI/Quarkus entry point. */
@@ -177,6 +206,27 @@ class ArchitectureCdiNeutralityTests {
 
         @Transactional
         void inner() {}
+    }
+
+    private static class CdiStaticAndFinalTransactionalBean {
+
+        @Transactional
+        static void staticWork() {}
+
+        @Transactional
+        final void finalWork() {}
+    }
+
+    private static class CdiPrivateTransactionalBean {
+
+        @Transactional
+        private void privateWork() {}
+    }
+
+    private static class SpringAnnotatedMethodOnCdiBean {
+
+        @org.springframework.transaction.annotation.Transactional
+        private void privateWork() {}
     }
 
     /** A CDI bean whose {@code @PostConstruct} callback is also annotated {@code @Transactional} — a

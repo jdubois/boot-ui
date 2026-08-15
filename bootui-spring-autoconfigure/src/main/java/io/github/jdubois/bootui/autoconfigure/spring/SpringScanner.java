@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Controller;
@@ -47,11 +48,15 @@ final class SpringScanner {
     private static final String OBJECT_MAPPER_TYPE = "com.fasterxml.jackson.databind.ObjectMapper";
     private static final String JACKSON3_OBJECT_MAPPER_TYPE = "tools.jackson.databind.ObjectMapper";
     private static final String TASK_EXECUTOR_TYPE = "org.springframework.core.task.TaskExecutor";
+    private static final String EXECUTOR_TYPE = "java.util.concurrent.Executor";
     private static final String POOLED_TASK_EXECUTOR_TYPE =
             "org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor";
     private static final String DATA_SOURCE_TYPE = "javax.sql.DataSource";
     private static final String HIKARI_DATA_SOURCE_TYPE = "com.zaxxer.hikari.HikariDataSource";
     private static final String ASYNC_CONFIGURER_TYPE = "org.springframework.scheduling.annotation.AsyncConfigurer";
+    private static final String BOOT_ASYNC_CONFIGURER_BEAN = "applicationTaskExecutorAsyncConfigurer";
+    private static final String BOOT_TASK_EXECUTOR_CONFIGURATION =
+            "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$TaskExecutorConfiguration";
     private static final String TRANSACTION_MANAGER_TYPE = "org.springframework.transaction.PlatformTransactionManager";
     private static final String TRANSACTION_MANAGEMENT_CONFIGURER_TYPE =
             "org.springframework.transaction.annotation.TransactionManagementConfigurer";
@@ -61,6 +66,10 @@ final class SpringScanner {
     private static final String ENTITY_MANAGER_FACTORY_TYPE = "jakarta.persistence.EntityManagerFactory";
     private static final String DISPATCHER_SERVLET_TYPE = "org.springframework.web.servlet.DispatcherServlet";
     private static final String WEB_CLIENT_TYPE = "org.springframework.web.reactive.function.client.WebClient";
+    private static final String TOMCAT_SERVLET_WEB_SERVER_FACTORY_TYPE =
+            "org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory";
+    private static final String TOMCAT_REACTIVE_WEB_SERVER_FACTORY_TYPE =
+            "org.springframework.boot.tomcat.reactive.TomcatReactiveWebServerFactory";
 
     // Matched by string type name (via ClassUtils.isPresent/forName), never a direct import: reactor-core
     // is pulled in only by the optional spring-boot-starter-webflux dependency, so a servlet-only consumer
@@ -72,10 +81,10 @@ final class SpringScanner {
 
     private static final String FLUX_TYPE = "reactor.core.publisher.Flux";
     private static final String ASYNC_PROCESSOR_BEAN =
-            "org.springframework.context.annotation.internalAsyncAnnotationProcessor";
+            "org.springframework.scheduling.config.internalAsyncAnnotationProcessor";
     private static final String CACHE_ADVISOR_BEAN = "org.springframework.cache.config.internalCacheAdvisor";
     private static final String SCHEDULED_PROCESSOR_BEAN =
-            "org.springframework.context.annotation.internalScheduledAnnotationProcessor";
+            "org.springframework.scheduling.config.internalScheduledAnnotationProcessor";
     private static final String DEVTOOLS_MARKER = "org.springframework.boot.devtools.restart.Restarter";
 
     /** Hard cap on the number of default-package bean names collected, to keep the scan bounded. */
@@ -290,6 +299,8 @@ final class SpringScanner {
                 beansOfType(beanFactory, OBJECT_MAPPER_TYPE, classLoader),
                 beansOfType(beanFactory, JACKSON3_OBJECT_MAPPER_TYPE, classLoader));
         List<BeanRef> taskExecutors = beansOfType(beanFactory, TASK_EXECUTOR_TYPE, classLoader);
+        boolean bootApplicationTaskExecutorPresent = bootApplicationTaskExecutorPresent(beanFactory);
+        List<BeanRef> executors = beansOfType(beanFactory, EXECUTOR_TYPE, classLoader);
         List<BeanRef> dataSources = beansOfType(beanFactory, DATA_SOURCE_TYPE, classLoader);
         boolean pooledExecutor = !beansOfType(beanFactory, POOLED_TASK_EXECUTOR_TYPE, classLoader)
                 .isEmpty();
@@ -300,8 +311,10 @@ final class SpringScanner {
         boolean devToolsPresent = ClassUtils.isPresent(DEVTOOLS_MARKER, classLoader);
         int beanCount = beanFactory != null ? beanFactory.getBeanDefinitionCount() : 0;
 
-        boolean asyncConfigurerPresent =
-                !beansOfType(beanFactory, ASYNC_CONFIGURER_TYPE, classLoader).isEmpty();
+        List<BeanRef> asyncConfigurers = beansOfType(beanFactory, ASYNC_CONFIGURER_TYPE, classLoader);
+        // Boot wraps a custom AsyncConfigurer under its original bean name; its own fallback uses this name.
+        boolean customAsyncConfigurerPresent =
+                asyncConfigurers.stream().anyMatch(configurer -> !BOOT_ASYNC_CONFIGURER_BEAN.equals(configurer.name()));
         List<BeanRef> transactionManagers = beansOfType(beanFactory, TRANSACTION_MANAGER_TYPE, classLoader);
         boolean transactionManagementConfigurerPresent = !beansOfType(
                         beanFactory, TRANSACTION_MANAGEMENT_CONFIGURER_TYPE, classLoader)
@@ -318,6 +331,10 @@ final class SpringScanner {
                 !beansOfType(beanFactory, DISPATCHER_SERVLET_TYPE, classLoader).isEmpty();
         boolean webClientBeanPresent =
                 !beansOfType(beanFactory, WEB_CLIENT_TYPE, classLoader).isEmpty();
+        boolean tomcatWebServerPresent = !beansOfType(beanFactory, TOMCAT_SERVLET_WEB_SERVER_FACTORY_TYPE, classLoader)
+                        .isEmpty()
+                || !beansOfType(beanFactory, TOMCAT_REACTIVE_WEB_SERVER_FACTORY_TYPE, classLoader)
+                        .isEmpty();
         int reactiveHandlerMethodCount = reactiveHandlerMethodCount(beanFactory, classLoader);
         List<String> defaultPackageBeans = defaultPackageBeans(beanFactory);
         List<String> mutableSingletonFields = mutableSingletonFields(beanFactory);
@@ -327,12 +344,14 @@ final class SpringScanner {
                 .beanDefinitionCount(beanCount)
                 .objectMappers(objectMappers)
                 .taskExecutors(taskExecutors)
+                .bootApplicationTaskExecutorPresent(bootApplicationTaskExecutorPresent)
+                .executors(executors)
                 .dataSources(dataSources)
                 .pooledTaskExecutorPresent(pooledExecutor)
                 .asyncEnabled(asyncEnabled)
                 .devToolsPresent(devToolsPresent)
                 .hikariDataSourcePresent(hikariPresent)
-                .asyncConfigurerPresent(asyncConfigurerPresent)
+                .customAsyncConfigurerPresent(customAsyncConfigurerPresent)
                 .transactionManagers(transactionManagers)
                 .transactionManagementConfigurerPresent(transactionManagementConfigurerPresent)
                 .restTemplates(restTemplates)
@@ -343,6 +362,7 @@ final class SpringScanner {
                 .entityManagerFactoryPresent(entityManagerFactoryPresent)
                 .dispatcherServletPresent(dispatcherServletPresent)
                 .reactive(reactive)
+                .tomcatWebServerPresent(tomcatWebServerPresent)
                 .webClientBeanPresent(webClientBeanPresent)
                 .reactiveHandlerMethodCount(reactiveHandlerMethodCount)
                 .defaultPackageBeans(defaultPackageBeans)
@@ -583,16 +603,40 @@ final class SpringScanner {
         }
         List<BeanRef> refs = new ArrayList<>();
         for (String name : names) {
-            refs.add(new BeanRef(name, isPrimary(beanFactory, name)));
+            refs.add(beanRef(beanFactory, name));
         }
         return refs;
     }
 
-    private static boolean isPrimary(ConfigurableListableBeanFactory beanFactory, String name) {
+    private static BeanRef beanRef(ConfigurableListableBeanFactory beanFactory, String name) {
         try {
             BeanDefinition definition = beanFactory.getBeanDefinition(name);
-            return definition.isPrimary();
-        } catch (RuntimeException ex) {
+            boolean defaultCandidate = !(definition instanceof AbstractBeanDefinition abstractDefinition)
+                    || abstractDefinition.isDefaultCandidate();
+            return new BeanRef(
+                    name,
+                    definition.isPrimary(),
+                    definition.isAutowireCandidate(),
+                    definition.isFallback(),
+                    defaultCandidate);
+        } catch (RuntimeException | LinkageError ex) {
+            return new BeanRef(name, false);
+        }
+    }
+
+    private static boolean bootApplicationTaskExecutorPresent(ConfigurableListableBeanFactory beanFactory) {
+        if (beanFactory == null || !beanFactory.containsBeanDefinition("applicationTaskExecutor")) {
+            return false;
+        }
+        try {
+            BeanDefinition definition = beanFactory.getBeanDefinition("applicationTaskExecutor");
+            if (!BOOT_TASK_EXECUTOR_CONFIGURATION.equals(definition.getFactoryBeanName())) {
+                return false;
+            }
+            String methodName = definition.getFactoryMethodName();
+            return "applicationTaskExecutor".equals(methodName)
+                    || "applicationTaskExecutorVirtualThreads".equals(methodName);
+        } catch (RuntimeException | LinkageError ex) {
             return false;
         }
     }

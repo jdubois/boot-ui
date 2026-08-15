@@ -63,15 +63,14 @@ class GraalVmReadinessScannerTests {
                         "GRAAL-PROXY-001",
                         "GRAAL-RES-001",
                         "GRAAL-RES-002",
-                        "GRAAL-SERVICE-001",
                         "GRAAL-SER-001",
                         "GRAAL-SER-002",
-                        "GRAAL-INIT-001",
-                        "GRAAL-INIT-002",
                         "GRAAL-CLASSGEN-001",
                         "GRAAL-SCAN-001",
                         "SPRING-AOT-001",
                         "SPRING-AOT-002",
+                        "SPRING-AOT-003",
+                        "SPRING-AOT-005",
                         "GRAAL-NATIVE-001",
                         "GRAAL-NATIVE-002");
         assertThat(report.findings().stream().map(GraalVmFindingDto::severity).toList())
@@ -87,7 +86,7 @@ class GraalVmReadinessScannerTests {
                 .contains(
                         FIXTURES + ".SerializableModel", FIXTURES + ".PersonRecord", FIXTURES + ".AbstractMappedBase");
         assertThat(result.metadata().serializationTypes()).contains(FIXTURES + ".SerializableModel");
-        assertThat(result.metadata().jniTypes()).contains(FIXTURES + ".NativeMethodHolder");
+        assertThat(result.metadata().jniTypes()).isEmpty();
         assertThat(result.metadata().proxyCallsDetected()).isTrue();
         assertThat(result.metadata().unsafeAllocationDetected()).isTrue();
         assertThat(report.metadata().reflectionEntries())

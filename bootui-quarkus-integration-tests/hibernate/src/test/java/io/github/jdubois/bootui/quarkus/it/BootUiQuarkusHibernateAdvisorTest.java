@@ -24,8 +24,9 @@ import org.junit.jupiter.api.Test;
  * that a known annotation-driven advisory fires against the deliberately-imperfect {@link org.acme.hibdemo.Product}
  * entity, and — crucially — that the Spring-only Open-Session-in-View rule {@code HIB-CONFIG-001} stays inert,
  * proving {@code QuarkusHibernatePropertyLookup}'s OSIV neutralization works against a live SmallRye Config. It
- * also proves three more {@code QuarkusHibernatePropertyLookup} aliases end to end (batch fetching, statistics,
- * JDBC time zone — see {@code application.properties}): {@code HIB-FETCH-002}/{@code HIB-CONFIG-007}/
+ * also proves five more {@code QuarkusHibernatePropertyLookup} aliases end to end (batch fetching, slow-query
+ * logging, statistics, second-level caching, JDBC time zone — see {@code application.properties}):
+ * {@code HIB-FETCH-002}/{@code HIB-CONFIG-006}/{@code HIB-CONFIG-007}/{@code HIB-CONFIG-010}/
  * {@code HIB-CONFIG-013} would each false-positive on every Quarkus scan without them.</p>
  */
 @QuarkusTest
@@ -102,6 +103,14 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .as("quarkus.hibernate-orm.statistics=true must be read back as hibernate.generate_statistics, so"
                         + " HIB-CONFIG-007 does not false-positive")
                 .doesNotContain("HIB-CONFIG-007");
+        assertThat(violationIds)
+                .as("quarkus.hibernate-orm.log.queries-slower-than-ms=25 must be read back as Hibernate's"
+                        + " slow-query threshold, so HIB-CONFIG-006 does not false-positive")
+                .doesNotContain("HIB-CONFIG-006");
+        assertThat(violationIds)
+                .as("Quarkus-managed second-level caching must satisfy HIB-CONFIG-010 without requiring an"
+                        + " unsupported explicit Hibernate region-factory property")
+                .doesNotContain("HIB-CONFIG-010");
         assertThat(violationIds)
                 .as("quarkus.hibernate-orm.jdbc.timezone=UTC must be read back as hibernate.jdbc.time_zone, so"
                         + " HIB-CONFIG-013 does not false-positive")

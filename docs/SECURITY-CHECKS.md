@@ -1,10 +1,10 @@
 # Spring Security Advisor checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration.
-It introspects the registered `SecurityFilterChain` beans and their filter lists, simulates an anonymous authorization
-decision, and inspects security-relevant beans (`PasswordEncoder`, `CorsConfigurationSource`, `JwtDecoder`) and
-`Environment` properties. It never intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies
-the security configuration.
+It introspects the registered `SecurityFilterChain` beans and their filter lists, simulates a bounded set of anonymous
+authorization decisions across common paths and HTTP methods, and inspects security-relevant beans (`PasswordEncoder`,
+`CorsConfigurationSource`, `JwtDecoder`) and `Environment` properties. It never intercepts live traffic, exposes
+credentials, keys, or session identifiers, or modifies the security configuration.
 
 The checks are heuristic review prompts. They highlight common Spring Security hardening gaps, but the right remediation
 still depends on the application's threat model and deployment topology.
@@ -46,7 +46,7 @@ includes up to a handful of sample details plus a remediation link.
 
 ### SEC-AUTH-002 - Password encoder should not use a weak or legacy algorithm
 
-- **Severity**: MEDIUM
+- **Severity**: HIGH
 - **Detects**: Detects deprecated encoders based on MD5/SHA or the legacy StandardPasswordEncoder.
 - **Recommendation**: Migrate to bcrypt, Argon2, or PBKDF2 via a DelegatingPasswordEncoder so hashes upgrade over time.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
@@ -103,8 +103,8 @@ includes up to a handful of sample details plus a remediation link.
 ### SEC-AUTH-010 - Form login should run only over HTTPS
 
 - **Severity**: HIGH
-- **Detects**: Detects an interactive form-login chain while no server-side TLS, HTTPS redirect, or forwarded-header strategy is configured. Passwords submitted over HTTP are visible to passive network observers and active intermediaries.
-- **Recommendation**: Enforce HTTPS via server.ssl.* (or a forwarded-headers strategy when TLS terminates upstream) for every formLogin() chain.
+- **Detects**: Detects an interactive form-login chain while a production-like profile is active and no server-side TLS, HTTPS redirect, or forwarded-header strategy is configured. Passwords submitted over HTTP are visible to passive network observers and active intermediaries.
+- **Recommendation**: Enforce HTTPS via server.ssl.* (or a forwarded-headers strategy when TLS terminates upstream) for every production formLogin() chain.
 - **Learn more**: <https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#transmit-passwords-only-over-tls-or-other-strong-transport>
 
 ## Authorization
@@ -119,14 +119,14 @@ includes up to a handful of sample details plus a remediation link.
 ### SEC-AUTHZ-002 - Avoid blanket permitAll authorization
 
 - **Severity**: HIGH
-- **Detects**: Detects a chain whose authorization grants every request to anonymous callers (permitAll catch-all).
+- **Detects**: Detects a catch-all chain whose authorization grants every request in a bounded anonymous probe set spanning common application paths, an unmatched sentinel path, and common HTTP methods. This is a heuristic, not a proof over the application's entire request space.
 - **Recommendation**: Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
 ### SEC-AUTHZ-003 - Application security should not be effectively disabled
 
 - **Severity**: HIGH
-- **Detects**: Detects when every filter chain permits all requests anonymously and no chain requires authentication.
+- **Detects**: Detects when every determinable filter chain grants the bounded anonymous probe set and no chain installs a real authentication mechanism. Chains whose authorization manager cannot be evaluated remain indeterminate.
 - **Recommendation**: Define authorization rules that require authentication for non-public endpoints instead of leaving the app fully open.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
@@ -140,7 +140,7 @@ includes up to a handful of sample details plus a remediation link.
 ### SEC-AUTHZ-005 - Broader authorizeHttpRequests matchers should not shadow narrower ones
 
 - **Severity**: HIGH
-- **Detects**: Detects an unconditional, method-agnostic catch-all matcher (e.g. requestMatchers("/**")) registered before a narrower matcher in the same chain's authorizeHttpRequests rules. Requests are matched in declaration order and Spring Security does not guard against this (unlike anyRequest(), a plain requestMatchers("/**") does not block further rules from being added after it), so the narrower, later rule can never take effect.
+- **Detects**: Detects an unconditional, method-agnostic catch-all matcher (e.g. requestMatchers("/**")) registered before a narrower matcher in the same chain's authorizeHttpRequests rules. Requests are matched in declaration order and Spring Security does not guard against this (unlike anyRequest(), a plain requestMatchers("/**") does not block further rules from being added after it), so the narrower, later rule can never take effect. The rule renders **SKIPPED** when BootUI cannot unwrap or introspect the authorization manager.
 - **Recommendation**: Register narrower matchers (e.g. requestMatchers("/admin/**").hasRole("ADMIN")) before the broader catch-all, or replace the catch-all with anyRequest() so later requestMatchers additions are rejected at startup instead of silently ignored.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
@@ -193,8 +193,8 @@ includes up to a handful of sample details plus a remediation link.
 ### SEC-SESSION-005 - An explicit session timeout should be configured
 
 - **Severity**: INFO
-- **Detects**: Detects that server.servlet.session.timeout is unset, leaving the container's default timeout.
-- **Recommendation**: Set server.servlet.session.timeout to a bounded value appropriate for the application's risk profile.
+- **Detects**: Detects that server.servlet.session.timeout is unset, which uses Spring Boot's documented 30-minute default.
+- **Recommendation**: Confirm that 30 minutes is a suitable bound for the application's risk profile, or set server.servlet.session.timeout explicitly.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
 ### SEC-SESSION-006 - Bearer-token authentication chains should be stateless
@@ -302,7 +302,8 @@ includes up to a handful of sample details plus a remediation link.
 A custom `CorsConfigurationSource` bean (one BootUI cannot introspect for `CorsConfiguration` objects) is indeterminate,
 not automatically hardened: SEC-CORS-001, SEC-CORS-002, SEC-CORS-004, and SEC-CORS-006 render **SKIPPED** rather than a
 silent pass whenever such a bean is present and no introspectable `CorsConfiguration` already produced a finding, so a
-custom source is never misreported as verified-safe.
+custom source is never misreported as verified-safe. Spring MVC's built-in `mvcHandlerMappingIntrospector` is framework
+infrastructure rather than an application CORS policy and is excluded from this bean inventory.
 
 ### SEC-CORS-001 - CORS should not allow all origins
 
@@ -321,7 +322,7 @@ custom source is never misreported as verified-safe.
 ### SEC-CORS-003 - CORS should be wired through the security filter chain
 
 - **Severity**: INFO
-- **Detects**: Detects a CorsConfigurationSource bean while no filter chain installs a CorsFilter.
+- **Detects**: Detects an application CorsConfigurationSource bean while no filter chain installs Spring's `CorsFilter` or `PreFlightRequestFilter`.
 - **Recommendation**: Enable .cors(...) on the HttpSecurity so preflight handling is consistent with the security chain rather than MVC-only.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html>
 
@@ -351,7 +352,7 @@ custom source is never misreported as verified-safe.
 ### SEC-METHOD-002 - Replace @EnableGlobalMethodSecurity with @EnableMethodSecurity
 
 - **Severity**: LOW
-- **Detects**: Detects the legacy @EnableGlobalMethodSecurity configuration removed/deprecated in Spring Security 6+.
+- **Detects**: Detects the legacy @EnableGlobalMethodSecurity configuration, deprecated since Spring Security 6 and still present in Spring Security 7.
 - **Recommendation**: Migrate to @EnableMethodSecurity, which enables @PreAuthorize/@PostAuthorize by default and uses the modern AuthorizationManager API.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html>
 
@@ -381,7 +382,7 @@ custom source is never misreported as verified-safe.
 ### SEC-ACT-004 - Actuator health details/components should not be exposed unconditionally
 
 - **Severity**: HIGH
-- **Detects**: Detects management.endpoint.health.show-details=always or show-components=always, either of which leaks infrastructure/component details (disk space, database, custom health indicators, dependency versions) to anonymous callers. Spring Boot's own default for both properties is 'never' (not 'when-authorized', which was the default prior to Spring Boot 3.0).
+- **Detects**: Detects management.endpoint.health.show-details=always or show-components=always, either of which leaks infrastructure/component details (disk space, database, custom health indicators, dependency versions) to anonymous callers. Spring Boot's default for both properties is 'never'.
 - **Recommendation**: Leave show-details/show-components at 'never' (the default), or set them to 'when-authorized' and require authentication for the health endpoint.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details>
 
@@ -441,7 +442,7 @@ custom source is never misreported as verified-safe.
 ### SEC-CONFIG-001 - Spring Security debug mode should be off
 
 - **Severity**: MEDIUM
-- **Detects**: Detects spring.security.debug=true (or a DebugFilter), which logs filter chains and request details.
+- **Detects**: Detects Spring Security's top-level `DebugFilter`, which is installed by `@EnableWebSecurity(debug = true)` and logs filter chains and request details. `spring.security.debug` is not a Spring Boot property and is not treated as a signal.
 - **Recommendation**: Disable security debug mode outside local development; it leaks configuration and request information.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/configuration/java.html>
 
@@ -483,7 +484,7 @@ custom source is never misreported as verified-safe.
 ### SEC-CONFIG-009 - Spring Security framework logging should not run at DEBUG/TRACE in production
 
 - **Severity**: MEDIUM
-- **Detects**: Detects logging.level.org.springframework.security=DEBUG (or TRACE) while a production profile is active, which logs filter chain decisions, header values, and request/response details. Distinct from spring.security.debug (SEC-CONFIG-001), Spring Security's own dedicated debug filter.
+- **Detects**: Detects logging.level.org.springframework.security=DEBUG (or TRACE) while a production profile is active, which logs filter chain decisions, header values, and request/response details. Distinct from `@EnableWebSecurity(debug = true)`, which SEC-CONFIG-001 detects through Spring Security's dedicated debug filter.
 - **Recommendation**: Keep org.springframework.security logging at INFO or WARN in production; reserve DEBUG/TRACE for local troubleshooting.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/logging.html#features.logging.log-levels>
 

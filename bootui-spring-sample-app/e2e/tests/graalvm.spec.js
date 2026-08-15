@@ -73,7 +73,7 @@ test.describe('GraalVM view', () => {
     // rather than leaving the <groupId>/<artifactId> placeholders.
     const placement = metadataDrawer.locator('p', {hasText: 'then place it under'})
     await expect(placement).toContainText(
-      'src/main/resources/META-INF/native-image/com.julien-dubois.bootui/bootui-spring-sample-app/'
+      'src/main/resources/META-INF/native-image/com.julien-dubois.bootui/bootui-spring-sample-app-additional-hints/'
     )
     await expect(placement).not.toContainText('<groupId>')
 

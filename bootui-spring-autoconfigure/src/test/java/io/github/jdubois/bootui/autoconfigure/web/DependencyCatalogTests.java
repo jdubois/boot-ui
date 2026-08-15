@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -96,6 +99,39 @@ class DependencyCatalogTests {
         assertThat(withClassPath(jar.toString())).isEmpty();
     }
 
+    @Test
+    void skipsUnreadableMavenMetadataWithoutDiscardingReadableEntries() {
+        Resource readable = new ByteArrayResource(
+                "groupId=com.acme\nartifactId=widget\nversion=1.2.3\n".getBytes(StandardCharsets.UTF_8));
+        Resource unreadable = new ByteArrayResource(new byte[0]) {
+            @Override
+            public InputStream getInputStream() throws IOException {
+                throw new IOException("unreadable");
+            }
+
+            @Override
+            public String getDescription() {
+                return "unreadable pom.properties";
+            }
+        };
+        ResourcePatternResolver resolver = resolver(readable, unreadable);
+
+        List<DependencyDto> dependencies = new DependencyCatalog(resolver).dependencies();
+
+        assertThat(dependencies)
+                .extracting(DependencyDto::packageName, DependencyDto::version)
+                .contains(org.assertj.core.api.Assertions.tuple("com.acme:widget", "1.2.3"));
+    }
+
+    @Test
+    void rejectsJarNamesWhoseVersionOnlySharesAStringPrefix() throws Exception {
+        Path versionDirectory = tempDir.resolve("repository/org/example/widget/1.0");
+        Files.createDirectories(versionDirectory);
+        Path wrongVersionJar = Files.createFile(versionDirectory.resolve("widget-1.0.1.jar"));
+
+        assertThat(withClassPath(wrongVersionJar.toString())).isEmpty();
+    }
+
     private List<DependencyDto> withClassPath(String classPath) {
         String previousClassPath = System.getProperty("java.class.path");
         try {
@@ -108,5 +144,24 @@ class DependencyCatalogTests {
                 System.setProperty("java.class.path", previousClassPath);
             }
         }
+    }
+
+    private static ResourcePatternResolver resolver(Resource... resources) {
+        return new ResourcePatternResolver() {
+            @Override
+            public Resource[] getResources(String locationPattern) {
+                return resources;
+            }
+
+            @Override
+            public Resource getResource(String location) {
+                return new ByteArrayResource(new byte[0]);
+            }
+
+            @Override
+            public ClassLoader getClassLoader() {
+                return DependencyCatalogTests.class.getClassLoader();
+            }
+        };
     }
 }

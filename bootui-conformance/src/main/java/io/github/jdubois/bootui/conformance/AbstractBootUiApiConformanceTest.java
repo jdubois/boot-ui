@@ -873,6 +873,108 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void serviceMapIsBoundedAndCarriesOnlySafeIdentities() {
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+
+        Response response = probe().get(api("/activity/service-map"));
+
+        assertThat(response.status()).as("service map status").isEqualTo(200);
+        assertThat(response.isJson()).as("service map content type").isTrue();
+
+        JsonNode map = response.json();
+        assertThat(map.path("available").isBoolean()).as("$.available").isTrue();
+        assertThat(map.path("nodes").isArray()).as("$.nodes").isTrue();
+        assertThat(map.path("edges").isArray()).as("$.edges").isTrue();
+        assertThat(map.path("sources").isArray()).as("$.sources").isTrue();
+        assertThat(map.path("warnings").isArray()).as("$.warnings").isTrue();
+        assertThat(map.path("generatedAt").isNumber()).as("$.generatedAt").isTrue();
+
+        JsonNode truncation = map.path("truncation");
+        assertThat(truncation.isObject()).as("$.truncation").isTrue();
+        int dependencyLimit = truncation.path("dependencyLimit").asInt();
+        int interactionLimit = truncation.path("interactionLimit").asInt();
+        assertThat(dependencyLimit).as("$.truncation.dependencyLimit").isGreaterThan(0);
+        assertThat(interactionLimit).as("$.truncation.interactionLimit").isGreaterThan(0);
+        assertThat(truncation.path("truncated").isBoolean())
+                .as("$.truncation.truncated")
+                .isTrue();
+
+        if (!map.path("available").asBoolean(false)) {
+            assertThat(map.path("unavailableReason").isTextual())
+                    .as("an unavailable service map explains why")
+                    .isTrue();
+            return;
+        }
+
+        assertThat(map.path("application").path("kind").asText())
+                .as("the running application is the centre of the map")
+                .isEqualTo("APPLICATION");
+
+        List<String> failures = new ArrayList<>();
+        int dependencies = 0;
+        for (JsonNode node : map.path("nodes")) {
+            String id = node.path("id").asText();
+            if ("DEPENDENCY".equals(node.path("kind").asText())) {
+                dependencies++;
+            }
+            if (!node.path("configured").isBoolean() || !node.path("observed").isBoolean()) {
+                failures.add(id + " does not report configured/observed separately");
+            }
+            if (!Set.of("NO_EVIDENCE", "OBSERVED_OK", "RETAINED_FAILURES")
+                    .contains(node.path("outcome").asText())) {
+                failures.add(id + " has a non-contractual outcome "
+                        + node.path("outcome").asText());
+            }
+            String label = node.path("label").asText("");
+            if (label.contains("?") || label.contains("@")) {
+                // A safe identity is an origin or a masked target: never a query string, never user info.
+                if (label.contains("?") || label.matches(".*://[^/]*[^*]@.*")) {
+                    failures.add(id + " label carries an unsafe identity fragment");
+                }
+            }
+        }
+        assertThat(dependencies)
+                .as("mapped dependencies must stay within the published cap")
+                .isLessThanOrEqualTo(dependencyLimit);
+
+        for (JsonNode edge : map.path("edges")) {
+            String id = edge.path("id").asText();
+            if (!Set.of("INBOUND", "OUTBOUND").contains(edge.path("direction").asText())) {
+                failures.add(id + " has a non-contractual direction");
+            }
+            JsonNode recent = edge.path("recentInteractions");
+            if (!recent.isArray()) {
+                failures.add(id + " does not carry a recentInteractions array");
+            } else if (recent.size() > interactionLimit) {
+                failures.add(id + " carries more retained interactions than the published cap");
+            }
+            for (JsonNode interaction : recent) {
+                if (!interaction.path("id").isTextual()
+                        || !interaction.path("timestamp").isNumber()) {
+                    failures.add(id + " carries an interaction without a stable id and timestamp");
+                }
+                if (!Set.of("OK", "FAILED").contains(interaction.path("outcome").asText())) {
+                    failures.add(id + " carries an interaction with a non-contractual outcome");
+                }
+                // flowId is nullable-opaque: present only as text or JSON null, and it must never simply
+                // echo the interaction id (a canary against a future regression that forgets to hash it).
+                JsonNode flowId = interaction.path("flowId");
+                if (!flowId.isNull() && !flowId.isTextual()) {
+                    failures.add(id + " carries a flowId that is neither null nor text");
+                }
+                if (flowId.isTextual()
+                        && flowId.asText().equals(interaction.path("id").asText())) {
+                    failures.add(id + " carries a flowId equal to the interaction id");
+                }
+            }
+        }
+
+        if (!failures.isEmpty()) {
+            fail("Service map contract regressed: " + failures);
+        }
+    }
+
+    @Test
     void devToolsRestartRequiresConfirmationWithoutSchedulingARestart() {
         assumeTrue(runtime() != Runtime.QUARKUS, "DevTools restart is Spring-only");
         assumeTrue(isPanelUsableInLiveManifest("devtools"), "devtools panel is not available in this environment");

@@ -91,19 +91,15 @@ class QuarkusHibernatePropertyLookupTest {
     }
 
     @Test
-    void reportsHibernateBytecodeEnhancementAsAlwaysEnabledRegardlessOfConfig() {
+    void reportsHibernateBytecodeEnhancementAsAdapterVerifiedRegardlessOfConfig() {
         // Quarkus enhances every entity unconditionally at build time (HibernateOrmProcessor's
-        // enhancerDomainObjects() build step is ungated) and has no config switch to disable it, so
-        // HIB-MAP-017/HIB-MAP-018 must see these keys as "true" even when nothing at all is configured.
+        // enhancerDomainObjects() build step is ungated) and has no config switch to disable it. This is an
+        // adapter fact, not a synthetic value for ordinary Hibernate enhancement settings.
         QuarkusHibernatePropertyLookup lookup = lookup(Map.of());
 
-        assertThat(lookup.apply("spring.jpa.properties.hibernate.enhancer.enableLazyInitialization"))
+        assertThat(lookup.apply(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY))
                 .isEqualTo("true");
-        assertThat(lookup.apply("hibernate.enhancer.enableLazyInitialization")).isEqualTo("true");
-        assertThat(lookup.apply("spring.jpa.properties.hibernate.bytecode.enhancer.enableLazyInitialization"))
-                .isEqualTo("true");
-        assertThat(lookup.apply("hibernate.bytecode.enhancer.enableLazyInitialization"))
-                .isEqualTo("true");
+        assertThat(lookup.apply("hibernate.enhancer.enableLazyInitialization")).isNull();
     }
 
     @Test
@@ -180,6 +176,17 @@ class QuarkusHibernatePropertyLookupTest {
     }
 
     @Test
+    void mapsSlowQueryThresholdToItsQuarkusEquivalent() {
+        QuarkusHibernatePropertyLookup lookup =
+                lookup(Map.of("quarkus.hibernate-orm.log.queries-slower-than-ms", "25"));
+
+        assertThat(lookup.apply("hibernate.session.events.log.LOG_QUERIES_SLOWER_THAN_MS"))
+                .isEqualTo("25");
+        assertThat(lookup.apply("spring.jpa.properties.hibernate.log_slow_query"))
+                .isEqualTo("25");
+    }
+
+    @Test
     void mapsBothCacheFlagsToTheUnifiedSecondLevelCachingToggle() {
         // HIB-CONFIG-010/HIB-CONFIG-011. Quarkus has a SINGLE quarkus.hibernate-orm.second-level-caching-enabled
         // toggle, not one property per Hibernate cache setting: decompiling HibernateProcessorUtil's
@@ -196,6 +203,16 @@ class QuarkusHibernatePropertyLookupTest {
         assertThat(lookup.apply("hibernate.cache.use_second_level_cache")).isEqualTo("false");
         assertThat(lookup.apply("spring.jpa.properties.hibernate.cache.use_second_level_cache"))
                 .isEqualTo("false");
+    }
+
+    @Test
+    void exposesQuarkusManagedRegionFactoryWhenSecondLevelCachingIsEnabled() {
+        QuarkusHibernatePropertyLookup lookup =
+                lookup(Map.of("quarkus.hibernate-orm.second-level-caching-enabled", "true"));
+
+        assertThat(lookup.apply("hibernate.cache.region.factory_class")).isEqualTo("quarkus-managed");
+        assertThat(lookup.apply("spring.jpa.properties.hibernate.cache.region.factory_class"))
+                .isEqualTo("quarkus-managed");
     }
 
     @Test
@@ -244,6 +261,19 @@ class QuarkusHibernatePropertyLookupTest {
                 .isEqualTo("true");
         assertThat(lookup.apply("hibernate.cache.region.factory_class"))
                 .isEqualTo("org.hibernate.cache.jcache.internal.JCacheRegionFactory");
+    }
+
+    @Test
+    void fallsBackToUnsupportedPropertiesWhenAnAliasedNativeKeyIsUnset() {
+        QuarkusHibernatePropertyLookup lookup = lookup(Map.of(
+                "quarkus.hibernate-orm.unsupported-properties.\"hibernate.jdbc.batch_size\"",
+                "25",
+                "quarkus.hibernate-orm.unsupported-properties.\"hibernate.jdbc.time_zone\"",
+                "UTC"));
+
+        assertThat(lookup.apply("hibernate.jdbc.batch_size")).isEqualTo("25");
+        assertThat(lookup.apply("spring.jpa.properties.hibernate.jdbc.time_zone"))
+                .isEqualTo("UTC");
     }
 
     @Test

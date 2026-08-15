@@ -87,17 +87,17 @@ async function latestStreamUrl(page) {
  * @param {import('@playwright/test').Page} page
  */
 async function readStatusStyles(page) {
-  return page.locator('.stream-status-indicator').evaluate((indicator) => {
-    const retryButton = indicator.querySelector('.stream-status-retry')
-    const label = indicator.querySelector('.stream-status-label--unavailable')
-    const icon = indicator.querySelector('.stream-status-icon--unavailable')
-    if (!(retryButton instanceof HTMLElement) || !(label instanceof HTMLElement) || !(icon instanceof HTMLElement)) {
+  return page.locator('.auto-refresh-control').evaluate((control) => {
+    const retryButton = control.querySelector('.auto-refresh-retry')
+    const label = control.querySelector('.auto-refresh-status--unavailable')
+    const dot = control.querySelector('.auto-refresh-dot--unavailable')
+    if (!(retryButton instanceof HTMLElement) || !(label instanceof HTMLElement) || !(dot instanceof HTMLElement)) {
       throw new Error('Stream status elements are missing')
     }
     const retryStyle = getComputedStyle(retryButton)
     return {
-      background: getComputedStyle(indicator).backgroundColor,
-      iconColor: getComputedStyle(icon).color,
+      background: getComputedStyle(document.documentElement).getPropertyValue('--bootui-surface-solid'),
+      dotColor: getComputedStyle(dot).backgroundColor,
       labelColor: getComputedStyle(label).color,
       outlineColor: retryStyle.outlineColor,
       outlineStyle: retryStyle.outlineStyle,
@@ -122,7 +122,14 @@ function relativeLuminance([red, green, blue]) {
  * @param {string} color
  */
 function parseRgb(color) {
-  const channels = color.match(/\d+/g)
+  const normalized = color.trim()
+  const hex = normalized.match(/^#([\da-f]{3}|[\da-f]{6})$/i)?.[1]
+  if (hex) {
+    const expanded = hex.length === 3 ? [...hex].map((channel) => channel.repeat(2)).join('') : hex
+    return [0, 2, 4].map((offset) => Number.parseInt(expanded.slice(offset, offset + 2), 16))
+  }
+
+  const channels = normalized.match(/\d+/g)
   if (!channels || channels.length < 3) {
     throw new Error(`Expected an RGB color, got: ${color}`)
   }
@@ -148,7 +155,7 @@ function contrastRatio(foreground, background) {
 function expectAccessibleStatusStyles(styles) {
   expect(contrastRatio(styles.labelColor, styles.background)).toBeGreaterThanOrEqual(4.5)
   expect(contrastRatio(styles.retryColor, styles.background)).toBeGreaterThanOrEqual(4.5)
-  expect(contrastRatio(styles.iconColor, styles.background)).toBeGreaterThanOrEqual(3)
+  expect(contrastRatio(styles.dotColor, styles.background)).toBeGreaterThanOrEqual(3)
   expect(contrastRatio(styles.outlineColor, styles.background)).toBeGreaterThanOrEqual(3)
   expect(styles.outlineStyle).toBe('solid')
   expect(styles.outlineWidth).toBe('2px')
@@ -164,7 +171,7 @@ test.describe('stream connection status', () => {
 
       await emitLatestStreamEvent(page, 'error')
 
-      await expect(page.locator('.stream-status-indicator')).toContainText('Reconnecting')
+      await expect(page.locator('.auto-refresh-control')).toContainText('Reconnecting')
     }
   })
 
@@ -177,16 +184,16 @@ test.describe('stream connection status', () => {
     for (const delay of [1_000, 2_000, 4_000, 8_000]) {
       const countBeforeFailure = await streamCount(page)
       await emitLatestStreamEvent(page, 'error')
-      await expect(page.locator('.stream-status-indicator')).toContainText('Reconnecting')
-      await expect(page.locator('.stream-status-dot')).toHaveCSS('animation-name', 'none')
+      await expect(page.locator('.auto-refresh-control')).toContainText('Reconnecting')
+      await expect(page.locator('.auto-refresh-dot')).toHaveCSS('animation-name', 'none')
       await page.clock.fastForward(delay)
       await expect.poll(() => streamCount(page)).toBe(countBeforeFailure + 1)
     }
 
     await emitLatestStreamEvent(page, 'error')
-    await expect(page.locator('.stream-status-indicator')).toContainText('Stream unavailable')
+    await expect(page.locator('.auto-refresh-control')).toContainText('Stream unavailable')
 
-    const retry = page.getByRole('button', {name: 'Retry stream connection now'})
+    const retry = page.getByRole('button', {name: 'Retry auto-refresh stream connection now'})
     await retry.focus()
     await expect(retry).toBeFocused()
     expectAccessibleStatusStyles(await readStatusStyles(page))
@@ -201,13 +208,13 @@ test.describe('stream connection status', () => {
     const countBeforeRetry = await streamCount(page)
     await retry.click()
     await expect.poll(() => streamCount(page)).toBe(countBeforeRetry + 1)
-    await expect(page.locator('.stream-status-indicator')).toContainText('Reconnecting')
+    await expect(page.locator('.auto-refresh-control')).toContainText('Reconnecting')
 
     await emitLatestStreamEvent(page, 'open')
-    await expect(page.locator('.stream-status-indicator')).toBeHidden()
-    const streamAnnouncement = page.locator('.stream-status-announcement')
+    await expect(page.locator('.auto-refresh-status')).toBeHidden()
+    const streamAnnouncement = page.locator('.auto-refresh-control [role="status"]')
     await expect(streamAnnouncement).toHaveAttribute('role', 'status')
     await expect(streamAnnouncement).toHaveAttribute('aria-live', 'polite')
-    await expect(streamAnnouncement).toHaveText('Stream connected.')
+    await expect(streamAnnouncement).toHaveText('Auto-refresh stream connected.')
   })
 })

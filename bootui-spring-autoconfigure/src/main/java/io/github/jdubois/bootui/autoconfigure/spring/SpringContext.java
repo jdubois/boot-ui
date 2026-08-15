@@ -23,12 +23,14 @@ record SpringContext(
         int beanDefinitionCount,
         List<BeanRef> objectMappers,
         List<BeanRef> taskExecutors,
+        boolean bootApplicationTaskExecutorPresent,
+        List<BeanRef> executors,
         List<BeanRef> dataSources,
         boolean pooledTaskExecutorPresent,
         boolean asyncEnabled,
         boolean devToolsPresent,
         boolean hikariDataSourcePresent,
-        boolean asyncConfigurerPresent,
+        boolean customAsyncConfigurerPresent,
         List<BeanRef> transactionManagers,
         boolean transactionManagementConfigurerPresent,
         List<BeanRef> restTemplates,
@@ -39,6 +41,7 @@ record SpringContext(
         boolean entityManagerFactoryPresent,
         boolean dispatcherServletPresent,
         boolean reactive,
+        boolean tomcatWebServerPresent,
         boolean webClientBeanPresent,
         int reactiveHandlerMethodCount,
         List<String> defaultPackageBeans,
@@ -47,6 +50,7 @@ record SpringContext(
     SpringContext {
         objectMappers = List.copyOf(objectMappers);
         taskExecutors = List.copyOf(taskExecutors);
+        executors = List.copyOf(executors);
         dataSources = List.copyOf(dataSources);
         transactionManagers = List.copyOf(transactionManagers);
         restTemplates = List.copyOf(restTemplates);
@@ -200,12 +204,14 @@ record SpringContext(
         private int beanDefinitionCount;
         private List<BeanRef> objectMappers = List.of();
         private List<BeanRef> taskExecutors = List.of();
+        private boolean bootApplicationTaskExecutorPresent;
+        private List<BeanRef> executors = List.of();
         private List<BeanRef> dataSources = List.of();
         private boolean pooledTaskExecutorPresent;
         private boolean asyncEnabled;
         private boolean devToolsPresent;
         private boolean hikariDataSourcePresent;
-        private boolean asyncConfigurerPresent;
+        private boolean customAsyncConfigurerPresent;
         private List<BeanRef> transactionManagers = List.of();
         private boolean transactionManagementConfigurerPresent;
         private List<BeanRef> restTemplates = List.of();
@@ -216,6 +222,7 @@ record SpringContext(
         private boolean entityManagerFactoryPresent;
         private boolean dispatcherServletPresent;
         private boolean reactive;
+        private boolean tomcatWebServerPresent;
         private boolean webClientBeanPresent;
         private int reactiveHandlerMethodCount;
         private List<String> defaultPackageBeans = List.of();
@@ -245,6 +252,16 @@ record SpringContext(
             return this;
         }
 
+        Builder bootApplicationTaskExecutorPresent(boolean value) {
+            this.bootApplicationTaskExecutorPresent = value;
+            return this;
+        }
+
+        Builder executors(List<BeanRef> value) {
+            this.executors = value;
+            return this;
+        }
+
         Builder dataSources(List<BeanRef> value) {
             this.dataSources = value;
             return this;
@@ -270,8 +287,8 @@ record SpringContext(
             return this;
         }
 
-        Builder asyncConfigurerPresent(boolean value) {
-            this.asyncConfigurerPresent = value;
+        Builder customAsyncConfigurerPresent(boolean value) {
+            this.customAsyncConfigurerPresent = value;
             return this;
         }
 
@@ -330,6 +347,11 @@ record SpringContext(
             return this;
         }
 
+        Builder tomcatWebServerPresent(boolean value) {
+            this.tomcatWebServerPresent = value;
+            return this;
+        }
+
         Builder webClientBeanPresent(boolean value) {
             this.webClientBeanPresent = value;
             return this;
@@ -357,12 +379,14 @@ record SpringContext(
                     beanDefinitionCount,
                     objectMappers,
                     taskExecutors,
+                    bootApplicationTaskExecutorPresent,
+                    executors,
                     dataSources,
                     pooledTaskExecutorPresent,
                     asyncEnabled,
                     devToolsPresent,
                     hikariDataSourcePresent,
-                    asyncConfigurerPresent,
+                    customAsyncConfigurerPresent,
                     transactionManagers,
                     transactionManagementConfigurerPresent,
                     restTemplates,
@@ -373,6 +397,7 @@ record SpringContext(
                     entityManagerFactoryPresent,
                     dispatcherServletPresent,
                     reactive,
+                    tomcatWebServerPresent,
                     webClientBeanPresent,
                     reactiveHandlerMethodCount,
                     defaultPackageBeans,
