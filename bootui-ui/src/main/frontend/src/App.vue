@@ -1621,6 +1621,7 @@ function onGlobalKeydown(e) {
 
 .sidebar-nav {
   flex: 1;
+  flex-wrap: nowrap;
   gap: 0.45rem;
   min-height: 0;
   overflow-x: hidden;

@@ -106,9 +106,16 @@ test.describe('BootUI app shell (Quarkus)', () => {
 
     const layout = await page.locator('aside.bootui-sidebar').evaluate((sidebar) => {
       const nav = sidebar.querySelector('.sidebar-nav')
+      const navRect = nav.getBoundingClientRect()
       const bottom = sidebar.querySelector('.sidebar-bottom').getBoundingClientRect()
       return {
         navScrollable: nav.scrollHeight > nav.clientHeight,
+        navDoesNotWrap: getComputedStyle(nav).flexWrap === 'nowrap',
+        noHorizontalOverflow: nav.scrollWidth <= nav.clientWidth + 1,
+        itemsStayInsideNav: [...nav.querySelectorAll('.bootui-nav-section, .bootui-nav-link')].every((item) => {
+          const itemRect = item.getBoundingClientRect()
+          return itemRect.left >= navRect.left - 1 && itemRect.right <= navRect.right + 1
+        }),
         sectionsDoNotShrink: [...nav.querySelectorAll('.bootui-nav-section')].every(
           (section) => getComputedStyle(section).flexShrink === '0'
         ),
@@ -116,7 +123,14 @@ test.describe('BootUI app shell (Quarkus)', () => {
       }
     })
 
-    expect(layout).toEqual({navScrollable: true, sectionsDoNotShrink: true, bottomVisible: true})
+    expect(layout).toEqual({
+      navScrollable: true,
+      navDoesNotWrap: true,
+      noHorizontalOverflow: true,
+      itemsStayInsideNav: true,
+      sectionsDoNotShrink: true,
+      bottomVisible: true
+    })
   })
 
   test('the Advisors sidebar group uses the framework-aware Quarkus label', async ({page}) => {

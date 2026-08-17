@@ -278,6 +278,7 @@ test.describe('BootUI app shell', () => {
       const workspace = document.querySelector('.bootui-workspace')
       const sidebar = document.querySelector('aside.bootui-sidebar')
       const sidebarNav = sidebar.querySelector('.sidebar-nav')
+      const sidebarNavRect = sidebarNav.getBoundingClientRect()
       const sidebarBottom = sidebar.querySelector('.sidebar-bottom').getBoundingClientRect()
       const doc = document.scrollingElement
       return {
@@ -290,6 +291,14 @@ test.describe('BootUI app shell', () => {
         sidebarNavOverflowY: getComputedStyle(sidebarNav).overflowY,
         sidebarNavOverscroll: getComputedStyle(sidebarNav).overscrollBehaviorY,
         sidebarNavScrollable: sidebarNav.scrollHeight > sidebarNav.clientHeight,
+        sidebarNavDoesNotWrap: getComputedStyle(sidebarNav).flexWrap === 'nowrap',
+        sidebarNavHasNoHorizontalOverflow: sidebarNav.scrollWidth <= sidebarNav.clientWidth + 1,
+        sidebarItemsStayInsideNav: [
+          ...sidebarNav.querySelectorAll('.bootui-nav-section, .bootui-nav-group__items, .bootui-nav-link')
+        ].every((item) => {
+          const itemRect = item.getBoundingClientRect()
+          return itemRect.left >= sidebarNavRect.left - 1 && itemRect.right <= sidebarNavRect.right + 1
+        }),
         sidebarSectionsDoNotShrink: [...sidebarNav.querySelectorAll('.bootui-nav-section')].every(
           (section) => getComputedStyle(section).flexShrink === '0'
         ),
@@ -306,6 +315,9 @@ test.describe('BootUI app shell', () => {
     expect(layout.sidebarNavOverflowY).toBe('auto')
     expect(layout.sidebarNavOverscroll).toBe('contain')
     expect(layout.sidebarNavScrollable).toBe(true)
+    expect(layout.sidebarNavDoesNotWrap).toBe(true)
+    expect(layout.sidebarNavHasNoHorizontalOverflow).toBe(true)
+    expect(layout.sidebarItemsStayInsideNav).toBe(true)
     expect(layout.sidebarSectionsDoNotShrink).toBe(true)
     expect(layout.sidebarBottomVisible).toBe(true)
 
