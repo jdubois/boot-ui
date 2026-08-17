@@ -74,7 +74,7 @@
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
         <!-- Flyway 12.x has only verified H2 through 2.3.232; keep migration-backed samples on that version. -->
-        <flyway-verified-h2.version>2.3.232</flyway-verified-h2.version>
+        <flyway-verified-h2.version>2.4.240</flyway-verified-h2.version>
         <frontend-maven-plugin.version>2.0.2</frontend-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
         <cyclonedx-maven-plugin.version>2.9.1</cyclonedx-maven-plugin.version>
