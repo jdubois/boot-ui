@@ -66,6 +66,7 @@ public final class BootUiPanels {
     public static final String CRAC = "crac";
     public static final String SQL_TRACE = "sql-trace";
     public static final String TRANSACTIONS = "transactions";
+    public static final String HTTP_CLIENTS = "http-clients";
     public static final String REST_CLIENT_TRACE = "rest-client-trace";
     public static final String MCP_SERVER = "mcp-server";
     public static final String ACTIVITY = "activity";
@@ -127,6 +128,7 @@ public final class BootUiPanels {
             new Panel(SPRING, "Spring", true, "/spring"),
             new Panel(CRAC, "CRaC", true, "/crac"),
             new Panel(SQL_TRACE, "SQL Trace", true, "/sql-trace"),
+            new Panel(HTTP_CLIENTS, "HTTP Clients", false, "/http-clients"),
             new Panel(REST_CLIENT_TRACE, "REST Client", true, "/rest-client-trace"),
             new Panel(AI, "AI Framework", false, "/ai"),
             new Panel(MCP_SERVER, "MCP Server", true, "/mcp-server"),

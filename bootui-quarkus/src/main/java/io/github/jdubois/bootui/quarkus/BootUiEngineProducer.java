@@ -29,6 +29,7 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
+import io.github.jdubois.bootui.engine.httpclient.HttpClientRegistryService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
@@ -59,6 +60,7 @@ import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.databaseadvisor.QuarkusDatabaseAdvisorDataSourceProvider;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
+import io.github.jdubois.bootui.quarkus.httpclient.QuarkusHttpClientProvider;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
 import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationCollector;
@@ -963,6 +965,24 @@ public class BootUiEngineProducer {
     @Singleton
     public ScheduledTasksService scheduledTasksService(QuarkusScheduledTaskProvider provider) {
         return new ScheduledTasksService(provider);
+    }
+
+    /**
+     * The HTTP Clients panel service. Produced <em>unconditionally</em> (it holds no REST Client types), so
+     * {@code HttpClientsResource} is always wired; when {@code quarkus-rest-client} is absent the provider's
+     * captured-clients {@code Instance} is unsatisfied and the engine renders an explicit unavailable report
+     * instead of loading a MicroProfile REST Client class. The concrete {@link QuarkusHttpClientProvider} and
+     * {@link QuarkusExposurePolicy} are injected (not their SPI interfaces) so resolution can never become
+     * ambiguous, exactly as the other producers do; the REST Client trace recorder supplies the optional
+     * observed-call cross-link.
+     */
+    @Produces
+    @Singleton
+    public HttpClientRegistryService httpClientRegistryService(
+            QuarkusHttpClientProvider provider,
+            QuarkusExposurePolicy exposurePolicy,
+            RestClientTraceRecorder restClientTraceRecorder) {
+        return new HttpClientRegistryService(provider, exposurePolicy, restClientTraceRecorder);
     }
 
     /**

@@ -192,6 +192,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                |
 | Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                |
 | Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                |
+| Services        | HTTP Clients              | `http-clients`              | `bootui.panels.http-clients.enabled`              | Not applicable; view-only.                |
 | Services        | REST Client               | `rest-client-trace`         | `bootui.panels.rest-client-trace.enabled`         | `bootui.panels.rest-client-trace.read-only` |
 | Services        | AI Framework              | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Services        | Cache                     | `cache`                     | `bootui.panels.cache.enabled`                     | `bootui.panels.cache.read-only`           |

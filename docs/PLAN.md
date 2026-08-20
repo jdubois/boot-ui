@@ -4,7 +4,7 @@
 
 BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot 4 (servlet and
 WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
-the same `/bootui/api/**` contract on every runtime. The released surface covers 54 panels across runtime introspection,
+the same `/bootui/api/**` contract on every runtime. The released surface covers 56 panels across runtime introspection,
 configuration, database migrations, services, diagnostics, project health, and developer tooling. The next planned panel
 is a read-only **MongoDB** operational view, scoped in §3.5.
 
@@ -36,7 +36,6 @@ will therefore be additive rather than an extension of the SQL-specific panels.
 | Priority | Feature                  | Group    | Primary data source                    | Mutation? | Status  |
 | -------- | ------------------------ | -------- | -------------------------------------- | --------- | ------- |
 | Next     | MongoDB operational view | Database | Spring/Quarkus MongoDB client adapters | No        | Planned |
-| Planned  | Declarative HTTP client registry | Services | Spring HTTP clients / Quarkus REST Client metadata | No | Planned |
 | Planned  | Resilience | Services | Resilience4j, Spring Retry, and SmallRye Fault Tolerance | No (capture only) | Planned |
 | Planned  | gRPC | Services | Spring gRPC / Quarkus gRPC registries and metrics | No | Planned |
 | Planned  | Spring Batch | Services | Spring Batch `JobExplorer` / `JobRepository` | No | Planned |
@@ -105,7 +104,7 @@ Acceptance criteria:
 - The sample applications cover absent-client, unreachable-server, insufficient-permission, empty-database, and
   multi-client states without requiring MongoDB for the default Docker-free test path.
 
-### 3.6 Declarative HTTP client registry — Services 📋 Planned
+### 3.6 Declarative HTTP client registry — Services ✅ Delivered
 
 BootUI's REST Client panel shows calls that have already happened, but it does not show which HTTP clients the application
 declares, how each client resolves its target, or which effective transport policies apply before the first request. This

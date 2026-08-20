@@ -86,6 +86,7 @@ test.describe('BootUI on Spring WebFlux', () => {
       {id: 'flyway', heading: /Flyway migrations/},
       {id: 'liquibase', heading: /Liquibase change sets/},
       {id: 'scheduled', heading: /Scheduled Tasks/},
+      {id: 'http-clients', heading: /HTTP Clients/},
       {id: 'pentesting', heading: /^Pentesting/},
       {id: 'security', heading: /^Security/},
       {id: 'activity', heading: /Live Activity/},
@@ -99,6 +100,28 @@ test.describe('BootUI on Spring WebFlux', () => {
       // None of these panels should fall back to the generic "unavailable" banner.
       await expect(page.locator('.panel-availability-alert')).toHaveCount(0)
     }
+  })
+
+  test("HTTP Clients reports the reactive stack's declared client with the same shared contract", async ({page}) => {
+    await page.goto('/bootui/#/http-clients')
+    await expect(
+      page
+        .locator('main h2')
+        .filter({hasText: /HTTP Clients/})
+        .first()
+    ).toBeVisible({timeout: 15_000})
+
+    // The same shared engine, DTO and view the servlet stack uses: a registered HTTP Interface group with a
+    // client-specific read timeout and an application-default connect timeout, never invoked.
+    const notes = page.locator('.card', {hasText: 'sample-notes'})
+    await expect(notes).toBeVisible()
+    await expect(notes).toContainText('HTTP Interface')
+    await expect(notes).toContainText('io.github.jdubois.bootui.webfluxsample.httpclient.WebfluxSampleNoteClient')
+    await expect(notes).toContainText('spring.http.serviceclient.sample-notes.base-url')
+
+    await notes.getByRole('button', {name: /effective settings/}).click()
+    await expect(notes.locator('tr', {hasText: 'Read timeout'})).toContainText('Client override')
+    await expect(notes.locator('tr', {hasText: 'Connect timeout'})).toContainText('Application default')
   })
 
   test("Live Activity's Live flow map renders the same contract on the reactive stack", async ({

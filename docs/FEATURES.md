@@ -1468,6 +1468,49 @@ dependency-inventory capture) and maps it onto the same trigger/expression/initi
 initial delay is carried through. The panel is available only when the `quarkus-scheduler` extension is present;
 programmatic `Scheduler.newJob()` jobs are not captured (annotation-discovered tasks only).
 
+### HTTP Clients
+
+The HTTP Clients panel answers the question REST Client cannot: *which* HTTP clients does this application declare,
+*where* does each one point, and *what* transport policy will apply before the first request is ever made. REST Client
+shows calls that already happened; HTTP Clients shows the static and runtime configuration behind them.
+
+On the Spring adapter the panel discovers Spring HTTP Interface groups registered with `@ImportHttpServices`
+(`@HttpExchange` interfaces), Spring Cloud OpenFeign clients, and every `RestClient.Builder` and `WebClient.Builder`
+bean. On Quarkus it discovers MicroProfile `@RegisterRestClient` interfaces. Every client row shows its framework and
+type, its registration or bean name, its declared interface where one exists, its configuration key, the base URL as
+configured and as resolved after property interpolation, and whichever effective timeout, redirect, connection-pool,
+retry, proxy, transport, and TLS settings that framework actually exposes in configuration. The set differs by client
+type — connection-pool and retry settings exist for OpenFeign, proxy and store settings for Quarkus — and every setting a
+client type does not expose is listed explicitly as **Not exposed** rather than omitted.
+
+Every effective value carries **provenance**, so a client-specific override (`Client override`), an annotation member
+(`Annotation`), an application-wide default (`Application default`), and a framework default (`Framework default`) are
+never confused with one another — along with the exact configuration key the value came from. A value the framework does
+not expose safely is reported as **Not exposed** rather than guessed: BootUI never infers a setting it cannot read.
+
+Opening the panel performs **no network call**. Nothing is probed, no DNS name is resolved, no lazy client is
+instantiated, and no application-owned builder is customized or replaced. Discovery reads bean definitions (Spring) and
+the build-time Jandex index (Quarkus) only.
+
+Base URLs are always reduced before display: user-info (`user:password@`) is stripped, fragments are dropped, and
+secret-named query values are masked — under **every** exposure mode, including `FULL`, because a base URL is rendered by
+default rather than on request. Under `METADATA_ONLY` the query string is dropped entirely and every setting value is
+hidden, leaving only its name, provenance, and configuration key. Proxy passwords and key/trust
+store passwords are never read at all; stores are reported as a presence flag. A base URL whose `${...}` placeholder
+never resolved is shown as **Unresolved** rather than silently looking configured.
+
+When a client's base URL resolves to an absolute URL whose host belongs to exactly one registered client, the retained
+calls to that host from [REST Client](#rest-client) are cross-linked into the row. The link is deliberately labelled
+*observed calls to this host*, because the retained trace records a host and not a port: BootUI reports what it can
+prove rather than claiming the client itself made the call. Ambiguous hosts — two clients sharing a host — and
+builder-derived clients with no declared target stay **Not attributable** rather than being matched by a guessed host or
+bean name, so the panel never creates a false relationship. A client with no matching host among the most-executed
+retained calls reads **None in top calls**, not "no calls".
+
+The panel is available when the application declares at least one supported client. Otherwise it reports a
+framework-correct setup hint, and no optional client class is loaded: an application without `quarkus-rest-client`,
+without Spring Cloud OpenFeign, or without any HTTP client technology at all starts and renders normally.
+
 ### REST Client
 
 The REST Client panel shows outbound HTTP calls your application recently made through Spring's own REST clients (Spring

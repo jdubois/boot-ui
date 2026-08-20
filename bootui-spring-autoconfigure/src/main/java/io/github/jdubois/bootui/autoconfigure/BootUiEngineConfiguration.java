@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernatePropertyLookup;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatisticsProvider;
+import io.github.jdubois.bootui.autoconfigure.httpclient.SpringHttpClientProvider;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
@@ -61,6 +62,7 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
+import io.github.jdubois.bootui.engine.httpclient.HttpClientRegistryService;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
@@ -81,6 +83,7 @@ import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
+import io.github.jdubois.bootui.spi.HttpClientProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import io.github.jdubois.bootui.spi.ScheduledTaskProvider;
@@ -93,6 +96,7 @@ import org.flywaydb.core.Flyway;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
@@ -419,6 +423,36 @@ public class BootUiEngineConfiguration {
         // (where the framework trigger types and the runnable description still exist, for byte-identical
         // filtering); the engine service only sorts and wraps.
         return new ScheduledTasksService(scheduledTaskProviders.getIfAvailable());
+    }
+
+    /**
+     * Discovers declarative HTTP clients from bean definitions only. It reads the bean factory rather than
+     * the context so nothing is instantiated: an HTTP Interface proxy, an OpenFeign client and a lazily
+     * defined builder are all described from metadata, never by resolving the bean.
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    SpringHttpClientProvider bootUiSpringHttpClientProvider(
+            ConfigurableListableBeanFactory beanFactory, Environment environment) {
+        return new SpringHttpClientProvider(beanFactory, environment);
+    }
+
+    /**
+     * The HTTP Clients panel service. It takes the live {@link BootUiExposure} (so an exposure change is
+     * honoured on the next request) and resolves the REST Client trace recorder through an
+     * {@code ObjectProvider}, because the observed-call cross-link is optional evidence rather than a
+     * requirement for the panel.
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    HttpClientRegistryService bootUiHttpClientRegistryService(
+            ObjectProvider<HttpClientProvider> httpClientProviders,
+            BootUiExposure exposure,
+            ObjectProvider<RestClientTraceRecorder> restClientTraceRecorders) {
+        return new HttpClientRegistryService(
+                httpClientProviders.getIfAvailable(), exposure, restClientTraceRecorders.getIfAvailable());
     }
 
     /**

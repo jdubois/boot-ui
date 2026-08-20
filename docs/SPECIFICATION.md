@@ -2089,6 +2089,7 @@ Initial endpoints:
 | `/bootui/api/mcp-server`                     | GET    | MCP Server panel status (enabled state, configured mode, transport, advertised tools)  |
 | `/bootui/api/mcp-server/toggle`              | POST   | Enable/disable the MCP server at runtime, overriding `bootui.mcp.enabled`               |
 | `/bootui/api/mcp`                            | GET/POST | Local-only MCP JSON-RPC 2.0 endpoint and status (served only while the server is enabled) |
+| `/bootui/api/http-clients`                   | GET    | Declared HTTP clients, resolved targets, and effective transport settings                |
 | `/bootui/api/rest-client-trace`              | GET    | Latest REST Client report and retained outbound HTTP calls                              |
 | `/bootui/api/rest-client-trace/clear`        | POST   | Clear the retained REST client call buffer                                              |
 | `/bootui/api/rest-client-trace/recording`    | POST   | Pause/resume REST client call capture at runtime                                        |
@@ -2366,6 +2367,7 @@ Top-level navigation:
   - Security Logs.
 - Services:
   - Scheduled Tasks.
+  - HTTP Clients.
   - REST Client.
   - AI Framework.
   - Cache.

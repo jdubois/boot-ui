@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
+import io.github.jdubois.bootui.engine.httpclient.HttpClientRegistryService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -186,6 +187,8 @@ public class PanelsController {
                         "No configurable PlatformTransactionManager bean is available");
             case BootUiPanels.REST_CLIENT_TRACE ->
                 availability(restClientTraceAvailable(), restClientTraceUnavailableReason());
+            case BootUiPanels.HTTP_CLIENTS ->
+                availability(httpClientRegistryAvailable(), httpClientRegistryUnavailableReason());
             case BootUiPanels.THREADS ->
                 availability(
                         java.lang.management.ManagementFactory.getThreadMXBean() != null,
@@ -366,6 +369,22 @@ public class PanelsController {
 
     private RestClientTraceRecorder restClientTraceRecorder() {
         return applicationContext.getBeanProvider(RestClientTraceRecorder.class).getIfAvailable();
+    }
+
+    private boolean httpClientRegistryAvailable() {
+        HttpClientRegistryService service = httpClientRegistryService();
+        return service != null && service.available();
+    }
+
+    private String httpClientRegistryUnavailableReason() {
+        HttpClientRegistryService service = httpClientRegistryService();
+        return service == null ? "No declarative HTTP client registry is configured" : service.unavailableReason();
+    }
+
+    private HttpClientRegistryService httpClientRegistryService() {
+        return applicationContext
+                .getBeanProvider(HttpClientRegistryService.class)
+                .getIfAvailable();
     }
 
     private boolean hikariAvailable() {

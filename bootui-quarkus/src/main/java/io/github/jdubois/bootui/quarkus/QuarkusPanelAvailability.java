@@ -175,6 +175,15 @@ public class QuarkusPanelAvailability {
      */
     public static final String SCHEDULED_PRESENT_KEY = "bootui.internal.scheduled-present";
     /**
+     * Runtime-config key carrying the build-time REST Client capability decision for the HTTP Clients panel.
+     * The deployment processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default
+     * {@code false}) whenever a REST Client extension is present in a non-production launch <em>and</em> the
+     * build-time Jandex scan found at least one {@code @RegisterRestClient} interface; this bean reads it
+     * back to decide whether the dynamically-available HTTP Clients panel is lit up. Mirrors
+     * {@link #SCHEDULED_PRESENT_KEY}.
+     */
+    public static final String HTTP_CLIENTS_PRESENT_KEY = "bootui.internal.http-clients-present";
+    /**
      * Runtime-config key carrying the build-time {@code CACHE} capability decision. The deployment processor
      * emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean reads it
      * back to decide whether the dynamically-available Cache panel is lit up. Shared with
@@ -269,6 +278,10 @@ public class QuarkusPanelAvailability {
     private static final String HIBERNATE_ABSENT =
             "Not available: this application does not use Hibernate ORM. Add the quarkus-hibernate-orm"
                     + " extension to enable the JPA mapping advisor.";
+
+    private static final String HTTP_CLIENTS_ABSENT =
+            "Not available: this application declares no REST client. Add the quarkus-rest-client extension"
+                    + " and annotate an interface with @RegisterRestClient to enable the HTTP Clients panel.";
 
     private static final String SCHEDULED_ABSENT =
             "Not available: this application has no scheduler. Add the quarkus-scheduler extension and"
@@ -398,6 +411,7 @@ public class QuarkusPanelAvailability {
             Map.entry(BootUiPanels.HIBERNATE, HIBERNATE_ABSENT),
             Map.entry(BootUiPanels.HIBERNATE_STATISTICS, HIBERNATE_ABSENT),
             Map.entry(BootUiPanels.SCHEDULED, SCHEDULED_ABSENT),
+            Map.entry(BootUiPanels.HTTP_CLIENTS, HTTP_CLIENTS_ABSENT),
             Map.entry(BootUiPanels.CACHE, CACHE_ABSENT),
             Map.entry(BootUiPanels.FLYWAY, FLYWAY_ABSENT),
             Map.entry(BootUiPanels.LIQUIBASE, LIQUIBASE_ABSENT),
@@ -465,6 +479,8 @@ public class QuarkusPanelAvailability {
     private final boolean rabbitPresent;
     private final boolean restClientTracePresent;
 
+    private final boolean httpClientsPresent;
+
     private final boolean securityLogsAvailable;
 
     private final List<String> githubAllowedApiHosts;
@@ -491,6 +507,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(HIBERNATE_PRESENT_KEY, Boolean.class).orElse(false);
         this.schedulingPresent =
                 config.getOptionalValue(SCHEDULED_PRESENT_KEY, Boolean.class).orElse(false);
+        this.httpClientsPresent =
+                config.getOptionalValue(HTTP_CLIENTS_PRESENT_KEY, Boolean.class).orElse(false);
         this.cachePresent =
                 config.getOptionalValue(CACHE_PRESENT_KEY, Boolean.class).orElse(false);
         this.flywayPresent =
@@ -527,6 +545,7 @@ public class QuarkusPanelAvailability {
                 Map.entry(BootUiPanels.HIBERNATE, hibernatePresent),
                 Map.entry(BootUiPanels.HIBERNATE_STATISTICS, hibernatePresent),
                 Map.entry(BootUiPanels.SCHEDULED, schedulingPresent),
+                Map.entry(BootUiPanels.HTTP_CLIENTS, httpClientsPresent),
                 Map.entry(BootUiPanels.CACHE, cachePresent),
                 Map.entry(BootUiPanels.FLYWAY, flywayPresent),
                 Map.entry(BootUiPanels.LIQUIBASE, liquibasePresent),

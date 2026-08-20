@@ -52,6 +52,7 @@ const PANEL_HEADINGS = {
   exceptions: /^Exceptions/,
   'http-exchanges': /HTTP Exchanges/,
   'http-probe': /HTTP Probe/,
+  'http-clients': /^HTTP Clients/,
   'rest-client-trace': /^REST Client/,
   email: /^Email/,
   kafka: /^Kafka/,

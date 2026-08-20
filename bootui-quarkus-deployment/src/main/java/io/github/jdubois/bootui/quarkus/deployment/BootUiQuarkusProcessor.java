@@ -26,6 +26,10 @@ import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServicesProvider;
 import io.github.jdubois.bootui.quarkus.devservices.RawDevService;
 import io.github.jdubois.bootui.quarkus.exceptions.QuarkusExceptionCapture;
 import io.github.jdubois.bootui.quarkus.exceptions.QuarkusPreMappingExceptionCaptureHandler;
+import io.github.jdubois.bootui.quarkus.httpclient.HttpClientsRecorder;
+import io.github.jdubois.bootui.quarkus.httpclient.QuarkusHttpClientProvider;
+import io.github.jdubois.bootui.quarkus.httpclient.QuarkusHttpClients;
+import io.github.jdubois.bootui.quarkus.httpclient.RawHttpClient;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLogTailCapture;
 import io.github.jdubois.bootui.quarkus.mappings.MappingsRecorder;
 import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
@@ -297,6 +301,7 @@ class BootUiQuarkusProcessor {
                         QuarkusDependencyProvider.class,
                         QuarkusConfigProvider.class,
                         QuarkusScheduledTaskProvider.class,
+                        QuarkusHttpClientProvider.class,
                         QuarkusMappingProvider.class,
                         QuarkusDevServicesProvider.class,
                         DevServicesResource.class,
@@ -1259,6 +1264,66 @@ class BootUiQuarkusProcessor {
                 .done());
         runtimeDefaults.produce(
                 new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.SCHEDULED_PRESENT_KEY, "true"));
+    }
+
+    /**
+     * Captures the host application's {@code @RegisterRestClient} interfaces at build time and replays them
+     * into a synthetic {@link QuarkusHttpClients} bean for the HTTP Clients panel.
+     *
+     * <p>Build-time capture is the only safe enumeration: the runtime alternative would resolve each REST
+     * client CDI bean, and the panel's first acceptance criterion is that opening it never instantiates a
+     * client. Only annotation metadata is captured — the interface name, {@code configKey} and
+     * {@code baseUri} verbatim — because a Quarkus config expression only has a value at runtime, and the
+     * provider resolves it per request so an unresolved placeholder stays visible.</p>
+     *
+     * <p>The step is gated on a REST Client capability <em>and</em> a non-production launch mode (R2/R7): in
+     * an application without {@code quarkus-rest-client} the synthetic bean is never produced, the provider's
+     * {@code Instance} is unsatisfied, and no MicroProfile REST Client class is loaded. The
+     * {@code bootui.internal.http-clients-present} flag stays at its {@code false} default so the panel
+     * reports the framework-correct unavailable reason instead of an empty table.</p>
+     */
+    @BuildStep
+    @Record(ExecutionTime.STATIC_INIT)
+    void registerHttpClients(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BeanArchiveIndexBuildItem beanArchiveIndex,
+            HttpClientsRecorder recorder,
+            BuildProducer<SyntheticBeanBuildItem> syntheticBeans,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean capabilityPresent = launchMode.getLaunchMode() != LaunchMode.NORMAL
+                && (capabilities.isPresent(Capability.REST_CLIENT)
+                        || capabilities.isPresent(Capability.REST_CLIENT_REACTIVE));
+        if (!capabilityPresent) {
+            return; // no REST Client extension (or production): the panel stays unavailable
+        }
+        List<RawHttpClient> clients = scanHttpClients(beanArchiveIndex.getIndex());
+        syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusHttpClients.class)
+                .scope(Singleton.class)
+                .runtimeValue(recorder.create(clients))
+                .unremovable()
+                .done());
+        if (clients.isEmpty()) {
+            return; // extension present but nothing declared: an empty table would be misleading
+        }
+        runtimeDefaults.produce(
+                new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.HTTP_CLIENTS_PRESENT_KEY, "true"));
+    }
+
+    /** Reads {@code @RegisterRestClient} interfaces from the bean archive index, metadata only. */
+    private static List<RawHttpClient> scanHttpClients(IndexView index) {
+        List<RawHttpClient> clients = new ArrayList<>();
+        for (AnnotationInstance annotation : index.getAnnotations(REGISTER_REST_CLIENT)) {
+            if (annotation.target() == null || annotation.target().kind() != AnnotationTarget.Kind.CLASS) {
+                continue;
+            }
+            ClassInfo declaringClass = annotation.target().asClass();
+            clients.add(new RawHttpClient(
+                    declaringClass.name().toString(),
+                    stringMember(annotation, "configKey"),
+                    stringMember(annotation, "baseUri")));
+        }
+        return clients;
     }
 
     /**

@@ -349,7 +349,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Configuration', count: 6},
       {title: 'Database', count: 7},
       {title: 'Security', count: 2},
-      {title: 'Services', count: 8},
+      {title: 'Services', count: 9},
       {title: 'Diagnostics', count: 5},
       {title: 'Developer tools', count: 5}
     ]
@@ -389,9 +389,10 @@ test.describe('BootUI app shell', () => {
       'Security Logs'
     ])
 
-    await page.getByRole('button', {name: /Services\s+8/}).click()
+    await page.getByRole('button', {name: /Services\s+9/}).click()
     await expect(page.getByRole('group', {name: 'Services panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Scheduled Tasks',
+      'HTTP Clients',
       'REST Client',
       'AI Framework',
       'Cache',

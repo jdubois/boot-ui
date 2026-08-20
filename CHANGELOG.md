@@ -7,6 +7,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **New HTTP Clients panel (`/bootui/api/http-clients`).** It reports which declarative HTTP clients an application
+  registers, how each one resolves its target, and which effective transport policies apply — before the first request
+  is made. Spring discovers HTTP Interface groups, OpenFeign clients, and `RestClient.Builder` / `WebClient.Builder`
+  beans from bean definitions; Quarkus discovers MicroProfile `@RegisterRestClient` interfaces from the build-time
+  Jandex index. Every effective value carries provenance, unknown values stay explicitly unavailable, base URLs are
+  stripped of user-info and secret query values under every exposure mode, and REST Client trace calls are cross-linked
+  only when they can be attributed to exactly one client. Opening the panel performs no network call and instantiates
+  no client.
+
 ## [1.14.1] - 2026-08-20
 
 Patch release that restores Spring native and Quarkus Docker startup, fixes the native-image build bootstrap on AMD64,

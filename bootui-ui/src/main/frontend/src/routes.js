@@ -11,6 +11,7 @@ const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vu
 const DatabaseAdvisor = () => import('./views/DatabaseAdvisor.vue')
 const SqlTrace = () => import('./views/SqlTrace.vue')
 const Transactions = () => import('./views/Transactions.vue')
+const HttpClients = () => import('./views/HttpClients.vue')
 const RestClientTrace = () => import('./views/RestClientTrace.vue')
 const Data = () => import('./views/Data.vue')
 const Hibernate = () => import('./views/Hibernate.vue')
@@ -668,6 +669,29 @@ export const routes = [
       title: 'Scheduled Tasks',
       shortcut: 'sk',
       keywords: ['cron', 'jobs', 'scheduling', 'background tasks', 'fixed rate', 'triggers']
+    }
+  },
+  {
+    path: '/http-clients',
+    name: 'http-clients',
+    component: HttpClients,
+    meta: {
+      group: groups.services,
+      icon: 'bi-broadcast-pin',
+      title: 'HTTP Clients',
+      shortcut: 'hc',
+      keywords: [
+        'http interface',
+        'httpexchange',
+        'feign',
+        'openfeign',
+        'rest client',
+        'registerrestclient',
+        'restclient builder',
+        'webclient builder',
+        'base url',
+        'declarative client'
+      ]
     }
   },
   {
