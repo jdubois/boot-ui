@@ -6,7 +6,7 @@ test.describe('HTTP Probe view', () => {
     await openView('http-probe', 'HTTP Probe')
 
     await page.getByLabel('Method').selectOption('GET')
-    await page.getByLabel('Path').fill('/api/hello')
+    await page.getByLabel('Path', {exact: true}).fill('/api/hello')
     await page.locator('button.btn-primary', {hasText: 'Send'}).click()
 
     const responseCard = page.locator('.card', {hasText: /^Response/})
@@ -32,7 +32,7 @@ test.describe('HTTP Probe view', () => {
     })
     await openView('http-probe', 'HTTP Probe')
     await page.getByLabel('Method').selectOption('DELETE')
-    const path = page.getByLabel('Path')
+    const path = page.getByLabel('Path', {exact: true})
     await path.fill('/api/hello')
 
     await path.press('Enter')
@@ -48,13 +48,13 @@ test.describe('HTTP Probe view', () => {
     await openView('http-probe', 'HTTP Probe')
 
     await page.getByLabel('Method').selectOption('POST')
-    await page.getByLabel('Path').fill('/something')
+    await page.getByLabel('Path', {exact: true}).fill('/something')
     await page.getByLabel('Request body').fill('{"k":1}')
 
     await page.getByRole('button', {name: /Clear/}).click()
 
     await expect(page.getByLabel('Method')).toHaveValue('GET')
-    await expect(page.getByLabel('Path')).toHaveValue('')
+    await expect(page.getByLabel('Path', {exact: true})).toHaveValue('')
     await expect(page.getByLabel('Request body')).toHaveCount(0)
   })
 
@@ -65,7 +65,7 @@ test.describe('HTTP Probe view', () => {
     })
 
     await expect(page.getByLabel('Method')).toBeVisible()
-    await expect(page.getByLabel('Path')).toBeVisible()
+    await expect(page.getByLabel('Path', {exact: true})).toBeVisible()
 
     await page.getByLabel('Method').selectOption('POST')
     await expect(page.getByLabel('Request body')).toBeVisible()
