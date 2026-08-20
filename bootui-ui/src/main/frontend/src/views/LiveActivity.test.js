@@ -844,10 +844,14 @@ describe('LiveActivity', () => {
       await wrapper.find('#activity-correlation-filter').setValue('corr-1')
       await vi.advanceTimersByTimeAsync(300)
       vi.useRealTimers()
-      await flushPromises()
+      // Deriving the identity goes through the real Web Crypto digest, which settles on its own
+      // microtask timeline: waiting for the rendered outcome keeps this honest on a slow machine.
+      await vi.waitFor(async () => {
+        await flushPromises()
+        expect(wrapper.text()).not.toContain('GET /api/other')
+      })
 
       expect(wrapper.text()).toContain('GET /api/todos')
-      expect(wrapper.text()).not.toContain('GET /api/other')
       const urls = fetchStub.mock.calls.map((call) => String(call[0]))
       expect(urls.some((url) => url.includes('corr-1'))).toBe(false)
       expect(urls.some((url) => url.includes(CORR_LOOKUP))).toBe(false)
@@ -863,9 +867,11 @@ describe('LiveActivity', () => {
       await wrapper.find('#activity-correlation-filter').setValue('bad\u0007value')
       await vi.advanceTimersByTimeAsync(300)
       vi.useRealTimers()
-      await flushPromises()
+      await vi.waitFor(async () => {
+        await flushPromises()
+        expect(wrapper.text()).toContain('That is not a usable correlation identifier.')
+      })
 
-      expect(wrapper.text()).toContain('That is not a usable correlation identifier.')
       expect(wrapper.text()).toContain('GET /api/other')
     })
 
@@ -880,9 +886,11 @@ describe('LiveActivity', () => {
       await wrapper.findAll('.activity-correlation-chip')[0].trigger('click')
       await vi.advanceTimersByTimeAsync(500)
       vi.useRealTimers()
-      await flushPromises()
+      await vi.waitFor(async () => {
+        await flushPromises()
+        expect(wrapper.text()).toContain('Clear correlation filter')
+      })
 
-      expect(wrapper.text()).toContain('Clear correlation filter')
       expect(wrapper.text()).toContain('GET /api/todos')
       expect(wrapper.text()).not.toContain('GET /api/other')
     })

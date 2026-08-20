@@ -78,6 +78,12 @@ class WebFluxCustomPathIntegrationTest extends AbstractBootUiApiConformanceTest 
         return API_PATH;
     }
 
+    /** This deployment serves the application behind {@code spring.webflux.base-path=/host}. */
+    @Override
+    protected String applicationPath(String relativePath) {
+        return "/host" + relativePath;
+    }
+
     @Override
     protected Set<String> unsupportedReadContracts() {
         // PR #726 moves these rebuilt reactive handlers behind the configured API path. Keep C1

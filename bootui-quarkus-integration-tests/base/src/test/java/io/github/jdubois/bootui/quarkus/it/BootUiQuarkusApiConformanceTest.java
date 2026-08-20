@@ -66,4 +66,10 @@ class BootUiQuarkusApiConformanceTest extends AbstractBootUiApiConformanceTest {
     protected Set<String> actionlessPanels() {
         return Set.of("config");
     }
+
+    /** The integration-test application exposes {@code /widgets} rather than the sample catalogue. */
+    @Override
+    protected String correlationProbePath() {
+        return "/widgets";
+    }
 }

@@ -61,6 +61,18 @@ class BootUiCustomPathBootTest extends AbstractBootUiApiConformanceTest {
         return "/host/internal/bootui-api";
     }
 
+    /** The integration-test application exposes {@code /widgets} rather than the sample catalogue. */
+    @Override
+    protected String correlationProbePath() {
+        return "/widgets";
+    }
+
+    /** This deployment serves the application behind {@code quarkus.http.root-path=/host}. */
+    @Override
+    protected String applicationPath(String relativePath) {
+        return "/host" + relativePath;
+    }
+
     @Test
     void shellAndApiComposeWithTheQuarkusRootPath() {
         BootUiHttpProbe probe = probe();

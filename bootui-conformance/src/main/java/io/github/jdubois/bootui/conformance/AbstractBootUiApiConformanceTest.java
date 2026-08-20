@@ -985,6 +985,16 @@ public abstract class AbstractBootUiApiConformanceTest {
         return runtime() == Runtime.SPRING_WEBFLUX ? "/api/notes" : "/api/sample/products";
     }
 
+    /**
+     * Maps an application-relative path onto the URL this runtime actually serves it from.
+     *
+     * <p>Defaults to the path itself. A deployment behind a context path, a servlet prefix, or an HTTP
+     * root path overrides this so the correlation probes reach a real endpoint there too.</p>
+     */
+    protected String applicationPath(String relativePath) {
+        return relativePath;
+    }
+
     @Test
     void correlationIdentifiersAreCapturedBoundedAndMaskedOnEveryRuntime() {
         assumeTrue(isPanelUsableInLiveManifest("http-exchanges"), "http-exchanges panel is not available here");
@@ -994,7 +1004,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         String overlong = "f".repeat(400);
         String credential = "Bearer conformance-credential-" + System.nanoTime();
         probe().get(
-                        probePath,
+                        applicationPath(probePath),
                         Map.of(
                                 "X-Correlation-ID", correlationValue,
                                 "X-Request-Id", "conformance-request",
@@ -1007,7 +1017,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         // carrying the full set of identifiers, so match on that rather than on a unique path.
         JsonNode exchange = null;
         for (JsonNode candidate : probe().get(api("/http-exchanges")).json().path("exchanges")) {
-            if (probePath.equals(candidate.path("path").asText())
+            if (candidate.path("path").asText().endsWith(probePath)
                     && candidate.path("correlationIds").size() == 3) {
                 exchange = candidate;
                 break;
@@ -1077,14 +1087,14 @@ public abstract class AbstractBootUiApiConformanceTest {
 
         String probePath = correlationProbePath();
         String correlationValue = "conformance-activity-" + System.nanoTime();
-        probe().get(probePath, Map.of("X-Correlation-ID", correlationValue));
+        probe().get(applicationPath(probePath), Map.of("X-Correlation-ID", correlationValue));
 
         // One read, wide window: the feed is capped by default and start-up activity alone can fill it,
         // while every extra call would push the probe out of the bounded exchange buffer behind it.
         JsonNode report = probe().get(api("/activity") + "?limit=500").json();
         JsonNode request = null;
         for (JsonNode entry : report.path("entries")) {
-            if (probePath.equals(entry.path("path").asText())
+            if (entry.path("path").asText().endsWith(probePath)
                     && "REQUEST".equals(entry.path("type").asText())
                     && entry.path("correlationIds").size() == 1) {
                 request = entry;

@@ -59,6 +59,12 @@ class BootUiCustomPathIntegrationTests extends AbstractBootUiApiConformanceTest 
         return API_PATH;
     }
 
+    /** This deployment serves the application behind {@code server.servlet.context-path=/host}. */
+    @Override
+    protected String applicationPath(String relativePath) {
+        return "/host" + relativePath;
+    }
+
     @Test
     void servesTheShellAssetsAndApiUnderConfiguredPaths() {
         BootUiHttpProbe probe = probe();
