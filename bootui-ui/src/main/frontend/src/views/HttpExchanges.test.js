@@ -104,4 +104,81 @@ describe('HTTP Exchanges', () => {
       expect.objectContaining({signal: expect.any(AbortSignal)})
     )
   })
+
+  it('shows captured correlation identifiers masked, and cross-links by identity only', async () => {
+    const correlated = report()
+    correlated.exchanges[0].correlationIds = [
+      {name: 'x-correlation-id', value: '******', masked: true, truncated: false, lookupId: '88b87faa5f574f9b'}
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(correlated)))
+
+    const wrapper = mount(HttpExchanges, {
+      global: {stubs: {RouterLink: {props: ['to'], template: '<a :href="JSON.stringify(to)"><slot /></a>'}}}
+    })
+    await flushPromises()
+    await wrapper.find('.http-exchanges-detail-toggle').trigger('click')
+
+    const detail = wrapper.find('.http-exchanges-detail')
+    expect(detail.text()).toContain('Correlation identifiers')
+    expect(detail.text()).toContain('x-correlation-id')
+    const link = detail.findAll('a').at(-1)
+    expect(link.attributes('href')).toContain('/activity')
+    expect(link.attributes('href')).toContain('88b87faa5f574f9b')
+  })
+
+  it('withholds the identifier value entirely under a metadata-only exposure policy', async () => {
+    const correlated = report()
+    correlated.exchanges[0].correlationIds = [
+      {name: 'x-request-id', value: null, masked: true, truncated: true, lookupId: '74a2f8fde4aec9c7'}
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(correlated)))
+
+    const wrapper = mount(HttpExchanges, {
+      global: {stubs: {RouterLink: {props: ['to'], template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+    await wrapper.find('.http-exchanges-detail-toggle').trigger('click')
+
+    const detail = wrapper.find('.http-exchanges-detail')
+    expect(detail.text()).toContain('Withheld')
+    expect(detail.text()).toContain('truncated')
+  })
+
+  it('shows no correlation section when nothing was captured', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report())))
+
+    const wrapper = mount(HttpExchanges, {
+      global: {stubs: {RouterLink: {props: ['to'], template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+    await wrapper.find('.http-exchanges-detail-toggle').trigger('click')
+
+    expect(wrapper.find('.http-exchanges-detail').text()).not.toContain('Correlation identifiers')
+  })
+  it('offers copy only for a value the exposure policy already revealed', async () => {
+    const revealed = report()
+    revealed.exchanges[0].correlationIds = [
+      {name: 'x-correlation-id', value: 'corr-1', masked: false, truncated: false, lookupId: '88b87faa5f574f9b'},
+      {name: 'x-request-id', value: '******', masked: true, truncated: false, lookupId: '74a2f8fde4aec9c7'}
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(revealed)))
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', {clipboard: {writeText}})
+
+    const wrapper = mount(HttpExchanges, {
+      global: {stubs: {RouterLink: {props: ['to'], template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+    await wrapper.find('.http-exchanges-detail-toggle').trigger('click')
+
+    const copyButtons = wrapper
+      .find('.http-exchanges-detail')
+      .findAll('button')
+      .filter((button) => button.text().includes('Copy'))
+    expect(copyButtons).toHaveLength(1)
+
+    await copyButtons[0].trigger('click')
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith('corr-1')
+  })
 })

@@ -16,6 +16,8 @@ import io.github.jdubois.bootui.engine.activity.BufferedActivityStore;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdPolicy;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdSettings;
 import io.github.jdubois.bootui.engine.email.CapturedEmail;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.email.EmailStore;
@@ -196,6 +198,63 @@ class LiveActivityResourceTests {
 
         assertThat(report).isNotNull();
         assertThat(report.pageInfo()).isNull();
+    }
+
+    @Test
+    void mergedReportCarriesConfiguredCorrelationIdentifiersAndPropagatesThemToCorrelatedChildren() {
+        // Parity guard: Quarkus must read the *configured* header names, not just the built-ins, on the
+        // Live Activity path too. Passing the engine defaults here instead would leave a cross-link from
+        // HTTP Exchanges landing on an empty feed.
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(50);
+        buffer.record(new CapturedHttpExchange(
+                Instant.ofEpochMilli(1_000L),
+                "GET",
+                URI.create("http://localhost:8080/orders"),
+                200,
+                25L,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of("X-Tenant-Trace", List.of("tenant-9")),
+                Map.of(),
+                "trace-a"));
+        EmailCaptureService emailService =
+                new EmailCaptureService(new EmailStore(10), new QuarkusExposurePolicy(config(Map.of())), false, false);
+        emailService.setTraceIdProvider(() -> "trace-a");
+        emailService.capture(CapturedEmail.builder()
+                .from("noreply@example.com")
+                .to(List.of("user@example.com"))
+                .subject("Welcome")
+                .textBody("hello")
+                .build());
+
+        LiveActivityResource resource = resourceWith(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                buffer,
+                satisfiedEmailCaptureService(emailService),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                new RabbitActivityRecorder(true, false, 200, 16),
+                config(Map.of(QuarkusPanelAvailability.EMAIL_PRESENT_KEY, "true")),
+                restClientRecorder(false),
+                CorrelationIdSettings.of("X-Tenant-Trace"));
+
+        LiveActivityReport report = resource.mergedReport(0);
+
+        ActivityEntryDto request = report.entries().stream()
+                .filter(entry -> "REQUEST".equals(entry.type()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(request.correlationIds()).singleElement().satisfies(id -> {
+            assertThat(id.name()).isEqualTo("x-tenant-trace");
+            assertThat(id.value()).isEqualTo("******");
+            assertThat(id.lookupId()).isEqualTo(CorrelationIdPolicy.lookupId("tenant-9"));
+        });
+        assertThat(report.entries()).anySatisfy(entry -> {
+            assertThat(entry.type()).isEqualTo("MAIL");
+            assertThat(entry.correlationLookupIds()).containsExactly(CorrelationIdPolicy.lookupId("tenant-9"));
+        });
     }
 
     @Test
@@ -709,6 +768,30 @@ class LiveActivityResourceTests {
             RabbitActivityRecorder rabbitRecorder,
             SmallRyeConfig config,
             RestClientTraceRecorder restClientTraceRecorder) {
+        return resourceWith(
+                activityStore,
+                settings,
+                dataSources,
+                buffer,
+                emailCaptureService,
+                kafkaRecorder,
+                rabbitRecorder,
+                config,
+                restClientTraceRecorder,
+                CorrelationIdSettings.defaults());
+    }
+
+    private static LiveActivityResource resourceWith(
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings settings,
+            Instance<DataSource> dataSources,
+            HttpExchangeBuffer buffer,
+            Instance<EmailCaptureService> emailCaptureService,
+            KafkaActivityRecorder kafkaRecorder,
+            RabbitActivityRecorder rabbitRecorder,
+            SmallRyeConfig config,
+            RestClientTraceRecorder restClientTraceRecorder,
+            CorrelationIdSettings correlationSettings) {
         return new LiveActivityResource(
                 buffer,
                 new QuarkusExposurePolicy(config),
@@ -726,7 +809,8 @@ class LiveActivityResourceTests {
                 kafkaRecorder,
                 rabbitRecorder,
                 restClientTraceRecorder,
-                selfTelemetryClassifier(config));
+                selfTelemetryClassifier(config),
+                correlationSettings);
     }
 
     private static RestClientTraceRecorder restClientRecorder(boolean enabled) {

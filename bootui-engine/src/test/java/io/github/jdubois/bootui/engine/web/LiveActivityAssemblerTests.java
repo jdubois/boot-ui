@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.CorrelationIdDto;
 import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
@@ -14,6 +15,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdPolicy;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
@@ -1272,6 +1274,7 @@ class LiveActivityAssemblerTests {
                 null,
                 traceId,
                 List.of(),
+                List.of(),
                 List.of());
     }
 
@@ -1405,5 +1408,95 @@ class LiveActivityAssemblerTests {
                 null,
                 "OPEN",
                 0);
+    }
+
+    private static HttpExchangeDto correlatedRequest(String id, String traceId, long epochMillis, String lookupId) {
+        return new HttpExchangeDto(
+                id,
+                Instant.ofEpochMilli(epochMillis),
+                "GET",
+                "/orders",
+                null,
+                "http://localhost:8080/orders",
+                200,
+                "2xx",
+                12L,
+                34L,
+                "127.0.0.1",
+                null,
+                null,
+                traceId,
+                List.of(),
+                List.of(),
+                List.of(new CorrelationIdDto("x-correlation-id", "******", true, false, lookupId)));
+    }
+
+    @Test
+    void carriesCorrelationIdentifiersOnRequestsAndPropagatesThemToNestedChildren() {
+        String lookupId = CorrelationIdPolicy.lookupId("corr-1");
+
+        LiveActivityReport report = assembler.report(
+                requests(correlatedRequest("req-1", "trace-a", 1_000L, lookupId)),
+                List.of(sql(10, "select 1", "trace-a", 1_010L)),
+                true,
+                null,
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false);
+
+        ActivityEntryDto request = entry(report, "req-1");
+        assertThat(request.correlationIds()).singleElement().satisfies(id -> {
+            assertThat(id.name()).isEqualTo("x-correlation-id");
+            assertThat(id.value()).isEqualTo("******");
+            assertThat(id.masked()).isTrue();
+        });
+        assertThat(request.correlationLookupIds()).containsExactly(lookupId);
+
+        ActivityEntryDto sqlEntry = entry(report, "sql-10");
+        assertThat(sqlEntry.parentId()).isEqualTo("req-1");
+        assertThat(sqlEntry.correlationLookupIds()).containsExactly(lookupId);
+        assertThat(sqlEntry.correlationIds()).isEmpty();
+    }
+
+    @Test
+    void leavesUncorrelatedActivityWithoutCorrelationIdentifiers() {
+        String lookupId = CorrelationIdPolicy.lookupId("corr-1");
+
+        LiveActivityReport report = assembler.report(
+                requests(correlatedRequest("req-1", "trace-a", 1_000L, lookupId)),
+                List.of(sql(11, "select 2", "trace-b", 1_010L)),
+                true,
+                null,
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false);
+
+        assertThat(entry(report, "sql-11").correlationLookupIds()).isEmpty();
     }
 }

@@ -12,6 +12,8 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
+import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.CorrelationIdDto;
 import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
@@ -28,6 +30,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdPolicy;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.time.Instant;
 import java.util.List;
@@ -1252,6 +1255,28 @@ class LiveActivityServiceTests {
         return controller;
     }
 
+    private static HttpExchangeDto correlatedExchange(
+            String id, Instant timestamp, String path, String traceId, String lookupId) {
+        return new HttpExchangeDto(
+                id,
+                timestamp,
+                "GET",
+                path,
+                null,
+                path,
+                200,
+                "SUCCESS",
+                12L,
+                null,
+                null,
+                null,
+                null,
+                traceId,
+                List.of(),
+                List.of(),
+                List.of(new CorrelationIdDto("x-correlation-id", "******", true, false, lookupId)));
+    }
+
     private static HttpExchangeDto exchange(
             String id, Instant timestamp, String method, String path, int status, Long durationMs) {
         return new HttpExchangeDto(
@@ -1269,6 +1294,7 @@ class LiveActivityServiceTests {
                 null,
                 null,
                 "trace-" + id,
+                List.of(),
                 List.of(),
                 List.of());
     }
@@ -1494,5 +1520,57 @@ class LiveActivityServiceTests {
                 success ? null : "java.lang.RuntimeException",
                 success ? null : "boom",
                 thread);
+    }
+
+    @Test
+    void carriesCorrelationIdentifiersAndPropagatesThemToCorrelatedActivity() {
+        String lookupId = CorrelationIdPolicy.lookupId("corr-1");
+        LiveActivityService service = service(
+                requests(correlatedExchange("r1", BASE.plusMillis(1000), "/orders", "trace-a", lookupId)),
+                sql(sqlEntryOn(1, BASE.plusMillis(1010).toEpochMilli(), "main", "trace-a")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        ActivityEntryDto request = report.entries().stream()
+                .filter(e -> "REQUEST".equals(e.type()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(request.correlationIds())
+                .singleElement()
+                .satisfies(id -> assertThat(id.value()).isEqualTo("******"));
+        assertThat(request.correlationLookupIds()).containsExactly(lookupId);
+
+        ActivityEntryDto sqlEntry = report.entries().stream()
+                .filter(e -> "SQL".equals(e.type()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(sqlEntry.parentId()).isEqualTo("r1");
+        assertThat(sqlEntry.correlationLookupIds()).containsExactly(lookupId);
+        assertThat(sqlEntry.correlationIds()).isEmpty();
+    }
+
+    @Test
+    void leavesActivityWithoutACorrelatedRequestFreeOfIdentifiers() {
+        String lookupId = CorrelationIdPolicy.lookupId("corr-1");
+        LiveActivityService service = service(
+                requests(correlatedExchange("r1", BASE.plusMillis(1000), "/orders", "trace-a", lookupId)),
+                sql(sqlEntryOn(2, BASE.plusMillis(1010).toEpochMilli(), "other-thread", "trace-zzz")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        ActivityEntryDto sqlEntry = report.entries().stream()
+                .filter(e -> "SQL".equals(e.type()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(sqlEntry.parentId()).isNull();
+        assertThat(sqlEntry.correlationLookupIds()).isEmpty();
     }
 }

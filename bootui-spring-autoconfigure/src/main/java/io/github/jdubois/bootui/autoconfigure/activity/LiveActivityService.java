@@ -27,6 +27,8 @@ import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.correlation.ActivityCorrelationPropagation;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdExtractor;
 import io.github.jdubois.bootui.engine.jms.JmsActivityEntries;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
@@ -248,6 +250,11 @@ public class LiveActivityService {
         }
 
         all.sort(Comparator.comparingLong(ActivityEntryDto::timestamp).reversed());
+
+        // Stamp every already-correlated child with its owning request's opaque correlation lookup
+        // identities. Runs before the visibility cap so a child that survives the cap keeps the identity
+        // of the request it belongs to, even when that request did not.
+        all = new ArrayList<>(ActivityCorrelationPropagation.propagate(all));
 
         Map<String, Integer> typeCounts = new LinkedHashMap<>();
         for (ActivityEntryDto entry : all) {
@@ -496,7 +503,9 @@ public class LiveActivityService {
                 true,
                 null,
                 securedPrincipal,
-                sqlNPlusOneSuspected);
+                sqlNPlusOneSuspected,
+                exchange.correlationIds(),
+                CorrelationIdExtractor.lookupIds(exchange.correlationIds()));
     }
 
     private ActivityEntryDto toSqlEntry(SqlTraceEntryDto entry, String parentId) {

@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdSettings;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
@@ -150,6 +151,7 @@ public class LiveActivityResource {
     private final RabbitActivityRecorder rabbitRecorder;
     private final RestClientTraceRecorder restClientTraceRecorder;
     private final SelfTelemetryClassifier selfClassifier;
+    private final CorrelationIdSettings correlationSettings;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
     private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
@@ -175,7 +177,8 @@ public class LiveActivityResource {
             KafkaActivityRecorder kafkaRecorder,
             RabbitActivityRecorder rabbitRecorder,
             RestClientTraceRecorder restClientTraceRecorder,
-            SelfTelemetryClassifier selfClassifier) {
+            SelfTelemetryClassifier selfClassifier,
+            CorrelationIdSettings correlationSettings) {
         this.buffer = buffer;
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
@@ -193,6 +196,7 @@ public class LiveActivityResource {
         this.rabbitRecorder = rabbitRecorder;
         this.restClientTraceRecorder = restClientTraceRecorder;
         this.selfClassifier = selfClassifier;
+        this.correlationSettings = correlationSettings;
     }
 
     /**
@@ -443,6 +447,7 @@ public class LiveActivityResource {
                 uri -> !selfClassifier.shouldInclude(selfClassifier.isBootUiPath(uri)),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
+                correlationSettings,
                 null,
                 null,
                 null,
@@ -561,7 +566,9 @@ public class LiveActivityResource {
                 true,
                 entry.parentId(),
                 entry.securedPrincipal(),
-                entry.sqlNPlusOneSuspected());
+                entry.sqlNPlusOneSuspected(),
+                entry.correlationIds(),
+                entry.correlationLookupIds());
     }
 
     /** SQL trace snapshot for one request cycle: entries plus whether the source is present and feeding. */

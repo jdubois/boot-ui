@@ -181,6 +181,7 @@ class RequestProfileAssemblerTests {
                 null,
                 traceId,
                 List.of(),
+                List.of(),
                 List.of());
     }
 

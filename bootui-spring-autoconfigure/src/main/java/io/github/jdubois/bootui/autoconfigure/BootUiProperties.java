@@ -1010,12 +1010,29 @@ public class BootUiProperties {
          */
         private int maxExchanges = 200;
 
+        /**
+         * Additional inbound header names BootUI reads correlation identifiers from, on top of the built-in
+         * {@code X-Correlation-ID}, {@code X-Request-ID} and {@code X-Flow-ID}. Names match
+         * case-insensitively. Credential-bearing names (authorization, cookies, proxy credentials, API-key
+         * and token headers) are refused even when configured, as are invalid or over-long names and any
+         * name beyond the bound on additional names; refused names are reported once at startup.
+         */
+        private String[] correlationIdHeaders = {};
+
         public int getMaxExchanges() {
             return maxExchanges;
         }
 
         public void setMaxExchanges(int maxExchanges) {
             this.maxExchanges = maxExchanges;
+        }
+
+        public String[] getCorrelationIdHeaders() {
+            return correlationIdHeaders;
+        }
+
+        public void setCorrelationIdHeaders(String[] correlationIdHeaders) {
+            this.correlationIdHeaders = correlationIdHeaders == null ? new String[0] : correlationIdHeaders;
         }
     }
 

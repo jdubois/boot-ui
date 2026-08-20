@@ -6,12 +6,14 @@ import PanelSkeleton from './components/PanelSkeleton.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
 import {formatNumber} from '../utils/format.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 
 const filter = ref('')
 const method = ref('')
 const statusClass = ref('')
 const expanded = ref(new Set())
+const {copiedKey, copyToClipboard} = useCopyToClipboard()
 
 const {
   data,
@@ -110,6 +112,37 @@ function headerValues(header) {
 
 function hasMetadata(exchange) {
   return Boolean(exchange.traceId || exchange.remoteAddress || exchange.principal || exchange.sessionId)
+}
+
+// Correlation identifiers captured from this exchange's own inbound headers. Values are masked unless
+// `bootui.expose-values=FULL`, and withheld entirely under METADATA_ONLY — but the opaque lookup
+// identity is always present, so cross-linking into Live Activity keeps working while masked.
+function correlationIds(exchange) {
+  return Array.isArray(exchange.correlationIds) ? exchange.correlationIds : []
+}
+
+function correlationValue(id) {
+  if (id.value == null) return 'Withheld'
+  return id.value
+}
+
+// Copy is offered only for a value the live exposure policy already revealed in this response: BootUI
+// never re-fetches or unmasks an identifier to satisfy a clipboard action.
+function isCorrelationCopyable(id) {
+  return id.value != null && !id.masked
+}
+
+function correlationTitle(id) {
+  const bounds = id.truncated ? ' (truncated to the captured length)' : ''
+  if (id.value == null) return `Value withheld by the current value-exposure policy${bounds}`
+  if (id.masked) return `Value masked by the current value-exposure policy${bounds}`
+  return `Captured from the ${id.name} request header${bounds}`
+}
+
+// Only the opaque lookup identity ever travels in a BootUI-generated URL: the raw identifier stays out
+// of the address bar, browser history and any shared link.
+function correlationActivityLink(id) {
+  return {path: '/activity', query: {correlationLookupId: id.lookupId}}
 }
 
 function detailCount(exchange) {
@@ -258,6 +291,48 @@ onMounted(() => {
                       <dd v-if="exchange.traceId" class="col-sm-9">
                         <code>{{ exchange.traceId }}</code>
                       </dd>
+                    </dl>
+                  </div>
+
+                  <div v-if="correlationIds(exchange).length" class="mb-3">
+                    <h3 class="h6">Correlation identifiers</h3>
+                    <dl class="row small mb-0">
+                      <template v-for="id in correlationIds(exchange)" :key="`correlation-${exchange.id}-${id.name}`">
+                        <dt class="col-sm-3">{{ id.name }}</dt>
+                        <dd class="col-sm-9 d-flex flex-wrap align-items-center gap-2">
+                          <code :class="{'text-muted': id.value == null}" :title="correlationTitle(id)">{{
+                            correlationValue(id)
+                          }}</code>
+                          <span v-if="id.truncated" class="badge rounded-pill text-bg-light" title="Truncated"
+                            >truncated</span
+                          >
+                          <button
+                            v-if="isCorrelationCopyable(id)"
+                            class="btn btn-outline-secondary btn-sm rounded-pill"
+                            type="button"
+                            :title="`Copy the ${id.name} value`"
+                            @click="copyToClipboard(id.value, `correlation-${exchange.id}-${id.name}`)"
+                          >
+                            <i
+                              :class="[
+                                'bi',
+                                copiedKey === `correlation-${exchange.id}-${id.name}` ? 'bi-check2' : 'bi-clipboard',
+                                'me-1'
+                              ]"
+                              aria-hidden="true"
+                            ></i
+                            >{{ copiedKey === `correlation-${exchange.id}-${id.name}` ? 'Copied' : 'Copy' }}
+                          </button>
+                          <router-link
+                            v-if="id.lookupId"
+                            :to="correlationActivityLink(id)"
+                            class="btn btn-outline-secondary btn-sm rounded-pill"
+                            :title="`Show every activity correlated with this ${id.name} in Live Activity`"
+                          >
+                            <i class="bi bi-broadcast me-1" aria-hidden="true"></i>Live Activity
+                          </router-link>
+                        </dd>
+                      </template>
                     </dl>
                   </div>
 

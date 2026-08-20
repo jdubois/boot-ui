@@ -42,6 +42,33 @@ describe('filterEntries', () => {
   it('keeps only error-severity entries when errorsOnly is set', () => {
     expect(filterEntries(entries, {errorsOnly: true}).map((e) => e.id)).toEqual(['r2', 'e1'])
   })
+
+  it('filters by an exact correlation lookup identity, keeping the request and its correlated children', () => {
+    const correlated = [
+      {id: 'r1', type: 'REQUEST', severity: 'OK', summary: 'GET /a', correlationLookupIds: ['aaaa1111']},
+      {id: 's1', type: 'SQL', severity: 'OK', summary: 'select 1', parentId: 'r1', correlationLookupIds: ['aaaa1111']},
+      {id: 'r2', type: 'REQUEST', severity: 'OK', summary: 'GET /b', correlationLookupIds: ['bbbb2222']},
+      {id: 's2', type: 'SQL', severity: 'OK', summary: 'select 2'}
+    ]
+    expect(filterEntries(correlated, {correlationLookupId: 'aaaa1111'}).map((e) => e.id)).toEqual(['r1', 's1'])
+  })
+
+  it('matches a correlation identity case-insensitively and ignores surrounding whitespace', () => {
+    const correlated = [{id: 'r1', type: 'REQUEST', severity: 'OK', correlationLookupIds: ['AAAA1111']}]
+    expect(filterEntries(correlated, {correlationLookupId: ' aaaa1111 '}).map((e) => e.id)).toEqual(['r1'])
+  })
+
+  it('matches nothing when no entry carries the correlation identity', () => {
+    expect(filterEntries(entries, {correlationLookupId: 'aaaa1111'})).toEqual([])
+  })
+
+  it('combines the correlation filter with the other filters', () => {
+    const correlated = [
+      {id: 'r1', type: 'REQUEST', severity: 'OK', summary: 'GET /a', correlationLookupIds: ['aaaa1111']},
+      {id: 's1', type: 'SQL', severity: 'OK', summary: 'select 1', correlationLookupIds: ['aaaa1111']}
+    ]
+    expect(filterEntries(correlated, {correlationLookupId: 'aaaa1111', type: 'SQL'}).map((e) => e.id)).toEqual(['s1'])
+  })
 })
 
 describe('groupEntries', () => {

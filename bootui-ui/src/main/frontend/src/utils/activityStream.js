@@ -37,27 +37,45 @@ export function nestEntries(entries) {
 }
 
 /**
- * Filter activity entries by type, severity and a free-text needle (all case-insensitive). An
- * {@code errorsOnly} flag keeps only ERROR-severity entries. Empty/false filters match all.
+ * Filter activity entries by type, severity, a free-text needle (all case-insensitive) and an exact
+ * correlation-identifier lookup identity. An {@code errorsOnly} flag keeps only ERROR-severity entries.
+ * Empty/false filters match all.
  *
  * The free-text needle is matched against the entry summary, detail, path, method and type so a
  * developer can quickly narrow to a path fragment, status, exception class or SQL snippet.
  *
+ * The correlation filter is deliberately an exact match on the opaque, server-derived lookup identity
+ * rather than a substring match on the identifier itself: identifiers are masked by default, and the
+ * server already propagated the owning request's identities onto the entries correlated with it, so
+ * matching on them returns that request together with its correlated children.
+ *
  * @param {Array<object>} entries
- * @param {{type?: string, severity?: string, text?: string, errorsOnly?: boolean}} filters
+ * @param {{type?: string, severity?: string, text?: string, errorsOnly?: boolean,
+ *   correlationLookupId?: string}} filters
  * @returns {Array<object>}
  */
-export function filterEntries(entries, {type = '', severity = '', text = '', errorsOnly = false} = {}) {
+export function filterEntries(
+  entries,
+  {type = '', severity = '', text = '', errorsOnly = false, correlationLookupId = ''} = {}
+) {
   const typeFilter = (type || '').toUpperCase()
   const severityFilter = (severity || '').toUpperCase()
   const needle = (text || '').trim().toLowerCase()
+  const lookupId = (correlationLookupId || '').trim().toLowerCase()
   return (entries || []).filter((entry) => {
     if (errorsOnly && (entry.severity || '').toUpperCase() !== 'ERROR') return false
     if (typeFilter && (entry.type || '').toUpperCase() !== typeFilter) return false
     if (severityFilter && (entry.severity || '').toUpperCase() !== severityFilter) return false
     if (needle && !matchesText(entry, needle)) return false
+    if (lookupId && !matchesCorrelation(entry, lookupId)) return false
     return true
   })
+}
+
+function matchesCorrelation(entry, lookupId) {
+  const ids = entry.correlationLookupIds
+  if (!Array.isArray(ids) || !ids.length) return false
+  return ids.some((id) => (id || '').toLowerCase() === lookupId)
 }
 
 function matchesText(entry, needle) {

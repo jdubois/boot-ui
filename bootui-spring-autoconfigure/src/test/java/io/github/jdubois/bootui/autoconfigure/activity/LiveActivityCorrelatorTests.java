@@ -582,6 +582,7 @@ class LiveActivityCorrelatorTests {
                 null,
                 null,
                 List.of(),
+                List.of(),
                 List.of());
     }
 
@@ -602,6 +603,7 @@ class LiveActivityCorrelatorTests {
                 null,
                 null,
                 traceId,
+                List.of(),
                 List.of(),
                 List.of());
     }

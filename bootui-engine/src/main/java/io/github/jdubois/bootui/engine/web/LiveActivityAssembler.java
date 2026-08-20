@@ -12,6 +12,8 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
+import io.github.jdubois.bootui.engine.correlation.ActivityCorrelationPropagation;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdExtractor;
 import io.github.jdubois.bootui.engine.jms.JmsActivityEntries;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
@@ -336,7 +338,9 @@ public final class LiveActivityAssembler {
                     false,
                     null,
                     securedPrincipal,
-                    sqlNPlusOneSuspected));
+                    sqlNPlusOneSuspected,
+                    e.correlationIds(),
+                    CorrelationIdExtractor.lookupIds(e.correlationIds())));
         }
 
         Long slowestQuery = null;
@@ -392,6 +396,11 @@ public final class LiveActivityAssembler {
         }
 
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
+
+        // Stamp every already-correlated child with its owning request's opaque correlation lookup
+        // identities, so filtering by one identifier returns the request together with its children. This
+        // establishes no new correlation of its own — it only follows the parentId relationships above.
+        entries = new ArrayList<>(ActivityCorrelationPropagation.propagate(entries));
 
         Map<String, Integer> typeCounts = new LinkedHashMap<>();
         for (ActivityEntryDto entry : entries) {

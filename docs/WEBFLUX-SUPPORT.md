@@ -144,7 +144,7 @@ accidentally inherit the Reactor Netty event loop.
 
 | Panel          | Reactive binding                                                                                          |
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
-| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies Actuator's reactive `HttpExchangeRepository` bean instead of the servlet one — same DTO, same UI, same capture semantics |
+| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies Actuator's reactive `HttpExchangeRepository` bean instead of the servlet one — same DTO, same UI, same capture semantics. Correlation-identifier capture (`correlationIds[]`) needed no reactive work at all: the shared `HttpExchangesService` reads it off the request headers this repository already captured, so the bounded header set, masking, and lookup identities are byte-identical to the servlet adapter |
 
 ### 6.3 Rebuilt with a new reactive capture layer (8 panels)
 

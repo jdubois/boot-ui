@@ -44,7 +44,7 @@ will therefore be additive rather than an extension of the SQL-specific panels.
 | Planned  | Error-contract catalogue | Services | Spring exception handlers / Quarkus exception mappers | No | Planned |
 | Planned  | Slow-SQL ranking and URI attribution | Database | Existing SQL Trace and HTTP exchange evidence | No | Planned |
 | Planned  | Copy as cURL | Diagnostics | Existing HTTP Exchanges metadata | No | Planned |
-| Planned  | Correlation-ID filtering | Diagnostics | Existing request and Live Activity capture | No (capture only) | Planned |
+| Delivered | Correlation-ID filtering | Diagnostics | Existing request and Live Activity capture | No (capture only) | Delivered |
 | Planned  | Meter provenance and explanation | Diagnostics | Existing meter registry and curated catalogue | No | Planned |
 | Planned  | Cache tiering and hit ratios | Services | Existing cache managers and native statistics | No | Planned |
 
@@ -591,7 +591,7 @@ Acceptance criteria:
 - Frontend tests cover common methods, ports, encoded paths, repeated query parameters, safe and sensitive headers,
   masked values, CR/LF input, shell metacharacters, missing metadata, clipboard denial, and body-present exchanges.
 
-### 3.14 Correlation-ID filtering — Live Activity 📋 Planned
+### 3.14 Correlation-ID filtering — Live Activity ✅ Delivered
 
 Live Activity correlates retained evidence through trace ids, serving threads, and time windows, but many applications also
 use business or gateway correlation headers that developers recognize directly. This enhancement captures a bounded,
@@ -651,6 +651,32 @@ Acceptance criteria:
 - Tests cover built-in/custom names, mixed casing, multiple IDs, duplicate headers, reserved/invalid names, empty and
   overlong values, masking and live exposure changes, copy denial/success, exact/non-match filtering, child propagation,
   eviction, and equivalent behavior on all three adapters.
+
+Delivered shape (and its honest limits):
+
+- Extraction happens inside the shared `HttpExchangesService`, off headers the three adapters had already captured, so no
+  runtime gained a filter, an interceptor, or a body read. `CorrelationIdPolicy` is the single canonical policy: three
+  built-in names, at most five configured additional names via `bootui.http-exchanges.correlation-id-headers`, at most
+  four identifiers per request, values bounded to 128 characters and flagged `truncated`.
+- Matching uses an opaque lookup identity — the first 16 hex characters of a SHA-256 over a domain-separated, bounded
+  value. The browser derives the same identity through Web Crypto, so a typed identifier never reaches BootUI, never
+  lands in a BootUI-generated URL, and never appears in a log or metric label.
+- Because the identity is a plain digest of a bounded value, it is reproducible by anyone who can already reach the
+  local BootUI endpoint and guess the identifier. That is an accepted trade-off for a local-only console: it buys
+  filtering without ever sending the typed value to the server, and it protects the value against casual shoulder-surfing
+  rather than against an attacker who already has API access.
+- Configured correlation headers are masked in the ordinary request-headers list too, so a `MASKED` policy cannot be
+  defeated by scrolling past the dedicated section; `METADATA_ONLY` withholds both the value and the identity, which
+  honestly makes filtering unavailable rather than shipping a digest of a value the policy refuses to show. `FULL` shows
+  the raw header exactly as before.
+- Trace-propagation header names (`traceparent`, `tracestate`, `b3`, the `x-b3-*` pair, `x-amzn-trace-id`) are refused as
+  configured correlation names: BootUI already parses trace evidence out of them, and masking them as correlation values
+  would silently degrade the trace id it shows.
+- Filtering is therefore a client-side operation over the activity BootUI already returned. With durable persistence
+  enabled it narrows the pages currently loaded; identifiers themselves are not persisted, because the JDBC activity
+  schema is deliberately unchanged, and the UI says so when a filter finds nothing.
+- A browsing context without Web Crypto (a non-secure origin other than localhost) cannot derive an identity; the filter
+  input disables itself and says so, and per-identifier filter actions still work.
 
 ### 3.15 Meter provenance and explanation — Metrics 📋 Planned
 

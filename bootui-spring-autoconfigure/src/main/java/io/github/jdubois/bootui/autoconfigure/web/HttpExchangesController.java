@@ -4,9 +4,13 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdPolicy;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdSettings;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.web.exchanges.HttpExchange;
@@ -28,6 +32,8 @@ public class HttpExchangesController {
 
     private static final String UNAVAILABLE_REASON = "HTTP exchange repository not available";
 
+    private static final Logger log = LoggerFactory.getLogger(HttpExchangesController.class);
+
     private final ObjectProvider<HttpExchangeRepository> repository;
 
     private final BootUiProperties properties;
@@ -37,6 +43,8 @@ public class HttpExchangesController {
     private final BootUiSelfDataFilter selfDataFilter;
 
     private final HttpExchangesService service = new HttpExchangesService();
+
+    private final CorrelationIdSettings correlationSettings;
 
     private HttpExchangeTraceRegistry traceRegistry;
 
@@ -54,6 +62,16 @@ public class HttpExchangesController {
         this.properties = properties;
         this.selfDataFilter = selfDataFilter;
         this.exposure = exposure;
+        this.correlationSettings =
+                CorrelationIdSettings.of(List.of(properties.getHttpExchanges().getCorrelationIdHeaders()));
+        if (!correlationSettings.rejectedHeaderNames().isEmpty()) {
+            log.warn(
+                    "BootUI ignored bootui.http-exchanges.correlation-id-headers entries {}: a correlation-ID "
+                            + "header name must be a valid HTTP field name, must not carry credentials, and at most "
+                            + "{} additional names are accepted",
+                    correlationSettings.rejectedHeaderNames(),
+                    CorrelationIdPolicy.MAX_ADDITIONAL_HEADER_NAMES);
+        }
     }
 
     /**
@@ -85,6 +103,7 @@ public class HttpExchangesController {
                 uri -> !selfDataFilter.shouldInclude(selfDataFilter.isBootUiPath(uri)),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
+                correlationSettings,
                 query,
                 method,
                 statusClass,

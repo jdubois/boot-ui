@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdSettings;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
@@ -31,14 +32,19 @@ public class HttpExchangesResource {
     private final HttpExchangeBuffer buffer;
     private final QuarkusExposurePolicy exposure;
     private final SelfTelemetryClassifier selfClassifier;
+    private final CorrelationIdSettings correlationSettings;
     private final HttpExchangesService service = new HttpExchangesService();
 
     @Inject
     public HttpExchangesResource(
-            HttpExchangeBuffer buffer, QuarkusExposurePolicy exposure, SelfTelemetryClassifier selfClassifier) {
+            HttpExchangeBuffer buffer,
+            QuarkusExposurePolicy exposure,
+            SelfTelemetryClassifier selfClassifier,
+            CorrelationIdSettings correlationSettings) {
         this.buffer = buffer;
         this.exposure = exposure;
         this.selfClassifier = selfClassifier;
+        this.correlationSettings = correlationSettings;
     }
 
     @GET
@@ -54,6 +60,7 @@ public class HttpExchangesResource {
                 uri -> !selfClassifier.shouldInclude(selfClassifier.isBootUiPath(uri)),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
+                correlationSettings,
                 query,
                 method,
                 statusClass,

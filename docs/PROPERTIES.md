@@ -66,6 +66,7 @@ default — on both adapters. This includes the safety keys (`bootui.allow-non-l
 `bootui.authentication.token`),
 `bootui.expose-values`, `bootui.mask-secrets`, `bootui.path` / `bootui.api-path`,
 `bootui.monitoring.exclude-self`, `bootui.http-exchanges.max-exchanges` (default `200`),
+`bootui.http-exchanges.correlation-id-headers` (empty by default),
 `bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
 `bootui.sql-trace.*`, `bootui.transactions.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
@@ -534,6 +535,7 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | -------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
 | `bootui.panels.http-exchanges.enabled`       | `true`  | Show recent inbound HTTP exchanges and create a bounded in-memory recorder when none exists.    |
 | `bootui.http-exchanges.max-exchanges`        | `200`   | Maximum recent HTTP exchanges retained in memory. Requires restart because it sizes the buffer. |
+| `bootui.http-exchanges.correlation-id-headers` | _(empty)_ | Additional inbound header names to read correlation identifiers from, on top of the built-in `X-Correlation-ID`, `X-Request-ID` and `X-Flow-ID`. At most five names; invalid, credential-bearing (authorization, cookies, proxy credentials, API keys, session ids) or trace-propagation (`traceparent`, `tracestate`, `b3`, `x-b3-*`, `x-amzn-trace-id`) names are refused and reported once at startup. Accepted names are masked in the request-header list too, under `bootui.expose-values` rather than `mask-secrets`. |
 | `management.httpexchanges.recording.enabled` | `true`  | Spring Boot recorder switch. Set to `false` to disable capture while leaving the panel visible. |
 
 ### HTTP Probe

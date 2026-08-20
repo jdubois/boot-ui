@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdSettings;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
@@ -115,7 +116,8 @@ class QuarkusActivityCaptureTests {
                 new KafkaActivityRecorder(true, true, 200, 16),
                 new RabbitActivityRecorder(true, false, 200, 16),
                 new RestClientTraceRecorder(true, true, false, false, 200, 1000, 256, 256, 5),
-                new SelfTelemetryClassifier(true, "/bootui", "/bootui/api"));
+                new SelfTelemetryClassifier(true, "/bootui", "/bootui/api"),
+                CorrelationIdSettings.defaults());
     }
 
     private static Thread awaitThreadNamed(String name) throws InterruptedException {

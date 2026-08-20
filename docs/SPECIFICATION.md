@@ -885,6 +885,32 @@ Acceptance criteria:
 - The recorder is bounded by `bootui.http-exchanges.max-exchanges`, defaulting to 200.
 - Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`.
 - The panel is read-only and returns a stable unavailable DTO when no `HttpExchangeRepository` is available.
+- Correlation identifiers are extracted from the already-captured request headers by the shared
+  `HttpExchangesService`, not by any adapter, and exposed as `$.exchanges[].correlationIds[]`
+  (`name`, `value`, `masked`, `truncated`, `lookupId`). `CorrelationIdPolicy` in `bootui-engine` is the single
+  canonical policy for every runtime:
+  - Built-in names `x-correlation-id`, `x-request-id`, `x-flow-id`, matched case-insensitively, plus at most five
+    additional names from `bootui.http-exchanges.correlation-id-headers`.
+  - A configured name is refused when it is not a valid HTTP field name, exceeds 64 characters, names
+    credential-bearing material (`Authorization`, cookies, proxy credentials, API-key/session/secret headers, or
+    anything `SecretMasker` treats as a secret), or names a trace-propagation header (`traceparent`, `tracestate`,
+    `b3`, `x-b3-traceid`, `x-b3-spanid`, `x-amzn-trace-id`) that BootUI already parses trace evidence from. Refusals
+    are reported once at startup by each adapter; names are logged, values never are.
+  - At most four identifiers per request; each value is trimmed, rejected when blank or containing control
+    characters, and bounded to 128 characters with `truncated` set. Duplicate headers fold to the first non-blank
+    value, and output order follows the canonical settings order rather than arrival order.
+  - `value` is `null` under `METADATA_ONLY`, `******` under `MASKED`, and the captured value under `FULL`; masking is
+    applied at response-assembly time, so an exposure change takes effect without restarting capture. The UI offers a
+    copy action only for a value the response already revealed.
+  - The same policy governs the ordinary `requestHeaders[]` rendering of an accepted correlation header, independently
+    of `bootui.http-exchanges.mask-secrets`: masked to `******` under `MASKED`, omitted entirely under `METADATA_ONLY`,
+    and shown under `FULL`. A masked `correlationIds[]` entry beside a plaintext header of the same name would be
+    theatre. Response headers are never a correlation source and are unaffected.
+  - `lookupId` is the first 16 hex characters of `SHA-256("bootui-correlation-id:v1:" + value)`. It is emitted while
+    the value is masked, so exact filtering keeps working without broadcasting raw identifiers, and it is `null` under
+    `METADATA_ONLY` — a policy that refuses to show a value must not hand out a reproducible digest of it, so filtering
+    is honestly unavailable there. The digest is deliberately unsalted so the browser can derive the same identity
+    locally; BootUI never places a raw identifier in a URL, a log line, or a metric label.
 
 ### 5.14.2 Live Activity Panel
 
@@ -1088,6 +1114,14 @@ Acceptance criteria:
 - Sources that are absent or disabled (through their own `bootui.panels.*` toggles) simply drop out of the stream; when
   no source is available the panel returns a stable unavailable report.
 - SQL↔request correlation is presented as approximate and never fabricates trace-id links that do not exist.
+- Correlation identifiers captured on a request (§5.14.1) travel with its `REQUEST` entry as `correlationIds[]`, and
+  their opaque `lookupId` values are propagated as `correlationLookupIds[]` onto the entries BootUI had *already*
+  correlated with that request (`parentId` chains only, depth-bounded, cycle-guarded). Propagation establishes no new
+  correlation of its own, and child entries carry identities only — never a captured value. Filtering by identifier is
+  performed in the browser: the UI derives the same lookup identity locally with Web Crypto, so a raw identifier is
+  never sent to BootUI, never appears in a BootUI-generated URL, and never reaches a log or metric label. Matching is
+  exact on the identity — no substring, prefix, case-insensitive, or fuzzy value matching. Identifiers are not written
+  to the durable activity store, so a persisted-and-reloaded entry carries none.
 - With `bootui.activity.persistence.enabled=false` (the default), behavior, response shape, and the merged in-memory
   feed are unchanged from before persistence existed; no additional bean, thread, or connection is created.
 - With persistence enabled, the backing table is created automatically if absent, entries survive a restart, a failed
@@ -2135,6 +2169,7 @@ Initial properties:
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Cache clear actions after explicit browser confirmation.                            |
 | `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
+| `bootui.http-exchanges.correlation-id-headers` | _(empty)_                            | Additional inbound header names read as correlation identifiers, beyond the built-in `X-Correlation-ID`, `X-Request-ID` and `X-Flow-ID`. Bounded to five names; credential-bearing, trace-propagation or invalid names are refused. |
 | `bootui.email.max-entries`                   | `100`                                   | Maximum outgoing emails retained in memory for the Email panel; oldest evicted first.              |
 | `bootui.email.dev-trap`                      | `false`                                 | Capture outgoing email without handing it to the real mail transport (MailDev/GreenMail-style trap). |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |

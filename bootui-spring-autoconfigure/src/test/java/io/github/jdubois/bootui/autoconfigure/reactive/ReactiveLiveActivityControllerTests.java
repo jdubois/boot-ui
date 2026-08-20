@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
+import io.github.jdubois.bootui.core.dto.CorrelationIdDto;
 import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
@@ -30,6 +31,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdPolicy;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
@@ -911,6 +913,27 @@ class ReactiveLiveActivityControllerTests {
         org.mockito.Mockito.verifyNoInteractions(traces);
     }
 
+    private static HttpExchangeDto correlatedExchange(String id, String traceId, String lookupId) {
+        return new HttpExchangeDto(
+                id,
+                Instant.now(),
+                "GET",
+                "/api/products",
+                null,
+                "/api/products",
+                200,
+                "2xx",
+                5L,
+                100L,
+                "127.0.0.1",
+                null,
+                null,
+                traceId,
+                List.of(),
+                List.of(),
+                List.of(new CorrelationIdDto("x-correlation-id", "******", true, false, lookupId)));
+    }
+
     private static HttpExchangeDto exchange(String id, String method, String path, int status, String traceId) {
         return new HttpExchangeDto(
                 id,
@@ -927,6 +950,7 @@ class ReactiveLiveActivityControllerTests {
                 null,
                 null,
                 traceId,
+                List.of(),
                 List.of(),
                 List.of());
     }
@@ -1086,5 +1110,73 @@ class ReactiveLiveActivityControllerTests {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 16);
         recorder.recordProduce("orders", 0, key, 0L, true, null);
         return recorder.recent().get(0).key();
+    }
+
+    @Test
+    void mergedReportKeepsCorrelationIdentifiersOnRequestsAndPropagatesThemToChildren() {
+        String lookupId = CorrelationIdPolicy.lookupId("corr-1");
+        HttpExchangesController httpExchanges = mock(HttpExchangesController.class);
+        when(httpExchanges.exchanges(null, null, null, null, null))
+                .thenReturn(new HttpExchangesReport(
+                        1,
+                        1,
+                        0,
+                        List.of(correlatedExchange("req-1", "trace-abc", lookupId)),
+                        new PageMetadata(0, 0, 0, 0, 0, false),
+                        null));
+
+        ExceptionStore exceptionStore = new ExceptionStore(50, 20, 30);
+        exceptionStore.record(
+                new IllegalStateException("boom"),
+                "reactor-http-nio-1",
+                "GET",
+                "/api/products",
+                null,
+                "test",
+                "trace-abc");
+
+        BootUiProperties properties = new BootUiProperties();
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                provider(httpExchanges),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                provider(exceptionStore),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
+                empty(RabbitActivityRecorder.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+
+        LiveActivityReport report = controller.mergedReport(0);
+
+        assertThat(report.entries())
+                .filteredOn(entry -> "req-1".equals(entry.id()))
+                .singleElement()
+                .satisfies(entry -> {
+                    assertThat(entry.correlationIds())
+                            .extracting(id -> id.name())
+                            .containsExactly("x-correlation-id");
+                    assertThat(entry.correlationIds().get(0).value()).isEqualTo("******");
+                    assertThat(entry.correlationLookupIds()).containsExactly(lookupId);
+                    assertThat(entry.profileable()).isTrue();
+                });
+        assertThat(report.entries())
+                .filteredOn(entry -> "EXCEPTION".equals(entry.type()))
+                .singleElement()
+                .satisfies(entry -> {
+                    assertThat(entry.parentId()).isEqualTo("req-1");
+                    assertThat(entry.correlationLookupIds()).containsExactly(lookupId);
+                    assertThat(entry.correlationIds()).isEmpty();
+                });
     }
 }

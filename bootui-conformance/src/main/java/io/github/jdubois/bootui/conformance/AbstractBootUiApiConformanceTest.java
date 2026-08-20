@@ -974,6 +974,154 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
     }
 
+    /**
+     * A path this runtime's sample application actually handles, used by the correlation probes.
+     *
+     * <p>It must be a handled route rather than an arbitrary one: the reactive adapter records an
+     * exchange only once a handler has produced a response, so probing an unmapped path would capture
+     * nothing there and quietly turn a cross-runtime assertion into a skip.</p>
+     */
+    protected String correlationProbePath() {
+        return runtime() == Runtime.SPRING_WEBFLUX ? "/api/notes" : "/api/sample/products";
+    }
+
+    @Test
+    void correlationIdentifiersAreCapturedBoundedAndMaskedOnEveryRuntime() {
+        assumeTrue(isPanelUsableInLiveManifest("http-exchanges"), "http-exchanges panel is not available here");
+
+        String probePath = correlationProbePath();
+        String correlationValue = "conformance-correlation-" + System.nanoTime();
+        String overlong = "f".repeat(400);
+        String credential = "Bearer conformance-credential-" + System.nanoTime();
+        probe().get(
+                        probePath,
+                        Map.of(
+                                "X-Correlation-ID", correlationValue,
+                                "X-Request-Id", "conformance-request",
+                                "X-Flow-Id", overlong,
+                                "X-Not-A-Correlation-Id", "ignored",
+                                "Authorization", "Bearer conformance-secret"));
+
+        // Read the report exactly once — the exchange buffer is small, and every extra BootUI API call
+        // made while polling would push the probe out of it. The probe is the only request to that path
+        // carrying the full set of identifiers, so match on that rather than on a unique path.
+        JsonNode exchange = null;
+        for (JsonNode candidate : probe().get(api("/http-exchanges")).json().path("exchanges")) {
+            if (probePath.equals(candidate.path("path").asText())
+                    && candidate.path("correlationIds").size() == 3) {
+                exchange = candidate;
+                break;
+            }
+        }
+        assertThat(exchange)
+                .as("every runtime must capture the correlation probe request at " + probePath)
+                .isNotNull();
+
+        JsonNode identifiers = exchange.path("correlationIds");
+        assertThat(identifiers.isArray()).as("$.exchanges[].correlationIds").isTrue();
+
+        List<String> names = new ArrayList<>();
+        List<String> failures = new ArrayList<>();
+        for (JsonNode identifier : identifiers) {
+            String name = identifier.path("name").asText();
+            names.add(name);
+            if (!identifier.path("masked").isBoolean()
+                    || !identifier.path("truncated").isBoolean()) {
+                failures.add(name + " does not report masked/truncated as booleans");
+            }
+            JsonNode value = identifier.path("value");
+            if (!value.isNull() && !value.isTextual()) {
+                failures.add(name + " carries a value that is neither text nor null");
+            }
+            if (identifier.path("masked").asBoolean(false) && correlationValue.equals(value.asText(null))) {
+                failures.add(name + " leaks the raw identifier while claiming to be masked");
+            }
+            String lookupId = identifier.path("lookupId").asText("");
+            if (!lookupId.matches("[0-9a-f]{16}")) {
+                failures.add(name + " does not carry an opaque 16-hex-character lookup identity");
+            }
+            if (lookupId.contains(correlationValue) || correlationValue.contains(lookupId)) {
+                failures.add(name + " derives a lookup identity that echoes the raw identifier");
+            }
+        }
+
+        // Default policy: the three built-in names, in canonical order, nothing else — and never a
+        // credential-bearing header, even though one was sent on the very same request.
+        assertThat(names)
+                .as("correlation identifiers captured by default")
+                .containsExactly("x-correlation-id", "x-request-id", "x-flow-id");
+        assertThat(identifiers.get(0).path("value").asText("")).isNotEqualTo(correlationValue);
+        assertThat(identifiers.get(2).path("truncated").asBoolean(false))
+                .as("an over-long identifier is bounded and says so")
+                .isTrue();
+        assertThat(identifiers.toString())
+                .as("no correlation identifier may be read from a credential-bearing header")
+                .doesNotContain(credential)
+                .doesNotContain("authorization");
+
+        // The dedicated section masking the value would be theatre if the ordinary request-header list
+        // right below it printed the same value in the clear.
+        assertThat(exchange.toString())
+                .as("the raw correlation identifier must not survive anywhere in the exchange under the "
+                        + "default masking policy")
+                .doesNotContain(correlationValue);
+
+        if (!failures.isEmpty()) {
+            fail("Correlation identifier contract regressed: " + failures);
+        }
+    }
+
+    @Test
+    void correlationIdentitiesReachLiveActivityAndItsCorrelatedChildrenOnEveryRuntime() {
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available here");
+
+        String probePath = correlationProbePath();
+        String correlationValue = "conformance-activity-" + System.nanoTime();
+        probe().get(probePath, Map.of("X-Correlation-ID", correlationValue));
+
+        // One read, wide window: the feed is capped by default and start-up activity alone can fill it,
+        // while every extra call would push the probe out of the bounded exchange buffer behind it.
+        JsonNode report = probe().get(api("/activity") + "?limit=500").json();
+        JsonNode request = null;
+        for (JsonNode entry : report.path("entries")) {
+            if (probePath.equals(entry.path("path").asText())
+                    && "REQUEST".equals(entry.path("type").asText())
+                    && entry.path("correlationIds").size() == 1) {
+                request = entry;
+                break;
+            }
+        }
+        assertThat(request)
+                .as("every runtime must surface the correlation probe request at " + probePath + " in activity")
+                .isNotNull();
+
+        JsonNode identifier = request.path("correlationIds").path(0);
+        assertThat(identifier.path("name").asText()).isEqualTo("x-correlation-id");
+        String lookupId = identifier.path("lookupId").asText("");
+        assertThat(lookupId)
+                .as("the activity feed carries the same opaque identity")
+                .matches("[0-9a-f]{16}");
+        assertThat(request.path("correlationLookupIds").toString()).contains(lookupId);
+
+        // Whatever this runtime nested under that request — SQL, an exception, an outgoing call — must
+        // carry the same identity, because filtering by an identifier has to keep the request's own
+        // activity with it rather than leaving an orphaned request row.
+        List<String> unstampedChildren = new ArrayList<>();
+        for (JsonNode entry : report.path("entries")) {
+            if (request.path("id").asText().equals(entry.path("parentId").asText())
+                    && !entry.path("correlationLookupIds").toString().contains(lookupId)) {
+                unstampedChildren.add(
+                        entry.path("type").asText() + " " + entry.path("id").asText());
+            }
+        }
+        assertThat(unstampedChildren)
+                .as("activity correlated with the request must inherit its identity")
+                .isEmpty();
+        assertThat(report.toString())
+                .as("the raw identifier must never reach the activity feed under the default masking policy")
+                .doesNotContain(correlationValue);
+    }
+
     @Test
     void devToolsRestartRequiresConfirmationWithoutSchedulingARestart() {
         assumeTrue(runtime() != Runtime.QUARKUS, "DevTools restart is Spring-only");

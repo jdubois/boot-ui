@@ -11,6 +11,8 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdPolicy;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdSettings;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
@@ -96,6 +98,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
 import org.eclipse.microprofile.config.Config;
+import org.jboss.logging.Logger;
 
 /**
  * Produces the framework-neutral {@code bootui-engine} services as CDI singletons for the Quarkus
@@ -114,6 +117,8 @@ import org.eclipse.microprofile.config.Config;
  */
 @ApplicationScoped
 public class BootUiEngineProducer {
+
+    private static final Logger LOG = Logger.getLogger(BootUiEngineProducer.class);
 
     @Produces
     @Singleton
@@ -195,6 +200,29 @@ public class BootUiEngineProducer {
         int maxExchanges = config.getOptionalValue("bootui.http-exchanges.max-exchanges", Integer.class)
                 .orElse(200);
         return new HttpExchangeBuffer(maxExchanges);
+    }
+
+    /**
+     * Accepted correlation-identifier header names, validated once at startup by the shared engine policy
+     * ({@code bootui.http-exchanges.correlation-id-headers}, unified with the Spring adapter's
+     * {@code BootUiProperties.HttpExchanges.correlationIdHeaders}). Refused names — invalid, over-long,
+     * credential-bearing, or beyond the bound on additional names — are reported once rather than silently
+     * dropped. Names only: an identifier value is never logged.
+     */
+    @Produces
+    @Singleton
+    public CorrelationIdSettings correlationIdSettings(Config config) {
+        CorrelationIdSettings settings = CorrelationIdSettings.of(
+                config.getOptionalValues("bootui.http-exchanges.correlation-id-headers", String.class)
+                        .orElse(List.of()));
+        if (!settings.rejectedHeaderNames().isEmpty()) {
+            LOG.warnf(
+                    "BootUI ignored bootui.http-exchanges.correlation-id-headers entries %s: a correlation-ID "
+                            + "header name must be a valid HTTP field name, must not carry credentials, and at "
+                            + "most %d additional names are accepted",
+                    settings.rejectedHeaderNames(), CorrelationIdPolicy.MAX_ADDITIONAL_HEADER_NAMES);
+        }
+        return settings;
     }
 
     /**

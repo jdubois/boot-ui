@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.core.dto;
 
+import java.util.List;
+
 /**
  * A single normalized entry in the Live Activity stream.
  *
@@ -34,6 +36,14 @@ package io.github.jdubois.bootui.core.dto;
  * @param sqlNPlusOneSuspected for a {@code REQUEST} entry, whether its correlated SQL executions contain
  *     a group that looks like an N+1 access pattern (same threshold/logic the per-request profile
  *     drawer uses); always {@code false} for non-request entries
+ * @param correlationIds for a {@code REQUEST} entry, the correlation identifiers captured from its inbound
+ *     headers (already masked or withheld by the live value-exposure policy); empty for every other entry
+ *     type, which never reads headers of its own
+ * @param correlationLookupIds the opaque, one-way lookup identities of {@link #correlationIds} on the
+ *     owning {@code REQUEST} entry, <em>propagated onto the entries already correlated with that request</em>
+ *     so filtering by one identifier returns the request together with its correlated children. Never
+ *     carries the raw identifier, so a broad activity response cannot leak identifier values; empty when
+ *     the entry has no correlated request or that request carried no identifier
  */
 public record ActivityEntryDto(
         String id,
@@ -51,4 +61,78 @@ public record ActivityEntryDto(
         boolean profileable,
         String parentId,
         String securedPrincipal,
-        boolean sqlNPlusOneSuspected) {}
+        boolean sqlNPlusOneSuspected,
+        List<CorrelationIdDto> correlationIds,
+        List<String> correlationLookupIds) {
+
+    public ActivityEntryDto {
+        correlationIds = correlationIds == null ? List.of() : List.copyOf(correlationIds);
+        correlationLookupIds = correlationLookupIds == null ? List.of() : List.copyOf(correlationLookupIds);
+    }
+
+    /**
+     * An entry with no correlation identifiers — every signal that is not an inbound HTTP request, and any
+     * request whose headers carried none. Lookup identities are stamped afterwards, on the entries that are
+     * already correlated with an identifier-bearing request.
+     */
+    public ActivityEntryDto(
+            String id,
+            String type,
+            long timestamp,
+            String severity,
+            String summary,
+            String detail,
+            Long durationMs,
+            String correlationId,
+            String method,
+            String path,
+            Integer status,
+            String thread,
+            boolean profileable,
+            String parentId,
+            String securedPrincipal,
+            boolean sqlNPlusOneSuspected) {
+        this(
+                id,
+                type,
+                timestamp,
+                severity,
+                summary,
+                detail,
+                durationMs,
+                correlationId,
+                method,
+                path,
+                status,
+                thread,
+                profileable,
+                parentId,
+                securedPrincipal,
+                sqlNPlusOneSuspected,
+                List.of(),
+                List.of());
+    }
+
+    /** This entry with the supplied correlation identifiers and lookup identities. */
+    public ActivityEntryDto withCorrelation(List<CorrelationIdDto> ids, List<String> lookupIds) {
+        return new ActivityEntryDto(
+                id,
+                type,
+                timestamp,
+                severity,
+                summary,
+                detail,
+                durationMs,
+                correlationId,
+                method,
+                path,
+                status,
+                thread,
+                profileable,
+                parentId,
+                securedPrincipal,
+                sqlNPlusOneSuspected,
+                ids,
+                lookupIds);
+    }
+}

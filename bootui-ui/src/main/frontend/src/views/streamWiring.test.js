@@ -9,8 +9,12 @@ import SqlTrace from './SqlTrace.vue'
 import SecurityLogs from './SecurityLogs.vue'
 import LogTail from './LogTail.vue'
 
-// Exceptions/SqlTrace read the router query in onMounted; the others ignore vue-router.
-vi.mock('vue-router', () => ({useRoute: () => ({query: {}})}))
+// Exceptions/SqlTrace read the router query in onMounted, and Live Activity clears its correlation
+// filter through the router; the others ignore vue-router.
+vi.mock('vue-router', () => ({
+  useRoute: () => ({query: {}}),
+  useRouter: () => ({replace: () => {}})
+}))
 
 // Captures every EventSource opened during a mount so the test can assert which SSE endpoint a
 // streaming panel subscribes to and which named event it listens for. Mirrors the mock used by

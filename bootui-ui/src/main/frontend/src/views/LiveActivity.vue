@@ -1,5 +1,6 @@
 <script setup>
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
 import {apiFetch} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -24,6 +25,7 @@ import {
   mergeActivityPages,
   nestEntries
 } from '../utils/activityStream.js'
+import {canDeriveLookupId, correlationLookupId, normalizeCorrelationValue} from '../utils/correlationId.js'
 
 // Live Flow is a second reading of the same evidence, so it ships inside this panel rather than as a
 // panel of its own. Keep its layout and motion code in a route-level async chunk.
@@ -51,6 +53,18 @@ const typeFilter = ref('')
 const severityFilter = ref('')
 const textFilter = ref('')
 const errorsOnly = ref(false)
+
+// Correlation-identifier filter. `correlationInput` is what the developer typed; `correlationFilter`
+// is the opaque lookup identity actually matched against the feed. The identity is derived in the
+// browser (see utils/correlationId.js), so a typed identifier is never sent to BootUI and never lands
+// in the address bar — only the identity does. `correlationLabel` is what the active-filter chip
+// shows: the header name when the filter came from a row chip or a cross-link, since the identifier
+// itself is masked by default.
+const correlationInput = ref('')
+const correlationFilter = ref('')
+const correlationLabel = ref('')
+const correlationError = ref('')
+const correlationSupported = canDeriveLookupId()
 
 // "Use a database" disclosure: reveals setup documentation (and, when a DataSource is already
 // configured, the "Use the existing datasource" switch action) next to the title. Collapsed by
@@ -223,7 +237,12 @@ const sources = computed(() => report.value?.sources ?? [])
 const warnings = computed(() => report.value?.warnings ?? [])
 
 const hasActiveFilters = computed(
-  () => !!typeFilter.value || !!severityFilter.value || !!textFilter.value.trim() || errorsOnly.value
+  () =>
+    !!typeFilter.value ||
+    !!severityFilter.value ||
+    !!textFilter.value.trim() ||
+    errorsOnly.value ||
+    !!correlationFilter.value
 )
 
 // Collapsed parent ids in the nested view. Requests are expanded by default, so we only track the
@@ -237,17 +256,29 @@ const visibleEntries = computed(() => {
   // already scoped `all` to these same filters (see `activityUrl`); re-applying them here is a
   // harmless no-op that keeps a single filtering code path for both modes.
   if (hasActiveFilters.value) {
-    return groupEntries(
-      filterEntries(all, {
-        type: typeFilter.value,
-        severity: severityFilter.value,
-        text: textFilter.value,
-        errorsOnly: errorsOnly.value
-      })
-    )
+    const matched = filterEntries(all, {
+      type: typeFilter.value,
+      severity: severityFilter.value,
+      text: textFilter.value,
+      errorsOnly: errorsOnly.value,
+      correlationLookupId: correlationFilter.value
+    })
+    // A correlation filter on its own keeps the request → correlated-children shape, because the
+    // server propagated the identity onto exactly those children: the whole matched set is one
+    // request's story, and nesting is how that story reads.
+    return correlationOnlyFilter.value ? nestEntries(matched) : groupEntries(matched)
   }
   return nestEntries(all)
 })
+
+const correlationOnlyFilter = computed(
+  () =>
+    !!correlationFilter.value &&
+    !typeFilter.value &&
+    !severityFilter.value &&
+    !textFilter.value.trim() &&
+    !errorsOnly.value
+)
 
 function hasChildren(entry) {
   return Array.isArray(entry.children) && entry.children.length > 0
@@ -548,6 +579,8 @@ function persistFilters() {
 // free-text box doesn't fire a request per keystroke; the default in-memory mode never reaches the
 // `persistent` branch, so it keeps filtering purely client-side with no network calls, unchanged.
 let filterReloadTimer = null
+let correlationInputTimer = null
+let correlationInputProgrammatic = false
 
 watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
   persistFilters()
@@ -558,10 +591,36 @@ watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
   filterReloadTimer = setTimeout(refreshNow, 300)
 })
 
+// The correlation filter is matched entirely in the browser against the loaded feed: the identity is
+// derived here, so it is never sent to the server and never triggers a fetch. Debounced so a digest
+// is not computed per keystroke.
+watch(correlationInput, () => {
+  // A filter applied from a chip or a cross-link blanks the input itself; that must not be mistaken for
+  // the developer clearing what they typed, which would drop the filter they just chose 200ms later.
+  if (correlationInputProgrammatic) {
+    correlationInputProgrammatic = false
+    return
+  }
+  if (correlationInputTimer) clearTimeout(correlationInputTimer)
+  correlationInputTimer = setTimeout(applyCorrelationInput, 200)
+})
+
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
+  if (correlationInputTimer) clearTimeout(correlationInputTimer)
+})
+
+// Cross-link target for HTTP Exchanges: only ever the opaque identity, never the raw identifier.
+const route = useRoute()
+const router = useRouter()
+onMounted(() => {
+  const lookupId = route?.query?.correlationLookupId
+  if (typeof lookupId === 'string' && /^[0-9a-f]{4,64}$/i.test(lookupId)) {
+    correlationFilter.value = lookupId.toLowerCase()
+    correlationLabel.value = 'linked identifier'
+  }
 })
 
 function clearFilters() {
@@ -569,6 +628,95 @@ function clearFilters() {
   severityFilter.value = ''
   textFilter.value = ''
   errorsOnly.value = false
+  clearCorrelationFilter()
+}
+
+function clearCorrelationFilter() {
+  cancelPendingCorrelationDerivation()
+  // Also drop the cross-link parameter: dismissing the filter and then reloading must not silently
+  // bring it back.
+  if (route?.query?.correlationLookupId != null) {
+    const query = {...route.query}
+    delete query.correlationLookupId
+    router.replace({query})
+  }
+  correlationInput.value = ''
+  correlationFilter.value = ''
+  correlationLabel.value = ''
+  correlationError.value = ''
+}
+
+// A programmatic filter (a captured identifier's chip, or a cross-link) must win over anything the
+// developer had half-typed: both the debounce timer and any in-flight Web Crypto digest are dropped,
+// otherwise a slow digest for the abandoned keystrokes would later replace the filter they just chose.
+function cancelPendingCorrelationDerivation() {
+  correlationInputProgrammatic = correlationInput.value !== ''
+  if (correlationInputTimer) {
+    clearTimeout(correlationInputTimer)
+    correlationInputTimer = null
+  }
+  correlationDeriveToken += 1
+}
+
+/** Filter by an identifier BootUI already captured, using the identity the server derived for it. */
+function filterByCorrelationId(id) {
+  if (!id?.lookupId) return
+  cancelPendingCorrelationDerivation()
+  correlationInput.value = ''
+  correlationError.value = ''
+  correlationFilter.value = id.lookupId
+  correlationLabel.value = id.name || 'correlation id'
+}
+
+// Deriving the identity is asynchronous (Web Crypto), so a slow digest for an earlier keystroke must
+// never overwrite the identity of a later one.
+let correlationDeriveToken = 0
+
+async function applyCorrelationInput() {
+  const token = (correlationDeriveToken += 1)
+  const normalized = normalizeCorrelationValue(correlationInput.value)
+  if (!normalized) {
+    correlationError.value = correlationInput.value.trim() ? 'That is not a usable correlation identifier.' : ''
+    correlationFilter.value = ''
+    correlationLabel.value = ''
+    return
+  }
+  if (!correlationSupported) {
+    correlationError.value = 'This browser context cannot derive correlation identities (Web Crypto unavailable).'
+    return
+  }
+  try {
+    const lookupId = await correlationLookupId(normalized)
+    if (token !== correlationDeriveToken) return
+    correlationError.value = ''
+    correlationFilter.value = lookupId
+    correlationLabel.value = normalized
+  } catch {
+    if (token !== correlationDeriveToken) return
+    correlationError.value = 'Could not derive a correlation identity in this browser.'
+    correlationFilter.value = ''
+    correlationLabel.value = ''
+  }
+}
+
+/** The correlation identifiers captured on a REQUEST entry; empty for every other entry type. */
+function entryCorrelationIds(entry) {
+  return Array.isArray(entry.correlationIds) ? entry.correlationIds : []
+}
+
+function correlationChipLabel(id) {
+  if (id.value == null) return id.name
+  return id.masked ? id.name : `${id.name}: ${id.value}`
+}
+
+function correlationChipTitle(id) {
+  if (id.value == null) {
+    return `Filter by this ${id.name} (value withheld by the current value-exposure policy)`
+  }
+  if (id.masked) {
+    return `Filter by this ${id.name} (value masked by the current value-exposure policy)`
+  }
+  return `Filter by ${id.name} ${id.value}`
 }
 
 function toggleFlow() {
@@ -859,6 +1007,35 @@ function toggleFlow() {
               placeholder="Path, status, SQL, exception…"
             />
           </div>
+          <div class="activity-correlation-filter">
+            <label class="form-label small mb-1" for="activity-correlation-filter">Correlation ID</label>
+            <input
+              id="activity-correlation-filter"
+              v-model="correlationInput"
+              type="search"
+              class="form-control form-control-sm"
+              :class="{'is-invalid': !!correlationError}"
+              :disabled="!correlationSupported"
+              placeholder="The identifier value, e.g. 7b3f-orders-42"
+              :title="
+                correlationSupported
+                  ? 'Matched locally in your browser — the identifier you type is never sent to BootUI'
+                  : 'Unavailable: this browsing context has no Web Crypto, so an identity cannot be derived locally'
+              "
+              :aria-invalid="!!correlationError"
+              aria-describedby="activity-correlation-help"
+            />
+            <p id="activity-correlation-help" class="form-text small mb-0">
+              <span v-if="correlationError" class="text-danger">{{ correlationError }}</span>
+              <span v-else-if="!correlationSupported" class="text-muted"
+                >Unavailable here — filter from a request's identifier instead.</span
+              >
+              <span v-else class="text-muted"
+                >The value sent in <code>X-Correlation-ID</code>, <code>X-Request-ID</code> or <code>X-Flow-ID</code> —
+                not the header name. Matched in your browser; never sent to BootUI.</span
+              >
+            </p>
+          </div>
           <div>
             <label class="form-label small mb-1" for="activity-type-filter">Type</label>
             <select id="activity-type-filter" v-model="typeFilter" class="form-select form-select-sm">
@@ -891,6 +1068,21 @@ function toggleFlow() {
               {{ paused ? 'Resume' : 'Pause' }}
             </button>
           </div>
+        </div>
+
+        <div
+          v-if="correlationFilter"
+          class="alert alert-info d-flex flex-wrap align-items-center gap-2 py-2 small activity-correlation-banner"
+          role="status"
+        >
+          <i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>
+          <span
+            >Showing the request correlated with <strong>{{ correlationLabel || 'this identifier' }}</strong> and the
+            activity BootUI already correlated with it.</span
+          >
+          <button class="btn btn-sm btn-outline-secondary ms-auto" type="button" @click="clearCorrelationFilter">
+            Clear correlation filter
+          </button>
         </div>
 
         <div v-for="warning in warnings" :key="warning" class="alert alert-warning py-2 small" role="alert">
@@ -989,6 +1181,31 @@ function toggleFlow() {
                       >N+1</span
                     >
                     <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
+                    <span v-if="entryCorrelationIds(entry).length" class="d-block mt-1" @click.stop>
+                      <template v-for="id in entryCorrelationIds(entry)" :key="`${entry.id}-${id.name}`">
+                        <button
+                          v-if="id.lookupId"
+                          type="button"
+                          class="btn btn-sm rounded-pill me-1 activity-correlation-chip"
+                          :class="correlationFilter === id.lookupId ? 'btn-primary' : 'btn-outline-secondary'"
+                          :aria-pressed="correlationFilter === id.lookupId"
+                          :title="correlationChipTitle(id)"
+                          @click="
+                            correlationFilter === id.lookupId ? clearCorrelationFilter() : filterByCorrelationId(id)
+                          "
+                        >
+                          <i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>{{ correlationChipLabel(id) }}
+                          <span v-if="id.truncated" class="ms-1" title="Truncated to the captured length">…</span>
+                        </button>
+                        <span
+                          v-else
+                          class="badge rounded-pill text-bg-light border me-1 activity-correlation-chip"
+                          title="Filtering is unavailable: the current value-exposure policy withholds this identifier's identity"
+                        >
+                          <i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>{{ correlationChipLabel(id) }}
+                        </span>
+                      </template>
+                    </span>
                   </td>
                   <td class="text-end text-nowrap small">
                     <span v-if="slowLevel(entry) > 0" :class="['badge', latencyBadgeClass(entry)]">{{
@@ -1045,7 +1262,13 @@ function toggleFlow() {
                 </tr>
               </template>
               <tr v-if="!visibleEntries.length">
-                <td colspan="6" class="text-center text-muted py-4">No activity matches the current filters.</td>
+                <td colspan="6" class="text-center text-muted py-4">
+                  No activity matches the current filters.
+                  <span v-if="correlationFilter && persistent" class="d-block small mt-1">
+                    Correlation identifiers are not persisted, so only activity still held in memory can be filtered by
+                    them.
+                  </span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -1365,6 +1588,20 @@ function toggleFlow() {
 .activity-text-filter {
   min-width: 16rem;
   flex: 1 1 16rem;
+}
+
+.activity-correlation-filter {
+  min-width: 14rem;
+  flex: 1 1 14rem;
+}
+
+/* Correlation chips sit inside a dense table row, so they stay compact and never wrap mid-identifier. */
+.activity-correlation-chip {
+  --bs-btn-padding-y: 0.05rem;
+  --bs-btn-padding-x: 0.5rem;
+  --bs-btn-font-size: 0.75rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .activity-sparkline-svg {

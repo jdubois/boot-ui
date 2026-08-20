@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdPolicy;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -240,5 +241,67 @@ class HttpExchangesControllerTests {
                 .orElseThrow();
         assertThat(header.masked()).isEqualTo(masked);
         assertThat(header.values()).containsExactly(values);
+    }
+
+    @Test
+    void capturesTheBuiltInCorrelationIdentifiersMaskedByDefault() {
+        HttpExchange appExchange = exchange(
+                "GET",
+                "http://localhost/api/orders",
+                200,
+                Map.of(
+                        "X-Correlation-ID", List.of("corr-1"),
+                        "X-Request-Id", List.of("req-1"),
+                        "X-Tenant-Trace", List.of("t-9")),
+                Map.of());
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repositoryWith(appExchange)), new BootUiProperties());
+
+        HttpExchangeDto dto =
+                controller.exchanges(null, null, null, null, null).exchanges().get(0);
+
+        assertThat(dto.correlationIds())
+                .extracting(id -> id.name())
+                .containsExactly("x-correlation-id", "x-request-id");
+        assertThat(dto.correlationIds().get(0).value()).isEqualTo(SecretMasker.MASKED_VALUE);
+        assertThat(dto.correlationIds().get(0).masked()).isTrue();
+        assertThat(dto.correlationIds().get(0).lookupId()).isEqualTo(CorrelationIdPolicy.lookupId("corr-1"));
+    }
+
+    @Test
+    void honoursConfiguredAdditionalCorrelationHeadersAndRefusesCredentialBearingOnes() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getHttpExchanges().setCorrelationIdHeaders(new String[] {"X-Tenant-Trace", "Authorization"});
+        HttpExchange appExchange = exchange(
+                "GET",
+                "http://localhost/api/orders",
+                200,
+                Map.of(
+                        "X-Tenant-Trace", List.of("t-9"),
+                        "Authorization", List.of("Bearer secret")),
+                Map.of());
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repositoryWith(appExchange)), properties);
+
+        HttpExchangeDto dto =
+                controller.exchanges(null, null, null, null, null).exchanges().get(0);
+
+        assertThat(dto.correlationIds()).extracting(id -> id.name()).containsExactly("x-tenant-trace");
+    }
+
+    @Test
+    void revealsCorrelationIdentifiersOnlyWhenValuesAreFullyExposed() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.setExposeValues(ValueExposure.FULL);
+        HttpExchange appExchange =
+                exchange("GET", "http://localhost/api/orders", 200, Map.of("X-Request-Id", List.of("req-1")), Map.of());
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repositoryWith(appExchange)), properties);
+
+        HttpExchangeDto dto =
+                controller.exchanges(null, null, null, null, null).exchanges().get(0);
+
+        assertThat(dto.correlationIds().get(0).value()).isEqualTo("req-1");
+        assertThat(dto.correlationIds().get(0).masked()).isFalse();
     }
 }

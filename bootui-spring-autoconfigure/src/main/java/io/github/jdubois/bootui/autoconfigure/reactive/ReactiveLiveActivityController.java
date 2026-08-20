@@ -628,7 +628,9 @@ public class ReactiveLiveActivityController {
                 true,
                 entry.parentId(),
                 entry.securedPrincipal(),
-                entry.sqlNPlusOneSuspected());
+                entry.sqlNPlusOneSuspected(),
+                entry.correlationIds(),
+                entry.correlationLookupIds());
     }
 
     /** SQL trace snapshot for one request cycle: entries plus whether the source is present and feeding. */

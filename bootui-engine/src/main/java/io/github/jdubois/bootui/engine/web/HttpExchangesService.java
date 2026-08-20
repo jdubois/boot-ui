@@ -2,9 +2,12 @@ package io.github.jdubois.bootui.engine.web;
 
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.CorrelationIdDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdExtractor;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdSettings;
 import io.github.jdubois.bootui.engine.support.PagedList;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -17,10 +20,17 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Framework-neutral assembly, masking, trace-id extraction, self-exclusion and paging for the HTTP
- * Exchanges panel. Adapters translate their native captured exchanges into {@link CapturedHttpExchange}
- * records and call {@link #report}; the wire ({@link HttpExchangesReport}) is identical across Spring
- * Boot and Quarkus because every transformation lives here. Pure functions over core DTOs and the JDK.
+ * Framework-neutral assembly, masking, trace-id extraction, correlation-identifier capture, self-exclusion
+ * and paging for the HTTP Exchanges panel. Adapters translate their native captured exchanges into
+ * {@link CapturedHttpExchange} records and call {@link #report}; the wire ({@link HttpExchangesReport}) is
+ * identical across Spring Boot and Quarkus because every transformation lives here. Pure functions over
+ * core DTOs and the JDK.
+ *
+ * <p>Correlation identifiers are read from the request headers the adapter already captured (see
+ * {@link CorrelationIdExtractor}), so no adapter adds a second filter or a request-body read to support
+ * them. They are masked by default and revealed only under {@link ValueExposure#FULL}, independently of
+ * {@code maskSecrets}: an identifier is application or gateway data rather than a BootUI-owned field, and
+ * it is propagated into Live Activity, so BootUI does not broadcast it by default.</p>
  */
 public final class HttpExchangesService {
 
@@ -32,13 +42,44 @@ public final class HttpExchangesService {
     /**
      * Builds the report from already-captured exchanges. The {@code selfFilter} hides BootUI's own
      * traffic; {@code maskSecrets}/{@code exposure} drive credential masking identically to config-time
-     * exposure.
+     * exposure. Correlation identifiers use the built-in header names only; call the
+     * {@link #report(List, BootUiSelfPath, boolean, ValueExposure, CorrelationIdSettings, String, String,
+     * String, Integer, Integer) settings-aware overload} to honour configured additional names.
      */
     public HttpExchangesReport report(
             List<CapturedHttpExchange> captured,
             BootUiSelfPath selfFilter,
             boolean maskSecrets,
             ValueExposure exposure,
+            String query,
+            String method,
+            String statusClass,
+            Integer offset,
+            Integer limit) {
+        return report(
+                captured,
+                selfFilter,
+                maskSecrets,
+                exposure,
+                CorrelationIdSettings.defaults(),
+                query,
+                method,
+                statusClass,
+                offset,
+                limit);
+    }
+
+    /**
+     * Builds the report, honouring the adapter's configured correlation-identifier header names.
+     *
+     * @param correlationSettings accepted correlation header names, or {@code null} for the built-ins
+     */
+    public HttpExchangesReport report(
+            List<CapturedHttpExchange> captured,
+            BootUiSelfPath selfFilter,
+            boolean maskSecrets,
+            ValueExposure exposure,
+            CorrelationIdSettings correlationSettings,
             String query,
             String method,
             String statusClass,
@@ -51,7 +92,7 @@ public final class HttpExchangesService {
                 hiddenSelf++;
                 continue;
             }
-            visible.add(toDto(exchange, maskSecrets, exposure));
+            visible.add(toDto(exchange, maskSecrets, exposure, correlationSettings));
         }
 
         String normalizedQuery = PagedList.normalize(query);
@@ -71,7 +112,11 @@ public final class HttpExchangesService {
                 && selfFilter.isBootUiPath(exchange.uri().toString());
     }
 
-    private HttpExchangeDto toDto(CapturedHttpExchange exchange, boolean maskSecrets, ValueExposure exposure) {
+    private HttpExchangeDto toDto(
+            CapturedHttpExchange exchange,
+            boolean maskSecrets,
+            ValueExposure exposure,
+            CorrelationIdSettings correlationSettings) {
         java.net.URI requestUri = exchange.uri();
         String method = exchange.method();
         String uri = requestUri == null ? null : displayUri(requestUri, maskSecrets, exposure);
@@ -79,10 +124,15 @@ public final class HttpExchangesService {
         String query = requestUri == null ? null : displayQuery(requestUri.getRawQuery(), maskSecrets, exposure);
         int status = exchange.status();
         Long durationMs = exchange.durationMs();
-        List<HttpHeaderDto> requestHeaders = headers(exchange.requestHeaders(), maskSecrets, exposure);
-        List<HttpHeaderDto> responseHeaders = headers(exchange.responseHeaders(), maskSecrets, exposure);
+        CorrelationIdSettings settings =
+                correlationSettings == null ? CorrelationIdSettings.defaults() : correlationSettings;
+        List<HttpHeaderDto> requestHeaders =
+                headers(exchange.requestHeaders(), maskSecrets, exposure, settings.headerNames());
+        List<HttpHeaderDto> responseHeaders = headers(exchange.responseHeaders(), maskSecrets, exposure, List.of());
         String principal = displayValue("principal", exchange.principal(), maskSecrets, exposure);
         String sessionId = displayValue("session-id", exchange.sessionId(), maskSecrets, exposure);
+        List<CorrelationIdDto> correlationIds = CorrelationIdExtractor.toDtos(
+                CorrelationIdExtractor.extract(exchange.requestHeaders(), settings), exposure);
         return new HttpExchangeDto(
                 id(exchange, method, uri, status, durationMs),
                 exchange.timestamp(),
@@ -99,7 +149,8 @@ public final class HttpExchangesService {
                 sessionId,
                 resolveTraceId(exchange.traceId(), requestHeaders),
                 requestHeaders,
-                responseHeaders);
+                responseHeaders,
+                correlationIds);
     }
 
     /**
@@ -114,8 +165,20 @@ public final class HttpExchangesService {
         return traceId(requestHeaders);
     }
 
+    /**
+     * Renders headers, masking credential-bearing names as before and — for request headers only — every
+     * name BootUI recognizes as a correlation identifier. Without that second rule the dedicated
+     * {@code correlationIds} section would mask a value the header list right below it still prints in the
+     * clear, which would make the exposure policy theatre rather than policy.
+     *
+     * @param correlationNames accepted correlation header names (already lower-case), empty for response
+     *     headers, which are never a correlation source
+     */
     private List<HttpHeaderDto> headers(
-            Map<String, List<String>> headers, boolean maskSecrets, ValueExposure exposure) {
+            Map<String, List<String>> headers,
+            boolean maskSecrets,
+            ValueExposure exposure,
+            List<String> correlationNames) {
         if (headers == null || headers.isEmpty()) {
             return List.of();
         }
@@ -123,22 +186,33 @@ public final class HttpExchangesService {
                 .sorted(Map.Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER))
                 .map(entry -> new HttpHeaderDto(
                         entry.getKey(),
-                        displayValues(entry.getKey(), entry.getValue(), maskSecrets, exposure),
-                        shouldMask(entry.getKey(), maskSecrets)))
+                        displayValues(entry.getKey(), entry.getValue(), maskSecrets, exposure, correlationNames),
+                        shouldMask(entry.getKey(), maskSecrets)
+                                || isCorrelationHeader(entry.getKey(), correlationNames)
+                                        && exposure != ValueExposure.FULL))
                 .toList();
     }
 
-    private List<String> displayValues(String name, List<String> values, boolean maskSecrets, ValueExposure exposure) {
+    private boolean isCorrelationHeader(String name, List<String> correlationNames) {
+        return name != null && correlationNames.contains(name.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private List<String> displayValues(
+            String name,
+            List<String> values,
+            boolean maskSecrets,
+            ValueExposure exposure,
+            List<String> correlationNames) {
         if (values == null || values.isEmpty()) {
             return List.of();
         }
         if (exposure == ValueExposure.METADATA_ONLY) {
             return List.of();
         }
-        if (shouldMask(name, maskSecrets)) {
-            if (exposure == ValueExposure.FULL) {
-                return List.copyOf(values);
-            }
+        if (exposure == ValueExposure.FULL) {
+            return List.copyOf(values);
+        }
+        if (shouldMask(name, maskSecrets) || isCorrelationHeader(name, correlationNames)) {
             return values.stream().map(ignored -> SecretMasker.MASKED_VALUE).toList();
         }
         return List.copyOf(values);

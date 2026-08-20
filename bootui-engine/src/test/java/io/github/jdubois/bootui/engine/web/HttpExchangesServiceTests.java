@@ -6,6 +6,8 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdPolicy;
+import io.github.jdubois.bootui.engine.correlation.CorrelationIdSettings;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -127,5 +129,135 @@ class HttpExchangesServiceTests {
         assertThat(snapshot.get(0).uri().getPath()).isEqualTo("/c");
         buffer.suspendForIdle();
         assertThat(buffer.snapshot()).isEmpty();
+    }
+
+    private HttpExchangeDto correlated(
+            Map<String, List<String>> requestHeaders, ValueExposure exposure, CorrelationIdSettings settings) {
+        HttpExchangesReport report = service.report(
+                List.of(exchange("/orders", 200, requestHeaders)),
+                uri -> false,
+                true,
+                exposure,
+                settings,
+                null,
+                null,
+                null,
+                null,
+                null);
+        return report.exchanges().get(0);
+    }
+
+    @Test
+    void capturesBuiltInCorrelationIdentifiersFromTheExistingRequestCapture() {
+        HttpExchangeDto dto = correlated(
+                Map.of("X-Correlation-ID", List.of("corr-1"), "X-Request-Id", List.of("req-1")),
+                ValueExposure.MASKED,
+                null);
+
+        assertThat(dto.correlationIds()).hasSize(2);
+        assertThat(dto.correlationIds().get(0).name()).isEqualTo("x-correlation-id");
+        assertThat(dto.correlationIds().get(0).value()).isEqualTo("******");
+        assertThat(dto.correlationIds().get(0).masked()).isTrue();
+        assertThat(dto.correlationIds().get(0).lookupId()).isEqualTo(CorrelationIdPolicy.lookupId("corr-1"));
+    }
+
+    @Test
+    void revealsCorrelationIdentifiersOnlyUnderFullExposure() {
+        HttpExchangeDto dto = correlated(Map.of("X-Correlation-ID", List.of("corr-1")), ValueExposure.FULL, null);
+
+        assertThat(dto.correlationIds().get(0).value()).isEqualTo("corr-1");
+        assertThat(dto.correlationIds().get(0).masked()).isFalse();
+    }
+
+    @Test
+    void honoursConfiguredAdditionalCorrelationHeaders() {
+        HttpExchangeDto dto = correlated(
+                Map.of("X-Tenant-Trace", List.of("t-9")),
+                ValueExposure.MASKED,
+                CorrelationIdSettings.of("X-Tenant-Trace"));
+
+        assertThat(dto.correlationIds())
+                .singleElement()
+                .satisfies(id -> assertThat(id.name()).isEqualTo("x-tenant-trace"));
+    }
+
+    @Test
+    void capturesNoCorrelationIdentifiersByDefault() {
+        assertThat(correlated(Map.of("X-Tenant-Trace", List.of("t-9")), ValueExposure.MASKED, null)
+                        .correlationIds())
+                .isEmpty();
+    }
+
+    @Test
+    void leavesTheLegacyReportOverloadOnTheBuiltInNames() {
+        HttpExchangesReport report = service.report(
+                List.of(exchange("/orders", 200, Map.of("X-Flow-Id", List.of("flow-1")))),
+                uri -> false,
+                true,
+                ValueExposure.MASKED,
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        assertThat(report.exchanges().get(0).correlationIds())
+                .singleElement()
+                .satisfies(id -> assertThat(id.lookupId()).isEqualTo(CorrelationIdPolicy.lookupId("flow-1")));
+    }
+
+    private List<String> headerValues(HttpExchangeDto dto, String name) {
+        return dto.requestHeaders().stream()
+                .filter(header -> header.name().equalsIgnoreCase(name))
+                .findFirst()
+                .map(HttpHeaderDto::values)
+                .orElseThrow();
+    }
+
+    @Test
+    void masksTheRawCorrelationValueInTheRequestHeaderListToo() {
+        HttpExchangeDto dto = correlated(
+                Map.of("X-Correlation-ID", List.of("corr-1"), "Accept", List.of("application/json")),
+                ValueExposure.MASKED,
+                null);
+
+        assertThat(headerValues(dto, "X-Correlation-ID")).containsExactly("******");
+        assertThat(dto.requestHeaders())
+                .filteredOn(header -> header.name().equalsIgnoreCase("X-Correlation-ID"))
+                .singleElement()
+                .satisfies(header -> assertThat(header.masked()).isTrue());
+        assertThat(headerValues(dto, "Accept")).containsExactly("application/json");
+    }
+
+    @Test
+    void masksConfiguredCorrelationHeadersInTheRequestHeaderListAndRevealsThemUnderFullExposure() {
+        CorrelationIdSettings settings = CorrelationIdSettings.of("X-Tenant-Trace");
+
+        assertThat(headerValues(
+                        correlated(Map.of("X-Tenant-Trace", List.of("t-9")), ValueExposure.MASKED, settings),
+                        "X-Tenant-Trace"))
+                .containsExactly("******");
+        assertThat(headerValues(
+                        correlated(Map.of("X-Tenant-Trace", List.of("t-9")), ValueExposure.FULL, settings),
+                        "X-Tenant-Trace"))
+                .containsExactly("t-9");
+    }
+
+    @Test
+    void withholdsCorrelationHeaderValuesEntirelyUnderMetadataOnlyExposure() {
+        HttpExchangeDto dto =
+                correlated(Map.of("X-Correlation-ID", List.of("corr-1")), ValueExposure.METADATA_ONLY, null);
+
+        assertThat(headerValues(dto, "X-Correlation-ID")).isEmpty();
+        assertThat(dto.correlationIds())
+                .singleElement()
+                .satisfies(id -> assertThat(id.value()).isNull());
+    }
+
+    @Test
+    void leavesAnUnconfiguredCorrelationLikeHeaderUnmasked() {
+        HttpExchangeDto dto = correlated(Map.of("X-Tenant-Trace", List.of("t-9")), ValueExposure.MASKED, null);
+
+        assertThat(headerValues(dto, "X-Tenant-Trace")).containsExactly("t-9");
     }
 }

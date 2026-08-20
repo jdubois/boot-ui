@@ -491,6 +491,7 @@ class LiveServiceMapServiceTests {
                 null,
                 null,
                 List.of(),
+                List.of(),
                 List.of());
     }
 

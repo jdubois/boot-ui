@@ -85,9 +85,34 @@ can spot a suspect request without opening every drawer. A `CACHE` row summarize
 hashed key (`key a1b2c3…`) — the raw key or value is never captured, even under full value exposure. Adjacent identical
 entries are collapsed with an
 occurrence count to cut noise, and the feed can be narrowed
-by type, severity, a free-text needle (path, status, SQL, or exception class), and an **errors-only** quick toggle — the
+by type, severity, a free-text needle (path, status, SQL, or exception class), a **correlation identifier**, and an
+**errors-only** quick toggle — the
 chosen filters are persisted in the browser so they survive a reload. A small **requests-over-time** sparkline above the
-table makes spikes and error bursts (drawn in red) visible at a glance. A KPI strip across the top summarises requests per
+table makes spikes and error bursts (drawn in red) visible at a glance.
+
+**Correlation-ID filtering.** Many applications tag inbound traffic with a business or gateway correlation header, and
+that identifier — not a trace id — is what a developer actually recognizes. BootUI reads a bounded set of correlation
+identifiers off the request headers it already captured: `X-Correlation-ID`, `X-Request-ID` and `X-Flow-ID`
+case-insensitively, plus up to five additional names configured through `bootui.http-exchanges.correlation-id-headers`.
+Credential-bearing names (authorization, cookies, proxy credentials, API-key and session headers) are refused even when
+configured, and the refusal is reported once at startup rather than silently ignored. At most four identifiers are kept
+per request, each trimmed to 128 characters and flagged `truncated` when it was longer. No new filter, interceptor or
+body read was added on any runtime: the identifiers come from the capture that already existed.
+
+Values are **masked by default** and follow the live `bootui.expose-values` policy — withheld entirely under
+`METADATA_ONLY`, shown (and copyable) only under `FULL` — and a policy change takes effect on the next response without
+restarting capture. The same policy applies to the ordinary request-header list, so a masked identifier cannot be read
+in plaintext two rows further down; under `METADATA_ONLY` even the opaque identity is withheld, which makes filtering
+honestly unavailable rather than handing out a digest of a value the policy refuses to show. Filtering nevertheless keeps working while values are masked, because matching uses a separate
+opaque **lookup identity**: the first 16 hex characters of a domain-separated SHA-256 over the bounded value. Your
+browser derives that same identity locally through Web Crypto, so the identifier you type is never sent to BootUI, never
+appears in a BootUI-generated URL or in browser history, and is never logged or used as a metric label. Type an
+identifier into the **Correlation ID** filter and the feed narrows to the owning request plus the activity BootUI had
+already correlated with it — no substring, prefix or fuzzy matching, and no new correlation guesses. In HTTP Exchanges,
+each captured identifier is listed under **Correlation identifiers** with a one-click cross-link into Live Activity
+that carries only the identity. Because matching happens in the browser over the activity already returned, with durable
+persistence enabled it narrows the pages currently loaded; identifiers are not written to the activity database.
+ A KPI strip across the top summarises requests per
 minute, error rate, p50/p95 latency, SQL rate, (Spring servlet/WebFlux only) outbound REST-call error rate/p95 latency,
 the slowest recent endpoint, active exception count, health status, heap
 usage, (Spring servlet/WebFlux only) the cache hit ratio, and scheduled-task failure count, computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`).

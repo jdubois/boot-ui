@@ -780,6 +780,7 @@ class ServiceMapAssemblerTests {
                 null,
                 traceId,
                 List.of(),
+                List.of(),
                 List.of());
     }
 

@@ -8,6 +8,21 @@ vi.mock('../utils/useConfirm.js', () => ({
   useConfirm: () => ({confirm: () => Promise.resolve(true)})
 }))
 
+// The panel reads `?correlationLookupId=` so HTTP Exchanges can cross-link into it; tests drive that
+// query through this mutable stub.
+let routeQuery = {}
+const routerReplace = vi.fn((to) => {
+  routeQuery = {...(to?.query ?? {})}
+})
+vi.mock('vue-router', () => ({
+  useRoute: () => ({
+    get query() {
+      return routeQuery
+    }
+  }),
+  useRouter: () => ({replace: routerReplace})
+}))
+
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
@@ -122,6 +137,8 @@ describe('LiveActivity', () => {
     wrapper?.unmount()
     wrapper = null
     safeLocalStorage.removeItem('bootui.activity.flowCollapsed')
+    routeQuery = {}
+    routerReplace.mockClear()
     vi.unstubAllGlobals()
   })
 
@@ -700,5 +717,219 @@ describe('LiveActivity', () => {
     const jdbcNode = wrapper.get('.flow-node--jdbc')
     expect(jdbcNode.attributes('aria-label')).toContain('jdbc:postgresql://localhost:5432/shop')
     expect(jdbcNode.attributes('aria-label')).toContain('configured, no recent evidence')
+  })
+
+  describe('correlation-id filtering', () => {
+    const CORR_LOOKUP = '88b87faa5f574f9b'
+    const OTHER_LOOKUP = '74a2f8fde4aec9c7'
+
+    function correlatedReport() {
+      return activityReport({
+        typeCounts: {REQUEST: 2, SQL: 1},
+        entries: [
+          requestEntry({
+            id: 'req-1',
+            correlationIds: [
+              {name: 'x-correlation-id', value: '******', masked: true, truncated: false, lookupId: CORR_LOOKUP}
+            ],
+            correlationLookupIds: [CORR_LOOKUP]
+          }),
+          {
+            id: 'sql-1',
+            type: 'SQL',
+            timestamp: 1700000000100,
+            severity: 'OK',
+            summary: 'select * from todo',
+            detail: null,
+            durationMs: 3,
+            correlationId: null,
+            method: null,
+            path: null,
+            status: null,
+            thread: 'http-nio-1',
+            profileable: false,
+            parentId: 'req-1',
+            securedPrincipal: null,
+            sqlNPlusOneSuspected: false,
+            correlationIds: [],
+            correlationLookupIds: [CORR_LOOKUP]
+          },
+          requestEntry({
+            id: 'req-2',
+            summary: 'GET /api/other → 200',
+            path: '/api/other',
+            correlationIds: [
+              {name: 'x-request-id', value: '******', masked: true, truncated: false, lookupId: OTHER_LOOKUP}
+            ],
+            correlationLookupIds: [OTHER_LOOKUP]
+          })
+        ]
+      })
+    }
+
+    it('offers a chip per captured identifier without revealing the masked value', async () => {
+      vi.stubGlobal('fetch', stubFetch(correlatedReport(), requestProfile()))
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      const chips = wrapper.findAll('.activity-correlation-chip')
+      expect(chips).toHaveLength(2)
+      expect(chips[0].text()).toContain('x-correlation-id')
+      expect(chips[0].text()).not.toContain('******')
+      expect(chips[0].attributes('title')).toContain('masked')
+    })
+
+    it('narrows the feed to the request and the activity correlated with it when a chip is used', async () => {
+      vi.stubGlobal('fetch', stubFetch(correlatedReport(), requestProfile()))
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      await wrapper.findAll('.activity-correlation-chip')[0].trigger('click')
+      await flushPromises()
+
+      const text = wrapper.text()
+      expect(text).toContain('GET /api/todos')
+      expect(text).toContain('select * from todo')
+      expect(text).not.toContain('GET /api/other')
+      expect(text).toContain('Clear correlation filter')
+    })
+
+    it('clears the correlation filter again from the same chip', async () => {
+      vi.stubGlobal('fetch', stubFetch(correlatedReport(), requestProfile()))
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      await wrapper.findAll('.activity-correlation-chip')[0].trigger('click')
+      await flushPromises()
+      await wrapper.findAll('.activity-correlation-chip')[0].trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('GET /api/other')
+      expect(wrapper.text()).not.toContain('Clear correlation filter')
+    })
+
+    it('applies a correlation identity handed over by a cross-link, without any raw identifier', async () => {
+      routeQuery.correlationLookupId = CORR_LOOKUP
+      vi.stubGlobal('fetch', stubFetch(correlatedReport(), requestProfile()))
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('GET /api/todos')
+      expect(wrapper.text()).not.toContain('GET /api/other')
+    })
+
+    it('ignores a correlation identity that is not a lookup identity at all', async () => {
+      routeQuery.correlationLookupId = "'; drop table bootui_activity; --"
+      vi.stubGlobal('fetch', stubFetch(correlatedReport(), requestProfile()))
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('GET /api/other')
+      expect(wrapper.text()).not.toContain('Clear correlation filter')
+    })
+
+    it('derives the identity of a typed identifier locally and never sends it to the server', async () => {
+      const fetchStub = stubFetch(correlatedReport(), requestProfile())
+      vi.stubGlobal('fetch', fetchStub)
+      vi.useFakeTimers()
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      await wrapper.find('#activity-correlation-filter').setValue('corr-1')
+      await vi.advanceTimersByTimeAsync(300)
+      vi.useRealTimers()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('GET /api/todos')
+      expect(wrapper.text()).not.toContain('GET /api/other')
+      const urls = fetchStub.mock.calls.map((call) => String(call[0]))
+      expect(urls.some((url) => url.includes('corr-1'))).toBe(false)
+      expect(urls.some((url) => url.includes(CORR_LOOKUP))).toBe(false)
+    })
+
+    it('rejects an identifier that could never have been captured', async () => {
+      vi.stubGlobal('fetch', stubFetch(correlatedReport(), requestProfile()))
+      vi.useFakeTimers()
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      await wrapper.find('#activity-correlation-filter').setValue('bad\u0007value')
+      await vi.advanceTimersByTimeAsync(300)
+      vi.useRealTimers()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('That is not a usable correlation identifier.')
+      expect(wrapper.text()).toContain('GET /api/other')
+    })
+
+    it('keeps a chip filter when a typed value was still pending derivation', async () => {
+      vi.stubGlobal('fetch', stubFetch(correlatedReport(), requestProfile()))
+      vi.useFakeTimers()
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      await wrapper.find('#activity-correlation-filter').setValue('something-else')
+      await wrapper.findAll('.activity-correlation-chip')[0].trigger('click')
+      await vi.advanceTimersByTimeAsync(500)
+      vi.useRealTimers()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Clear correlation filter')
+      expect(wrapper.text()).toContain('GET /api/todos')
+      expect(wrapper.text()).not.toContain('GET /api/other')
+    })
+
+    it('drops the cross-link parameter from the URL when the filter is cleared', async () => {
+      routeQuery.correlationLookupId = CORR_LOOKUP
+      vi.stubGlobal('fetch', stubFetch(correlatedReport(), requestProfile()))
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      await wrapper.find('.activity-correlation-banner button').trigger('click')
+      await flushPromises()
+
+      expect(routerReplace).toHaveBeenCalled()
+      expect(routeQuery.correlationLookupId).toBeUndefined()
+      expect(wrapper.text()).toContain('GET /api/other')
+    })
+
+    it('shows a non-interactive chip when the exposure policy withholds the identity', async () => {
+      const report = correlatedReport()
+      report.entries[0].correlationIds = [
+        {name: 'x-correlation-id', value: null, masked: true, truncated: false, lookupId: null}
+      ]
+      report.entries[0].correlationLookupIds = []
+      report.entries[1].correlationLookupIds = []
+      vi.stubGlobal('fetch', stubFetch(report, requestProfile()))
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      const chips = wrapper.findAll('.activity-correlation-chip')
+      expect(chips[0].element.tagName).toBe('SPAN')
+      expect(chips[0].attributes('title')).toContain('Filtering is unavailable')
+    })
+
+    it('explains that identifiers are not persisted when a correlation filter matches nothing', async () => {
+      const report = correlatedReport()
+      report.pageInfo = {...(report.pageInfo ?? {}), persistent: true}
+      routeQuery.correlationLookupId = 'ffffffffffffffff'
+      vi.stubGlobal('fetch', stubFetch(report, requestProfile()))
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('No activity matches the current filters.')
+      expect(wrapper.text()).toContain('Correlation identifiers are not persisted')
+    })
   })
 })
