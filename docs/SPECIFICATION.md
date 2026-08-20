@@ -1416,6 +1416,40 @@ Acceptance criteria:
 - Spring availability requires a `JmsTemplate` bean and reports unavailable in a GraalVM native image because runtime
   class proxies cannot be generated. Quarkus reports the panel not yet available and directs users to Kafka or RabbitMQ.
 
+### 5.14.9 gRPC Panel
+
+Purpose: show a read-only registry of the application's gRPC surface — server services and methods, server transport
+configuration, and framework-managed client channels — joined with the aggregate call metrics the application's own
+gRPC instrumentation already publishes.
+
+Acceptance criteria:
+
+- Opening the panel is inert: it creates no channel or stub, resolves no name, issues no RPC, does not enable the
+  reflection service, and registers no interceptor. Services are described from the local `ServerServiceDefinition`
+  the generated stub already carries; channels are described from configuration only.
+- Server reporting covers bind address and port, plaintext/TLS transport security, reflection enablement, inbound
+  message and metadata limits, keepalive settings, server interceptors, and every registered service with its
+  fully-qualified name, implementation class, and methods including the unary/server-streaming/client-streaming/
+  bidirectional method type.
+- Client reporting covers each named channel's normalized target authority, load-balancing policy, transport security,
+  retry enablement, inbound limits, and interceptors. Targets are redacted unconditionally (user-info credentials
+  replaced, query strings and fragments dropped) and masked entirely under a metadata-only exposure policy. Protobuf
+  payloads, metadata values, credentials, and TLS key material never reach the response.
+- Call aggregates are read only from existing native metrics — both the interceptor-style
+  `grpc.{server,client}.processing.duration` family and the observation-style `grpc.server`/`grpc.client` family — and
+  expose per-service and per-method call counts, in-progress calls, latency, and gRPC status-code counts. When those
+  meter families are absent the report is explicitly `metricsAvailable=false` with a reason; BootUI never adds a second
+  instrumentation path. Client-side series are grouped by service under `clientServices` rather than attributed to a
+  channel, because gRPC client instrumentation is tagged by service and method only.
+- Multiple servers and multiple named channels keep distinct stable identities, and every collection is bounded so a
+  high-cardinality registry cannot produce an unbounded response.
+- `GET /bootui/api/grpc` returns the same core shape on Spring MVC, Spring WebFlux, and Quarkus. The panel is read-only,
+  so there is no write endpoint and no `read-only` property.
+- An application without a gRPC integration starts normally, the panel stays visible with a framework-correct
+  unavailable reason, and no optional gRPC class is loaded: on Spring the `io.grpc`-importing provider sits behind
+  `@ConditionalOnClass`, and on Quarkus its producer is excluded from bean discovery unless the `GRPC` capability is
+  present.
+
 ### 5.15 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.
@@ -2103,6 +2137,7 @@ Initial endpoints:
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
 | `/bootui/api/rabbitmq`                       | GET    | Bounded RabbitMQ publisher and consumer activity                                        |
 | `/bootui/api/jms`                            | GET    | Bounded JMS producer and consumer activity                                              |
+| `/bootui/api/grpc`                           | GET    | gRPC server services/methods, client channels, and aggregate call metrics               |
 
 ### 6.5 Configuration properties
 
@@ -2281,8 +2316,9 @@ Design rules:
     `get_database_connection_pools`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
-    `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
-    `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`.
+    `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_grpc_registry`,
+    `get_devtools_status`, `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and
+    `get_claude_code_sessions`.
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
@@ -2373,6 +2409,7 @@ Top-level navigation:
   - Kafka.
   - RabbitMQ.
   - JMS.
+  - gRPC.
 - Diagnostics:
   - Traces.
   - Log Tail.

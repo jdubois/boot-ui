@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
@@ -22,6 +23,8 @@ import io.github.jdubois.bootui.engine.flyway.FlywayService;
 import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardService;
+import io.github.jdubois.bootui.engine.grpc.GrpcReportService;
+import io.github.jdubois.bootui.engine.grpc.MicrometerGrpcMetricsProvider;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
@@ -70,6 +73,7 @@ import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.spi.CacheProvider;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import io.github.jdubois.bootui.spi.FlywayProvider;
+import io.github.jdubois.bootui.spi.GrpcMetadataProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.HibernateStatisticsProvider;
 import io.github.jdubois.bootui.spi.LiquibaseProvider;
@@ -963,6 +967,34 @@ public class BootUiEngineProducer {
     @Singleton
     public ScheduledTasksService scheduledTasksService(QuarkusScheduledTaskProvider provider) {
         return new ScheduledTasksService(provider);
+    }
+
+    /**
+     * The gRPC panel report assembler. Mirrors the Spring {@code bootUiGrpcReportService} factory: the engine
+     * {@link GrpcReportService} owns the framework-neutral ordering, bounds, redaction, and metric join, while
+     * the (capability-gated) {@code QuarkusGrpcMetadataProvider} maps the Quarkus registry and configuration.
+     *
+     * <p>The service is produced <em>unconditionally</em> because it holds no {@code io.grpc} type, so
+     * {@code GrpcResource} is wired and the endpoint answers with the same contract on every platform. When
+     * {@code quarkus-grpc} is absent the provider {@code Instance} is unsatisfied (its producer is excluded
+     * from bean discovery by the deployment processor), so the report renders the stable unavailable state.</p>
+     *
+     * <p>Call metrics are read live from the same {@link MeterRegistry} the Metrics panel uses, and only read:
+     * BootUI never registers a gRPC interceptor of its own, so a Quarkus application without
+     * {@code quarkus-micrometer} simply reports its aggregates as unavailable.</p>
+     */
+    @Produces
+    @Singleton
+    public GrpcReportService grpcReportService(
+            Instance<GrpcMetadataProvider> providers,
+            Instance<MeterRegistry> registries,
+            QuarkusExposurePolicy exposure) {
+        GrpcMetadataProvider provider = providers.isUnsatisfied() ? null : providers.get();
+        return new GrpcReportService(
+                provider,
+                new MicrometerGrpcMetricsProvider(() -> resolveRegistry(registries)),
+                exposure,
+                new SecretMasker());
     }
 
     /**

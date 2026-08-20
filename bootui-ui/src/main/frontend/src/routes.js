@@ -52,6 +52,7 @@ const Email = () => import('./views/Email.vue')
 const Kafka = () => import('./views/Kafka.vue')
 const RabbitMQ = () => import('./views/RabbitMQ.vue')
 const Jms = () => import('./views/Jms.vue')
+const Grpc = () => import('./views/Grpc.vue')
 const NotFound = () => import('./views/NotFound.vue')
 
 export const groups = {
@@ -803,6 +804,29 @@ export const routes = [
         'topic',
         'producer',
         'consumer'
+      ]
+    }
+  },
+  {
+    path: '/grpc',
+    name: 'grpc',
+    component: Grpc,
+    meta: {
+      group: groups.services,
+      icon: 'bi-ethernet',
+      title: 'gRPC',
+      shortcut: 'gr',
+      keywords: [
+        'grpc',
+        'rpc',
+        'protobuf',
+        'proto',
+        'stub',
+        'channel',
+        'streaming',
+        'service',
+        'method',
+        'bindableservice'
       ]
     }
   },

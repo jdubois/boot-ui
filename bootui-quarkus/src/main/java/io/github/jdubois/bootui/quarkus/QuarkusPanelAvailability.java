@@ -182,6 +182,15 @@ public class QuarkusPanelAvailability {
      */
     public static final String CACHE_PRESENT_KEY = "bootui.internal.cache-present";
     /**
+     * Runtime-config key carrying the build-time {@code GRPC} capability decision. The deployment processor
+     * emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean reads it
+     * back to decide whether the dynamically-available gRPC panel is lit up (true even with zero
+     * {@code @GrpcService} beans, because the panel still describes the server transport and the configured
+     * client channels). Shared with {@code BootUiQuarkusProcessor} (the producer of the value), mirroring
+     * {@link #CACHE_PRESENT_KEY}.
+     */
+    public static final String GRPC_PRESENT_KEY = "bootui.internal.grpc-present";
+    /**
      * Runtime-config key carrying the build-time {@code AGROAL} capability decision. The deployment processor
      * emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean reads it
      * back to decide whether the dynamically-available Database Connection Pools panel is lit up. Shared with
@@ -273,6 +282,10 @@ public class QuarkusPanelAvailability {
     private static final String SCHEDULED_ABSENT =
             "Not available: this application has no scheduler. Add the quarkus-scheduler extension and"
                     + " annotate a method with @Scheduled to enable the Scheduled Tasks panel.";
+
+    private static final String GRPC_ABSENT =
+            "Not available: this application does not use gRPC. Add the quarkus-grpc extension to enable the"
+                    + " gRPC panel.";
 
     private static final String CACHE_ABSENT =
             "Not available: this application does not use Quarkus Cache. Add the quarkus-cache extension to"
@@ -398,6 +411,7 @@ public class QuarkusPanelAvailability {
             Map.entry(BootUiPanels.HIBERNATE, HIBERNATE_ABSENT),
             Map.entry(BootUiPanels.HIBERNATE_STATISTICS, HIBERNATE_ABSENT),
             Map.entry(BootUiPanels.SCHEDULED, SCHEDULED_ABSENT),
+            Map.entry(BootUiPanels.GRPC, GRPC_ABSENT),
             Map.entry(BootUiPanels.CACHE, CACHE_ABSENT),
             Map.entry(BootUiPanels.FLYWAY, FLYWAY_ABSENT),
             Map.entry(BootUiPanels.LIQUIBASE, LIQUIBASE_ABSENT),
@@ -452,6 +466,8 @@ public class QuarkusPanelAvailability {
 
     private final boolean cachePresent;
 
+    private final boolean grpcPresent;
+
     private final boolean flywayPresent;
     private final boolean liquibasePresent;
     private final boolean connectionPoolsPresent;
@@ -493,6 +509,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(SCHEDULED_PRESENT_KEY, Boolean.class).orElse(false);
         this.cachePresent =
                 config.getOptionalValue(CACHE_PRESENT_KEY, Boolean.class).orElse(false);
+        this.grpcPresent =
+                config.getOptionalValue(GRPC_PRESENT_KEY, Boolean.class).orElse(false);
         this.flywayPresent =
                 config.getOptionalValue(FLYWAY_PRESENT_KEY, Boolean.class).orElse(false);
         this.liquibasePresent =
@@ -528,6 +546,7 @@ public class QuarkusPanelAvailability {
                 Map.entry(BootUiPanels.HIBERNATE_STATISTICS, hibernatePresent),
                 Map.entry(BootUiPanels.SCHEDULED, schedulingPresent),
                 Map.entry(BootUiPanels.CACHE, cachePresent),
+                Map.entry(BootUiPanels.GRPC, grpcPresent),
                 Map.entry(BootUiPanels.FLYWAY, flywayPresent),
                 Map.entry(BootUiPanels.LIQUIBASE, liquibasePresent),
                 Map.entry(BootUiPanels.DATABASE_CONNECTION_POOLS, connectionPoolsPresent),

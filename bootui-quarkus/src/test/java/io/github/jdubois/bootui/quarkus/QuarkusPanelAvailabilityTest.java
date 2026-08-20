@@ -259,6 +259,23 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void grpcIsGatedOnTheQuarkusGrpcExtensionBuildTimeFlag() {
+        PanelDto absent = manifestById().get(BootUiPanels.GRPC);
+        assertThat(absent).as("gRPC panel is present in the manifest").isNotNull();
+        assertThat(absent.available())
+                .as("gRPC stays dark when the deployment processor never saw the GRPC capability")
+                .isFalse();
+        assertThat(absent.unavailableReason()).containsIgnoringCase("quarkus-grpc");
+
+        StubConfig withGrpc = new StubConfig(Map.of(QuarkusPanelAvailability.GRPC_PRESENT_KEY, "true"));
+        PanelDto present = manifestById(withGrpc).get(BootUiPanels.GRPC);
+        assertThat(present.available())
+                .as("gRPC is lit up when quarkus-grpc is present")
+                .isTrue();
+        assertThat(present.unavailableReason()).isNull();
+    }
+
+    @Test
     void githubAvailabilityRoutesThroughTheRepositoryDetector() {
         // GitHub availability is dynamic (mirrors Spring's PanelsController.githubAvailable()): it is computed
         // from the shared GitHubRepositoryDetector, never the static "not yet" fallback. This module is itself

@@ -56,6 +56,7 @@
     { "id": "email", "title": "Email", "actionCapable": true },
     { "id": "kafka", "title": "Kafka", "actionCapable": true },
     { "id": "rabbitmq", "title": "RabbitMQ", "actionCapable": true },
-    { "id": "jms", "title": "JMS", "actionCapable": true }
+    { "id": "jms", "title": "JMS", "actionCapable": true },
+    { "id": "grpc", "title": "gRPC", "actionCapable": false }
   ]
 }

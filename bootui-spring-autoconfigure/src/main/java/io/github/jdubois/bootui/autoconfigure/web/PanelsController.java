@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.grpc.SpringGrpcPresence;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
@@ -199,6 +200,7 @@ public class PanelsController {
             case BootUiPanels.KAFKA -> availability(kafkaAvailable(), "No KafkaTemplate bean is available");
             case BootUiPanels.RABBITMQ -> availability(rabbitAvailable(), "No RabbitTemplate bean is available");
             case BootUiPanels.JMS -> availability(jmsAvailable(), jmsUnavailableReason());
+            case BootUiPanels.GRPC -> availability(grpcAvailable(), grpcUnavailableReason());
             case BootUiPanels.SECURITY -> availability(securityAvailable(), securityUnavailableReason());
             case BootUiPanels.AI -> availability(aiAvailable(), aiUnavailableReason());
             case BootUiPanels.COPILOT ->
@@ -430,6 +432,19 @@ public class PanelsController {
             return "JMS capture is not available when running as a GraalVM native image";
         }
         return "No JmsTemplate bean is available";
+    }
+
+    /**
+     * The gRPC panel needs the gRPC API <em>and</em> Spring Boot's gRPC integration. Detection stays on class
+     * names in {@link SpringGrpcPresence} so this always-loaded controller never links an {@code io.grpc} type
+     * in an application that has no gRPC on the classpath.
+     */
+    private boolean grpcAvailable() {
+        return SpringGrpcPresence.present(getClass().getClassLoader());
+    }
+
+    private String grpcUnavailableReason() {
+        return SpringGrpcPresence.unavailableReason(getClass().getClassLoader());
     }
 
     private boolean beanPresent(String className) {

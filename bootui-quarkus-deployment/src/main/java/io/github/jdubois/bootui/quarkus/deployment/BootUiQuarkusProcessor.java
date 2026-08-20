@@ -186,6 +186,12 @@ class BootUiQuarkusProcessor {
 
     private static final String CACHE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiCacheProducer";
 
+    // Referenced by class name only: BootUiGrpcProducer @Produces a GrpcMetadataProvider whose parameter type
+    // is io.grpc.BindableService; the deployment classloader must never load it while augmenting an
+    // application that has no quarkus-grpc on its classpath (loading it would resolve that parameter type and
+    // link the io.grpc API that must stay absent - R2).
+    private static final String GRPC_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiGrpcProducer";
+
     private static final String FLYWAY_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiFlywayProducer";
     private static final String LIQUIBASE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiLiquibaseProducer";
 
@@ -1575,6 +1581,44 @@ class BootUiQuarkusProcessor {
                 runtimeDefaults,
                 QuarkusPanelAvailability.CACHE_PRESENT_KEY,
                 CACHE_PRODUCER_CLASS);
+    }
+
+    /**
+     * Capability-gated registration of the gRPC panel's {@code io.grpc}-importing producer (R2), mirroring
+     * {@link #registerCacheAdvisor} exactly.
+     *
+     * <p>{@code BootUiGrpcProducer} has a {@code @Produces GrpcMetadataProvider} method whose parameter type
+     * is {@code Instance<io.grpc.BindableService>}, and the extension runtime jar is Jandex-indexed. Arc treats
+     * a producer method as bean-defining, so the indexed producer would be discovered <em>unconditionally</em>
+     * and Arc would resolve its {@code BindableService} parameter type in an application without
+     * {@code quarkus-grpc}, linking the {@code io.grpc} API that must stay absent (R2). A missing CDI scope on
+     * the class is therefore not enough; the producer is actively {@linkplain ExcludedTypeBuildItem excluded}
+     * from discovery when the {@code GRPC} capability is absent, and pinned unremovable when present (the
+     * engine {@code GrpcReportService} that consumes its provider is injected into the RESTEasy-mediated
+     * {@code GrpcResource}, which Arc's usage analysis cannot see).</p>
+     *
+     * <p>The always-produced {@code GrpcReportService} (see
+     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) then receives a {@code null} provider when
+     * absent and serves the stable unavailable report, so {@code GET /bootui/api/grpc} never fails — the panel
+     * is simply reported unavailable in the manifest ({@code GRPC_PRESENT_KEY} defaults to false) until
+     * {@code quarkus-grpc} is added. Like every other developer-console capability gate this is also
+     * non-production only, so a production launch never registers the producer.</p>
+     */
+    @BuildStep
+    void registerGrpc(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.GRPC);
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                runtimeDefaults,
+                QuarkusPanelAvailability.GRPC_PRESENT_KEY,
+                GRPC_PRODUCER_CLASS);
     }
 
     /**

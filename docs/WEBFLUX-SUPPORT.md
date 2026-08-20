@@ -117,11 +117,16 @@ Database · Hibernate · Hibernate Statistics · Flyway · Liquibase · Database
 Vulnerabilities · Scheduled Tasks ·
 HTTP Probe · Pentesting · Heap Dump · Architecture · REST API advisor · Profile Diff · Spring advisor[^spring-advisor-reactive] ·
 Live Memory · JVM Tuning · Metrics · DevTools · Traces · AI Framework · GraalVM · CRaC · Threads · Memory · Email · Kafka ·
-RabbitMQ · JMS. `KafkaController`, `RabbitController`, and `JmsController`, plus their template/listener-factory
+RabbitMQ · JMS · gRPC. `KafkaController`, `RabbitController`, and `JmsController`, plus their template/listener-factory
 `BeanPostProcessor` capture pairs, have no `ConditionalOnWebApplication` or reactive-specific code, so the panels and
 their Live Activity `MESSAGING` capture work identically to the servlet adapter with zero adapter changes. JMS remains
 an imperative, blocking broker API, but its work runs on the application's JMS template/listener threads; the WebFlux
 panel only reads the shared in-memory recorder.
+
+`GrpcController` is likewise shared verbatim: the gRPC panel only reads the registry snapshot the
+`SpringGrpcMetadataProvider` builds from Spring Boot's gRPC properties and `BindableService` beans plus the Micrometer
+call aggregates, so nothing about it is servlet-specific. gRPC itself runs on its own Netty transport (or, with the
+servlet transport, on the servlet container), independently of whether the BootUI console is served by MVC or WebFlux.
 
 CRaC uses the same framework-neutral scanner and Spring runtime inventory on MVC and WebFlux. Its pool inventory includes
 R2DBC factories, and its task/scheduling checks use Spring context APIs rather than servlet types. Generated assets still

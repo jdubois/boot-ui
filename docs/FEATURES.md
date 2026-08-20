@@ -1720,6 +1720,37 @@ claiming capture is active when those proxies cannot be generated.
 
 ![BootUI JMS panel](./images/bootui-jms.webp)
 
+### gRPC
+
+The gRPC panel is a read-only registry of the application's gRPC surface. For every gRPC server it lists the bind
+address and port, whether the transport is plaintext or TLS, whether the reflection service is enabled, the inbound
+message and metadata limits, the keepalive settings, and any server interceptors, followed by every registered service
+with its fully-qualified name, implementation class, and methods. Each method shows its call type — unary, server
+streaming, client streaming, or bidirectional streaming — so a streaming API is legible without opening a `.proto` file.
+
+Framework-managed client channels are listed with their name, normalized target authority, load-balancing policy,
+transport security, retry enablement, inbound limits, and interceptors. Targets are redacted before they leave the
+process: user-info credentials are replaced, query strings and fragments are dropped, and under a metadata-only
+exposure policy the address is masked entirely. TLS key material, keystore passwords, and certificate paths are never
+read.
+
+Call activity is joined in from the gRPC instrumentation the application already publishes to Micrometer — both the
+interceptor-style `grpc.server.processing.duration` family and the observation-style `grpc.server`/`grpc.client` family
+are understood. Per service and per method the panel shows the call count, in-flight calls, average and maximum
+latency, and the gRPC status-code breakdown. **BootUI never registers a gRPC interceptor of its own**, so when no gRPC
+metrics are published the panel says so explicitly instead of silently adding a second instrumentation path. Client-side
+metric series are grouped into an "Outgoing calls" section, because gRPC client instrumentation is tagged by service and
+method rather than by channel, and attributing calls to a named channel would be an invention.
+
+Opening the panel is inert: it creates no channel or stub, resolves no name, issues no RPC, does not enable reflection,
+and does not modify the server. Services are described from the local `ServerServiceDefinition` the generated stub
+already carries, and channels are described from configuration only.
+
+The panel is available on Spring MVC, Spring WebFlux, and Quarkus. On Spring it reads Spring Boot's gRPC server and
+client support (`spring.grpc.*`); on Quarkus it reads the `@GrpcService` beans and `quarkus.grpc.*` configuration. When
+the application has no gRPC integration the panel stays visible and reports a framework-correct unavailable reason, and
+no optional gRPC class is ever loaded.
+
 ## Diagnostics
 
 ### Traces
@@ -1893,8 +1924,8 @@ groups:
   `get_database_connection_pools`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
   `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
-  `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
-  `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`. The live status response and MCP
+  `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_grpc_registry`, `get_devtools_status`,
+  `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`. The live status response and MCP
   panel are the authoritative catalog for the running stack.
 - **Bounded controls:** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,

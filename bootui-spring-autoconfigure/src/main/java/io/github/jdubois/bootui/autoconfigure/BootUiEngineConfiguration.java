@@ -12,6 +12,8 @@ import io.github.jdubois.bootui.autoconfigure.databaseadvisor.SpringDatabaseAdvi
 import io.github.jdubois.bootui.autoconfigure.datasource.SpringConnectionPoolProvider;
 import io.github.jdubois.bootui.autoconfigure.flyway.SpringFlywayProvider;
 import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRepository;
+import io.github.jdubois.bootui.autoconfigure.grpc.SpringGrpcMetadataProvider;
+import io.github.jdubois.bootui.autoconfigure.grpc.SpringGrpcPresence;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
@@ -36,6 +38,7 @@ import io.github.jdubois.bootui.autoconfigure.scheduled.ScheduledTaskRunObservat
 import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvider;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigMetadataCatalog;
+import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
@@ -54,6 +57,8 @@ import io.github.jdubois.bootui.engine.email.EmailStore;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
+import io.github.jdubois.bootui.engine.grpc.GrpcReportService;
+import io.github.jdubois.bootui.engine.grpc.MicrometerGrpcMetricsProvider;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
@@ -80,6 +85,7 @@ import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.BeanProvider;
+import io.github.jdubois.bootui.spi.GrpcMetadataProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
@@ -419,6 +425,51 @@ public class BootUiEngineConfiguration {
         // (where the framework trigger types and the runnable description still exist, for byte-identical
         // filtering); the engine service only sorts and wraps.
         return new ScheduledTasksService(scheduledTaskProviders.getIfAvailable());
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    GrpcReportService bootUiGrpcReportService(
+            ObjectProvider<GrpcMetadataProvider> grpcMetadataProviders,
+            ObjectProvider<MeterRegistry> meterRegistries,
+            BootUiExposure exposure,
+            BootUiSelfDataFilter selfDataFilter) {
+        // R2 optional-dependency port: the io.grpc-typed SpringGrpcMetadataProvider is gated below, so this
+        // always-active service resolves it through an ObjectProvider and serves the stable unavailable report
+        // when gRPC is absent. Metrics are read, never created: the Micrometer provider only joins the meters
+        // the application already publishes, so opening the panel never installs a gRPC interceptor.
+        return new GrpcReportService(
+                grpcMetadataProviders.getIfAvailable(),
+                new MicrometerGrpcMetricsProvider(() -> {
+                    MeterRegistry unique = meterRegistries.getIfUnique();
+                    return unique != null
+                            ? unique
+                            : meterRegistries.orderedStream().findFirst().orElse(null);
+                }),
+                exposure,
+                new SecretMasker());
+    }
+
+    /**
+     * R2 optional-dependency port: the gRPC registry provider is only wired when the gRPC API and Spring
+     * Boot's gRPC support are both on the classpath. Every {@code io.grpc} type stays inside
+     * {@link SpringGrpcMetadataProvider}, which is referenced only from this nested,
+     * {@code @ConditionalOnClass}-gated configuration, so a gRPC-free application never links them. The
+     * always-active {@code bootUiGrpcReportService} tolerates its absence, and {@code GrpcController} stays
+     * registered either way so the panel always answers with the same JSON contract.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = SpringGrpcPresence.BINDABLE_SERVICE)
+    static class GrpcBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        SpringGrpcMetadataProvider bootUiSpringGrpcMetadataProvider(
+                ApplicationContext applicationContext, Environment environment) {
+            return new SpringGrpcMetadataProvider(applicationContext, environment);
+        }
     }
 
     /**

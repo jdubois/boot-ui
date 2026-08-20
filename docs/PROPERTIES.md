@@ -199,6 +199,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Services        | Kafka                     | `kafka`                     | `bootui.panels.kafka.enabled`                     | `bootui.panels.kafka.read-only`           |
 | Services        | RabbitMQ                  | `rabbitmq`                  | `bootui.panels.rabbitmq.enabled`                  | `bootui.panels.rabbitmq.read-only`    |
 | Services        | JMS                       | `jms`                       | `bootui.panels.jms.enabled`                       | `bootui.panels.jms.read-only`              |
+| Services        | gRPC                      | `grpc`                      | `bootui.panels.grpc.enabled`                      | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
 | Diagnostics     | Exceptions                | `exceptions`                | `bootui.panels.exceptions.enabled`                | `bootui.panels.exceptions.read-only`      |
@@ -585,6 +586,16 @@ The JMS panel is a dedicated view over the same bounded Spring JMS capture that 
 | -------------------------------- | ------- | ----------- |
 | `bootui.panels.jms.enabled`      | `true`  | Show the JMS panel when a `JmsTemplate` bean is available. |
 | `bootui.panels.jms.read-only`    | `false` | Disable the clear action while keeping captured messages visible. |
+
+### gRPC
+
+The gRPC panel is read-only: it describes the registered gRPC services, the server transport configuration, and the
+framework-managed client channels, and joins them with the call metrics the application's own gRPC instrumentation
+already publishes. BootUI never registers an interceptor of its own, so there is nothing to tune beyond panel access.
+
+| Property                        | Default | Description |
+| ------------------------------- | ------- | ----------- |
+| `bootui.panels.grpc.enabled`    | `true`  | Show the gRPC panel when the adapter detects gRPC support. |
 
 ### Exceptions
 

@@ -161,6 +161,19 @@
             <optional>true</optional>
         </dependency>
         <dependency>
+            <!--
+              io.grpc:grpc-api: BindableService/ServerServiceDefinition/MethodDescriptor, read by the gRPC
+              panel's registry provider. The version is managed by the Spring Boot BOM (which imports
+              io.grpc:grpc-bom), so no version property is needed here. optional=true keeps it out of a
+              gRPC-free application's classpath; SpringGrpcMetadataProvider is the only class that imports
+              io.grpc and it is loaded solely from the @ConditionalOnClass("io.grpc.BindableService")
+              GrpcBackendConfiguration nested class, so R2 (no optional-dependency classloading trap) holds.
+            -->
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
             <groupId>org.liquibase</groupId>
             <artifactId>liquibase-core</artifactId>
             <optional>true</optional>

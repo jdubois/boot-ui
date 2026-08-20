@@ -107,8 +107,8 @@ the classpath) are simply not advertised.
   `get_database_connection_pools`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
   `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
-  `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
-  `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`. Stack-specific or unavailable
+  `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_grpc_registry`, `get_devtools_status`,
+  `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`. Stack-specific or unavailable
   capabilities are omitted.
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,

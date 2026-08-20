@@ -22,6 +22,7 @@ import io.github.jdubois.bootui.quarkus.web.EmailResource;
 import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
 import io.github.jdubois.bootui.quarkus.web.FlywayResource;
 import io.github.jdubois.bootui.quarkus.web.GitHubResource;
+import io.github.jdubois.bootui.quarkus.web.GrpcResource;
 import io.github.jdubois.bootui.quarkus.web.HealthResource;
 import io.github.jdubois.bootui.quarkus.web.HeapDumpResource;
 import io.github.jdubois.bootui.quarkus.web.HibernateResource;
@@ -126,6 +127,7 @@ public class QuarkusMcpTools {
             EmailResource email,
             KafkaResource kafka,
             RabbitResource rabbit,
+            GrpcResource grpc,
             DevServicesResource devServices,
             GitHubResource github,
             CopilotResource copilot,
@@ -598,6 +600,14 @@ public class QuarkusMcpTools {
                         McpToolDescriptions.quarkus("get_rabbitmq_activity"),
                         BootUiPanels.RABBITMQ,
                         args -> rabbit.list()));
+        addIfAvailable(
+                registry,
+                availability,
+                read(
+                        "get_grpc_registry",
+                        McpToolDescriptions.quarkus("get_grpc_registry"),
+                        BootUiPanels.GRPC,
+                        args -> grpc.grpc()));
         addIfAvailable(
                 registry,
                 availability,

@@ -254,6 +254,19 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- gRPC API, compile-only (provided): needed solely to compile the optional gRPC panel metadata
+             provider (QuarkusGrpcMetadataProvider), which describes the application's registered
+             io.grpc.BindableService beans through their local ServerServiceDefinition. Only the API artifact is
+             used - never quarkus-grpc itself - so BootUI links no transport, no channel builder, and no
+             generated stub. provided scope is NOT transitive, so an application that does not add quarkus-grpc
+             never gets io.grpc on its classpath, and the capability-gated build step (registerGrpc) excludes
+             the producer that would reference it (R2). Version is managed by the quarkus-bom. -->
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Unit-test deps (quarkus-bom managed). Same-package white-box tests stay in this runtime module
              rather than an integration-test module so Quarkus augmentation never sees split packages across
              application archives. QuarkusHealthProviderTest also needs SmallRye's jakarta.json API + the

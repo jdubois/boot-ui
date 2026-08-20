@@ -4,7 +4,7 @@
 
 BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot 4 (servlet and
 WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
-the same `/bootui/api/**` contract on every runtime. The released surface covers 54 panels across runtime introspection,
+the same `/bootui/api/**` contract on every runtime. The released surface covers 56 panels across runtime introspection,
 configuration, database migrations, services, diagnostics, project health, and developer tooling. The next planned panel
 is a read-only **MongoDB** operational view, scoped in §3.5.
 
@@ -33,12 +33,18 @@ Spring Data panel, but it has no framework-neutral operational view of MongoDB c
 collections, or indexes, and the existing JDBC/Flyway/Liquibase panels cannot represent those concepts. The new panel
 will therefore be additive rather than an extension of the SQL-specific panels.
 
+The **gRPC** panel (§3.8) has shipped on Spring MVC, Spring WebFlux, and Quarkus: a read-only `GET /bootui/api/grpc`
+registry of server services, methods, and transport configuration plus framework-managed client channels, joined with
+the aggregate call metrics the application's own gRPC instrumentation already publishes to Micrometer. BootUI adds no
+interceptor and opens no channel, so when those meter families are absent the report says so explicitly instead of
+creating a second instrumentation path.
+
 | Priority | Feature                  | Group    | Primary data source                    | Mutation? | Status  |
 | -------- | ------------------------ | -------- | -------------------------------------- | --------- | ------- |
 | Next     | MongoDB operational view | Database | Spring/Quarkus MongoDB client adapters | No        | Planned |
 | Planned  | Declarative HTTP client registry | Services | Spring HTTP clients / Quarkus REST Client metadata | No | Planned |
 | Planned  | Resilience | Services | Resilience4j, Spring Retry, and SmallRye Fault Tolerance | No (capture only) | Planned |
-| Planned  | gRPC | Services | Spring gRPC / Quarkus gRPC registries and metrics | No | Planned |
+| Done     | gRPC | Services | Spring gRPC / Quarkus gRPC registries and metrics | No | Shipped |
 | Planned  | Spring Batch | Services | Spring Batch `JobExplorer` / `JobRepository` | No | Planned |
 | Planned  | WebSocket endpoints | Services | Spring WebSocket/STOMP / Quarkus WebSockets Next | No (capture only) | Planned |
 | Planned  | Error-contract catalogue | Services | Spring exception handlers / Quarkus exception mappers | No | Planned |
@@ -227,7 +233,7 @@ Acceptance criteria:
   configuration, every supported policy type, state transitions, exhausted retries, rate-limit rejection, bulkhead
   rejection, timeout, disabled capture, and unavailable adapter capabilities without external services.
 
-### 3.8 gRPC — Services 📋 Planned
+### 3.8 gRPC — Services ✅ Completed
 
 BootUI's Mappings and REST Client panels explain HTTP endpoints and calls, but gRPC services, methods, client channels,
 transport security, and call outcomes remain invisible. This panel provides a read-only local registry and aggregate

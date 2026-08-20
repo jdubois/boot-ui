@@ -191,6 +191,11 @@ public final class McpToolDescriptions {
                     "Return the bounded local RabbitMQ activity snapshot captured from application publishers and "
                             + "listeners. This does not publish, consume, clear, or contact a broker."),
             Map.entry(
+                    "get_grpc_registry",
+                    "Return the locally registered gRPC server services, methods, transport configuration, client "
+                            + "channels, and the aggregate call metrics the application already publishes. This read "
+                            + "creates no channel, resolves no name, invokes no RPC, and never enables reflection."),
+            Map.entry(
                     "get_dev_services",
                     "Return the current local Dev Services or development-service inventory and masked connection "
                             + "metadata. This does not start, stop, restart, or contact a service."),

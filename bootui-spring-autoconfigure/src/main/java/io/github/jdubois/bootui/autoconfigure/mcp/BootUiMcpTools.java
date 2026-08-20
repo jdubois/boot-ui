@@ -31,6 +31,7 @@ import io.github.jdubois.bootui.autoconfigure.web.DevServicesController;
 import io.github.jdubois.bootui.autoconfigure.web.DevToolsController;
 import io.github.jdubois.bootui.autoconfigure.web.FlywayController;
 import io.github.jdubois.bootui.autoconfigure.web.GitHubController;
+import io.github.jdubois.bootui.autoconfigure.web.GrpcController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HeapDumpController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
@@ -491,6 +492,7 @@ public class BootUiMcpTools {
             ObjectProvider<KafkaController> kafka,
             ObjectProvider<RabbitController> rabbit,
             ObjectProvider<JmsController> jms,
+            ObjectProvider<GrpcController> grpc,
             ObjectProvider<DevToolsController> devTools,
             ObjectProvider<DevServicesController> devServices,
             ObjectProvider<GitHubController> github,
@@ -661,6 +663,14 @@ public class BootUiMcpTools {
                     McpToolDescriptions.spring("get_jms_activity"),
                     BootUiPanels.JMS,
                     args -> jmsBean.list()));
+        }
+        GrpcController grpcBean = grpc.getIfAvailable();
+        if (grpcBean != null) {
+            registry.add(read(
+                    "get_grpc_registry",
+                    McpToolDescriptions.spring("get_grpc_registry"),
+                    BootUiPanels.GRPC,
+                    args -> grpcBean.grpc()));
         }
         DevToolsController devToolsBean = devTools.getIfAvailable();
         if (devToolsBean != null) {

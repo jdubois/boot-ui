@@ -229,7 +229,22 @@ public final class BootUiApiContractCatalog {
             capabilityList("email", "/email", "messages", "total", fields("devTrapEnabled", JsonType.BOOLEAN)),
             capture("kafka", "/kafka", "messages"),
             capture("rabbitmq", "/rabbitmq", "messages"),
-            capture("jms", "/jms", "messages"));
+            capture("jms", "/jms", "messages"),
+            read(
+                    "grpc",
+                    "/grpc",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "integration", JsonType.STRING,
+                            "serverCount", JsonType.INTEGER,
+                            "serviceCount", JsonType.INTEGER,
+                            "methodCount", JsonType.INTEGER,
+                            "channelCount", JsonType.INTEGER,
+                            "metricsAvailable", JsonType.BOOLEAN,
+                            "servers", JsonType.ARRAY,
+                            "channels", JsonType.ARRAY,
+                            "clientServices", JsonType.ARRAY,
+                            "warnings", JsonType.ARRAY)));
 
     private static final List<ActionContract> ACTIONS = buildActions();
 

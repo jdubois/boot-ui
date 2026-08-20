@@ -195,7 +195,7 @@ bounded at 4096 entries. It explicitly marks Spring endpoint/security metadata u
 explicit scan sends at most one GET and one OPTIONS request directly to `127.0.0.1`, with no redirect, proxy, or external
 host access. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the exact evidence limits and mappings.
 
-### 5.2 Ported by swapping the data source (11)
+### 5.2 Ported by swapping the data source (12)
 
 Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quarkus API.
 
@@ -213,6 +213,10 @@ annotation rules no-op, and Jakarta-based/platform-sensitive rules use Quarkus s
 captured after Arc build-time validation and overlaid on the retained runtime inventory; defining resources and Spring
 Conditions evidence remain unavailable) · `Overview` (panel available; the scoring dashboard
 aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome).
+· `gRPC` (**Implemented** — → the application's `io.grpc.BindableService` CDI beans described through their local
+`ServerServiceDefinition`, plus `quarkus.grpc.server.*` transport configuration and `quarkus.grpc.clients.*` named
+channels; the same shared engine assembles the report and joins Micrometer call aggregates, and the `io.grpc`-importing
+producer is `Capability.GRPC`-gated so an application without `quarkus-grpc` never links a gRPC type).
 
 ### 5.3 Kept, with a rebuilt capture layer or reduced fidelity (12)
 
@@ -382,10 +386,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 45 of the 55 panels ship on Quarkus: 26 are statically available and 19 are capability/detector-gated. The
+**Result:** 46 of the 56 panels ship on Quarkus: 26 are statically available and 20 are capability/detector-gated. The
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
-strategy, the 45 shipped panels comprise 19 ported as-is, 11 source-swapped, 12 capture-rebuilt, and 3 replaced with a
+strategy, the 46 shipped panels comprise 19 ported as-is, 12 source-swapped, 12 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -606,6 +610,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Kafka               | **done**    | Rebuild | `KafkaActivityRecorder`          | SmallRye `Outgoing`/`IncomingInterceptor` (`Capability.KAFKA`-gated); same recorder as Live Activity |
 | RabbitMQ            | **done**    | Rebuild | `RabbitActivityRecorder`         | SmallRye `Outgoing`/`IncomingInterceptor` (`quarkus-messaging-rabbitmq` class-presence-gated); same recorder as Live Activity |
 | JMS                 | spring-only | Not yet | `JmsActivityRecorder`            | Quarkus JMS capture not yet implemented; use Kafka/RabbitMQ panels |
+| gRPC                | **done**    | Adapt   | `GrpcReportService`              | `GrpcMetadataProvider` → `@GrpcService` beans + `quarkus.grpc.*` config (`Capability.GRPC`-gated); Micrometer call aggregates shared with Spring |
 | REST Client         | **done**    | Rebuild | `RestClientTraceRecorder`        | `Capability.REST_CLIENT_REACTIVE`-gated generated `RestClientListener` service provider → metadata-only `QuarkusRestClientTraceFilter`; URI sanitization, status-0 transport failures, trace correlation, SSE/actions, and absent-extension type exclusion |
 | Spring              | **done**    | Replace | Scanning engine                  | new `Quarkus` advisor ruleset               |
 | Cache               | **done**    | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
