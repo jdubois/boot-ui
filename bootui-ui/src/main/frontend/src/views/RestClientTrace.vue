@@ -490,7 +490,7 @@ function clearTrace() {
                         </dd>
                         <template v-if="!entry.success">
                           <dt class="col-sm-2 text-danger">Error</dt>
-                          <dd class="col-sm-10 text-danger">{{ entry.errorMessage }}</dd>
+                          <dd class="col-sm-10 text-danger">{{ entry.errorMessage || '—' }}</dd>
                         </template>
                       </dl>
                     </td>

@@ -2,13 +2,12 @@ package io.github.jdubois.bootui.quarkus.restclienttrace;
 
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.support.SensitiveNames;
 import jakarta.ws.rs.client.ClientRequestContext;
 import jakarta.ws.rs.client.ClientRequestFilter;
 import jakarta.ws.rs.client.ClientResponseContext;
 import jakarta.ws.rs.client.ClientResponseFilter;
 import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
@@ -154,12 +153,7 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
     }
 
     private static String decode(String value, boolean formEncoded) {
-        try {
-            String encoded = formEncoded ? value : value.replace("+", "%2B");
-            return URLDecoder.decode(encoded, StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException malformedEncoding) {
-            return value;
-        }
+        return formEncoded ? SensitiveNames.decodeQueryComponent(value) : SensitiveNames.decodePathComponent(value);
     }
 
     private static void logCaptureFailure(RuntimeException failure) {

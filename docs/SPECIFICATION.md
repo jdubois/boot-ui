@@ -905,7 +905,11 @@ Features:
 Acceptance criteria:
 
 - The recorder is bounded by `bootui.http-exchanges.max-exchanges`, defaulting to 200.
-- Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`.
+- Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`. Sensitive
+  parameter names are matched percent-decoded, so a URL-encoded name cannot evade masking, and the same masking applies
+  to a query-shaped URI fragment.
+- URI authority user-info credentials (`user:secret@host`) are removed unconditionally, including under `FULL`: host and
+  port survive, the credential never reaches the browser.
 - The panel is read-only and returns a stable unavailable DTO when no `HttpExchangeRepository` is available.
 - Copy as cURL performs no request and changes no state; it shows the command before copying, keeps query-parameter
   names but replaces every value with a placeholder, copies only allowlisted unmasked request headers, POSIX-quotes
@@ -1346,6 +1350,12 @@ Acceptance criteria:
   `bootui.rest-client-trace.capture-headers=true`. Quarkus is always metadata-only: it never reads or retains bodies,
   arbitrary headers, credentials, cookies, or tokens, and removes URI user-info/fragments plus sensitive path/query
   values before storage.
+- Every adapter shares one URI masking policy with HTTP Exchanges: authority user-info credentials are removed before
+  storage and never revealed by any exposure setting, sensitive parameter names are matched percent-decoded, and a
+  query-shaped fragment is masked like a query string.
+- The client error message is flattened, credential-redacted (URL credentials plus sensitive query values echoed by the
+  exception), and truncated before it is buffered; value exposure `METADATA_ONLY` hides it entirely, with the failure
+  still visible through the call's success flag and status.
 - Calls are grouped by method, host, and normalized path (numeric/UUID segments collapsed to `{id}`) and a group at or
   above `bootui.rest-client-trace.chatty-call-threshold` is flagged as a **chatty** (repeated-call) pattern, for calls
   of any HTTP method.

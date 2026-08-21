@@ -6,6 +6,8 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
 import io.github.jdubois.bootui.engine.support.PagedList;
+import io.github.jdubois.bootui.engine.support.SensitiveNames;
+import io.github.jdubois.bootui.engine.support.UriMasking;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -14,7 +16,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Framework-neutral assembly, masking, trace-id extraction, self-exclusion and paging for the HTTP
@@ -23,11 +24,6 @@ import java.util.Set;
  * Boot and Quarkus because every transformation lives here. Pure functions over core DTOs and the JDK.
  */
 public final class HttpExchangesService {
-
-    private static final Set<String> SENSITIVE_HEADER_NAMES =
-            Set.of("authorization", "proxy-authorization", "cookie", "set-cookie", "x-xsrf-token", "x-csrf-token");
-
-    private final SecretMasker masker = new SecretMasker();
 
     /**
      * Builds the report from already-captured exchanges. The {@code selfFilter} hides BootUI's own
@@ -75,7 +71,7 @@ public final class HttpExchangesService {
         java.net.URI requestUri = exchange.uri();
         String method = exchange.method();
         String uri = requestUri == null ? null : displayUri(requestUri, maskSecrets, exposure);
-        String path = requestUri == null ? null : requestUri.getPath();
+        String path = requestUri == null ? null : UriMasking.maskPath(requestUri.getPath(), maskSecrets, exposure);
         String query = requestUri == null ? null : displayQuery(requestUri.getRawQuery(), maskSecrets, exposure);
         int status = exchange.status();
         Long durationMs = exchange.durationMs();
@@ -158,58 +154,19 @@ public final class HttpExchangesService {
     }
 
     private boolean shouldMask(String name, boolean maskSecrets) {
-        if (name == null) {
-            return false;
-        }
-        return maskSecrets && (masker.isSecret(name) || SENSITIVE_HEADER_NAMES.contains(name.toLowerCase(Locale.ROOT)));
+        return maskSecrets && SensitiveNames.isSensitive(name);
     }
 
+    /**
+     * Renders the request URI for display: the authority's user-info credentials are removed unconditionally,
+     * and query/fragment parameter values follow the live exposure policy (see {@link UriMasking}).
+     */
     private String displayUri(java.net.URI uri, boolean maskSecrets, ValueExposure exposure) {
-        String rawQuery = uri.getRawQuery();
-        if (rawQuery == null) {
-            return uri.toString();
-        }
-        StringBuilder builder = new StringBuilder();
-        if (uri.getScheme() != null) {
-            builder.append(uri.getScheme()).append(':');
-        }
-        if (uri.getRawAuthority() != null) {
-            builder.append("//").append(uri.getRawAuthority());
-        }
-        if (uri.getRawPath() != null) {
-            builder.append(uri.getRawPath());
-        }
-        String displayQuery = displayQuery(rawQuery, maskSecrets, exposure);
-        if (displayQuery != null) {
-            builder.append('?').append(displayQuery);
-        }
-        if (uri.getRawFragment() != null) {
-            builder.append('#').append(uri.getRawFragment());
-        }
-        return builder.toString();
+        return UriMasking.maskUri(uri.toString(), maskSecrets, exposure);
     }
 
     private String displayQuery(String rawQuery, boolean maskSecrets, ValueExposure exposure) {
-        if (rawQuery == null) {
-            return null;
-        }
-        if (exposure == ValueExposure.METADATA_ONLY) {
-            return null;
-        }
-        String[] parts = rawQuery.split("&", -1);
-        for (int i = 0; i < parts.length; i++) {
-            parts[i] = displayQueryPart(parts[i], maskSecrets, exposure);
-        }
-        return String.join("&", parts);
-    }
-
-    private String displayQueryPart(String part, boolean maskSecrets, ValueExposure exposure) {
-        int equalsIndex = part.indexOf('=');
-        String name = equalsIndex >= 0 ? part.substring(0, equalsIndex) : part;
-        if (!shouldMask(name, maskSecrets) || exposure == ValueExposure.FULL) {
-            return part;
-        }
-        return equalsIndex >= 0 ? name + "=" + SecretMasker.MASKED_VALUE : SecretMasker.MASKED_VALUE;
+        return UriMasking.maskQueryString(rawQuery, maskSecrets, exposure);
     }
 
     private Long responseSizeBytes(List<HttpHeaderDto> responseHeaders) {

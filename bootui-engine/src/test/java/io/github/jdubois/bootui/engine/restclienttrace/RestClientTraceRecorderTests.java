@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
+import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -540,5 +541,119 @@ class RestClientTraceRecorderTests {
         RestClientTraceReport report = recorder.report(true, ValueExposure.MASKED);
         assertThat(report.warnings()).anyMatch(w -> w.contains("paused"));
         assertThat(report.warnings()).anyMatch(w -> w.contains("headers are captured"));
+    }
+
+    private RestClientTraceRecorder recordCall(String uri, String errorMessage) {
+        RestClientTraceRecorder recorder = recorder(true, 10, 100);
+        recorder.record(
+                "GET",
+                uri,
+                "api.example.com",
+                "/orders",
+                errorMessage == null ? 200 : null,
+                1,
+                errorMessage == null,
+                errorMessage,
+                "RestClient",
+                Map.of(),
+                "main");
+        return recorder;
+    }
+
+    @Test
+    void removesUriUserInfoCredentialsBeforeTheyAreBuffered() {
+        RestClientTraceRecorder recorder = recordCall("https://alice:s3cr3t@api.example.com/orders", null);
+        assertThat(recorder.recent().get(0).uri())
+                .isEqualTo("https://" + SecretMasker.MASKED_VALUE + "@api.example.com/orders");
+    }
+
+    @Test
+    void removesUriUserInfoCredentialsEvenUnderFullExposure() {
+        RestClientTraceRecorder recorder =
+                recordCall("https://alice:s3cr3t@api.example.com/orders?apiKey=verysecretvalue", null);
+        RestClientTraceEntryDto entry =
+                recorder.report(true, ValueExposure.FULL).entries().get(0);
+        assertThat(entry.uri())
+                .isEqualTo("https://" + SecretMasker.MASKED_VALUE + "@api.example.com/orders?apiKey=verysecretvalue");
+        assertThat(entry.uri()).doesNotContain("s3cr3t");
+    }
+
+    @Test
+    void masksPercentEncodedSensitiveQueryNames() {
+        RestClientTraceRecorder recorder = recordCall("https://api.example.com/orders?%70assword=hunter2&page=2", null);
+        RestClientTraceEntryDto entry =
+                recorder.report(true, ValueExposure.MASKED).entries().get(0);
+        assertThat(entry.uri())
+                .isEqualTo("https://api.example.com/orders?%70assword=" + SecretMasker.MASKED_VALUE + "&page=2");
+    }
+
+    @Test
+    void masksSensitiveFragmentParameters() {
+        RestClientTraceRecorder recorder =
+                recordCall("https://api.example.com/callback#access_token=abc&state=x", null);
+        RestClientTraceEntryDto entry =
+                recorder.report(true, ValueExposure.MASKED).entries().get(0);
+        assertThat(entry.uri())
+                .isEqualTo("https://api.example.com/callback#access_token=" + SecretMasker.MASKED_VALUE + "&state=x");
+    }
+
+    @Test
+    void redactsCredentialsAndSensitiveQueryValuesFromTheErrorMessage() {
+        RestClientTraceRecorder recorder = recordCall(
+                "https://api.example.com/orders",
+                "I/O error on GET request for \"https://alice:s3cr3t@api.example.com/orders"
+                        + "?apiKey=verysecretvalue\": Connection refused");
+
+        String stored = recorder.recent().get(0).errorMessage();
+        assertThat(stored)
+                .doesNotContain("s3cr3t")
+                .doesNotContain("verysecretvalue")
+                .contains("Connection refused");
+        assertThat(recorder.report(true, ValueExposure.MASKED).entries().get(0).errorMessage())
+                .isEqualTo(stored);
+    }
+
+    @Test
+    void flattensAndBoundsTheErrorMessage() {
+        String message = "Connection reset\n\tat com.example.Client.call(Client.java:42)\n" + "x".repeat(1000);
+        RestClientTraceRecorder recorder = recordCall("https://api.example.com/orders", message);
+
+        String stored = recorder.recent().get(0).errorMessage();
+        assertThat(stored).doesNotContain("\n").doesNotContain("\t");
+        assertThat(stored).hasSizeLessThanOrEqualTo(DetailText.DEFAULT_MAX_CHARS + 1);
+        assertThat(stored).startsWith("Connection reset at com.example.Client.call(Client.java:42)");
+    }
+
+    @Test
+    void normalizesBlankErrorMessagesToNull() {
+        assertThat(recordCall("https://api.example.com/orders", "   \n  ")
+                        .recent()
+                        .get(0)
+                        .errorMessage())
+                .isNull();
+        assertThat(recordCall("https://api.example.com/orders", null)
+                        .recent()
+                        .get(0)
+                        .errorMessage())
+                .isNull();
+    }
+
+    @Test
+    void hidesTheErrorMessageUnderMetadataOnlyExposure() {
+        RestClientTraceRecorder recorder = recordCall("https://api.example.com/orders", "Connection refused");
+        RestClientTraceEntryDto entry =
+                recorder.report(true, ValueExposure.METADATA_ONLY).entries().get(0);
+        assertThat(entry.errorMessage()).isNull();
+        assertThat(entry.success()).isFalse();
+    }
+
+    @Test
+    void leavesAnOrdinaryErrorMessageAndUriIntact() {
+        RestClientTraceRecorder recorder =
+                recordCall("https://api.example.com/orders?page=2&sort=asc", "Connection refused");
+        RestClientTraceEntryDto entry =
+                recorder.report(true, ValueExposure.MASKED).entries().get(0);
+        assertThat(entry.uri()).isEqualTo("https://api.example.com/orders?page=2&sort=asc");
+        assertThat(entry.errorMessage()).isEqualTo("Connection refused");
     }
 }

@@ -6,7 +6,11 @@ import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
+import io.github.jdubois.bootui.engine.support.CredentialRedaction;
+import io.github.jdubois.bootui.engine.support.DetailText;
+import io.github.jdubois.bootui.engine.support.SensitiveNames;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
+import io.github.jdubois.bootui.engine.support.UriMasking;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
@@ -40,23 +44,21 @@ import java.util.stream.Stream;
  * {@code bootui.mask-secrets} is reflected immediately, including for already-captured calls. Only
  * capturing headers at all is opt-in ({@link #isCaptureHeaders()}); request/response bodies are never
  * captured.</p>
+ *
+ * <p>Two things are sanitized before storage rather than at display time, because no exposure setting ever
+ * reveals them: URI authority user-info credentials, and the client {@code errorMessage}, which is flattened,
+ * credential-redacted, and length-bounded since a transport exception can quote a whole request URL.</p>
  */
 public final class RestClientTraceRecorder implements IdleReclaimable {
 
     static final int TOP_CALLS_LIMIT = 20;
 
     /**
-     * Header names treated as sensitive even though {@link SecretMasker#isSecret(String)} doesn't
-     * recognize them by keyword (mirrors {@code HttpExchangesService}'s allow-list for inbound
-     * exchanges).
-     */
-    private static final Set<String> SENSITIVE_HEADER_NAMES =
-            Set.of("authorization", "proxy-authorization", "cookie", "set-cookie", "x-xsrf-token", "x-csrf-token");
-
-    /**
      * A single immutable captured outbound HTTP call. Query parameter values in {@code uri} and header
      * values in {@code requestHeaders} are truncated but otherwise raw; masking is applied at display time
-     * (see the class-level docs), not when this record is created.
+     * (see the class-level docs), not when this record is created. URI user-info credentials and
+     * {@code errorMessage} are the exceptions: both are sanitized before they ever reach this record, since
+     * neither is a value the exposure policy can ever widen.
      */
     public record CapturedCall(
             long id,
@@ -99,7 +101,6 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
     private final Set<String> clientTypes = new ConcurrentSkipListSet<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile TraceIdProvider traceIdProvider = RestClientTraceRecorder::mdcTraceId;
-    private final SecretMasker masker = new SecretMasker();
 
     public RestClientTraceRecorder(
             boolean enabled,
@@ -188,8 +189,9 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
 
     /**
      * Records one outbound call, truncating oversized URIs/header values and evicting the oldest entry
-     * when full. Values are stored raw (unmasked); masking is applied per-name at report time so it can
-     * honor the live exposure policy (see the class-level docs).
+     * when full. Query and header values are stored raw (unmasked) so masking can honor the live exposure
+     * policy at report time (see the class-level docs); URI user-info credentials and the client error
+     * message are sanitized here instead, because no exposure setting ever reveals them.
      */
     public void record(
             String method,
@@ -278,13 +280,13 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 sequence.incrementAndGet(),
                 System.currentTimeMillis(),
                 method,
-                truncate(uri, maxUriLength),
+                truncate(UriMasking.maskUserInfo(uri), maxUriLength),
                 host,
                 truncate(path, maxUriLength),
                 status,
                 Math.max(0, durationMillis),
                 success,
-                errorMessage,
+                sanitizeErrorMessage(errorMessage),
                 clientType,
                 captureHeaders ? truncateHeaderValues(headers) : Map.of(),
                 thread,
@@ -474,11 +476,11 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 entry.method(),
                 displayUri(entry.uri(), maskSecrets, exposure),
                 entry.host(),
-                entry.path(),
+                UriMasking.maskPath(entry.path(), maskSecrets, exposure),
                 entry.status(),
                 entry.durationMillis(),
                 entry.success(),
-                entry.errorMessage(),
+                displayErrorMessage(entry.errorMessage(), exposure),
                 isSlow(entry.durationMillis()),
                 entry.clientType(),
                 displayHeaders(entry.requestHeaders(), maskSecrets, exposure),
@@ -488,45 +490,40 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
     }
 
     /**
-     * Displays the (already length-bounded) stored URI, dropping the whole query string under {@link
-     * ValueExposure#METADATA_ONLY} and otherwise masking each query parameter value by name (mirrors
-     * {@code HttpExchangesService#displayUri}). Malformed query strings (no {@code =}) are passed through
-     * unmodified rather than dropped. The base URI and parameter names are never masked.
+     * Displays the (already user-info-redacted and length-bounded) stored URI, dropping the whole query string
+     * under {@link ValueExposure#METADATA_ONLY} and otherwise masking each query or fragment parameter value by
+     * name. Shared with the HTTP Exchanges panel through {@link UriMasking}, so inbound and outbound URIs are
+     * masked identically. Parameter names and the base URI are never masked; a value-less parameter whose name
+     * itself looks sensitive is replaced wholesale.
      */
     private String displayUri(String uri, boolean maskSecrets, ValueExposure exposure) {
-        if (uri == null) {
-            return null;
-        }
-        int queryIndex = uri.indexOf('?');
-        if (queryIndex < 0) {
-            return uri;
-        }
-        if (exposure == ValueExposure.METADATA_ONLY) {
-            return uri.substring(0, queryIndex);
-        }
-        if (queryIndex == uri.length() - 1) {
-            return uri;
-        }
-        String base = uri.substring(0, queryIndex);
-        String[] pairs = uri.substring(queryIndex + 1).split("&");
-        StringBuilder display = new StringBuilder(base).append('?');
-        for (int i = 0; i < pairs.length; i++) {
-            if (i > 0) {
-                display.append('&');
-            }
-            display.append(displayQueryPart(pairs[i], maskSecrets, exposure));
-        }
-        return display.toString();
+        return UriMasking.maskUri(uri, maskSecrets, exposure);
     }
 
-    private String displayQueryPart(String pair, boolean maskSecrets, ValueExposure exposure) {
-        int eq = pair.indexOf('=');
-        if (eq < 0) {
-            return pair;
+    /**
+     * Bounds and sanitizes a client error message before it is buffered: newlines are flattened, URL credentials
+     * and sensitive query values echoed by the exception are redacted ({@link CredentialRedaction}), and the
+     * result is truncated to {@link DetailText#DEFAULT_MAX_CHARS}. Blank messages become {@code null} so the
+     * panel and Live Activity render "no detail" rather than an empty string.
+     */
+    private static String sanitizeErrorMessage(String errorMessage) {
+        if (errorMessage == null) {
+            return null;
         }
-        String name = pair.substring(0, eq);
-        String value = displayValue(name, pair.substring(eq + 1), maskSecrets, exposure);
-        return name + '=' + value;
+        String flattened = errorMessage.replaceAll("[\\r\\n\\t]+", " ").strip();
+        if (flattened.isEmpty()) {
+            return null;
+        }
+        return truncate(CredentialRedaction.redactMessage(flattened), DetailText.DEFAULT_MAX_CHARS);
+    }
+
+    /**
+     * Applies the live exposure policy to the stored error message: {@link ValueExposure#METADATA_ONLY} hides it
+     * (the failure itself still shows through {@code success}/{@code status}), every other mode keeps the
+     * already-sanitized text so a transport failure stays diagnosable.
+     */
+    private static String displayErrorMessage(String errorMessage, ValueExposure exposure) {
+        return exposure == ValueExposure.METADATA_ONLY ? null : errorMessage;
     }
 
     /**
@@ -566,10 +563,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
     }
 
     private boolean shouldMask(String name, boolean maskSecrets) {
-        if (name == null || name.isBlank()) {
-            return false;
-        }
-        return maskSecrets && (masker.isSecret(name) || SENSITIVE_HEADER_NAMES.contains(name.toLowerCase(Locale.ROOT)));
+        return maskSecrets && SensitiveNames.isSensitive(name);
     }
 
     /** Bounds each stored header value's length without masking; masking happens at display time. */

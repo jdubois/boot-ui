@@ -128,4 +128,77 @@ class HttpExchangesServiceTests {
         buffer.suspendForIdle();
         assertThat(buffer.snapshot()).isEmpty();
     }
+
+    private HttpExchangeDto reportedExchange(URI uri, boolean maskSecrets, ValueExposure exposure) {
+        CapturedHttpExchange captured = new CapturedHttpExchange(
+                Instant.parse("2024-01-01T00:00:00Z"),
+                "GET",
+                uri,
+                200,
+                12L,
+                "127.0.0.1",
+                "alice",
+                "S1",
+                Map.of(),
+                Map.of("Content-Length", List.of("42")),
+                null);
+        return service.report(List.of(captured), u -> false, maskSecrets, exposure, null, null, null, null, null)
+                .exchanges()
+                .get(0);
+    }
+
+    @Test
+    void removesUriUserInfoCredentialsWhenThereIsNoQueryString() {
+        HttpExchangeDto dto =
+                reportedExchange(URI.create("https://alice:s3cr3t@api.example.com/orders"), true, ValueExposure.MASKED);
+        assertThat(dto.uri()).isEqualTo("https://******@api.example.com/orders");
+        assertThat(dto.uri()).doesNotContain("s3cr3t");
+    }
+
+    @Test
+    void removesUriUserInfoCredentialsAlongsideAQueryString() {
+        HttpExchangeDto dto = reportedExchange(
+                URI.create("https://alice:s3cr3t@api.example.com/orders?token=abc&page=2"), true, ValueExposure.MASKED);
+        assertThat(dto.uri()).isEqualTo("https://******@api.example.com/orders?token=******&page=2");
+    }
+
+    @Test
+    void removesUriUserInfoCredentialsEvenUnderFullExposure() {
+        HttpExchangeDto dto = reportedExchange(
+                URI.create("https://alice:s3cr3t@api.example.com/orders?token=abc"), true, ValueExposure.FULL);
+        assertThat(dto.uri()).isEqualTo("https://******@api.example.com/orders?token=abc");
+    }
+
+    @Test
+    void masksPercentEncodedSensitiveQueryNames() {
+        HttpExchangeDto dto = reportedExchange(
+                URI.create("https://api.example.com/orders?%70assword=hunter2&page=2"), true, ValueExposure.MASKED);
+        assertThat(dto.uri()).isEqualTo("https://api.example.com/orders?%70assword=******&page=2");
+        assertThat(dto.query()).isEqualTo("%70assword=******&page=2");
+    }
+
+    @Test
+    void masksSensitiveFragmentParameters() {
+        HttpExchangeDto dto = reportedExchange(
+                URI.create("https://api.example.com/callback#access_token=abc&state=xyz"), true, ValueExposure.MASKED);
+        assertThat(dto.uri()).isEqualTo("https://api.example.com/callback#access_token=******&state=xyz");
+    }
+
+    @Test
+    void dropsQueryAndFragmentUnderMetadataOnlyExposure() {
+        HttpExchangeDto dto = reportedExchange(
+                URI.create("https://api.example.com/callback?page=2#access_token=abc"),
+                true,
+                ValueExposure.METADATA_ONLY);
+        assertThat(dto.uri()).isEqualTo("https://api.example.com/callback");
+        assertThat(dto.query()).isNull();
+    }
+
+    @Test
+    void leavesAnOrdinaryUriUnchanged() {
+        HttpExchangeDto dto = reportedExchange(
+                URI.create("https://api.example.com/orders?page=2&sort=asc#results"), true, ValueExposure.MASKED);
+        assertThat(dto.uri()).isEqualTo("https://api.example.com/orders?page=2&sort=asc#results");
+        assertThat(dto.path()).isEqualTo("/orders");
+    }
 }

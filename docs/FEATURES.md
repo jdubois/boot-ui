@@ -1569,7 +1569,10 @@ toggle, or free text across URI, host, method, client, and thread. Local-only **
 you stop recording without removing the client instrumentation, or empty the buffer.
 
 The panel is read-mostly and privacy-conscious. On Spring, the URI is retained and query values are masked **by name**
-(the same `SecretMasker` rules the Config and HTTP Exchanges panels use); request headers are withheld by default, and
+(the same `SecretMasker` rules the Config and HTTP Exchanges panels use, matched percent-decoded so a URL-encoded
+parameter name cannot slip through); URI authority credentials such as `user:secret@host` are removed before the call is
+ever buffered, and the client error message is flattened, credential-redacted, and truncated for the same reason — a
+transport exception routinely quotes the whole request URL. Request headers are withheld by default, and
 `bootui.rest-client-trace.capture-headers=true` opts into bounded, exposure-aware header capture. Quarkus is deliberately
 stricter: it is always metadata-only, ignores that header property, never reads or retains request/response bodies,
 arbitrary headers, authorization, cookies, credentials, or tokens, and strips URI user-info/fragments plus masks
