@@ -52,7 +52,6 @@ import io.github.jdubois.bootui.engine.graalvm.fixtures.SpelUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.StandardMBeanSubclass;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SupplierBeanDefiner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.UnrelatedSupplierHolder;
-import io.github.jdubois.bootui.engine.graalvm.fixtures.UnsafeAllocator;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -152,8 +151,9 @@ class GraalVmChecksTests {
     }
 
     @Test
-    void unsafeAllocateInstanceCheckDetectsAllocateInstanceCall() {
-        GraalVmFindingDto finding = evaluate(new UnsafeAllocateInstanceCheck(), UnsafeAllocator.class);
+    void unsafeAllocateInstanceCheckDetectsAllocateInstanceCall(@TempDir Path directory) throws IOException {
+        JavaClasses classes = unsafeAllocateInstanceClasses(directory);
+        GraalVmFindingDto finding = evaluate(new UnsafeAllocateInstanceCheck(), classes);
         assertThat(finding.id()).isEqualTo("GRAAL-REFLECT-005");
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(evaluate(new UnsafeAllocateInstanceCheck(), CleanComponent.class)
@@ -162,8 +162,9 @@ class GraalVmChecksTests {
     }
 
     @Test
-    void nativeAccessCheckDoesNotFlagSupportedUnsafeMemoryOrAllocationApis() {
-        assertThat(evaluate(new NativeAccessCheck(), UnsafeAllocator.class).status())
+    void nativeAccessCheckDoesNotFlagSupportedUnsafeMemoryOrAllocationApis(@TempDir Path directory) throws IOException {
+        assertThat(evaluate(new NativeAccessCheck(), unsafeAllocateInstanceClasses(directory))
+                        .status())
                 .isEqualTo("OK");
     }
 
@@ -492,7 +493,8 @@ class GraalVmChecksTests {
     void foreignFunctionCheckDetectsDowncallOnJava17(@TempDir Path directory) throws IOException {
         Path classFile = directory.resolve("synthetic/FfmCaller.class");
         Files.createDirectories(classFile.getParent());
-        writeSyntheticCallFixture(classFile, "synthetic/FfmCaller", "java/lang/foreign/Linker", "downcallHandle", true);
+        SyntheticCallFixture.write(
+                classFile, "synthetic/FfmCaller", "java/lang/foreign/Linker", "downcallHandle", true);
 
         GraalVmFindingDto finding =
                 evaluate(new ForeignFunctionUsageCheck(), new ClassFileImporter().importPath(directory));
@@ -505,7 +507,7 @@ class GraalVmChecksTests {
     void unsafeClassDefinitionBelongsToClassGenerationCheck(@TempDir Path directory) throws IOException {
         Path classFile = directory.resolve("synthetic/UnsafeClassDefiner.class");
         Files.createDirectories(classFile.getParent());
-        writeSyntheticCallFixture(classFile, "synthetic/UnsafeClassDefiner", "sun/misc/Unsafe", "defineClass", false);
+        SyntheticCallFixture.write(classFile, "synthetic/UnsafeClassDefiner", "sun/misc/Unsafe", "defineClass", false);
         JavaClasses classes = new ClassFileImporter().importPath(directory);
 
         assertThat(evaluate(new NativeAccessCheck(), classes).status()).isEqualTo("OK");
@@ -547,62 +549,10 @@ class GraalVmChecksTests {
         }
     }
 
-    private static void writeSyntheticCallFixture(
-            Path classFile, String className, String ownerName, String methodName, boolean interfaceCall)
-            throws IOException {
-        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(classFile))) {
-            out.writeInt(0xCAFEBABE);
-            out.writeShort(0);
-            out.writeShort(61);
-            out.writeShort(14);
-            writeUtf8(out, className);
-            out.writeByte(7);
-            out.writeShort(1);
-            writeUtf8(out, "java/lang/Object");
-            out.writeByte(7);
-            out.writeShort(3);
-            writeUtf8(out, "call");
-            writeUtf8(out, "()V");
-            writeUtf8(out, "Code");
-            writeUtf8(out, ownerName);
-            out.writeByte(7);
-            out.writeShort(8);
-            writeUtf8(out, methodName);
-            writeUtf8(out, "()V");
-            out.writeByte(12);
-            out.writeShort(10);
-            out.writeShort(11);
-            out.writeByte(interfaceCall ? 11 : 10);
-            out.writeShort(9);
-            out.writeShort(12);
-            out.writeShort(0x0021);
-            out.writeShort(2);
-            out.writeShort(4);
-            out.writeShort(0);
-            out.writeShort(0);
-            out.writeShort(1);
-            out.writeShort(0x0009);
-            out.writeShort(5);
-            out.writeShort(6);
-            out.writeShort(1);
-            out.writeShort(7);
-            int codeLength = interfaceCall ? 7 : 5;
-            out.writeInt(12 + codeLength);
-            out.writeShort(1);
-            out.writeShort(0);
-            out.writeInt(codeLength);
-            out.writeByte(0x01);
-            out.writeByte(interfaceCall ? 0xb9 : 0xb6);
-            out.writeShort(13);
-            if (interfaceCall) {
-                out.writeByte(1);
-                out.writeByte(0);
-            }
-            out.writeByte(0xb1);
-            out.writeShort(0);
-            out.writeShort(0);
-            out.writeShort(0);
-        }
+    private static JavaClasses unsafeAllocateInstanceClasses(Path directory) throws IOException {
+        Path classFile = directory.resolve("synthetic/UnsafeAllocator.class");
+        SyntheticCallFixture.writeUnsafeAllocator(classFile);
+        return new ClassFileImporter().importPath(directory);
     }
 
     private static void writeUtf8(DataOutputStream out, String value) throws IOException {
