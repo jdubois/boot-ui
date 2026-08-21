@@ -2348,8 +2348,9 @@ Rules:
   SPA exchanges the startup token for an HTTP-only, same-site session cookie so SSE and downloads work;
   programmatic clients use the standard HTTP bearer authorization scheme.
 - Validate the `Host` header against the built-in loopback names plus `bootui.allowed-hosts` to defend against
-  DNS-rebinding attacks, and reject cross-site state-changing requests (via `Origin`/`Sec-Fetch-Site`) so mutating
-  endpoints stay protected even when Spring Security is absent.
+  DNS-rebinding attacks, rejecting a present but malformed authority the same way as a disallowed hostname (only a
+  genuinely missing or blank `Host` is allowed), and reject cross-site state-changing requests (via
+  `Origin`/`Sec-Fetch-Site`) so mutating endpoints stay protected even when Spring Security is absent.
 - If Spring Security is present while BootUI is active, contribute a highest-precedence `/bootui/**` permit-all security
   chain and log a warning so the developer console stays directly reachable. This must not weaken the localhost-only
   servlet filter unless `bootui.allow-non-localhost=true` is explicitly set.

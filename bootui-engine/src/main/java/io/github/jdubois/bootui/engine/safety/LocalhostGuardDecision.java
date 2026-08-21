@@ -17,7 +17,7 @@ public sealed interface LocalhostGuardDecision permits LocalhostGuardDecision.Al
     enum Reason {
         /** The raw TCP peer is neither loopback, in a trusted range, nor a trusted gateway. */
         NON_LOOPBACK_SOURCE,
-        /** A {@code Host} header was present but not on the allow-list (DNS-rebinding defense). */
+        /** A {@code Host} header was present but malformed or not on the allow-list (DNS-rebinding defense). */
         DISALLOWED_HOST,
         /** A state-changing request was cross-site (CSRF defense). */
         CROSS_SITE_WRITE

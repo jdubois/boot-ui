@@ -34,7 +34,8 @@ import org.slf4j.LoggerFactory;
  *       auto-detected container gateway when {@code bootui.trust-container-gateway} permits it (see
  *       {@link ContainerGatewayDetector}).</li>
  *   <li><strong>Host allow-list (DNS-rebinding defense)</strong> — a present {@code Host} header
- *       must resolve to a known loopback name or a configured {@code bootui.allowed-hosts} entry.</li>
+ *       must parse as a well-formed authority and resolve to a known loopback name or a configured
+ *       {@code bootui.allowed-hosts} entry; a malformed value is rejected the same way.</li>
  *   <li><strong>Cross-site write protection (CSRF defense)</strong> — state-changing methods are
  *       rejected on {@code Sec-Fetch-Site: cross-site} or an {@code Origin} host mismatch.</li>
  * </ol>

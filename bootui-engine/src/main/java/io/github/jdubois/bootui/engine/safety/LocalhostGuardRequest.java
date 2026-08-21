@@ -10,7 +10,8 @@ package io.github.jdubois.bootui.engine.safety;
  * @param remoteAddr the raw TCP peer address of the socket (never a forwarded header); may be
  *     {@code null} or blank, both of which the guard treats as an untrusted source
  * @param hostAuthority the raw {@code Host} (or HTTP/2 {@code :authority}) header value, including
- *     any scheme/port/brackets; may be {@code null} (a missing Host is allowed)
+ *     any scheme/port/brackets; may be {@code null} or blank (only a genuinely missing or blank Host
+ *     is allowed — a present but malformed value is rejected)
  * @param origin the raw {@code Origin} header value; may be {@code null}
  * @param secFetchSite the raw {@code Sec-Fetch-Site} header value; may be {@code null}
  */

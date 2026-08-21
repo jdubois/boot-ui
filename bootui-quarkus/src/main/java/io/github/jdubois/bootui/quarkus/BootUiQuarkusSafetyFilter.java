@@ -211,7 +211,8 @@ public class BootUiQuarkusSafetyFilter {
      * header is present (HTTP/2, which carries it in the {@code :authority} pseudo-header) the Vert.x
      * {@link HttpServerRequest#authority()} is rendered back to {@code host[:port]} (bracketing IPv6) so
      * the allow-list still applies. Returns {@code null} when neither is present, which the guard treats
-     * as a missing Host (allowed for non-browser local clients).
+     * as a missing Host (allowed for non-browser local clients); a present but malformed {@code Host}
+     * header is passed through unchanged so the guard can reject it.
      */
     static String hostAuthority(String hostHeader, HostAndPort authority) {
         if (hostHeader != null && !hostHeader.isBlank()) {
