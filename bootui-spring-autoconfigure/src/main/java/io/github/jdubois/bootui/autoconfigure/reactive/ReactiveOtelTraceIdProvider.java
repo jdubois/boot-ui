@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
+import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;

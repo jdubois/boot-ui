@@ -7,17 +7,39 @@ import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner.GraalVmScanResult;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class GraalVmReadinessScannerTests {
 
     private static final String FIXTURES = "io.github.jdubois.bootui.engine.graalvm.fixtures";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC);
+    private static Path unsafeAllocatorClassFile;
+
+    @BeforeAll
+    static void createUnsafeAllocatorFixture() throws Exception {
+        Path testClasses = Path.of(GraalVmReadinessScannerTests.class
+                .getProtectionDomain()
+                .getCodeSource()
+                .getLocation()
+                .toURI());
+        unsafeAllocatorClassFile =
+                testClasses.resolve(FIXTURES.replace('.', '/')).resolve("UnsafeAllocator.class");
+        SyntheticCallFixture.writeUnsafeAllocator(unsafeAllocatorClassFile);
+    }
+
+    @AfterAll
+    static void deleteUnsafeAllocatorFixture() throws Exception {
+        Files.deleteIfExists(unsafeAllocatorClassFile);
+    }
 
     private GraalVmReadinessScanner scanner(List<String> basePackages) {
         return new GraalVmReadinessScanner(

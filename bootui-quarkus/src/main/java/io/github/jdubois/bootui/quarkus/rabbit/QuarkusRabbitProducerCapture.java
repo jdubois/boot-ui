@@ -22,9 +22,8 @@ import org.jboss.logging.Logger;
  * {@code io.smallrye.reactive.messaging.rabbitmq.*} types in the Quarkus adapter's capture path (R2).
  * </strong> The framework-neutral engine and the always-produced {@link RabbitActivityRecorder} never
  * import these; this bean is class-presence-gated (registered only when
- * {@code quarkus-messaging-rabbitmq} is on the classpath, and
- * {@linkplain io.quarkus.arc.deployment.ExcludedTypeBuildItem excluded} from bean discovery otherwise)
- * so Arc never links the messaging API in an app without that extension — mirroring the
+ * {@code quarkus-messaging-rabbitmq} is on the classpath, and excluded from bean discovery with {@code
+ * ExcludedTypeBuildItem} otherwise) so Arc never links the messaging API in an app without that extension — mirroring the
  * Email-panel optional-dependency boundary.</p>
  *
  * <p><strong>Behavioral contract:</strong> metadata only (never the payload — only exchange/routingKey and

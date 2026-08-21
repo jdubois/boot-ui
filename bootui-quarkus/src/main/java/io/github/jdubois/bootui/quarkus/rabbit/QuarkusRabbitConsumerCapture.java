@@ -21,9 +21,8 @@ import org.jboss.logging.Logger;
  * <p><strong>This class (with {@link QuarkusRabbitProducerCapture}) is the sole importer of
  * {@code io.smallrye.reactive.messaging.rabbitmq.*} types in the Quarkus adapter's capture path (R2).
  * </strong> It is class-presence-gated exactly like its producer twin (registered only when
- * {@code quarkus-messaging-rabbitmq} is on the classpath, {@linkplain
- * io.quarkus.arc.deployment.ExcludedTypeBuildItem excluded} otherwise), so Arc never links the messaging
- * API in an app without that extension.</p>
+ * {@code quarkus-messaging-rabbitmq} is on the classpath, excluded with {@code ExcludedTypeBuildItem}
+ * otherwise), so Arc never links the messaging API in an app without that extension.</p>
  *
  * <p><strong>Behavioral contract:</strong> metadata only (never the payload — only exchange/routingKey and
  * the correlationId when {@code bootui.rabbitmq.capture-correlation-id} is on, enforced by the recorder
