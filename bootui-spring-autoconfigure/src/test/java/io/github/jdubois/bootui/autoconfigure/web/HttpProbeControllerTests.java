@@ -65,4 +65,32 @@ class HttpProbeControllerTests {
                 .andExpect(jsonPath("$.statusText").value("Error"))
                 .andExpect(jsonPath("$.error").value("Connection refused"));
     }
+
+    @Test
+    void inputThatExceedsAProbeLimitIsRejectedWithTheCanonicalBadRequestBody() throws Exception {
+        HttpProbeService service = mock(HttpProbeService.class);
+        when(service.probe(any(HttpProbeRequest.class)))
+                .thenThrow(new IllegalArgumentException("HTTP Probe request body exceeds the maximum of 65536 bytes"));
+        MockMvc mvc = standaloneSetup(new HttpProbeController(service)).build();
+
+        mvc.perform(post("/bootui/api/http-probe")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(new HttpProbeRequest("POST", "/", "oversized", null))))
+                // invalid input is a validation failure, not a probe outcome: canonical 400 + {"error"}
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("HTTP Probe request body exceeds the maximum of 65536 bytes"));
+    }
+
+    @Test
+    void validationFailureWithoutAMessageStillReturnsACanonicalBody() throws Exception {
+        HttpProbeService service = mock(HttpProbeService.class);
+        when(service.probe(any(HttpProbeRequest.class))).thenThrow(new IllegalArgumentException());
+        MockMvc mvc = standaloneSetup(new HttpProbeController(service)).build();
+
+        mvc.perform(post("/bootui/api/http-probe")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(new HttpProbeRequest("GET", "/", null, null))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request"));
+    }
 }

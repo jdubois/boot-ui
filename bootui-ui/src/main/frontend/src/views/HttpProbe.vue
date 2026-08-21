@@ -97,7 +97,21 @@ async function sendProbe() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(request)
     })
-    response.value = await res.json()
+    const payload = await res.json().catch(() => null)
+    if (!res.ok) {
+      // BootUI bounds probe input (body, path, headers): an over-limit request is rejected with a
+      // canonical {"error": ...} body before anything is sent to the application.
+      response.value = {
+        status: 0,
+        statusText: 'Rejected',
+        headers: {},
+        body: null,
+        durationMs: 0,
+        error: payload?.error || `Probe request rejected (HTTP ${res.status})`
+      }
+    } else {
+      response.value = payload
+    }
   } catch (error) {
     response.value = {
       status: 0,

@@ -17,6 +17,21 @@ function deferred() {
   return {promise, resolve}
 }
 
+function ok(payload) {
+  return {ok: true, status: 200, json: async () => payload}
+}
+
+function rejected(status, payload) {
+  return {
+    ok: false,
+    status,
+    json: async () => {
+      if (payload === undefined) throw new SyntaxError('Unexpected end of JSON input')
+      return payload
+    }
+  }
+}
+
 function response(overrides = {}) {
   return {
     status: 200,
@@ -51,7 +66,7 @@ describe('HttpProbe', () => {
   })
 
   it('warns when the response body was truncated', async () => {
-    apiFetch.mockResolvedValue({json: async () => response({body: 'partial response', truncated: true})})
+    apiFetch.mockResolvedValue(ok(response({body: 'partial response', truncated: true})))
     const wrapper = mount(HttpProbe)
 
     await wrapper.get('button.btn-primary').trigger('click')
@@ -63,7 +78,7 @@ describe('HttpProbe', () => {
   })
 
   it.each(['GET', 'HEAD'])('sends safe %s probes without confirmation', async (method) => {
-    apiFetch.mockResolvedValue({json: async () => response()})
+    apiFetch.mockResolvedValue(ok(response()))
     const wrapper = mount(HttpProbe)
     await wrapper.get('select').setValue(method)
 
@@ -78,7 +93,7 @@ describe('HttpProbe', () => {
   it('waits for confirmation before sending an unsafe probe', async () => {
     const confirmation = deferred()
     confirm.mockReturnValueOnce(confirmation.promise)
-    apiFetch.mockResolvedValue({json: async () => response()})
+    apiFetch.mockResolvedValue(ok(response()))
     const wrapper = mount(HttpProbe)
     await wrapper.get('select').setValue('POST')
     await wrapper.get('input').setValue('/api/orders')
@@ -136,5 +151,26 @@ describe('HttpProbe', () => {
     await flushPromises()
 
     expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the canonical rejection message when the probe input exceeds a limit', async () => {
+    apiFetch.mockResolvedValue(rejected(400, {error: 'HTTP Probe request body exceeds the maximum of 65536 bytes'}))
+    const wrapper = mount(HttpProbe)
+
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('HTTP Probe request body exceeds the maximum of 65536 bytes')
+    expect(wrapper.text()).toContain('0 Rejected')
+  })
+
+  it('falls back to a status-based message when a rejection carries no JSON body', async () => {
+    apiFetch.mockResolvedValue(rejected(413))
+    const wrapper = mount(HttpProbe)
+
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Probe request rejected (HTTP 413)')
   })
 })

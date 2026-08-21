@@ -25,10 +25,18 @@ import java.util.Set;
  * is running). Hop-by-hop request headers are stripped, and only a small allow-list of response headers
  * is surfaced.
  *
- * <p>Response bodies are bounded at {@link BoundedBodyReader#HTTP_PROBE_MAX_BYTES}: reading stops at
- * that limit without first buffering the full response, so a large or streaming local endpoint cannot
- * destabilise the host JVM. When the body is truncated, {@link HttpProbeResponse#truncated()} is
- * {@code true} so the browser can surface a clear truncation notice.
+ * <p>Response bodies are bounded at {@link HttpProbeLimits#maxResponseBodyBytes()} (by default
+ * {@link BoundedBodyReader#HTTP_PROBE_MAX_BYTES}): reading stops at that limit without first buffering
+ * the full response, so a large or streaming local endpoint cannot destabilise the host JVM. When the
+ * body is truncated, {@link HttpProbeResponse#truncated()} is {@code true} so the browser can surface
+ * a clear truncation notice.
+ *
+ * <p>Inbound probe input is bounded too, by {@link HttpProbeLimits}: method, path, request body,
+ * header count and header name/value sizes are validated in UTF-8 bytes <em>before</em> any outbound
+ * work starts. Exceeding a limit is invalid input, not a probe outcome, so it fails with an
+ * {@link IllegalArgumentException} that every adapter maps to the canonical {@code 400} with a
+ * {@code {"error": ...}} body — unlike a genuine probe failure (connection refused, timeout), which is
+ * reported inside a {@link HttpProbeResponse} with a {@code 0} status.
  */
 public class HttpProbeService {
 
@@ -55,21 +63,27 @@ public class HttpProbeService {
 
     private final HttpClient httpClient;
 
-    private final int maxBodyBytes;
+    private final HttpProbeLimits limits;
 
     public HttpProbeService(ServerPortSupplier serverPort) {
-        this(serverPort, BoundedBodyReader.HTTP_PROBE_MAX_BYTES);
+        this(serverPort, HttpProbeLimits.defaults());
     }
 
-    /** Package-private constructor for testing with a custom byte limit. */
-    HttpProbeService(ServerPortSupplier serverPort, int maxBodyBytes) {
+    public HttpProbeService(ServerPortSupplier serverPort, HttpProbeLimits limits) {
         this.serverPort = serverPort;
-        this.maxBodyBytes = maxBodyBytes;
+        this.limits = limits == null ? HttpProbeLimits.defaults() : limits;
         this.httpClient =
                 HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build();
     }
 
+    /**
+     * Sends the probe and returns its sanitized outcome.
+     *
+     * @throws IllegalArgumentException if the request exceeds a {@link HttpProbeLimits} budget; the
+     *     probe is then never sent, so no outbound work is done for rejected input
+     */
     public HttpProbeResponse probe(HttpProbeRequest request) {
+        validate(request);
         long start = System.currentTimeMillis();
         String method = normalizeMethod(request == null ? null : request.method());
         String path = normalizePath(request == null ? null : request.path());
@@ -82,7 +96,8 @@ public class HttpProbeService {
             builder.method(method, requestBodyPublisher(method, request == null ? null : request.body()));
 
             HttpResponse<BoundedBodyReader.BoundedRead> response = httpClient.send(
-                    builder.build(), BoundedBodyReader.boundedBodyHandler(maxBodyBytes, StandardCharsets.UTF_8));
+                    builder.build(),
+                    BoundedBodyReader.boundedBodyHandler(limits.maxResponseBodyBytes(), StandardCharsets.UTF_8));
             long durationMs = System.currentTimeMillis() - start;
             BoundedBodyReader.BoundedRead read = response.body();
             return new HttpProbeResponse(
@@ -105,10 +120,106 @@ public class HttpProbeService {
         }
     }
 
+    // ── inbound validation ────────────────────────────────────────────────────
+
+    /**
+     * Rejects a probe request that exceeds a {@link HttpProbeLimits} budget, before any outbound work
+     * starts. Limits are checked in UTF-8 bytes, and the body is validated for every method (including
+     * methods that cannot carry one), so an oversized payload is refused rather than silently dropped.
+     * Messages never echo the offending input back to the browser.
+     */
+    private void validate(HttpProbeRequest request) {
+        if (request == null) {
+            return;
+        }
+        if (exceedsUtf8Bytes(request.method(), limits.maxMethodBytes())) {
+            throw new IllegalArgumentException(
+                    "HTTP Probe request method exceeds the maximum of " + limits.maxMethodBytes() + " bytes");
+        }
+        if (exceedsUtf8Bytes(request.path(), limits.maxPathBytes())) {
+            throw new IllegalArgumentException(
+                    "HTTP Probe request path exceeds the maximum of " + limits.maxPathBytes() + " bytes");
+        }
+        if (exceedsUtf8Bytes(request.body(), limits.maxRequestBodyBytes())) {
+            throw new IllegalArgumentException(
+                    "HTTP Probe request body exceeds the maximum of " + limits.maxRequestBodyBytes() + " bytes");
+        }
+        validateHeaders(request.headers());
+    }
+
+    private void validateHeaders(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return;
+        }
+        if (headers.size() > limits.maxHeaderCount()) {
+            throw new IllegalArgumentException(
+                    "HTTP Probe request exceeds the maximum of " + limits.maxHeaderCount() + " request headers");
+        }
+        int totalLimit = limits.maxTotalHeaderBytes();
+        long total = 0;
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (exceedsUtf8Bytes(entry.getKey(), limits.maxHeaderNameBytes())) {
+                throw new IllegalArgumentException("HTTP Probe request header name exceeds the maximum of "
+                        + limits.maxHeaderNameBytes() + " bytes");
+            }
+            if (exceedsUtf8Bytes(entry.getValue(), limits.maxHeaderValueBytes())) {
+                throw new IllegalArgumentException("HTTP Probe request header value exceeds the maximum of "
+                        + limits.maxHeaderValueBytes() + " bytes");
+            }
+            total += utf8Bytes(entry.getKey(), totalLimit) + utf8Bytes(entry.getValue(), totalLimit);
+            if (total > totalLimit) {
+                throw new IllegalArgumentException(
+                        "HTTP Probe request headers exceed the maximum total of " + totalLimit + " bytes");
+            }
+        }
+    }
+
+    private static boolean exceedsUtf8Bytes(String value, int limit) {
+        return utf8Bytes(value, limit) > limit;
+    }
+
+    /**
+     * Counts the UTF-8 size of {@code value}, stopping as soon as {@code cap} is exceeded (in which
+     * case {@code cap + 1} is returned). Nothing is encoded or copied, so measuring an oversized value
+     * costs a bounded scan instead of a full byte-array allocation.
+     */
+    private static long utf8Bytes(String value, int cap) {
+        if (value == null || value.isEmpty()) {
+            return 0;
+        }
+        long total = 0;
+        int length = value.length();
+        for (int i = 0; i < length; i++) {
+            char current = value.charAt(i);
+            if (current < 0x80) {
+                total += 1;
+            } else if (current < 0x800) {
+                total += 2;
+            } else if (Character.isHighSurrogate(current)
+                    && i + 1 < length
+                    && Character.isLowSurrogate(value.charAt(i + 1))) {
+                // a surrogate pair is a single supplementary code point: four UTF-8 bytes
+                total += 4;
+                i++;
+            } else if (Character.isSurrogate(current)) {
+                // an unpaired surrogate is malformed and encodes as a single replacement byte
+                total += 1;
+            } else {
+                total += 3;
+            }
+            if (total > cap) {
+                return cap + 1L;
+            }
+        }
+        return total;
+    }
+
     private void applyHeaders(HttpRequest.Builder builder, Map<String, String> headers) {
         if (headers == null || headers.isEmpty()) {
             return;
         }
+        // Names that differ only by case are distinct map keys but the same HTTP header; the JDK builder
+        // appends them as multiple values, which is valid and stays inside the validated header budgets.
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             if (entry.getKey() == null || entry.getValue() == null) {
                 continue;

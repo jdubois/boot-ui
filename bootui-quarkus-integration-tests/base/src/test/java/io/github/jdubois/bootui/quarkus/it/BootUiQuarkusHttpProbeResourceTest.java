@@ -76,4 +76,43 @@ class BootUiQuarkusHttpProbeResourceTest {
                 .as("reaching a live server with an unknown path yields 404 (not a connection error)")
                 .isEqualTo(404);
     }
+
+    @Test
+    void rejectsAnOversizedRequestBodyWithTheCanonicalBadRequestBody() {
+        String oversized = "a".repeat(64 * 1024 + 1);
+        Response response = probe().request(
+                        "POST",
+                        "/bootui/api/http-probe",
+                        JSON_HEADERS,
+                        "{\"method\":\"POST\",\"path\":\"/bootui/api/overview\",\"body\":\"" + oversized + "\"}");
+
+        assertThat(response.status())
+                .as("an over-limit probe body is invalid input, not a probe outcome")
+                .isEqualTo(400);
+        assertThat(response.isJson())
+                .as("the rejection body must be JSON (%s)", response.contentType())
+                .isTrue();
+        assertThat(response.json().path("error").asText())
+                .isEqualTo("HTTP Probe request body exceeds the maximum of 65536 bytes");
+    }
+
+    @Test
+    void rejectsTooManyRequestHeadersWithTheCanonicalBadRequestBody() {
+        StringBuilder headers = new StringBuilder();
+        for (int i = 0; i <= 50; i++) {
+            if (i > 0) {
+                headers.append(',');
+            }
+            headers.append("\"X-Probe-").append(i).append("\":\"v\"");
+        }
+        Response response = probe().request(
+                        "POST",
+                        "/bootui/api/http-probe",
+                        JSON_HEADERS,
+                        "{\"method\":\"GET\",\"path\":\"/bootui/api/overview\",\"headers\":{" + headers + "}}");
+
+        assertThat(response.status()).isEqualTo(400);
+        assertThat(response.json().path("error").asText())
+                .isEqualTo("HTTP Probe request exceeds the maximum of 50 request headers");
+    }
 }

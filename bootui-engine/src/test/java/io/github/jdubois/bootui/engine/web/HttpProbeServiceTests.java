@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import com.sun.net.httpserver.HttpServer;
 import io.github.jdubois.bootui.core.dto.HttpProbeRequest;
@@ -9,6 +10,8 @@ import io.github.jdubois.bootui.spi.ServerPortSupplier;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -230,8 +233,8 @@ class HttpProbeServiceTests {
     void responseOverLimitIsTruncatedAndFlagSet() throws Exception {
         // Build a service with a very small limit so the test doesn't need a 1 MiB response.
         int limit = 5;
-        HttpProbeService tinyLimit =
-                new HttpProbeService(() -> server.getAddress().getPort(), limit);
+        HttpProbeService tinyLimit = new HttpProbeService(
+                () -> server.getAddress().getPort(), HttpProbeLimits.defaults().withMaxResponseBodyBytes(limit));
         // Respond with exactly limit+1 bytes to trigger truncation.
         String longBody = "ABCDEF"; // 6 bytes > limit of 5
         respondWith("/big", 200, longBody);
@@ -254,7 +257,218 @@ class HttpProbeServiceTests {
         assertThat(response.truncated()).isFalse();
     }
 
+    // ── inbound request limits ────────────────────────────────────────────────
+
+    @Test
+    void requestBodyAtTheLimitIsAccepted() {
+        echo("/at-limit");
+        HttpProbeService bounded = boundedService();
+
+        String body = "a".repeat(HttpProbeLimits.DEFAULT_MAX_REQUEST_BODY_BYTES);
+        HttpProbeResponse response = bounded.probe(new HttpProbeRequest("POST", "/at-limit", body, null));
+
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.error()).isNull();
+    }
+
+    @Test
+    void requestBodyOverTheLimitIsRejectedWithACanonicalMessage() {
+        HttpProbeService bounded = boundedService();
+        String body = "a".repeat(HttpProbeLimits.DEFAULT_MAX_REQUEST_BODY_BYTES + 1);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest("POST", "/oversized", body, null)))
+                .withMessage("HTTP Probe request body exceeds the maximum of "
+                        + HttpProbeLimits.DEFAULT_MAX_REQUEST_BODY_BYTES + " bytes");
+    }
+
+    @Test
+    void oversizedBodyIsRejectedEvenForAMethodThatCannotCarryOne() {
+        // GET drops the body before sending, but an oversized payload is still invalid input: it is
+        // bound in memory by the adapter, so it must be refused rather than silently ignored.
+        HttpProbeService bounded = boundedService();
+        String body = "a".repeat(HttpProbeLimits.DEFAULT_MAX_REQUEST_BODY_BYTES + 1);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest("GET", "/oversized", body, null)));
+    }
+
+    @Test
+    void bodyLengthIsMeasuredInUtf8BytesNotCharacters() {
+        // 4 three-byte characters are 4 chars but 12 UTF-8 bytes: a character-count check would let
+        // three times the byte budget through.
+        HttpProbeService tiny = new HttpProbeService(() -> serverPort(), limits(10));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> tiny.probe(new HttpProbeRequest("POST", "/utf8", "€€€€", null)))
+                .withMessage("HTTP Probe request body exceeds the maximum of 10 bytes");
+    }
+
+    @Test
+    void surrogatePairsAreCountedAsFourUtf8Bytes() {
+        HttpProbeService tiny = new HttpProbeService(() -> serverPort(), limits(8));
+        String twoEmoji = "\uD83D\uDE80\uD83D\uDE80"; // 2 code points, 8 UTF-8 bytes
+        echo("/surrogates");
+
+        HttpProbeResponse accepted = tiny.probe(new HttpProbeRequest("POST", "/surrogates", twoEmoji, null));
+        assertThat(accepted.status()).isEqualTo(200);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> tiny.probe(new HttpProbeRequest("POST", "/surrogates", twoEmoji + "a", null)));
+    }
+
+    @Test
+    void pathOverTheLimitIsRejected() {
+        HttpProbeService bounded = boundedService();
+        String path = "/" + "p".repeat(HttpProbeLimits.DEFAULT_MAX_PATH_BYTES);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest("GET", path, null, null)))
+                .withMessage("HTTP Probe request path exceeds the maximum of " + HttpProbeLimits.DEFAULT_MAX_PATH_BYTES
+                        + " bytes");
+    }
+
+    @Test
+    void methodOverTheLimitIsRejected() {
+        HttpProbeService bounded = boundedService();
+        String method = "M".repeat(HttpProbeLimits.DEFAULT_MAX_METHOD_BYTES + 1);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest(method, "/", null, null)))
+                .withMessage("HTTP Probe request method exceeds the maximum of "
+                        + HttpProbeLimits.DEFAULT_MAX_METHOD_BYTES + " bytes");
+    }
+
+    @Test
+    void headerCountOverTheLimitIsRejected() {
+        HttpProbeService bounded = boundedService();
+        var headers = new LinkedHashMap<String, String>();
+        for (int i = 0; i <= HttpProbeLimits.DEFAULT_MAX_HEADER_COUNT; i++) {
+            headers.put("X-Header-" + i, "value");
+        }
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest("GET", "/", null, headers)))
+                .withMessage("HTTP Probe request exceeds the maximum of " + HttpProbeLimits.DEFAULT_MAX_HEADER_COUNT
+                        + " request headers");
+    }
+
+    @Test
+    void headerCountAtTheLimitIsAccepted() {
+        echo("/max-headers");
+        HttpProbeService bounded = boundedService();
+        var headers = new LinkedHashMap<String, String>();
+        for (int i = 0; i < HttpProbeLimits.DEFAULT_MAX_HEADER_COUNT; i++) {
+            headers.put("X-Header-" + i, "value");
+        }
+
+        HttpProbeResponse response = bounded.probe(new HttpProbeRequest("GET", "/max-headers", null, headers));
+
+        assertThat(response.status()).isEqualTo(200);
+    }
+
+    @Test
+    void headerNameOverTheLimitIsRejected() {
+        HttpProbeService bounded = boundedService();
+        var headers = Map.of("X-" + "n".repeat(HttpProbeLimits.DEFAULT_MAX_HEADER_NAME_BYTES), "value");
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest("GET", "/", null, headers)))
+                .withMessage("HTTP Probe request header name exceeds the maximum of "
+                        + HttpProbeLimits.DEFAULT_MAX_HEADER_NAME_BYTES + " bytes");
+    }
+
+    @Test
+    void headerValueOverTheLimitIsRejected() {
+        HttpProbeService bounded = boundedService();
+        var headers = Map.of("X-Big", "v".repeat(HttpProbeLimits.DEFAULT_MAX_HEADER_VALUE_BYTES + 1));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest("GET", "/", null, headers)))
+                .withMessage("HTTP Probe request header value exceeds the maximum of "
+                        + HttpProbeLimits.DEFAULT_MAX_HEADER_VALUE_BYTES + " bytes");
+    }
+
+    @Test
+    void combinedHeaderSizeOverTheLimitIsRejected() {
+        HttpProbeService bounded = boundedService();
+        var headers = new LinkedHashMap<String, String>();
+        // each entry is well under the per-value limit; together they exceed the total header budget
+        for (int i = 0; i < 8; i++) {
+            headers.put("X-Header-" + i, "v".repeat(HttpProbeLimits.DEFAULT_MAX_HEADER_VALUE_BYTES / 2));
+        }
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest("GET", "/", null, headers)))
+                .withMessage("HTTP Probe request headers exceed the maximum total of "
+                        + HttpProbeLimits.DEFAULT_MAX_TOTAL_HEADER_BYTES + " bytes");
+    }
+
+    @Test
+    void nullHeaderNamesAndValuesDoNotBreakValidation() {
+        echo("/null-headers");
+        HttpProbeService bounded = boundedService();
+        var headers = new LinkedHashMap<String, String>();
+        headers.put("X-Present", null);
+        headers.put(null, "orphan");
+
+        HttpProbeResponse response = bounded.probe(new HttpProbeRequest("GET", "/null-headers", null, headers));
+
+        assertThat(response.status()).isEqualTo(200);
+    }
+
+    @Test
+    void rejectedRequestNeverReachesTheTarget() {
+        AtomicInteger hits = new AtomicInteger();
+        server.createContext("/counted", exchange -> {
+            hits.incrementAndGet();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        HttpProbeService bounded = boundedService();
+        String body = "a".repeat(HttpProbeLimits.DEFAULT_MAX_REQUEST_BODY_BYTES + 1);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest("POST", "/counted", body, null)));
+
+        assertThat(hits.get())
+                .as("validation must fail before any outbound work")
+                .isZero();
+    }
+
+    @Test
+    void nullLimitsFallBackToTheDefaults() {
+        HttpProbeService bounded = new HttpProbeService(() -> serverPort(), null);
+        String body = "a".repeat(HttpProbeLimits.DEFAULT_MAX_REQUEST_BODY_BYTES + 1);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> bounded.probe(new HttpProbeRequest("POST", "/", body, null)));
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    private HttpProbeService boundedService() {
+        return new HttpProbeService(() -> serverPort(), HttpProbeLimits.defaults());
+    }
+
+    private int serverPort() {
+        return server.getAddress().getPort();
+    }
+
+    private static HttpProbeLimits limits(int maxRequestBodyBytes) {
+        return new HttpProbeLimits(32, 2048, maxRequestBodyBytes, 50, 256, 8192, 32768, 1024);
+    }
+
+    private void echo(String path) {
+        server.createContext(path, exchange -> {
+            byte[] incoming = exchange.getRequestBody().readAllBytes();
+            exchange.sendResponseHeaders(200, incoming.length == 0 ? -1 : incoming.length);
+            if (incoming.length > 0) {
+                exchange.getResponseBody().write(incoming);
+            }
+            exchange.close();
+        });
+    }
 
     private void respondWith(String path, int status, String body) {
         server.createContext(path, exchange -> {

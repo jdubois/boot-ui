@@ -68,6 +68,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **HTTP Probe input is explicitly bounded on Spring MVC, Spring WebFlux, and Quarkus.** The probe capped only the
+  response body, so an oversized request body, path or header collection was bound by the adapter and forwarded to the
+  local target. Method (32 bytes), path (2 KiB), request body (64 KiB), header count (50), header name (256 bytes),
+  header value (8 KiB) and total header size (32 KiB) are now checked in UTF-8 bytes — so multi-byte input cannot
+  smuggle several times the budget past a character count — before any request is sent. Over-limit input is rejected
+  with the canonical `400` and `{"error": ...}` body on every adapter, and the panel shows that message; a probe that
+  runs and fails is still reported as a probe outcome (#860).
 - **BootUI's own Quarkus traffic stays out of HTTP Exchanges, Live Activity, and Exceptions under a non-default
   `quarkus.http.root-path` or a custom `bootui.path` mount.** The HTTP-exchange, exception, pre-mapping exception, and
   log-based capture points now recognize BootUI's surface through one shared matcher that strips the configured root

@@ -2077,6 +2077,13 @@ byte-identical to Spring. Capture is wired in dev/test only and never in product
 The HTTP Probe panel sends local-only requests to the running application and displays response status, headers,
 duration, and body. It is designed for quick route checks from inside the same local development context as BootUI.
 
+Probe input is bounded like every other BootUI operation: the method, path, request body, header count and header
+name/value sizes each have an explicit ceiling (64 KiB for the request body, 2 KiB for the path, 50 headers), measured
+in UTF-8 bytes and checked before anything is sent to the application. Exceeding a ceiling is invalid input, so it is
+rejected with the canonical `400` and `{"error": ...}` body on Spring MVC, Spring WebFlux and Quarkus alike, and the
+panel shows that message instead of a probe result. A probe that actually runs and fails — connection refused, timeout
+— is still reported as a probe outcome, and its response body is truncated at the response byte budget.
+
 On Quarkus the panel is identical: the probe always targets the application's *own* loopback address, so it can never
 reach an external host. The only platform difference is how the live local port is resolved — Quarkus has no single
 config key that always equals the bound port, so the adapter selects `quarkus.http.test-port` or `quarkus.http.port` by

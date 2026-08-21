@@ -833,6 +833,9 @@ Features:
 - Normalize method and path.
 - Restrict targets to localhost.
 - Support request bodies only for methods that can carry a body.
+- Bound every inbound field before any request is sent: method (32 bytes), path (2 KiB), request body
+  (64 KiB), header count (50), header name (256 bytes), header value (8 KiB) and total header size (32 KiB), all
+  measured in UTF-8 bytes.
 - Require explicit confirmation before sending any method other than `GET` or `HEAD`.
 - Display status, selected response headers, body, timing, and errors.
 
@@ -842,6 +845,9 @@ Acceptance criteria:
 - `GET` and `HEAD` probes run directly; unsafe probes do not reach the backend until the developer confirms them.
 - Unsafe-body behavior is explicit and predictable.
 - Response headers are filtered to a small allow-list.
+- Response bodies are truncated at the probe byte budget and flagged as truncated.
+- Input that exceeds a probe limit is rejected with the canonical `400` and `{"error": ...}` body on every adapter,
+  before any request reaches the application; a probe that runs but fails stays a `200` outcome with an error payload.
 
 ### 5.13.1 Pentesting Panel
 
