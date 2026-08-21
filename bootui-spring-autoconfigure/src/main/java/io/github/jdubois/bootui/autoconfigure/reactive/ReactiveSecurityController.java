@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import io.github.jdubois.bootui.core.dto.SecurityReport;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.web.bind.annotation.GetMapping;
