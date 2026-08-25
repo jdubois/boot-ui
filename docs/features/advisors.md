@@ -50,13 +50,14 @@ recommendation; the results list shows only violating rules, sorted by severity 
 > `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
 > application is detected to be running as a native image.
 
-### On Quarkus
+::: details On Quarkus
 
 The panel runs the same shared ArchUnit ruleset and on-demand scan over the same report contract. Generic hygiene rules
 apply unchanged; Spring-only annotation rules find no matching classes, while Jakarta-based and proxy rules evaluate with
 Quarkus-specific semantics.
 
-::: details Quarkus proxy semantics and base-package discovery
+**Quarkus proxy semantics and base-package discovery**
+
 Proxy rules receive the active platform explicitly. The Spring self-invocation rule is skipped because Arc supports
 intercepted self-invocation, and proxy visibility follows Arc's support for static interception and final-method
 transformation instead of Spring's proxy restrictions. On Spring, protected and package-private methods are accepted for
@@ -69,6 +70,7 @@ application index and supplied to the scanner. Discovery is single-module today:
 are not auto-discovered, and the `bootui.internal.base-packages` config key (a comma-separated package list) overrides it
 when needed. The scan still runs on demand and caches the last report, and dismissing a rule persists to
 `.bootui/boot-ui.yml` exactly as on Spring Boot.
+
 :::
 
 ## REST API
@@ -297,7 +299,7 @@ reads only the standard JPA metamodel API, not Hibernate-internal naming-strateg
 provider-version-agnostic.
 :::
 
-### On Quarkus
+::: details On Quarkus
 
 The panel is identical, running the same shared rule engine over the same report contract. `DataSource` beans are
 discovered through `@Any Instance<DataSource>` unconditionally (`javax.sql.DataSource` is core JDK, so no capability
@@ -308,6 +310,8 @@ would be introspected twice, doubling every finding. Datasource names come from 
 qualifier, read reflectively by annotation type name so the panel links no `io.quarkus.agroal`/`io.agroal` type and stays
 safe in an application with no JDBC datasource extension; a bean with no such qualifier falls back to positional naming
 (`default`, `datasource-2`, ...).
+
+:::
 
 ## Hibernate
 
@@ -320,7 +324,7 @@ fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` 
 not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies mappings. See
 [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md) for the full catalogue and remediation links.
 
-### On Quarkus
+::: details On Quarkus
 
 The panel runs the same 72-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
 discovered from the live JPA `EntityManagerFactory` metamodel (across all persistence units, de-duplicated by identity),
@@ -335,7 +339,7 @@ unavailable instead of reporting a clean result. Four platform differences are w
   opt-out, so the two lazy-`@OneToOne` findings that depend on enhancement being disabled never fire.
 - **Panache active-record entities are handled specially** (see below).
 
-::: details The Quarkus property-key mapping
+**The Quarkus property-key mapping**
 
 | Spring / native Hibernate key                     | Quarkus equivalent                                                  |
 | ------------------------------------------------- | ------------------------------------------------------------------- |
@@ -359,9 +363,9 @@ any other `hibernate.*` key with no first-class Quarkus option (for example `hib
 escape hatch, which a live-boot test confirmed reaches Hibernate's own bootstrapped settings. Only a handful of genuinely
 Hikari/Spring-specific signals stay unmapped (Hikari's auto-commit setting, which Agroal has no equivalent for) and their
 INFO advisories may still cite the Spring-flavored property name.
-:::
 
-::: details Panache active-record entities
+**Panache active-record entities**
+
 Once a Panache extension (`quarkus-hibernate-orm-panache` or `quarkus-hibernate-reactive-panache`) is on the classpath,
 its build-time bytecode rewrite makes public-field access on any Hibernate-managed class behave like a getter/setter
 call app-wide, so the public-persistent-field finding does not fire. The `@GeneratedValue`-without-strategy finding
@@ -369,6 +373,7 @@ ignores the `id` field Panache's own base entity declares (an application-declar
 Spring Data repository hints (missing-strategy-aware `isNew()` detection for assigned identifiers) are specific to Spring
 Data JPA's `save()` semantics: without Spring Data Commons on the classpath — the normal case for a Panache app, whose
 `persist()` has no such ambiguity — that whole check is skipped rather than reported.
+
 :::
 
 ## Memory
@@ -402,7 +407,14 @@ On Spring Boot it analyses Spring Security when it is on the classpath: it intro
 (`PasswordEncoder`, `CorsConfigurationSource`, `JwtDecoder`) and `Environment` properties. See
 [SECURITY-CHECKS.md](../SECURITY-CHECKS.md) for the full catalogue and remediation links.
 
-### Quarkus
+### Spring WebFlux
+
+On Spring Boot WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
+application's `SecurityWebFilterChain` beans, reactive CORS/OAuth2 beans, and security-relevant configuration. The Spring
+adapter owns collection and excludes BootUI's own permit-all chain; the shared engine owns deterministic rule evaluation
+and never receives Spring types or secret values.
+
+::: details On Quarkus
 
 ![BootUI Security panel — Quarkus Security](../images/bootui-quarkus-security.webp)
 
@@ -413,12 +425,7 @@ headers, and Jakarta/Quarkus annotations including `@RolesAllowed`, `@Permission
 surfaces the same severity-ranked prompts, so the shared UI only relabels the metrics ("Permission policies" in place of
 "Filter chains"). See [QUARKUS-CHECKS.md](../QUARKUS-CHECKS.md) for the full Quarkus catalogue and remediation links.
 
-### Spring WebFlux
-
-On Spring Boot WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
-application's `SecurityWebFilterChain` beans, reactive CORS/OAuth2 beans, and security-relevant configuration. The Spring
-adapter owns collection and excludes BootUI's own permit-all chain; the shared engine owns deterministic rule evaluation
-and never receives Spring types or secret values.
+:::
 
 ## Pentesting
 
@@ -550,7 +557,17 @@ a dismissal survives a patch-version bump of the still-vulnerable dependency. Di
 fresh deterministic ordering from the recomputed active severity. Dismiss/restore controls are disabled when the panel is
 read-only.
 
-### On Quarkus
+::: details How Spring discovers dependencies
+The Spring adapter scans the classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus
+runtime classloader. For JARs without embedded metadata, Spring also reads an adjacent Maven POM (including in
+nonstandard local-repository paths), and only falls back to path-derived coordinates when a literal `repository`
+directory makes the group path unambiguous; it never guesses a group id from an arbitrary cache path. Unreadable
+individual `pom.properties` resources are logged and skipped instead of failing the whole inventory, and classpath JAR
+filenames must match the resolved artifact/version exactly (with an optional classifier) rather than merely sharing a
+version prefix.
+:::
+
+::: details On Quarkus
 
 The panel is identical: it lists the local inventory first and contacts OSV.dev only on the user-initiated scan, over the
 same report contract, CVSS/withdrawn/partial-failure handling, pagination/batch-chunking, EPSS enrichment, and
@@ -559,14 +576,6 @@ disable on-demand scanning / EPSS enrichment on both adapters. The one platform 
 Quarkus inventory is captured at **build time** from the application's resolved runtime dependency model and read back at
 runtime (mirroring the Architecture panel's build-time base-package discovery).
 
-::: details Spring dependency discovery
-The Spring adapter scans the classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus
-runtime classloader. For JARs without embedded metadata, Spring also reads an adjacent Maven POM (including in
-nonstandard local-repository paths), and only falls back to path-derived coordinates when a literal `repository`
-directory makes the group path unambiguous; it never guesses a group id from an arbitrary cache path. Unreadable
-individual `pom.properties` resources are logged and skipped instead of failing the whole inventory, and classpath JAR
-filenames must match the resolved artifact/version exactly (with an optional classifier) rather than merely sharing a
-version prefix.
 :::
 
 ### Known limitations

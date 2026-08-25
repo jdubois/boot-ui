@@ -352,14 +352,15 @@ instant they have been accumulating from. A `spring.cache.type=simple` cache sho
 honestly reports that a plain map records nothing.
 :::
 
-### On Quarkus
+::: details On Quarkus
 
 The same panel (kept under the shared id `cache`) is served over `quarkus-cache`, reading the live topology from the
 application's `CacheManager` and overlaying the same Micrometer metrics. Quarkus's public `CaffeineCache` interface
 exposes **no statistics accessor**, so hit/miss counters are reported unavailable and the panel points at Micrometer
 cache metrics instead. The panel is gated on the `quarkus-cache` extension (the `CACHE` capability).
 
-::: details Quarkus cache specifics
+**How the topology, metrics, and clear action work**
+
 BootUI reads the live cache topology from the application's `io.quarkus.cache.CacheManager`, overlays the same Micrometer
 cache metrics (when a `quarkus-micrometer` registry is present and per-cache metrics are enabled), and the clear action
 evicts via `cache.invalidateAll()`. Tier metadata is reported the same way as on Spring: one local Caffeine tier per
@@ -369,6 +370,7 @@ that reason. Because Quarkus binds caching with build-time annotations (`@CacheR
 `@CacheInvalidateAll`) woven into methods, there is no runtime registry of cached operations, so the operations table is
 replaced by a short explanatory note and the panel shows cache names, metrics, and clear. The panel is reported
 unavailable, with a capability hint, on applications that do not use `quarkus-cache`.
+
 :::
 
 ## Email
@@ -401,20 +403,22 @@ body is truncated at `bootui.email.max-body-length` characters (default 200,000,
 cap only applies to bodies.
 :::
 
-### On Quarkus
+::: details On Quarkus
 
 The panel is identical on Quarkus over the same `/bootui/api/email` contract, available when `quarkus-mailer` is on the
 classpath. One behaviour differs by necessity: because Quarkus fires its capture event *after* the send, the
 recorded-but-not-sent distinction reflects Quarkus's own mock-mail mode (`quarkus.mailer.mock=true`, the default in dev
 and test) rather than a BootUI trap, and such messages are labelled **mock** instead of **dev-trap**.
 
-::: details Quarkus capture wiring and attachment sizes
+**Quarkus capture wiring and attachment sizes**
+
 The `.eml` bytes are produced by the shared engine renderer so they match Spring's. Quarkus's blocking/reactive/Mutiny
 `Mailer` beans all funnel through one internal mailer that fires a CDI `SentMail` event after every successful send, so a
 single `@Observes SentMail` observer captures every send style — the Quarkus analogue of Spring's
 `CapturingJavaMailSender` decorator. The panel is available when `quarkus-mailer` is on the classpath (and dark in
 production); otherwise it reports a clear unavailable reason. Attachment sizes are shown as unknown on Quarkus, since the
 sent-attachment API exposes none.
+
 :::
 
 ## Kafka
