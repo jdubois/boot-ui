@@ -137,7 +137,7 @@ No active CRaC check emits `CRITICAL`.
 
 ## Resources and network
 
-### CRAC-RES-001 -- Resource fields need observable checkpoint cleanup
+### CRAC-RES-001 - Resource fields need observable checkpoint cleanup
 
 - **Severity:** HIGH
 - **Signal:** a field is assignable to a curated OS-resource type: socket, stream/reader/writer, random-access file,
@@ -150,7 +150,7 @@ No active CRaC check emits `CRITICAL`.
   delegation to a non-private method or a different class is not suppression.
 - **Action:** verify the field's runtime lifecycle, close before checkpoint, and recreate after restore.
 
-### CRAC-FILE-001 -- Direct file handle acquisition needs checkpoint lifecycle review
+### CRAC-FILE-001 - Direct file handle acquisition needs checkpoint lifecycle review
 
 - **Severity:** HIGH
 - **Signal:** exact constructors and factories for `FileInputStream`, `FileOutputStream`, `FileReader`, `FileWriter`,
@@ -161,7 +161,7 @@ No active CRaC check emits `CRITICAL`.
 - **Exempt:** acquisition from `Resource.afterRestore()` or Spring `Lifecycle.start()`.
 - **Not exempt:** acquisition from `beforeCheckpoint()`, `stop()`, or an unrelated method on a managed class.
 
-### CRAC-NET-001 -- Direct network socket acquisition needs checkpoint lifecycle review
+### CRAC-NET-001 - Direct network socket acquisition needs checkpoint lifecycle review
 
 - **Severity:** HIGH
 - **Signal:** exact socket constructors or NIO socket/channel `open(...)` factories.
@@ -170,7 +170,7 @@ No active CRaC check emits `CRITICAL`.
 
 ## Connection pools, transports, and caches
 
-### CRAC-POOL-001 -- Non-Hikari pools need verified checkpoint lifecycle support
+### CRAC-POOL-001 - Non-Hikari pools need verified checkpoint lifecycle support
 
 - **Severity:** HIGH
 - **Signal:** a non-Hikari pool/client bean matches a bounded type list: R2DBC, Redis, RabbitMQ, Kafka, MongoDB,
@@ -179,7 +179,7 @@ No active CRaC check emits `CRITICAL`.
 - **Action:** verify the exact library version's CRaC support or register a wrapper that closes and recreates the client.
   Keep the backing service reachable at checkpoint and restore.
 
-### CRAC-POOL-002 -- HTTP/RPC transport owners need checkpoint lifecycle review
+### CRAC-POOL-002 - HTTP/RPC transport owners need checkpoint lifecycle review
 
 - **Severity:** HIGH
 - **Signal:** an application field is typed as JDK `HttpClient`, Apache `CloseableHttpClient`, OkHttp `OkHttpClient`,
@@ -190,7 +190,7 @@ No active CRaC check emits `CRITICAL`.
 - **Boundary:** the field is ownership evidence, not proof of an active socket or worker.
 - **Action:** verify and manage the concrete transport owner, not merely the injected facade.
 
-### CRAC-POOL-004 -- Hikari pools need Spring Boot lifecycle coverage and suspension
+### CRAC-POOL-004 - Hikari pools need Spring Boot lifecycle coverage and suspension
 
 - **Severity:** HIGH
 - **Signal:** a detected Hikari pool lacks an unambiguous
@@ -208,7 +208,7 @@ No active CRaC check emits `CRITICAL`.
 Spring Boot's lifecycle suspends new borrows when suspension is enabled, evicts connections, waits for closure, and
 resumes the pool. It warns when suspension is disabled because new borrows can race with draining.
 
-### CRAC-CACHE-001 -- In-memory caches may hold stale entries after restore
+### CRAC-CACHE-001 - In-memory caches may hold stale entries after restore
 
 - **Severity:** LOW
 - **Signal:** a `ConcurrentMapCacheManager` or `CaffeineCacheManager` bean.
@@ -218,7 +218,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
 
 ## Threads and scheduling
 
-### CRAC-THREAD-001 -- Threads or executor pools created outside the Spring lifecycle
+### CRAC-THREAD-001 - Threads or executor pools created outside the Spring lifecycle
 
 - **Severity:** MEDIUM
 - **Signal:** `Thread.start`, `Thread.startVirtualThread`, a platform/virtual thread builder's `start`, `Timer`
@@ -227,7 +227,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
 - **Boundary:** executor construction proves ownership, not active workers.
 - **Action:** use lifecycle-managed Spring task infrastructure or a CRaC resource that quiesces and restarts the work.
 
-### CRAC-THREAD-002 -- Spring thread-per-task executors need explicit restore handling
+### CRAC-THREAD-002 - Spring thread-per-task executors need explicit restore handling
 
 - **Severity:** MEDIUM
 - **Signal:** a `SimpleAsyncTaskExecutor` or `SimpleAsyncTaskScheduler` bean.
@@ -235,7 +235,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
   `SimpleAsyncTaskScheduler` stops trigger firing only to a limited degree and does not stop handed-off work.
 - **Action:** prefer `ThreadPoolTaskExecutor`/`ThreadPoolTaskScheduler` or explicitly prove task quiescence and restart.
 
-### CRAC-SCHED-001 -- Fixed-rate scheduled tasks may run a catch-up burst after restore
+### CRAC-SCHED-001 - Fixed-rate scheduled tasks may run a catch-up burst after restore
 
 - **Severity:** MEDIUM
 - **Signal:** Spring `@Scheduled(fixedRate=...)` or `fixedRateString=...`.
@@ -247,7 +247,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
 
 ## Time and configuration
 
-### CRAC-TIME-001 -- Static initializer may retain checkpoint-era wall-clock time
+### CRAC-TIME-001 - Static initializer may retain checkpoint-era wall-clock time
 
 - **Severity:** LOW
 - **Signal:** `System.currentTimeMillis()`, `java.time.*.now()`, or `new Date()` in a static initializer.
@@ -255,7 +255,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
 - **Boundary:** the rule observes the read, not data flow into a retained field.
 - **Action:** resolve the time when needed or refresh retained state after restore.
 
-### CRAC-CONFIG-001 -- Static initializer may retain startup configuration
+### CRAC-CONFIG-001 - Static initializer may retain startup configuration
 
 - **Severity:** LOW
 - **Signal:** `System.getenv`, `System.getProperty`, or `System.getProperties` in a static initializer.
@@ -265,7 +265,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
 
 ## Randomness and secrets
 
-### CRAC-RANDOM-001 -- Random state or explicit SecureRandom seeding needs restore handling
+### CRAC-RANDOM-001 - Random state or explicit SecureRandom seeding needs restore handling
 
 - **Severity:** HIGH
 - **Signal:** a `java.util.Random` field, `new SecureRandom(byte[])`, or `SecureRandom.setSeed(...)`.
@@ -273,7 +273,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
 - **Action:** use an unseeded `SecureRandom` for security-sensitive values and verify the exact JDK/provider. Recreate
   intentional deterministic state with process-specific input after restore.
 
-### CRAC-RANDOM-002 -- SecureRandom restore behavior depends on construction and provider
+### CRAC-RANDOM-002 - SecureRandom restore behavior depends on construction and provider
 
 - **Severity:** INFO
 - **Signal:** a `SecureRandom` field.
@@ -282,7 +282,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
   Behavior is not generalized to custom, PKCS#11, FIPS, or other providers.
 - **Action:** run a real test against the deployed JDK, algorithm, and provider.
 
-### CRAC-SECRET-001 -- Potential secret or key material is retained in a field
+### CRAC-SECRET-001 - Potential secret or key material is retained in a field
 
 - **Severity:** HIGH
 - **Signal:** a `String`, `char[]`, or `byte[]` field whose normalized name ends in `secret`, `password`, `passwd`,
@@ -292,7 +292,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
 - **Action:** minimize pre-checkpoint secret exposure and protect checkpoint files as secret artifacts. Refresh after
   restore does not remove the original bytes from an already-created image.
 
-### CRAC-SECRET-002 -- Cached TLS state may need restore-time rebuilding
+### CRAC-SECRET-002 - Cached TLS state may need restore-time rebuilding
 
 - **Severity:** MEDIUM
 - **Signal:** an `SSLContext`, `KeyManager`, `TrustManager`, or manager-array field.
@@ -302,7 +302,7 @@ resumes the pool. It warns when suspension is disabled because new borrows can r
 
 ## Lifecycle
 
-### CRAC-LIFECYCLE-002 -- The org.crac:crac API is not on the classpath
+### CRAC-LIFECYCLE-002 - The org.crac:crac API is not on the classpath
 
 - **Severity:** MEDIUM for planning; HIGH when `spring.context.checkpoint=onRefresh` is configured.
 - **Signal:** `org.crac.Core` is absent from the application class loader.

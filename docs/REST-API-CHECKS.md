@@ -59,7 +59,7 @@ report when no controllers can be imported.
 - It is **not a replacement** for an API design review or contract testing. The heuristics are project-agnostic review
   prompts, not verdicts.
 
-## Severities
+## Severity scale
 
 Findings are ranked in the scanner's severity order:
 
