@@ -418,7 +418,7 @@ surfaces the same severity-ranked prompts, so the shared UI only relabels the me
 On Spring Boot WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
 application's `SecurityWebFilterChain` beans, reactive CORS/OAuth2 beans, and security-relevant configuration. The Spring
 adapter owns collection and excludes BootUI's own permit-all chain; the shared engine owns deterministic rule evaluation
-and never receives Spring types or secret values. See [WEBFLUX-SUPPORT.md](../WEBFLUX-SUPPORT.md).
+and never receives Spring types or secret values.
 
 ## Pentesting
 

@@ -39,9 +39,12 @@ Two things have to be in place:
 1. **Activate BootUI inside the container.** A repackaged jar strips DevTools, and activation checks the _active_
    profiles (not `spring.profiles.default`), so set one explicitly — `SPRING_PROFILES_ACTIVE=dev` or `BOOTUI_ENABLED=ON`.
    Without this you get a `404` on `/bootui`, not a rejection.
-2. **Trust the container gateway.** The simplest opt-in is `bootui.trust-container-gateway=AUTO`: while running inside a
-   container BootUI auto-detects the gateway address(es) that published-port traffic arrives from and trusts just those
-   `/32` (or `/128`) hosts as loopback-equivalent — no need to know the gateway IP or subnet, on any Docker flavor.
+2. **Trust the container gateway.** Set `bootui.trust-container-gateway=AUTO`. While running inside a container BootUI
+   auto-detects the gateway address(es) that published-port traffic arrives from and trusts just those `/32` (or `/128`)
+   hosts as loopback-equivalent — no need to know the gateway IP or subnet, on any Docker flavor.
+
+   ::: details How detection works, and what stays enforced
+
    Detection covers both runtimes: on **Linux Docker Engine** it reads the bridge default gateway from
    `/proc/net/route` (the SNAT source, e.g. `172.17.0.1`); on **Docker Desktop** (macOS/Windows) the SNAT source
    (`192.168.65.1`) is _not_ the route-table gateway, so BootUI resolves the `gateway.docker.internal` DNS name that
@@ -52,6 +55,8 @@ Two things have to be in place:
    extra gateway" (the route-table detection still applies). On Docker Desktop the Docker-Desktop branch therefore
    relies on Docker's embedded DNS resolving `gateway.docker.internal`; if that name is unavailable (for example you
    have disabled it), set `bootui.trusted-proxies=192.168.65.0/24` instead.
+
+   :::
 
 ```bash
 docker run -p 8080:8080 \

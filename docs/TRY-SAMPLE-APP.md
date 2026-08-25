@@ -119,7 +119,7 @@ sample's reactive `SecurityWebFilterChain` and `WebFilter` pipeline with clearly
 the **Security advisor** runs its WebFlux-native 26-rule catalogue. The **REST Client** panel captures calls from Spring
 Boot's auto-configured `WebClient.Builder`, including live SSE updates and pause/resume/clear actions. **HTTP Sessions**
 stays not applicable (WebFlux has no `HttpSession`). See
-[WEBFLUX-SUPPORT.md](WEBFLUX-SUPPORT.md) for the full current status.
+[Framework support](FRAMEWORK-SUPPORT.md) for the full current status.
 
 ## BootUI on Quarkus
 

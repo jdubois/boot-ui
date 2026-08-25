@@ -40,4 +40,4 @@ application. Set `bootui.monitoring.exclude-self=false` to include BootUI intern
 ## Availability per stack
 
 Spring Boot servlet is the reference stack. For the authoritative per-panel availability on the other two, see
-[Quarkus support](../QUARKUS-SUPPORT.md) and [WebFlux support](../WEBFLUX-SUPPORT.md).
+[Framework support](../FRAMEWORK-SUPPORT.md).

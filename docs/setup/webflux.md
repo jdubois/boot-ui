@@ -116,4 +116,4 @@ The following panel is not available:
 - **HTTP Sessions** — not applicable: it is the servlet container's `HttpSession` API, with no reactive equivalent.
 
 For the authoritative, per-panel detail and the reasoning behind each gap, see [Features](../features/README.md) and
-[BootUI on Spring WebFlux](../WEBFLUX-SUPPORT.md).
+[Framework support](../FRAMEWORK-SUPPORT.md).

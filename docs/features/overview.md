@@ -240,7 +240,7 @@ on Agroal), and because the baseline Quarkus feed has no server-side `type`/`sev
 only take effect once persistence is switched on. Quarkus's own security layer authenticating the caller takes
 precedence over a correlated audit event when both are known.
 
-For per-panel detail see [BootUI on Spring WebFlux](../WEBFLUX-SUPPORT.md) and [BootUI on Quarkus](../QUARKUS-SUPPORT.md).
+For per-panel detail see [Framework support](../FRAMEWORK-SUPPORT.md).
 
 ### Live flow (service map)
 

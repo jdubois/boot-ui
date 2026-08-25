@@ -113,6 +113,6 @@ Most of BootUI's panels are live on Quarkus. A handful target Spring-specific ru
 Spring Data, Spring Security, and DevTools. (Quarkus builds native images and generates reachability metadata itself,
 and the others have no Quarkus equivalent.)
 
-For the authoritative, per-panel availability, see [Features](../features/README.md) and the
-[BootUI on Quarkus](../QUARKUS-SUPPORT.md) notes. To try a fully wired Quarkus app, see
+For the authoritative, per-panel availability, see [Features](../features/README.md) and
+[Framework support](../FRAMEWORK-SUPPORT.md). To try a fully wired Quarkus app, see
 [Try the sample app](../TRY-SAMPLE-APP.md#bootui-on-quarkus).

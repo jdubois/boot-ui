@@ -152,7 +152,11 @@ The Copilot panel surfaces sanitized signals from local
 files Copilot CLI writes under `~/.copilot/session-state/` (configurable via `bootui.copilot.session-state-dir`) and
 aggregates recent activity into a clean dashboard: active sessions, total sanitized events, input/output token usage when
 the local session logs include it, failures, 24-hour activity, 7-day activity, event category mix, top tools, model usage,
-and recent sessions. The session explorer remains available
+and recent sessions.
+
+::: details Explorer, limits, and charts
+
+The session explorer remains available
 for drilling into tool calls, edits, reads, searches, shell commands, web/docs lookups, MCP tool calls, hook callbacks,
 skills, sub-agents, and ASK/intent/plan calls. To keep large local histories responsive, the session explorer returns
 the most recent `bootui.copilot.max-sessions` sessions by default, while `bootui.copilot.max-parsed-sessions` caps how
@@ -160,14 +164,23 @@ many recent session files are parsed and retained in JVM heap. The activity char
 tokens shown in blue and output tokens shown in red, and can be toggled back to sanitized events/failures. Selecting a
 chart hour or day filters the explorer to sessions active during that window. Failure lists use retained failure events
 and include sanitized tool/type context.
-Each event row shows only an allowlisted summary - raw prompts, tool arguments, command output, and diffs are deliberately
+
+:::
+
+Each event row shows only an allowlisted summary — raw prompts, tool arguments, command output, and diffs are deliberately
 excluded. The per-event "Reveal raw" action is an explicit, local-only escape hatch that returns the source JSON; it can
 be disabled with `bootui.copilot.allow-raw-reveal=false` and is also blocked when `bootui.expose-values=METADATA_ONLY`.
-The sidebar dims the panel when no session-state directory is found. Data is read-only - BootUI never modifies anything
-under `~/.copilot/`. The panel uses the same header refresh button and visibility-aware auto-refresh toggle as the other
+The sidebar dims the panel when no session-state directory is found. Data is read-only — BootUI never modifies anything
+under `~/.copilot/`.
+
+::: details Refresh behavior and attribution
+
+The panel uses the same header refresh button and visibility-aware auto-refresh toggle as the other
 live data panels, while the backend watches the directory through a Java NIO `WatchService` thread. Inspired by
 [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control), which pioneered this dashboarding of
 Copilot CLI session state.
+
+:::
 
 ## Claude Code
 

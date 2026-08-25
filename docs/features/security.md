@@ -13,7 +13,7 @@ and annotation-endpoint authorization views use a sanitized path-and-method-only
 request's headers, cookies, principal, session, body, or network metadata, and mark reduced results as best effort instead
 of guessing context-dependent rules. Functional `RouterFunction` routes are not listed. The compatibility
 `sessionManagementPresent` signal is labelled **Security context** on WebFlux and does not claim that `WebSession`
-persistence is configured. See [docs/WEBFLUX-SUPPORT.md](../WEBFLUX-SUPPORT.md) for the fidelity and safety details.
+persistence is configured.
 
 ## Security Logs
 

@@ -256,8 +256,7 @@ not available there.
 > **Quarkus is not applicable.** Quarkus' transaction management goes through Narayana's JTA `TransactionManager`/
 > `Synchronization` or the CDI `@Transactional` interceptor, neither of which exposes a comparable per-boundary listener
 > hook without much more invasive instrumentation than Spring's opt-in listener registration. Rather than force false
-> parity, the Quarkus endpoint always reports unavailable with a clear reason explaining the gap; see
-> `docs/QUARKUS-SUPPORT.md` for details.
+> parity, the Quarkus endpoint always reports unavailable with a clear reason explaining the gap.
 
 ## Spring Data
 
