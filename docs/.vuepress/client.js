@@ -16,9 +16,12 @@ export default defineClientConfig({
     let refreshSidebarLinkToggles = () => {}
     let cleanupSidebarLinkToggles = () => {}
 
+    let resumeSidebarSync = () => {}
+
     const syncAfterDomUpdate = () => {
       void nextTick(() => {
         refreshSidebarLinkToggles()
+        resumeSidebarSync()
         scheduleSidebarSync()
       })
     }
@@ -27,6 +30,7 @@ export default defineClientConfig({
       const sidebarSync = setupSidebarScrollSync()
       scheduleSidebarSync = sidebarSync.schedule
       cleanupSidebarSync = sidebarSync.cleanup
+      resumeSidebarSync = sidebarSync.resume
       const sidebarLinkToggles = setupSidebarLinkToggles(() => scheduleSidebarSync())
       refreshSidebarLinkToggles = sidebarLinkToggles.refresh
       cleanupSidebarLinkToggles = sidebarLinkToggles.cleanup
@@ -124,6 +128,21 @@ function syncSidebarLinkToggleState(link, children) {
 
 function setupSidebarScrollSync() {
   let frame = 0
+  // Reading the page moves the sidebar to follow the current section. Scrolling
+  // the sidebar by hand is the opposite intent: the reader is looking somewhere
+  // else in the menu. Without this flag every page scroll, including the one the
+  // sidebar chains into when it hits its own end, would yank the menu back.
+  let userControlled = false
+
+  const claimForUser = (event) => {
+    if (event.target instanceof Element && event.target.closest('.vp-sidebar')) {
+      userControlled = true
+    }
+  }
+
+  const resume = () => {
+    userControlled = false
+  }
 
   const schedule = () => {
     if (frame) {
@@ -132,13 +151,39 @@ function setupSidebarScrollSync() {
 
     frame = window.requestAnimationFrame(() => {
       frame = 0
-      scrollSidebarToCurrentSection()
+      syncSidebarToCurrentSection()
     })
+  }
+
+  const syncSidebarToCurrentSection = () => {
+    const sidebar = document.querySelector('.vp-sidebar')
+    if (!sidebar) {
+      return
+    }
+
+    const target = findCurrentSidebarLink()
+    if (!target) {
+      return
+    }
+
+    if (userControlled) {
+      // Automatic tracking resumes once the reader has brought the current
+      // section back into view themselves.
+      if (!isElementSettled(sidebar, target)) {
+        return
+      }
+
+      userControlled = false
+    }
+
+    keepElementVisible(sidebar, target)
   }
 
   const cleanup = () => {
     window.removeEventListener('scroll', schedule)
     window.removeEventListener('resize', schedule)
+    document.removeEventListener('wheel', claimForUser, true)
+    document.removeEventListener('touchmove', claimForUser, true)
 
     if (frame) {
       window.cancelAnimationFrame(frame)
@@ -147,22 +192,10 @@ function setupSidebarScrollSync() {
 
   window.addEventListener('scroll', schedule, {passive: true})
   window.addEventListener('resize', schedule)
+  document.addEventListener('wheel', claimForUser, {capture: true, passive: true})
+  document.addEventListener('touchmove', claimForUser, {capture: true, passive: true})
 
-  return {schedule, cleanup}
-}
-
-function scrollSidebarToCurrentSection() {
-  const sidebar = document.querySelector('.vp-sidebar')
-  if (!sidebar) {
-    return
-  }
-
-  const target = findCurrentSidebarLink()
-  if (!target) {
-    return
-  }
-
-  keepElementVisible(sidebar, target)
+  return {schedule, cleanup, resume}
 }
 
 function findCurrentSidebarLink() {
@@ -212,16 +245,26 @@ function getScrollTopOffset() {
   return (navbar?.getBoundingClientRect().height ?? 0) + 32
 }
 
+const SIDEBAR_VISIBILITY_MARGIN = 56
+
 function keepElementVisible(container, element) {
   const containerRect = container.getBoundingClientRect()
   const elementRect = element.getBoundingClientRect()
-  const margin = 56
+  const margin = SIDEBAR_VISIBILITY_MARGIN
 
   if (elementRect.top < containerRect.top + margin) {
     container.scrollTop += elementRect.top - containerRect.top - margin
   } else if (elementRect.bottom > containerRect.bottom - margin) {
     container.scrollTop += elementRect.bottom - containerRect.bottom + margin
   }
+}
+
+function isElementSettled(container, element) {
+  const containerRect = container.getBoundingClientRect()
+  const elementRect = element.getBoundingClientRect()
+  const margin = SIDEBAR_VISIBILITY_MARGIN
+
+  return elementRect.top >= containerRect.top + margin && elementRect.bottom <= containerRect.bottom - margin
 }
 
 function isElementVisible(element) {

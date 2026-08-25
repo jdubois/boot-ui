@@ -266,6 +266,9 @@ body {
 .vp-sidebar {
   box-shadow: var(--bootui-shadow-sidebar);
   padding: 1.25rem;
+  /* The menu is its own scroll region. Chaining a wheel past its end into the
+     page would scroll the article the reader is not looking at. */
+  overscroll-behavior: contain;
 }
 
 .vp-site-name::before {
