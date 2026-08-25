@@ -19,7 +19,7 @@ Then open <http://localhost:8080/bootui> from a browser on the same machine.
 The image runs the sample app's `dev` profile, which is **Docker-free** (in-memory H2 database, a simple in-memory
 cache, and disabled Spring AI), so no PostgreSQL, Redis, or Ollama is needed. `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` lets
 the browser on your host reach BootUI through Docker's bridge gateway while keeping the Host allow-list and CSRF
-defenses in force — see the [container access](SETUP.md#running-inside-a-docker-container) notes in the setup guide for details.
+defenses in force — see the [container access](setup/environments.md#running-inside-a-docker-container) notes in the setup guide for details.
 
 In this Docker-free mode most panels work normally (Configuration, Database, Spring Data, Flyway, Liquibase, Cache); the
 Chat and AI Framework panels report that AI is unavailable, and Dev Services lists no containers.

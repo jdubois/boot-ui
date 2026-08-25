@@ -22,7 +22,15 @@ const featureDocs = [
 const groups = [
   {
     text: 'Get started',
-    docs: ['TRY-SAMPLE-APP.md', 'SETUP.md']
+    docs: [
+      'TRY-SAMPLE-APP.md',
+      'SETUP.md',
+      'setup/webflux.md',
+      'setup/quarkus.md',
+      'setup/activation.md',
+      'setup/environments.md',
+      'setup/troubleshooting.md'
+    ]
   },
   {
     text: 'Features',

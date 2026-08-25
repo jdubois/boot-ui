@@ -332,7 +332,7 @@ application configuration or reset existing counters, and it does not require co
 either `bootui.read-only=true` or `bootui.panels.hibernate-statistics.read-only=true`. To enable collection persistently
 from startup, set `hibernate.generate_statistics=true` on Spring or
 `quarkus.hibernate-orm.statistics=true` on Quarkus, as recommended by
-[HIB-CONFIG-007](HIBERNATE-CHECKS.md#hib-config-007---hibernate-statistics-should-be-enabled-when-tuning).
+[HIB-CONFIG-007](HIBERNATE-CHECKS.md#hib-config-007-hibernate-statistics-should-be-enabled-when-tuning).
 
 ### Database
 

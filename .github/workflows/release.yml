@@ -139,12 +139,12 @@ jobs:
             -DgenerateBackupPoms=false
 
           export VERSION
-          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md
-          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-spring-boot-starter:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/SETUP.md
-          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter-reactive</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md
-          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-spring-boot-starter-reactive:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/SETUP.md
-          perl -0pi -e 's{(<artifactId>bootui-quarkus</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md
-          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-quarkus:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/SETUP.md
+          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md docs/setup/activation.md
+          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-spring-boot-starter:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/SETUP.md docs/setup/activation.md
+          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter-reactive</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/setup/webflux.md
+          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-spring-boot-starter-reactive:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/setup/webflux.md
+          perl -0pi -e 's{(<artifactId>bootui-quarkus</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/setup/quarkus.md
+          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-quarkus:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/setup/quarkus.md
 
           if ! grep -q "<version>$VERSION</version>" docs/SETUP.md; then
             echo "::error::Failed to update the bootui-spring-boot-starter version in docs/SETUP.md to $VERSION"
@@ -156,13 +156,13 @@ jobs:
             exit 1
           fi
 
-          if ! grep -q "com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:$VERSION" docs/SETUP.md; then
-            echo "::error::Failed to update the Gradle bootui-spring-boot-starter-reactive version in docs/SETUP.md to $VERSION"
+          if ! grep -q "com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:$VERSION" docs/setup/webflux.md; then
+            echo "::error::Failed to update the Gradle bootui-spring-boot-starter-reactive version in docs/setup/webflux.md to $VERSION"
             exit 1
           fi
 
-          if ! grep -q "com.julien-dubois.bootui:bootui-quarkus:$VERSION" docs/SETUP.md; then
-            echo "::error::Failed to update the Gradle bootui-quarkus version in docs/SETUP.md to $VERSION"
+          if ! grep -q "com.julien-dubois.bootui:bootui-quarkus:$VERSION" docs/setup/quarkus.md; then
+            echo "::error::Failed to update the Gradle bootui-quarkus version in docs/setup/quarkus.md to $VERSION"
             exit 1
           fi
 
