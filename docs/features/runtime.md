@@ -1,7 +1,8 @@
 # Runtime
 
-
 ## Health
+
+![BootUI Health panel](../images/bootui-health.webp)
 
 The Health panel displays the Actuator health tree, including nested contributors and detailed status information when
 the host app exposes it. It keeps unavailable health data separate from unhealthy application state so missing Actuator
@@ -15,9 +16,9 @@ every check's reported data shown as nested details. When `quarkus-smallrye-heal
 shows setup guidance for adding it. SmallRye has no fixed framework-default contributors — every check is
 application-authored — so the Spring-only "default indicators only" guidance does not apply on Quarkus.
 
-![BootUI Health panel](../images/bootui-health.webp)
-
 ## HTTP Sessions
+
+![BootUI HTTP Sessions panel](../images/bootui-http-sessions.webp)
 
 The HTTP Sessions panel lists local embedded Tomcat sessions with creation time, last access time, idle duration,
 attribute count, and current-session highlighting. Session identifiers are treated as bearer credentials: by default the
@@ -35,9 +36,9 @@ This panel is **deliberately not applicable on Spring Boot WebFlux**: HTTP Sessi
 panel reports an honest "not applicable" reason rather than implying a port is forthcoming — the same treatment
 GraalVM/CRaC get on Quarkus.
 
-![BootUI HTTP Sessions panel](../images/bootui-http-sessions.webp)
-
 ## Metrics
+
+![BootUI Metrics panel](../images/bootui-metrics.webp)
 
 The Metrics panel browses Micrometer meters exposed by Actuator. You can search meter names/descriptions and filter by
 meter type on the server, inspect descriptions, base units, tags and available measurements, and render a local live chart
@@ -69,17 +70,17 @@ The panel is identical on Quarkus, served over Micrometer directly (Quarkus has 
 `quarkus-micrometer-registry-prometheus`), and otherwise renders as unavailable while staying in the sidebar. As on Spring
 Boot, meters describing BootUI's own `/bootui/**` traffic are hidden so the console never reports on itself.
 
-![BootUI Metrics panel](../images/bootui-metrics.webp)
-
 ## Live Memory
+
+![BootUI Live Memory panel](../images/bootui-live-memory.webp)
 
 The Live Memory panel summarizes current live JVM heap and non-heap usage plus memory pool utilization. It stays focused on
 the running process metrics so you can spot high heap pressure, non-heap growth, and pool-level saturation without the
 JVM sizing controls mixed into the view.
 
-![BootUI Live Memory panel](../images/bootui-live-memory.webp)
-
 ## JVM Tuning
+
+![BootUI JVM Tuning panel](../images/bootui-jvm-tuning.webp)
 
 The JVM Tuning panel uses the same live JVM context to review current JVM input arguments, explain
 `spring.threads.virtual.enabled=true`, and run JVM sizing calculators for both dedicated hosts and Kubernetes. It detects
@@ -104,9 +105,9 @@ and model limitations.
 > **Not available in GraalVM native images.** JVM heap, GC, and flag tuning does not apply to a native executable;
 > the panel is automatically hidden when the application is detected to be running as a native image.
 
-![BootUI JVM Tuning panel](../images/bootui-jvm-tuning.webp)
-
 ## Heap Dump
+
+![BootUI Heap Dump panel](../images/bootui-heap-dump.webp)
 
 The Heap Dump panel captures local JVM heap dumps on demand and analyzes them through a value-free class histogram, so
 you can investigate suspected memory leaks or unexpected retention during the local development loop. Capture and analyze
@@ -123,9 +124,9 @@ summarizes class names and sizes, never object values. All capture/analyze/delet
 that are blocked when the panel is read-only, and downloading the raw `.hprof` file is disabled unless explicitly enabled
 via configuration. Use it on a local JVM only, and treat any exported dump as sensitive.
 
-![BootUI Heap Dump panel](../images/bootui-heap-dump.webp)
-
 ## Threads
+
+![BootUI Threads panel](../images/bootui-threads.webp)
 
 The Threads panel shows a live snapshot of the JVM's threads so you can answer "what is the application doing right
 now?" during local development. It reads thread information in-process through `ThreadMXBean` rather than requiring the
@@ -139,9 +140,9 @@ metadata-only exposure. The raw text thread dump is offered as a confirmation-ga
 the panel is read-only. The panel stays loopback-only and fails closed, showing an explained unavailable state instead
 of disappearing when thread information cannot be read.
 
-![BootUI Threads panel](../images/bootui-threads.webp)
-
 ## Startup Timeline
+
+![BootUI Startup Timeline panel](../images/bootui-startup-timeline.webp)
 
 The Startup Timeline panel visualizes Spring Boot startup steps from Actuator startup data. It helps identify expensive
 startup phases, slow bean initialization, and the overall application startup shape. When BootUI is active, the starter
@@ -149,9 +150,9 @@ installs a `BufferingApplicationStartup` by default so the panel has data withou
 `bootui.startup.enabled=false` or tune the retained step count with `bootui.startup.capacity`. If startup data is still
 unavailable, the panel shows an empty state instead of failing.
 
-![BootUI Startup Timeline panel](../images/bootui-startup-timeline.webp)
-
 ## GraalVM
+
+![BootUI GraalVM panel](../images/bootui-graalvm.webp)
 
 The GraalVM panel surveys the host application for [GraalVM native-image](https://www.graalvm.org/latest/reference-manual/native-image/)
 readiness. On demand it imports the application's own classes (bounded to the detected base package(s)) and runs **27
@@ -226,9 +227,9 @@ its build-time augmentation, so a Spring-oriented native-readiness advisor — a
 and `Dockerfile-native` it scaffolds — would not match how Quarkus produces native images. The panel therefore reports an
 honest "not applicable on Quarkus" reason rather than implying a port is forthcoming.
 
-![BootUI GraalVM panel](../images/bootui-graalvm.webp)
-
 ## CRaC
+
+![BootUI CRaC panel](../images/bootui-crac.webp)
 
 The CRaC panel reviews the host application's [Coordinated Restore at Checkpoint](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html)
 readiness, combining live runtime status with a heuristic readiness advisor. On demand the readiness advisor imports the
@@ -288,5 +289,3 @@ target the Spring Boot startup model (`spring.context.checkpoint=onRefresh` and 
 whereas Quarkus achieves fast startup through build-time augmentation and native images rather than CRaC checkpoint/
 restore. The panel therefore reports an honest "not applicable on Quarkus" reason rather than implying a port is
 forthcoming.
-
-![BootUI CRaC panel](../images/bootui-crac.webp)

@@ -1,12 +1,11 @@
 # Security
 
-
 ## Spring Security
+
+![BootUI Spring Security panel](../images/bootui-spring-security.webp)
 
 The Spring Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is
 meant to explain local security wiring without exposing credentials or replacing a full security audit.
-
-![BootUI Spring Security panel](../images/bootui-spring-security.webp)
 
 On **Spring Boot WebFlux**, the same panel reads ordered application `SecurityWebFilterChain` beans and lists their
 `WebFilter` pipelines. Chain matching remains fully non-blocking and uses each chain's public reactive matcher. Explain
@@ -17,6 +16,8 @@ of guessing context-dependent rules. Functional `RouterFunction` routes are not 
 persistence is configured. See [docs/WEBFLUX-SUPPORT.md](../WEBFLUX-SUPPORT.md) for the fidelity and safety details.
 
 ## Security Logs
+
+![BootUI Security Logs panel](../images/bootui-security-logs.webp)
 
 The Security Logs panel reads recent Spring Boot audit events from the application's `AuditEventRepository`, including
 authentication successes/failures and authorization denials when Spring Security audit listeners are active. When BootUI is
@@ -33,5 +34,3 @@ On Spring Boot WebFlux the panel is available and identical: it reads from the s
 abstraction, which is itself framework-neutral (Spring publishes audit events over the ordinary
 `ApplicationEventPublisher`, regardless of servlet or reactive), so no reactive-specific capture code was needed
 beyond wiring the same fallback in-memory repository.
-
-![BootUI Security Logs panel](../images/bootui-security-logs.webp)

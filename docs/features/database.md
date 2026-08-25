@@ -1,7 +1,8 @@
 # Database
 
-
 ## Database Connection Pools
+
+![BootUI Database Connection Pools panel](../images/bootui-database-connection-pools.webp)
 
 Inspects supported JDBC connection pool beans, read-only. It never executes SQL, borrows connections, or resizes pools,
 and fails closed when no supported pool implementation or pool beans are present.
@@ -22,9 +23,9 @@ read-only flag).
 
 :::
 
-![BootUI Database Connection Pools panel](../images/bootui-database-connection-pools.webp)
-
 ## SQL Trace
+
+![BootUI SQL Trace panel](../images/bootui-sql-trace.webp)
 
 The SQL Trace panel shows the SQL statements your application recently executed. Capture uses a hand-written JDBC tracing
 proxy on the JDK's own dynamic-proxy support — BootUI bundles **no** third-party database-proxy library. Each recorded
@@ -155,9 +156,9 @@ dev/test only and never in production.
 
 :::
 
-![BootUI SQL Trace panel](../images/bootui-sql-trace.webp)
-
 ## Hibernate Statistics
+
+![BootUI Hibernate Statistics panel](../images/bootui-hibernate-statistics.webp)
 
 The Hibernate Statistics panel exposes a live, read-only snapshot of Hibernate's own `org.hibernate.stat.Statistics` for
 the application's `SessionFactory`. It is a continuously-refreshing runtime monitor — closer in spirit to Database
@@ -190,9 +191,9 @@ per-region second-level cache breakdowns.
 
 The panel is identical on Quarkus, gated on the same Hibernate ORM capability as the Hibernate advisor panel.
 
-![BootUI Hibernate Statistics panel](../images/bootui-hibernate-statistics.webp)
-
 ## Transactions
+
+![BootUI Transactions panel](../images/bootui-transactions.webp)
 
 The Transactions panel shows the `@Transactional` boundaries your application recently ran — begin, commit, and rollback
 events — captured by BootUI's own listener wiring, **not** a third-party transaction-observability library. On Spring MVC
@@ -258,16 +259,16 @@ not available there.
 > parity, the Quarkus endpoint always reports unavailable with a clear reason explaining the gap; see
 > `docs/QUARKUS-SUPPORT.md` for details.
 
-![BootUI Transactions panel](../images/bootui-transactions.webp)
-
 ## Spring Data
+
+![BootUI Spring Data panel](../images/bootui-data.webp)
 
 The Spring Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query
 methods, and degrades to a clear empty state when Spring Data is not present or no repositories are registered.
 
-![BootUI Spring Data panel](../images/bootui-data.webp)
-
 ## Flyway
+
+![BootUI Flyway panel](../images/bootui-flyway.webp)
 
 The Flyway panel shows schema migrations for each `Flyway` bean in the context and lists, per database, the current schema
 version together with applied and pending migrations (version, description, type, script, state, installed-by,
@@ -288,9 +289,9 @@ honoring Flyway's disabled-by-default setting (`quarkus.flyway.clean-disabled`).
 is capability-gated, so when it is absent the panel reports an honest "add the quarkus-flyway extension" reason rather
 than failing. The Spring Modulith module-aware history block is Spring-specific and is not reported on Quarkus.
 
-![BootUI Flyway panel](../images/bootui-flyway.webp)
-
 ## Liquibase
+
+![BootUI Liquibase panel](../images/bootui-liquibase.webp)
 
 The Liquibase panel shows change sets for each discovered Liquibase database (on Spring Boot, each `SpringLiquibase`
 bean; on Quarkus, each active `LiquibaseFactory` — including `@LiquibaseDataSource`-named datasources). It reads the
@@ -302,5 +303,3 @@ The panel also exposes a confirmation-gated `update` action that applies pending
 for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`
 (enforced identically on Spring and Quarkus). The panel fails closed per database when its history cannot be read
 and degrades to a clear empty state when Liquibase is not on the classpath or no Liquibase databases are present.
-
-![BootUI Liquibase panel](../images/bootui-liquibase.webp)

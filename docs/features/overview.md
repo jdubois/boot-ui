@@ -1,5 +1,7 @@
 # Overview
 
+![BootUI Overview panel](../images/bootui-overview.webp)
+
 The Overview panel is BootUI's landing page: a guided "understand your app in minutes" dashboard rather than a static
 summary. It opens with the standard panel header and a link to the running application's homepage.
 
@@ -28,9 +30,9 @@ involved. The shell chrome around every panel — application name, framework an
 and active/disabled status — comes from the same framework-neutral `GET /bootui/api/overview` endpoint both adapters
 expose.
 
-![BootUI Overview panel](../images/bootui-overview.webp)
-
 ## Live Activity
+
+![BootUI Live Activity panel](../images/bootui-activity.webp)
 
 The diagnostics home base: one reverse-chronological stream of everything the application just did, plus a per-request
 profiler for drilling into any single request.
@@ -313,9 +315,9 @@ what changed and its duration. Evidence from a disabled or unavailable source pa
 Developers who want a denser event-first view can minimize the map; that preference is remembered in the browser while
 the feed stays visible underneath. The viewport adapts to the graph's content, up to a bounded scrolling height.
 
-![BootUI Live Activity panel](../images/bootui-activity.webp)
-
 ## GitHub
+
+![BootUI GitHub panel](../images/bootui-github.webp)
 
 Summarizes the current project's GitHub state, read from the local `origin` remote. It auto-refreshes on BootUI's
 standard one-minute interval while the tab is visible; the initial refresh and each interval are bounded and blocked by
@@ -350,5 +352,3 @@ a quota safety threshold that skips optional sections before exhausting the core
 
 The panel is identical on Quarkus, over the same engine and the same `/bootui/api/github` contract. The only difference
 is internal: Quarkus supplies a Jackson 2 client implementation where Spring Boot 4 uses Jackson 3.
-
-![BootUI GitHub panel](../images/bootui-github.webp)

@@ -1,7 +1,8 @@
 # Diagnostics
 
-
 ## Traces
+
+![BootUI Traces panel](../images/bootui-traces.webp)
 
 The Traces panel shows distributed tracing spans captured locally by the BootUI starter when telemetry and the Traces
 panel are enabled. The starter contributes the tracing dependencies and sampling default needed for local development, so
@@ -43,16 +44,16 @@ through an OpenTelemetry `SpanProcessor` that is registered only when the applic
 identically on both platforms. The empty-state guidance adapts too: on Quarkus it points to `quarkus-opentelemetry` and
 the in-process capture model rather than the embedded `/bootui/api/otlp/v1/traces` receiver.
 
-![BootUI Traces panel](../images/bootui-traces.webp)
-
 ## Log Tail
+
+![BootUI Log Tail panel](../images/bootui-log-tail.webp)
 
 The Log Tail panel reads recent local application logs and streams new log events from the running process. It is
 intended for quick local diagnosis without leaving the BootUI console.
 
-![BootUI Log Tail panel](../images/bootui-log-tail.webp)
-
 ## Exceptions
+
+![BootUI Exceptions panel](../images/bootui-exceptions.webp)
 
 The Exceptions panel captures exceptions thrown by the running application and groups repeated failures into a single
 entry with an occurrence count. On Spring MVC it records from two complementary sources: a non-intrusive
@@ -119,9 +120,9 @@ Unhandled exceptions (the common case) are captured identically on both stacks; 
 
 :::
 
-![BootUI Exceptions panel](../images/bootui-exceptions.webp)
-
 ## HTTP Exchanges
+
+![BootUI HTTP Exchanges panel](../images/bootui-http-exchanges.webp)
 
 The HTTP Exchanges panel records recent inbound requests handled by the running application. It lists timestamp, method,
 path, status, duration, response size when a `Content-Length` header is present, and trace identifiers from common
@@ -168,9 +169,9 @@ and size are final — into a capped ring buffer sized by the same `bootui.http-
 as Spring. The masking, trace-id extraction, self-exclusion, and paging run through the same shared engine service, so
 the wire is byte-identical to Spring. Capture is wired in dev/test only and never in production.
 
-![BootUI HTTP Exchanges panel](../images/bootui-http-exchanges.webp)
-
 ## HTTP Probe
+
+![BootUI HTTP Probe panel](../images/bootui-http-probe.webp)
 
 The HTTP Probe panel sends local-only requests to the running application and displays response status, headers,
 duration, and body. It is designed for quick route checks from inside the same local development context as BootUI.
@@ -187,5 +188,3 @@ reach an external host. The only platform difference is how the live local port 
 config key that always equals the bound port, so the adapter selects `quarkus.http.test-port` or `quarkus.http.port` by
 launch mode (a random `=0` port still resolves, because Quarkus rewrites the property to the actual port once the server
 is up). As a state-changing action it is gated by the same localhost-only safety floor as every other write.
-
-![BootUI HTTP Probe panel](../images/bootui-http-probe.webp)

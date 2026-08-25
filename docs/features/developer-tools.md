@@ -1,7 +1,8 @@
 # Developer tools
 
-
 ## MCP Server
+
+![BootUI MCP Server panel](../images/bootui-mcp-server.webp)
 
 BootUI can expose its advisors and read-only diagnostics to local AI coding agents (such as GitHub Copilot or Claude
 Code) through a local, opt-in [Model Context Protocol](https://modelcontextprotocol.io) server. An agent can consult the
@@ -98,8 +99,6 @@ live on Quarkus: `graalvm_scan`, `crac_scan`, and `get_conditions` (all delibera
 offered, `get_overview` is advertised (the Overview panel is available, its dashboard rendering client-side), and
 `spring_scan` runs the Quarkus-native idiom advisor.
 
-![BootUI MCP Server panel](../images/bootui-mcp-server.webp)
-
 On Spring Boot WebFlux the panel is available too. A reactive tool catalog binds the WebFlux-specific Live Activity,
 Exceptions, Security Logs, SQL Trace, and Log Tail controllers while reusing the shared controllers for the rest of the
 surface, including `security_scan` through the shared reactive advisor service. The JSON-RPC transport, runtime toggle,
@@ -107,6 +106,8 @@ panel/read-only gating, payload/concurrency limits, and response envelopes are o
 adapters.
 
 ## DevTools
+
+![BootUI DevTools panel](../images/bootui-devtools.webp)
 
 The DevTools panel reports Spring Boot DevTools availability, LiveReload status, and restart support. Restart actions
 are shown only when available and require explicit confirmation before execution. When DevTools is on the classpath but
@@ -118,9 +119,9 @@ only reaches those connected clients — Spring Boot does not inject `livereload
 extension (or the script) to connect on port 35729. When no clients are connected the panel warns that triggering has no
 visible effect, and the trigger action returns that warning instead of a misleading success.
 
-![BootUI DevTools panel](../images/bootui-devtools.webp)
-
 ## Dev Services
+
+![BootUI Dev Services panel](../images/bootui-dev-services.webp)
 
 The Dev Services panel surfaces local development services discovered from Docker Compose snapshots, Testcontainers
 beans, and service connection metadata. It masks sensitive connection information, can show bounded logs for supported
@@ -135,8 +136,6 @@ warnings in the panel.
 > own logs will surface them in this panel. This is consistent with BootUI being a local-only, loopback-restricted
 > developer console.
 
-![BootUI Dev Services panel](../images/bootui-dev-services.webp)
-
 On Quarkus, the Dev Services panel reports the framework's native Dev Services (auto-started dev/test containers such as
 databases, Kafka, or Redis). The list is captured from the build-time `DevServicesResultBuildItem` snapshot via a
 recorder + synthetic bean: each entry shows the service name, container id, and configuration injected by the
@@ -145,6 +144,8 @@ controls are unavailable on Quarkus. DevTools is reported *not applicable* on Qu
 live reload instead of a Spring Boot DevTools restart bridge.
 
 ## Copilot
+
+![BootUI Copilot panel](../images/bootui-copilot.webp)
 
 The Copilot panel surfaces sanitized signals from local
 [GitHub Copilot CLI](https://github.com/github/copilot-cli) sessions. It reads the session directories and `events.jsonl`
@@ -168,9 +169,9 @@ live data panels, while the backend watches the directory through a Java NIO `Wa
 [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control), which pioneered this dashboarding of
 Copilot CLI session state.
 
-![BootUI Copilot panel](../images/bootui-copilot.webp)
-
 ## Claude Code
+
+![BootUI Claude Code panel](../images/bootui-claude-code.webp)
 
 The Claude Code panel mirrors the Copilot dashboard for local
 [Claude Code](https://www.anthropic.com/claude-code) project logs. It reads JSONL session files under
@@ -185,5 +186,3 @@ enabling it is an explicit local-only escape hatch and is still blocked when `bo
 sidebar dims the panel when no Claude Code projects directory is found. Data is read-only - BootUI never modifies anything
 under `~/.claude/`. Because Claude Code writes sessions inside per-project subdirectories, BootUI refreshes this panel
 through the shared visibility-aware auto-refresh polling used by the other live data panels.
-
-![BootUI Claude Code panel](../images/bootui-claude-code.webp)

@@ -1,6 +1,5 @@
 # Advisors
 
-
 BootUI's advisors run explicit, on-demand, rule-based scans and surface severity-ranked findings that feed the weighted
 score on the Overview dashboard. Each advisor is read-only and inspects a different facet of the application — compiled
 architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. Once an advisor has run,
@@ -30,6 +29,8 @@ advisors, so a dismissal always targets exactly one rule.
 :::
 
 ## Architecture
+
+![BootUI Architecture panel](../images/bootui-architecture.webp)
 
 The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
 application's own compiled classes at runtime. It detects the base package from the `@SpringBootApplication`
@@ -70,9 +71,9 @@ when needed. The scan still runs on demand and caches the last report, and dismi
 `.bootui/boot-ui.yml` exactly as on Spring Boot.
 :::
 
-![BootUI Architecture panel](../images/bootui-architecture.webp)
-
 ## REST API
+
+![BootUI REST API panel](../images/bootui-rest-api.webp)
 
 The REST API panel runs a curated, zero-config ruleset against the host application's own web layer — `@RestController`
 / `@Controller` handler methods on Spring, or JAX-RS resources on Quarkus. Like the Architecture panel, it imports the
@@ -123,9 +124,9 @@ unmatched failures stay unlinked.
 > `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
 > application is detected to be running as a native image.
 
-![BootUI REST API panel](../images/bootui-rest-api.webp)
-
 ## Spring
+
+![BootUI Spring panel](../images/bootui-spring.webp)
 
 The Spring panel runs an explicit, read-only scan of the host application's running Spring application context and
 `Environment`. It takes a bounded snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s,
@@ -144,9 +145,9 @@ This single framework-application advisor is **relabelled per framework**: **Spr
 **Quarkus** on the Quarkus adapter — the same menu slot, `/bootui/api/spring` contract, and report shape. The
 [Quarkus](#quarkus) section below covers the Quarkus flavour.
 
-![BootUI Spring panel](../images/bootui-spring.webp)
-
 ## Quarkus
+
+![BootUI Quarkus panel](../images/bootui-quarkus.webp)
 
 On the Quarkus adapter the framework-application advisor above is relabelled **Quarkus** and runs a Quarkus-native idiom
 ruleset in place of the Spring rules. It takes the same explicit, read-only approach against the running application and
@@ -162,9 +163,9 @@ and report contract — so the shared UI simply renders the "Quarkus" label and 
 prompt, not a verdict. See [QUARKUS-ADVISOR-CHECKS.md](../QUARKUS-ADVISOR-CHECKS.md) for the full catalogue and
 remediation links.
 
-![BootUI Quarkus panel](../images/bootui-quarkus.webp)
-
 ## Database
+
+![BootUI Database panel](../images/bootui-database-advisor.webp)
 
 The Database panel introspects the physical schema of every discovered application `DataSource` bean through plain JDBC
 `DatabaseMetaData` — tables, columns, primary keys, foreign keys, and indexes — and evaluates a fixed, on-demand ruleset
@@ -308,9 +309,9 @@ qualifier, read reflectively by annotation type name so the panel links no `io.q
 safe in an application with no JDBC datasource extension; a bean with no such qualifier falls back to positional naming
 (`default`, `datasource-2`, ...).
 
-![BootUI Database panel](../images/bootui-database-advisor.webp)
-
 ## Hibernate
+
+![BootUI Hibernate panel](../images/bootui-hibernate.webp)
 
 The Hibernate panel runs an explicit, read-only scan against the JPA `EntityManagerFactory` metamodel when Hibernate ORM
 is present. It reviews mapped entities, selected persistence configuration, and Spring Data repository metadata for
@@ -370,9 +371,9 @@ Data JPA's `save()` semantics: without Spring Data Commons on the classpath — 
 `persist()` has no such ambiguity — that whole check is skipped rather than reported.
 :::
 
-![BootUI Hibernate panel](../images/bootui-hibernate.webp)
-
 ## Memory
+
+![BootUI Memory panel](../images/bootui-memory.webp)
 
 The Memory panel runs an explicit, read-only scan over the live JVM management beans — heap and memory pools, garbage
 collection, threads, loaded classes, and an optional class histogram. It turns them into severity-ranked findings such as
@@ -380,8 +381,6 @@ heap pressure, metaspace saturation, native-footprint risk inside a container, l
 and collection bloat. It complements the raw Live Memory and Threads panels by diagnosing the data they expose. The scan
 is on demand and caches the last report; new rules are added as small, focused classes in the `memory` package. See
 [MEMORY-CHECKS.md](../MEMORY-CHECKS.md) for the full catalogue and remediation links.
-
-![BootUI Memory panel](../images/bootui-memory.webp)
 
 ## Security
 
@@ -396,14 +395,16 @@ report contract.
 
 ### Spring Boot (Spring Security)
 
+![BootUI Security panel — Spring Security](../images/bootui-security.webp)
+
 On Spring Boot it analyses Spring Security when it is on the classpath: it introspects the registered
 `SecurityFilterChain` beans, simulates an anonymous authorization decision, and inspects security-relevant beans
 (`PasswordEncoder`, `CorsConfigurationSource`, `JwtDecoder`) and `Environment` properties. See
 [SECURITY-CHECKS.md](../SECURITY-CHECKS.md) for the full catalogue and remediation links.
 
-![BootUI Security panel — Spring Security](../images/bootui-security.webp)
-
 ### Quarkus
+
+![BootUI Security panel — Quarkus Security](../images/bootui-quarkus-security.webp)
 
 On Quarkus it runs a Quarkus-native ruleset instead, reading the application's HTTP permission policies, MicroProfile
 `Config`, and authorization-annotated endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*`
@@ -411,8 +412,6 @@ authorization, TLS and transport policy, CORS (including the wildcard-origin-wit
 headers, and Jakarta/Quarkus annotations including `@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. It
 surfaces the same severity-ranked prompts, so the shared UI only relabels the metrics ("Permission policies" in place of
 "Filter chains"). See [QUARKUS-CHECKS.md](../QUARKUS-CHECKS.md) for the full Quarkus catalogue and remediation links.
-
-![BootUI Security panel — Quarkus Security](../images/bootui-quarkus-security.webp)
 
 ### Spring WebFlux
 
@@ -422,6 +421,8 @@ adapter owns collection and excludes BootUI's own permit-all chain; the shared e
 and never receives Spring types or secret values. See [WEBFLUX-SUPPORT.md](../WEBFLUX-SUPPORT.md).
 
 ## Pentesting
+
+![BootUI Pentesting panel](../images/bootui-pentesting.webp)
 
 The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks against the host application, not
 BootUI's `/bootui` routes. On an explicit scan it combines bounded framework metadata with at most one `GET` and one
@@ -450,9 +451,9 @@ full catalogue, limits, mappings, and retired IDs.
 The coverage matrix uses platform-specific wording, so neither adapter turns unsupported checks into a false clean
 result.
 
-![BootUI Pentesting panel](../images/bootui-pentesting.webp)
-
 ## Vulnerabilities
+
+![BootUI Vulnerabilities panel](../images/bootui-vulnerabilities.webp)
 
 The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results, helping identify
 known-vulnerable dependencies from the running project's dependency set during the local development loop. Findings are
@@ -580,5 +581,3 @@ Two limitations are documented honestly rather than hidden:
   it from its build-time application dependency graph, but Spring's classpath-based inventory has no equivalent graph
   today (adding one would need POM/Maven-plugin integration, a much larger change), so this is deferred rather than
   shipped as a Quarkus-only asymmetry.
-
-![BootUI Vulnerabilities panel](../images/bootui-vulnerabilities.webp)

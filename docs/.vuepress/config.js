@@ -140,11 +140,20 @@ function lazyLoadMarkdownImagesPlugin() {
 
       markdown.renderer.rules.image = (tokens, index, options, env, self) => {
         const token = tokens[index]
+        // Each panel now opens with its screenshot, so the first image on a page is the likely
+        // largest contentful paint and must not wait for the lazy-load pass.
+        const isFirstOnPage = Boolean(env) && !env.bootuiSeenMarkdownImage
+        if (env) {
+          env.bootuiSeenMarkdownImage = true
+        }
         if (token.attrIndex('loading') < 0) {
-          token.attrPush(['loading', 'lazy'])
+          token.attrPush(['loading', isFirstOnPage ? 'eager' : 'lazy'])
         }
         if (token.attrIndex('decoding') < 0) {
           token.attrPush(['decoding', 'async'])
+        }
+        if (isFirstOnPage && token.attrIndex('fetchpriority') < 0) {
+          token.attrPush(['fetchpriority', 'high'])
         }
         return rawImageRule(tokens, index, options, env, self)
       }

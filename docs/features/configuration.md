@@ -1,7 +1,8 @@
 # Configuration
 
-
 ## Configuration
+
+![BootUI Configuration panel](../images/bootui-configuration.webp)
 
 The Configuration panel shows effective configuration properties, sources, metadata descriptions, defaults when known,
 active profiles, and masked values. It can create, update, and delete local runtime overrides persisted to
@@ -9,17 +10,17 @@ active profiles, and masked values. It can create, update, and delete local runt
 tables load in bounded server-side pages for search, source, and override-only filters. The override property-name
 picker limits its datalist suggestions while narrowing against the full metadata catalog as you type.
 
-![BootUI Configuration panel](../images/bootui-configuration.webp)
-
 ## Profile Diff
+
+![BootUI Profile Diff panel](../images/bootui-profile-diff.webp)
 
 The Profile Diff panel compares profile-specific property sources and values. It is useful for understanding what
 changes between local development profiles while still routing browser-visible names and values through BootUI's secret
 masking rules.
 
-![BootUI Profile Diff panel](../images/bootui-profile-diff.webp)
-
 ## Loggers
+
+![BootUI Loggers panel](../images/bootui-loggers.webp)
 
 The Loggers panel lists runtime logger configuration. On Spring Boot it reads from Actuator's loggers endpoint. It shows
 configured and effective levels, supports server-side search, and can update or clear logger levels without restarting
@@ -30,9 +31,9 @@ loggers, maps their levels onto the same canonical vocabulary (`OFF`, `FATAL`, `
 `TRACE`), and applies level changes to the running JVM. BootUI refuses to change the level of its own loggers on either
 platform.
 
-![BootUI Loggers panel](../images/bootui-loggers.webp)
-
 ## Beans
+
+![BootUI Beans panel](../images/bootui-beans.webp)
 
 The Beans panel helps answer which application-managed beans exist, how they are connected, and where they came from. A
 labeled Graph/List segmented control switches between the dependency visualization and the server-paged bean inventory,
@@ -95,18 +96,18 @@ CDI vocabulary (`ApplicationScoped`, `Singleton`, …) rather than Spring's `sin
 a synthetic decapitalized class name. The inventory also reflects only the beans Arc retains, since Arc removes unused
 beans at build time.
 
-![BootUI Beans panel](../images/bootui-beans.webp)
-
 ## Conditions
+
+![BootUI Conditions panel](../images/bootui-conditions.webp)
 
 The Conditions panel explains Spring Boot auto-configuration decisions. It groups positive matches, negative matches,
 and unconditional classes so you can see why an auto-configuration applied or why it was skipped. Large condition reports
 load in bounded pages, and filtering runs on the server so the browser does not need the full report before narrowing
 results.
 
-![BootUI Conditions panel](../images/bootui-conditions.webp)
-
 ## Mappings
+
+![BootUI Mappings panel](../images/bootui-mappings.webp)
 
 The Mappings panel lists HTTP routes from the running application's route table (Actuator mappings data on Spring Boot,
 the JAX-RS resource table on Quarkus). It shows request methods, path patterns, handlers, and
@@ -119,5 +120,3 @@ On Quarkus the same panel is served by scanning the application's JAX-RS resourc
 renders), then mapping each JAX-RS resource method one-to-one onto the same paged, filterable DTO the Spring adapter
 serves from Actuator. `quarkus-rest` is a hard dependency of the BootUI extension, so the panel is available on both
 frameworks; BootUI's own `/bootui` routes are filtered out on each.
-
-![BootUI Mappings panel](../images/bootui-mappings.webp)

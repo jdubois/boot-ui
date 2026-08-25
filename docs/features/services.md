@@ -1,12 +1,11 @@
 # Services
 
-
 ## Scheduled Tasks
+
+![BootUI Scheduled Tasks panel](../images/bootui-scheduled-tasks.webp)
 
 The Scheduled Tasks panel lists scheduled jobs registered with Spring scheduling infrastructure. It shows task type and
 trigger metadata so background activity is visible during local development.
-
-![BootUI Scheduled Tasks panel](../images/bootui-scheduled-tasks.webp)
 
 The panel is identical on Quarkus over the same `/bootui/api/scheduled` contract, but the data source differs: annotated
 `@Scheduled` methods are captured from the Jandex index at build time. Only annotation-discovered tasks are captured.
@@ -22,6 +21,8 @@ only when the `quarkus-scheduler` extension is present; programmatic `Scheduler.
 :::
 
 ## REST Client
+
+![BootUI REST Client panel](../images/bootui-rest-client-trace.webp)
 
 The REST Client panel shows outbound HTTP calls your application recently made — through Spring's REST clients on the
 Spring adapter, or Quarkus REST Client Reactive proxies on Quarkus — captured without a third-party HTTP proxy library. A
@@ -130,9 +131,9 @@ size, the slow-call and chatty-call thresholds, and URI/header truncation limits
 `bootui.rest-client-trace.*`.
 :::
 
-![BootUI REST Client panel](../images/bootui-rest-client-trace.webp)
-
 ## Fault Tolerance
+
+![BootUI Fault Tolerance panel](../images/bootui-fault-tolerance.webp)
 
 The Fault Tolerance panel makes an application's protective policies visible. It lists every circuit breaker, retry, rate
 limiter, bulkhead, time limiter, and fallback the application declares — with the settings that actually apply, the
@@ -171,9 +172,9 @@ exception class, and circuit breaker state. Method arguments, return values, pay
 recorded. Clicking a Live Activity `FAULT_TOLERANCE` entry opens this panel filtered to that policy.
 :::
 
-![BootUI Fault Tolerance panel](../images/bootui-fault-tolerance.webp)
-
 ## WebSockets
+
+![BootUI WebSockets panel](../images/bootui-websockets.webp)
 
 The WebSockets panel shows the WebSocket endpoints your application declares, the connections currently open against
 them, the STOMP destinations those connections subscribed to, and a bounded log of recent frame **metadata** — never a
@@ -248,9 +249,9 @@ events over `OpenConnections`. The SSE push carries no data — the regular endp
 and truncation rule.
 :::
 
-![BootUI WebSockets panel](../images/bootui-websockets.webp)
-
 ## AI Framework
+
+![BootUI AI Framework panel](../images/bootui-ai.webp)
 
 The AI Framework panel summarizes Spring AI and LangChain4j activity collected from OpenTelemetry spans emitted by their
 built-in observability. It groups chat client and chat model spans by conversation, showing request count, token usage
@@ -292,9 +293,9 @@ using `quarkus-langchain4j` plus `quarkus-opentelemetry` and BootUI's in-process
 receiver — instead of the Spring AI / LangChain4j side-by-side guides.
 :::
 
-![BootUI AI Framework panel](../images/bootui-ai.webp)
-
 ## Cache
+
+![BootUI Cache panel](../images/bootui-cache.webp)
 
 The Cache panel inspects the application's cache infrastructure on **both** frameworks from one shared panel and report
 contract: Spring's cache abstraction on Spring Boot, and `quarkus-cache` on Quarkus (covered below). On Spring Boot it
@@ -302,8 +303,6 @@ lists cache manager beans, known caches, native implementations, safe local size
 registered, and discovered `@Cacheable`, `@CachePut`, and `@CacheEvict` operations. Cache clear actions are enabled by
 default for local development, require explicit browser confirmation, and can be disabled with
 `bootui.cache.clear-enabled=false`.
-
-![BootUI Cache panel](../images/bootui-cache.webp)
 
 ### Tiering and hit ratios
 
@@ -374,6 +373,8 @@ unavailable, with a capability hint, on applications that do not use `quarkus-ca
 
 ## Email
 
+![BootUI Email panel](../images/bootui-email.webp)
+
 The Email panel captures outgoing application mail. It intercepts the application's `JavaMailSender` so every outgoing
 `send(...)` call is recorded into a bounded ring buffer *before* delegating to the real sender — pass-through by default,
 so application behaviour is unchanged. Captured messages list newest-first with sender, recipients, subject, and
@@ -400,8 +401,6 @@ body is truncated at `bootui.email.max-body-length` characters (default 200,000,
 cap only applies to bodies.
 :::
 
-![BootUI Email panel](../images/bootui-email.webp)
-
 ### On Quarkus
 
 The panel is identical on Quarkus over the same `/bootui/api/email` contract, available when `quarkus-mailer` is on the
@@ -419,6 +418,8 @@ sent-attachment API exposes none.
 :::
 
 ## Kafka
+
+![BootUI Kafka panel](../images/bootui-kafka.webp)
 
 The Kafka panel is a dedicated, filterable view over the same producer/consumer capture that already feeds `MESSAGING`
 entries into Live Activity: every application-owned `KafkaTemplate` send and `@KafkaListener` consume is recorded into a
@@ -452,9 +453,9 @@ connector metadata automatically; outgoing messages are captured only when they 
 Without the extension the panel reports a clear unavailable reason.
 :::
 
-![BootUI Kafka panel](../images/bootui-kafka.webp)
-
 ## RabbitMQ
+
+![BootUI RabbitMQ panel](../images/bootui-rabbitmq.webp)
 
 The RabbitMQ panel is a dedicated, filterable view over AMQP publish/consume capture that also feeds `MESSAGING` entries
 into Live Activity. Each row shows timestamp, direction (PUBLISH/CONSUME, with an icon), exchange, routing key, queue
@@ -488,9 +489,9 @@ Incoming deliveries carry connector metadata automatically; outgoing messages ar
 Without the extension the panel reports a clear unavailable reason.
 :::
 
-![BootUI RabbitMQ panel](../images/bootui-rabbitmq.webp)
-
 ## JMS
+
+![BootUI JMS panel](../images/bootui-jms.webp)
 
 The JMS panel is the dedicated, filterable view over the Spring JMS producer/consumer capture that also feeds `MESSAGING`
 entries into Live Activity. It lists retained messages newest-first with their direction, sanitized queue or topic
@@ -511,5 +512,3 @@ active when those proxies cannot be generated.
 
 JMS capture is currently Spring-only. On Quarkus the shared route remains visible but reports the panel not yet
 available; BootUI directs Quarkus applications to the Kafka and RabbitMQ panels backed by Reactive Messaging instead.
-
-![BootUI JMS panel](../images/bootui-jms.webp)
