@@ -4,7 +4,9 @@ import {fileURLToPath} from 'node:url'
 import {toDocLink} from './doc-links.js'
 
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const hiddenDocs = ['README.md']
+/* JVM-TUNING-CHECKS.md is excluded from the build in config.js, so it must not fall through to the
+   "Additional docs" catch-all group either. */
+const hiddenDocs = ['README.md', 'JVM-TUNING-CHECKS.md']
 
 /* Sidebar labels only. Page titles stay long-form; the group heading already supplies the context
    these labels would otherwise repeat. */
@@ -65,7 +67,6 @@ const groups = [
       'DATABASE-ADVISOR-CHECKS.md',
       'SECURITY-CHECKS.md',
       'MEMORY-CHECKS.md',
-      'JVM-TUNING-CHECKS.md',
       'PENTEST-CHECKS.md',
       'GRAALVM-READINESS-CHECKS.md',
       'CRAC-READINESS-CHECKS.md',

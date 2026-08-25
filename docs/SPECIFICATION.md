@@ -716,7 +716,7 @@ Features:
   startup/readiness/liveness probes using framework-default paths and the named container port `http`; operators must
   verify both when application, management-server, or container-port configuration differs.
 - The model, generated-option inventory, platform behavior, evidence, and limitations are documented in
-  [JVM-TUNING-CHECKS.md](JVM-TUNING-CHECKS.md).
+  [`JVM-TUNING-CHECKS.md`](https://github.com/jdubois/boot-ui/blob/main/docs/JVM-TUNING-CHECKS.md).
 
 Acceptance criteria:
 

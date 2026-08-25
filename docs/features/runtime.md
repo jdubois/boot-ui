@@ -99,8 +99,9 @@ instead attempt a lower, snapshot-based Burstable request. `JAVA_TOOL_OPTIONS` u
 from the current framework capability and adds framework-default startup/readiness/liveness paths on the named container
 port `http`; those paths and the port name must be verified against deployment configuration.
 
-See [JVM-TUNING-CHECKS.md](../JVM-TUNING-CHECKS.md) for the behavior inventory, evidence ledger, cross-platform details,
-and model limitations.
+The full model is recorded in
+[`JVM-TUNING-CHECKS.md`](https://github.com/jdubois/boot-ui/blob/main/docs/JVM-TUNING-CHECKS.md) on GitHub: the behavior
+inventory, evidence ledger, cross-platform details, and model limitations.
 
 > **Not available in GraalVM native images.** JVM heap, GC, and flag tuning does not apply to a native executable;
 > the panel is automatically hidden when the application is detected to be running as a native image.

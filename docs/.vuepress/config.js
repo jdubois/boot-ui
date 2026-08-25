@@ -16,6 +16,10 @@ const configDir = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineUserConfig({
   base: siteBase,
+  // The JVM Tuning panel is a memory-budget calculator, not a rule catalog, so its design record has
+  // no checks to publish alongside the other catalogs. It stays in the repository for contributors
+  // and the Runtime page links to it there.
+  pagePatterns: ['**/*.md', '!JVM-TUNING-CHECKS.md', '!.vuepress', '!node_modules'],
   lang: 'en-US',
   title: 'BootUI',
   description: 'A local-only developer console for Spring Boot 4 and Quarkus applications.',
