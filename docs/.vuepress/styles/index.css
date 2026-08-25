@@ -477,24 +477,26 @@ body {
   order: 1;
   width: 100%;
   margin-top: 2rem;
-  padding: 3rem;
+  padding: 2.25rem 3rem 2.5rem;
   overflow: hidden;
   background: linear-gradient(135deg, rgba(25, 135, 84, 0.09), rgba(13, 110, 253, 0.07)), var(--bootui-surface);
 }
 
+/* DESIGN.md specifies the brand mark as a 2.75rem solid Spring-green square at 1rem radius with
+   a 0 0.6rem 1.2rem glow. */
 .vp-hero::before {
   display: inline-flex;
-  width: 4rem;
-  height: 4rem;
-  margin-bottom: 1rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-bottom: 0.75rem;
   align-items: center;
   justify-content: center;
-  border-radius: 1.35rem;
+  border-radius: 1rem;
   color: #ffffff;
   background: #198754;
-  box-shadow: 0 0.9rem 1.8rem rgba(25, 135, 84, 0.28);
+  box-shadow: 0 0.6rem 1.2rem rgba(25, 135, 84, 0.28);
   font-family: bootstrap-icons;
-  font-size: 1.85rem;
+  font-size: 1.35rem;
   content: '\f7ea';
 }
 
@@ -511,13 +513,24 @@ body {
   color: var(--bootui-text-muted);
 }
 
+/* The theme gives every hero child the same 1.8rem margin, so nothing groups. Bind the title to
+   the tagline and keep the separation for the actions instead. */
 .vp-hero #main-title {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
   font-size: clamp(2.4rem, 6vw, 4.5rem);
   font-weight: 800;
+  line-height: 1.1;
 }
 
 .vp-hero .vp-hero-description {
   max-width: 42rem;
+  margin-top: 0;
+  margin-bottom: 1.75rem;
+}
+
+.vp-hero .vp-hero-actions {
+  margin: 0 auto;
 }
 
 .vp-hero-actions .vp-hero-action-button.primary {
