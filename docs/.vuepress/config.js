@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {viteBundler} from '@vuepress/bundler-vite'
 import {slimsearchPlugin} from '@vuepress/plugin-slimsearch'
 import {defaultTheme} from '@vuepress/theme-default'
@@ -11,6 +12,7 @@ import {createDocsSidebar} from './sidebar.js'
 
 const siteBase = normalizeBase(process.env.VUEPRESS_BASE || (process.argv.includes('dev') ? '/' : '/boot-ui/'))
 const publicSiteUrl = 'https://www.julien-dubois.com/boot-ui'
+const configDir = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineUserConfig({
   base: siteBase,
@@ -31,6 +33,11 @@ export default defineUserConfig({
     ]
   ],
   bundler: viteBundler(),
+  // The default theme renders home feature cards as plain divs, so swap in a version that can
+  // link each card to the page it describes.
+  alias: {
+    '@theme/VPHomeFeatures.vue': path.resolve(configDir, './components/HomeFeatures.vue')
+  },
   plugins: [
     cleanDocsPermalinksPlugin(),
     cleanMarkdownDocLinksPlugin(),

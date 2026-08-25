@@ -529,18 +529,92 @@ body {
   font-weight: 800;
 }
 
+/* The home feature cards replace the theme component, so the base flex layout it used to carry
+   lives here alongside the BootUI treatment. */
 .vp-features {
+  display: flex;
+  flex-wrap: wrap;
+  place-content: stretch space-between;
+  align-items: flex-start;
   gap: 1rem;
   order: 2;
+  margin-top: 2.5rem;
+  padding: 1.2rem 0;
+  border-top: 1px solid var(--vp-c-divider);
 }
 
 .vp-feature {
   position: relative;
+  flex-grow: 1;
+  flex-basis: 30%;
+  max-width: 30%;
   padding: 1.35rem;
   transition:
     border-color 180ms ease,
     transform 180ms ease,
     box-shadow 180ms ease;
+}
+
+@media (max-width: 719px) {
+  .vp-features {
+    flex-flow: column;
+  }
+
+  .vp-feature {
+    max-width: 100%;
+  }
+}
+
+/* Each card is a whole-card link to the page it describes, so it must not inherit the
+   underline and accent colour of an inline link. */
+.vp-feature-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.vp-feature-link:hover,
+.vp-feature-link:focus-visible {
+  color: inherit;
+  border-color: rgba(25, 135, 84, 0.35);
+}
+
+.vp-feature-link:focus-visible {
+  outline: 2px solid var(--bootui-green);
+  outline-offset: 3px;
+}
+
+.vp-feature-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.9rem;
+  color: var(--bootui-green-dark);
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.vp-feature-cta::after {
+  content: '\f285';
+  font-family: bootstrap-icons;
+  font-size: 0.72rem;
+  transition: transform 180ms ease;
+}
+
+.vp-feature-link:hover .vp-feature-cta::after,
+.vp-feature-link:focus-visible .vp-feature-cta::after {
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vp-feature,
+  .vp-feature-cta::after {
+    transition: none;
+  }
+
+  .vp-feature-link:hover {
+    transform: none;
+  }
 }
 
 .vp-feature::before {
@@ -589,8 +663,17 @@ body {
 }
 
 .vp-feature h2 {
+  padding-bottom: 0;
+  border-bottom: none;
   color: var(--bootui-text);
   font-weight: 800;
+  font-size: 1.4rem;
+}
+
+@media (max-width: 419px) {
+  .vp-feature h2 {
+    font-size: 1.25rem;
+  }
 }
 
 .vp-feature p {
