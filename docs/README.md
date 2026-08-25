@@ -24,8 +24,11 @@ features:
     linkText: Diagnostics panels
   - title: Data and services visibility
     details: Explore database pools, Spring Data repositories, Hibernate checks, Flyway, Liquibase, scheduled tasks, caches, and dev services.
-    link: /features/services
-    linkText: Services panels
+    links:
+      - text: Database panels
+        link: /features/database
+      - text: Services panels
+        link: /features/services
   - title: Local safety model
     details: Stay loopback-only by default with secret masking, fail-closed activation, read-only controls, and explicit confirmation for mutating actions.
     link: /setup/activation

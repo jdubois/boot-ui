@@ -606,6 +606,41 @@ body {
   transform: translateX(3px);
 }
 
+/* A card that covers two pages cannot be a whole-card link, so it carries its destinations as
+   separate links instead. */
+.vp-feature-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+  margin-top: 0.9rem;
+}
+
+.vp-feature-links .vp-feature-cta {
+  margin-top: 0;
+}
+
+.vp-feature-cta-link {
+  color: var(--bootui-green-dark);
+  text-decoration: none;
+}
+
+.vp-feature-cta-link:hover {
+  color: var(--bootui-green-dark);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.vp-feature-cta-link:focus-visible {
+  outline: 2px solid var(--bootui-green);
+  outline-offset: 3px;
+  border-radius: 0.25rem;
+}
+
+.vp-feature-cta-link:hover::after,
+.vp-feature-cta-link:focus-visible::after {
+  transform: translateX(3px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .vp-feature,
   .vp-feature-cta::after {
@@ -657,7 +692,7 @@ body {
   content: '\f61f';
 }
 
-.vp-feature:hover {
+.vp-feature-link:hover {
   transform: translateY(-2px);
   box-shadow: var(--bootui-shadow-md);
 }
