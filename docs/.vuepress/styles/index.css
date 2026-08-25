@@ -205,6 +205,13 @@ body {
   margin-left: 0;
 }
 
+/* The theme's navbar controls center themselves with auto vertical margins, which the search
+   button does not carry, so it hangs from the top of the flex row instead of sharing the
+   center line with the menu items and the theme toggle. */
+.vp-navbar-items-wrapper > .slimsearch-button {
+  align-self: center;
+}
+
 .vp-navbar .vp-navbar-item > .auto-link,
 .vp-navbar .auto-link.external-link,
 .vp-toggle-color-mode-button {
