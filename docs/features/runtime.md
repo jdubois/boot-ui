@@ -9,12 +9,11 @@ infrastructure is clear, and shows setup guidance instead of a healthy-looking s
 is not available. When Actuator health is present but only Spring Boot's default indicators are reported, it keeps the
 live statuses visible and shows guidance for adding application or dependency health contributors.
 
-On Quarkus the panel is identical, served over SmallRye Health (the MicroProfile Health implementation Quarkus uses): it
+The panel is identical on Quarkus, served over SmallRye Health (the MicroProfile Health implementation Quarkus uses): it
 reads the aggregated liveness and readiness report in-process and maps each check onto the same neutral status tree, with
 every check's reported data shown as nested details. When `quarkus-smallrye-health` is absent the panel stays visible and
-shows setup guidance for adding it instead of a healthy-looking status. SmallRye has no fixed framework-default
-contributors — every check is application-authored — so the Spring-only "default indicators only" guidance does not apply
-on Quarkus.
+shows setup guidance for adding it. SmallRye has no fixed framework-default contributors — every check is
+application-authored — so the Spring-only "default indicators only" guidance does not apply on Quarkus.
 
 ![BootUI Health panel](../images/bootui-health.webp)
 
@@ -47,6 +46,8 @@ while a selected meter's concrete tagged samples use 100-row pages (also capped 
 matching and displayed counts, provides load-more and sample Previous/Next controls, and keeps tag-value choices bounded to
 the first 100 sorted values per key with an explicit truncation badge.
 
+::: details Provenance grouping and honest explanations
+
 Meters are also grouped by **provenance**: the integration family that registered them (JVM binders, process and system
 binders, HTTP server and client instrumentation, datasource pools, caches, messaging clients, resilience libraries, gRPC,
 framework internals) with anything unrecognized filed under "Application / unclassified". Each group names the library
@@ -55,13 +56,15 @@ keys most of its meters share. Selecting a group filters the meter list on the s
 provenance (known integration vs application/unclassified) and by explanation source.
 
 Explanations are honest about where they come from. A meter's own registry description always wins and is marked
-**Native description**; when the registry documents nothing, BootUI falls back to a curated, versioned catalogue of
-well-known meter families and marks the text **BootUI catalogue**; a meter that has neither is marked **Not documented**
+**Native description**. When the registry documents nothing, BootUI falls back to a curated, versioned catalogue of
+well-known meter families and marks the text **BootUI catalogue**. A meter that has neither is marked **Not documented**
 and BootUI says so instead of guessing. Classification matches meter names only — never tag values — on exact names or
 dot-segment prefixes, so an application meter such as `orders.processed` is never absorbed into a curated family. The
 report carries the catalogue version so an explanation can be traced back to the catalogue that produced it.
 
-On Quarkus the panel is identical, served over Micrometer directly (Quarkus has no Actuator): it reads the live composite
+:::
+
+The panel is identical on Quarkus, served over Micrometer directly (Quarkus has no Actuator): it reads the live composite
 `MeterRegistry` when the application adds a `quarkus-micrometer` registry (for example
 `quarkus-micrometer-registry-prometheus`), and otherwise renders as unavailable while staying in the sidebar. As on Spring
 Boot, meters describing BootUI's own `/bootui/**` traffic are hidden so the console never reports on itself.
@@ -115,10 +118,10 @@ Capture, live analysis, and delete share one single-flight admission because the
 histogram, and status. A conflicting action receives the canonical `409` busy response naming both the requested and
 active operation; passive report reads remain available throughout.
 
-Heap dumps can contain plaintext secrets, credentials, and personal data, so the panel is designed to be safe by
-default: it only summarizes class names and sizes (never object values), all capture/analyze/delete operations are
-mutating `POST` requests that are blocked when the panel is read-only, and downloading the raw `.hprof` file is disabled
-unless explicitly enabled via configuration. Use it on a local JVM only, and treat any exported dump as sensitive.
+Heap dumps can contain plaintext secrets, credentials, and personal data, so the panel is safe by default. It only
+summarizes class names and sizes, never object values. All capture/analyze/delete operations are mutating `POST` requests
+that are blocked when the panel is read-only, and downloading the raw `.hprof` file is disabled unless explicitly enabled
+via configuration. Use it on a local JVM only, and treat any exported dump as sensitive.
 
 ![BootUI Heap Dump panel](../images/bootui-heap-dump.webp)
 
@@ -152,46 +155,66 @@ unavailable, the panel shows an empty state instead of failing.
 
 The GraalVM panel surveys the host application for [GraalVM native-image](https://www.graalvm.org/latest/reference-manual/native-image/)
 readiness. On demand it imports the application's own classes (bounded to the detected base package(s)) and runs **27
-curated checks (22 GraalVM and 5 Spring AOT)** for constructs that native-image or Spring AOT cannot resolve reliably —
-reflection, dynamic class loading, deep reflection, dynamic proxies, runtime resource loading, resource bundles,
-serialization, native access, runtime class generation, classpath scanning, MethodHandles, security providers, JMX, FFM,
-and Spring AOT boundaries. With the _Include dependencies_ toggle on (it is
-on by default), it also surveys the classpath to report which third-party libraries already ship unified or canonical
-legacy reachability metadata under `META-INF/native-image/` (arbitrary JSON is ignored), and — for libraries that do not
-— looks up Oracle's
+curated checks (22 GraalVM and 5 Spring AOT)** for constructs that native-image or Spring AOT cannot resolve reliably.
+After a scan, the concerns list can be filtered in place by severity, category, or free-text search without rerunning it.
+The checks and generated metadata are heuristic review aids that complement, but do not replace, the GraalVM tracing
+agent and an actual native build. See [GRAALVM-READINESS-CHECKS.md](../GRAALVM-READINESS-CHECKS.md) for the full catalogue
+of checks and what each one inspects.
+
+::: details What the checks cover
+
+The checks look for reflection, dynamic class loading, deep reflection, dynamic proxies, runtime resource loading,
+resource bundles, serialization, native access, runtime class generation, classpath scanning, MethodHandles, security
+providers, JMX, FFM, and Spring AOT boundaries.
+
+:::
+
+### Dependency reachability metadata
+
+With the _Include dependencies_ toggle on (the default), the panel also surveys the classpath to report which
+third-party libraries already ship unified or canonical legacy reachability metadata under `META-INF/native-image/`
+(arbitrary JSON is ignored). For libraries that do not, it looks up Oracle's
 [GraalVM reachability metadata repository](https://github.com/oracle/graalvm-reachability-metadata) to show whether the
 detected dependency version is `covered`, only `partial` (the repository has metadata for a different version), or has
-`none`, with links to the matching repository entry and metadata file. Repository matching prefers exact tested versions
-and then honors the repository's `default-for` Java regular expressions. That repository lookup is the panel's only
-outbound network call; it is user-initiated, time-bounded, and can be disabled with
-`bootui.graalvm.repository-lookup-enabled=false`. Long dependency lookups report progress and can be aborted from the
-panel. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
-(modern unified schema, with `condition.typeReached` guards) seeded with reflection/serialization candidates and the
-standard configuration resource globs. When BootUI detects the application is running from an exploded build (for
-example `mvn spring-boot:run` or an IDE) rather than a packaged jar, the panel also offers a **Write into project**
-action that writes the same scaffold directly to
+`none`, with links to the matching repository entry and metadata file.
+
+Repository matching prefers exact tested versions and then honors the repository's `default-for` Java regular
+expressions. That repository lookup is the panel's only outbound network call; it is user-initiated, time-bounded, and
+can be disabled with `bootui.graalvm.repository-lookup-enabled=false`. Long dependency lookups report progress and can be
+aborted from the panel.
+
+### Generated project assets
+
+From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold (modern unified schema, with
+`condition.typeReached` guards) seeded with reflection/serialization candidates and the standard configuration resource
+globs. Alongside it the panel generates a tailored, multi-stage **`Dockerfile-native`** that builds a GraalVM native
+image of the host application. Both artifacts can be downloaded, or — when BootUI detects an exploded build (for example
+`mvn spring-boot:run` or an IDE) rather than a packaged jar — written directly into the project via a **Write into
+project** action. A three-drawer accordion's default top drawer is an **All files** action that generates and writes both
+artifacts in a single step, reporting each file's outcome. Writes are fail-closed: confined under the project tree and
+never overwriting a `reachability-metadata.json` or `Dockerfile-native` that BootUI did not generate.
+
+::: details Where the scaffold is written
+
+The **Write into project** action writes the metadata scaffold to
 `src/main/resources/META-INF/native-image/<groupId>/<artifactId>-additional-hints/reachability-metadata.json` (resolving
-coordinates from `build-info.properties` or the project `pom.xml`, falling back to
-`bootui-generated/additional-hints`). The non-clashing suffix follows Spring Boot 4.1 guidance because Spring AOT writes
-generated hints to `<groupId>/<artifactId>/`. The install is
-fail-closed: it is confined under `src/main/resources` and never overwrites a `reachability-metadata.json` that BootUI
-did not generate. Alongside the metadata scaffold the panel also generates a tailored, multi-stage
-**`Dockerfile-native`** that builds a GraalVM native image of the host application. It detects the project's build
-system — Maven or Gradle, with or without the wrapper — and uses the matching native build command (`./mvnw`/`mvn
--Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`), then packages the resulting executable —
-named after the resolved `artifactId` — into a minimal, distroless runtime image (`gcr.io/distroless/base-debian12:nonroot`,
-which runs as a non-root user and carries no shell/curl/perl/tar, keeping the OS-package CVE surface near zero; the binary
-is built *mostly static* so it needs only glibc, and the build stage installs a known, pinned Maven/Gradle
-release when the project has no wrapper). It can be downloaded, or written directly to the project root under the
-same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
-generate). The metadata scaffold and the `Dockerfile-native` are presented in a three-drawer accordion whose default,
-top drawer is an **All files** action that generates and writes both artifacts into the project's source tree in a
-single step (under the same exploded-build constraint and fail-closed guards), reporting each file's outcome. After a
-scan, the concerns list can be filtered in place by severity, category, or free-text search to focus on a subset of
-findings without rerunning the scan. The checks and generated
-metadata are heuristic review aids that complement, but do not replace, the GraalVM tracing agent and an actual native
-build. See [GRAALVM-READINESS-CHECKS.md](../GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one
-inspects.
+coordinates from `build-info.properties` or the project `pom.xml`, falling back to `bootui-generated/additional-hints`).
+The non-clashing suffix follows Spring Boot 4.1 guidance because Spring AOT writes generated hints to
+`<groupId>/<artifactId>/`. The install is confined under `src/main/resources` and never overwrites a file BootUI did not
+generate.
+
+:::
+
+::: details How the Dockerfile-native is built
+
+It detects the project's build system — Maven or Gradle, with or without the wrapper — and uses the matching native build
+command (`./mvnw`/`mvn -Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`). It then
+packages the resulting executable — named after the resolved `artifactId` — into a minimal, distroless runtime image
+(`gcr.io/distroless/base-debian12:nonroot`). That image runs as a non-root user and carries no shell/curl/perl/tar,
+keeping the OS-package CVE surface near zero; the binary is built *mostly static* so it needs only glibc, and the build
+stage installs a known, pinned Maven/Gradle release when the project has no wrapper.
+
+:::
 
 > **Not available when already running as a GraalVM native image.** The readiness advisor scans compiled `.class` files
 > to help you *prepare* an application for native-image compilation; once the application is already running as a native
@@ -208,25 +231,44 @@ honest "not applicable on Quarkus" reason rather than implying a port is forthco
 ## CRaC
 
 The CRaC panel reviews the host application's [Coordinated Restore at Checkpoint](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html)
-readiness, combining live runtime status with a heuristic readiness advisor. The runtime-status card (always read-only)
-reports whether the `org.crac` API is on the classpath, whether the running JVM is a CRaC-capable JDK (such as Azul Zulu
-CRaC or BellSoft Liberica, detected via the real CRaC implementation rather than the no-op shim), whether
-`spring.context.checkpoint=onRefresh` is set, and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments (read
-from the same `RuntimeMXBean` input arguments the JVM Tuning panel uses). On demand the readiness advisor imports the
-application's own classes (bounded to the detected base package(s)) and runs 17 curated `CRaC-*` checks. The checks review
-direct resource acquisition separately from resource liveness, require observable cleanup before suppressing resource
-fields, distinguish Spring Boot's Hikari lifecycle and pool-suspension evidence from other remote clients, limit cache
-findings to known local managers, and flag direct background work plus Spring thread-per-task executors with incomplete
-lifecycle support. They also cover Spring's documented fixed-rate catch-up behavior, retained startup time/configuration,
-provider-specific Random/SecureRandom behavior, bounded secret and TLS-state fields, and a missing `org.crac:crac`
-dependency. Runtime observations never initialize a lazy pool, and inventory failures remain visible as scan warnings.
-After a scan, the concerns list
-can be filtered in place by severity, category, or free-text search to focus on a subset of findings without rerunning
-the scan. The checks are heuristic review aids that complement, but do not replace, an actual checkpoint/restore run on
-a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](../CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what
-each one inspects.
+readiness, combining live runtime status with a heuristic readiness advisor. On demand the readiness advisor imports the
+application's own classes (bounded to the detected base package(s)) and runs 17 curated `CRaC-*` checks. After a scan, the
+concerns list can be filtered in place by severity, category, or free-text search without rerunning it. The checks are
+heuristic review aids that complement, but do not replace, an actual checkpoint/restore run on a CRaC-enabled JDK. See
+[CRAC-READINESS-CHECKS.md](../CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what each one inspects.
+
+::: details What the runtime-status card reports
+
+The runtime-status card (always read-only) reports several signals. It shows whether the `org.crac` API is on the
+classpath and whether the running JVM is a CRaC-capable JDK, such as Azul Zulu CRaC or BellSoft Liberica, detected via
+the real CRaC implementation rather than the no-op shim. It also shows whether `spring.context.checkpoint=onRefresh` is
+set, and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments (read from the same `RuntimeMXBean` input
+arguments the JVM Tuning panel uses).
+
+:::
+
+::: details What the checks cover
+
+The checks review direct resource acquisition separately from resource liveness, require observable cleanup before
+suppressing resource fields, distinguish Spring Boot's Hikari lifecycle and pool-suspension evidence from other remote
+clients, limit cache findings to known local managers, and flag direct background work plus Spring thread-per-task
+executors with incomplete lifecycle support. They also cover Spring's documented fixed-rate catch-up behavior, retained
+startup time/configuration, provider-specific Random/SecureRandom behavior, bounded secret and TLS-state fields, and a
+missing `org.crac:crac` dependency. Runtime observations never initialize a lazy pool, and inventory failures remain
+visible as scan warnings.
+
+:::
 
 The panel also generates ready-to-use container assets for the host application: a multi-stage `Dockerfile-crac` that
+builds with a plain JDK and runs on a CRaC-enabled BellSoft Liberica JDK, plus the `checkpoint-and-run.sh` entrypoint it
+relies on (it takes a checkpoint on the first start via `spring.context.checkpoint=onRefresh` and restores it on later
+starts). The build command is tailored to the detected build system (Maven or Gradle, with or without the wrapper). Each
+file can be downloaded, and — when the application is running from an exploded build (for example `mvn spring-boot:run`
+or an IDE) rather than a packaged jar — written directly into the project root. Writes are fail-closed and never
+overwrite a file BootUI did not generate. This shares the same source-tree writer the GraalVM panel uses for its
+`Dockerfile-native`. The generated local run command includes CRIU's `CHECKPOINT_RESTORE`, `SYS_PTRACE`, `SYS_ADMIN`, and
+`NET_ADMIN` capabilities; the panel does not claim that string generation can replace a real Linux checkpoint/restore
+test.
 builds with a plain JDK and runs on a CRaC-enabled BellSoft Liberica JDK, plus the `checkpoint-and-run.sh` entrypoint it
 relies on (it takes a checkpoint on the first start via `spring.context.checkpoint=onRefresh` and restores it on later
 starts). The build command is tailored to the detected build system (Maven or Gradle, with or without the wrapper). Each

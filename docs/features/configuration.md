@@ -34,52 +34,66 @@ platform.
 
 ## Beans
 
-The Beans panel helps answer which application-managed beans exist, how they are connected, and where they came from.
-It supports server-side search across
-bean names and types, plus classifications such as application, Spring framework, Java/Jakarta, and other beans. BootUI's
-own beans are hidden by default, and the empty BootUI classification option is omitted; when self-data filtering is
-disabled they are classified separately as BootUI beans and the option appears. A labeled Graph/List segmented control
-switches between the dependency visualization and the server-paged bean inventory.
-When connected application beans are present, the graph selects the one with the most direct dependencies and dependents
-on first open (breaking ties alphabetically) and centers its node in the scroll viewport.
+The Beans panel helps answer which application-managed beans exist, how they are connected, and where they came from. A
+labeled Graph/List segmented control switches between the dependency visualization and the server-paged bean inventory,
+both of which support server-side search across bean names and types plus classifications (application, Spring framework,
+Java/Jakarta, and other beans). BootUI's own beans are hidden by default, and the empty BootUI classification option is
+omitted; when self-data filtering is disabled they are classified separately as BootUI beans and the option appears.
 Large bean lists load in bounded pages so the initial payload stays small while filters still apply to the full bean set.
 
-**Dependency graph mode.** The panel opens on the dependency neighbourhood graph; a header toggle switches to the
-server-paged list when needed. Each bean name in the list is a keyboard-accessible link back to its focused graph and
-automatically selects that bean's classification. Graph mode fetches beans in bounded 1 000-row pages, up to a 2 000-bean client-side
-inventory; if the inventory is larger, the panel reports both the loaded and total counts. Focus search starts with
-Application beans selected while a classification control can switch the graph to Framework, BootUI, Platform, Other, or
-all beans. The selected classification applies to both focus choices and rendered neighbours, so the Application graph
-contains only host-application beans. A search field accepts a bean name, alias, or unique type match. The graph renders a
-concentric-ring SVG showing the focused bean at the centre, its direct
-dependencies (beans it depends on, coloured blue), its direct dependents (beans that depend on it, coloured green),
-mutual / cycle nodes (coloured amber), and deeper-hop nodes (grey) up to three hops away and sixty nodes in total.
-Zoom-out, reset, and zoom-in controls scale the graph from 60% to 200% while its scroll region keeps large layouts bounded.
-Clicking any node re-focuses the graph on that bean so you can navigate the neighbourhood iteratively. When the
-sixty-node or three-hop limit is hit, a notice identifies the bound and invites you to re-focus. Duplicate bean names are
-combined deterministically and explained instead of silently dropping one definition. A focused-bean details area shows
-type, scope, resource, aliases, definition count, and direct relationship counts. When a Spring bean's recorded classpath
-resource establishes an exact configuration class, the panel queries the existing positive Conditions endpoint and shows
-only matching class or method-level evidence under "Why this bean exists"; missing, disabled, failed, or unmatched
-Conditions data is reported honestly instead of inferred. Graph and list implementations are split into separate loading
-paths: opening the default graph does not fetch the server-paged list, and switching to the list loads it only once.
-Keyboard navigation uses one graph tab stop, arrow/Home/End movement between nodes, and Enter or Space to re-focus; all
-nodes carry visible focus rings and `aria-label` attributes with the full bean name. The static layout introduces no
-motion, and its role colours meet contrast requirements in both light and dark themes.
+### Dependency graph mode
 
-**Quarkus dependency capture.** Arc resolves injection points during augmentation rather than exposing its wiring model
-at runtime, so the Quarkus deployment adapter captures the retained beans' resolved injection edges after Arc validation
-and emits them as a generated classpath resource. The runtime adapter overlays those edges on the live CDI inventory,
-giving graph mode the same `BeanSummary.dependencies` contract as Spring. The details area still explains that Spring Boot
-Conditions evidence and defining resources are unavailable on Quarkus.
+The panel opens on the dependency neighbourhood graph; a header toggle switches to the server-paged list when needed. On
+first open the graph selects the connected application bean with the most direct dependencies and dependents (breaking
+ties alphabetically) and centers its node. A search field accepts a bean name, alias, or unique type match, and a
+classification control switches the graph between Application, Framework, BootUI, Platform, Other, or all beans. Clicking
+any node re-focuses the graph on that bean, so you can navigate the neighbourhood iteratively.
 
-On Quarkus the panel is identical from the UI's point of view, running over the same framework-neutral engine
-`BeansService` and the same `/bootui/api/beans` contract. The Quarkus adapter enumerates beans from the live Arc/CDI
+::: details Graph rendering, limits, and accessibility
+
+Graph mode fetches beans in bounded 1 000-row pages, up to a 2 000-bean client-side inventory; if the inventory is
+larger, the panel reports both the loaded and total counts. Focus search starts with Application beans selected; the
+selected classification applies to both focus choices and rendered neighbours, so the Application graph contains only
+host-application beans.
+
+The graph renders a concentric-ring SVG showing the focused bean at the centre, its direct dependencies (beans it depends
+on, coloured blue), its direct dependents (beans that depend on it, coloured green), mutual/cycle nodes (amber), and
+deeper-hop nodes (grey) up to three hops away and sixty nodes in total. Zoom-out, reset, and zoom-in controls scale the
+graph from 60% to 200% while its scroll region keeps large layouts bounded. When the sixty-node or three-hop limit is
+hit, a notice identifies the bound and invites you to re-focus. Duplicate bean names are combined deterministically and
+explained instead of silently dropping one definition.
+
+A focused-bean details area shows type, scope, resource, aliases, definition count, and direct relationship counts. When
+a Spring bean's recorded classpath resource establishes an exact configuration class, the panel queries the existing
+positive Conditions endpoint and shows only matching class or method-level evidence under "Why this bean exists"; missing,
+disabled, failed, or unmatched Conditions data is reported honestly instead of inferred.
+
+Graph and list implementations are split into separate loading paths: opening the default graph does not fetch the
+server-paged list, and switching to the list loads it only once. Each bean name in the list is a keyboard-accessible link
+back to its focused graph and automatically selects that bean's classification. Keyboard navigation uses one graph tab
+stop, arrow/Home/End movement between nodes, and Enter or Space to re-focus; all nodes carry visible focus rings and
+`aria-label` attributes with the full bean name. The static layout introduces no motion, and its role colours meet
+contrast requirements in both light and dark themes.
+
+:::
+
+::: details Quarkus dependency capture
+
+Arc resolves injection points during augmentation rather than exposing its wiring model at runtime, so the Quarkus
+deployment adapter captures the retained beans' resolved injection edges after Arc validation and emits them as a
+generated classpath resource. The runtime adapter overlays those edges on the live CDI inventory, giving graph mode the
+same `BeanSummary.dependencies` contract as Spring. The details area still explains that Spring Boot Conditions evidence
+and defining resources are unavailable on Quarkus.
+
+:::
+
+On Quarkus the panel is identical from the UI's point of view. The adapter enumerates beans from the live Arc/CDI
 container (in place of the Spring adapter's Actuator beans endpoint), filters out BootUI's own beans, and classifies them
 with Quarkus-aware framework prefixes (`io.quarkus.`, `io.vertx.`, `org.jboss.`, …). A few fields have reduced fidelity
-because Arc does not expose them at runtime the way Actuator does: the defining `resource` is empty, the `scope` uses the CDI vocabulary (`ApplicationScoped`, `Singleton`, …) rather than Spring's
-`singleton`/`prototype`, and unnamed beans get a synthetic decapitalized class name. The inventory also reflects only the
-beans Arc retains, since Arc removes unused beans at build time.
+because Arc does not expose them at runtime the way Actuator does. The defining `resource` is empty, the `scope` uses the
+CDI vocabulary (`ApplicationScoped`, `Singleton`, …) rather than Spring's `singleton`/`prototype`, and unnamed beans get
+a synthetic decapitalized class name. The inventory also reflects only the beans Arc retains, since Arc removes unused
+beans at build time.
 
 ![BootUI Beans panel](../images/bootui-beans.webp)
 

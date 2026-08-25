@@ -4,15 +4,16 @@
 ## MCP Server
 
 BootUI can expose its advisors and read-only diagnostics to local AI coding agents (such as GitHub Copilot or Claude
-Code) through a local, opt-in [Model Context Protocol](https://modelcontextprotocol.io) server, so an agent can consult
-the advisors before proposing a fix and pull runtime diagnostics (a correlated live activity feed, exception detail,
-security logs, SQL traces, HTTP exchanges) while investigating an issue. The server is a JSON-RPC 2.0 endpoint at
+Code) through a local, opt-in [Model Context Protocol](https://modelcontextprotocol.io) server. An agent can consult the
+advisors before proposing a fix and pull runtime diagnostics — a correlated live activity feed, exception detail,
+security logs, SQL traces, HTTP exchanges — while investigating an issue. The server is a JSON-RPC 2.0 endpoint at
 `POST /bootui/api/mcp`; human-readable status and the advertised tool list are available from
-`GET /bootui/api/mcp-server`. The server is disabled by default (fail-closed) and, like the rest of the BootUI API, only
+`GET /bootui/api/mcp-server`. It is disabled by default (fail-closed) and, like the rest of the BootUI API, only
 reachable over the loopback interface unless non-loopback access is explicitly enabled, which requires authentication.
-Enable it headlessly with `bootui.mcp.enabled=ON`, or use the prominent toggle at the top of this panel to turn it on
-or off **at runtime, overriding the `bootui.mcp.enabled` Spring Boot property** for the lifetime of the running
-application — the configured mode only sets the initial state, and the panel shows when the live state is an override.
+
+Enable it headlessly with `bootui.mcp.enabled=ON`, or use the prominent toggle at the top of this panel to turn it on or
+off **at runtime, overriding the `bootui.mcp.enabled` Spring Boot property** for the lifetime of the running application.
+The configured mode only sets the initial state, and the panel shows when the live state is an override.
 
 The panel explains what the server does and lists every tool it exposes. Tools reuse the existing controllers and DTOs
 rather than reimplementing anything, so every tool returns the same masked, bounded shape as the REST API, in three
@@ -44,7 +45,11 @@ groups:
   heap-capture/download, HTTP-probe, GitHub-write, and dev-service-restart operations are deliberately not exposed.
 
 Tools whose backing panel/controller is not present (for example Hibernate or Spring Security when those libraries are
-absent) are simply not advertised. The server inherits BootUI's full safety model:
+absent) are simply not advertised.
+
+::: details Safety model
+
+The server inherits BootUI's full safety model:
 
 - It is only ever live while BootUI is active, so it is never reachable in production.
 - The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host` allow-list, cross-site write protection). It
@@ -62,6 +67,8 @@ absent) are simply not advertised. The server inherits BootUI's full safety mode
 - Unexpected server failures return only JSON-RPC `-32603` with the message `Internal error`; exception messages, stack
   traces, paths, queries, and credentials are never included. BootUI logs the original throwable once on the server,
   while expected protocol, disabled-server, and panel-policy errors keep their actionable messages.
+
+:::
 
 Connection details (transport, protocol revision, and the `bootui.mcp.max-results` cap) are shown alongside a
 ready-to-use, copyable MCP client configuration JSON pointing at this running app — the `servers` block a GitHub Copilot
