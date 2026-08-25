@@ -2,10 +2,12 @@ import {nextTick, onMounted, onUnmounted, watch} from 'vue'
 import {defineClientConfig, onContentUpdated, useRoute} from 'vuepress/client'
 import './styles/index.css'
 import ScreenshotCarousel from './components/ScreenshotCarousel.vue'
+import RuleIndex from './components/RuleIndex.vue'
 
 export default defineClientConfig({
   enhance({app}) {
     app.component('ScreenshotCarousel', ScreenshotCarousel)
+    app.component('RuleIndex', RuleIndex)
   },
   setup() {
     const route = useRoute()

@@ -6,6 +6,7 @@ import {defaultTheme} from '@vuepress/theme-default'
 import {defineUserConfig} from 'vuepress'
 import {inferRoutePath} from 'vuepress/shared'
 import {toDocLink} from './doc-links.js'
+import {parseRuleCatalog} from './rule-catalog.js'
 import {createDocsSidebar} from './sidebar.js'
 
 const siteBase = normalizeBase(process.env.VUEPRESS_BASE || (process.argv.includes('dev') ? '/' : '/boot-ui/'))
@@ -34,6 +35,7 @@ export default defineUserConfig({
     cleanDocsPermalinksPlugin(),
     cleanMarkdownDocLinksPlugin(),
     lazyLoadMarkdownImagesPlugin(),
+    ruleCatalogPlugin(),
     slimsearchPlugin({
       indexContent: true,
       suggestion: true,
@@ -141,6 +143,48 @@ function lazyLoadMarkdownImagesPlugin() {
       }
     }
   }
+}
+
+function ruleCatalogPlugin() {
+  return {
+    name: 'bootui-rule-catalog',
+    extendsPage(page) {
+      const rules = parseRuleCatalog(page.content ?? '')
+      if (rules.length === 0) {
+        return
+      }
+      page.data.ruleCatalog = rules
+    },
+    extendsPageOptions(options) {
+      const filePath = options.filePath ?? ''
+      if (!/-CHECKS\.md$/.test(filePath)) {
+        return
+      }
+      const content = options.content ?? fs.readFileSync(filePath, 'utf8')
+      if (parseRuleCatalog(content).length === 0) {
+        return
+      }
+      options.content = injectRuleIndex(content)
+    }
+  }
+}
+
+// Places the filter directly above the first rule group, so the page intro still reads as prose.
+function injectRuleIndex(content) {
+  const lines = content.split('\n')
+  const firstRule = lines.findIndex((line) => /^### [A-Z][A-Z0-9]*(-[A-Z0-9]+)+\b/.test(line))
+  if (firstRule < 0) {
+    return content
+  }
+  let insertAt = firstRule
+  for (let index = firstRule - 1; index >= 0; index -= 1) {
+    if (/^## /.test(lines[index])) {
+      insertAt = index
+      break
+    }
+  }
+  lines.splice(insertAt, 0, '<RuleIndex />', '')
+  return lines.join('\n')
 }
 
 function cleanMarkdownDocLinksPlugin() {

@@ -176,6 +176,8 @@ Bootstrap's raw contextual colors are tuned for white fills and fail WCAG AA as 
 ### Status Fills & Data-Viz
 Saturated **status fills** back badges, latency-heat rows, and advisor severity, registered as tokens: `--bootui-danger` (`#dc3545`), `--bootui-warning` (`#ffc107`), `--bootui-high` (`#fd7e14`), `--bootui-critical` (`#b00020`), `--bootui-info` (`#0dcaf0`), `--bootui-secondary` (`#6c757d`); rgba tints are these bases at reduced opacity. Three **categorical data-viz palettes** stay as documented constants (never chrome, never interactive state): the GitHub quota RdYlGn ramp (`#d73027 → #1a9850`), the startup-duration ramp (`#8bc34a → #ff0000`), and the latency-heat badge ramp (`#ffe69c/#664d03 → #b00020`).
 
+The **documentation site** reuses this severity vocabulary for the check-catalog filter, but at body-size text rather than as fills, so it needs companions that clear AA on both shells (`--bootui-severity-*` in `docs/.vuepress/styles/index.css`). Light: `#b00020` critical (the documented Critical fill, ~7.6:1), `#a04100` high (Warning Orange darkened for text, ~5.9:1), `#6f5300` medium (Accessible Warning (Strong)), `#0a53be` low (Accessible Deep Blue), `#56667b` info (Slate Muted). Dark: `#ff8a94`, `#fd7e14`, `#e0a800`, `#60a5fa`, `#a3b1c6`. Severity is the only place the docs site spends red, per the Earned-Red Rule.
+
 ### Neutral
 - **Ink** (`#152033`): primary body and heading text on light surfaces (near-navy, not pure black). Dark theme inverts to **Ink (Dark)** (`#e2e8f0`).
 - **Slate Muted** (`#56667b` light, `#a3b1c6` dark): secondary text, captions, and nav-group labels.
