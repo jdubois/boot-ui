@@ -6,6 +6,19 @@ import {toDocLink} from './doc-links.js'
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const hiddenDocs = ['README.md']
 
+/* Sidebar labels only. Page titles stay long-form; the group heading already supplies the context
+   these labels would otherwise repeat. */
+const sidebarLabels = {
+  'features/README.md': 'All features',
+  'setup/webflux.md': 'Spring WebFlux',
+  'setup/quarkus.md': 'Quarkus',
+  'QUARKUS-SUPPORT.md': 'Quarkus',
+  'WEBFLUX-SUPPORT.md': 'Spring WebFlux',
+  'PROPERTIES.md': 'Properties',
+  'REPOSITORY.md': 'Repository',
+  'WORKS-WITH.md': 'BootUI family'
+}
+
 const featureDocs = [
   'features/README.md',
   'features/overview.md',
@@ -116,7 +129,7 @@ function listMarkdownFiles(root, directory = '') {
 }
 
 function toSidebarItem(file, trimChecksSuffix = false) {
-  const text = readTitle(file)
+  const text = sidebarLabels[file] ?? readTitle(file)
   return {
     text: trimChecksSuffix ? text.replace(/\s+checks$/i, '') : text,
     link: toDocLink(file)

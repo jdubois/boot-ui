@@ -301,6 +301,24 @@ body {
 
 .vp-sidebar .vp-sidebar-item {
   border-radius: 0.9rem;
+  line-height: 1.35;
+}
+
+/* Page links and in-page heading links share one class, so the href fragment is what separates a
+   destination from a jump inside the page the reader is already on. */
+.vp-sidebar a.vp-sidebar-item:not([href*='#']) {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.vp-sidebar a.vp-sidebar-item[href*='#'] {
+  color: var(--bootui-text-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.vp-sidebar a.vp-sidebar-item[href*='#']:hover {
+  color: var(--bootui-nav-hover-color);
 }
 
 .vp-toggle-sidebar-button {
@@ -367,9 +385,14 @@ body {
 }
 
 .vp-sidebar .vp-sidebar-children {
-  margin-left: 0.85rem;
-  padding-left: 0.5rem;
+  margin-left: 1rem;
+  padding-left: 0.6rem;
   border-left: 1px solid var(--bootui-border-alt);
+}
+
+/* Nested links already sit inside the rail, so they drop the top-level indent instead of compounding it. */
+.vp-sidebar .vp-sidebar-children .vp-sidebar-item {
+  padding-left: 0.75rem;
 }
 
 .vp-sidebar .vp-sidebar-item.active,
