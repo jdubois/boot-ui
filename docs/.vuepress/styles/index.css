@@ -317,8 +317,14 @@ body {
   font-weight: 500;
 }
 
-.vp-sidebar a.vp-sidebar-item[href*='#']:hover {
+.vp-sidebar a.vp-sidebar-item[href*='#']:not(.active):hover {
   color: var(--bootui-nav-hover-color);
+}
+
+/* The active item keeps its gradient on hover, so its label must stay the on-gradient colour. */
+.vp-sidebar a.vp-sidebar-item:not(.vp-sidebar-heading).active:hover {
+  color: var(--bootui-nav-active-color);
+  background: var(--bootui-nav-active-bg);
 }
 
 .vp-toggle-sidebar-button {
