@@ -20,16 +20,6 @@ const features = computed(() => frontmatter.value.features ?? [])
       <h2>{{ feature.title }}</h2>
       <p>{{ feature.details }}</p>
       <span v-if="feature.linkText" class="vp-feature-cta" aria-hidden="true">{{ feature.linkText }}</span>
-      <span v-if="feature.links" class="vp-feature-links">
-        <RouteLink
-          v-for="secondary in feature.links"
-          :key="secondary.link"
-          :to="secondary.link"
-          class="vp-feature-cta vp-feature-cta-link"
-        >
-          {{ secondary.text }}
-        </RouteLink>
-      </span>
     </component>
   </div>
 </template>

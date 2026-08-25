@@ -22,21 +22,18 @@ features:
     details: Review traces, log tail, HTTP exchanges, local probes, architecture checks, GraalVM readiness, and dependency vulnerabilities.
     link: /features/diagnostics
     linkText: Diagnostics panels
-  - title: Data and services visibility
-    details: Explore database pools, Spring Data repositories, Hibernate checks, Flyway, Liquibase, scheduled tasks, caches, and dev services.
-    links:
-      - text: Database panels
-        link: /features/database
-      - text: Services panels
-        link: /features/services
+  - title: Database insight
+    details: Inspect connection pools, SQL traces, Hibernate statistics, transactions, Spring Data repositories, Flyway, and Liquibase.
+    link: /features/database
+    linkText: Database panels
+  - title: Services and integrations
+    details: Follow scheduled tasks, REST clients, fault tolerance, WebSockets, caches, email, Kafka, RabbitMQ, and JMS.
+    link: /features/services
+    linkText: Services panels
   - title: Local safety model
     details: Stay loopback-only by default with secret masking, fail-closed activation, read-only controls, and explicit confirmation for mutating actions.
     link: /setup/activation
     linkText: Activation and safety
-  - title: Packaged developer console
-    details: Add one dependency — the Spring Boot starter or the Quarkus extension — and get the bundled Vue UI, REST API, and docs-backed workflow without a separate frontend deployment.
-    link: /setup
-    linkText: Setup guide
 footer: Apache-2.0 Licensed | BootUI
 ---
 
