@@ -1,5 +1,11 @@
 # BootUI on Quarkus — design & strategy
 
+::: tip Contributor document
+This records how the Quarkus adapter was designed and built, for people working on BootUI itself. If you just want to
+know what BootUI gives you on Quarkus, read [Framework support](./FRAMEWORK-SUPPORT.md) instead — and note that your
+running console is always the authoritative answer for your own application.
+:::
+
 > **Status:** Implemented and shipping. What began as a design proposal is now the `bootui-quarkus` /
 > `bootui-quarkus-deployment` extension described throughout this document — the large majority of the panel set is live
 > on Quarkus today (see §5 for the authoritative per-panel status and [SPECIFICATION.md](SPECIFICATION.md) §1.1 for the

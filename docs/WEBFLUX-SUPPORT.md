@@ -1,5 +1,11 @@
 # BootUI on Spring WebFlux — support status
 
+::: tip Contributor document
+This records how the WebFlux adapter was designed and built, for people working on BootUI itself. If you just want to
+know what BootUI gives you on WebFlux, read [Framework support](./FRAMEWORK-SUPPORT.md) instead — and note that your
+running console is always the authoritative answer for your own application.
+:::
+
 ## 1. Goal
 
 Spring WebFlux (reactive, Netty / `DispatcherHandler`) Spring Boot 4 applications are a first-class BootUI target,

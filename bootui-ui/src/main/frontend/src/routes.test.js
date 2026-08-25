@@ -197,6 +197,33 @@ function parseSpecificationGroupInventory(markdown) {
   return inventory
 }
 
+function parseFrameworkSupportQuarkusGaps(markdown) {
+  const section = markdown.split('## What is not on Quarkus')[1]?.split('## Going deeper')[0]
+  if (!section) {
+    throw new Error('Missing the Quarkus gap section in docs/FRAMEWORK-SUPPORT.md')
+  }
+
+  // The not-applicable panels are the bold names in the first column of the section's table.
+  // Bold names elsewhere in the section are recommended alternatives, not gaps.
+  const notApplicable = new Set()
+  for (const line of section.split('\n')) {
+    const firstColumn = line.match(/^\|\s*(.+?)\s*\|/)
+    if (!firstColumn || firstColumn[1] === 'Panel' || firstColumn[1].startsWith('-')) {
+      continue
+    }
+    for (const match of firstColumn[1].matchAll(/\*\*([^*]+)\*\*/g)) {
+      notApplicable.add(match[1])
+    }
+  }
+
+  const notYet = section.match(/One panel, \*\*([^*]+)\*\*, is not yet available/)
+  if (!notYet) {
+    throw new Error('Missing the not-yet-available panel sentence in docs/FRAMEWORK-SUPPORT.md')
+  }
+
+  return {notApplicable, notYet: new Set([notYet[1]])}
+}
+
 function sorted(values) {
   return [...values].sort()
 }
@@ -384,6 +411,17 @@ describe('routes', () => {
         table.filter((row) => row.classification === classification).length
       )
     }
+  })
+
+  it('keeps the reader-facing Quarkus gap list derived from code', () => {
+    const titlesById = new Map(parseBackendPanels().map((panel) => [panel.id, panel.title]))
+    const availability = parseQuarkusAvailability()
+    const documented = parseFrameworkSupportQuarkusGaps(readRepositoryFile('docs/FRAMEWORK-SUPPORT.md'))
+
+    expect(sorted(documented.notApplicable)).toEqual(
+      sorted([...availability.notApplicable].map((id) => titlesById.get(id)))
+    )
+    expect(sorted(documented.notYet)).toEqual(sorted([...availability.notYetAvailable].map((id) => titlesById.get(id))))
   })
 
   it('keeps documented navigation groups aligned with route metadata', () => {

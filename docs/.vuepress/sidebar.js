@@ -12,8 +12,8 @@ const sidebarLabels = {
   'features/README.md': 'All features',
   'setup/webflux.md': 'Spring WebFlux',
   'setup/quarkus.md': 'Quarkus',
-  'QUARKUS-SUPPORT.md': 'Quarkus',
-  'WEBFLUX-SUPPORT.md': 'Spring WebFlux',
+  'QUARKUS-SUPPORT.md': 'Quarkus design notes',
+  'WEBFLUX-SUPPORT.md': 'WebFlux design notes',
   'PROPERTIES.md': 'Properties',
   'REPOSITORY.md': 'Repository',
   'WORKS-WITH.md': 'BootUI family'
@@ -51,7 +51,7 @@ const groups = [
   },
   {
     text: 'Reference',
-    docs: ['PROPERTIES.md', 'AI-AGENTS.md', 'WORKS-WITH.md']
+    docs: ['PROPERTIES.md', 'FRAMEWORK-SUPPORT.md', 'AI-AGENTS.md', 'WORKS-WITH.md']
   },
   {
     text: 'Diagnostic checks',
@@ -74,13 +74,9 @@ const groups = [
     ]
   },
   {
-    text: 'Framework support',
-    docs: ['QUARKUS-SUPPORT.md', 'WEBFLUX-SUPPORT.md']
-  },
-  {
     text: 'Contributing',
     collapsed: true,
-    docs: ['REPOSITORY.md', 'SPECIFICATION.md', 'PLAN.md']
+    docs: ['REPOSITORY.md', 'SPECIFICATION.md', 'PLAN.md', 'QUARKUS-SUPPORT.md', 'WEBFLUX-SUPPORT.md']
   }
 ]
 
