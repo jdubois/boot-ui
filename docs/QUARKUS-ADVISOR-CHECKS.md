@@ -40,156 +40,220 @@ Dismissed rules remove all of their findings from the score.
 
 ## CDI
 
-### QA-CDI-001 - Shared mutable state on @ApplicationScoped bean (MEDIUM)
-`@ApplicationScoped` beans are single instances shared across threads; non-final fields and public final
-mutable references (other than injected dependencies — `@Inject`/`@ConfigProperty`/`@RestClient` fields are
-excluded) hold unsynchronised shared state. Public final primitives, strings, boxed primitives, numbers,
-UUIDs, time values, and enums are immutable values and are not flagged. Make mutable fields `private final`
-or expose an immutable value, or move per-request state to a `@RequestScoped` bean.
+### QA-CDI-001 - Shared mutable state on @ApplicationScoped bean
 
-### QA-CDI-002 - Public mutable field on a JAX-RS resource (MEDIUM)
-JAX-RS resources default to `@Singleton`, so a public non-final (non-static) field is process-wide shared
-mutable state accessed concurrently across requests. A resource explicitly annotated `@RequestScoped` gets a
-fresh instance per request and carries no shared-state risk. Quarkus REST also automatically scopes resources
-with JAX-RS parameter fields (for example `@QueryParam` or `@RestQuery`, including inherited fields) per
-request; both cases are excluded from this scan. Make the field `private final`, inject it, or move per-request
-state to a `@RequestScoped` bean.
-(Private fields set in `@PostConstruct`, e.g. injected Micrometer meters, are not flagged.)
+- **Severity**: MEDIUM
+- **Detects**: `@ApplicationScoped` beans are single instances shared across threads; non-final fields and public final
+  mutable references (other than injected dependencies — `@Inject`/`@ConfigProperty`/`@RestClient` fields are excluded)
+  hold unsynchronised shared state. Public final primitives, strings, boxed primitives, numbers, UUIDs, time values, and
+  enums are immutable values and are not flagged.
+- **Recommendation**: Make mutable fields `private final` or expose an immutable value, or move per-request state to a
+  `@RequestScoped` bean.
+- **Learn more**: <https://quarkus.io/guides/cdi-reference>
 
-### QA-CDI-003 - Shared mutable state on a @Singleton bean (MEDIUM)
-`@Singleton` beans are a single instance shared across threads, exactly like `@ApplicationScoped` — the same
-unsynchronised-shared-state rule and immutable-value exclusions as QA-CDI-001 apply. Make mutable fields
-`private final`, expose an immutable value, or move per-request state to a `@RequestScoped` bean.
+### QA-CDI-002 - Public mutable field on a JAX-RS resource
+
+- **Severity**: MEDIUM
+- **Detects**: JAX-RS resources default to `@Singleton`, so a public non-final (non-static) field is process-wide shared
+  mutable state accessed concurrently across requests. A resource explicitly annotated `@RequestScoped` gets a fresh
+  instance per request and carries no shared-state risk. Quarkus REST also automatically scopes resources with JAX-RS
+  parameter fields (for example `@QueryParam` or `@RestQuery`, including inherited fields) per request; both cases are
+  excluded from this scan. (Private fields set in `@PostConstruct`, e.g. injected Micrometer meters, are not flagged.)
+- **Recommendation**: Make the field `private final`, inject it, or move per-request state to a `@RequestScoped` bean.
+- **Learn more**: <https://quarkus.io/guides/cdi-reference>
+
+### QA-CDI-003 - Shared mutable state on a @Singleton bean
+
+- **Severity**: MEDIUM
+- **Detects**: `@Singleton` beans are a single instance shared across threads, exactly like `@ApplicationScoped` — the
+  same unsynchronised-shared-state rule and immutable-value exclusions as QA-CDI-001 apply.
+- **Recommendation**: Make mutable fields `private final`, expose an immutable value, or move per-request state to a
+  `@RequestScoped` bean.
+- **Learn more**: <https://quarkus.io/guides/cdi-reference>
 
 ## Config
 
-### QA-CFG-001 - No type-safe configuration (LOW)
-The app declares no `@ConfigProperty` injection sites and no `@ConfigMapping` interfaces, suggesting
-configuration is read ad hoc rather than through type-safe MicroProfile Config. Inject configuration with
-`@ConfigProperty` or a `@ConfigMapping` interface.
+### QA-CFG-001 - No type-safe configuration
 
-### QA-CFG-002 - Hibernate SQL logging enabled in the prod profile (MEDIUM)
-`%prod.quarkus.hibernate-orm.log.sql=true` logs every statement in production, hurting performance and
-risking sensitive data in logs. Disable SQL logging in `%prod`; enable it only in `%dev` when debugging.
+- **Severity**: LOW
+- **Detects**: The app declares no `@ConfigProperty` injection sites and no `@ConfigMapping` interfaces, suggesting
+  configuration is read ad hoc rather than through type-safe MicroProfile Config.
+- **Recommendation**: Inject configuration with `@ConfigProperty` or a `@ConfigMapping` interface.
+- **Learn more**: <https://quarkus.io/guides/config-reference>
 
-### QA-CFG-003 - Verbose log level in the prod profile (MEDIUM)
-`%prod.quarkus.log.level` resolves to `DEBUG`/`TRACE`/`ALL`, far more verbose than production needs; it
-hurts performance and risks leaking sensitive data into logs. Set `%prod.quarkus.log.level` to `INFO` or
-`WARN`; use `DEBUG`/`TRACE` only in `%dev`.
+### QA-CFG-002 - Hibernate SQL logging enabled in the prod profile
 
-### QA-CFG-004 - Legacy Hibernate schema-generation property in use (LOW)
-`quarkus.hibernate-orm.database.generation` (or a `%profile`/named-persistence-unit variant) is deprecated
-for removal in favour of `quarkus.hibernate-orm.schema-management.strategy`; it still works today but may be
-removed in a future Quarkus release. Migrate to `quarkus.hibernate-orm.schema-management.strategy` (it
-accepts the same values: `none`/`create`/`drop-and-create`/`drop`/`update`/`validate`).
+- **Severity**: MEDIUM
+- **Detects**: `%prod.quarkus.hibernate-orm.log.sql=true` logs every statement in production, hurting performance and
+  risking sensitive data in logs.
+- **Recommendation**: Disable SQL logging in `%prod`; enable it only in `%dev` when debugging.
+- **Learn more**: <https://quarkus.io/guides/hibernate-orm>
+
+### QA-CFG-003 - Verbose log level in the prod profile
+
+- **Severity**: MEDIUM
+- **Detects**: `%prod.quarkus.log.level` resolves to `DEBUG`/`TRACE`/`ALL`, far more verbose than production needs; it
+  hurts performance and risks leaking sensitive data into logs.
+- **Recommendation**: Set `%prod.quarkus.log.level` to `INFO` or `WARN`; use `DEBUG`/`TRACE` only in `%dev`.
+- **Learn more**: <https://quarkus.io/guides/logging>
+
+### QA-CFG-004 - Legacy Hibernate schema-generation property in use
+
+- **Severity**: LOW
+- **Detects**: `quarkus.hibernate-orm.database.generation` (or a `%profile`/named-persistence-unit variant) is
+  deprecated for removal in favour of `quarkus.hibernate-orm.schema-management.strategy`; it still works today but may
+  be removed in a future Quarkus release.
+- **Recommendation**: Migrate to `quarkus.hibernate-orm.schema-management.strategy` (it accepts the same values:
+  `none`/`create`/`drop-and-create`/`drop`/`update`/`validate`).
+- **Learn more**: <https://quarkus.io/guides/hibernate-orm>
 
 ## Reactive
 
-### QA-RX-001 - Reactive endpoints with a blocking JDBC datasource (HIGH)
-One or more endpoints return `Uni`/`Multi`/`RestMulti`/`CompletionStage`/`CompletableFuture`/
-`Flow.Publisher`/Reactive Streams `Publisher` (run on the I/O event loop), and neither the method nor its
-declaring resource class carries a `@Blocking` or `@Transactional` guard (Quarkus REST dispatches a
-`@Transactional` method to a worker thread just like `@Blocking` — see the [latest stable REST
-execution-model guide](https://quarkus.io/guides/rest#execution-model-blocking-non-blocking)), while Quarkus's
-Agroal JDBC capability is present; a JDBC call on the event loop stalls it and throws
-`BlockingOperationNotAllowedException` at runtime. This is one of the most common and severe Quarkus
-production footguns, hence HIGH rather than an informational note. Annotate blocking work with `@Blocking`
-(or make the method `@Transactional`), or use a reactive datasource client. (Only raised when a JDBC
-datasource capability is present, so a fully reactive datasource configuration is not flagged. The check is
-correlated per endpoint — an unrelated guard elsewhere in the app does not suppress a finding on a genuinely
-unguarded reactive endpoint.)
+### QA-RX-001 - Reactive endpoints with a blocking JDBC datasource
+
+- **Severity**: HIGH
+- **Detects**: One or more endpoints return `Uni`/`Multi`/`RestMulti`/`CompletionStage`/`CompletableFuture`/
+  `Flow.Publisher`/Reactive Streams `Publisher` (run on the I/O event loop), and neither the method nor its declaring
+  resource class carries a `@Blocking` or `@Transactional` guard (Quarkus REST dispatches a `@Transactional` method to a
+  worker thread just like `@Blocking` — see the [latest stable REST execution-model
+  guide](https://quarkus.io/guides/rest#execution-model-blocking-non-blocking)), while Quarkus's Agroal JDBC capability
+  is present; a JDBC call on the event loop stalls it and throws `BlockingOperationNotAllowedException` at runtime.
+  (Only raised when a JDBC datasource capability is present, so a fully reactive datasource configuration is not
+  flagged. The check is correlated per endpoint — an unrelated guard elsewhere in the app does not suppress a finding on
+  a genuinely unguarded reactive endpoint.)
+- **Why it matters**: This is one of the most common and severe Quarkus production footguns, hence HIGH rather than an
+  informational note.
+- **Recommendation**: Annotate blocking work with `@Blocking` (or make the method `@Transactional`), or use a reactive
+  datasource client.
+- **Learn more**: <https://quarkus.io/guides/getting-started-reactive>
 
 ## Scheduling
 
-### QA-SCH-001 - Scheduled tasks without a clustered scheduler (LOW)
-`@Scheduled` methods run on every instance; without a clustered scheduler each replica fires the job,
-causing duplicate work in a scaled-out deployment. For clustering, use the Quartz extension with
-`quarkus.quartz.clustered=true`, select a persistent JDBC store with
-`quarkus.quartz.store-type=jdbc-tx` or `jdbc-cmt`, configure the Quartz datasource (the default datasource is
-used when none is named), and install the database-specific Quartz schema, for example through Flyway.
-Otherwise confirm single-instance deployment.
+### QA-SCH-001 - Scheduled tasks without a clustered scheduler
+
+- **Severity**: LOW
+- **Detects**: `@Scheduled` methods run on every instance; without a clustered scheduler each replica fires the job,
+  causing duplicate work in a scaled-out deployment.
+- **Recommendation**: For clustering, use the Quartz extension with `quarkus.quartz.clustered=true`, select a persistent
+  JDBC store with `quarkus.quartz.store-type=jdbc-tx` or `jdbc-cmt`, configure the Quartz datasource (the default
+  datasource is used when none is named), and install the database-specific Quartz schema, for example through Flyway.
+  Otherwise confirm single-instance deployment.
+- **Learn more**: <https://quarkus.io/guides/scheduler-reference>
 
 ## Profiles
 
-### QA-PROD-001 - Dev Services override present in the prod profile (LOW)
-A `%prod.*devservices.enabled=true` key is set. Dev Services is a build-time/augmentation-only mechanism —
-per the [Dev Services guide](https://quarkus.io/guides/dev-services), it starts containers during
-`quarkus:dev`/`quarkus:test`/augmentation only, and never runs in a `LaunchMode.NORMAL` packaged JAR or
-native executable regardless of this property's value. So the override has no effect in production; its
-presence is a config-hygiene signal (leftover or copy-pasted config) rather than an active production risk,
-hence LOW rather than HIGH. Remove the unused `%prod` Dev Services override to avoid confusing readers of the
-config.
+### QA-PROD-001 - Dev Services override present in the prod profile
 
-### QA-PROD-002 - Destructive Hibernate schema strategy in the prod profile (CRITICAL or HIGH)
-A `%prod` Hibernate schema strategy of `drop-and-create`/`create`/`drop` rebuilds or drops the production
-schema on every boot, destroying data — **CRITICAL**, matching the sibling Hibernate advisor's
-[`HIB-CONFIG-002`](HIBERNATE-CHECKS.md). A strategy of `update` is a distinct, slightly lower risk: Hibernate
-silently alters the schema in place (adding/changing columns or tables to match the entity model) instead of
-destroying data outright, which can still lock tables or apply an unreviewed structural change directly to
-production — **HIGH**. Use `none` (or `validate`) in `%prod` and manage the schema with Flyway/Liquibase.
+- **Severity**: LOW
+- **Detects**: A `%prod.*devservices.enabled=true` key is set.
+- **Why it matters**: Dev Services is a build-time/augmentation-only mechanism — per the [Dev Services
+  guide](https://quarkus.io/guides/dev-services), it starts containers during `quarkus:dev`/`quarkus:test`/augmentation
+  only, and never runs in a `LaunchMode.NORMAL` packaged JAR or native executable regardless of this property's value.
+  So the override has no effect in production; its presence is a config-hygiene signal (leftover or copy-pasted config)
+  rather than an active production risk, hence LOW rather than HIGH.
+- **Recommendation**: Remove the unused `%prod` Dev Services override to avoid confusing readers of the config.
+- **Learn more**: <https://quarkus.io/guides/config-reference#profiles>
 
-### QA-PROD-003 - In-memory/dev datasource in the prod profile (MEDIUM)
-The `%prod` datasource targets an in-memory/embedded database (H2/HSQLDB/Derby) — by `db-kind` or a
-`jdbc:*:mem:`/`:memory:` URL — so production data is lost on restart and never shared across instances.
-Point `%prod` at a real managed database (PostgreSQL, MySQL, …).
+### QA-PROD-002 - Destructive Hibernate schema strategy in the prod profile
 
-### QA-PROF-001 - No prod-specific configuration overrides (INFO)
-No `%prod.` overrides were found anywhere in config. (Rebased from active-profile emptiness: Quarkus's
-`SmallRyeConfig.getProfiles()` almost always resolves to a live profile — dev/test/prod — when read from a
-running app, so an "active profile is empty" condition rarely fires in practice; absence of any `%prod.`
-override key is the signal this rule actually intends to catch.) This is fine when production config is
-externalised (env vars, Secrets/ConfigMaps); otherwise prod shares dev defaults for every setting. Add
-`%prod.` overrides (or externalise config) so production differs from dev defaults.
+- **Severity**: CRITICAL or HIGH
+- **Detects**: A `%prod` Hibernate schema strategy of `drop-and-create`/`create`/`drop` rebuilds or drops the production
+  schema on every boot, destroying data — **CRITICAL**, matching the sibling Hibernate advisor's
+  [`HIB-CONFIG-002`](HIBERNATE-CHECKS.md). A strategy of `update` is a distinct, slightly lower risk: Hibernate silently
+  alters the schema in place (adding/changing columns or tables to match the entity model) instead of destroying data
+  outright, which can still lock tables or apply an unreviewed structural change directly to production — **HIGH**.
+- **Recommendation**: Use `none` (or `validate`) in `%prod` and manage the schema with Flyway/Liquibase.
+- **Learn more**: <https://quarkus.io/guides/hibernate-orm>
+
+### QA-PROD-003 - In-memory/dev datasource in the prod profile
+
+- **Severity**: MEDIUM
+- **Detects**: The `%prod` datasource targets an in-memory/embedded database (H2/HSQLDB/Derby) — by `db-kind` or a
+  `jdbc:*:mem:`/`:memory:` URL — so production data is lost on restart and never shared across instances.
+- **Recommendation**: Point `%prod` at a real managed database (PostgreSQL, MySQL, …).
+- **Learn more**: <https://quarkus.io/guides/datasource>
+
+### QA-PROF-001 - No prod-specific configuration overrides
+
+- **Severity**: INFO
+- **Detects**: No `%prod.` overrides were found anywhere in config.
+- **Why it matters**: (Rebased from active-profile emptiness: Quarkus's `SmallRyeConfig.getProfiles()` almost always
+  resolves to a live profile — dev/test/prod — when read from a running app, so an "active profile is empty" condition
+  rarely fires in practice; absence of any `%prod.` override key is the signal this rule actually intends to catch.)
+  This is fine when production config is externalised (env vars, Secrets/ConfigMaps); otherwise prod shares dev defaults
+  for every setting.
+- **Recommendation**: Add `%prod.` overrides (or externalise config) so production differs from dev defaults.
+- **Learn more**: <https://quarkus.io/guides/config-reference#profiles>
 
 ## Database
 
-### QA-DB-001 - JDBC datasource without an explicit pool size (LOW)
-A JDBC datasource capability is present, but `quarkus.datasource.jdbc.max-size` is never set. Agroal
-(Quarkus's connection pool) defaults to a max pool size of 50. Under high concurrency — especially with virtual threads
-increasing request parallelism — the default pool can become a bottleneck or exhaust the database's own
-connection limit. Set `quarkus.datasource.jdbc.max-size` (with a `%prod` override if it should differ from
-dev) to a value sized for the target database and expected concurrency.
+### QA-DB-001 - JDBC datasource without an explicit pool size
+
+- **Severity**: LOW
+- **Detects**: A JDBC datasource capability is present, but `quarkus.datasource.jdbc.max-size` is never set.
+- **Why it matters**: Agroal (Quarkus's connection pool) defaults to a max pool size of 50. Under high concurrency —
+  especially with virtual threads increasing request parallelism — the default pool can become a bottleneck or exhaust
+  the database's own connection limit.
+- **Recommendation**: Set `quarkus.datasource.jdbc.max-size` (with a `%prod` override if it should differ from dev) to a
+  value sized for the target database and expected concurrency.
+- **Learn more**: <https://quarkus.io/guides/datasource>
 
 ## Web
 
-### QA-WEB-001 - HTTP response compression disabled (INFO)
-`quarkus.http.enable-compression` is not set (Quarkus's own default), so responses are not gzip/deflate
--compressed, increasing bandwidth and latency for text-heavy payloads. Set
-`quarkus.http.enable-compression=true` (tune `quarkus.http.compress-media-types` if needed).
+### QA-WEB-001 - HTTP response compression disabled
 
-### QA-WEB-002 - Graceful shutdown grace period zeroed (MEDIUM)
-`quarkus.shutdown.timeout` is explicitly set to `0`, disabling the graceful-shutdown grace period; in-flight
-requests are dropped instead of being allowed to complete on `SIGTERM`. Remove the override (or set a positive
-duration) so in-flight requests can drain before shutdown.
+- **Severity**: INFO
+- **Detects**: `quarkus.http.enable-compression` is not set (Quarkus's own default), so responses are not gzip/deflate
+  -compressed, increasing bandwidth and latency for text-heavy payloads.
+- **Recommendation**: Set `quarkus.http.enable-compression=true` (tune `quarkus.http.compress-media-types` if needed).
+- **Learn more**: <https://quarkus.io/guides/http-reference>
 
-### QA-WEB-003 - REST client connect/read timeout disabled or excessive (MEDIUM)
-A connect-timeout or read-timeout for a `@RegisterRestClient` interface is explicitly set to `0` (no timeout)
-or to an excessively high value (over 5 minutes). Quarkus REST clients already default to a 15s
-connect-timeout and 30s read-timeout (`quarkus.rest-client.connect-timeout` / `read-timeout` — see
-[`RestClientsConfig`](https://github.com/quarkusio/quarkus/blob/main/extensions/resteasy-classic/rest-client-config/runtime/src/main/java/io/quarkus/restclient/config/RestClientsConfig.java)),
-so a slow/hanging remote service is normally bounded; this override removes that safety net. Remove the
-override to keep Quarkus's 15s/30s defaults, or set a specific, bounded timeout appropriate for the remote
-service.
+### QA-WEB-002 - Graceful shutdown grace period zeroed
 
-### QA-WEB-004 - Graceful shutdown timeout never configured (INFO)
-`quarkus.shutdown.timeout` is not set anywhere. Quarkus's graceful shutdown is opt-in and disabled by default
-— with no timeout configured at all, the application exits immediately on `SIGTERM` instead of draining
-in-flight requests. Because this is Quarkus's documented default, it is informational rather than a
-configuration error. This is distinct from QA-WEB-002 (which fires only when the timeout is explicitly
-disabled via `=0`); the two are mutually exclusive; see the
-[lifecycle guide](https://quarkus.io/guides/lifecycle#graceful-shutdown). Set
-`quarkus.shutdown.timeout` to a positive duration (e.g. `10s`) so in-flight requests can drain before
-shutdown.
+- **Severity**: MEDIUM
+- **Detects**: `quarkus.shutdown.timeout` is explicitly set to `0`, disabling the graceful-shutdown grace period;
+  in-flight requests are dropped instead of being allowed to complete on `SIGTERM`.
+- **Recommendation**: Remove the override (or set a positive duration) so in-flight requests can drain before shutdown.
+- **Learn more**: <https://quarkus.io/guides/http-reference>
+
+### QA-WEB-003 - REST client connect/read timeout disabled or excessive
+
+- **Severity**: MEDIUM
+- **Detects**: A connect-timeout or read-timeout for a `@RegisterRestClient` interface is explicitly set to `0` (no
+  timeout) or to an excessively high value (over 5 minutes).
+- **Why it matters**: Quarkus REST clients already default to a 15s connect-timeout and 30s read-timeout
+  (`quarkus.rest-client.connect-timeout` / `read-timeout` — see
+  [`RestClientsConfig`](https://github.com/quarkusio/quarkus/blob/main/extensions/resteasy-classic/rest-client-config/runtime/src/main/java/io/quarkus/restclient/config/RestClientsConfig.java)),
+  so a slow/hanging remote service is normally bounded; this override removes that safety net.
+- **Recommendation**: Remove the override to keep Quarkus's 15s/30s defaults, or set a specific, bounded timeout
+  appropriate for the remote service.
+- **Learn more**: <https://quarkus.io/guides/rest-client>
+
+### QA-WEB-004 - Graceful shutdown timeout never configured
+
+- **Severity**: INFO
+- **Detects**: `quarkus.shutdown.timeout` is not set anywhere.
+- **Why it matters**: Quarkus's graceful shutdown is opt-in and disabled by default — with no timeout configured at all,
+  the application exits immediately on `SIGTERM` instead of draining in-flight requests. Because this is Quarkus's
+  documented default, it is informational rather than a configuration error. This is distinct from QA-WEB-002 (which
+  fires only when the timeout is explicitly disabled via `=0`); the two are mutually exclusive; see the [lifecycle
+  guide](https://quarkus.io/guides/lifecycle#graceful-shutdown).
+- **Recommendation**: Set `quarkus.shutdown.timeout` to a positive duration (e.g. `10s`) so in-flight requests can drain
+  before shutdown.
+- **Learn more**: <https://quarkus.io/guides/http-reference>
 
 ## Performance
 
-### QA-PERF-002 - Virtual-thread pinning via synchronized (JEP 491) (HIGH)
-**Quarkus/JDK-specific — no Spring equivalent.** One or more methods that run on a virtual thread — via a
-method-level `@RunOnVirtualThread`, or because their declaring class carries a class-level
-`@RunOnVirtualThread` (which makes every method in that class run on a virtual thread) — are also declared
-`synchronized`. On JDK 21-23, a blocking operation inside a `synchronized` method or block pins the carrier
-thread instead of yielding it, defeating the scalability benefit of virtual threads under load; [JEP
-491](https://openjdk.org/jeps/491) removes this pinning starting in JDK 24. Replace `synchronized` with a
-`java.util.concurrent.locks.ReentrantLock`, or upgrade to JDK 24+. (Detected via the method's `synchronized`
-modifier; a `synchronized(lock) { }` block inside an otherwise-unsynchronized method is not visible to this
-build-time check.)
+### QA-PERF-002 - Virtual-thread pinning via synchronized (JEP 491)
+
+- **Severity**: HIGH
+- **Detects**: **Quarkus/JDK-specific — no Spring equivalent.** One or more methods that run on a virtual thread — via a
+  method-level `@RunOnVirtualThread`, or because their declaring class carries a class-level `@RunOnVirtualThread`
+  (which makes every method in that class run on a virtual thread) — are also declared `synchronized`. (Detected via the
+  method's `synchronized` modifier; a `synchronized(lock) { }` block inside an otherwise-unsynchronized method is not
+  visible to this build-time check.)
+- **Why it matters**: On JDK 21-23, a blocking operation inside a `synchronized` method or block pins the carrier thread
+  instead of yielding it, defeating the scalability benefit of virtual threads under load; [JEP
+  491](https://openjdk.org/jeps/491) removes this pinning starting in JDK 24.
+- **Recommendation**: Replace `synchronized` with a `java.util.concurrent.locks.ReentrantLock`, or upgrade to JDK 24+.
+- **Learn more**: <https://quarkus.io/guides/virtual-threads>
