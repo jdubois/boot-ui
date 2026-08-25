@@ -2,6 +2,7 @@
 home: true
 heroText: BootUI
 tagline: A local-only developer console for Spring Boot 4 and Quarkus applications.
+consoleAddress: http://localhost:8080/bootui
 actions:
   - text: Explore features
     link: /features

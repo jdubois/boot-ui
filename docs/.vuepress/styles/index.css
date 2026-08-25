@@ -50,6 +50,12 @@
   --bootui-nav-hover-color: #146c43;
   --bootui-nav-active-bg: linear-gradient(135deg, #198754, #0d6efd);
   --bootui-nav-active-color: #ffffff;
+  --bootui-tile-bg: rgba(25, 135, 84, 0.1);
+  --bootui-tile-color: #146c43;
+  /* The filled primary button keeps DESIGN.md's white-on-Spring-green pairing in both themes, so
+     it must not track --bootui-green, which the dark theme brightens for text legibility. */
+  --bootui-btn-primary-bg: #198754;
+  --bootui-btn-primary-bg-hover: #146c43;
   --bootui-nav-group-bg: rgba(255, 255, 255, 0.58);
   --bootui-nav-group-color: #64748b;
   --vp-c-accent: var(--bootui-green);
@@ -107,6 +113,8 @@ html[data-theme='dark'] {
   --bootui-nav-hover-bg: rgba(52, 208, 104, 0.1);
   --bootui-nav-hover-color: #4ade80;
   --bootui-nav-active-bg: linear-gradient(135deg, #198754, #2563eb);
+  --bootui-tile-bg: rgba(74, 222, 128, 0.14);
+  --bootui-tile-color: #4ade80;
   --bootui-nav-group-bg: rgba(30, 41, 59, 0.7);
   --bootui-nav-group-color: #94a3b8;
 
@@ -154,7 +162,6 @@ body {
   left: -5rem;
   width: 18rem;
   height: 18rem;
-  animation: float-orb 13s ease-in-out infinite;
   background: rgba(25, 135, 84, 0.22);
 }
 
@@ -163,7 +170,6 @@ body {
   bottom: 4rem;
   width: 22rem;
   height: 22rem;
-  animation: float-orb 16s ease-in-out infinite reverse;
   background: rgba(13, 110, 253, 0.16);
 }
 
@@ -446,13 +452,88 @@ body {
 }
 
 .vp-home {
-  animation: fade-up 360ms ease both;
   display: flex;
   flex-direction: column;
 }
 
-.vp-page {
-  animation: fade-up 360ms ease both;
+/* The home hero component is replaced by ./components/HomeHero.vue, so the base layout the theme
+   shipped inside that component's own <style> block is reproduced here. Every BootUI override
+   further down carries a higher specificity than these rules and continues to win. */
+.vp-hero {
+  text-align: center;
+}
+
+.vp-hero-image {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  margin: 3rem auto 1.5rem;
+}
+
+#main-title {
+  font-size: 3rem;
+}
+
+#main-title,
+.vp-hero-description,
+.vp-hero-actions {
+  margin: 1.8rem auto;
+}
+
+.vp-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.vp-hero-description {
+  max-width: 35rem;
+  color: var(--vp-c-text-mute);
+  font-size: 1.6rem;
+  line-height: 1.3;
+}
+
+.vp-hero-action-button {
+  display: inline-block;
+  box-sizing: border-box;
+  padding: 0.8rem 1.6rem;
+  border: 2px solid var(--vp-c-accent-bg);
+  border-radius: 4px;
+  background-color: var(--vp-c-bg);
+  color: var(--vp-c-accent);
+  font-size: 1.2rem;
+}
+
+.vp-hero-action-button.primary {
+  background-color: var(--vp-c-accent-bg);
+  color: var(--vp-c-accent-text);
+}
+
+@media (max-width: 419px) {
+  .vp-hero-image {
+    max-height: 210px;
+    margin: 2rem auto 1.2rem;
+  }
+
+  #main-title {
+    font-size: 2rem;
+  }
+
+  #main-title,
+  .vp-hero-description,
+  .vp-hero-actions {
+    margin: 1.2rem auto;
+  }
+
+  .vp-hero-description {
+    font-size: 1.2rem;
+  }
+
+  .vp-hero-action-button {
+    padding: 0.6rem 1.2rem;
+    font-size: 1rem;
+  }
 }
 
 .vp-hero,
@@ -514,8 +595,19 @@ body {
 
 .vp-hero-actions .vp-hero-action-button.primary {
   border-color: transparent;
-  background: linear-gradient(135deg, var(--bootui-green), var(--bootui-blue));
-  box-shadow: 0 0.75rem 1.75rem rgba(13, 110, 253, 0.22);
+  color: #ffffff;
+  background: var(--bootui-btn-primary-bg);
+  box-shadow: 0 0.75rem 1.75rem rgba(25, 135, 84, 0.24);
+}
+
+.vp-hero-actions .vp-hero-action-button.primary:hover {
+  background: var(--bootui-btn-primary-bg-hover);
+}
+
+.vp-hero-actions .vp-hero-action-button.secondary:hover {
+  border-color: rgba(25, 135, 84, 0.35);
+  color: var(--bootui-nav-hover-color);
+  background: var(--bootui-nav-hover-bg);
 }
 
 .vp-hero-actions .vp-hero-action-button.secondary {
@@ -527,6 +619,82 @@ body {
 .vp-hero-actions .vp-hero-action-button {
   border-radius: 999px;
   font-weight: 800;
+}
+
+/* The console address is the one place the docs show the reader their own machine. It is a real
+   address, so it is set in the mono stack and can be copied straight out of the page. */
+.vp-console {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 auto;
+}
+
+.vp-console-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.55rem 0.5rem 0.95rem;
+  border: 1px solid var(--bootui-border-alt);
+  border-radius: 999px;
+  color: var(--bootui-text-muted);
+  background: var(--bootui-surface-alt);
+  cursor: pointer;
+  transition:
+    border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.vp-console-copy:hover,
+.vp-console-copy.is-copied {
+  border-color: rgba(25, 135, 84, 0.35);
+  color: var(--bootui-nav-hover-color);
+  background: var(--bootui-nav-hover-bg);
+}
+
+.vp-console-copy:focus-visible {
+  outline: 2px solid var(--bootui-green);
+  outline-offset: 2px;
+}
+
+.vp-console-address {
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  background: none;
+  font-family: var(--vp-font-family-code);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 419px) {
+  .vp-console-copy {
+    max-width: 100%;
+    padding-left: 0.75rem;
+  }
+
+  .vp-console-address {
+    overflow-wrap: anywhere;
+    font-size: 0.75rem;
+  }
+}
+
+.vp-console-icon {
+  flex: none;
+  opacity: 0.75;
+}
+
+.vp-console-copy:hover .vp-console-icon,
+.vp-console-copy.is-copied .vp-console-icon {
+  opacity: 1;
+}
+
+.vp-console-status {
+  min-height: 1.2rem;
+  color: var(--bootui-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.2rem;
 }
 
 /* The home feature cards replace the theme component, so the base flex layout it used to carry
@@ -625,9 +793,8 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 1rem;
-  color: #ffffff;
-  background: var(--bootui-nav-active-bg);
-  box-shadow: 0 0.7rem 1.4rem rgba(25, 135, 84, 0.22);
+  color: var(--bootui-tile-color);
+  background: var(--bootui-tile-bg);
   font-family: bootstrap-icons;
   font-size: 1.25rem;
   line-height: 1;
@@ -965,11 +1132,6 @@ html.dark .hint-container.details summary:hover::before {
   font-weight: 800;
 }
 
-html.dark .vp-hero-actions .vp-hero-action-button.primary,
-html[data-theme='dark'] .vp-hero-actions .vp-hero-action-button.primary {
-  color: #ffffff;
-}
-
 html.dark [vp-content] code,
 html[data-theme='dark'] [vp-content] code {
   color: var(--bootui-green);
@@ -1038,27 +1200,6 @@ html[data-theme='dark'] [vp-content] code {
 .vp-tab-nav.active:hover,
 .vp-code-tab-nav.active:hover {
   color: var(--bootui-nav-active-color);
-}
-
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(0.75rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes float-orb {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(1.5rem, -1rem, 0) scale(1.06);
-  }
 }
 
 @media (max-width: 719px) {

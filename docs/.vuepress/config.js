@@ -34,9 +34,11 @@ export default defineUserConfig({
   ],
   bundler: viteBundler(),
   // The default theme renders home feature cards as plain divs, so swap in a version that can
-  // link each card to the page it describes.
+  // link each card to the page it describes. The hero is swapped in the same way so it can carry
+  // the copyable console address.
   alias: {
-    '@theme/VPHomeFeatures.vue': path.resolve(configDir, './components/HomeFeatures.vue')
+    '@theme/VPHomeFeatures.vue': path.resolve(configDir, './components/HomeFeatures.vue'),
+    '@theme/VPHomeHero.vue': path.resolve(configDir, './components/HomeHero.vue')
   },
   plugins: [
     cleanDocsPermalinksPlugin(),
