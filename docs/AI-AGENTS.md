@@ -98,7 +98,7 @@ the classpath) are simply not advertised.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_transactions` (Spring MVC/WebFlux only), `get_traces`, `get_log_tail`, `get_http_exchanges`,
   and `get_rest_client_traces`.
-  `get_live_activity` returns the correlated feed the [Live Activity panel](FEATURES.md) shows (HTTP requests, SQL
+  `get_live_activity` returns the correlated feed the [Live Activity panel](features/overview.md#live-activity) shows (HTTP requests, SQL
   statements, exceptions, and security events grouped by request/trace); `get_exception_detail` takes a required `id`
   (from `get_exceptions` or `get_live_activity`) and returns that exception group's full stack trace, causes, and
   individual occurrences.
@@ -129,7 +129,7 @@ The MCP server inherits BootUI's full safety posture, so handing it to an agent 
 - MCP request size, concurrency, tool execution time, and rendered response size are independently bounded through
   `bootui.mcp.*`; capacity, timeout, and response-limit failures are explicit rather than silently truncated.
 
-See [Properties](PROPERTIES.md) for the `bootui.mcp.*` settings and [Features](FEATURES.md) for the full MCP Server panel
+See [Properties](PROPERTIES.md) for the `bootui.mcp.*` settings and [Features](features/developer-tools.md#mcp-server) for the full MCP Server panel
 description.
 
 ## Example: fixing Hibernate findings with an agent
@@ -144,7 +144,7 @@ Here it is end to end with the Hibernate advisor.
    > codebase. Re-run the scan when you are done and tell me what changed.
 
 3. **The agent calls `hibernate_scan`** over MCP and receives the same report the
-   [Hibernate panel](FEATURES.md) shows — a severity-ranked list of findings such as `HIB-FETCH-001` (eager associations
+   [Hibernate panel](features/advisors.md#hibernate) shows — a severity-ranked list of findings such as `HIB-FETCH-001` (eager associations
    that should be `LAZY`), each with the offending mapped members and a remediation hint.
 4. **The agent edits your code.** Reading the finding above, it changes an eagerly-fetched association to
    `@ManyToOne(fetch = FetchType.LAZY)` and adds an explicit fetch join or entity graph where the data is actually

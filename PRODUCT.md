@@ -105,7 +105,7 @@ application developer's world — calm, precise, and quietly authoritative.
 ## Evidence on Hand
 
 - `docs/SPECIFICATION.md` is the authoritative product scope, goals, safety model, and runtime contract.
-- `docs/FEATURES.md`, `docs/SETUP.md`, and the platform support documents record shipped behavior and current framework
+- `docs/features/`, `docs/SETUP.md`, and the platform support documents record shipped behavior and current framework
   coverage.
 - `bootui-spring-sample-app` and `bootui-quarkus-sample-app` are runnable demonstrations of the embedded-console
   workflow.

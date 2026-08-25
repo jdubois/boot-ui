@@ -81,11 +81,10 @@ class BackendPanelCatalogConsistencyTest {
         String features = readFeaturesMarkdown();
 
         for (Panel panel : BootUiPanels.all()) {
-            String headingPrefix = panel.title().equals("Overview") ? "## " : "### ";
             assertThat(features)
-                    .as("docs/FEATURES.md heading for panel '%s'", panel.title())
-                    .containsPattern(Pattern.compile(
-                            "^" + Pattern.quote(headingPrefix + panel.title()) + "$", Pattern.MULTILINE));
+                    .as("docs/features/ heading for panel '%s'", panel.title())
+                    .containsPattern(
+                            Pattern.compile("^#{1,2} " + Pattern.quote(panel.title()) + "$", Pattern.MULTILINE));
         }
     }
 
@@ -145,8 +144,8 @@ class BackendPanelCatalogConsistencyTest {
                         "docs/AI-AGENTS.md",
                         section(readDocumentation("AI-AGENTS.md"), "### Tools the agent can call", "### Safety model")),
                 new DocumentationSection(
-                        "docs/FEATURES.md",
-                        section(readDocumentation("FEATURES.md"), "### MCP Server", "### DevTools")),
+                        "docs/features/developer-tools.md",
+                        section(readDocumentation("features/developer-tools.md"), "## MCP Server", "## DevTools")),
                 new DocumentationSection(
                         "docs/SPECIFICATION.md",
                         section(
@@ -177,8 +176,8 @@ class BackendPanelCatalogConsistencyTest {
                     .as("docs image for screenshot manifest entry '%s'", screenshot)
                     .isRegularFile();
             assertThat(features)
-                    .as("docs/FEATURES.md embed for screenshot manifest entry '%s'", screenshot)
-                    .contains("](./images/" + screenshot + ")");
+                    .as("docs/features/ embed for screenshot manifest entry '%s'", screenshot)
+                    .contains("](../images/" + screenshot + ")");
         }
     }
 
@@ -244,7 +243,17 @@ class BackendPanelCatalogConsistencyTest {
     }
 
     private static String readFeaturesMarkdown() {
-        return readDocumentation("FEATURES.md");
+        Path features = repositoryRoot().resolve("docs/features");
+        try (java.util.stream.Stream<Path> pages = Files.list(features)) {
+            String content = pages.filter(page -> page.getFileName().toString().endsWith(".md"))
+                    .sorted()
+                    .map(BackendPanelCatalogConsistencyTest::readFile)
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            assertThat(content).as("docs/features/ content").isNotBlank();
+            return content;
+        } catch (IOException ex) {
+            throw new UncheckedIOException("Failed to list " + features, ex);
+        }
     }
 
     private static String readPropertiesMarkdown() {
@@ -256,7 +265,10 @@ class BackendPanelCatalogConsistencyTest {
     }
 
     private static String readRepositoryFile(String relativePath) {
-        Path file = repositoryRoot().resolve(relativePath);
+        return readFile(repositoryRoot().resolve(relativePath));
+    }
+
+    private static String readFile(Path file) {
         try {
             return Files.readString(file);
         } catch (IOException ex) {

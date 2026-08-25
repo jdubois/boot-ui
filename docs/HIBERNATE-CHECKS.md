@@ -738,7 +738,7 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
   `QuarkusHibernatePropertyLookup`, so this rule no longer false-positives when statistics are enabled with the
   native Quarkus property name.
 - **UI consumer**: the standalone Hibernate Statistics panel (Database group) reads these same live counters once
-  enabled — see `docs/FEATURES.md` and `docs/SPECIFICATION.md` §5.17.1.1 for the panel this recommendation now
+  enabled — see `docs/features/` and `docs/SPECIFICATION.md` §5.17.1.1 for the panel this recommendation now
   unlocks.
 
 ### HIB-CONFIG-008 - Connection providers should disable auto-commit explicitly

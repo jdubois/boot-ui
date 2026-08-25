@@ -9,7 +9,7 @@ the SQL Trace retention window. It issues no query of its own, reads no applicat
 a statement — never a captured literal value.
 
 The checks are deterministic, low-false-positive structural checks, not query/workload-based tuning suggestions. See
-[FEATURES.md](FEATURES.md#database) for scope, availability, and dialect-detection details.
+[the Database advisor page](features/advisors.md#database) for scope, availability, and dialect-detection details.
 
 ## Availability and bounds
 

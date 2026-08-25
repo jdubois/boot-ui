@@ -25,7 +25,7 @@ Spring Boot and Quarkus compatibility references for the published adapters shou
 - `quarkus.platform.version`
 
 When these are updated, refresh matching documentation references in the same pull request (`README.md`,
-`docs/SETUP.md`, `docs/FEATURES.md`, `.github/copilot-instructions.md`, and
+`docs/SETUP.md`, `docs/features/`, `.github/copilot-instructions.md`, and
 `.github/instructions/{spring-adapter,quarkus-adapter}.instructions.md`). All Quarkus modules inherit
 `bootui-quarkus-parent`, which imports the Quarkus BOM closer than the root parent imports Spring Boot's BOM. This keeps
 the two frameworks' shared transitive dependencies isolated while giving the extension, tests, and sample app one

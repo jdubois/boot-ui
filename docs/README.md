@@ -33,7 +33,7 @@ footer: Apache-2.0 Licensed | BootUI
 | ---- | ------------- |
 | Run the full demo locally | [Try the sample app](TRY-SAMPLE-APP.md) |
 | Add BootUI to a Spring Boot 4 or Quarkus app | [Setup](SETUP.md) |
-| Explore every panel | [Features](FEATURES.md) |
+| Explore every panel | [Features](features/README.md) |
 | Configure activation, safety, panels, and actions | [Properties](PROPERTIES.md) |
 | Drive BootUI from an AI coding agent | [AI agents](AI-AGENTS.md) |
 

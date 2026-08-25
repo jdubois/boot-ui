@@ -6,7 +6,7 @@ framework-neutral engine.
 
 ## Authoritative context
 
-- Read `docs/SPECIFICATION.md`, `docs/PLAN.md`, `docs/FEATURES.md`, `docs/WEBFLUX-SUPPORT.md`, and
+- Read `docs/SPECIFICATION.md`, `docs/PLAN.md`, `docs/features/`, `docs/WEBFLUX-SUPPORT.md`, and
   `docs/QUARKUS-SUPPORT.md` before changing public behavior, panel availability, or visible UI.
 - Read `PRODUCT.md` and `DESIGN.md` before changing user-facing design or interaction.
 - Spring MVC is the complete reference stack. WebFlux and Quarkus support are capability-specific; verify current

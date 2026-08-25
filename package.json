@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "@vuepress/bundler-vite": "2.0.0-rc.30",
+    "@vuepress/plugin-slimsearch": "^2.0.0-rc.131",
     "@vuepress/theme-default": "2.0.0-rc.132",
     "sass-embedded": "1.102.0",
     "serve": "14.2.6",

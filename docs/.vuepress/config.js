@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {viteBundler} from '@vuepress/bundler-vite'
+import {slimsearchPlugin} from '@vuepress/plugin-slimsearch'
 import {defaultTheme} from '@vuepress/theme-default'
 import {defineUserConfig} from 'vuepress'
 import {inferRoutePath} from 'vuepress/shared'
@@ -20,13 +21,29 @@ export default defineUserConfig({
     ['meta', {name: 'theme-color', content: '#198754'}],
     ['meta', {property: 'og:type', content: 'website'}],
     ['meta', {property: 'og:title', content: 'BootUI'}],
-    ['meta', {property: 'og:description', content: 'A local-only developer console for Spring Boot 4 and Quarkus applications.'}]
+    [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'A local-only developer console for Spring Boot 4 and Quarkus applications.'
+      }
+    ]
   ],
   bundler: viteBundler(),
   plugins: [
     cleanDocsPermalinksPlugin(),
     cleanMarkdownDocLinksPlugin(),
-    lazyLoadMarkdownImagesPlugin()
+    lazyLoadMarkdownImagesPlugin(),
+    slimsearchPlugin({
+      indexContent: true,
+      suggestion: true,
+      customFields: [
+        {
+          getter: (page) => collectRuleIds(page),
+          formatter: 'Check: $content'
+        }
+      ]
+    })
   ],
   theme: defaultTheme({
     hostname: 'https://www.julien-dubois.com',
@@ -46,14 +63,20 @@ export default defineUserConfig({
     navbar: [
       {text: 'Try it', link: toDocLink('TRY-SAMPLE-APP.md')},
       {text: 'Setup', link: toDocLink('SETUP.md')},
-      {text: 'Features', link: toDocLink('FEATURES.md')},
+      {text: 'Features', link: toDocLink('features/README.md')},
       {text: 'Properties', link: toDocLink('PROPERTIES.md')},
       {text: 'AI agents', link: toDocLink('AI-AGENTS.md')},
       {text: 'Ecosystem', link: toDocLink('WORKS-WITH.md')}
     ],
-    sidebar: createDocsSidebar()
+    sidebar: createDocsSidebar(),
+    sidebarDepth: 2
   })
 })
+
+function collectRuleIds(page) {
+  const matches = page.content.matchAll(/^###\s+([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s+[-–]\s+(.+)$/gm)
+  return [...matches].map(([, id, title]) => `${id} ${title}`)
+}
 
 function normalizeBase(value) {
   if (!value || value === '/') {

@@ -25,7 +25,7 @@ pins this transport behavior.
 
 Only **HTTP Sessions** stays unavailable, with a panel-specific reason surfaced through the `/bootui/api/panels` manifest
 (and, in turn, the sidebar tooltip and the panel's own alert banner — see §5).
-`docs/FEATURES.md` and the per-panel `unavailableReason` strings in `PanelsController` are the authoritative, current
+`docs/features/` and the per-panel `unavailableReason` strings in `PanelsController` are the authoritative, current
 detail.
 
 ## 3. Why this is feasible — evidence from the current codebase

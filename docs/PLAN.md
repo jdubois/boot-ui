@@ -500,7 +500,7 @@ they already captured. Correlation is trace-id first, then serving thread on Spr
 tier requires a unique candidate — Spring WebFlux and Quarkus advertise `TRACE_ID` + `TIME_WINDOW` only, and Quarkus
 groups by masked path because RESTEasy Reactive exposes no per-request route template. Executions that cannot be placed
 stay in explicit unattributed/ambiguous buckets. See `docs/SPECIFICATION.md` §5.17.6,
-`docs/DATABASE-ADVISOR-CHECKS.md` (`DB-RUNTIME-001`), and the SQL Trace section of `docs/FEATURES.md`.
+`docs/DATABASE-ADVISOR-CHECKS.md` (`DB-RUNTIME-001`), and the SQL Trace section of `docs/features/database.md`.
 
 
 SQL Trace shows retained statements chronologically and already detects N+1 patterns, but it does not rank normalized
@@ -628,7 +628,7 @@ Acceptance criteria:
 
 ### 3.15 Meter provenance and explanation — Metrics ✅ Shipped
 
-**Status: completed.** Shipped in the existing Metrics panel (see `docs/FEATURES.md` → *Metrics*): meters are grouped by
+**Status: completed.** Shipped in the existing Metrics panel (see `docs/features/runtime.md` → *Metrics*): meters are grouped by
 provenance, explanations are sourced from the registry first and a curated, versioned catalogue second, and
 `GET /bootui/api/metrics` gained `group`, `provenance`, and `explanation` filters plus `groups` and `catalogueVersion`,
 identically on Spring MVC, Spring WebFlux, and Quarkus.
@@ -767,7 +767,7 @@ For each feature above, the following must move together, consistent with the ex
 - Backend slice and edge-case tests, frontend unit tests, and sample-app Playwright coverage. Update the hard-coded panel
   counts/indices in `PanelsControllerTests`, `BootUiAutoConfigurationTests`, `PanelAccessFilterTests` (action-capable
   panels only), `routes.test.js`, and e2e `app-shell.spec.js`.
-- Documentation updates in `docs/FEATURES.md`, `docs/PROPERTIES.md`, `docs/SPECIFICATION.md`, and the relevant platform
+- Documentation updates in `docs/features/`, `docs/PROPERTIES.md`, `docs/SPECIFICATION.md`, and the relevant platform
   support document, plus screenshots at the project's standard size.
 
 ## 5. Risks
@@ -792,7 +792,7 @@ Run after each feature lands and before any release that includes it:
 - [ ] Server-side filtering/paging works for any high-cardinality list.
 - [ ] Any mutating action is confirmation-gated and disabled by default.
 - [ ] Backend slice/edge-case tests, frontend unit tests, and sample-app Playwright coverage exist for the panel.
-- [ ] `docs/FEATURES.md`, `docs/PROPERTIES.md`, `docs/SPECIFICATION.md`, and the relevant platform support document
+- [ ] `docs/features/`, `docs/PROPERTIES.md`, `docs/SPECIFICATION.md`, and the relevant platform support document
       describe the new surface, with screenshots at the standard size.
 - [ ] Spring Boot stays disabled in `prod`/`production` unless explicitly enabled; Quarkus remains production-dark in
       normal launch mode; and every adapter rejects non-local requests.

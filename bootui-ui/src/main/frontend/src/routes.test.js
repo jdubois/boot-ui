@@ -46,6 +46,16 @@ function readRepositoryFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
 }
 
+function readFeatureDocs() {
+  const featuresDir = path.join(repoRoot, 'docs/features')
+  return fs
+    .readdirSync(featuresDir)
+    .filter((file) => file.endsWith('.md'))
+    .sort()
+    .map((file) => fs.readFileSync(path.join(featuresDir, file), 'utf8'))
+    .join('\n')
+}
+
 function parseBackendPanelConstants(source) {
   return new Map(
     [...source.matchAll(/public static final String ([A-Z_]+) = "([^"]+)";/g)].map((match) => [match[1], match[2]])
@@ -302,13 +312,12 @@ describe('routes', () => {
     }
   })
 
-  it('documents every panel from the backend panel catalog in docs/FEATURES.md', () => {
-    const features = readRepositoryFile('docs/FEATURES.md')
+  it('documents every panel from the backend panel catalog in docs/features/', () => {
+    const features = readFeatureDocs()
 
     for (const panel of parseBackendPanels()) {
-      const headingLevel = panel.title === 'Overview' ? '##' : '###'
       const escapedTitle = panel.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const headingPattern = new RegExp(`^${headingLevel} ${escapedTitle}$`, 'm')
+      const headingPattern = new RegExp(`^#{1,2} ${escapedTitle}$`, 'm')
       expect(headingPattern.test(features)).toBe(true)
     }
   })

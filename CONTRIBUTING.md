@@ -49,7 +49,7 @@ Use the root Maven properties as the source of truth for the published adapters 
 ./mvnw -q -DforceStdout help:evaluate -Dexpression=quarkus.platform.version
 ```
 
-When updating compatibility text in docs (README, `docs/SETUP.md`, `docs/FEATURES.md`,
+When updating compatibility text in docs (README, `docs/SETUP.md`, `docs/features/`,
 `.github/copilot-instructions.md`, and `.github/instructions/{spring-adapter,quarkus-adapter}.instructions.md`),
 reference those properties and refresh any explicit version strings in the same PR.
 All Quarkus modules, including the non-published sample app, inherit the Quarkus platform through
@@ -189,7 +189,7 @@ When adding or renaming a panel, update `BootUiPanels`, `routes.js`, the conform
 manifests, and the directly related docs. When moving a sidebar entry, update
 `routes.js` and the docs without reordering the backend manifest. CI validates
 that the backend catalog, UI routes, conformance manifests, and
-`docs/FEATURES.md` stay aligned.
+`docs/features/` stay aligned.
 
 Run the browser end-to-end suite for every affected adapter when you change the
 UI, browser-facing API responses, or sample-app behavior:

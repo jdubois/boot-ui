@@ -6,7 +6,7 @@ applyTo: "bootui-core/**,bootui-engine/**,bootui-spring-autoconfigure/**,bootui-
 
 - Spring MVC, Spring WebFlux, and Quarkus serve the same Vue UI and JSON contract. Make shared behavior indistinguishable
   unless a capability is intentionally stack-specific.
-- Before public or visible behavior changes, read `docs/SPECIFICATION.md`, `docs/PLAN.md`, `docs/FEATURES.md`,
+- Before public or visible behavior changes, read `docs/SPECIFICATION.md`, `docs/PLAN.md`, `docs/features/`,
   `docs/WEBFLUX-SUPPORT.md`, and `docs/QUARKUS-SUPPORT.md`.
 - Preserve normalized configurable UI/API mounts. Browser calls are relative to the UI base.
 - Route every property name/value exposed to the browser through `SecretMasker` behind the live `ExposurePolicy`.

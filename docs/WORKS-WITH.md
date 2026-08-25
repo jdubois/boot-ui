@@ -40,4 +40,4 @@ your app's exposure.
 - [Coffilot](https://www.julien-dubois.com/coffilot/) — build, run, test and debug the app from the Copilot side panel.
 - [Dr JSkill](https://www.julien-dubois.com/dr-jskill/) — generate the Spring Boot application to start from.
 - [AI agents](AI-AGENTS.md) — connect Copilot, Claude Code, or any MCP client to BootUI.
-- [Features](FEATURES.md) — the full list of BootUI panels and what each one shows.
+- [Features](features/README.md) — the full list of BootUI panels and what each one shows.

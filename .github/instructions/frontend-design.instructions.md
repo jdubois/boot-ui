@@ -11,7 +11,7 @@ applyTo: "bootui-ui/**,bootui-spring-sample-app/e2e/**,bootui-quarkus-sample-app
 - Machine output is monospace; BootUI explanations are sans serif. Keep backgrounds cool and avoid cream/sand surfaces.
 - Never trigger network calls, scans, or mutations on render.
 - Use relative API paths such as `fetch('api/overview')`; never hardcode `/bootui/api`. Drive framework-specific copy from the panel manifest or DTO.
-- `routes.js` is the sidebar source of truth. Keep route order/groups, `docs/FEATURES.md`, and the app-shell Playwright
+- `routes.js` is the sidebar source of truth. Keep route order/groups, `docs/features/`, and the app-shell Playwright
   navigation assertions aligned. When renaming a route path, add a redirect from the previous path.
 - Add focused Vitest coverage for component/composable behavior. Run Playwright for browser flows, browser-facing API shapes, visible routes, or sample-app behavior.
 - Shared interaction changes must be exercised in every affected browser runtime: Spring MVC, Spring WebFlux, and

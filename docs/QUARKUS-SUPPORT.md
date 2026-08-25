@@ -161,7 +161,7 @@ those fields so the same UI build renders the correct sidebar and status on each
 > REST Client Reactive (clear + recording toggle), and the MCP Server toggle. Eight panels — **GraalVM**, **CRaC**,
 > **Conditions**, **Startup Timeline**, **HTTP Sessions**, **Spring Data**, **Spring Security**, and **DevTools** — are
 > intentionally unavailable with a panel-specific not-applicable reason (§5.5). **JMS** is the sole panel that is not yet
-> available on Quarkus (§5.6). The per-panel `**Implemented**` markers below and `docs/FEATURES.md` carry the authoritative,
+> available on Quarkus (§5.6). The per-panel `**Implemented**` markers below and `docs/features/` carry the authoritative,
 > current per-platform detail.
 >
 > Expensive advisor actions also share Spring's per-scanner single-flight contract: overlapping Architecture,
@@ -579,7 +579,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
   `io.github.jdubois.bootui.*` packages; the Quarkus extension follows Quarkus's `runtime` / `deployment` convention.
 - **Docs & checks.** The Quarkus application advisor is backed by `docs/QUARKUS-ADVISOR-CHECKS.md` and the Quarkus
   Security advisor by `docs/QUARKUS-CHECKS.md`, mirroring the existing
-  `*-CHECKS.md` files; `docs/FEATURES.md` would gain a per-platform availability note; and the contributor docs
+  `*-CHECKS.md` files; `docs/features/` would gain a per-platform availability note; and the contributor docs
   (`CONTRIBUTING.md`, AI instructions) would document the second sample app and its e2e suite.
 
 ## 11. Appendix — full panel disposition

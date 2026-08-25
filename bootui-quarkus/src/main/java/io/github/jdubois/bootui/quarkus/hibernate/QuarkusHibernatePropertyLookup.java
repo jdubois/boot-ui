@@ -65,7 +65,7 @@ import org.eclipse.microprofile.config.Config;
  * {@code hibernate.connection.pool_size} advice still applies verbatim since that property, if force-set via
  * {@code unsupported-properties}, reaches Hibernate exactly as documented — only the Hikari-specific
  * auto-commit *signal* this rule also inspects has no Agroal analogue). That bounded limitation is documented
- * in {@code docs/FEATURES.md}.</p>
+ * in {@code docs/features/advisors.md}.</p>
  */
 public final class QuarkusHibernatePropertyLookup implements Function<String, String> {
 
