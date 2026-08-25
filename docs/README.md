@@ -24,12 +24,12 @@ features:
     linkText: Diagnostics panels
   - title: Data and services visibility
     details: Explore database pools, Spring Data repositories, Hibernate checks, Flyway, Liquibase, scheduled tasks, caches, and dev services.
-    link: /features
-    linkText: Database and Services
+    link: /features/services
+    linkText: Services panels
   - title: Local safety model
     details: Stay loopback-only by default with secret masking, fail-closed activation, read-only controls, and explicit confirmation for mutating actions.
-    link: /properties
-    linkText: Safety properties
+    link: /setup/activation
+    linkText: Activation and safety
   - title: Packaged developer console
     details: Add one dependency — the Spring Boot starter or the Quarkus extension — and get the bundled Vue UI, REST API, and docs-backed workflow without a separate frontend deployment.
     link: /setup
