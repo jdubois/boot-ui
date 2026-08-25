@@ -593,40 +593,56 @@ body {
   box-shadow: var(--bootui-shadow-sm);
 }
 
+/* VuePress ships a negative summary margin that assumes the container padding this rule removes;
+   left unset it pushes the row past the clipped edges. */
 .hint-container.details summary {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  padding: 0.9rem 1.15rem 0.9rem 1.35rem;
+  margin: 0;
+  padding: 0.9rem 1.15rem 0.9rem 1.15rem;
   color: var(--bootui-details-label);
   cursor: pointer;
   font-size: 0.95rem;
   font-weight: 700;
   list-style: none;
+  transition: background 180ms ease;
 }
 
 .hint-container.details summary::-webkit-details-marker {
   display: none;
 }
 
-/* Chevron affordance: light enough to stay secondary to the prose, explicit enough to invite a click. */
+/* Chevron affordance: a real button face, so the row is unmistakably clickable. */
 .hint-container.details summary::before {
   display: inline-flex;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.75rem;
+  height: 1.75rem;
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 0.7rem;
+  border: 1px solid var(--bootui-details-border);
+  border-radius: 0.9rem;
   color: var(--bootui-details-label);
-  background: rgba(25, 135, 84, 0.12);
+  background: var(--bootui-surface-solid);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
   content: '\f285';
   font-family: bootstrap-icons;
-  font-size: 0.72rem;
-  transition: transform 180ms ease;
+  font-size: 0.82rem;
+  /* Resets the rotation VuePress applies to its own triangle marker. */
+  transform: rotate(0deg);
+  transition:
+    transform 200ms ease,
+    background 180ms ease,
+    border-color 180ms ease;
 }
 
-/* Native summary already exposes expanded state, so this label is a redundant visual affordance only. */
+/* The whole summary is the hit target, so the icon reacts to hover anywhere on the row. */
+.hint-container.details summary:hover::before {
+  border-color: var(--bootui-green);
+  background: var(--bootui-details-bg-hover);
+}
+
 .hint-container.details summary::after {
   margin-left: auto;
   color: var(--bootui-details-eyebrow);
@@ -641,10 +657,6 @@ body {
   content: 'Hide';
 }
 
-.hint-container.details summary:hover::before {
-  background: rgba(25, 135, 84, 0.2);
-}
-
 .hint-container.details summary:focus-visible {
   border-radius: 1rem;
   outline: 2px solid var(--bootui-green);
@@ -655,7 +667,8 @@ body {
   border-bottom: 1px solid var(--bootui-border);
 }
 
-.hint-container.details[open] summary::before {
+/* Matches the child combinator VuePress uses for its own open-state rotation so this wins the tie. */
+.hint-container.details[open] > summary::before {
   transform: rotate(90deg);
 }
 
@@ -677,11 +690,13 @@ html.dark .hint-container.details:hover {
 }
 
 html.dark .hint-container.details summary::before {
-  background: rgba(52, 208, 104, 0.16);
+  background: var(--bootui-surface-solid);
+  box-shadow: none;
 }
 
 html.dark .hint-container.details summary:hover::before {
-  background: rgba(52, 208, 104, 0.26);
+  border-color: var(--bootui-green);
+  background: rgba(52, 208, 104, 0.18);
 }
 
 [vp-content] img[src*='bootui-'] {
