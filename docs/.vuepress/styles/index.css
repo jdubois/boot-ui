@@ -76,6 +76,12 @@
   --bootui-severity-medium: #6f5300;
   --bootui-severity-low: #0a53be;
   --bootui-severity-info: #56667b;
+
+  --bootui-details-bg: rgba(25, 135, 84, 0.05);
+  --bootui-details-bg-hover: rgba(25, 135, 84, 0.09);
+  --bootui-details-border: rgba(25, 135, 84, 0.18);
+  --bootui-details-label: #146c43;
+  --bootui-details-eyebrow: #4a7360;
 }
 
 html.dark,
@@ -109,6 +115,12 @@ html[data-theme='dark'] {
   --bootui-severity-medium: #e0a800;
   --bootui-severity-low: #60a5fa;
   --bootui-severity-info: #a3b1c6;
+
+  --bootui-details-bg: rgba(52, 208, 104, 0.07);
+  --bootui-details-bg-hover: rgba(52, 208, 104, 0.12);
+  --bootui-details-border: rgba(52, 208, 104, 0.22);
+  --bootui-details-label: #4ade80;
+  --bootui-details-eyebrow: #8fb3a0;
 }
 
 body {
@@ -415,7 +427,6 @@ body {
 }
 
 .vp-hero,
-.hint-container.details,
 .vp-feature,
 [vp-content] > table,
 [vp-content] > div[class*='language-'] {
@@ -557,20 +568,40 @@ body {
   color: var(--bootui-text-muted);
 }
 
+/* Collapsible detail blocks carry the deep-dive tier of every docs page, so they read as a
+   distinct, obviously expandable aside rather than more body prose. */
 .hint-container.details {
-  margin: 1rem 0;
   overflow: hidden;
+  margin: 1.5rem 0;
   padding: 0;
+  border: 1px solid var(--bootui-details-border);
+  border-radius: 1.1rem;
+  background: var(--bootui-details-bg);
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.hint-container.details:hover {
+  border-color: rgba(25, 135, 84, 0.32);
+  background: var(--bootui-details-bg-hover);
+}
+
+.hint-container.details[open] {
+  background: var(--bootui-surface);
+  box-shadow: var(--bootui-shadow-sm);
 }
 
 .hint-container.details summary {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  padding: 1rem 1.15rem;
-  color: var(--bootui-text);
+  gap: 0.7rem;
+  padding: 0.9rem 1.15rem 0.9rem 1.35rem;
+  color: var(--bootui-details-label);
   cursor: pointer;
-  font-weight: 800;
+  font-size: 0.95rem;
+  font-weight: 700;
   list-style: none;
 }
 
@@ -578,20 +609,46 @@ body {
   display: none;
 }
 
+/* Chevron affordance: light enough to stay secondary to the prose, explicit enough to invite a click. */
 .hint-container.details summary::before {
   display: inline-flex;
-  width: 2rem;
-  height: 2rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 0.8rem;
-  color: #ffffff;
-  background: var(--bootui-nav-active-bg);
-  box-shadow: 0 0.6rem 1.2rem rgba(25, 135, 84, 0.2);
-  font-family: bootstrap-icons;
-  font-size: 0.95rem;
+  border-radius: 0.7rem;
+  color: var(--bootui-details-label);
+  background: rgba(25, 135, 84, 0.12);
   content: '\f285';
-  transition: transform 160ms ease;
+  font-family: bootstrap-icons;
+  font-size: 0.72rem;
+  transition: transform 180ms ease;
+}
+
+/* Native summary already exposes expanded state, so this label is a redundant visual affordance only. */
+.hint-container.details summary::after {
+  margin-left: auto;
+  color: var(--bootui-details-eyebrow);
+  content: 'Show';
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hint-container.details[open] summary::after {
+  content: 'Hide';
+}
+
+.hint-container.details summary:hover::before {
+  background: rgba(25, 135, 84, 0.2);
+}
+
+.hint-container.details summary:focus-visible {
+  border-radius: 1rem;
+  outline: 2px solid var(--bootui-green);
+  outline-offset: -2px;
 }
 
 .hint-container.details[open] summary {
@@ -603,12 +660,28 @@ body {
 }
 
 .hint-container.details > :not(summary) {
-  margin-right: 1.15rem;
-  margin-left: 1.15rem;
+  margin-right: 1.35rem;
+  margin-left: 1.35rem;
+}
+
+.hint-container.details > summary + * {
+  margin-top: 1.15rem;
 }
 
 .hint-container.details > :last-child {
-  margin-bottom: 1.15rem;
+  margin-bottom: 1.35rem;
+}
+
+html.dark .hint-container.details:hover {
+  border-color: rgba(52, 208, 104, 0.36);
+}
+
+html.dark .hint-container.details summary::before {
+  background: rgba(52, 208, 104, 0.16);
+}
+
+html.dark .hint-container.details summary:hover::before {
+  background: rgba(52, 208, 104, 0.26);
 }
 
 [vp-content] img[src*='bootui-'] {
@@ -862,6 +935,11 @@ html[data-theme='dark'] [vp-content] code {
 }
 
 @media (max-width: 719px) {
+  /* The chevron alone carries the affordance once the summary needs the full width. */
+  .hint-container.details summary::after {
+    display: none;
+  }
+
   .vp-site-name {
     padding-right: 0.65rem;
   }
