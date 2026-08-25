@@ -889,49 +889,19 @@ html.dark .hint-container.details summary:hover::before {
   font-weight: 600;
 }
 
-.vp-page-meta,
-.vp-page-nav {
-  border-color: var(--bootui-border);
-}
-
+/* The theme renders this footer unconditionally, so it survives as an empty
+   box once the edit link and the last-updated stamp are switched off. */
 .vp-page-meta {
-  margin-top: 1.75rem;
-  border: 1px solid var(--bootui-border);
-  border-radius: 1.1rem;
-  background: var(--bootui-surface);
-  box-shadow: var(--bootui-shadow-sm);
-  gap: 0.75rem;
-}
-
-.vp-page-meta .edit-link .label {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  background: var(--bootui-nav-hover-bg);
-  padding: 0.5rem 0.75rem;
-  color: var(--bootui-nav-hover-color);
-  font-weight: 800;
-}
-
-.vp-page-meta .git-info {
-  color: var(--bootui-text-muted);
-}
-
-.vp-page-meta .meta-item-label {
-  color: var(--bootui-text-subtle);
-  font-weight: 700;
-}
-
-.vp-page-meta .meta-item-info {
-  color: var(--bootui-text-muted);
-  font-weight: 600;
+  display: none;
 }
 
 .vp-page-nav {
   gap: 1rem;
-  margin-top: 1rem;
-  padding: 0;
+  /* Carries the separation the meta footer used to provide. */
+  margin-top: 1.75rem;
   border-top: 0;
+  border-color: var(--bootui-border);
+  padding: 0;
 }
 
 .vp-page-nav .auto-link {

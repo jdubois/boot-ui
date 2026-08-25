@@ -62,11 +62,8 @@ export default defineUserConfig({
       }
     },
     repo: 'jdubois/boot-ui',
-    docsRepo: 'https://github.com/jdubois/boot-ui',
-    docsBranch: 'main',
-    docsDir: 'docs',
-    editLink: true,
-    lastUpdated: true,
+    editLink: false,
+    lastUpdated: false,
     contributors: false,
     logo: null,
     navbar: [
