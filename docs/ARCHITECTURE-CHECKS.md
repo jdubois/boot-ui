@@ -77,7 +77,7 @@ Dismissed rules remove all of their instances from the score.
 
 ## Package structure
 
-### ARCH-PKG-001 — Packages should be free of cycles
+### ARCH-PKG-001 - Packages should be free of cycles
 
 - **Severity**: HIGH
 - **Inspects**: cyclic dependencies between the top-level package slices under the application base package
@@ -90,7 +90,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: break the dependency cycle by extracting shared types or inverting one of the dependencies so
   packages form a directed acyclic graph.
 
-### ARCH-MOD-001 — Internal packages should not be accessed from other modules
+### ARCH-MOD-001 - Internal packages should not be accessed from other modules
 
 - **Severity**: HIGH
 - **Inspects**: direct dependencies from application classes to packages under a literal `internal` segment within the
@@ -104,7 +104,7 @@ Dismissed rules remove all of their instances from the score.
 
 ## Coding practices
 
-### ARCH-CODE-001 — Classes should not access standard streams
+### ARCH-CODE-001 - Classes should not access standard streams
 
 - **Severity**: LOW
 - **Inspects**: direct use of `System.out` or `System.err` (via ArchUnit's `GeneralCodingRules`).
@@ -112,14 +112,14 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: replace `System.out` / `System.err` calls with a logger (e.g. SLF4J) so output is structured and
   configurable.
 
-### ARCH-CODE-002 — Classes should not throw generic exceptions
+### ARCH-CODE-002 - Classes should not throw generic exceptions
 
 - **Severity**: LOW
 - **Inspects**: throwing of generic exception types such as `Exception`, `RuntimeException`, or `Throwable`.
 - **Fires when**: a class throws one of the generic types instead of a specific exception.
 - **Recommendation**: throw specific, meaningful exception types so callers can handle failures precisely.
 
-### ARCH-CODE-003 — Classes should not use java.util.logging
+### ARCH-CODE-003 - Classes should not use java.util.logging
 
 - **Severity**: LOW
 - **Inspects**: direct use of `java.util.logging`.
@@ -127,14 +127,14 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: use the project logging facade (SLF4J over Logback by default in Spring Boot) for consistent
   logging.
 
-### ARCH-CODE-004 — Classes should not use Joda-Time
+### ARCH-CODE-004 - Classes should not use Joda-Time
 
 - **Severity**: INFO
 - **Inspects**: use of the legacy Joda-Time library.
 - **Fires when**: a class references Joda-Time types instead of `java.time`.
 - **Recommendation**: migrate Joda-Time usage to the standard `java.time` API.
 
-### ARCH-CODE-005 — Classes should not call Throwable.printStackTrace(PrintStream/PrintWriter)
+### ARCH-CODE-005 - Classes should not call Throwable.printStackTrace(PrintStream/PrintWriter)
 
 - **Severity**: LOW
 - **Inspects**: calls to the `Throwable.printStackTrace(PrintStream)` or `printStackTrace(PrintWriter)` overloads.
@@ -145,7 +145,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: log the exception through the project logging facade (e.g. SLF4J) so the stack trace is structured
   and configurable.
 
-### ARCH-CODE-006 — Classes should not forcibly terminate the JVM
+### ARCH-CODE-006 - Classes should not forcibly terminate the JVM
 
 - **Severity**: HIGH
 - **Inspects**: calls to `System.exit(int)`, `Runtime.exit(int)`, or `Runtime.halt(int)`.
@@ -161,7 +161,7 @@ Dismissed rules remove all of their instances from the score.
   `System.exit()`, `Runtime.exit()`, or `Runtime.halt()`. If you do need to propagate a process exit code from a
   CLI/batch application, call `System.exit(SpringApplication.exit(context, ...))` from the static `main` method only.
 
-### ARCH-CODE-007 — Classes should not access JDK-internal APIs
+### ARCH-CODE-007 - Classes should not access JDK-internal APIs
 
 - **Severity**: LOW
 - **Inspects**: dependencies on unsupported JDK-internal packages such as `sun..`, `jdk.internal..`, or
@@ -169,7 +169,7 @@ Dismissed rules remove all of their instances from the score.
 - **Fires when**: a class depends on a non-public JDK-internal type.
 - **Recommendation**: depend only on public, supported APIs so the code stays portable across JDK versions.
 
-### ARCH-CODE-008 — Classes should not use legacy date and time classes
+### ARCH-CODE-008 - Classes should not use legacy date and time classes
 
 - **Severity**: INFO
 - **Inspects**: use of legacy date/time classes such as `java.util.Date`, `Calendar`, `GregorianCalendar`, or
@@ -178,21 +178,21 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: prefer the `java.time` API (`LocalDate`, `Instant`, `ZonedDateTime`, ...) for clearer, immutable
   date/time handling.
 
-### ARCH-CODE-009 — Classes should not use deprecated APIs
+### ARCH-CODE-009 - Classes should not use deprecated APIs
 
 - **Severity**: INFO
 - **Inspects**: access to members or types annotated with `@Deprecated` (via ArchUnit's `GeneralCodingRules`).
 - **Fires when**: a class references a deprecated API.
 - **Recommendation**: migrate to the recommended replacement API; deprecated members may be removed in future releases.
 
-### ARCH-CODE-010 — Exceptions should be named ending with Exception
+### ARCH-CODE-010 - Exceptions should be named ending with Exception
 
 - **Severity**: LOW
 - **Inspects**: classes that extend `Exception` or `RuntimeException`.
 - **Fires when**: an exception type's simple class name does not end with `Exception`.
 - **Recommendation**: rename exception classes to end with `Exception` so their purpose is immediately clear.
 
-### ARCH-CODE-011 — Interfaces should not have names ending with 'Interface'
+### ARCH-CODE-011 - Interfaces should not have names ending with 'Interface'
 
 - **Severity**: LOW
 - **Inspects**: Java interfaces.
@@ -200,7 +200,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: name interfaces after the role or behaviour they expose instead of appending an `Interface`
   suffix.
 
-### ARCH-CODE-012 — Loggers should be private static final
+### ARCH-CODE-012 - Loggers should be private static final
 
 - **Severity**: LOW
 - **Inspects**: logger fields whose raw type is SLF4J, Log4j2, Commons Logging, JBoss Logging, `java.util.logging`, or
@@ -223,7 +223,7 @@ Dismissed rules remove all of their instances from the score.
   abstract base class, initialized with `LoggerFactory.getLogger(getClass())`. Container-managed logger injection
   points are exempt because the container wires them, not the class itself.
 
-### ARCH-CODE-013 — Application classes should not depend on test frameworks
+### ARCH-CODE-013 - Application classes should not depend on test frameworks
 
 - **Severity**: MEDIUM
 - **Inspects**: dependencies on common test-only APIs such as JUnit, Mockito, AssertJ, Hamcrest, Spring Test, Spring Boot
@@ -234,7 +234,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: move assertions, fixtures, containers, and test helpers to test sources; keep production classes
   independent of test APIs.
 
-### ARCH-CODE-014 — Classes should not have public mutable static fields
+### ARCH-CODE-014 - Classes should not have public mutable static fields
 
 - **Severity**: MEDIUM
 - **Inspects**: `public static` fields that are not `final`.
@@ -245,7 +245,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: make the field `final` so it cannot be reassigned, reduce its visibility, or move the mutable state
   into a managed bean.
 
-### ARCH-CODE-015 — Utility classes should be final with a private constructor
+### ARCH-CODE-015 - Utility classes should be final with a private constructor
 
 - **Severity**: LOW
 - **Inspects**: classes that expose only static members (at least one static method, no instance methods, and no instance
@@ -254,7 +254,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: make utility classes `final` and give them a single private constructor so they cannot be
   instantiated or subclassed.
 
-### ARCH-CODE-016 — Classes should not use standard-annotation field injection
+### ARCH-CODE-016 - Classes should not use standard-annotation field injection
 
 - **Severity**: MEDIUM
 - **Inspects**: `jakarta.inject.Inject`, `javax.inject.Inject`, `jakarta.annotation.Resource`,
@@ -269,7 +269,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: prefer constructor injection so dependencies are explicit, final, and easy to test; CDI containers
   such as Quarkus' Arc inject constructor parameters just as readily as fields.
 
-### ARCH-CODE-017 — Classes should not directly instantiate Thread
+### ARCH-CODE-017 - Classes should not directly instantiate Thread
 
 - **Severity**: MEDIUM
 - **Inspects**: `new Thread(...)` constructor calls, including instantiating a class that extends `Thread`.
@@ -285,7 +285,7 @@ Dismissed rules remove all of their instances from the score.
   `java.util.concurrent.ExecutorService`/`Executors`, Spring's `TaskExecutor` or `@Async`, or Quarkus's
   `ManagedExecutor` or `@RunOnVirtualThread`.
 
-### ARCH-CODE-018 — Assertions should have a detail message
+### ARCH-CODE-018 - Assertions should have a detail message
 
 - **Severity**: INFO
 - **Inspects**: `assert` statements, which compile to a no-arg `new AssertionError()` when they have no detail message
@@ -298,7 +298,7 @@ Dismissed rules remove all of their instances from the score.
 
 ## Spring stereotypes
 
-### ARCH-SPRING-001 — Classes should not use field injection
+### ARCH-SPRING-001 - Classes should not use field injection
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Autowired` or `@Value` (Spring's own field-injection annotations) on fields.
@@ -310,7 +310,7 @@ Dismissed rules remove all of their instances from the score.
   `jakarta.inject.Inject` / `@Resource` field injection — the idiomatic style on a CDI/Quarkus application. See
   ARCH-CODE-016 for the framework-neutral equivalent that covers those standard annotations instead.
 
-### ARCH-SPRING-002 — Controllers should not depend on repositories
+### ARCH-SPRING-002 - Controllers should not depend on repositories
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Controller` / `@RestController` classes that depend directly on `@Repository` beans.
@@ -318,7 +318,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: introduce a service layer between controllers and repositories to keep web and persistence
   concerns separated.
 
-### ARCH-SPRING-003 — Repositories should not depend on controllers
+### ARCH-SPRING-003 - Repositories should not depend on controllers
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Repository` beans that depend on `@Controller` / `@RestController` classes.
@@ -326,7 +326,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: keep persistence code free of web concerns; dependencies should flow from controllers toward
   repositories, not back.
 
-### ARCH-SPRING-007 — Repositories should not depend on services
+### ARCH-SPRING-007 - Repositories should not depend on services
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Repository` beans that depend directly on `@Service` beans.
@@ -335,7 +335,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: keep repository beans focused on persistence concerns; dependencies should flow from services
   toward repositories, not back.
 
-### ARCH-SPRING-006 — Services should not depend on controllers
+### ARCH-SPRING-006 - Services should not depend on controllers
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Service` beans that depend directly on `@Controller` / `@RestController` classes.
@@ -343,7 +343,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: keep service beans free of controller dependencies; web dependencies should flow from controllers
   toward services, not back.
 
-### ARCH-SPRING-004 — Beans should not self-invoke their own proxied methods
+### ARCH-SPRING-004 - Beans should not self-invoke their own proxied methods
 
 - **Severity**: HIGH
 - **Inspects**: direct self-invocation (`this.method()`) of methods proxied through `@Transactional` (Spring's own or the
@@ -358,7 +358,7 @@ Dismissed rules remove all of their instances from the score.
   standard proxy-based Spring AOP, so reporting the Spring limitation there would be a false positive. See the
   [Quarkus CDI reference](https://quarkus.io/version/3.33/guides/cdi-reference#intercepted-self-invocation).
 
-### ARCH-SPRING-005 — Spring stereotypes should not reside in the default package
+### ARCH-SPRING-005 - Spring stereotypes should not reside in the default package
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Component` / `@Service` / `@Repository` / `@Controller` / `@Configuration` classes in the default
@@ -367,7 +367,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: move Spring stereotype beans into a named package so component scanning and proxying work as
   expected.
 
-### ARCH-SPRING-008 — Services and repositories should not depend on web request types
+### ARCH-SPRING-008 - Services and repositories should not depend on web request types
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Service` and `@Repository` beans that depend on `jakarta.servlet`, `javax.servlet`, or Spring web
@@ -381,7 +381,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: extract request data in the controller and pass plain application values into services and
   repositories.
 
-### ARCH-SPRING-009 — Transactional annotations should not be declared on interfaces
+### ARCH-SPRING-009 - Transactional annotations should not be declared on interfaces
 
 - **Severity**: MEDIUM
 - **Inspects**: Spring or Jakarta `@Transactional` annotations on interfaces and interface methods.
@@ -390,7 +390,7 @@ Dismissed rules remove all of their instances from the score.
   behave differently across proxy modes and may be silently ignored with AspectJ weaving.
 - **Recommendation**: move transaction annotations to concrete implementation classes or methods.
 
-### ARCH-SPRING-010 — Proxy-driven methods should be interceptable
+### ARCH-SPRING-010 - Proxy-driven methods should be interceptable
 
 - **Severity**: MEDIUM
 - **Inspects**: methods annotated with `@Transactional` (Spring's own or the portable
@@ -407,7 +407,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: for portable Spring proxy behavior, use a public, non-static, non-final method. On Quarkus, avoid
   private interceptor-bound methods.
 
-### ARCH-SPRING-011 — Async methods should return void or Future
+### ARCH-SPRING-011 - Async methods should return void or Future
 
 - **Severity**: MEDIUM
 - **Inspects**: methods annotated with `@Async`, and methods declared on `@Async` classes.
@@ -418,7 +418,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: use `void` for fire-and-forget async work, or return `Future` / `CompletableFuture` when callers
   need a result.
 
-### ARCH-SPRING-012 — Scheduled methods should have supported signatures
+### ARCH-SPRING-012 - Scheduled methods should have supported signatures
 
 - **Severity**: MEDIUM
 - **Inspects**: methods annotated with `@Scheduled`.
@@ -436,7 +436,7 @@ Dismissed rules remove all of their instances from the score.
   reactive type (a Reactor/Reactive Streams `Publisher`, `java.util.concurrent.Flow.Publisher`, RxJava 3, or SmallRye
   Mutiny `Uni`/`Multi`).
 
-### ARCH-SPRING-013 — Async should not be used in configuration classes
+### ARCH-SPRING-013 - Async should not be used in configuration classes
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Async` on `@Configuration` classes or methods declared inside `@Configuration` classes.
@@ -445,7 +445,7 @@ Dismissed rules remove all of their instances from the score.
   `@Configuration` classes.
 - **Recommendation**: move asynchronous work to a regular Spring bean and call it through that bean's proxy.
 
-### ARCH-SPRING-014 — Classes should not call AopContext.currentProxy
+### ARCH-SPRING-014 - Classes should not call AopContext.currentProxy
 
 - **Severity**: LOW
 - **Inspects**: calls to `org.springframework.aop.framework.AopContext.currentProxy()`.
@@ -454,7 +454,7 @@ Dismissed rules remove all of their instances from the score.
   internals and requires proxy exposure.
 - **Recommendation**: refactor to avoid self-invocation, or inject a self-reference when a proxy call is truly required.
 
-### ARCH-SPRING-015 — Configuration properties classes should be immutable
+### ARCH-SPRING-015 - Configuration properties classes should be immutable
 
 - **Severity**: INFO
 - **Inspects**: non-static instance fields declared in classes annotated with `@ConfigurationProperties`.
@@ -475,7 +475,7 @@ Dismissed rules remove all of their instances from the score.
 > clearer, more specific per-pair messages (e.g. "Controller X depends on Repository Y" is more actionable than a
 > generic layer-violation message).
 
-### ARCH-SPRING-017 — Lite-mode @Bean methods should not call sibling @Bean methods
+### ARCH-SPRING-017 - Lite-mode @Bean methods should not call sibling @Bean methods
 
 - **Severity**: HIGH
 - **Inspects**: direct calls between `@Bean` methods declared in the same class when that class is not a full
@@ -488,7 +488,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: declare the class as `@Configuration` (the default `proxyBeanMethods=true`), or pass the dependency
   as a `@Bean` method parameter instead of calling the sibling `@Bean` method directly.
 
-### ARCH-SPRING-018 — Lifecycle callbacks should not be proxy-driven
+### ARCH-SPRING-018 - Lifecycle callbacks should not be proxy-driven
 
 - **Severity**: HIGH
 - **Inspects**: `@PostConstruct` or `@PreDestroy` methods that are also annotated with `@Transactional` (Spring's own or
@@ -505,7 +505,7 @@ Dismissed rules remove all of their instances from the score.
   `@PostConstruct`/`@PreDestroy` method combined with the portable `@Transactional` silently runs without a transaction on
   Quarkus/CDI exactly as it does on Spring. See `ArchitectureCdiNeutralityTests` for the pinned true-positive case.
 
-### ARCH-SPRING-019 — Async and transactional semantics on one method should be reviewed
+### ARCH-SPRING-019 - Async and transactional semantics on one method should be reviewed
 
 - **Severity**: MEDIUM
 - **Inspects**: methods annotated with both `@Async` and Spring or Jakarta `@Transactional`.
@@ -515,7 +515,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: review the design; usually the transactional work belongs in a separate bean method that the
   `@Async` method calls, so the transaction is scoped correctly on the async thread.
 
-### ARCH-SPRING-020 — Async event listeners should return void
+### ARCH-SPRING-020 - Async event listeners should return void
 
 - **Severity**: MEDIUM
 - **Inspects**: `@EventListener` methods that run asynchronously because `@Async` is declared on the method or its class.
@@ -527,7 +527,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: return `void`; when a follow-up event is needed, inject `ApplicationEventPublisher` and publish it
   explicitly from the listener.
 
-### ARCH-SPRING-021 — BeanPostProcessor and BeanFactoryPostProcessor @Bean methods should be static
+### ARCH-SPRING-021 - BeanPostProcessor and BeanFactoryPostProcessor @Bean methods should be static
 
 - **Severity**: MEDIUM
 - **Inspects**: non-static `@Bean` methods that return a `BeanPostProcessor` or `BeanFactoryPostProcessor`.
@@ -537,7 +537,7 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: declare these `@Bean` methods `static` so the post-processor can be created without instantiating
   the surrounding configuration class.
 
-### ARCH-SPRING-022 — Legacy javax.transaction.Transactional should be migrated
+### ARCH-SPRING-022 - Legacy javax.transaction.Transactional should be migrated
 
 - **Severity**: HIGH
 - **Inspects**: `javax.transaction.Transactional` on classes and methods.

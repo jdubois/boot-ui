@@ -1,4 +1,4 @@
-# Hibernate Advisor checks
+# Hibernate checks
 
 The Hibernate panel runs a fixed, on-demand ruleset against the host application's mapped JPA entities. It reads
 the JPA `EntityManagerFactory` metamodel, selected persistence properties, and Spring Data repository metadata when

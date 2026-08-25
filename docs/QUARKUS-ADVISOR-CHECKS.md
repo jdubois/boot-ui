@@ -1,4 +1,4 @@
-# Quarkus Application Advisor checks
+# Quarkus checks
 
 The Spring advisor panel, on Quarkus, runs a fixed, on-demand ruleset against the host application's
 **Quarkus idioms** — not the Spring application context. It reads build-time counts of CDI scope

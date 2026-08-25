@@ -1,4 +1,4 @@
-# Spring Security Advisor checks
+# Security checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration.
 It introspects the registered `SecurityFilterChain` beans and their filter lists, simulates a bounded set of anonymous

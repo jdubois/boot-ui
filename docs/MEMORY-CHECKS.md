@@ -1,4 +1,4 @@
-# Memory advisor checks
+# Memory checks
 
 The Memory panel runs a fixed, on-demand ruleset against the host JVM's **live management beans**. It takes a read-only snapshot of heap and memory-pool usage, garbage-collector and class-loading counters, a thread census, process-level scalars (uptime, cumulative GC time, pending finalizers, parsed `-Xms`/`-Xss`, physical memory, and swap), and an optional class histogram, then evaluates a curated set of memory-health checks. Rules read only this immutable snapshot; they never perform their own JMX or filesystem I/O. The advisor never mutates the JVM, forces a heap dump on page load, intercepts live traffic, or surfaces secrets.
 

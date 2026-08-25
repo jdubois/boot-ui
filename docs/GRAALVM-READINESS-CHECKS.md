@@ -233,7 +233,7 @@ a handful of sample detail lines.
 
 ## Reflection
 
-### GRAAL-REFLECT-001 — Reflective API usage may need reflection metadata
+### GRAAL-REFLECT-001 - Reflective API usage may need reflection metadata
 
 - **Severity**: MEDIUM
 - **Inspects**: calls to the reflection API (`Class.forName`, `Class.newInstance`, `Class.arrayType`, method/field/
@@ -246,7 +246,7 @@ a handful of sample detail lines.
   register them with Spring's RuntimeHints (e.g. via `@ImportRuntimeHints` / `RuntimeHintsRegistrar`). Spring AOT already
   covers Spring-managed beans.
 
-### GRAAL-REFLECT-002 — Dynamic class loading may need reflection metadata
+### GRAAL-REFLECT-002 - Dynamic class loading may need reflection metadata
 
 - **Severity**: MEDIUM
 - **Inspects**: calls to `ClassLoader.loadClass`.
@@ -255,7 +255,7 @@ a handful of sample detail lines.
 - **Recommendation**: register the dynamically loaded types under `reflection` in `reachability-metadata.json`, or
   replace `ClassLoader.loadClass` with direct class literals where possible.
 
-### GRAAL-REFLECT-003 — Deep reflection (setAccessible / private lookups) may need reflection metadata
+### GRAAL-REFLECT-003 - Deep reflection (setAccessible / private lookups) may need reflection metadata
 
 - **Severity**: MEDIUM
 - **Inspects**: `AccessibleObject.setAccessible` / `trySetAccessible` and `MethodHandles.privateLookupIn`.
@@ -265,7 +265,7 @@ a handful of sample detail lines.
   required module opens are configured; prefer public APIs over deep
   reflection.
 
-### GRAAL-REFLECT-004 — Reflective annotation access may need reflection metadata
+### GRAAL-REFLECT-004 - Reflective annotation access may need reflection metadata
 
 - **Severity**: LOW
 - **Inspects**: reflective annotation queries (`getAnnotation`, `getDeclaredAnnotations`, `isAnnotationPresent`, …) on
@@ -277,7 +277,7 @@ a handful of sample detail lines.
 - **Recommendation**: register the inspected members under `reflection` in `reachability-metadata.json` so their
   annotations are available at run time.
 
-### GRAAL-REFLECT-005 — Unsafe.allocateInstance bypasses construction and needs unsafeAllocated metadata
+### GRAAL-REFLECT-005 - Unsafe.allocateInstance bypasses construction and needs unsafeAllocated metadata
 
 - **Severity**: MEDIUM
 - **Inspects**: calls to `allocateInstance(Class)` on `sun.misc.Unsafe` or `jdk.internal.misc.Unsafe`.
@@ -290,7 +290,7 @@ a handful of sample detail lines.
 
 ## Dynamic proxies
 
-### GRAAL-PROXY-001 — Dynamic JDK proxies may need proxy metadata
+### GRAAL-PROXY-001 - Dynamic JDK proxies may need proxy metadata
 
 - **Severity**: MEDIUM
 - **Inspects**: calls to `Proxy.newProxyInstance` and `Proxy.getProxyClass`.
@@ -303,7 +303,7 @@ a handful of sample detail lines.
 
 ## Resources
 
-### GRAAL-RES-001 — Runtime resource loading may need resource metadata
+### GRAAL-RES-001 - Runtime resource loading may need resource metadata
 
 - **Severity**: LOW
 - **Inspects**: calls to `Class`/`ClassLoader` `getResource`, `getResources`/`resources`, and `getResourceAsStream`, plus
@@ -316,7 +316,7 @@ a handful of sample detail lines.
   bundles them. Embedded resources use `resource:` URLs; open a stream instead of treating `URL.getFile()` as a
   filesystem path.
 
-### GRAAL-RES-002 — Resource bundle loading may need resource-bundle metadata
+### GRAAL-RES-002 - Resource bundle loading may need resource-bundle metadata
 
 - **Severity**: LOW
 - **Inspects**: calls to `ResourceBundle.getBundle`.
@@ -327,7 +327,7 @@ a handful of sample detail lines.
 
 ## Serialization
 
-### GRAAL-SER-001 — Serializable types may need serialization metadata
+### GRAAL-SER-001 - Serializable types may need serialization metadata
 
 - **Severity**: INFO
 - **Inspects**: application classes that implement `java.io.Serializable` (concrete, non-enum types).
@@ -338,7 +338,7 @@ a handful of sample detail lines.
 - **Recommendation**: if these types are serialized (e.g. via the JDK serialization protocol), add `reflection` entries
   with `serializable: true` in `reachability-metadata.json`.
 
-### GRAAL-SER-002 — Active JDK serialization may need serialization metadata
+### GRAAL-SER-002 - Active JDK serialization may need serialization metadata
 
 - **Severity**: MEDIUM
 - **Inspects**: calls to `ObjectOutputStream.writeObject` / `writeUnshared` and `ObjectInputStream.readObject` /
@@ -351,7 +351,7 @@ a handful of sample detail lines.
 
 ## Native access
 
-### GRAAL-NATIVE-001 — Dynamically loaded native libraries need native-image review
+### GRAAL-NATIVE-001 - Dynamically loaded native libraries need native-image review
 
 - **Severity**: LOW
 - **Inspects**: native-library loading (`System.loadLibrary`, `System.load`, `Runtime.loadLibrary`, `Runtime.load`).
@@ -361,7 +361,7 @@ a handful of sample detail lines.
 - **Recommendation**: link the library into the image or deploy it where the executable can load it. If the native code
   dynamically looks up Java callbacks, collect and register those targets with the tracing agent.
 
-### GRAAL-NATIVE-002 — Native method declarations require a loadable native implementation
+### GRAAL-NATIVE-002 - Native method declarations require a loadable native implementation
 
 - **Severity**: LOW
 - **Inspects**: application classes that declare `native` methods.
@@ -372,7 +372,7 @@ a handful of sample detail lines.
   tracing agent and add `jniAccessible: true` only to the actual Java targets. BootUI does not infer JNI entries from
   declarations.
 
-### GRAAL-FFM-001 — Foreign Function downcalls/upcalls may need foreign metadata in native images
+### GRAAL-FFM-001 - Foreign Function downcalls/upcalls may need foreign metadata in native images
 
 - **Severity**: LOW
 - **Inspects**: calls to `java.lang.foreign.Linker.downcallHandle` and `Linker.upcallStub`.
@@ -388,7 +388,7 @@ a handful of sample detail lines.
 
 ## Class generation
 
-### GRAAL-CLASSGEN-001 — Runtime class generation needs experimental native-image support
+### GRAAL-CLASSGEN-001 - Runtime class generation needs experimental native-image support
 
 - **Severity**: HIGH
 - **Inspects**: runtime bytecode/class generation (`ClassLoader.defineClass`, `MethodHandles.Lookup.defineClass` /
@@ -405,7 +405,7 @@ a handful of sample detail lines.
   equivalents. If generation cannot be avoided, validate the exact workload against `-H:+RuntimeClassLoading` and its
   `-H:Preserve` requirements, or evaluate Predefined Classes for bytecode that is stable across runs.
 
-### GRAAL-JDK-001 — The system Java compiler is unavailable in native images
+### GRAAL-JDK-001 - The system Java compiler is unavailable in native images
 
 - **Severity**: HIGH
 - **Inspects**: calls to `javax.tools.ToolProvider.getSystemJavaCompiler()`.
@@ -414,7 +414,7 @@ a handful of sample detail lines.
 - **Recommendation**: compile or generate code during the application build and include the resulting classes in the
   native image; do not compile Java source inside the running application.
 
-### GRAAL-JDK-002 — JSR-223 script engines require native-image-specific support
+### GRAAL-JDK-002 - JSR-223 script engines require native-image-specific support
 
 - **Severity**: HIGH
 - **Inspects**: construction of `javax.script.ScriptEngineManager`.
@@ -427,7 +427,7 @@ a handful of sample detail lines.
 
 ## Classpath scanning
 
-### GRAAL-SCAN-001 — Runtime classpath scanning does not work in native images
+### GRAAL-SCAN-001 - Runtime classpath scanning does not work in native images
 
 - **Severity**: HIGH
 - **Inspects**: runtime classpath/component scanning (`ClassPathScanningCandidateComponentProvider.findCandidateComponents`,
@@ -444,7 +444,7 @@ a handful of sample detail lines.
 the generated context. Runtime-selected or mutable XML is subject to the same fixed-build-input constraint as other bean
 definitions, but the annotation alone is not a high-confidence readiness problem.
 
-### SPRING-AOT-001 — Runtime bean singleton registration cannot be transformed by Spring AOT
+### SPRING-AOT-001 - Runtime bean singleton registration cannot be transformed by Spring AOT
 
 - **Severity**: MEDIUM
 - **Inspects**: calls to `SingletonBeanRegistry.registerSingleton(...)`.
@@ -454,7 +454,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 - **Recommendation**: register a bean definition through `@Bean` / `@Component`, `BeanDefinitionRegistry`,
   `ImportBeanDefinitionRegistrar`, or Spring Framework 7's AOT-supported `BeanRegistrar`.
 
-### SPRING-AOT-002 — Programmatic instance suppliers are not captured by Spring AOT
+### SPRING-AOT-002 - Programmatic instance suppliers are not captured by Spring AOT
 
 - **Severity**: HIGH
 - **Inspects**: bean definitions backed by a programmatic instance supplier (`setInstanceSupplier`, or Spring
@@ -469,7 +469,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
   Spring 7 `BeanRegistrar` uses a `Consumer<BeanRegistry.Spec<?>>` whose nested supplier is explicitly AOT-supported and
   does not match this check.
 
-### SPRING-AOT-003 — Environment-sensitive bean conditions freeze selection at AOT build time
+### SPRING-AOT-003 - Environment-sensitive bean conditions freeze selection at AOT build time
 
 - **Severity**: MEDIUM
 - **Inspects**: `@Profile`, `@ConditionalOnProperty`, `@ConditionalOnBooleanProperty`, custom `@Conditional`, and
@@ -485,7 +485,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
   the intended production configuration, or restructure the configuration to use explicit build-time selection rather
   than runtime conditions.
 
-### SPRING-AOT-005 — Bean-referencing @ConditionalOnExpression can initialize beans too early
+### SPRING-AOT-005 - Bean-referencing @ConditionalOnExpression can initialize beans too early
 
 - **Severity**: HIGH
 - **Inspects**: Spring components and `@Bean` methods whose `@ConditionalOnExpression` value contains an explicit SpEL
@@ -496,7 +496,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 - **Recommendation**: replace bean-referencing SpEL with property/class conditions. If the expression is unavoidable,
   keep it free of bean references and use build-time-stable inputs.
 
-### SPRING-AOT-004 — Programmatic ApplicationContext creation requires AOT review
+### SPRING-AOT-004 - Programmatic ApplicationContext creation requires AOT review
 
 - **Severity**: HIGH
 - **Inspects**: constructor calls to `AnnotationConfigApplicationContext` or `GenericApplicationContext`, and
@@ -507,7 +507,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 - **Recommendation**: consolidate configuration into the main AOT-processed context or use `@Import` /
   `@ImportResource`. If this is build tooling, call `refreshForAotProcessing` and keep it out of runtime paths.
 
-### GRAAL-SPEL-001 — Programmatic SpEL expression parsing relies on reflection with no AOT visibility
+### GRAAL-SPEL-001 - Programmatic SpEL expression parsing relies on reflection with no AOT visibility
 
 - **Severity**: MEDIUM
 - **Category**: this check moved from `Reflection` to `Spring AOT` — SpEL reachability is a Spring-library-specific
@@ -523,7 +523,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 
 ## Method handles
 
-### GRAAL-MH-001 — Non-constant MethodHandle lookups may need reflection metadata
+### GRAAL-MH-001 - Non-constant MethodHandle lookups may need reflection metadata
 
 - **Severity**: MEDIUM
 - **Inspects**: calls to `MethodHandles.Lookup` lookup methods: `findClass`, `findVirtual`, `findStatic`, `findConstructor`,
@@ -537,7 +537,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 
 ## Security providers
 
-### GRAAL-SEC-001 — Runtime security-provider registration needs native-image review
+### GRAAL-SEC-001 - Runtime security-provider registration needs native-image review
 
 - **Severity**: MEDIUM
 - **Inspects**: calls to `Security.addProvider` / `Security.insertProviderAt`. A class that merely extends
@@ -550,7 +550,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 
 ## JMX
 
-### GRAAL-JMX-001 — JMX usage requires --enable-monitoring in the native image
+### GRAAL-JMX-001 - JMX usage requires --enable-monitoring in the native image
 
 - **Severity**: LOW
 - **Inspects**: calls to `ManagementFactory.getPlatformMBeanServer` and `MBeanServer.registerMBean`.
@@ -560,7 +560,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
   MBean interface as a structured reflection proxy type such as
   `{"type":{"proxy":["com.example.FooMBean"]}}`, plus any implementation members accessed reflectively.
 
-### GRAAL-JMX-002 — Dynamic/model MBeans are not supported by native-image JMX
+### GRAAL-JMX-002 - Dynamic/model MBeans are not supported by native-image JMX
 
 - **Severity**: HIGH
 - **Inspects**: application classes assignable to `javax.management.DynamicMBean` (this also covers Model MBeans, since

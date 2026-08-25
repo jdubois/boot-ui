@@ -1,4 +1,4 @@
-# Spring Advisor checks
+# Spring checks
 
 The Spring panel runs a fixed, on-demand ruleset against the host application's **running Spring application context** and `Environment`. It takes a read-only snapshot of selected bean groups (Jackson `ObjectMapper`s, `Executor`s/`TaskExecutor`s, `DataSource`s) and feature flags, then evaluates a curated set of configuration and best-practice checks. It never mutates the context, intercepts live traffic, or surfaces secrets.
 

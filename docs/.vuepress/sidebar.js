@@ -16,6 +16,8 @@ const sidebarLabels = {
   'setup/quarkus.md': 'Quarkus',
   'QUARKUS-SUPPORT.md': 'Quarkus design notes',
   'WEBFLUX-SUPPORT.md': 'WebFlux design notes',
+  'SPECIFICATION.md': 'Specification',
+  'PLAN.md': 'Implementation plan',
   'PROPERTIES.md': 'Properties',
   'REPOSITORY.md': 'Repository',
   'WORKS-WITH.md': 'BootUI family'

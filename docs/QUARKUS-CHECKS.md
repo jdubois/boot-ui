@@ -1,4 +1,4 @@
-# Quarkus Security Advisor checks
+# Quarkus security checks
 
 The Security panel, on Quarkus, runs a fixed, on-demand **49-rule** ruleset against the host application's
 **Quarkus security configuration** — not Spring Security. It reads the effective `quarkus.http.*`,
