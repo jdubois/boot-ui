@@ -3,12 +3,17 @@ import {defineClientConfig, onContentUpdated, useRoute} from 'vuepress/client'
 import './styles/index.css'
 import ScreenshotCarousel from './components/ScreenshotCarousel.vue'
 import RuleIndex from './components/RuleIndex.vue'
+import CookieConsent from './components/CookieConsent.vue'
+import CookieSettings from './components/CookieSettings.vue'
+import {trackPageView} from './analytics.js'
 
 export default defineClientConfig({
   enhance({app}) {
     app.component('ScreenshotCarousel', ScreenshotCarousel)
     app.component('RuleIndex', RuleIndex)
+    app.component('CookieSettings', CookieSettings)
   },
+  rootComponents: [CookieConsent],
   setup() {
     const route = useRoute()
     let scheduleSidebarSync = () => {}
@@ -39,7 +44,15 @@ export default defineClientConfig({
     })
 
     onContentUpdated(syncAfterDomUpdate)
-    watch(() => route.fullPath, syncAfterDomUpdate)
+    watch(
+      () => route.fullPath,
+      () => {
+        syncAfterDomUpdate()
+        // Client-side navigation replaces the page without a document load, so gtag.js never sees
+        // it. The title is only correct once Vue has flushed, hence the nextTick.
+        void nextTick(() => trackPageView(window.location.pathname))
+      }
+    )
 
     onUnmounted(() => {
       cleanupSidebarSync()

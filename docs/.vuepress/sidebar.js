@@ -5,8 +5,9 @@ import {toDocLink} from './doc-links.js'
 
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 /* JVM-TUNING-CHECKS.md is excluded from the build in config.js, so it must not fall through to the
-   "Additional docs" catch-all group either. */
-const hiddenDocs = ['README.md', 'JVM-TUNING-CHECKS.md']
+   "Additional docs" catch-all group either. PRIVACY.md is a site-legal page pinned to the bottom of
+   the sidebar by hand, so it must not be picked up by the catch-all as well. */
+const hiddenDocs = ['README.md', 'JVM-TUNING-CHECKS.md', 'PRIVACY.md']
 
 /* Sidebar labels only. Page titles stay long-form; the group heading already supplies the context
    these labels would otherwise repeat. */
@@ -105,7 +106,10 @@ export function createDocsSidebar() {
             children: remainingDocs.map((file) => toSidebarItem(file))
           }
         ]
-      : [])
+      : []),
+    // Consent stays withdrawable once the banner is gone, so the privacy page keeps a permanent
+    // entry point. It sits last, on its own, because it is site-legal rather than documentation.
+    toSidebarItem('PRIVACY.md')
   ]
 }
 
@@ -137,6 +141,13 @@ function toSidebarItem(file, trimChecksSuffix = false) {
 
 function readTitle(file) {
   const content = fs.readFileSync(path.join(docsRoot, file), 'utf8')
-  const heading = content.match(/^#\s+(.+)$/m)
+  // Frontmatter comments are also `#`-prefixed lines, so the title has to be looked for after the
+  // frontmatter block rather than from the top of the file.
+  const heading = stripFrontmatter(content).match(/^#\s+(.+)$/m)
   return heading ? heading[1].trim() : file.replace(/\.md$/, '').replaceAll('-', ' ')
+}
+
+function stripFrontmatter(content) {
+  const match = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/)
+  return match ? content.slice(match[0].length) : content
 }

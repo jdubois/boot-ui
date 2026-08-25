@@ -321,8 +321,10 @@ body {
 }
 
 /* Page links and in-page heading links share one class, so the href fragment is what separates a
-   destination from a jump inside the page the reader is already on. */
-.vp-sidebar a.vp-sidebar-item:not([href*='#']) {
+   destination from a jump inside the page the reader is already on. A top-level entry that is a
+   link rather than a group (Privacy) is still a heading, so it must keep the eyebrow treatment
+   below instead of being pulled into the page-link ramp. */
+.vp-sidebar a.vp-sidebar-item:not([href*='#']):not(.vp-sidebar-heading) {
   font-size: 0.95rem;
   font-weight: 600;
 }
@@ -440,6 +442,15 @@ body {
   background: var(--bootui-nav-active-bg);
   box-shadow: 0 0.8rem 1.4rem rgba(25, 135, 84, 0.2);
   color: var(--bootui-nav-active-color);
+}
+
+/* A top-level entry that is a link renders as an anchor, so the theme's active treatment for page
+   links reaches it even though it is a heading: it would otherwise pick up the accent left border
+   and lighter weight that mark a nested page. Keep it matching the group headings around it. */
+.vp-sidebar a.vp-sidebar-item.vp-sidebar-heading.active {
+  border-inline-start-color: var(--bootui-border-subtle);
+  color: var(--bootui-green-dark);
+  font-weight: 800;
 }
 
 .vp-home,
