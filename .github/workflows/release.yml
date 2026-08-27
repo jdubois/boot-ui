@@ -648,7 +648,79 @@ jobs:
           # A release push made with GITHUB_TOKEN does not trigger the Pages workflow.
           # Dispatch the immutable tag, not a branch that may have advanced while Central
           # propagated the artifacts.
+          #
+          # `gh workflow run` only reports that the dispatch was accepted, so the dispatched
+          # run must be resolved and awaited explicitly. Otherwise a rejected or failing Pages
+          # deploy leaves the release green while the published documentation stays stale.
+
+          list_runs() {
+            gh run list \
+              --workflow pages.yml \
+              --event workflow_dispatch \
+              --branch "$RELEASE_TAG" \
+              --limit 50 \
+              --json databaseId \
+              --jq '.[].databaseId'
+          }
+
+          # Runs that already exist for this tag must never be mistaken for the new one.
+          if ! PRE_EXISTING_RUNS="$(list_runs)"; then
+            echo "::error::Unable to list existing Pages runs for $RELEASE_TAG"
+            exit 1
+          fi
+
           gh workflow run pages.yml --ref "$RELEASE_TAG"
+          echo "Dispatched pages.yml at $RELEASE_TAG; resolving the dispatched run."
+
+          RUN_ID=""
+          for _ in $(seq 1 30); do
+            sleep 10
+            CURRENT_RUNS="$(list_runs || true)"
+            for candidate in $CURRENT_RUNS; do
+              if ! grep -qx "$candidate" <<<"$PRE_EXISTING_RUNS"; then
+                RUN_ID="$candidate"
+                break
+              fi
+            done
+            if [[ -n "$RUN_ID" ]]; then
+              break
+            fi
+          done
+
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::error::Dispatched pages.yml run for $RELEASE_TAG never became visible; documentation was not redeployed"
+            exit 1
+          fi
+
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+          echo "Waiting for documentation deployment run: $RUN_URL"
+
+          # Bound the wait so a hung Pages run cannot block the release job indefinitely.
+          CONCLUSION=""
+          for _ in $(seq 1 120); do
+            RUN_JSON="$(gh run view "$RUN_ID" --json status,conclusion || true)"
+            if [[ -z "$RUN_JSON" ]]; then
+              sleep 15
+              continue
+            fi
+            if [[ "$(jq -r '.status' <<<"$RUN_JSON")" == "completed" ]]; then
+              CONCLUSION="$(jq -r '.conclusion' <<<"$RUN_JSON")"
+              break
+            fi
+            sleep 15
+          done
+
+          if [[ -z "$CONCLUSION" ]]; then
+            echo "::error::Timed out waiting for the documentation deployment run to complete: $RUN_URL"
+            exit 1
+          fi
+
+          if [[ "$CONCLUSION" != "success" ]]; then
+            echo "::error::Documentation deployment run concluded with '$CONCLUSION': $RUN_URL"
+            exit 1
+          fi
+
+          echo "Documentation site redeployed from $RELEASE_TAG: $RUN_URL"
 
       - name: Manual publish reminder
         if: env.CENTRAL_AUTO_PUBLISH != 'true'
