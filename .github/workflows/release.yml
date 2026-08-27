@@ -413,14 +413,19 @@ jobs:
           )
 
           # Sonatype Central -> Maven Central propagation can lag behind a successful
-          # autoPublish, so poll until every file is downloadable (or time out).
-          DEADLINE=$(( SECONDS + 45 * 60 ))
+          # autoPublish, so poll until every file is downloadable (or time out). The budget is
+          # shared by every artifact and covers observed propagation delays well beyond an hour;
+          # it is a patience limit, not a publication deadline.
+          DEADLINE=$(( SECONDS + 120 * 60 ))
           for artifact in "${ARTIFACTS[@]}"; do
             url="${BASE}/${artifact}"
             echo "Waiting for ${url}"
             until curl -fsI "$url" >/dev/null 2>&1; do
               if (( SECONDS > DEADLINE )); then
                 echo "::error::Timed out waiting for ${url} to become available on Maven Central"
+                # Publication already succeeded; only propagation was slow. Recreating the tag or
+                # redeploying would consume the coordinate, so point at the resume path instead.
+                echo "::notice::The deployment was already published. Once the artifact appears, rerun this workflow at ${RELEASE_TAG} with an empty version, auto_publish enabled, and resume_after_publish enabled."
                 exit 1
               fi
               sleep 20
