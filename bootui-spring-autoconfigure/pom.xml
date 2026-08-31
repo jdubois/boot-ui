@@ -173,7 +173,7 @@
             <artifactId>spring-kafka</artifactId>
             <!-- Explicit Spring Kafka 4.1 override aligned with the Spring Boot 4.1 / Spring
                  Framework 7 baseline. -->
-            <version>4.1.0</version>
+            <version>4.1.1</version>
             <optional>true</optional>
         </dependency>
         <dependency>
