@@ -95,6 +95,11 @@ export default defineConfig(({command}) => ({
     restoreMocks: true,
     reporters: process.env.CI ? ['default', 'junit'] : 'default',
     outputFile: {junit: './test-results/vitest-junit.xml'},
+    // The design-system, accessibility, motion, and contrast contract suites parse
+    // every `.vue` file under `src/views`. On CI that runs under V8 coverage while
+    // vue-tsc (vite-plugin-checker) competes for the same cores, so Vitest's 5s
+    // default intermittently trips on the first test.
+    testTimeout: 30000,
     coverage: {
       provider: 'v8',
       reportsDirectory: './coverage',
