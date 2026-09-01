@@ -35,6 +35,12 @@ updates:
         patterns:
           - 'bootstrap'
           - 'bootstrap-icons'
+      # vitest and its coverage provider peer-depend on an exact matching
+      # version, so they have to move together or npm ci fails with ERESOLVE.
+      vitest:
+        patterns:
+          - 'vitest'
+          - '@vitest/*'
 
   - package-ecosystem: npm
     directory: /
