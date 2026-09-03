@@ -159,10 +159,12 @@ fix in source, and re-scans to verify — instead of guessing from static code a
 under the *Diagnostic checks* section (for example [Hibernate checks](HIBERNATE-CHECKS.md) and
 [Spring checks](SPRING-CHECKS.md)).
 
-## Without an agent: the same tools from a terminal
+## The same tools from a terminal
 
-Every tool on this page is also a `bootui` command. If you want one answer in a shell script or a CI job rather than a
-conversation, the [command-line guide](CLI.md) covers it — same registry, same panel policy, no MCP client needed.
+Every tool on this page is also a `bootui` command — same registry, same panel policy, no MCP client needed. That
+makes the [command-line guide](CLI.md) useful for a human running one-off checks in a shell script or CI job, and it
+is also what the [BootUI agent skill](#install-the-bootui-agent-skill) tells an agent to call directly when its host
+doesn't already expose BootUI's MCP tools natively.
 
 ## Coffilot: BootUI in the GitHub Copilot App's side panel
 
