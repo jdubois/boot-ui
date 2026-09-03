@@ -6,9 +6,10 @@ and runtime diagnostics in the browser, BootUI can expose the very same, already
 **consult your running application before proposing a fix** and **verify the fix afterwards** — all without leaving your
 editor or chat.
 
-This page explains how to connect an agent to BootUI's MCP server, walks through a concrete example (fixing Hibernate
-findings), and shows how BootUI pairs with [Coffilot](https://www.julien-dubois.com/coffilot/) to build, run, and scan your
-app from the GitHub Copilot App's side panel.
+This page explains how to connect an agent to BootUI's MCP server, when to reach for the [CLI](CLI.md) instead, walks
+through a concrete example (fixing Hibernate findings), and shows how BootUI pairs with
+[Coffilot](https://www.julien-dubois.com/coffilot/) to build, run, and scan your app from the GitHub Copilot App's side
+panel.
 
 ## Why use BootUI from an agent
 
@@ -26,6 +27,22 @@ grounded, machine-readable context from the *actually running* application:
 
 Because every tool reuses the same controllers and immutable DTOs as the browser UI, the agent sees exactly the masked,
 bounded shape a human would — never raw, unfiltered internals.
+
+## MCP server or CLI?
+
+Every BootUI tool is available two ways, and both give the agent identical data: the same registry, the same panel
+policy, the same masked, bounded DTOs. The CLI cannot offer a diagnostic the MCP server does not, and cannot lack one
+it does — the command table is generated from the tool registry at build time. Pick whichever fits how your agent
+talks to the world:
+
+- **Use the [MCP server](#connect-an-agent-to-the-bootui-mcp-server)** when your agent or IDE speaks MCP natively
+  (GitHub Copilot, Claude Code, and other MCP-aware clients). The agent discovers tools, schemas, and descriptions
+  automatically and calls them as native tool calls — no shell commands, no JSON parsing glue code. This is the
+  primary path this page walks through, and what the [BootUI agent skill](#install-the-bootui-agent-skill) and
+  [Coffilot](#coffilot-bootui-in-the-github-copilot-apps-side-panel) wire up automatically.
+- **Use the [CLI](CLI.md)** when the agent's host can only run shell commands — a sandboxed or cloud agent without MCP
+  wiring, a CI job, or a human running one-off checks in a terminal or script. The BootUI agent skill falls back to
+  calling `bootui` commands directly whenever its host doesn't already expose BootUI's MCP tools natively.
 
 ## Install the BootUI agent skill
 
@@ -161,10 +178,8 @@ under the *Diagnostic checks* section (for example [Hibernate checks](HIBERNATE-
 
 ## The same tools from a terminal
 
-Every tool on this page is also a `bootui` command — same registry, same panel policy, no MCP client needed. That
-makes the [command-line guide](CLI.md) useful for a human running one-off checks in a shell script or CI job, and it
-is also what the [BootUI agent skill](#install-the-bootui-agent-skill) tells an agent to call directly when its host
-doesn't already expose BootUI's MCP tools natively.
+Every tool on this page is also a `bootui` command — see [MCP server or CLI?](#mcp-server-or-cli) above for when to
+reach for the [command-line guide](CLI.md) instead of the MCP server.
 
 ## Coffilot: BootUI in the GitHub Copilot App's side panel
 
