@@ -151,30 +151,73 @@ The MCP server inherits BootUI's full safety posture, so handing it to an agent 
 See [Properties](PROPERTIES.md) for the `bootui.mcp.*` settings and [Features](features/developer-tools.md#mcp-server) for the full MCP Server panel
 description.
 
-## Example: fixing Hibernate findings with an agent
+## Workshop: fix a real Hibernate finding with an agent
 
-A common workflow is to let the agent run an advisor scan, fix the highest-severity findings, and re-scan to confirm.
-Here it is end to end with the Hibernate advisor.
+The rest of this page describes the workflow in the abstract. This section runs it for real, against a mapping the
+[BootUI sample app](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md) ships with on
+purpose, so you can see an actual `hibernate_scan` finding and watch an agent fix it. It takes about five minutes and
+needs only a JDK 17+ and a clone of the [boot-ui repository](https://github.com/jdubois/boot-ui) — no database, no
+Docker.
 
-1. **Run the app** with BootUI active and the MCP server enabled, with your agent connected as above.
-2. **Ask the agent to scan and fix.** For example:
+### 1. Run the sample app
 
-   > Run the BootUI `hibernate_scan` tool against my running app, then fix the highest-severity findings in this
-   > codebase. Re-run the scan when you are done and tell me what changed.
+```bash
+git clone https://github.com/jdubois/boot-ui.git
+cd boot-ui
+./mvnw -pl bootui-spring-sample-app spring-boot:run
+```
 
-3. **The agent calls `hibernate_scan`** over MCP and receives the same report the
-   [Hibernate panel](features/advisors.md#hibernate) shows — a severity-ranked list of findings such as `HIB-FETCH-001` (eager associations
-   that should be `LAZY`), each with the offending mapped members and a remediation hint.
-4. **The agent edits your code.** Reading the finding above, it changes an eagerly-fetched association to
-   `@ManyToOne(fetch = FetchType.LAZY)` and adds an explicit fetch join or entity graph where the data is actually
-   needed — exactly the remediation the check recommends.
-5. **The agent re-runs `hibernate_scan`** to confirm the finding is gone and the Hibernate score improved. You can repeat
-   the loop for `spring_scan`, `security_scan`, and the other advisors.
+This starts the Docker-free `dev` profile (in-memory H2) on `http://localhost:8080`. Leave it running.
 
-The same pattern applies to every advisor: the agent reads grounded findings from the running app, applies a targeted
-fix in source, and re-scans to verify — instead of guessing from static code alone. The advisor rulesets are documented
-under the *Diagnostic checks* section (for example [Hibernate checks](HIBERNATE-CHECKS.md) and
-[Spring checks](SPRING-CHECKS.md)).
+### 2. Enable the MCP server and connect your agent
+
+Open <http://localhost:8080/bootui/#/mcp-server> and flip the toggle at the top of the panel, or restart the app with
+`-Dbootui.mcp.enabled=ON`. Point your agent at `http://localhost:8080/bootui/api/mcp` as shown in
+[Connect an agent to the BootUI MCP server](#connect-an-agent-to-the-bootui-mcp-server) above.
+
+### 3. Ask the agent to scan and fix
+
+With the agent connected and the repository open in your editor, ask it:
+
+> Run the BootUI `hibernate_scan` tool against my running app at `http://localhost:8080`, then fix the
+> highest-severity finding on `SampleOrder.customer` in this codebase. Re-run the scan when you are done and tell me
+> what changed.
+
+### 4. What the agent sees
+
+The agent calls `hibernate_scan` over MCP and gets back the same report the
+[Hibernate panel](features/advisors.md#hibernate) shows. Among the findings is a real
+[`HIB-FETCH-001`](HIBERNATE-CHECKS.md#hib-fetch-001-eager-fetching-should-stay-explicit-and-bounded) (severity
+`HIGH`) pointing at
+[`SampleOrder.customer`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/advisor/hibernate/SampleOrder.java):
+the field is mapped `@ManyToOne(fetch = FetchType.EAGER, ...)`, so every `SampleOrder` load also loads its
+`SampleCustomer`, whether or not the caller needs it.
+
+### 5. What the agent changes
+
+Reading the finding's remediation hint, the agent edits `SampleOrder.java` and changes the association to
+`@ManyToOne(fetch = FetchType.LAZY, ...)`, keeping the other annotations on the field untouched. That is the whole
+fix — `SampleCustomer` is now loaded only when `order.getCustomer()` is actually called, or fetched explicitly with a
+join or entity graph where a use case needs it up front.
+
+### 6. Verify
+
+The agent re-runs `hibernate_scan`; the `HIB-FETCH-001` finding for `SampleOrder.customer` is gone from the report.
+You can confirm it yourself in the [Hibernate panel](features/advisors.md#hibernate) or from a terminal with
+`bootui hibernate scan --json | jq '.results[] | select(.id == "HIB-FETCH-001")'` — an empty result means the fix
+held.
+
+`SampleOrder` intentionally ships with several other mappings that trip other Hibernate checks (see the comments in
+the source file), so a fresh clone always has this same finding to practice on. Discard the change afterwards
+(`git checkout -- bootui-spring-sample-app`) if you want to leave the fixture as-is for next time, or keep it if
+you're using the sample app as a personal scratch pad.
+
+### The same pattern for every advisor
+
+The agent reads grounded findings from the running app, applies a targeted fix in source, and re-scans to verify —
+instead of guessing from static code alone. Repeat the loop with `spring_scan`, `security_scan`, and the other
+advisors against your own application. The advisor rulesets are documented under the *Diagnostic checks* section (for
+example [Hibernate checks](HIBERNATE-CHECKS.md) and [Spring checks](SPRING-CHECKS.md)).
 
 ## The same tools from a terminal
 
