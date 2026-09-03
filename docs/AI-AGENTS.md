@@ -180,7 +180,7 @@ Open <http://localhost:8080/bootui/#/mcp-server> and flip the toggle at the top 
 With the agent connected and the repository open in your editor, ask it:
 
 > Run the BootUI `hibernate_scan` tool against my running app at `http://localhost:8080`, then fix the
-> highest-severity finding on `SampleOrder.customer` in this codebase. Re-run the scan when you are done and tell me
+> highest-severity finding on `SampleOrder#customer` in this codebase. Re-run the scan when you are done and tell me
 > what changed.
 
 ### 4. What the agent sees
