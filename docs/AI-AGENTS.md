@@ -172,7 +172,7 @@ This starts the Docker-free `dev` profile (in-memory H2) on `http://localhost:80
 ### 2. Enable the MCP server and connect your agent
 
 Open <http://localhost:8080/bootui/#/mcp-server> and flip the toggle at the top of the panel, or restart the app with
-`-Dbootui.mcp.enabled=ON`. Point your agent at `http://localhost:8080/bootui/api/mcp` as shown in
+`-Dspring-boot.run.jvmArguments=-Dbootui.mcp.enabled=ON`. Point your agent at `http://localhost:8080/bootui/api/mcp` as shown in
 [Connect an agent to the BootUI MCP server](#connect-an-agent-to-the-bootui-mcp-server) above.
 
 ### 3. Ask the agent to scan and fix
