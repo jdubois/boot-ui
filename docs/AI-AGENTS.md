@@ -188,7 +188,7 @@ With the agent connected and the repository open in your editor, ask it:
 The agent calls `hibernate_scan` over MCP and gets back the same report the
 [Hibernate panel](features/advisors.md#hibernate) shows. Among the findings is a real
 [`HIB-FETCH-001`](HIBERNATE-CHECKS.md#hib-fetch-001-eager-fetching-should-stay-explicit-and-bounded) (severity
-`HIGH`) pointing at
+`HIGH`, 3 violations), one of whose `sampleViolations` names
 [`SampleOrder.customer`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/advisor/hibernate/SampleOrder.java):
 the field is mapped `@ManyToOne(fetch = FetchType.EAGER, ...)`, so every `SampleOrder` load also loads its
 `SampleCustomer`, whether or not the caller needs it.
@@ -202,10 +202,18 @@ join or entity graph where a use case needs it up front.
 
 ### 6. Verify
 
-The agent re-runs `hibernate_scan`; the `HIB-FETCH-001` finding for `SampleOrder.customer` is gone from the report.
-You can confirm it yourself in the [Hibernate panel](features/advisors.md#hibernate) or from a terminal with
-`bootui hibernate scan --json | jq '.results[] | select(.id == "HIB-FETCH-001")'` — an empty result means the fix
-held.
+The agent re-runs `hibernate_scan`. `HIB-FETCH-001`'s `violationCount` drops from 3 to 2, and its `sampleViolations`
+no longer mention `SampleOrder#customer` — confirmed against the actually running app, not by re-reading the source.
+`HIB-FETCH-001` itself does **not** disappear from the report: `SampleAppPreferences#enabledFeatures` and
+`SampleOrder#details` are separate, intentional eager-fetch fixtures the same rule also catches, so the rule keeps
+firing until those are fixed too. Confirm just the one violation is gone from a terminal with:
+
+```bash
+bootui hibernate scan --json \
+  | jq '.results[] | select(.id == "HIB-FETCH-001") | .sampleViolations[] | select(contains("SampleOrder#customer"))'
+```
+
+An empty result means the fix held.
 
 `SampleOrder` intentionally ships with several other mappings that trip other Hibernate checks (see the comments in
 the source file), so a fresh clone always has this same finding to practice on. Discard the change afterwards
