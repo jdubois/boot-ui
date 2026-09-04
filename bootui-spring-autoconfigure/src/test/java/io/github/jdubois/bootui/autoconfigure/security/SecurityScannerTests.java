@@ -37,6 +37,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AuthorizeHttpRequestsConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.FilterChainProxy;
@@ -499,6 +500,110 @@ class SecurityScannerTests {
                 .build();
     }
 
+    /**
+     * Issue #922: the actuator is protected inside a single {@code anyRequest} chain, the shape
+     * Spring Boot's reference documents. The chain matcher renders as "any request" and never
+     * mentions {@code /actuator}, so SEC-ACT-003 must read the chain's authorization rules instead.
+     */
+    @Test
+    void actuatorProtectedInsideTheAnyRequestChainIsNotReportedAsUnprotected() throws Exception {
+        SecurityFilterChain chain = actuatorSecurityFilterChain(authorize -> authorize
+                .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/actuator/prometheus")
+                .permitAll()
+                .requestMatchers("/actuator/**")
+                .hasRole("ADMIN")
+                .anyRequest()
+                .authenticated());
+
+        SecurityReport report = scannerFor(
+                        new FilterChainProxy(chain), new DefaultListableBeanFactory(), actuatorEnvironment())
+                .scan();
+
+        assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-ACT-003");
+        assertThat(report.results())
+                .extracting(SecurityRuleResultDto::id)
+                .as("the exposure rules still analyze the same configuration")
+                .contains("SEC-ACT-006");
+    }
+
+    /** The same single-chain shape without an actuator rule stays a SEC-ACT-003 violation. */
+    @Test
+    void actuatorLeftOpenByTheAnyRequestChainIsReported() throws Exception {
+        SecurityFilterChain chain =
+                actuatorSecurityFilterChain(authorize -> authorize.anyRequest().permitAll());
+
+        SecurityReport report = scannerFor(
+                        new FilterChainProxy(chain), new DefaultListableBeanFactory(), actuatorEnvironment())
+                .scan();
+
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SEC-ACT-003"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.sampleViolations())
+                        .containsExactly("Actuator endpoints are exposed at /actuator but Chain #0 (any request) "
+                                + "permits anonymous access to that path."));
+    }
+
+    /** A dedicated actuator chain that requires a role is protection, and stays silent. */
+    @Test
+    void dedicatedActuatorChainRequiringARoleIsNotReported() throws Exception {
+        SecurityFilterChain actuator = actuatorSecurityFilterChain(
+                http -> http.securityMatcher(
+                        PathPatternRequestMatcher.withDefaults().matcher("/actuator/**")),
+                authorize -> authorize.anyRequest().hasRole("ADMIN"));
+        SecurityFilterChain application =
+                actuatorSecurityFilterChain(authorize -> authorize.anyRequest().permitAll());
+
+        SecurityReport report = scannerFor(
+                        new FilterChainProxy(List.of(actuator, application)),
+                        new DefaultListableBeanFactory(),
+                        actuatorEnvironment())
+                .scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-ACT-003");
+    }
+
+    private static MockEnvironment actuatorEnvironment() {
+        return new MockEnvironment().withProperty("management.endpoints.web.exposure.include", "health,prometheus");
+    }
+
+    private static SecurityFilterChain actuatorSecurityFilterChain(
+            Customizer<AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry>
+                    authorize)
+            throws Exception {
+        return actuatorSecurityFilterChain(http -> {}, authorize);
+    }
+
+    /**
+     * Builds a real chain through the {@code HttpSecurity} DSL with the given
+     * {@code authorizeHttpRequests} rules, so the actuator assertions run against the authorization
+     * manager Spring Security actually assembles rather than a hand-written model.
+     */
+    private static SecurityFilterChain actuatorSecurityFilterChain(
+            Customizer<HttpSecurity> customizer,
+            Customizer<AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry>
+                    authorize)
+            throws Exception {
+        GenericApplicationContext applicationContext = new GenericApplicationContext();
+        applicationContext.refresh();
+        ObjectPostProcessor<Object> objectPostProcessor = new ObjectPostProcessor<>() {
+            @Override
+            public <O> O postProcess(O object) {
+                return object;
+            }
+        };
+        HttpSecurity http = new HttpSecurity(
+                objectPostProcessor,
+                new AuthenticationManagerBuilder(objectPostProcessor),
+                Map.of(ApplicationContext.class, applicationContext));
+        customizer.customize(http);
+        return http.httpBasic(Customizer.withDefaults())
+                .authenticationManager(authentication -> authentication)
+                .authorizeHttpRequests(authorize)
+                .build();
+    }
+
     @Test
     void applicationCorsConfigurationStillRequiresSecurityChainIntegration() {
         AuthorizationManager<HttpServletRequest> denyAll =
@@ -672,11 +777,16 @@ class SecurityScannerTests {
 
     @SuppressWarnings("unchecked")
     private static SecurityScanner scannerFor(FilterChainProxy proxy, ListableBeanFactory beanFactory) {
+        return scannerFor(proxy, beanFactory, new MockEnvironment());
+    }
+
+    private static SecurityScanner scannerFor(
+            FilterChainProxy proxy, ListableBeanFactory beanFactory, MockEnvironment environment) {
         ObjectProvider<FilterChainProxy> filterChains = mock(ObjectProvider.class);
         ObjectProvider<ListableBeanFactory> beanFactories = mock(ObjectProvider.class);
         when(filterChains.getIfAvailable()).thenReturn(proxy);
         when(beanFactories.getIfAvailable()).thenReturn(beanFactory);
-        return new SecurityScanner(filterChains, beanFactories, new MockEnvironment(), CLOCK);
+        return new SecurityScanner(filterChains, beanFactories, environment, CLOCK);
     }
 
     private static SecurityContext hardenedContext(List<PasswordEncoderModel> encoders, MockEnvironment environment) {

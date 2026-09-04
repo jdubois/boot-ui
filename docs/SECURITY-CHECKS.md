@@ -378,8 +378,8 @@ infrastructure rather than an application CORS policy and is excluded from this 
 ### SEC-ACT-003 - Exposed actuator endpoints should be protected by a security chain
 
 - **Severity**: MEDIUM
-- **Detects**: Detects web-exposed actuator endpoints (beyond health/info, after subtracting management.endpoints.web.exposure.exclude) when no filter chain references /actuator.
-- **Recommendation**: Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication/authorization.
+- **Detects**: Detects web-exposed actuator endpoints (beyond health/info, after subtracting management.endpoints.web.exposure.exclude) that an anonymous caller can reach: either no filter chain matches the actuator base path at all, or the chain that does match authorizes anonymous requests for it. Authorization rules are read from the chain that actually matches, so a single anyRequest chain protecting /actuator/** counts as protection just like a dedicated actuator chain does.
+- **Recommendation**: Require authentication/authorization for the actuator base path -- either inside the chain that matches it (e.g. requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("ADMIN")) or through a dedicated SecurityFilterChain with a securityMatcher for that path.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.security>
 
 ### SEC-ACT-004 - Actuator health details/components should not be exposed unconditionally

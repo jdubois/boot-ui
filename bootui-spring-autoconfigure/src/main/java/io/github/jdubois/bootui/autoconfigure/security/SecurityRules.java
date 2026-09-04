@@ -1360,8 +1360,8 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
                 "Exposed actuator endpoints should be protected by a security chain",
                 SecurityCategory.ACTUATOR,
                 "MEDIUM",
-                "Detects web-exposed actuator endpoints (beyond health/info, after subtracting management.endpoints.web.exposure.exclude) when no filter chain references /actuator.",
-                "Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication/authorization.",
+                "Detects web-exposed actuator endpoints (beyond health/info, after subtracting management.endpoints.web.exposure.exclude) that an anonymous caller can reach: either no filter chain matches the actuator base path at all, or the chain that does match authorizes anonymous requests for it. Authorization rules are read from the chain that actually matches, so a single anyRequest chain protecting /actuator/** counts as protection just like a dedicated actuator chain does.",
+                "Require authentication/authorization for the actuator base path -- either inside the chain that matches it (e.g. requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole(\"ADMIN\")) or through a dedicated SecurityFilterChain with a securityMatcher for that path.",
                 "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.security"));
     }
 
@@ -1370,12 +1370,35 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
         if (!context.exposesBeyondHealthAndInfo()) {
             return pass();
         }
-        String base = context.firstProperty("management.endpoints.web.base-path");
-        String basePath = (base == null || base.isBlank()) ? "/actuator" : base.trim();
-        boolean chainReferencesActuator = context.chains().stream()
-                .anyMatch(chain -> chain.matcher() != null
-                        && chain.matcher().toLowerCase(Locale.ROOT).contains(basePath.toLowerCase(Locale.ROOT)));
-        if (chainReferencesActuator) {
+        String basePath = context.actuatorBasePath();
+        FilterChainModel matchingChain = null;
+        boolean coverageIndeterminate = false;
+        for (FilterChainModel chain : context.chains()) {
+            if (Boolean.TRUE.equals(chain.matchesActuatorPath())) {
+                // The first matching chain is the one that governs the path, mirroring how
+                // FilterChainProxy dispatches a request to the first chain that accepts it.
+                matchingChain = chain;
+                break;
+            }
+            if (chain.matchesActuatorPath() == null) {
+                coverageIndeterminate = true;
+            }
+        }
+        if (matchingChain != null) {
+            Boolean anonymousAllowed = matchingChain.actuatorAnonymousAllowed();
+            if (Boolean.FALSE.equals(anonymousAllowed)) {
+                return pass();
+            }
+            if (anonymousAllowed == null) {
+                return skipped("Authorization rules for " + basePath + " could not be read from "
+                        + matchingChain.describe() + ".");
+            }
+            return violation(List.of("Actuator endpoints are exposed at " + basePath + " but "
+                    + matchingChain.describe() + " permits anonymous access to that path."));
+        }
+        if (coverageIndeterminate && context.chains().stream().anyMatch(chain -> chain.matcherReferences(basePath))) {
+            // A chain matcher could not be evaluated; its description naming the actuator base path
+            // is the pre-existing, purely textual signal that the actuator is covered.
             return pass();
         }
         return violation(List.of(

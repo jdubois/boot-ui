@@ -212,6 +212,21 @@ record SecurityContext(
         return false;
     }
 
+    /**
+     * The configured actuator base path ({@code management.endpoints.web.base-path}), falling back to
+     * Spring Boot's own {@code /actuator} default. Resolved from the {@link Environment} so the
+     * scanner (which probes the path while building chain models) and the rules that report on it
+     * always agree.
+     */
+    static String actuatorBasePath(Environment environment) {
+        String base = environment == null ? null : environment.getProperty("management.endpoints.web.base-path");
+        return (base == null || base.isBlank()) ? "/actuator" : base.trim();
+    }
+
+    String actuatorBasePath() {
+        return actuatorBasePath(environment);
+    }
+
     String firstProperty(String... keys) {
         for (String key : keys) {
             String value = environment.getProperty(key);

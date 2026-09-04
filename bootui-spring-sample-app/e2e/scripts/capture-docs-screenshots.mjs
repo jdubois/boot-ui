@@ -2190,10 +2190,10 @@ const security = {
       'Exposed actuator endpoints should be protected by a security chain',
       'Actuator exposure',
       'MEDIUM',
-      'Detects web-exposed actuator endpoints when no filter chain references /actuator.',
+      'Detects web-exposed actuator endpoints an anonymous caller can reach.',
       1,
-      ['Actuator endpoints are exposed at /actuator but no security filter chain matches that path.'],
-      'Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication.'
+      ['Actuator endpoints are exposed at /actuator but Chain #2 (any request) permits anonymous access to that path.'],
+      'Require authentication for the actuator base path, in the chain that matches it or a dedicated one.'
     ),
     securityResult(
       'SEC-AUTH-005',

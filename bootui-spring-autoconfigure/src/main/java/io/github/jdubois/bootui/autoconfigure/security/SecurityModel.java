@@ -47,6 +47,14 @@ final class SecurityModel {
      *     {@code sessionCreationPolicy(STATELESS)} configures), {@code FALSE} when an
      *     {@code HttpSessionSecurityContextRepository} is part of it, {@code null} when the
      *     repository was absent, custom, or could not be introspected
+     * @param matchesActuatorPath {@code TRUE} when this chain's own request matcher accepts a request
+     *     for the actuator base path -- which a whole-application ({@code anyRequest}) chain does just
+     *     as much as a dedicated {@code securityMatcher("/actuator/**")} one -- {@code FALSE} when it
+     *     does not, {@code null} when the matcher could not be evaluated
+     * @param actuatorAnonymousAllowed {@code TRUE} when an anonymous request for the actuator base
+     *     path is granted by this chain's authorization rules (or the chain installs no
+     *     {@code AuthorizationFilter} at all, so nothing can deny it), {@code FALSE} when it is
+     *     denied, {@code null} when the chain's {@code AuthorizationManager} could not be introspected
      */
     record FilterChainModel(
             int index,
@@ -61,7 +69,9 @@ final class SecurityModel {
             Boolean cspReportOnly,
             Boolean authorizationRuleShadowed,
             Integer rememberMeKeyLength,
-            Boolean statelessSecurityContext) {
+            Boolean statelessSecurityContext,
+            Boolean matchesActuatorPath,
+            Boolean actuatorAnonymousAllowed) {
 
         private static final long HSTS_MIN_MAX_AGE_SECONDS = 31536000L; // HstsHeaderWriter's own 1-year default
 
@@ -103,6 +113,8 @@ final class SecurityModel {
                     null,
                     null,
                     null,
+                    null,
+                    null,
                     null);
         }
 
@@ -130,6 +142,8 @@ final class SecurityModel {
                     hstsMaxAgeSeconds,
                     hstsIncludeSubdomains,
                     cspPolicyDirectives,
+                    null,
+                    null,
                     null,
                     null,
                     null,
@@ -161,6 +175,44 @@ final class SecurityModel {
                     null,
                     authorizationRuleShadowed,
                     rememberMeKeyLength,
+                    null,
+                    null,
+                    null);
+        }
+
+        /**
+         * Convenience constructor for callers that predate the actuator-coverage fields, leaving both
+         * verdicts indeterminate so the actuator rule falls back to its matcher-string heuristic.
+         */
+        FilterChainModel(
+                int index,
+                String matcher,
+                List<String> filterNames,
+                Boolean permitsAllAnonymous,
+                Boolean sessionFixationDisabled,
+                List<String> headerWriterNames,
+                Long hstsMaxAgeSeconds,
+                Boolean hstsIncludeSubdomains,
+                String cspPolicyDirectives,
+                Boolean cspReportOnly,
+                Boolean authorizationRuleShadowed,
+                Integer rememberMeKeyLength,
+                Boolean statelessSecurityContext) {
+            this(
+                    index,
+                    matcher,
+                    filterNames,
+                    permitsAllAnonymous,
+                    sessionFixationDisabled,
+                    headerWriterNames,
+                    hstsMaxAgeSeconds,
+                    hstsIncludeSubdomains,
+                    cspPolicyDirectives,
+                    cspReportOnly,
+                    authorizationRuleShadowed,
+                    rememberMeKeyLength,
+                    statelessSecurityContext,
+                    null,
                     null);
         }
 
@@ -364,6 +416,18 @@ final class SecurityModel {
                     || normalized.contains("'/**'")
                     || normalized.contains("\"/**\"")
                     || CATCH_ALL_BRACKETED_PATTERN.matcher(normalized).find();
+        }
+
+        /**
+         * {@code true} when this chain's {@code securityMatcher} description mentions the actuator
+         * base path. Only a textual signal, used as a fallback when {@link #matchesActuatorPath()}
+         * could not be evaluated: a whole-application chain that protects the actuator through its
+         * authorization rules alone renders as {@code any request} and is not recognized here.
+         */
+        boolean matcherReferences(String basePath) {
+            return matcher != null
+                    && basePath != null
+                    && matcher.toLowerCase(Locale.ROOT).contains(basePath.toLowerCase(Locale.ROOT));
         }
 
         String describe() {
