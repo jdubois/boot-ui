@@ -24,20 +24,24 @@ participating you are expected to uphold this code.
 ## Project layout
 
 ```
-bootui-core/                        Shared DTOs, secret masking, and core helpers
-bootui-engine/                      Framework-neutral services/advisors and SPI ports
-bootui-spring-autoconfigure/        Spring MVC + WebFlux adapter (auto-config, endpoints, safety)
-bootui-spring-boot-starter/         Spring MVC starter
+bootui-core/                         Shared DTOs, secret masking, and core helpers
+bootui-engine/                       Framework-neutral services/advisors and SPI ports
+bootui-spring-autoconfigure/         Spring MVC + WebFlux adapter (auto-config, endpoints, safety)
+bootui-spring-boot-starter/          Spring MVC starter
 bootui-spring-boot-starter-reactive/ Spring WebFlux starter
-bootui-ui/                          Vue 3 SPA bundled into META-INF/resources/bootui
-bootui-conformance/                 Shared HTTP contract suite + golden manifests for all adapters
-bootui-spring-sample-app/           Reference Spring MVC app + Playwright e2e
-bootui-spring-webflux-sample-app/   Reference Spring WebFlux app
-bootui-quarkus/                     Quarkus runtime adapter
-bootui-quarkus-deployment/          Quarkus deployment/build-time wiring
-bootui-quarkus-integration-tests/   Quarkus @QuarkusTest suites
-bootui-quarkus-sample-app/          Reference Quarkus app
-docs/                               Public documentation source (VuePress)
+bootui-ui/                           Vue 3 SPA bundled into META-INF/resources/bootui
+bootui-conformance/                  Shared HTTP contract suite + golden manifests for all adapters
+bootui-coverage/                     Aggregated coverage report (coverage profile only)
+bootui-client/                       Dependency-free client for the command-line endpoint
+bootui-cli/                          The `bootui` CLI, projected from the engine's MCP tool catalog
+bootui-spring-sample-app/            Reference Spring MVC app + Playwright e2e
+bootui-spring-webflux-sample-app/    Reference Spring WebFlux app
+bootui-quarkus-parent/               Shared Quarkus LTS BOM and plugin management
+bootui-quarkus/                      Quarkus runtime adapter
+bootui-quarkus-deployment/           Quarkus deployment/build-time wiring
+bootui-quarkus-integration-tests/    Quarkus @QuarkusTest suites
+bootui-quarkus-sample-app/           Reference Quarkus app
+docs/                                Public documentation source (VuePress)
 ```
 
 ## Keeping framework-version references in sync

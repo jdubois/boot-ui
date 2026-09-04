@@ -2,13 +2,16 @@
 
 BootUI is a local-only developer console delivered from one codebase through three request stacks: Spring Boot 4 MVC,
 Spring Boot 4 WebFlux, and Quarkus. All three serve the same Vue UI and stable JSON contract through a
-framework-neutral engine.
+framework-neutral engine. The same diagnostics are reachable without a browser through MCP tools and the published
+`bootui-cli` command-line interface, which builds on the dependency-free `bootui-client`.
 
 ## Authoritative context
 
 - Read `docs/SPECIFICATION.md`, `docs/PLAN.md`, `docs/features/`, `docs/WEBFLUX-SUPPORT.md`, and
   `docs/QUARKUS-SUPPORT.md` before changing public behavior, panel availability, or visible UI.
 - Read `PRODUCT.md` and `DESIGN.md` before changing user-facing design or interaction.
+- Read `docs/REPOSITORY.md` for the module map, `docs/AI-AGENTS.md` for the MCP and agent surface, and
+  `CONTRIBUTING.md` for build, test, formatting, and publishing workflows.
 - Spring MVC is the complete reference stack. WebFlux and Quarkus support are capability-specific; verify current
   availability rather than assuming parity or absence.
 
