@@ -76,10 +76,16 @@ public final class McpToolDescriptions {
                             + "BootUI status. Use this before interpreting other results."),
             Map.entry(
                     "get_config",
-                    "Search effective configuration by case-insensitive name or displayed value and return a bounded "
-                            + "result. Name search is relaxed-binding aware, so `bootui.mcp.enabled` also finds a value "
-                            + "supplied as the environment variable `BOOTUI_MCP_ENABLED`, which is enumerated under that "
-                            + "literal name. Secret-like configuration values are masked; prefer a narrow query."),
+                    "Search effective configuration by name or displayed value and return a bounded result. Name "
+                            + "search is relaxed-binding aware: it ignores case and treats `_` and `-` as `.`, so the "
+                            + "dotted, kebab-case, and `UPPER_SNAKE_CASE` spellings of one property all find it — "
+                            + "`bootui.mcp.enabled` also finds a value supplied as the environment variable "
+                            + "`BOOTUI_MCP_ENABLED`, which is enumerated under that literal name. Values are matched "
+                            + "literally, and each row reports the exact name and source its property source published. "
+                            + "In `page`, `total` counts every property before filtering while `matched` counts the "
+                            + "query hits, so `matched: 0` means this query found nothing, not that the property is "
+                            + "absent — retry with a shorter query before concluding it is unset. Secret-like "
+                            + "configuration values are masked; prefer a narrow query."),
             Map.entry(
                     "get_mappings",
                     "Search request routes and handlers and return a bounded result. Use a path, HTTP concept, or handler "

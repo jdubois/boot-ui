@@ -2517,7 +2517,10 @@ Design rules:
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions
   state intended use, ordering, bounded/snapshot semantics, and sensitive-data caveats. Output schemas identify the
-  corresponding structured BootUI result; the existing panel DTO remains the authoritative shape.
+  corresponding structured BootUI result; the existing panel DTO remains the authoritative shape. Paged reads share one
+  envelope whose `total` counts every item before the query and filters are applied and whose `matched` counts what they
+  kept, so a non-zero `total` beside `matched: 0` is an empty query result rather than absent data; tool guidance states
+  that distinction where a narrow query would otherwise be read as a missing value.
 - **Prompt surface.** `prompts/list` advertises two argument-free workflows: `diagnose_runtime_issue` for evidence-led
   runtime diagnosis and `review_application` for a focused advisor review. `prompts/get` returns the selected workflow as
   a user message. Both prompts require agents to distinguish evidence from hypotheses, avoid blind fixes, minimize active

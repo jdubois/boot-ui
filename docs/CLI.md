@@ -144,6 +144,12 @@ Advisor scans differ in how they name that array — `pentest scan` reports `fin
 advisors report `results` — so check the shape with `bootui <command> --json | jq keys` before writing a
 filter. What every scan does share is `severityCounts`, which is what the [CI](#in-ci) gate below uses.
 
+Search commands such as `bootui config --query` share a `page` envelope instead, where `total` counts everything
+the panel can see *before* the query is applied and `matched` counts what the query kept. A large `total` beside
+`matched: 0` therefore means the query found nothing, not that the data is missing — retry with a shorter query.
+See [Reading a bounded result](AI-AGENTS.md#reading-a-bounded-result) for the full envelope, including the relaxed
+name matching that lets `bootui config --query bootui.mcp.enabled` find a value supplied as `BOOTUI_MCP_ENABLED`.
+
 Auto-detection is a convenience, not a contract: on a JDK 22 or later runtime a redirected stream can still
 report a console. Pass `--json` explicitly in scripts.
 
