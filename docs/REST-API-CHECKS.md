@@ -35,6 +35,14 @@ and — on Quarkus/JAX-RS — SmallRye Mutiny's `Uni`/`Multi` (the officially-pr
 resources) and RESTEasy Reactive's typed `RestResponse<T>`. Plain `jakarta.ws.rs.core.Response` is intentionally left
 unwrapped: it is non-generic, and Quarkus itself cannot determine its contained type at build time.
 
+Kotlin handlers are modelled from the same bytecode, recognized by name only (BootUI never adds a `kotlin-stdlib`
+dependency). A `suspend` handler is compiled with a trailing `kotlin.coroutines.Continuation` parameter and an erased
+return type; the model hides that implicit parameter — so it is never mistaken for an unannotated request parameter —
+and reads the real response body type out of `Continuation<? super T>`. A `kotlin.Unit` result is treated as `void`
+(no response body), and `kotlinx.coroutines.flow.Flow` and `kotlinx.coroutines.Deferred` are unwrapped like the other
+reactive wrappers above. Compiler-generated members (`$default` bridges, `componentN`/`copy` on `data class`es, and
+similar) are filtered out, so they are never analyzed as handlers or DTO accessors.
+
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
 without an extra application dependency. The panel is available only when:
 

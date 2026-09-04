@@ -28,6 +28,25 @@ dashboard. The file is developer-local and intended to be git-ignored. Rule iden
 advisors, so a dismissal always targets exactly one rule.
 :::
 
+### Kotlin applications
+
+The bytecode-driven advisors — Architecture, REST API, and Hibernate — are Kotlin-aware. They read compiled classes, so
+they work on Kotlin without configuration, and BootUI recognizes Kotlin constructs by bytecode name only: no
+`kotlin-stdlib` dependency is added to your application, and the behaviour is identical on Spring MVC, Spring WebFlux,
+and Quarkus because it lives in the shared engine.
+
+- Compiler-generated members and classes — `$suspendImpl` / `$default` bridges, `componentN` and `copy` accessors on
+  data classes, `Companion` and `DefaultImpls` holders, `WhenMappings` tables, and top-level `FooKt` file facades — are
+  filtered out, so they never appear as findings.
+- Suspending functions are judged on their declared signature: the implicit `kotlin.coroutines.Continuation` parameter
+  is hidden, the real result type is read from it, and `kotlin.Unit` counts as `void`.
+- Where an idiomatic Java fix does not translate, the recommendation offers the Kotlin equivalent — marking a class
+  `open` or applying the `kotlin-spring` plugin instead of "remove `final`", and constructor `val` injection instead of
+  an `@Autowired lateinit var`.
+
+See [Architecture checks](../ARCHITECTURE-CHECKS.md) and [REST API checks](../REST-API-CHECKS.md) for the per-rule
+notes.
+
 ## Architecture
 
 ![BootUI Architecture panel](../images/bootui-architecture.webp)

@@ -347,6 +347,9 @@ Dismissed rules remove all of their findings from the score.
   Bytecode enhancement is a valid alternative and is not itself blocked by a final declaration.
 - **Recommendation**: prefer non-final entities (and `open` Kotlin entities) when lazy subclass proxies are needed.
   Bytecode-enhanced entities are exempt.
+- **Kotlin note**: Kotlin classes are final by default, so mark entities `open` or apply the `kotlin-allopen` /
+  `kotlin-jpa` compiler plugin (the `kotlin-jpa` plugin also generates the no-arg constructor JPA requires). Detection
+  is accurate either way because these plugins change the emitted bytecode.
 
 ### HIB-MAP-012 - SINGLE_TABLE inheritance should declare @DiscriminatorColumn
 
