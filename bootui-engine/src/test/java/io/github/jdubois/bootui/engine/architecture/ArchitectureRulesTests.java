@@ -12,6 +12,10 @@ import jakarta.annotation.Resource;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.PrintWriter;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -31,12 +35,16 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
+import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.server.ServerWebExchange;
@@ -652,6 +660,31 @@ class ArchitectureRulesTests {
                 evaluate(new AsyncAndTransactionalShouldNotBeCombinedRule(), AsyncOnlyBean.class);
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void asyncAndTransactionalShouldNotBeCombinedPassesForPostCommitTransactionalEventListeners() {
+        // The @Async + @Transactional(REQUIRES_NEW) + @TransactionalEventListener triple, the real
+        // @ApplicationModuleListener it composes, and a hand-composed annotation meta-annotated with
+        // @TransactionalEventListener: in all three the publishing transaction has already committed, so a
+        // separate transaction on the async thread is the intended shape rather than a lost context.
+        ArchitectureRuleResultDto result = evaluate(
+                new AsyncAndTransactionalShouldNotBeCombinedRule(),
+                AsyncTransactionalEventListenerBean.class,
+                ApplicationModuleListenerBean.class,
+                ComposedTransactionalEventListenerBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void asyncAndTransactionalShouldNotBeCombinedFlagsBeforeCommitTransactionalEventListeners() {
+        ArchitectureRuleResultDto result =
+                evaluate(new AsyncAndTransactionalShouldNotBeCombinedRule(), BeforeCommitAsyncEventListenerBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-019");
+        assertThat(result.sampleViolations()).singleElement().asString().contains("BEFORE_COMMIT");
     }
 
     @Test
@@ -1409,6 +1442,46 @@ class ArchitectureRulesTests {
 
         @Async
         void doWork() {}
+    }
+
+    // The shape Spring Modulith's @ApplicationModuleListener composes, written out by hand.
+    private static class AsyncTransactionalEventListenerBean {
+
+        @Async
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        @TransactionalEventListener
+        void onSomethingHappened(String event) {}
+    }
+
+    private static class ApplicationModuleListenerBean {
+
+        // The composed annotation already implies both, but a redundant pair is written out here so the
+        // rule's direct-annotation detection fires and the exemption is what keeps the method silent.
+        @Async
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        @ApplicationModuleListener
+        void onSomethingHappened(String event) {}
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @TransactionalEventListener
+    private @interface AfterCommitListener {}
+
+    private static class ComposedTransactionalEventListenerBean {
+
+        @Async
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        @AfterCommitListener
+        void onSomethingHappened(String event) {}
+    }
+
+    private static class BeforeCommitAsyncEventListenerBean {
+
+        @Async
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+        void onSomethingHappened(String event) {}
     }
 
     private static class AsyncEventListenerBean {

@@ -41,6 +41,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
+  `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
+  collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,
+  which is precisely the shape's purpose: the listener runs after the publisher committed, so there is no transaction
+  left to join. The rule now reads the listener's transaction phase rather than the two annotations in isolation. A
+  post-commit listener — `AFTER_COMMIT`, `AFTER_ROLLBACK` or `AFTER_COMPLETION` — is silent, recognised on the method
+  itself, through any composed annotation (a project's own meta-annotation is exempt too), and by name for
+  `@ApplicationModuleListener` in both its current `org.springframework.modulith.events` package and the Spring
+  Modulith 1.x one, so the exemption holds even where that annotation type cannot be resolved. What is not silenced is
+  the case that is genuinely broken: `@TransactionalEventListener(phase = BEFORE_COMMIT)` with `@Async` still reports,
+  now naming the phase, because there the publishing transaction is still open while the listener runs on another
+  thread. Plain `@Async` plus `@Transactional` is reported exactly as before. BootUI gains no Spring Modulith
+  dependency: the annotations are matched by name.
+  ([#926](https://github.com/jdubois/boot-ui/issues/926))
 - **The Configuration panel's override name picker now suggests a property typed the way a container spells it.** The
   free-text search above it was made relaxed-binding aware in
   [#939](https://github.com/jdubois/boot-ui/issues/939), so `bootui.mcp.enabled` finds a value supplied as
@@ -56,7 +70,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   prefix-before-contains ranking and suggestion cap are untouched and nothing that matched before stops matching. The
   hint under the input still requires an exact name, since describing a property the file will not bind would assert
   the opposite of what happens ([#945](https://github.com/jdubois/boot-ui/issues/945)).
-
 - **Three advisor rules no longer report a Kotlin application for shapes its compiler produced.** Each read bytecode as
   if `javac` had written it, and each turned an ordinary Kotlin idiom into a finding nobody could act on.
   `ARCH-SPRING-004` reported a self-invocation for every call that omits a default argument: Kotlin routes such a call
