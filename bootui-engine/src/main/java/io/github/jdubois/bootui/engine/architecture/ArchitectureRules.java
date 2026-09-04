@@ -15,6 +15,7 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
+import com.tngtech.archunit.core.domain.JavaEnumConstant;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
 import com.tngtech.archunit.core.domain.JavaMethod;
@@ -103,6 +104,11 @@ final class SpringStereotypes {
     static final String CACHING = "org.springframework.cache.annotation.Caching";
     static final String SCHEDULED = "org.springframework.scheduling.annotation.Scheduled";
     static final String EVENT_LISTENER = "org.springframework.context.event.EventListener";
+    static final String TRANSACTIONAL_EVENT_LISTENER =
+            "org.springframework.transaction.event.TransactionalEventListener";
+    static final String APPLICATION_MODULE_LISTENER = "org.springframework.modulith.events.ApplicationModuleListener";
+    // Spring Modulith 1.x carried the same annotation directly under org.springframework.modulith.
+    static final String LEGACY_APPLICATION_MODULE_LISTENER = "org.springframework.modulith.ApplicationModuleListener";
     static final String CONFIGURATION_PROPERTIES =
             "org.springframework.boot.context.properties.ConfigurationProperties";
     static final String BEAN = "org.springframework.context.annotation.Bean";
@@ -1713,8 +1719,21 @@ final class LifecycleCallbacksShouldNotBeProxyDrivenRule extends AbstractArchite
  * on the async worker thread, so the caller's transaction and security context do not propagate and
  * the returned {@code Future} completes outside the transaction boundary; the combination is usually
  * unintended.
+ *
+ * <p>A transactional event listener that runs after the publishing transaction completed is the
+ * exception: {@code @Async} plus {@code @Transactional(propagation = REQUIRES_NEW)} plus
+ * {@code @TransactionalEventListener} is exactly what Spring Modulith's
+ * {@code @ApplicationModuleListener} composes, and not joining the publisher's transaction is the
+ * point of that shape — by the time the listener runs there is no transaction left to join. Such
+ * methods are not reported. A {@code BEFORE_COMMIT} listener still is: there the publishing
+ * transaction is genuinely still open while the listener runs on another thread.</p>
  */
 final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchitectureRule {
+
+    private static final String BEFORE_COMMIT_PHASE = "BEFORE_COMMIT";
+
+    // The default phase of @TransactionalEventListener, and the phase @ApplicationModuleListener fixes.
+    private static final String AFTER_COMMIT_PHASE = "AFTER_COMMIT";
 
     AsyncAndTransactionalShouldNotBeCombinedRule() {
         super(
@@ -1723,8 +1742,8 @@ final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchite
                         "Async and transactional semantics on one method should be reviewed",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects methods annotated with both @Async and @Transactional. The transaction runs on the async worker thread, so the caller's transaction and security context do not propagate.",
-                        "Review the design: usually the transactional work belongs in a separate bean method that the @Async method calls, so the transaction is scoped correctly on the async thread.",
+                        "Detects methods annotated with both @Async and @Transactional. The transaction runs on the async worker thread, so the caller's transaction and security context do not propagate. Transactional event listeners that run after the publishing transaction completed are excluded, including Spring Modulith's @ApplicationModuleListener, because a separate transaction is the intended shape there; a BEFORE_COMMIT listener is still reported.",
+                        "Review the design: usually the transactional work belongs in a separate bean method that the @Async method calls, so the transaction is scoped correctly on the async thread. For an asynchronous BEFORE_COMMIT listener, move to the AFTER_COMMIT phase (or drop @Async) so the listener no longer runs beside the transaction it observes.",
                         "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html"));
     }
 
@@ -1735,18 +1754,69 @@ final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchite
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
-                            if (SpringStereotypes.ASYNC_ANNOTATED.test(method)
-                                    && SpringStereotypes.TRANSACTIONAL_ANNOTATED.test(method)) {
+                            if (!SpringStereotypes.ASYNC_ANNOTATED.test(method)
+                                    || !SpringStereotypes.TRANSACTIONAL_ANNOTATED.test(method)) {
+                                continue;
+                            }
+                            Optional<String> phase = transactionalEventListenerPhase(method);
+                            if (phase.isEmpty()) {
                                 events.add(
                                         SimpleConditionEvent.violated(
                                                 method,
                                                 "Method " + method.getFullName()
                                                         + " combines @Async and @Transactional; the transaction runs on the async thread and the caller's context does not propagate"));
+                            } else if (BEFORE_COMMIT_PHASE.equals(phase.get())) {
+                                events.add(
+                                        SimpleConditionEvent.violated(
+                                                method,
+                                                "Asynchronous transactional event listener " + method.getFullName()
+                                                        + " listens in the BEFORE_COMMIT phase; it runs on the async thread while the publishing transaction is still open, so its own transaction observes state that transaction has not committed"));
                             }
                         }
                     }
                 })
                 .as("Async and transactional semantics on one method should be reviewed");
+    }
+
+    /**
+     * Returns the transaction phase of the transactional event listener annotation on the method, or
+     * empty when the method is not a transactional event listener. The annotation is recognised both
+     * directly and through a composed annotation such as Spring Modulith's
+     * {@code @ApplicationModuleListener}, which is additionally matched by name so the exemption holds
+     * even when that annotation type cannot be resolved from the classpath.
+     */
+    private static Optional<String> transactionalEventListenerPhase(JavaMethod method) {
+        Optional<String> direct = method.tryGetAnnotationOfType(SpringStereotypes.TRANSACTIONAL_EVENT_LISTENER)
+                .map(AsyncAndTransactionalShouldNotBeCombinedRule::phaseOf);
+        if (direct.isPresent()) {
+            return direct;
+        }
+        for (JavaAnnotation<?> annotation : method.getAnnotations()) {
+            JavaClass annotationType = annotation.getRawType();
+            if (SpringStereotypes.APPLICATION_MODULE_LISTENER.equals(annotationType.getName())
+                    || SpringStereotypes.LEGACY_APPLICATION_MODULE_LISTENER.equals(annotationType.getName())) {
+                return Optional.of(AFTER_COMMIT_PHASE);
+            }
+            Optional<String> composed = annotationType
+                    .tryGetAnnotationOfType(SpringStereotypes.TRANSACTIONAL_EVENT_LISTENER)
+                    .map(AsyncAndTransactionalShouldNotBeCombinedRule::phaseOf);
+            if (composed.isPresent()) {
+                return composed;
+            }
+            if (annotationType.isMetaAnnotatedWith(SpringStereotypes.TRANSACTIONAL_EVENT_LISTENER)) {
+                return Optional.of(AFTER_COMMIT_PHASE);
+            }
+        }
+        return Optional.empty();
+    }
+
+    // An unset or unresolvable phase means the annotation's own default, AFTER_COMMIT.
+    private static String phaseOf(JavaAnnotation<?> annotation) {
+        Object phase = annotation.get("phase").orElse(null);
+        if (phase instanceof JavaEnumConstant enumConstant) {
+            return enumConstant.name();
+        }
+        return phase == null ? AFTER_COMMIT_PHASE : String.valueOf(phase);
     }
 }
 
