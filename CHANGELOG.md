@@ -22,6 +22,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   token itself. `docs/AI-AGENTS.md`, the MCP Server feature page, and the `bootui` agent skill carry the same
   four shapes and the same header rule ([#928](https://github.com/jdubois/boot-ui/issues/928)).
 
+### Changed
+
+- **`get_config` now tells an agent how its search actually matches, and what an empty result means.** Making the
+  search relaxed-binding aware ([#939](https://github.com/jdubois/boot-ui/issues/939)) fixed the behavior but left the
+  agent-facing description asserting it was "relaxed-binding aware" without saying what that does, and an agent reads
+  the tool description, not the documentation. It now states the rule — case is ignored and `_` and `-` are treated as
+  `.`, so the dotted, kebab-case, and `UPPER_SNAKE_CASE` spellings of one property all find it — along with the two
+  things the rule does *not* cover: values are still matched literally, and each row still reports the exact name and
+  source its property source published. The same description now separates the paging counts, which was the other half
+  of the original confusion: `total` counts every property *before* filtering while `matched` counts the query hits, so
+  a large `total` beside `matched: 0` means the query found nothing rather than the property being unset. That envelope
+  is shared by every bounded read, so `docs/AI-AGENTS.md` gains a **Reading a bounded result** table defining `total`,
+  `matched`, `offset`, `limit`, `returned`, and `hasMore` once, `docs/CLI.md` gives `--json` consumers the same reading,
+  and the Configuration feature page notes that a page reports the full and matched counts separately. `bootui config
+  --help` shows the regenerated one-line summary, which no longer says "case-insensitive" now that the full rule is
+  stated where an agent reads it ([#940](https://github.com/jdubois/boot-ui/issues/940)).
+
 ### Fixed
 
 - **Configuration search now finds a property whatever spelling it was supplied in.** `get_config` with

@@ -201,6 +201,30 @@ the classpath) are simply not advertised.
   `analyze_heap_dump`, and `trigger_devtools_livereload`. They never capture or download a heap dump, execute an HTTP
   probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent command.
 
+### Reading a bounded result
+
+Every search- or list-style tool returns its rows next to the same `page` envelope, so one reading applies to all of
+them:
+
+| Field | Meaning |
+| --- | --- |
+| `total` | Every item the panel can see, **before** the query and filters are applied |
+| `matched` | How many of those the query and filters kept |
+| `offset` | Where this page starts within the matched items |
+| `limit` | The page size actually used, capped by `bootui.mcp.max-results` (`bootui.cli.max-results` from the CLI) |
+| `returned` | How many rows this response carries |
+| `hasMore` | Whether matched items remain past this page — raise `offset` to walk them |
+
+The distinction that matters is `total` versus `matched`. A large `total` beside `matched: 0` does **not** mean the
+data is missing; it means the query matched none of it. Retry with a shorter query before concluding a property,
+bean, or mapping does not exist.
+
+`get_config` additionally matches names through relaxed binding — case is ignored and `_` and `-` are treated as `.`
+— so `bootui.mcp.enabled` finds a value supplied as the environment variable `BOOTUI_MCP_ENABLED`, which every
+property source enumerates under that literal name. Values are matched literally, and each row still reports the exact
+name and source its property source published. See the [Configuration panel](features/configuration.md#configuration)
+for the panel-side behavior.
+
 ### Safety model
 
 The MCP server inherits BootUI's full safety posture, so handing it to an agent stays safe by construction:

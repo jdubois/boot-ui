@@ -101,7 +101,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Search effective configuration by case-insensitive name or displayed value and return a bounded result."
+      "summary": "Search effective configuration by name or displayed value and return a bounded result."
     },
     {
       "name": "get_crac_report",
