@@ -103,6 +103,27 @@ test.describe('BootUI on Spring WebFlux', () => {
     }
   })
 
+  test('MCP Server offers the per-client configuration snippets and the bearer-header switch', async ({page}) => {
+    await page.goto('/bootui/#/mcp-server')
+    await expect(
+      page
+        .locator('main h2')
+        .filter({hasText: /^MCP Server/})
+        .first()
+    ).toBeVisible({timeout: 15_000})
+
+    await expect(page.getByRole('tablist', {name: 'MCP client'})).toHaveCount(1)
+    await expect(page.locator('#mcp-client-vscode-panel .config-block')).toContainText('"servers"')
+
+    await page.getByRole('tab', {name: 'Claude Code'}).click()
+    const claudeSnippet = page.locator('#mcp-client-claude-panel .config-block')
+    await expect(claudeSnippet).toContainText('claude mcp add --transport http bootui')
+    await expect(claudeSnippet).not.toContainText('--header')
+
+    await page.locator('#mcp-remote-agent').check()
+    await expect(claudeSnippet).toContainText('--header "Authorization:')
+  })
+
   test("Live Activity's Live flow map renders the same contract on the reactive stack", async ({
     page,
     request,

@@ -25,4 +25,21 @@ test.describe('MCP Server (Quarkus)', () => {
     await expect(toggle).not.toBeChecked()
     await expect(page.getByText('Server disabled — tools are not reachable')).toBeVisible()
   })
+
+  test('offers the same per-client configuration snippets and bearer-header switch', async ({openView, page}) => {
+    await openView('mcp-server', 'MCP Server')
+
+    await expect(page.getByRole('tablist', {name: 'MCP client'})).toHaveCount(1)
+    await expect(page.locator('#mcp-client-vscode-panel .config-block')).toContainText('"servers"')
+
+    await page.getByRole('tab', {name: 'Claude Code'}).click()
+    const claudeSnippet = page.locator('#mcp-client-claude-panel .config-block')
+    await expect(claudeSnippet).toContainText('claude mcp add --transport http bootui')
+    await expect(claudeSnippet).toContainText('/bootui/api/mcp')
+    await expect(claudeSnippet).not.toContainText('--header')
+
+    await page.locator('#mcp-remote-agent').check()
+    await expect(claudeSnippet).toContainText('--header "Authorization:')
+    await expect(page.getByText('bootui.authentication.token')).toBeVisible()
+  })
 })

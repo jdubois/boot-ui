@@ -41,17 +41,24 @@ function mcpStatus(overrides = {}) {
   }
 }
 
+function snippetFor(wrapper, client) {
+  return wrapper.get(`#mcp-client-${client}-panel .config-block`).text()
+}
+
 describe('McpServer', () => {
   let wrapper
+  let originalLocation
 
   beforeEach(() => {
     vi.useFakeTimers()
+    originalLocation = window.location
     Object.defineProperty(document, 'visibilityState', {configurable: true, value: 'visible'})
   })
 
   afterEach(() => {
     wrapper?.unmount()
     wrapper = null
+    Object.defineProperty(window, 'location', {configurable: true, value: originalLocation})
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
@@ -104,7 +111,7 @@ describe('McpServer', () => {
     expect(wrapper.get('#mcp-enabled-toggle').element.checked).toBe(true)
   })
 
-  it('renders a copyable MCP client configuration', async () => {
+  it('renders a copyable MCP client configuration for each supported client', async () => {
     const writeText = vi.fn().mockResolvedValue()
     vi.stubGlobal('navigator', {clipboard: {writeText}})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus())))
@@ -113,11 +120,23 @@ describe('McpServer', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Client configuration')
-    const block = wrapper.get('.config-block').text()
-    expect(block).toContain('"servers"')
-    expect(block).toContain('"bootui"')
-    expect(block).toContain('"type": "http"')
-    expect(block).toContain('/bootui/api/mcp')
+
+    const vsCode = snippetFor(wrapper, 'vscode')
+    expect(vsCode).toContain('"servers"')
+    expect(vsCode).toContain('"bootui"')
+    expect(vsCode).toContain('"type": "http"')
+    expect(vsCode).toContain('/bootui/api/mcp')
+
+    expect(snippetFor(wrapper, 'claude')).toContain('claude mcp add --transport http bootui')
+    expect(snippetFor(wrapper, 'claude')).toContain('/bootui/api/mcp')
+
+    const cursor = snippetFor(wrapper, 'cursor')
+    expect(cursor).toContain('"mcpServers"')
+    expect(cursor).not.toContain('"type"')
+
+    const generic = snippetFor(wrapper, 'json')
+    expect(generic).toContain('"mcpServers"')
+    expect(generic).toContain('"type": "http"')
 
     const copyButton = wrapper.findAll('button').find((b) => b.text().includes('Copy'))
     await copyButton.trigger('click')
@@ -128,7 +147,76 @@ describe('McpServer', () => {
     expect(writeText.mock.calls[0][0]).toContain('/bootui/api/mcp')
   })
 
-  it('adds bearer authorization guidance for remote access', async () => {
+  it('copies the snippet of the selected client tab', async () => {
+    const writeText = vi.fn().mockResolvedValue()
+    vi.stubGlobal('navigator', {clipboard: {writeText}})
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus())))
+
+    wrapper = mount(McpServer)
+    await flushPromises()
+
+    await wrapper.get('#mcp-client-claude-tab').trigger('click')
+    const copyButton = wrapper.findAll('button').find((b) => b.text().includes('Copy'))
+    await copyButton.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('#mcp-client-claude-tab').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('#mcp-client-vscode-tab').attributes('aria-selected')).toBe('false')
+    expect(writeText.mock.calls[0][0]).toContain('claude mcp add')
+  })
+
+  it('moves between client tabs with the arrow keys', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus())))
+
+    wrapper = mount(McpServer)
+    await flushPromises()
+
+    await wrapper.get('#mcp-client-vscode-tab').trigger('keydown', {key: 'ArrowRight'})
+    expect(wrapper.get('#mcp-client-claude-tab').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('#mcp-client-claude-tab').attributes('tabindex')).toBe('0')
+    expect(wrapper.get('#mcp-client-vscode-tab').attributes('tabindex')).toBe('-1')
+
+    await wrapper.get('#mcp-client-claude-tab').trigger('keydown', {key: 'End'})
+    expect(wrapper.get('#mcp-client-json-tab').attributes('aria-selected')).toBe('true')
+
+    await wrapper.get('#mcp-client-json-tab').trigger('keydown', {key: 'ArrowRight'})
+    expect(wrapper.get('#mcp-client-vscode-tab').attributes('aria-selected')).toBe('true')
+  })
+
+  it('adds the bearer header to every snippet when the agent is not on loopback', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus())))
+
+    wrapper = mount(McpServer)
+    await flushPromises()
+
+    expect(snippetFor(wrapper, 'vscode')).not.toContain('Authorization')
+    expect(snippetFor(wrapper, 'claude')).not.toContain('--header')
+
+    await wrapper.get('#mcp-remote-agent').setValue(true)
+
+    expect(snippetFor(wrapper, 'vscode')).toContain('"Authorization": "Bearer <BootUI authentication token>"')
+    expect(snippetFor(wrapper, 'cursor')).toContain('"Authorization": "Bearer <BootUI authentication token>"')
+    expect(snippetFor(wrapper, 'json')).toContain('"Authorization": "Bearer <BootUI authentication token>"')
+    expect(snippetFor(wrapper, 'claude')).toContain('--header "Authorization: Bearer <BootUI authentication token>"')
+
+    await wrapper.get('#mcp-remote-agent').setValue(false)
+
+    expect(snippetFor(wrapper, 'vscode')).not.toContain('Authorization')
+    expect(snippetFor(wrapper, 'claude')).not.toContain('--header')
+  })
+
+  it('always explains that a non-loopback agent needs the bearer header', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus())))
+
+    wrapper = mount(McpServer)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Agent connects from another host or container')
+    expect(wrapper.text()).toContain('must send BootUI')
+    expect(wrapper.text()).toContain('bootui.authentication.token')
+  })
+
+  it('pre-selects the bearer header when the browser itself is remote', async () => {
     Object.defineProperty(window, 'location', {
       configurable: true,
       value: {origin: 'https://devbox.example.com', hostname: 'devbox.example.com'}
@@ -138,7 +226,8 @@ describe('McpServer', () => {
     wrapper = mount(McpServer)
     await flushPromises()
 
-    expect(wrapper.get('.config-block').text()).toContain('"Authorization": "Bearer <bootui authentication token>"')
+    expect(wrapper.get('#mcp-remote-agent').element.checked).toBe(true)
+    expect(snippetFor(wrapper, 'vscode')).toContain('"Authorization": "Bearer <BootUI authentication token>"')
   })
 
   it('does not toggle and warns when the panel is read-only', async () => {

@@ -207,7 +207,7 @@ your tool list, just call them — there is nothing to configure. For a one-off 
 guide is at `https://github.com/jdubois/boot-ui/blob/main/docs/AI-AGENTS.md`.
 
 The MCP server is opt-in. Enable it with `bootui.mcp.enabled=ON` or the MCP Server panel toggle, then configure the agent
-with the application's actual port:
+with the application's actual port. VS Code uses a `servers` block:
 
 ```json
 {
@@ -220,7 +220,13 @@ with the application's actual port:
 }
 ```
 
-Prefer `127.0.0.1` and replace `8080` when needed. No credentials are required. Verify
+Claude Code, Cursor, and most other clients use `mcpServers` instead, and Claude Code can register the server directly
+with `claude mcp add --transport http bootui http://127.0.0.1:8080/bootui/api/mcp`.
+
+Prefer `127.0.0.1` and replace `8080` when needed. A loopback agent needs no credentials. An agent that reaches the app
+from anywhere else — typically an app in a container reached through a published port — must send BootUI's token as
+`Authorization: Bearer <token>` on every call or receive `401`; the token is `bootui.authentication.token`, or the value
+BootUI generated and logged once at startup. Verify
 `GET /bootui/api/mcp-server` before debugging the client; it reports enabled state and advertised tools. Tools are
 availability-driven, so do not assume every framework exposes every tool.
 
