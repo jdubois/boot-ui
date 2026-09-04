@@ -74,10 +74,42 @@ class KotlinArchitectureRulesTests {
     void compilerGeneratedSelfInvocationIsNotReported() {
         ArchitectureRuleResultDto result = evaluate(new NoSelfInvocationOfProxiedMethodsRule());
 
-        // Calling one's own private @Transactional function is a real finding; a suspending function
-        // dispatching to its own generated $suspendImpl body is not.
-        assertThat(result.violationCount()).isEqualTo(1);
-        assertThat(result.sampleViolations()).singleElement().asString().contains("auditOrder");
+        // Not findings: a suspending function dispatching to its own generated $suspendImpl body, and a
+        // $default bridge calling the very function it exists to reach. Both are calls the compiler makes.
+        assertThat(result.violationCount()).isEqualTo(3);
+        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("$suspendImpl"));
+        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("$default"));
+        assertThat(result.sampleViolations())
+                .anySatisfy(violation -> assertThat(violation).contains("auditOrder"));
+    }
+
+    @Test
+    void selfInvocationThroughADefaultArgumentBridgeIsReportedAgainstTheDeclaredFunction() {
+        ArchitectureRuleResultDto result = evaluate(new NoSelfInvocationOfProxiedMethodsRule());
+
+        // expireNow calls expire(id), which compiles into a call to the $default bridge. The finding is
+        // real and must survive the bridge, naming the function the developer can actually refactor.
+        assertThat(result.sampleViolations())
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("expireNow").contains("expire(long, java.lang.String)"));
+    }
+
+    @Test
+    void selfInvocationFromInsideALambdaIsStillReported() {
+        ArchitectureRuleResultDto result = evaluate(new NoSelfInvocationOfProxiedMethodsRule());
+
+        // Kotlin puts this lambda body in a synthetic method of the same class. Skipping every synthetic
+        // origin, rather than only the compiler's dispatch bridges, would silence a real proxy bypass.
+        assertThat(result.sampleViolations())
+                .anySatisfy(violation -> assertThat(violation).contains("expireLater"));
+    }
+
+    @Test
+    void nestedVariantsOfASealedExceptionHierarchyAreNotNamingFindings() {
+        ArchitectureRuleResultDto result = evaluate(new ExceptionsShouldBeNamedExceptionRule());
+
+        // KotlinClaimException.AlreadyAssigned already says what it is; renaming it would stutter.
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
     }
 
     @Test

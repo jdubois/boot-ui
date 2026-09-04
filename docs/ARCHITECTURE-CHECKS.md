@@ -208,8 +208,14 @@ Dismissed rules remove all of their instances from the score.
 
 - **Severity**: LOW
 - **Inspects**: classes that extend `Exception` or `RuntimeException`.
-- **Fires when**: an exception type's simple class name does not end with `Exception`.
-- **Recommendation**: rename exception classes to end with `Exception` so their purpose is immediately clear.
+- **Fires when**: an exception type's simple class name does not end with `Exception`, and no enclosing class does
+  either.
+- **Recommendation**: rename exception classes to end with `Exception` so their purpose is immediately clear, or nest
+  them inside the exception type they specialise.
+- **Kotlin note**: the variants of a `sealed class` hierarchy are nested inside their parent so the compiler can close
+  the hierarchy, which leaves them with names like `ClaimException.AlreadyAssigned`. Those are exempt: the enclosing
+  name already says what the type is at every call site, and adding the suffix would only make it stutter. The same
+  applies to a nested Java exception hierarchy.
 
 ### ARCH-CODE-011 - Interfaces should not have names ending with 'Interface'
 
@@ -379,8 +385,14 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or,
   only if necessary, inject a `@Lazy` self-reference and call through it.
 - **Kotlin note**: Kotlin behaves identically — marking a function `open` does not make a `this`-call go through the
-  proxy. Calls a function makes into its own compiler-generated helpers (such as the `$suspendImpl` of an `open suspend
-  fun`) are not reported.
+  proxy. Two compiler-generated shapes are read as what the developer wrote rather than as extra self-invocations.
+  Calls a function makes into its own helpers (such as the `$suspendImpl` of an `open suspend fun`, or the `$default`
+  bridge that fills in default arguments) are not reported, because nobody can refactor a call the compiler makes.
+  Conversely, a call that omits a default argument is compiled into a call to that `$default` bridge, and it is
+  followed through to the function it dispatches to — so a genuine self-invocation stays reported, named after the
+  function you can actually change, instead of disappearing the moment a proxied function gains a default parameter
+  value. A self-invocation written inside a lambda is still reported: the compiler puts the body in a synthetic
+  method, but the code is yours and the behaviour really is lost.
 - **Quarkus/CDI note**: this rule is skipped on Quarkus. Arc deliberately supports intercepted self-invocation, unlike
   standard proxy-based Spring AOP, so reporting the Spring limitation there would be a false positive. See the
   [Quarkus CDI reference](https://quarkus.io/version/3.33/guides/cdi-reference#intercepted-self-invocation).

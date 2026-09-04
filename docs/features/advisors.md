@@ -40,12 +40,20 @@ and Quarkus because it lives in the shared engine.
   filtered out, so they never appear as findings.
 - Suspending functions are judged on their declared signature: the implicit `kotlin.coroutines.Continuation` parameter
   is hidden, the real result type is read from it, and `kotlin.Unit` counts as `void`.
+- Properties are judged as properties. A `lateinit var` on an entity is not a public field finding: the compiler must
+  leave its backing field public, but every access goes through the generated accessor pair. A `@JvmField var`, which
+  has no accessors, is still reported.
+- Nested types are read with their enclosing name. The variants of a `sealed class` exception hierarchy are not
+  renaming findings, because `ClaimException.AlreadyAssigned` already says what it is.
+- Suppressing the compiler's noise never suppresses your code. A call routed through a `$default` bridge is followed
+  through to the function it dispatches to, and a self-invocation written inside a lambda stays reported even though
+  the compiler hides the body in a synthetic method.
 - Where an idiomatic Java fix does not translate, the recommendation offers the Kotlin equivalent — marking a class
   `open` or applying the `kotlin-spring` plugin instead of "remove `final`", and constructor `val` injection instead of
   an `@Autowired lateinit var`.
 
-See [Architecture checks](../ARCHITECTURE-CHECKS.md) and [REST API checks](../REST-API-CHECKS.md) for the per-rule
-notes.
+See [Architecture checks](../ARCHITECTURE-CHECKS.md), [REST API checks](../REST-API-CHECKS.md), and
+[Hibernate checks](../HIBERNATE-CHECKS.md) for the per-rule notes.
 
 ## Architecture
 

@@ -24,6 +24,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Three advisor rules no longer report a Kotlin application for shapes its compiler produced.** Each read bytecode as
+  if `javac` had written it, and each turned an ordinary Kotlin idiom into a finding nobody could act on.
+  `ARCH-SPRING-004` reported a self-invocation for every call that omits a default argument: Kotlin routes such a call
+  through a generated `$default` bridge, which then calls the real function, so one call in the source became a proxy
+  bypass in the report. The rule now judges both ends of a call — a bridge calling the function it exists to reach is
+  the compiler's own call and is skipped, while a call *into* a bridge is followed through to the function it
+  dispatches to, so a genuine self-invocation is still reported and named after the function you can change rather than
+  vanishing as soon as a proxied function gains a default parameter value. Only dispatch bridges are skipped, never
+  every synthetic method: a self-invocation written inside a lambda lives in a synthetic method too, and that
+  transaction really is lost. `HIB-ENTITY-005` reported every `lateinit var` as a public persistent field, though
+  Kotlin has no public fields — the compiler must leave the backing field public so the initialisation check can run,
+  while all access goes through the generated accessor pair, and the language offers no way to change it. It is now
+  exempt, recognised by that accessor pair, so a `@JvmField var` — which generates no accessors and is a real
+  encapsulation break — stays reported. `ARCH-CODE-010` asked every nested variant of an exception hierarchy to be
+  renamed, which is how a Kotlin `sealed class` hierarchy has to be written; a nested exception is now exempt when an
+  enclosing class carries the suffix, since `ClaimException.AlreadyAssigned` already says what it is at every call
+  site. That last fix is language-neutral and applies to nested Java exceptions as well.
+  ([#925](https://github.com/jdubois/boot-ui/issues/925))
+
 - **The Security Advisor no longer reports an actuator protected inside a single `anyRequest` chain as unprotected.**
   `SEC-ACT-003` decided whether the actuator was covered by looking for the base path in a chain's `securityMatcher`
   *description*. A whole-application chain renders as `any request` and never mentions `/actuator`, so an application

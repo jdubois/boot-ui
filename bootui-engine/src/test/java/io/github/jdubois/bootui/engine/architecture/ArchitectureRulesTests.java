@@ -549,6 +549,36 @@ class ArchitectureRulesTests {
     }
 
     @Test
+    void noSelfInvocationFlagsSelfCallMadeFromInsideALambda() {
+        ArchitectureRuleResultDto result =
+                evaluate(new NoSelfInvocationOfProxiedMethodsRule(), LambdaSelfInvokingBean.class);
+
+        // javac compiles a lambda body into a private synthetic method of the same class. Skipping every
+        // synthetic origin would silence this, and the transaction really is lost when the task runs.
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("persist"));
+    }
+
+    @Test
+    void exceptionsShouldBeNamedExceptionAllowsNestedVariantsOfAnExceptionHierarchy() {
+        ArchitectureRuleResultDto result = evaluate(
+                new ExceptionsShouldBeNamedExceptionRule(), ClaimException.class, ClaimException.AlreadyAssigned.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void exceptionsShouldBeNamedExceptionStillFlagsNestedTypesOutsideAnExceptionHierarchy() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ExceptionsShouldBeNamedExceptionRule(), ClaimOutcome.Rejected.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("Rejected"));
+    }
+
+    @Test
     void liteModeBeanMethodsFlagsSiblingBeanCallInLiteClass() {
         ArchitectureRuleResultDto result =
                 evaluate(new LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule(), LiteBeanComponent.class);
@@ -1272,6 +1302,30 @@ class ArchitectureRulesTests {
         }
 
         void inner() {}
+    }
+
+    /** A self-invocation the developer wrote inside a lambda, which javac hides in a synthetic method. */
+    @Service
+    private static class LambdaSelfInvokingBean {
+
+        Runnable persistLater(String value) {
+            return () -> persist(value);
+        }
+
+        @Transactional
+        public void persist(String value) {}
+    }
+
+    /** An exception hierarchy whose variants are nested inside the type they specialise. */
+    private static class ClaimException extends RuntimeException {
+
+        static final class AlreadyAssigned extends ClaimException {}
+    }
+
+    /** A nested exception whose enclosing class says nothing about it: still a naming finding. */
+    private static class ClaimOutcome {
+
+        static final class Rejected extends RuntimeException {}
     }
 
     @Component

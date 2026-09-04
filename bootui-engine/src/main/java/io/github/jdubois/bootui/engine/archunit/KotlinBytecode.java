@@ -5,6 +5,7 @@ import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaMember;
 import com.tngtech.archunit.core.domain.JavaMethod;
+import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.JavaParameter;
 import com.tngtech.archunit.core.domain.JavaParameterizedType;
@@ -62,6 +63,12 @@ public final class KotlinBytecode {
 
     /** Destructuring accessors generated for a {@code data class}. */
     private static final Pattern DATA_CLASS_COMPONENT = Pattern.compile("component\\d+");
+
+    /** Suffix of the bridge that applies default arguments before calling the declared function. */
+    private static final String DEFAULT_BRIDGE_SUFFIX = "$default";
+
+    /** Suffix of the static body an {@code open suspend fun} is compiled into. */
+    private static final String SUSPEND_IMPL_SUFFIX = "$suspendImpl";
 
     private KotlinBytecode() {}
 
@@ -121,6 +128,63 @@ public final class KotlinBytecode {
                     && isDataClass(member.getOwner());
         } catch (RuntimeException | LinkageError ex) {
             return false;
+        }
+    }
+
+    /**
+     * Whether this member is a dispatch bridge the compiler generated to route a call to the function the
+     * developer actually wrote: a javac/Kotlin {@code ACC_BRIDGE} method, a Kotlin {@code $default} bridge
+     * that applies default arguments, or the {@code $suspendImpl} body of an {@code open suspend fun}.
+     *
+     * <p>This is deliberately narrower than {@link #isCompilerGenerated(JavaMember)}. A rule that judges
+     * the <em>origin</em> of a call must not skip every synthetic method, because a lambda body is
+     * synthetic too — {@code lambda$process$0} on javac, {@code process$lambda$0} on Kotlin. Code inside a
+     * lambda is code the developer wrote, so a finding about it is real and actionable; only the
+     * compiler's own dispatch plumbing belongs here.
+     */
+    public static boolean isGeneratedDispatchBridge(JavaMember member) {
+        try {
+            if (member.getModifiers().contains(JavaModifier.BRIDGE)) {
+                return true;
+            }
+            if (!isKotlinClass(member.getOwner())) {
+                return false;
+            }
+            String name = member.getName();
+            return name.endsWith(DEFAULT_BRIDGE_SUFFIX) || name.endsWith(SUSPEND_IMPL_SUFFIX);
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    /**
+     * The function a Kotlin {@code $default} bridge dispatches to, or empty when this method is not such a
+     * bridge.
+     *
+     * <p>A call that omits a defaulted argument is compiled into a call to the bridge rather than to the
+     * function the developer wrote, so a rule that judges the callee has to follow that one hop — otherwise
+     * it judges the annotations and modifiers of a method that appears in no source file, and a real
+     * finding disappears the moment a parameter gains a default value.
+     *
+     * <p>The hop is read from the bridge's own body, not guessed from its name: overloads share a bridge
+     * name, and only the call the bridge makes identifies which one it stands for.
+     */
+    public static Optional<JavaMethod> defaultArgumentDispatchTarget(JavaMethod bridge) {
+        try {
+            String name = bridge.getName();
+            if (!name.endsWith(DEFAULT_BRIDGE_SUFFIX) || !isKotlinClass(bridge.getOwner())) {
+                return Optional.empty();
+            }
+            String declaredName = name.substring(0, name.length() - DEFAULT_BRIDGE_SUFFIX.length());
+            for (JavaMethodCall call : bridge.getMethodCallsFromSelf()) {
+                if (call.getTargetOwner().equals(bridge.getOwner())
+                        && declaredName.equals(call.getTarget().getName())) {
+                    return call.getTarget().resolveMember();
+                }
+            }
+            return Optional.empty();
+        } catch (RuntimeException | LinkageError ex) {
+            return Optional.empty();
         }
     }
 
