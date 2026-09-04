@@ -782,9 +782,11 @@ public class BootUiProperties {
         private Duration requestTimeout = Duration.ofSeconds(10);
 
         /**
-         * Maximum number of dependency packages included in one OSV batch query.
+         * Maximum number of dependency packages included in one OSV batch query. Packages beyond this bound
+         * are reported as {@code scan.packagesSkipped} rather than silently dropped. The default is sized to
+         * cover a typical Spring Boot application's full JAR set, which commonly exceeds 300 dependencies.
          */
-        private int maxPackages = 250;
+        private int maxPackages = 500;
 
         /**
          * Maximum number of advisory details fetched after the package query.

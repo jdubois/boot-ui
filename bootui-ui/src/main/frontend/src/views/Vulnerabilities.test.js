@@ -34,12 +34,25 @@ function dependency(packageName, version, vulnerabilities, highestSeverity) {
   }
 }
 
+function coverage(overrides = {}) {
+  return {
+    status: 'COMPLETE',
+    archivesFound: 0,
+    archivesIdentified: 0,
+    archivesUnidentified: 0,
+    unidentifiedArchives: [],
+    unidentifiedArchivesTruncated: false,
+    ...overrides
+  }
+}
+
 function report(
   dependencies,
   vulnerable = dependencies.filter((d) => d.vulnerabilityCount > 0).length,
-  status = 'SCANNED'
+  status = 'SCANNED',
+  overrides = {}
 ) {
-  return {
+  const base = {
     scanningEnabled: true,
     total: dependencies.length,
     vulnerable,
@@ -55,10 +68,13 @@ function report(
       message: 'Scan completed against OSV.dev.',
       scannedAt: 1_700_000_000_000,
       packagesScanned: dependencies.length,
+      packagesSkipped: 0,
       vulnerabilitiesFound: dependencies.reduce((sum, d) => sum + d.vulnerabilityCount, 0)
     },
+    coverage: coverage({archivesFound: dependencies.length, archivesIdentified: dependencies.length}),
     dependencies
   }
+  return {...base, ...overrides, scan: {...base.scan, ...(overrides.scan || {})}}
 }
 
 /**
@@ -341,6 +357,94 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).toContain('No newer fixed version reported by OSV (reported: 1.5.0)')
     expect(wrapper.text()).not.toContain('already on a fixed version')
     expect(wrapper.text()).not.toContain('No fixed version reported by OSV')
+  })
+
+  it('warns that unidentified JARs were not scanned instead of presenting a clean result', async () => {
+    const clean = dependency('org.example:clean', '1.0.0', [], 'NONE')
+    const {wrapper} = await mountWithReports([
+      report([clean], 0, 'SCANNED', {
+        coverage: coverage({
+          status: 'INCOMPLETE',
+          archivesFound: 325,
+          archivesIdentified: 186,
+          archivesUnidentified: 139,
+          unidentifiedArchives: ['spring-core-7.0.9.jar', 'tomcat-embed-core-11.0.24.jar']
+        })
+      })
+    ])
+
+    expect(wrapper.text()).toContain('139 of 325 JARs could not be identified and were not scanned')
+    expect(wrapper.text()).toContain('Unidentified JARs')
+    expect(wrapper.text()).toContain('cyclonedx-maven-plugin')
+    // The jar names stay collapsed until asked for, and out of the scannable dependency table.
+    expect(wrapper.text()).not.toContain('spring-core-7.0.9.jar')
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Show unidentified JARs'))
+      .trigger('click')
+
+    expect(wrapper.text()).toContain('spring-core-7.0.9.jar')
+    expect(wrapper.text()).toContain('tomcat-embed-core-11.0.24.jar')
+    expect(wrapper.findAll('table tbody tr').map((row) => row.text())).not.toContain('spring-core-7.0.9.jar')
+  })
+
+  it('says the unidentified JAR list is bounded when the report truncated it', async () => {
+    const {wrapper} = await mountWithReports([
+      report([], 0, 'SCANNED', {
+        coverage: coverage({
+          status: 'INCOMPLETE',
+          archivesFound: 400,
+          archivesIdentified: 0,
+          archivesUnidentified: 400,
+          unidentifiedArchives: ['mystery-1.0.0.jar'],
+          unidentifiedArchivesTruncated: true
+        })
+      })
+    ])
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Show unidentified JARs'))
+      .trigger('click')
+
+    expect(wrapper.text()).toContain('Only the first 1 names are listed.')
+  })
+
+  it('does not claim coverage it could not determine', async () => {
+    const clean = dependency('org.example:clean', '1.0.0', [], 'NONE')
+    const {wrapper} = await mountWithReports([
+      report([clean], 0, 'SCANNED', {coverage: coverage({status: 'UNAVAILABLE'})})
+    ])
+
+    expect(wrapper.text()).toContain("could not enumerate this application's JARs")
+    expect(wrapper.text()).not.toContain('could not be identified and were not scanned')
+  })
+
+  it('stays silent about coverage when every JAR was identified', async () => {
+    const clean = dependency('org.example:clean', '1.0.0', [], 'NONE')
+    const {wrapper} = await mountWithReports([report([clean])])
+
+    expect(wrapper.text()).not.toContain('could not be identified and were not scanned')
+    expect(wrapper.text()).not.toContain("could not enumerate this application's JARs")
+  })
+
+  it('renders without a coverage block, for a report produced before coverage existed', async () => {
+    const clean = dependency('org.example:clean', '1.0.0', [], 'NONE')
+    const legacy = report([clean])
+    delete legacy.coverage
+    const {wrapper} = await mountWithReports([legacy])
+
+    expect(wrapper.text()).toContain('org.example:clean')
+    expect(wrapper.text()).not.toContain('Unidentified JARs')
+  })
+
+  it('warns when the max-packages limit stopped some packages from being scanned', async () => {
+    const clean = dependency('org.example:clean', '1.0.0', [], 'NONE')
+    const {wrapper} = await mountWithReports([report([clean], 0, 'PARTIAL', {scan: {packagesSkipped: 75}})])
+
+    expect(wrapper.text()).toContain('75 packages were not sent to OSV.dev')
+    expect(wrapper.text()).toContain('bootui.vulnerabilities.max-packages')
   })
 
   it('links a CVE alias to NVD and a GHSA alias to GitHub Advisories', async () => {

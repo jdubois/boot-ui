@@ -558,14 +558,45 @@ fresh deterministic ordering from the recomputed active severity. Dismiss/restor
 read-only.
 
 ::: details How Spring discovers dependencies
-The Spring adapter scans the classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus
-runtime classloader. For JARs without embedded metadata, Spring also reads an adjacent Maven POM (including in
-nonstandard local-repository paths), and only falls back to path-derived coordinates when a literal `repository`
-directory makes the group path unambiguous; it never guesses a group id from an arbitrary cache path. Unreadable
-individual `pom.properties` resources are logged and skipped instead of failing the whole inventory, and classpath JAR
-filenames must match the resolved artifact/version exactly (with an optional classifier) rather than merely sharing a
-version prefix.
+The Spring adapter resolves coordinates from three sources, in decreasing order of authority:
+
+1. **The application's embedded CycloneDX SBOM** (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`, the
+   files Spring Boot's `/actuator/sbom` serves). Each Maven `purl` is exactly `pkg:maven/<groupId>/<artifactId>@<version>`
+   — the `groupId` no manifest header carries. This is what identifies artifacts published without a Maven descriptor.
+2. **`META-INF/maven/*/*/pom.properties`** descriptors on the classpath, which Spring's resolver also sees inside a
+   repackaged archive's nested JARs.
+3. **`java.class.path` entries**, read through the Maven repository directory layout or an adjacent Maven POM (including
+   in nonstandard local-repository paths). A group id is only derived from a path when a literal `repository` directory
+   makes it unambiguous; it is never guessed from an arbitrary cache path. Classpath JAR filenames must match the
+   resolved artifact/version exactly (with an optional classifier) rather than merely sharing a version prefix. Inside a
+   repackaged fat JAR this source is dead, because `java.class.path` is then just the application archive.
+
+Unreadable `pom.properties` resources, a malformed or unreadable SBOM, and unreadable classpath archives are each logged
+and skipped instead of failing the whole inventory.
 :::
+
+### Coverage
+
+A coordinate-based inventory can only scan what it can name, so the panel also reports what it *couldn't*. Alongside the
+inventory, BootUI takes a census of the application's real archives — the `BOOT-INF/lib/`/`WEB-INF/lib/` entries of a
+repackaged JAR or WAR, or the classpath JARs when running exploded — and attributes each to a resolved coordinate. The
+result is one of three honest states:
+
+| `coverage.status` | Meaning |
+| --- | --- |
+| `COMPLETE` | Every enumerated archive resolved to a Maven coordinate and is in the scannable inventory. |
+| `INCOMPLETE` | Some archives did not; they are counted and named, and the panel warns that they were not scanned. |
+| `UNAVAILABLE` | The census itself could not run (a blank or synthetic classpath, for example under a native image), so coverage is unknown rather than claimed. |
+
+When coverage is incomplete the panel shows an "Unidentified JARs" metric and a warning naming the gap
+("139 of 325 JARs could not be identified and were not scanned"), with a collapsible list of the archive names and a
+pointer to adding the CycloneDX plugin to the build. Unidentified archives deliberately stay out of the scannable
+dependency table — they have no coordinates to show. Only the archives' central directories and manifests are read;
+nothing is decompressed or extracted.
+
+The scan status reports the same kind of gap for the `bootui.vulnerabilities.max-packages` bound: packages beyond it are
+counted in `scan.packagesSkipped` and surfaced as a warning, instead of letting `packagesScanned` present a truncated
+scan as a complete one. The default bound is `500`, sized to cover a typical Spring Boot application's full JAR set.
 
 ::: details On Quarkus
 
@@ -574,14 +605,23 @@ same report contract, CVSS/withdrawn/partial-failure handling, pagination/batch-
 dismiss/restore workflow. `bootui.vulnerabilities.osv-enabled=false` / `bootui.vulnerabilities.epss-enabled=false`
 disable on-demand scanning / EPSS enrichment on both adapters. The one platform difference is dependency discovery: the
 Quarkus inventory is captured at **build time** from the application's resolved runtime dependency model and read back at
-runtime (mirroring the Architecture panel's build-time base-package discovery).
+runtime (mirroring the Architecture panel's build-time base-package discovery). Because that model is already fully
+resolved, Quarkus reports `coverage.status=COMPLETE` and has no SBOM-shaped gap to close.
 
 :::
 
 ### Known limitations
 
-Two limitations are documented honestly rather than hidden:
+Three limitations are documented honestly rather than hidden — and, where a gap remains, it is reported through
+`coverage` rather than left silent:
 
+- **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId`
+  (`Implementation-Title` is a display name as often as an artifact id, and `Implementation-Vendor-Id` is not a group
+  id), so an application built without a CycloneDX SBOM cannot resolve coordinates for artifacts published with no Maven
+  descriptor — Spring Framework, Spring Boot, Spring Security, `tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the
+  PostgreSQL driver, and the `opentelemetry-*`/`micrometer-*` families among them. Those archives are reported as
+  unidentified rather than dropped. Resolving them by SHA-1 lookup against Maven Central would work but adds a new
+  outbound service and configuration surface, so it is deliberately not done.
 - **Shaded/uber JARs are invisible.** The inventory on both adapters is coordinate-based (one resolved JAR = one Maven
   `groupId:artifactId:version`), so a vulnerable library relocated or repackaged inside a shaded/uber JAR carries no
   `pom.properties`/build-time coordinate of its own and is invisible — the same reduced-fidelity honesty precedent

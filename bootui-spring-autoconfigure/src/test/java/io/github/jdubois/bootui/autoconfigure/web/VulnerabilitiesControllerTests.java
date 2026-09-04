@@ -59,7 +59,8 @@ class VulnerabilitiesControllerTests {
         MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
-                        dependencies -> DependencyReports.report(true, "SCANNED", "unused", 1L, 1, dependencies),
+                        inventory ->
+                                DependencyReports.report(true, "SCANNED", "unused", 1L, 1, inventory.dependencies()),
                         emptyDismissedRulesStore()))
                 .build();
 
@@ -77,7 +78,7 @@ class VulnerabilitiesControllerTests {
         MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
-                        dependencies -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, dependencies),
+                        inventory -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, inventory.dependencies()),
                         emptyDismissedRulesStore()))
                 .build();
 
@@ -96,7 +97,7 @@ class VulnerabilitiesControllerTests {
         VulnerabilitiesController controller = new VulnerabilitiesController(
                 new BootUiProperties(),
                 () -> List.of(dependency("org.example", "sample", "1.0.0")),
-                dependencies -> {
+                inventory -> {
                     scans.incrementAndGet();
                     entered.countDown();
                     try {
@@ -107,7 +108,7 @@ class VulnerabilitiesControllerTests {
                         Thread.currentThread().interrupt();
                         throw new IllegalStateException(ex);
                     }
-                    return DependencyReports.report(true, "SCANNED", "done", 1L, 1, dependencies);
+                    return DependencyReports.report(true, "SCANNED", "done", 1L, 1, inventory.dependencies());
                 },
                 emptyDismissedRulesStore());
         MockMvc mvc = standaloneSetup(controller)
@@ -153,7 +154,8 @@ class VulnerabilitiesControllerTests {
         MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         properties,
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
-                        dependencies -> DependencyReports.report(true, "SCANNED", "unused", 1L, 1, dependencies),
+                        inventory ->
+                                DependencyReports.report(true, "SCANNED", "unused", 1L, 1, inventory.dependencies()),
                         emptyDismissedRulesStore()))
                 .build();
 
@@ -169,7 +171,7 @@ class VulnerabilitiesControllerTests {
         MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
-                        dependencies -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, dependencies),
+                        inventory -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, inventory.dependencies()),
                         emptyDismissedRulesStore()))
                 .build();
 
@@ -192,7 +194,7 @@ class VulnerabilitiesControllerTests {
         VulnerabilitiesController controller = new VulnerabilitiesController(
                 new BootUiProperties(),
                 () -> List.of(vulnerable),
-                dependencies -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, List.of(vulnerable)),
+                inventory -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, List.of(vulnerable)),
                 dismissedRules);
         MockMvc mvc = standaloneSetup(controller).build();
         // Populate the cached lastScanReport so GET serves it (mirroring dependenciesReturnsLastScanReportAfterScan).
@@ -216,7 +218,7 @@ class VulnerabilitiesControllerTests {
         VulnerabilitiesController controller = new VulnerabilitiesController(
                 new BootUiProperties(),
                 () -> List.of(vulnerable),
-                dependencies -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, List.of(vulnerable)),
+                inventory -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, List.of(vulnerable)),
                 dismissedRules);
         MockMvc mvc = standaloneSetup(controller).build();
 

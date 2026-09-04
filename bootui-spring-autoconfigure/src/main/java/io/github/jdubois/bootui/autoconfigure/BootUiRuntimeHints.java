@@ -40,6 +40,13 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
     /** Maven metadata scanned by {@code DependencyCatalog} for the Vulnerabilities panel. */
     private static final String MAVEN_POM_PROPERTIES_PATTERN = "META-INF/maven/*/*/pom.properties";
 
+    /**
+     * CycloneDX SBOM locations read by {@code DependencyCatalog}. Without these the Vulnerabilities panel
+     * loses its only source of coordinates for artifacts published with no Maven descriptor, which is most
+     * of a typical application's classpath.
+     */
+    private static final String[] SBOM_RESOURCES = {"META-INF/sbom/application.cdx.json", "META-INF/sbom/bom.json"};
+
     /** Configuration metadata scanned by {@code ConfigMetadataCatalog} for the Config panel. */
     private static final String CONFIGURATION_METADATA_RESOURCE = "META-INF/spring-configuration-metadata.json";
 
@@ -81,6 +88,9 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
                 .registerPattern(MAVEN_POM_PROPERTIES_PATTERN)
                 .registerPattern(CONFIGURATION_METADATA_RESOURCE)
                 .registerPattern(BOOTUI_VERSION_RESOURCE);
+        for (String sbomResource : SBOM_RESOURCES) {
+            hints.resources().registerPattern(sbomResource);
+        }
 
         registerDtoBindingHints(hints, classLoader);
 

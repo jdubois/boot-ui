@@ -730,7 +730,11 @@ Purpose: answer "Which runtime JAR dependencies are present, and do any have kno
 
 Data sources:
 
+- The application's embedded CycloneDX SBOM (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`, the
+  files Spring Boot's `/actuator/sbom` serves), whose `purl` values carry the `groupId`.
 - Maven metadata (`META-INF/maven/*/*/pom.properties`) discovered from the running application's classpath.
+- The `java.class.path` entries, read through the Maven repository directory layout or an adjacent `.pom`.
+- Quarkus instead uses its build-time resolved application model, which already carries every coordinate.
 - OSV.dev Maven vulnerability data for explicit on-demand scans.
 
 Features:
@@ -774,6 +778,13 @@ Features:
   that OSV reported no `fixed` event: a range may instead end with `last_affected`, which names the final vulnerable
   version but does not identify the first non-vulnerable upgrade target. The UI must not conflate that state with proof
   that no fix exists.
+- Report scan coverage: enumerate the application's real JAR archives (the `BOOT-INF/lib/`/`WEB-INF/lib/` entries of a
+  repackaged archive, the classpath JARs otherwise), attribute each to a resolved coordinate, and report the remainder
+  as `coverage.status=INCOMPLETE` with the unidentified archive names (bounded for transport, with exact counts). Report
+  `COMPLETE` only when every enumerated archive resolved, and `UNAVAILABLE` when the census itself could not run
+  (a blank or synthetic classpath, for example under a native image) rather than assuming full coverage.
+- Report packages dropped by the `bootui.vulnerabilities.max-packages` bound as `scan.packagesSkipped` rather than
+  letting `packagesScanned` present a truncated scan as a complete one.
 - Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
 - Allow dismissing/restoring an individual vulnerability finding for a specific dependency, excluding it from the
   vulnerable count and severity rollups until restored, consistent with the dismiss/restore workflow shared by every
@@ -788,14 +799,24 @@ Acceptance criteria:
   inventory; a failure fetching one advisory's details does not discard advisories that were already fetched
   successfully, degrading the scan to a partial-success status instead of an outright error.
 - Scan size is bounded by configuration so large classpaths remain responsive.
-- Initial/error/partial UI states must not label an empty advisory list as a clean "None found" result.
-- An unreadable Spring `pom.properties` resource is logged and skipped without discarding readable inventory entries;
-  Quarkus continues to use its build-time resolved runtime dependency model and fails soft on malformed entries.
+- Initial/error/partial UI states must not label an empty advisory list as a clean "None found" result, and a report
+  with unidentified archives or skipped packages must never render as full coverage.
+- An unreadable Spring `pom.properties` resource, a malformed or unreadable SBOM, and an unreadable classpath archive
+  are each logged and skipped without discarding entries that did resolve; Quarkus continues to use its build-time
+  resolved runtime dependency model and fails soft on malformed entries.
 
-Known limitation: the dependency inventory on both adapters is coordinate-based (one resolved JAR = one artifact
-coordinate). A vulnerable library relocated/repackaged inside a shaded or uber JAR has no `pom.properties`/build-time
-coordinate of its own, so it is invisible to the inventory and cannot be flagged — the same reduced-fidelity honesty
-precedent already documented for other panels (for example Cache, Beans). Direct-vs-transitive dependency provenance
+Known limitation: the dependency inventory is coordinate-based (one resolved JAR = one artifact coordinate), and no JAR
+manifest header carries a `groupId` — `Implementation-Title` is a display name as often as an artifact id, and
+`Implementation-Vendor-Id` is not a group id. An application built without a CycloneDX SBOM therefore cannot resolve
+coordinates for the many artifacts published with no Maven descriptor (Spring Framework, Spring Boot, Spring Security,
+`tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the PostgreSQL driver, and the `opentelemetry-*` and
+`micrometer-*` families among them), and inside a repackaged fat JAR the `java.class.path` fallback is dead too. Those
+archives are reported through `coverage` as explicitly unscanned rather than dropped, and the panel points at the SBOM
+plugin as the fix. Resolving the remaining coordinates by SHA-1 lookup against Maven Central would work but adds a new
+outbound service and configuration surface, so it is deliberately not done. Separately, a vulnerable library
+relocated/repackaged inside a shaded or uber JAR has no coordinate of its own, so it is invisible to the inventory and
+cannot be flagged — the same reduced-fidelity honesty precedent already documented for other panels (for example Cache,
+Beans). Direct-vs-transitive dependency provenance
 ("introduced through") is not yet tracked on either adapter; Quarkus could source it from its build-time application
 dependency graph, but Spring's classpath-based inventory has no equivalent graph today, so this is deferred rather than
 shipped asymmetrically.
@@ -2312,7 +2333,7 @@ Initial properties:
 | `bootui.email.dev-trap`                      | `false`                                 | Capture outgoing email without handing it to the real mail transport (MailDev/GreenMail-style trap). |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.vulnerabilities.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
-| `bootui.vulnerabilities.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
+| `bootui.vulnerabilities.max-packages`           | `500`                                   | Maximum packages sent in one OSV batch query; the excess is reported as `scan.packagesSkipped`.   |
 | `bootui.vulnerabilities.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
 | `bootui.vulnerabilities.epss-enabled`           | `true`                                  | Allow the batched FIRST.org EPSS exploit-probability lookup during a scan.                        |
 | `bootui.vulnerabilities.epss-base-uri`          | `https://api.first.org`                | Base URI of the FIRST.org EPSS API queried during a scan.                                         |

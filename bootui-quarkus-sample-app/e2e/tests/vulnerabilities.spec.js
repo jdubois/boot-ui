@@ -24,6 +24,14 @@ test.describe('Vulnerabilities (Quarkus)', () => {
 
     // The fixture-backed server is configured with max-packages=3, below the real inventory size.
     await expect(page.getByText('Partial scan', {exact: true})).toBeVisible()
+    // A truncated scan must say so rather than letting the result read as a complete one.
+    const truncationWarning = page.locator('.alert-warning', {hasText: 'not sent to OSV.dev'})
+    await expect(truncationWarning).toBeVisible()
+    await expect(truncationWarning).toContainText('bootui.vulnerabilities.max-packages')
+    // Quarkus resolves every coordinate from its build-time application model, so coverage is complete.
+    const coverageMetric = page.locator('.advisor-summary__metric', {hasText: 'Unidentified JARs'})
+    await expect(coverageMetric.locator('dd')).toHaveText('0')
+    await expect(page.getByText('could not be identified and were not scanned')).toHaveCount(0)
 
     const scannerMetric = page.locator('.advisor-summary__metric', {hasText: 'Scanner'})
     await expect(scannerMetric.locator('dd')).toHaveText('OSV.dev')

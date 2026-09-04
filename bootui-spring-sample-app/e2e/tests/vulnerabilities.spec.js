@@ -18,8 +18,10 @@ const inventoryReport = {
     message: 'Dependency inventory loaded.',
     scannedAt: null,
     packagesScanned: 0,
+    packagesSkipped: 0,
     vulnerabilitiesFound: 0
   },
+  coverage: coverage(),
   dependencies: [
     dependency('org.springframework.boot', 'spring-boot', '4.0.6'),
     dependency('org.zeta', 'critical-lib', '1.0.0'),
@@ -44,6 +46,7 @@ const scannedReport = {
     message: 'Scan completed against OSV.dev.',
     scannedAt: Date.now(),
     packagesScanned: 4,
+    packagesSkipped: 0,
     vulnerabilitiesFound: 4
   },
   dependencies: [
@@ -121,7 +124,52 @@ test.describe('Vulnerabilities view', () => {
     await expect(page.getByText('1 of 4 dependencies')).toBeVisible()
     await expect(page.locator('tbody tr', {hasText: 'org.example:vulnerable-lib'})).toBeVisible()
   })
+
+  test('warns that unidentified JARs were not scanned instead of reading as a clean result', async ({
+    openView,
+    page
+  }) => {
+    const incompleteReport = {
+      ...inventoryReport,
+      coverage: {
+        status: 'INCOMPLETE',
+        archivesFound: 325,
+        archivesIdentified: 186,
+        archivesUnidentified: 139,
+        unidentifiedArchives: ['spring-core-7.0.9.jar', 'tomcat-embed-core-11.0.24.jar'],
+        unidentifiedArchivesTruncated: true
+      }
+    }
+    await page.route(
+      (url) => url.pathname === '/bootui/api/vulnerabilities',
+      async (route) => {
+        await route.fulfill({contentType: 'application/json', body: JSON.stringify(incompleteReport)})
+      }
+    )
+
+    await openView('vulnerabilities', /^Vulnerabilities/)
+    await expect(page.getByText('139 of 325 JARs could not be identified and were not scanned')).toBeVisible()
+    const coverageMetric = page.locator('.advisor-summary__metric', {hasText: 'Unidentified JARs'})
+    await expect(coverageMetric.locator('dd')).toHaveText('139')
+    // The archive names stay out of the scannable dependency table until explicitly requested.
+    await expect(page.getByText('spring-core-7.0.9.jar')).toHaveCount(0)
+
+    await page.getByRole('button', {name: 'Show unidentified JARs'}).click()
+    await expect(page.getByText('spring-core-7.0.9.jar')).toBeVisible()
+    await expect(page.getByText('Only the first 2 names are listed.')).toBeVisible()
+  })
 })
+
+function coverage() {
+  return {
+    status: 'COMPLETE',
+    archivesFound: 4,
+    archivesIdentified: 4,
+    archivesUnidentified: 0,
+    unidentifiedArchives: [],
+    unidentifiedArchivesTruncated: false
+  }
+}
 
 function dependency(groupId, artifactId, version) {
   return {

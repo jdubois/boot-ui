@@ -50,7 +50,7 @@ The repository already separates "what the data means" (framework-neutral) from 
 | The advisor **engines** are framework-neutral    | `bootui-engine` advisor packages contain no Spring imports; framework collection and base-package discovery live in the adapters                                                                        |
 | Hibernate analysis already uses neutral APIs      | `HibernateScanner` consumes `jakarta.persistence.EntityManagerFactory` / `Metamodel`, which Quarkus also provides                                                                                       |
 | Safety decision logic is already Spring-free      | `CidrRange` and `ContainerGatewayDetector` carry no Spring dependency; only `LocalhostOnlyFilter` / `PanelAccessFilter` bind to `jakarta.servlet`                                                       |
-| Several data sources are framework-neutral today  | OSV scanner, OTLP receiver + `TelemetryStore`, `DependencyCatalog` (reads `META-INF/maven/*/pom.properties` + `java.class.path`), JVM MXBean readers, GitHub `HttpClient`, Copilot/Claude log readers   |
+| Several data sources are framework-neutral today  | OSV scanner, OTLP receiver + `TelemetryStore`, `DependencyCatalog` (reads the CycloneDX SBOM + `META-INF/maven/*/pom.properties` + `java.class.path`), JVM MXBean readers, GitHub `HttpClient`, Copilot/Claude log readers   |
 
 The coupling that remains is concentrated in: the web layer (`@RestController`), the Actuator/`ApplicationContext`/
 `Environment` data readers, the servlet safety filters, and the `EnvironmentPostProcessor`-based config plumbing. That is
@@ -185,7 +185,7 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `Metrics`                                             | Micrometer — same API                                                             |
 | `Hibernate` advisor                                   | Same 72-rule registry/report contract; mapping and configuration rules port, while Spring Data query rules skip when repository metadata is unavailable |
 | `Hibernate Statistics`                                | Standalone Database-section panel over `org.hibernate.stat.Statistics`, gated on the same Hibernate ORM capability as the advisor; its runtime-enable action has the same read-only and cross-site-write protection as Spring |
-| `Vulnerabilities`                                     | Classpath Maven metadata + OSV                                                    |
+| `Vulnerabilities`                                     | Classpath SBOM/Maven metadata + OSV                                               |
 | `HTTP Probe`                                          | Local HTTP probing                                                                |
 | `AI Framework`                                        | —                                                                                 |
 | `Traces`                                              | OTLP — a standard; Quarkus/LangChain4j export it                                  |

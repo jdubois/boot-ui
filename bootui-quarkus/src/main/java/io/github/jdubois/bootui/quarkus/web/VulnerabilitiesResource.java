@@ -1,10 +1,10 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
-import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports;
 import io.github.jdubois.bootui.quarkus.OsvVulnerabilityScanner;
 import io.github.jdubois.bootui.quarkus.QuarkusDependencyProvider;
@@ -15,7 +15,6 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
-import java.util.List;
 import org.eclipse.microprofile.config.Config;
 
 /**
@@ -76,14 +75,16 @@ public class VulnerabilitiesResource {
         if (cached != null) {
             return DependencyReports.applyDismissals(cached, dismissedRules.load());
         }
-        List<DependencyDto> dependencies = dependencyProvider.dependencies();
+        DependencyInventory inventory = dependencyProvider.inventory();
         DependenciesReport report = DependencyReports.report(
                 osvEnabled(),
                 "NOT_SCANNED",
                 "Dependency inventory loaded. Click Scan with OSV.dev to check for known vulnerabilities.",
                 null,
                 0,
-                dependencies);
+                0,
+                inventory.dependencies(),
+                inventory.coverage());
         return DependencyReports.applyDismissals(report, dismissedRules.load());
     }
 
@@ -91,7 +92,7 @@ public class VulnerabilitiesResource {
     @Path("/scan")
     @Produces(MediaType.APPLICATION_JSON)
     public DependenciesReport scan() {
-        List<DependencyDto> dependencies = dependencyProvider.dependencies();
+        DependencyInventory inventory = dependencyProvider.inventory();
         DependenciesReport report;
         if (!osvEnabled()) {
             report = DependencyReports.report(
@@ -100,10 +101,12 @@ public class VulnerabilitiesResource {
                     "OSV scanning is disabled. Set bootui.vulnerabilities.osv-enabled=true to allow on-demand scans.",
                     null,
                     0,
-                    dependencies);
+                    0,
+                    inventory.dependencies(),
+                    inventory.coverage());
         } else {
-            report = singleFlight.run(
-                    ActionOperations.VULNERABILITIES_SCAN, () -> vulnerabilityScanner.scan(dependencies));
+            report =
+                    singleFlight.run(ActionOperations.VULNERABILITIES_SCAN, () -> vulnerabilityScanner.scan(inventory));
         }
         if (!"DISABLED".equals(report.status())) {
             this.lastScanReport = report;
