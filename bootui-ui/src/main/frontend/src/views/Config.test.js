@@ -174,4 +174,46 @@ describe('Config', () => {
     )
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
   })
+
+  it('suggests the canonical property name when the override name is typed as an environment variable', async () => {
+    const config = {
+      ...EMPTY_CONFIG,
+      propertySuggestions: [
+        {name: 'bootui.mcp.enabled', type: 'java.lang.Boolean', description: 'Whether the MCP server is enabled.'},
+        {name: 'bootui.mcp.max-results', type: 'java.lang.Integer', description: null},
+        {name: 'spring.application.name', type: 'java.lang.String', description: null}
+      ]
+    }
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(config), {status: 200})))
+    const wrapper = await mountConfig(undefined, fetchMock)
+    await wrapper.get('button.btn-success').trigger('click')
+    const nameInput = wrapper.get('input[list="bootPropertySuggestions"]')
+
+    await nameInput.setValue('BOOTUI_MCP')
+
+    expect(wrapper.findAll('#bootPropertySuggestions option').map((option) => option.attributes('value'))).toEqual([
+      'bootui.mcp.enabled',
+      'bootui.mcp.max-results'
+    ])
+  })
+
+  it('keeps narrowing override suggestions by the literal name that was typed', async () => {
+    const config = {
+      ...EMPTY_CONFIG,
+      propertySuggestions: [
+        {name: 'bootui.mcp.max-results', type: 'java.lang.Integer', description: null},
+        {name: 'spring.application.name', type: 'java.lang.String', description: null}
+      ]
+    }
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(config), {status: 200})))
+    const wrapper = await mountConfig(undefined, fetchMock)
+    await wrapper.get('button.btn-success').trigger('click')
+    const nameInput = wrapper.get('input[list="bootPropertySuggestions"]')
+
+    await nameInput.setValue('bootui.mcp.max-results')
+
+    expect(wrapper.findAll('#bootPropertySuggestions option').map((option) => option.attributes('value'))).toEqual([
+      'bootui.mcp.max-results'
+    ])
+  })
 })
