@@ -68,6 +68,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   thread. Plain `@Async` plus `@Transactional` is reported exactly as before. BootUI gains no Spring Modulith
   dependency: the annotations are matched by name.
   ([#926](https://github.com/jdubois/boot-ui/issues/926))
+- **The Configuration panel's override name picker now suggests a property typed the way a container spells it.** The
+  free-text search above it was made relaxed-binding aware in
+  [#939](https://github.com/jdubois/boot-ui/issues/939), so `bootui.mcp.enabled` finds a value supplied as
+  `BOOTUI_MCP_ENABLED` — but the name box for a new override still matched its datalist literally against the metadata
+  catalog, which only ever publishes canonical dotted names. Typing `BOOTUI_MCP`, the spelling you read off the
+  environment and the spelling the search on the same panel had just started accepting, offered nothing. The picker now
+  canonicalizes both sides of the match exactly as the engine does — case ignored, `_` and `-` treated as `.` — so the
+  environment spelling narrows to the dotted property. That is more than a convenience: a name saved as
+  `BOOTUI_MCP_ENABLED` is written verbatim to `.bootui/application-bootui.properties`, where relaxed binding does not
+  rescue it, because a key from a file — unlike one from the environment — is adapted by dropping its separators and so
+  never reaches `bootui.mcp.enabled`. Suggesting the canonical name is what steers the override to a spelling that
+  binds, and accepting a suggestion writes that name. The mapping is length preserving, so the existing
+  prefix-before-contains ranking and suggestion cap are untouched and nothing that matched before stops matching. The
+  hint under the input still requires an exact name, since describing a property the file will not bind would assert
+  the opposite of what happens ([#945](https://github.com/jdubois/boot-ui/issues/945)).
 - **Three advisor rules no longer report a Kotlin application for shapes its compiler produced.** Each read bytecode as
   if `javac` had written it, and each turned an ordinary Kotlin idiom into a finding nobody could act on.
   `ARCH-SPRING-004` reported a self-invocation for every call that omits a default argument: Kotlin routes such a call

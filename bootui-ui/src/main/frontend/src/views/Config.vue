@@ -3,6 +3,7 @@ import {apiFetch} from '../api.js'
 import {computed, inject, nextTick, onMounted, ref, watch} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {canonicalizeName} from '../utils/relaxedNames.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
@@ -68,11 +69,11 @@ const {
 
 const propertySuggestions = computed(() => data.value?.propertySuggestions || [])
 
-const propertySuggestionQuery = computed(() => (newRowName.value || '').trim().toLowerCase())
+const propertySuggestionQuery = computed(() => canonicalizeName((newRowName.value || '').trim()))
 
 function propertySuggestionMatches(suggestion, query) {
   if (!query) return true
-  return (suggestion.name || '').toLowerCase().includes(query)
+  return canonicalizeName(suggestion.name).includes(query)
 }
 
 const matchingPropertySuggestionCount = computed(
@@ -87,7 +88,7 @@ const visiblePropertySuggestions = computed(() => {
   if (!query) return propertySuggestions.value.slice(0, MAX_PROPERTY_SUGGESTIONS)
   const prefixMatches = []
   for (const suggestion of propertySuggestions.value) {
-    const name = (suggestion.name || '').toLowerCase()
+    const name = canonicalizeName(suggestion.name)
     if (name.startsWith(query)) {
       prefixMatches.push(suggestion)
     }
@@ -95,7 +96,7 @@ const visiblePropertySuggestions = computed(() => {
   }
   const containsMatches = []
   for (const suggestion of propertySuggestions.value) {
-    const name = (suggestion.name || '').toLowerCase()
+    const name = canonicalizeName(suggestion.name)
     if (!name.startsWith(query) && name.includes(query)) {
       containsMatches.push(suggestion)
     }

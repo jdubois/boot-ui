@@ -12,8 +12,10 @@ through relaxed binding — `_` and `-` are treated as `.` and case is ignored �
 value supplied as the environment variable `BOOTUI_MCP_ENABLED`, which Spring and Quarkus both enumerate under that
 literal name. Values, descriptions, and defaults are matched literally, and every row still reports the name and source
 its property source gave. Each page reports the full property count and the matched count separately, so a search that
-narrows to nothing is visibly an empty result rather than an empty inventory. The override property-name picker limits
-its datalist suggestions while narrowing against the full metadata catalog as you type.
+narrows to nothing is visibly an empty result rather than an empty inventory. The override property-name picker narrows
+the same way — typing `BOOTUI_MCP` suggests `bootui.mcp.enabled` — and each suggestion carries the canonical dotted
+name, so accepting one writes a name the framework binds rather than the environment spelling it was typed as. The
+datalist is limited to the first matches against the full metadata catalog as you type.
 
 ## Profile Diff
 
