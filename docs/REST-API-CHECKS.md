@@ -116,6 +116,7 @@ Dismissed rules remove all of their findings from the score.
 
 - **Severity**: LOW
 - **Detects**: Controllers that repeat the same leading path segment on every method but declare no type-level @RequestMapping duplicate routing information.
+- **Not evaluated**: Mappings declared on a controller *interface*. An interface's mappings are inherited by every implementation, so the author of the implementing `@RestController` cannot restructure them, and whether a base path is hoisted onto the type is a decision no OpenAPI document can express — spec-first generators such as openapi-generator's `kotlin-spring` with `interfaceOnly=true` annotate the generated `*Api` interface with `@RestController` and repeat the full path on every method. The trade-off is deliberate: a hand-written controller interface that repeats a leading segment is not reported either.
 - **Recommendation**: Hoist the shared prefix into a class-level @RequestMapping and keep method paths relative.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 

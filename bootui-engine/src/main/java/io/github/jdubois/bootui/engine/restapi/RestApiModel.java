@@ -121,7 +121,15 @@ final class RestApiModel {
         static final String REST_MATRIX = "org.jboss.resteasy.reactive.RestMatrix";
     }
 
-    /** A controller class (annotated {@code @Controller} or {@code @RestController}). */
+    /**
+     * A controller class (annotated {@code @Controller} or {@code @RestController}) or a JAX-RS resource.
+     *
+     * @param declaredOnInterface whether the mappings were declared on an interface rather than on a
+     *     class. Spec-first code generators emit exactly that shape — openapi-generator's
+     *     {@code kotlin-spring} {@code interfaceOnly} output annotates the generated {@code *Api}
+     *     interface with {@code @RestController} — and an interface's mappings are inherited by every
+     *     implementation, so rules that judge how an author laid mappings out must not judge them here.
+     */
     record ControllerModel(
             String className,
             String simpleName,
@@ -130,6 +138,7 @@ final class RestApiModel {
             boolean classValidated,
             boolean hasTag,
             boolean hidden,
+            boolean declaredOnInterface,
             int handlerCount) {
 
         ControllerModel {
