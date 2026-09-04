@@ -27,6 +27,7 @@ class RestApiRulesTests {
     private static final String RESPONSE_CONTRACTS =
             "io.github.jdubois.bootui.engine.restapi.newrules.responsecontracts";
     private static final String ACCURACY = "io.github.jdubois.bootui.engine.restapi.accuracy";
+    private static final String SPEC_FIRST = "io.github.jdubois.bootui.engine.restapi.specfirst";
 
     private RestApiContext context(boolean openApiAnnotationsPresent, String... packages) {
         return context(openApiAnnotationsPresent, false, packages);
@@ -479,5 +480,18 @@ class RestApiRulesTests {
         assertThat(status(new PathSegmentsAreKebabCaseRule(), context)).isEqualTo("PASS");
         assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("PASS");
         assertThat(status(new ExceptionHandlersSetErrorStatusRule(), context)).isEqualTo("PASS");
+    }
+
+    @Test
+    void classLevelBasePathRuleIgnoresMappingsDeclaredOnAControllerInterface() {
+        // Issue #927: openapi-generator's kotlin-spring interfaceOnly output annotates the generated
+        // *Api interface with @RestController and repeats the full path on every method, a layout the
+        // implementing author cannot restructure. Hand-written class controllers stay reported.
+        RestApiRuleResultDto result = new PreferClassLevelBasePathRule().evaluate(context(false, SPEC_FIRST));
+
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("HandWrittenRefundsController"));
+        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("GeneratedPaymentsGuestApi"));
     }
 }

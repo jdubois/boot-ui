@@ -289,6 +289,7 @@ final class RestApiHandlerModelBuilder {
                 classValidated,
                 hasTag,
                 hidden,
+                safeIsInterface(type),
                 handlerCount));
     }
 
@@ -342,6 +343,7 @@ final class RestApiHandlerModelBuilder {
                 classValidated,
                 hasTag,
                 hidden,
+                safeIsInterface(type),
                 handlerCount));
     }
 
@@ -1678,6 +1680,14 @@ final class RestApiHandlerModelBuilder {
     private static boolean safeIsRecord(JavaClass type) {
         try {
             return type.isRecord();
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static boolean safeIsInterface(JavaClass type) {
+        try {
+            return type.isInterface();
         } catch (RuntimeException | LinkageError ex) {
             return false;
         }

@@ -18,6 +18,7 @@ class RestApiHandlerModelBuilderTests {
     private static final String PHASE3_BAD = "io.github.jdubois.bootui.engine.restapi.phase3.bad";
     private static final String PHASE3_FIXES = "io.github.jdubois.bootui.engine.restapi.phase3.fixes";
     private static final String ACCURACY = "io.github.jdubois.bootui.engine.restapi.accuracy";
+    private static final String SPEC_FIRST = "io.github.jdubois.bootui.engine.restapi.specfirst";
 
     private RestApiHandlerModelBuilder model() {
         JavaClasses classes = new ClassFileImporter().importPackages(FIXTURES);
@@ -260,5 +261,26 @@ class RestApiHandlerModelBuilderTests {
                 .findFirst()
                 .orElseThrow();
         assertThat(reactiveAdvice.hasResponseParam()).isTrue();
+    }
+
+    @Test
+    void recordsWhetherAControllerTypeIsAnInterface() {
+        JavaClasses classes = new ClassFileImporter().importPackages(SPEC_FIRST);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        assertThat(model.controllers())
+                .filteredOn(controller -> controller.simpleName().equals("GeneratedPaymentsGuestApi"))
+                .singleElement()
+                .satisfies(controller -> {
+                    assertThat(controller.declaredOnInterface()).isTrue();
+                    assertThat(controller.typeLevelPaths()).isEmpty();
+                    assertThat(controller.handlerCount()).isEqualTo(2);
+                });
+
+        assertThat(model.controllers())
+                .filteredOn(controller -> controller.simpleName().equals("HandWrittenRefundsController"))
+                .singleElement()
+                .satisfies(controller ->
+                        assertThat(controller.declaredOnInterface()).isFalse());
     }
 }

@@ -544,7 +544,10 @@ final class PreferClassLevelBasePathRule extends AbstractRestApiRule {
                 RestApiCategory.ROUTING,
                 "LOW",
                 "Controllers that repeat the same leading path segment on every method but declare no type-level"
-                        + " @RequestMapping duplicate routing information.",
+                        + " @RequestMapping duplicate routing information. Mappings declared on a controller"
+                        + " interface are not evaluated: they are inherited by every implementation, so the"
+                        + " implementing author cannot restructure them, and spec-first code generators (for example"
+                        + " openapi-generator's kotlin-spring interfaceOnly output) emit exactly that layout.",
                 "Hoist the shared prefix into a class-level @RequestMapping and keep method paths relative.",
                 RestApiRuleHelp.SPRING_WEB_DOCS));
     }
@@ -559,7 +562,9 @@ final class PreferClassLevelBasePathRule extends AbstractRestApiRule {
         }
         List<String> violations = new ArrayList<>();
         for (ControllerModel controller : context.controllers()) {
-            if (!controller.typeLevelPaths().isEmpty() || controller.handlerCount() < 2) {
+            if (controller.declaredOnInterface()
+                    || !controller.typeLevelPaths().isEmpty()
+                    || controller.handlerCount() < 2) {
                 continue;
             }
             List<HandlerMethodModel> controllerHandlers = byController.getOrDefault(controller.className(), List.of());
