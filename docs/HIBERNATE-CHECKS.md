@@ -516,6 +516,11 @@ Dismissed rules remove all of their findings from the score.
 - **Why it matters**: public fields let callers bypass Hibernate's instrumentation for lazy loading and dirty tracking.
 - **Recommendation**: keep persistent fields private (or package-private) and expose mutators when needed; this
   preserves proxy substitution and bytecode-enhancer guarantees.
+- **Kotlin note**: a `lateinit var` is exempt. Kotlin has no public fields — the property is read and written through
+  its generated `getX`/`setX` pair — but the compiler must leave the backing field public so the initialisation check
+  can run from outside the class, and the language offers no way to change that. A property the author did expose,
+  written `@JvmField var`, generates no accessors at all and is still reported: that is the same encapsulation break a
+  Java public field is.
 - **Quarkus/Panache**: skipped app-wide when a Panache extension (`quarkus-hibernate-orm-panache` or
   `quarkus-hibernate-reactive-panache`) is on the runtime classpath. Panache's active-record entities are meant to be
   used with public fields; once a Panache extension is present, its build-time bytecode transformation rewrites *every*

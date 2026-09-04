@@ -69,3 +69,43 @@ open class KotlinOrderService {
 
     fun audit(id: Long) = auditOrder(id)
 }
+
+/**
+ * Default arguments, which have no Java equivalent: `expire(id)` does not compile into a call to
+ * `expire`. The compiler emits an `expire$default` bridge that fills in the missing argument and then
+ * calls the real function, so one call written in Kotlin becomes two calls in the same class.
+ */
+@Service
+open class KotlinCartService {
+
+    companion object {
+        private val log = LoggerFactory.getLogger(KotlinCartService::class.java)
+    }
+
+    @Transactional
+    open fun expire(id: Long, reason: String = "expired") {
+        log.debug("expiring {} because {}", id, reason)
+    }
+
+    /** A real self-invocation, which the `$default` bridge must not hide. */
+    fun expireNow(id: Long) = expire(id)
+
+    /**
+     * A self-invocation from inside a lambda, which the compiler puts in a synthetic method of this
+     * class. Synthetic or not, it is code the developer wrote and a real proxy bypass. `Runnable` is a
+     * SAM type rather than a Kotlin `forEach`, whose lambda would be inlined into the caller.
+     */
+    fun expireLater(id: Long) = Runnable { expire(id, "deferred") }
+}
+
+/**
+ * The idiomatic Kotlin exception hierarchy: variants are nested inside the sealed parent so the
+ * compiler can close the hierarchy, and they are read as `KotlinClaimException.AlreadyAssigned` at
+ * every call site.
+ */
+sealed class KotlinClaimException(message: String) : RuntimeException(message) {
+
+    class AlreadyAssigned(id: Long) : KotlinClaimException("claim $id is already assigned")
+
+    class Expired(id: Long) : KotlinClaimException("claim $id has expired")
+}

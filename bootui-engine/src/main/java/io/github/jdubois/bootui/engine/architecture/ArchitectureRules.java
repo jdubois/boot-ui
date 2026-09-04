@@ -29,7 +29,6 @@ import com.tngtech.archunit.lang.EvaluationResult;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.lang.conditions.ArchConditions;
 import com.tngtech.archunit.library.GeneralCodingRules;
-import com.tngtech.archunit.library.ProxyRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
@@ -667,28 +666,75 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return ProxyRules.no_classes_should_directly_call_other_methods_declared_in_the_same_class_that(
-                new DescribedPredicate<MethodCallTarget>(
-                        "are proxied through @Transactional, @Async, or @Cacheable on the method (or @Async/@Cacheable on the declaring class)") {
-                    @Override
-                    public boolean test(MethodCallTarget target) {
-                        if (isCompilerGeneratedTarget(target)) {
-                            // Kotlin routes every open suspending function through a synthetic
-                            // $suspendImpl body that inherits the annotation: the "self-invocation" is
-                            // the compiler's own call, not one the developer can refactor.
-                            return false;
-                        }
-                        return context.platform() == ArchitecturePlatform.SPRING
-                                && (SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(target)
-                                        || SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(target.getOwner()));
-                    }
-                });
+        // Deliberately not ProxyRules: it only exposes the call target to its predicate, and filters origins
+        // by ACC_BRIDGE alone. Kotlin needs both ends of the call examined — see bypassesProxy below.
+        return noClasses()
+                .should(
+                        new ArchCondition<JavaClass>(
+                                "directly call other methods declared in the same class that are proxied through @Transactional, @Async, or @Cacheable on the method (or @Async/@Cacheable on the declaring class)") {
+                            @Override
+                            public void check(JavaClass javaClass, ConditionEvents events) {
+                                for (JavaMethodCall call : javaClass.getMethodCallsFromSelf()) {
+                                    events.add(new SimpleConditionEvent(
+                                            call, bypassesProxy(context, call), describe(call)));
+                                }
+                            }
+                        })
+                .because("it bypasses the proxy mechanism");
     }
 
-    private static boolean isCompilerGeneratedTarget(MethodCallTarget target) {
-        return target.resolveMember()
-                .map(ArchitectureRuleSupport::isCompilerGenerated)
-                .orElse(false);
+    /**
+     * Whether this call loses the proxy behaviour, judging both ends of it.
+     *
+     * <p>The <strong>origin</strong> must be code the developer wrote. Kotlin routes calls through
+     * generated dispatch bridges, and a bridge calling the function it exists to reach is the compiler's
+     * own call: nobody can refactor it, and reporting it says a Kotlin bean self-invokes when the source
+     * contains a single ordinary call. Only dispatch bridges are skipped, never every synthetic method,
+     * because a lambda body is synthetic too and a self-invocation inside a lambda is a genuine bypass.
+     *
+     * <p>The <strong>target</strong> must be the function the developer wrote. When a call omits a default
+     * argument, Kotlin compiles it into a call to the {@code $default} bridge, which carries none of the
+     * annotations; following that hop is what keeps a real self-invocation reported instead of silently
+     * disappearing as soon as a proxied function gains a default parameter value.
+     */
+    private static boolean bypassesProxy(ArchitectureContext context, JavaMethodCall call) {
+        if (context.platform() != ArchitecturePlatform.SPRING
+                || !call.getOriginOwner().equals(call.getTargetOwner())
+                || KotlinBytecode.isGeneratedDispatchBridge(call.getOrigin())) {
+            return false;
+        }
+        MethodCallTarget target = call.getTarget();
+        Optional<JavaMethod> resolved = target.resolveMember();
+        if (resolved.isPresent() && ArchitectureRuleSupport.isCompilerGenerated(resolved.get())) {
+            // A $default bridge stands in for a declared function, so resolve through it. Any other
+            // compiler-generated target — the $suspendImpl body of an open suspend fun, a javac bridge —
+            // is plumbing that merely inherits the annotation, and judging it invents a finding.
+            resolved = KotlinBytecode.defaultArgumentDispatchTarget(resolved.get());
+            if (resolved.isEmpty()) {
+                return false;
+            }
+        }
+        CanBeAnnotated proxied = resolved.isPresent() ? resolved.get() : target;
+        return SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(proxied)
+                || SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(call.getTargetOwner());
+    }
+
+    /**
+     * The call, described by the function the developer wrote rather than by the {@code $default} bridge
+     * that stands in for it. A finding naming a method that appears in no source file cannot be acted on.
+     */
+    private static String describe(JavaMethodCall call) {
+        String description = call.getDescription();
+        if (!call.getOriginOwner().equals(call.getTargetOwner())) {
+            return description;
+        }
+        Optional<JavaMethod> bridge = call.getTarget().resolveMember();
+        if (bridge.isEmpty()) {
+            return description;
+        }
+        return KotlinBytecode.defaultArgumentDispatchTarget(bridge.get())
+                .map(declared -> description.replace(bridge.get().getFullName(), declared.getFullName()))
+                .orElse(description);
     }
 }
 
@@ -755,14 +801,47 @@ final class ExceptionsShouldBeNamedExceptionRule extends AbstractArchitectureRul
                 "Exceptions should be named ending with Exception",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects classes extending Exception or RuntimeException that do not have names ending with 'Exception'.",
-                "Rename the class to end with 'Exception' so its purpose is immediately clear.",
+                "Detects classes extending Exception or RuntimeException that do not have names ending with 'Exception'. A nested variant of an exception hierarchy is exempt when an enclosing class carries the suffix, since it is already read as ClaimException.AlreadyAssigned at every call site.",
+                "Rename the class to end with 'Exception' so its purpose is immediately clear, or nest it inside the exception type it specialises.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_naming_rules"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return classes().that().areAssignableTo(Exception.class).should().haveSimpleNameEndingWith("Exception");
+        return classes()
+                .that()
+                .areAssignableTo(Exception.class)
+                .should(new ArchCondition<JavaClass>("have a simple name ending with 'Exception'") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        events.add(new SimpleConditionEvent(
+                                javaClass,
+                                isNamedAsException(javaClass),
+                                "Class " + javaClass.getName() + " does not end with 'Exception'"));
+                    }
+                })
+                .as("Exceptions should be named ending with Exception");
+    }
+
+    /**
+     * Whether the name identifies this class as an exception, reading the enclosing chain and not only the
+     * simple name.
+     *
+     * <p>A nested variant of an exception hierarchy — the idiomatic shape of a Kotlin {@code sealed class},
+     * and common enough in Java — is already named at the point of use: {@code ClaimException.AlreadyAssigned}
+     * says what it is, and renaming it to {@code AlreadyAssignedException} would stutter as
+     * {@code ClaimException.AlreadyAssignedException}. The rule exists so an exception's purpose is clear at
+     * a glance, and here it already is.
+     */
+    private static boolean isNamedAsException(JavaClass javaClass) {
+        Optional<JavaClass> current = Optional.of(javaClass);
+        while (current.isPresent()) {
+            if (current.get().getSimpleName().endsWith("Exception")) {
+                return true;
+            }
+            current = current.get().getEnclosingClass();
+        }
+        return false;
     }
 }
 
