@@ -1,5 +1,5 @@
 ---
-applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scripts/check-release-integrity.sh,pom.xml,**/pom.xml,README.md,docs/SETUP.md,package.json,package-lock.json,**/package.json,**/package-lock.json"
+applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scripts/check-release-integrity.sh,.github/scripts/check-action-references.sh,pom.xml,**/pom.xml,README.md,docs/SETUP.md,docs/CLI.md,jbang-catalog.json,package.json,package-lock.json,**/package.json,**/package-lock.json"
 ---
 
 # Release and publishing
@@ -8,9 +8,13 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   and every npm package and lock file.
 - Keep `quarkus.platform.version` independent from the BootUI project version.
 - Published artifacts are the parent POM, core, engine, UI, Spring autoconfigure, both Spring starters (MVC and
-  reactive), Quarkus parent, Quarkus runtime, and Quarkus deployment. Sample apps, integration tests, and conformance
-  must retain `maven.deploy.skip=true`, remain in the Central plugin's `excludeArtifacts` list, and stay outside the
-  publication-only reactor in `release.yml`.
+  reactive), Quarkus parent, Quarkus runtime, Quarkus deployment, `bootui-client`, and `bootui-cli`. Sample apps,
+  integration tests, coverage, and conformance must retain `maven.deploy.skip=true`, remain in the Central plugin's
+  `excludeArtifacts` list, and stay outside the publication-only reactor in `release.yml`.
+- The release also rewrites the `bootui-cli` coordinate in `jbang-catalog.json`, `README.md`, and `docs/CLI.md`, and
+  fails when `jbang-catalog.json` still resolves the previous version, so `jbang bootui@jdubois/boot-ui` cannot install
+  a stale release. The catalog alias points at the shaded `:all` classifier, so the CLI's shade execution and the alias
+  must change together; `release.yml` verifies the `bootui-cli-${VERSION}-all.jar` is published.
 - The source-less published modules (`bootui-ui`, `bootui-spring-boot-starter`, and
   `bootui-spring-boot-starter-reactive`) must attach their empty `javadoc.jar` during `package`, before release-profile
   signing at `verify`.

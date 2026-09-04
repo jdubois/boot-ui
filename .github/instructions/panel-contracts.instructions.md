@@ -17,7 +17,8 @@ applyTo: "bootui-core/**,bootui-engine/**,bootui-spring-autoconfigure/**,bootui-
 - Keep route metadata, `BootUiPanels`, adapter availability, MCP tool availability, conformance fixtures, docs, and end-to-end coverage aligned.
 - Before completing a panel addition or rename, audit the full vertical surface: DTO/API contract, engine service and
   SPI, Spring MVC and WebFlux wiring, Quarkus resource/build-time capability/availability, `BootUiPanels`, route
-  metadata, configuration keys, setup/features/platform-support docs, screenshots, focused adapter tests, conformance,
+  metadata, configuration keys, MCP tool catalog, CLI command path and regenerated `bootui-tools.json`,
+  `skills/bootui/SKILL.md`, setup/features/platform-support docs, screenshots, focused adapter tests, conformance,
   and affected browser specs. Mark unsupported stacks explicitly unavailable or not applicable.
 - `/bootui/api/panels` must carry the platform discriminator (`spring-boot`, `spring-boot-reactive`, or `quarkus`). The
   UI defaults only for backward compatibility.

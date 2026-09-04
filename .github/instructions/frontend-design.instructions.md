@@ -18,11 +18,15 @@ applyTo: "bootui-ui/**,bootui-spring-sample-app/e2e/**,bootui-quarkus-sample-app
   Quarkus. For ARIA, focus, tabs, dialogs, progress, or live-region changes, assert semantic uniqueness and keyboard
   behavior so duplicate announcements or hidden-but-focusable controls cannot pass visually.
 - Bootstrap Playwright with `npm ci` and `npx playwright install --with-deps chromium` in the relevant E2E directory.
-  The Spring E2E project runs MVC with `npm test` and WebFlux with `npm run test:webflux`; the Quarkus E2E project runs
-  with `npm test`.
+  The Spring E2E project runs MVC with `npm test`, WebFlux with `npm run test:webflux`, and the custom UI/API mount
+  suite with `npm run test:custom-path`; the Quarkus E2E project runs with `npm test`. CI runs all four.
 - For HMR, run the backend separately and open the Vite URL at `http://localhost:5173/bootui/`; Maven-served assets do
   not hot reload. Use `BOOTUI_API_PROXY_TARGET` for a non-default backend, and `BOOTUI_DEV_PATH` plus
   `BOOTUI_DEV_API_PATH` for custom mounts. Spring MVC, WebFlux, and Quarkus compare Origin/Host by host rather than port,
   so state-changing requests from Vite's port remain same-host.
 - Before screenshots, reset both window scroll and `.bootui-workspace` scroll. Feature screenshots remain 1600x900 WebP at quality 80 with realistic non-sensitive data.
-- Run the Impeccable skill for design, accessibility, or visual-system work.
+- A new page under `docs/` needs a `docs/.vuepress/sidebar.js` entry, or it is unreachable on the published site. Verify
+  documentation changes with `npm install && npm run docs:build` from the repository root.
+- Use the Impeccable design skill, when it is available in the session, for design, accessibility, or visual-system
+  work; `.impeccable/config.json` holds its rule exemptions. It is an external skill, so fall back to `DESIGN.md` and
+  the WCAG rules above when it is not present.
