@@ -234,6 +234,10 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
     }
 
+    /**
+     * A chain model whose coverage verdicts are indeterminate (as models built before those fields
+     * existed are): the rule must then fall back to the purely textual matcher check.
+     */
     @Test
     void actuatorUnprotectedPassesWhenAChainMatchesTheActuatorBasePath() {
         MockEnvironment environment =
@@ -256,6 +260,124 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new ActuatorUnprotectedRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void actuatorUnprotectedPassesWhenTheMatchingChainDeniesAnonymousAccess() {
+        // Issue #922: one anyRequest chain whose authorizeHttpRequests protects /actuator/**. Its
+        // matcher renders as "any request", so only the authorization verdict proves the actuator is
+        // covered.
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("management.endpoints.web.exposure.include", "env");
+        FilterChainModel chain =
+                actuatorChain("any request", Boolean.TRUE, /* actuatorAnonymousAllowed= */ Boolean.FALSE);
+
+        SecurityRuleResultDto result = new ActuatorUnprotectedRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void actuatorUnprotectedFiresWhenTheMatchingChainPermitsAnonymousAccess() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("management.endpoints.web.exposure.include", "env");
+        FilterChainModel chain =
+                actuatorChain("any request", Boolean.TRUE, /* actuatorAnonymousAllowed= */ Boolean.TRUE);
+
+        SecurityRuleResultDto result = new ActuatorUnprotectedRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .containsExactly("Actuator endpoints are exposed at /actuator but Chain #0 (any request) "
+                        + "permits anonymous access to that path.");
+    }
+
+    @Test
+    void actuatorUnprotectedUsesTheFirstChainThatMatchesTheActuatorPath() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("management.endpoints.web.exposure.include", "env");
+        FilterChainModel scoped = new FilterChainModel(
+                0,
+                "PathPattern [/api/**]",
+                List.of("AuthorizationFilter"),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Boolean.FALSE,
+                Boolean.TRUE);
+        FilterChainModel catchAll = new FilterChainModel(
+                1,
+                "any request",
+                List.of("AuthorizationFilter"),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Boolean.TRUE,
+                Boolean.FALSE);
+
+        SecurityRuleResultDto result =
+                new ActuatorUnprotectedRule().evaluate(context(List.of(scoped, catchAll), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void actuatorUnprotectedIsSkippedWhenTheMatchingChainAuthorizationCannotBeRead() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("management.endpoints.web.exposure.include", "env");
+        FilterChainModel chain = actuatorChain("any request", Boolean.TRUE, /* actuatorAnonymousAllowed= */ null);
+
+        SecurityRuleResultDto result = new ActuatorUnprotectedRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
+    }
+
+    @Test
+    void actuatorUnprotectedHonoursACustomActuatorBasePath() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("management.endpoints.web.exposure.include", "env")
+                .withProperty("management.endpoints.web.base-path", "/manage");
+        FilterChainModel chain = actuatorChain("any request", Boolean.TRUE, Boolean.TRUE);
+
+        SecurityRuleResultDto result = new ActuatorUnprotectedRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("exposed at /manage"));
+    }
+
+    /** A chain carrying the actuator-coverage verdicts the scanner probes for. */
+    private static FilterChainModel actuatorChain(
+            String matcher, Boolean matchesActuatorPath, Boolean actuatorAnonymousAllowed) {
+        return new FilterChainModel(
+                0,
+                matcher,
+                List.of("AuthorizationFilter"),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                matchesActuatorPath,
+                actuatorAnonymousAllowed);
     }
 
     @Test

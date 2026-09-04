@@ -11,7 +11,9 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import jakarta.servlet.Filter;
+import jakarta.servlet.http.HttpServletMapping;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.MappingMatch;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -281,11 +283,12 @@ final class SecurityScanner {
 
         List<String> errors = new ArrayList<>();
         List<FilterChainModel> chains = new ArrayList<>();
+        String actuatorProbePath = actuatorProbePath(environment);
         try {
             List<SecurityFilterChain> securityChains = proxy.getFilterChains();
             for (int i = 0; i < securityChains.size(); i++) {
                 try {
-                    chains.add(toChainModel(i, securityChains.get(i)));
+                    chains.add(toChainModel(i, securityChains.get(i), actuatorProbePath));
                 } catch (RuntimeException | LinkageError ex) {
                     errors.add("Chain " + i + ": " + safeMessage(ex));
                 }
@@ -340,7 +343,7 @@ final class SecurityScanner {
         return new SecurityDiscovery(context, errors);
     }
 
-    private static FilterChainModel toChainModel(int index, SecurityFilterChain chain) {
+    private static FilterChainModel toChainModel(int index, SecurityFilterChain chain, String actuatorProbePath) {
         List<Filter> filters = chain.getFilters();
         List<String> filterNames =
                 filters.stream().map(f -> f.getClass().getSimpleName()).toList();
@@ -352,6 +355,9 @@ final class SecurityScanner {
         Boolean authorizationRuleShadowed = detectAuthorizationRuleShadowed(authorizationManager);
         Integer rememberMeKeyLength = detectRememberMeKeyLength(filters);
         Boolean statelessSecurityContext = detectStatelessSecurityContext(filters);
+        Boolean matchesActuatorPath = detectMatchesActuatorPath(chain, actuatorProbePath);
+        Boolean actuatorAnonymousAllowed =
+                detectActuatorAnonymousAllowed(filters, authorizationManager, actuatorProbePath);
         return new FilterChainModel(
                 index,
                 matcher,
@@ -365,7 +371,9 @@ final class SecurityScanner {
                 headerWriters.cspReportOnly(),
                 authorizationRuleShadowed,
                 rememberMeKeyLength,
-                statelessSecurityContext);
+                statelessSecurityContext,
+                matchesActuatorPath,
+                actuatorAnonymousAllowed);
     }
 
     private static String matcherDescription(SecurityFilterChain chain) {
@@ -387,8 +395,7 @@ final class SecurityScanner {
         if (unwrappedManager == null) {
             return null;
         }
-        Authentication anonymous = new AnonymousAuthenticationToken(
-                "bootui-advisor", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
+        Authentication anonymous = anonymousAuthentication();
         boolean indeterminate = false;
         for (AuthorizationProbe probe : AUTHORIZATION_PROBES) {
             try {
@@ -415,6 +422,67 @@ final class SecurityScanner {
             }
         }
         return null;
+    }
+
+    /**
+     * The path the advisor probes to reason about actuator protection: a sensitive endpoint under the
+     * configured actuator base path. Authorization is what is being probed, not endpoint existence, so
+     * the path stays representative even when {@code env} itself is not exposed -- an
+     * {@code /actuator/**} rule applies to it either way.
+     */
+    private static String actuatorProbePath(Environment environment) {
+        String basePath = SecurityContext.actuatorBasePath(environment);
+        return basePath.endsWith("/") ? basePath + "env" : basePath + "/env";
+    }
+
+    private static Authentication anonymousAuthentication() {
+        return new AnonymousAuthenticationToken(
+                "bootui-advisor", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
+    }
+
+    /**
+     * {@code TRUE} when this chain's own request matcher accepts a request for the actuator path,
+     * {@code FALSE} when it does not, {@code null} when the matcher could not be evaluated. A
+     * whole-application chain matches here just as much as a dedicated
+     * {@code securityMatcher("/actuator/**")} one, which is what lets the actuator rule reason about
+     * the single-chain shape Spring Boot's reference documents.
+     */
+    private static Boolean detectMatchesActuatorPath(SecurityFilterChain chain, String actuatorProbePath) {
+        try {
+            return chain.matches(simulatedRequest("GET", actuatorProbePath));
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    /**
+     * {@code TRUE} when an anonymous request for the actuator path is granted by this chain's
+     * authorization rules, {@code FALSE} when it is denied, {@code null} when an
+     * {@code AuthorizationManager} is present but could not be probed.
+     *
+     * <p>A chain with no {@code AuthorizationFilter} installs nothing that can deny the request, so it
+     * counts as granting it. An abstaining manager (a {@code null} result) is likewise treated as
+     * granting, because {@code AuthorizationFilter} only rejects an explicit denial -- reporting on a
+     * path nothing refuses keeps the rule fail-closed.</p>
+     */
+    private static Boolean detectActuatorAnonymousAllowed(
+            List<Filter> filters, AuthorizationManager<HttpServletRequest> manager, String actuatorProbePath) {
+        if (manager == null) {
+            boolean authorizationFilterPresent = filters.stream().anyMatch(AuthorizationFilter.class::isInstance);
+            return authorizationFilterPresent ? null : Boolean.TRUE;
+        }
+        AuthorizationManager<HttpServletRequest> unwrappedManager = unwrapObservationAuthorizationManager(manager);
+        if (unwrappedManager == null) {
+            return null;
+        }
+        Authentication anonymous = anonymousAuthentication();
+        try {
+            AuthorizationResult result =
+                    unwrappedManager.authorize(() -> anonymous, simulatedRequest("GET", actuatorProbePath));
+            return result == null || result.isGranted();
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
     }
 
     /**
@@ -918,6 +986,36 @@ final class SecurityScanner {
         return introspectorType != null && introspectorType.isInstance(source);
     }
 
+    /**
+     * Stands in for the servlet mapping a container would attach to the request. Spring's
+     * {@code ServletRequestPathUtils} dereferences it while parsing the request path, which
+     * Spring Security's {@code PathPatternRequestMatcher} does for every path-based matcher, so
+     * without it any path-scoped simulated authorization decision would fail. {@code DEFAULT} models
+     * the root {@code "/"} mapping, i.e. no servlet path prefix to strip.
+     */
+    private static final HttpServletMapping DEFAULT_SERVLET_MAPPING = new HttpServletMapping() {
+
+        @Override
+        public String getMatchValue() {
+            return "";
+        }
+
+        @Override
+        public String getPattern() {
+            return "/";
+        }
+
+        @Override
+        public String getServletName() {
+            return "";
+        }
+
+        @Override
+        public MappingMatch getMappingMatch() {
+            return MappingMatch.DEFAULT;
+        }
+    };
+
     private static HttpServletRequest simulatedRequest(String requestMethod, String requestPath) {
         InvocationHandler handler = (proxy, method, args) -> {
             String name = method.getName();
@@ -930,6 +1028,7 @@ final class SecurityScanner {
                 case "getServerName", "getRemoteHost", "getLocalName" -> "localhost";
                 case "getRemoteAddr", "getLocalAddr" -> "127.0.0.1";
                 case "getRequestURL" -> new StringBuffer("http://localhost" + requestPath);
+                case "getHttpServletMapping" -> DEFAULT_SERVLET_MAPPING;
                 default -> defaultValue(method);
             };
         };

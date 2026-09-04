@@ -9,6 +9,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The Security Advisor no longer reports an actuator protected inside a single `anyRequest` chain as unprotected.**
+  `SEC-ACT-003` decided whether the actuator was covered by looking for the base path in a chain's `securityMatcher`
+  *description*. A whole-application chain renders as `any request` and never mentions `/actuator`, so an application
+  following Spring Boot's own reference — one chain whose `authorizeHttpRequests` requires a role for
+  `EndpointRequest.toAnyEndpoint()` / `/actuator/**` — was reported as having "no security filter chain" for that path.
+  The rule now asks the question it is actually about: it finds the chain that matches the actuator path (a catch-all
+  chain counts, exactly as it does at runtime) and simulates an anonymous request against that chain's authorization
+  rules. A denial is protection and the rule stays silent. The check also stops passing configurations it never
+  verified: a chain that *does* match the actuator path but grants anonymous access is now reported as such, naming the
+  chain, and a chain whose authorization rules cannot be read is skipped rather than guessed at. Fixing the simulated
+  request the advisor probes with — it lacked the servlet mapping Spring dereferences while parsing a request path —
+  also restores every other path-scoped anonymous authorization simulation, which had been silently degrading to
+  "indeterminate" since Spring Security switched to `PathPatternRequestMatcher`.
+  ([#922](https://github.com/jdubois/boot-ui/issues/922))
 - **The Spring advisor and the pentest panel no longer report BootUI's own actuator default as a host
   misconfiguration.** BootUI contributes `management.endpoint.health.show-details=always` as a lowest-priority default
   so its Health panel works, and `SPRING-MGMT-003` (MEDIUM) and `PT-A05-050` (LOW) then reported that value against the
