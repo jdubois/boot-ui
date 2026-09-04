@@ -562,6 +562,19 @@ Dismissed rules remove all of their instances from the score.
   not propagate.
 - **Recommendation**: review the design; usually the transactional work belongs in a separate bean method that the
   `@Async` method calls, so the transaction is scoped correctly on the async thread.
+- **Does not fire when**: the method is a transactional event listener that runs after the publishing transaction
+  completed — `@TransactionalEventListener` in its default `AFTER_COMMIT` phase, or in `AFTER_ROLLBACK` /
+  `AFTER_COMPLETION`. Spring Modulith's `@ApplicationModuleListener` is exactly that shape: it composes `@Async`,
+  `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, and the whole point is that the
+  listener does *not* join the publisher's transaction, which has already committed by the time the listener runs. The
+  listener annotation is recognised on the method itself and through a composed annotation, so a project's own
+  meta-annotation is exempt too, and `@ApplicationModuleListener` is additionally matched by name (both
+  `org.springframework.modulith.events` and the Spring Modulith 1.x `org.springframework.modulith` package) so the
+  exemption holds even when that annotation type cannot be resolved.
+- **Still fires for**: `@TransactionalEventListener(phase = BEFORE_COMMIT)` combined with `@Async`. There the publishing
+  transaction really is still open while the listener runs on another thread, so the listener's own transaction observes
+  state the publisher has not committed. The message names the phase; move the listener to `AFTER_COMMIT` or drop
+  `@Async`.
 
 ### ARCH-SPRING-020 - Async event listeners should return void
 

@@ -232,6 +232,22 @@
         </dependency>
 
         <!--
+          Test-scope only: ARCH-SPRING-019 must stay silent for Spring Modulith's @ApplicationModuleListener,
+          which composes @Async + @Transactional(REQUIRES_NEW) + @TransactionalEventListener. The fixture uses
+          the real annotation so the exemption is pinned against Modulith's own composition rather than a
+          hand-written imitation of it. The version is pinned directly (spring-boot-dependencies does not manage
+          Spring Modulith) but is otherwise inert: the fixture is only statically bytecode-scanned by ArchUnit,
+          never executed, and production code matches the annotation by name, so BootUI adds no Spring Modulith
+          dependency to a host application.
+        -->
+        <dependency>
+            <groupId>org.springframework.modulith</groupId>
+            <artifactId>spring-modulith-events-api</artifactId>
+            <version>2.1.1</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
           Test-scope only: JdbcActivityStoreTests exercises the plain-JDBC Live Activity persistence
           store against a real, disposable database rather than mocking java.sql.*. H2's version is
           managed by the imported spring-boot-dependencies BOM.
