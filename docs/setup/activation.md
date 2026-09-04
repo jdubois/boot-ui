@@ -123,3 +123,9 @@ The Configuration panel can create, update, and delete local runtime overrides. 
 `.bootui/application-bootui.properties` by default, loaded at high precedence on the next startup, and never modify your
 application source configuration. Already-bound `@ConfigurationProperties` beans may keep their previous value until the
 app restarts; BootUI returns that warning with every override mutation.
+
+`bootui.overrides-file` changes where that file lives, and BootUI resolves the advisor dismissed-findings file
+(`boot-ui.yml`) in the same directory. Set it from the environment (`BOOTUI_OVERRIDES_FILE`) rather than from
+`application.properties`, which is loaded too late for the overrides file to be read at startup. Containers that rebuild
+their image from source can point it at a mounted volume so both files survive — see
+[Persisting console state across image rebuilds](environments.md#persisting-console-state-across-image-rebuilds).

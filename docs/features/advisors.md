@@ -26,6 +26,11 @@ Dismissals are applied server-side and persisted under the `dismissedRules` node
 (next to the runtime overrides file), so they survive restarts and stay consistent between each panel and the Overview
 dashboard. The file is developer-local and intended to be git-ignored. Rule identifiers are globally unique across
 advisors, so a dismissal always targets exactly one rule.
+
+`bootui.overrides-file` moves both files together: BootUI resolves `boot-ui.yml` in the same directory as the configured
+overrides file. That is what lets dismissals survive a container image rebuild — point the key at a mounted volume, or
+commit a baseline of accepted findings and copy it into the image. See
+[Persisting console state across image rebuilds](../setup/environments.md#persisting-console-state-across-image-rebuilds).
 :::
 
 ### Kotlin applications

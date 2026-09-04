@@ -2333,7 +2333,7 @@ Initial properties:
 | `bootui.startup.capacity`                    | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                         |
 | `bootui.enabled-profiles`                    | `dev,local`                             | Profiles that activate BootUI.                                                                    |
 | `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                          |
-| `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
+| `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides; also locates `boot-ui.yml`.           |
 | `bootui.monitoring.exclude-self`             | `true`                                  | Hide BootUI's own runtime data from monitoring panels.                                            |
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Cache clear actions after explicit browser confirmation.                            |
 | `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |

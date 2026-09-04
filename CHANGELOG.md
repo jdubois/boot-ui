@@ -24,6 +24,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The documentation now says how to keep console state across container image rebuilds.** An application rebuilt from
+  source many times a day lost its dismissed advisor findings on every rebuild, because `.bootui/` lives in the image's
+  working directory. The answer already existed — `bootui.overrides-file` locates the runtime overrides file *and* the
+  dismissed-findings file BootUI resolves next to it, on all three stacks — but it was only findable as a one-line note
+  in a properties table, so it read as if it covered the Configuration panel alone. The Docker section of the
+  non-standard-runtimes page gains **Persisting console state across image rebuilds**: which two files exist and what
+  each holds, a compose snippet mounting them on a volume, the reason the key must come from the environment rather than
+  from `application.properties` (it is read before configuration files are loaded), and how to commit a baseline of
+  accepted findings into the image, including the read-only caveat and the `<vulnerability id>::<group:artifact>` key
+  shape. The advisors and activation pages link to it, and the property tables in `docs/PROPERTIES.md` and
+  `docs/SPECIFICATION.md` now state the key's dual role. The behavior is unchanged, and is now pinned by a test on each
+  adapter ([#930](https://github.com/jdubois/boot-ui/discussions/930)).
+
 - **`get_config` now tells an agent how its search actually matches, and what an empty result means.** Making the
   search relaxed-binding aware ([#939](https://github.com/jdubois/boot-ui/issues/939)) fixed the behavior but left the
   agent-facing description asserting it was "relaxed-binding aware" without saying what that does, and an agent reads
