@@ -10,6 +10,7 @@ import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaParameter;
 import com.tngtech.archunit.core.domain.JavaParameterizedType;
 import com.tngtech.archunit.core.domain.JavaType;
+import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ControllerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.HandlerMethodModel;
@@ -46,7 +47,9 @@ final class RestApiHandlerModelBuilder {
             // Quarkus REST's typed, GraalVM-friendly analogue of ResponseEntity<T>. Plain
             // jakarta.ws.rs.core.Response is deliberately NOT added here: it is non-generic, so there is no
             // generic body type to unwrap (see https://quarkus.io/guides/rest#reactive).
-            Types.QUARKUS_REST_RESPONSE);
+            Types.QUARKUS_REST_RESPONSE,
+            // Kotlin coroutines' deferred value, the coroutine analogue of CompletableFuture.
+            "kotlinx.coroutines.Deferred");
 
     private static final Set<String> COLLECTION_TYPES = Set.of(
             "java.util.List",
@@ -56,7 +59,9 @@ final class RestApiHandlerModelBuilder {
             "java.util.stream.Stream",
             "reactor.core.publisher.Flux",
             // Quarkus/SmallRye Mutiny's async stream type: https://smallrye.io/smallrye-mutiny/latest/concepts/multi/
-            "io.smallrye.mutiny.Multi");
+            "io.smallrye.mutiny.Multi",
+            // Kotlin coroutines' cold stream, which Spring adapts exactly like a Flux.
+            "kotlinx.coroutines.flow.Flow");
 
     private static final Set<String> UNTYPED_TYPES = Set.of(
             "java.lang.Object",
@@ -252,7 +257,7 @@ final class RestApiHandlerModelBuilder {
                 .orElse("");
 
         int handlerCount = 0;
-        for (JavaMethod method : type.getMethods()) {
+        for (JavaMethod method : KotlinBytecode.declaredMethods(type)) {
             try {
                 HandlerMethodModel model = toHandler(
                         type,
@@ -296,7 +301,7 @@ final class RestApiHandlerModelBuilder {
             return true;
         }
         try {
-            for (JavaMethod method : type.getMethods()) {
+            for (JavaMethod method : KotlinBytecode.declaredMethods(type)) {
                 if (!jaxRsHttpMethods(method).isEmpty()) {
                     return true;
                 }
@@ -317,7 +322,7 @@ final class RestApiHandlerModelBuilder {
         List<String> typeLevelConsumes = mappingAttribute(type, Types.JAXRS_CONSUMES, "value");
 
         int handlerCount = 0;
-        for (JavaMethod method : type.getMethods()) {
+        for (JavaMethod method : KotlinBytecode.declaredMethods(type)) {
             try {
                 HandlerMethodModel model = toJaxRsHandler(
                         type, method, classValidated, hidden, typeLevelPaths, typeLevelProduces, typeLevelConsumes);
@@ -364,12 +369,12 @@ final class RestApiHandlerModelBuilder {
         List<String> effectiveProduces = produces.isEmpty() ? List.copyOf(typeLevelProduces) : dedupe(produces);
         List<String> effectiveConsumes = consumes.isEmpty() ? List.copyOf(typeLevelConsumes) : dedupe(consumes);
 
-        JavaType returnType = method.getReturnType();
+        JavaType returnType = declaredReturnType(method);
         JavaClass rawReturn = returnType.toErasure();
         String returnTypeName = rawReturn.getName();
         boolean returnsResponseEntity =
                 Types.JAXRS_RESPONSE.equals(returnTypeName) || Types.QUARKUS_REST_RESPONSE.equals(returnTypeName);
-        boolean returnsVoid = "void".equals(returnTypeName) || "java.lang.Void".equals(returnTypeName);
+        boolean returnsVoid = isVoidLike(returnTypeName);
         // Per the Jakarta REST spec, a void-returning resource method always answers 204 No Content —
         // unlike Spring MVC, which defaults an unannotated void handler to 200 OK. Modelling that as a
         // known response status keeps RAPI-RESP-002/RAPI-RESP-005 from flagging a JAX-RS void handler
@@ -411,7 +416,7 @@ final class RestApiHandlerModelBuilder {
         List<String> versionParams = new ArrayList<>();
         List<String> versionHeaders = new ArrayList<>();
 
-        for (JavaParameter parameter : method.getParameters()) {
+        for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
             try {
                 if (isJaxRsEntityParam(parameter)) {
                     hasRequestBody = true;
@@ -571,7 +576,7 @@ final class RestApiHandlerModelBuilder {
      * not just a JAX-RS resource. See https://quarkus.io/guides/rest#exception-mapping
      */
     private void collectServerExceptionMapperMethods(JavaClass type) {
-        for (JavaMethod method : type.getMethods()) {
+        for (JavaMethod method : KotlinBytecode.declaredMethods(type)) {
             try {
                 if (!method.isAnnotatedWith(Types.SERVER_EXCEPTION_MAPPER)) {
                     continue;
@@ -595,7 +600,7 @@ final class RestApiHandlerModelBuilder {
 
     /** The exception type a {@code @ServerExceptionMapper} method handles: its first non-context parameter. */
     private static String firstExceptionParameterType(JavaMethod method) {
-        for (JavaParameter parameter : method.getParameters()) {
+        for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
             try {
                 String name = parameter.getRawType().getName();
                 if (!SERVER_EXCEPTION_MAPPER_CONTEXT_PARAM_TYPES.contains(name)) {
@@ -609,7 +614,7 @@ final class RestApiHandlerModelBuilder {
     }
 
     private static Optional<JavaMethod> findMethod(JavaClass type, String name, int parameterCount) {
-        for (JavaMethod method : type.getMethods()) {
+        for (JavaMethod method : KotlinBytecode.declaredMethods(type)) {
             if (method.getName().equals(name) && method.getRawParameterTypes().size() == parameterCount) {
                 return Optional.of(method);
             }
@@ -620,14 +625,14 @@ final class RestApiHandlerModelBuilder {
     private void addJaxRsExceptionMapperModel(JavaClass type, Optional<JavaMethod> methodOpt, String exceptionType) {
         String methodName = methodOpt.map(JavaMethod::getName).orElse("toResponse");
         String returnTypeName = methodOpt
-                .map(method -> method.getReturnType().toErasure().getName())
+                .map(method -> declaredReturnType(method).toErasure().getName())
                 .orElse(Types.JAXRS_RESPONSE);
         String bodyType = methodOpt
-                .map(method -> resolveBodyTypeName(method.getReturnType()))
+                .map(method -> resolveBodyTypeName(declaredReturnType(method)))
                 .orElse(Types.JAXRS_RESPONSE);
         boolean returnsResponseEntity =
                 Types.JAXRS_RESPONSE.equals(returnTypeName) || Types.QUARKUS_REST_RESPONSE.equals(returnTypeName);
-        boolean returnsVoid = "void".equals(returnTypeName) || "java.lang.Void".equals(returnTypeName);
+        boolean returnsVoid = isVoidLike(returnTypeName);
         boolean hasResponseParam =
                 methodOpt.map(RestApiHandlerModelBuilder::hasResponseParameter).orElse(false);
         // Spring's ProblemDetail/@ResponseStatus types do not exist on JAX-RS, so those two fields are
@@ -664,20 +669,18 @@ final class RestApiHandlerModelBuilder {
                 || annotated(type, Types.RESPONSE_BODY)
                 || metaAnnotated(type, Types.RESPONSE_BODY);
         boolean foundAdviceHandler = false;
-        for (JavaMethod method : type.getMethods()) {
+        for (JavaMethod method : KotlinBytecode.declaredMethods(type)) {
             try {
                 if (!method.isAnnotatedWith(Types.EXCEPTION_HANDLER)) {
                     continue;
                 }
-                JavaType returnType = method.getReturnType();
+                JavaType returnType = declaredReturnType(method);
                 String returnTypeName = returnType.toErasure().getName();
                 String bodyType = resolveBodyTypeName(returnType);
                 boolean problemType = Types.PROBLEM_DETAIL.equals(bodyType) || Types.ERROR_RESPONSE.equals(bodyType);
                 boolean returnsResponseEntity =
                         Types.RESPONSE_ENTITY.equals(returnTypeName) || Types.HTTP_ENTITY.equals(returnTypeName);
-                boolean returnsVoid = "void".equals(returnTypeName)
-                        || "java.lang.Void".equals(returnTypeName)
-                        || "java.lang.Void".equals(bodyType);
+                boolean returnsVoid = isVoidLike(returnTypeName) || isVoidLike(bodyType);
                 boolean hasResponseStatus =
                         method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
                 String handlerResponseStatusValue = responseStatusValue(method, type);
@@ -767,12 +770,12 @@ final class RestApiHandlerModelBuilder {
         boolean explicitHttpMethod = !httpMethods.isEmpty();
         List<String> effectivePaths = effectivePaths(typeLevelPaths, mappingPaths);
 
-        JavaType returnType = method.getReturnType();
+        JavaType returnType = declaredReturnType(method);
         JavaClass rawReturn = returnType.toErasure();
         String returnTypeName = rawReturn.getName();
         boolean returnsResponseEntity =
                 Types.RESPONSE_ENTITY.equals(returnTypeName) || Types.HTTP_ENTITY.equals(returnTypeName);
-        boolean returnsVoid = "void".equals(returnTypeName) || "java.lang.Void".equals(returnTypeName);
+        boolean returnsVoid = isVoidLike(returnTypeName);
 
         JavaType bodyType = unwrapWrappers(returnType);
         JavaClass bodyErasure = bodyType.toErasure();
@@ -813,7 +816,7 @@ final class RestApiHandlerModelBuilder {
         List<String> pathVariableNames = new ArrayList<>();
         List<String> pageQueryParamNames = new ArrayList<>();
 
-        for (JavaParameter parameter : method.getParameters()) {
+        for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
             try {
                 String paramTypeName = parameter.getRawType().getName();
                 if (parameter.isAnnotatedWith(Types.REQUEST_BODY)) {
@@ -1166,6 +1169,21 @@ final class RestApiHandlerModelBuilder {
         return null;
     }
 
+    /**
+     * The return type the developer declared. A Kotlin {@code suspend fun} always compiles to an
+     * {@code Object}-returning method whose real result type is the type argument of its trailing
+     * {@code Continuation<? super T>} parameter, so reading the JVM return type would model every
+     * suspending handler as returning an untyped body.
+     */
+    private static JavaType declaredReturnType(JavaMethod method) {
+        return KotlinBytecode.suspendResultType(method).orElseGet(method::getReturnType);
+    }
+
+    /** Whether the named type carries no body: {@code void}, {@code Void}, or Kotlin's {@code Unit}. */
+    private static boolean isVoidLike(String typeName) {
+        return "void".equals(typeName) || "java.lang.Void".equals(typeName) || KotlinBytecode.isUnit(typeName);
+    }
+
     private String resolveBodyTypeName(JavaType returnType) {
         JavaType body = unwrapWrappers(returnType);
         JavaClass erasure = body.toErasure();
@@ -1363,7 +1381,7 @@ final class RestApiHandlerModelBuilder {
     }
 
     private static boolean hasResponseParameter(JavaMethod method) {
-        for (JavaParameter parameter : method.getParameters()) {
+        for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
             try {
                 String name = parameter.getRawType().getName();
                 if (RESPONSE_PARAMETER_TYPES.contains(name)) {
@@ -1538,7 +1556,7 @@ final class RestApiHandlerModelBuilder {
         if (!types.isEmpty()) {
             return List.copyOf(types);
         }
-        for (JavaParameter parameter : method.getParameters()) {
+        for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
             try {
                 JavaClass raw = parameter.getRawType();
                 if (extendsClass(raw, "java.lang.Throwable") && !types.contains(raw.getName())) {

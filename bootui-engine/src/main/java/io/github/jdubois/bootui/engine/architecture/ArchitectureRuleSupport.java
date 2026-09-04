@@ -1,8 +1,14 @@
 package io.github.jdubois.bootui.engine.architecture;
 
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaConstructor;
+import com.tngtech.archunit.core.domain.JavaField;
+import com.tngtech.archunit.core.domain.JavaMember;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.ArrayList;
 import java.util.List;
@@ -75,5 +81,32 @@ final class ArchitectureRuleSupport {
 
     static String detail(String value) {
         return DetailText.sanitize(value);
+    }
+
+    /**
+     * The methods a rule should judge: everything the developer wrote, with the compiler's own
+     * members removed. Filtering these out is not cosmetic. Kotlin copies a method's annotations onto
+     * the synthetic static {@code $suspendImpl} body it generates for an {@code open suspend fun}, so
+     * an unfiltered rule reports every suspending function twice and additionally reports the
+     * synthetic copy as {@code static} — a finding about a method that does not exist in the source.
+     * javac's bridge, lambda-body, and enum-switch members are filtered for the same reason.
+     */
+    static List<JavaMethod> declaredMethods(JavaClass javaClass) {
+        return KotlinBytecode.declaredMethods(javaClass);
+    }
+
+    /** The fields a rule should judge; see {@link #declaredMethods(JavaClass)}. */
+    static List<JavaField> declaredFields(JavaClass javaClass) {
+        return KotlinBytecode.declaredFields(javaClass);
+    }
+
+    /** The constructors a rule should judge; see {@link #declaredMethods(JavaClass)}. */
+    static List<JavaConstructor> declaredConstructors(JavaClass javaClass) {
+        return KotlinBytecode.declaredConstructors(javaClass);
+    }
+
+    /** Whether this member is compiler-generated rather than written by the developer. */
+    static boolean isCompilerGenerated(JavaMember member) {
+        return KotlinBytecode.isCompilerGenerated(member);
     }
 }

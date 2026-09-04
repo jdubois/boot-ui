@@ -17,10 +17,10 @@ import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
-import com.tngtech.archunit.core.domain.JavaMember;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
+import com.tngtech.archunit.core.domain.JavaType;
 import com.tngtech.archunit.core.domain.properties.CanBeAnnotated;
 import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
@@ -32,6 +32,7 @@ import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.ProxyRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -543,7 +544,7 @@ final class NoFieldInjectionRule extends AbstractArchitectureRule {
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
                 "Detects @Autowired or @Value on fields instead of constructor injection.",
-                "Prefer constructor injection so dependencies are explicit, final, and easy to test.",
+                "Prefer constructor injection so dependencies are explicit, final, and easy to test; in Kotlin, take the dependency as a constructor val instead of an @Autowired lateinit var.",
                 "https://docs.spring.io/spring-boot/reference/using/spring-beans-and-dependency-injection.html"));
     }
 
@@ -582,7 +583,8 @@ final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractA
                         + "injection. This is the CDI/Quarkus and Guice equivalent of Spring's @Autowired field "
                         + "injection.",
                 "Prefer constructor injection so dependencies are explicit, final, and easy to test; CDI containers "
-                        + "such as Quarkus' Arc inject constructor parameters just as readily as fields.",
+                        + "such as Quarkus' Arc inject constructor parameters just as readily as fields. In Kotlin, "
+                        + "take the dependency as a constructor val instead of an injected lateinit var.",
                 "https://quarkus.io/guides/cdi"));
     }
 
@@ -659,7 +661,7 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "HIGH",
                 "Detects direct self-invocation of methods that are proxied through @Transactional, @Async, or @Cacheable (declared on the method, or @Async/@Cacheable declared on the class), which bypasses the Spring proxy and silently disables the behaviour.",
-                "Refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or, only if necessary, inject a @Lazy self-reference and call through it.",
+                "Refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or, only if necessary, inject a @Lazy self-reference and call through it. Kotlin behaves identically here: marking the function open does not make a this-call go through the proxy.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
@@ -670,11 +672,23 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                         "are proxied through @Transactional, @Async, or @Cacheable on the method (or @Async/@Cacheable on the declaring class)") {
                     @Override
                     public boolean test(MethodCallTarget target) {
+                        if (isCompilerGeneratedTarget(target)) {
+                            // Kotlin routes every open suspending function through a synthetic
+                            // $suspendImpl body that inherits the annotation: the "self-invocation" is
+                            // the compiler's own call, not one the developer can refactor.
+                            return false;
+                        }
                         return context.platform() == ArchitecturePlatform.SPRING
                                 && (SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(target)
                                         || SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(target.getOwner()));
                     }
                 });
+    }
+
+    private static boolean isCompilerGeneratedTarget(MethodCallTarget target) {
+        return target.resolveMember()
+                .map(ArchitectureRuleSupport::isCompilerGenerated)
+                .orElse(false);
     }
 }
 
@@ -1014,7 +1028,7 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                                     javaClass,
                                     "Interface " + javaClass.getName() + " is annotated with @Transactional"));
                         }
-                        for (JavaMethod method : javaClass.getMethods()) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (hasTransactionalAnnotation(method)) {
                                 events.add(SimpleConditionEvent.violated(
                                         method,
@@ -1054,7 +1068,7 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
                 "Detects proxy-driven annotations on methods the active runtime cannot intercept. Spring class-based proxies cannot intercept private, static, or final methods. Quarkus Arc cannot intercept private methods, but supports static interception and transforms final intercepted methods by default.",
-                "Use a non-private, non-static, non-final method for portable Spring proxy behaviour; keep it public when the application uses interface-based JDK proxies. On Quarkus, avoid private interceptor-bound methods.",
+                "Use a non-private, non-static, non-final method for portable Spring proxy behaviour; keep it public when the application uses interface-based JDK proxies. In Kotlin, classes and members are final by default: mark them open, or apply the kotlin-spring compiler plugin, which opens Spring-annotated classes for you. On Quarkus, avoid private interceptor-bound methods.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
@@ -1064,7 +1078,7 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
                 .should(new ArchCondition<JavaClass>("not declare unproxyable proxy-driven methods") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        for (JavaMethod method : javaClass.getMethods()) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             proxyabilityProblem(method, context.platform())
                                     .ifPresent(reason -> events.add(SimpleConditionEvent.violated(
                                             method,
@@ -1127,8 +1141,8 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
                         "Async methods should return void or Future",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @Async methods that return a value type other than java.util.concurrent.Future.",
-                        "Use void for fire-and-forget async work, or return Future/CompletableFuture when callers need a result.",
+                        "Detects @Async methods that return a value type other than java.util.concurrent.Future, and Kotlin suspending functions annotated with @Async, which Spring's async interceptor does not support.",
+                        "Use void for fire-and-forget async work, or return Future/CompletableFuture when callers need a result. In Kotlin, launch the work in a coroutine (for example withContext(Dispatchers.IO)) instead of annotating a suspending function with @Async.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/annotation/Async.html"));
     }
 
@@ -1139,9 +1153,19 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         boolean asyncClass = SpringStereotypes.ASYNC_ANNOTATED.test(javaClass);
-                        for (JavaMethod method : javaClass.getMethods()) {
-                            if ((asyncClass || SpringStereotypes.ASYNC_ANNOTATED.test(method))
-                                    && !returnsVoidOrFuture(method)) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
+                            if (!asyncClass && !SpringStereotypes.ASYNC_ANNOTATED.test(method)) {
+                                continue;
+                            }
+                            if (KotlinBytecode.isSuspendFunction(method)) {
+                                // Unlike @Scheduled, Spring's async interceptor has no coroutine bridge: the
+                                // continuation is never resumed on the executor, so the annotation is inert.
+                                events.add(
+                                        SimpleConditionEvent.violated(
+                                                method,
+                                                "Async method " + method.getFullName()
+                                                        + " is a Kotlin suspending function, which Spring's @Async interceptor does not support"));
+                            } else if (!returnsVoidOrFuture(method)) {
                                 events.add(SimpleConditionEvent.violated(
                                         method,
                                         "Async method " + method.getFullName()
@@ -1172,6 +1196,12 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
  * but never RxJava 2 ({@code io.reactivex.*}, without the {@code rxjava3} segment) or {@code
  * CompletionStage}/{@code CompletableFuture}, both of which Spring registers as non-deferred and so
  * discards exactly like any other synchronous return value.</p>
+ *
+ * <p>Kotlin suspending functions are supported by Spring (the coroutine-reactor bridge adapts them to
+ * a {@code Publisher}), so their compiler-added {@code Continuation} parameter and erased {@code
+ * Object} return type are unwrapped here rather than reported: the rule judges the declared
+ * signature, so {@code suspend fun task()} passes while {@code suspend fun task(): Long} is still
+ * flagged for the result Spring discards.</p>
  */
 final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractArchitectureRule {
 
@@ -1181,8 +1211,8 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                 "Scheduled methods should have supported signatures",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Scheduled methods that accept parameters or return non-void, non-reactive values that Spring ignores.",
-                "Declare scheduled methods without parameters and return void unless using a supported deferred reactive type (a Reactor/Reactive Streams Publisher, java.util.concurrent.Flow.Publisher, RxJava 3, or SmallRye Mutiny Uni/Multi).",
+                "Detects @Scheduled methods that accept parameters or return non-void, non-reactive values that Spring ignores. Kotlin suspending functions are supported and judged on their declared signature.",
+                "Declare scheduled methods without parameters and return void (Unit in Kotlin) unless using a supported deferred reactive type (a Reactor/Reactive Streams Publisher, java.util.concurrent.Flow.Publisher, RxJava 3, or SmallRye Mutiny Uni/Multi).",
                 "https://docs.spring.io/spring-framework/reference/integration/scheduling.html"));
     }
 
@@ -1192,7 +1222,7 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                 .should(new ArchCondition<JavaClass>("declare only supported @Scheduled method signatures") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        for (JavaMethod method : javaClass.getMethods()) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (SpringStereotypes.SCHEDULED_ANNOTATED.test(method)) {
                                 checkParameters(method, events);
                                 checkReturnType(method, events);
@@ -1204,7 +1234,7 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
     }
 
     private static void checkParameters(JavaMethod method, ConditionEvents events) {
-        if (!method.getRawParameterTypes().isEmpty()) {
+        if (!KotlinBytecode.declaredParameters(method).isEmpty()) {
             events.add(SimpleConditionEvent.violated(
                     method,
                     "Scheduled method " + method.getFullName()
@@ -1213,8 +1243,10 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
     }
 
     private static void checkReturnType(JavaMethod method, ConditionEvents events) {
-        JavaClass returnType = method.getRawReturnType();
-        if (returnType.isEquivalentTo(void.class) || isKnownReactiveReturnType(returnType)) {
+        JavaClass returnType = declaredReturnType(method);
+        if (returnType.isEquivalentTo(void.class)
+                || KotlinBytecode.isUnit(returnType.getName())
+                || isKnownReactiveReturnType(returnType)) {
             return;
         }
         events.add(SimpleConditionEvent.violated(
@@ -1222,6 +1254,14 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                 "Scheduled method " + method.getFullName()
                         + " returns " + returnType.getName()
                         + "; synchronous @Scheduled return values are ignored"));
+    }
+
+    /**
+     * The return type the developer declared. A suspending function's JVM return type is always
+     * {@code Object}; its declared result lives in the {@code Continuation<? super T>} parameter.
+     */
+    private static JavaClass declaredReturnType(JavaMethod method) {
+        return KotlinBytecode.suspendResultType(method).map(JavaType::toErasure).orElseGet(method::getRawReturnType);
     }
 
     private static boolean isKnownReactiveReturnType(JavaClass returnType) {
@@ -1268,7 +1308,7 @@ final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchi
                                     javaClass,
                                     "Configuration class " + javaClass.getName() + " is annotated with @Async"));
                         }
-                        for (JavaMethod method : javaClass.getMethods()) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (SpringStereotypes.ASYNC_ANNOTATED.test(method)) {
                                 events.add(SimpleConditionEvent.violated(
                                         method,
@@ -1377,10 +1417,8 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                                     events.add(SimpleConditionEvent.violated(
                                             javaClass, "Utility class " + javaClass.getName() + " is not final"));
                                 }
-                                for (JavaConstructor constructor : javaClass.getConstructors()) {
-                                    if (isSynthetic(constructor)) {
-                                        continue;
-                                    }
+                                for (JavaConstructor constructor :
+                                        ArchitectureRuleSupport.declaredConstructors(javaClass)) {
                                     if (!constructor.getModifiers().contains(JavaModifier.PRIVATE)) {
                                         events.add(SimpleConditionEvent.violated(
                                                 constructor,
@@ -1395,6 +1433,11 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
     }
 
     private static boolean isUtilityClass(JavaClass javaClass) {
+        if (KotlinBytecode.isCompilerGenerated(javaClass)) {
+            // Kotlin file facades (FooKt), companion holders, DefaultImpls and WhenMappings tables are
+            // emitted by the compiler, so their finality and constructors are not the author's to change.
+            return false;
+        }
         if (javaClass.isInterface()
                 || javaClass.isEnum()
                 || javaClass.isRecord()
@@ -1407,10 +1450,7 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
             return false;
         }
         boolean hasStaticMethod = false;
-        for (JavaMethod method : javaClass.getMethods()) {
-            if (isSynthetic(method)) {
-                continue; // ignore compiler-generated methods such as lambda bodies or bridges
-            }
+        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
             if (method.getModifiers().contains(JavaModifier.STATIC)) {
                 if (method.getName().equals("main")) {
                     return false; // application/entry-point classes are not utility classes
@@ -1423,20 +1463,12 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
         if (!hasStaticMethod) {
             return false;
         }
-        for (JavaField field : javaClass.getFields()) {
-            if (isSynthetic(field)) {
-                continue; // ignore compiler-generated fields such as the synthetic outer-class reference
-            }
+        for (JavaField field : ArchitectureRuleSupport.declaredFields(javaClass)) {
             if (!field.getModifiers().contains(JavaModifier.STATIC)) {
                 return false; // instance state means the class is not a pure utility holder
             }
         }
         return true;
-    }
-
-    private static boolean isSynthetic(JavaMember member) {
-        return member.getModifiers().contains(JavaModifier.SYNTHETIC)
-                || member.getModifiers().contains(JavaModifier.BRIDGE);
     }
 }
 
@@ -1503,7 +1535,7 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
                             return;
                         }
                         Set<JavaMethod> beanMethods = new HashSet<>();
-                        for (JavaMethod method : javaClass.getMethods()) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (SpringStereotypes.BEAN_ANNOTATED.test(method)) {
                                 beanMethods.add(method);
                             }
@@ -1581,7 +1613,7 @@ final class LifecycleCallbacksShouldNotBeProxyDrivenRule extends AbstractArchite
                 .should(new ArchCondition<JavaClass>("not annotate lifecycle callbacks with proxy-driven annotations") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        for (JavaMethod method : javaClass.getMethods()) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (SpringStereotypes.LIFECYCLE_CALLBACK_ANNOTATED.test(method)
                                     && SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method)) {
                                 events.add(
@@ -1623,7 +1655,7 @@ final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchite
                 .should(new ArchCondition<JavaClass>("not combine @Async and @Transactional on one method") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        for (JavaMethod method : javaClass.getMethods()) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (SpringStereotypes.ASYNC_ANNOTATED.test(method)
                                     && SpringStereotypes.TRANSACTIONAL_ANNOTATED.test(method)) {
                                 events.add(
@@ -1665,7 +1697,7 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         boolean classLevelAsync = SpringStereotypes.ASYNC_ANNOTATED.test(javaClass);
-                        for (JavaMethod method : javaClass.getMethods()) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (method.isAnnotatedWith(SpringStereotypes.EVENT_LISTENER)
                                     && (classLevelAsync || SpringStereotypes.ASYNC_ANNOTATED.test(method))
                                     && !method.getRawReturnType().isEquivalentTo(void.class)) {
@@ -1714,7 +1746,7 @@ final class LegacyJavaxTransactionalShouldBeMigratedRule extends AbstractArchite
                                             "Class " + javaClass.getName()
                                                     + " uses legacy javax.transaction.Transactional, which Spring Framework 7 ignores"));
                         }
-                        for (JavaMethod method : javaClass.getMethods()) {
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (method.isAnnotatedWith(SpringStereotypes.JAVAX_TRANSACTIONAL)) {
                                 events.add(
                                         SimpleConditionEvent.violated(
@@ -1757,7 +1789,7 @@ final class BeanPostProcessorFactoryMethodsShouldBeStaticRule extends AbstractAr
                                 "declare BeanPostProcessor/BeanFactoryPostProcessor @Bean methods static") {
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
-                                for (JavaMethod method : javaClass.getMethods()) {
+                                for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                                     if (!SpringStereotypes.BEAN_ANNOTATED.test(method)
                                             || method.getModifiers().contains(JavaModifier.STATIC)) {
                                         continue;
