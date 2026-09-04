@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.ConfigReport;
 import io.github.jdubois.bootui.core.dto.ProfileSourceDto;
 import io.github.jdubois.bootui.core.dto.ProfilesReport;
 import io.github.jdubois.bootui.engine.support.PagedList;
+import io.github.jdubois.bootui.engine.support.RelaxedNames;
 import io.github.jdubois.bootui.spi.ConfigEntry;
 import io.github.jdubois.bootui.spi.ConfigProvider;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
@@ -29,6 +30,12 @@ import java.util.Map;
  * (masked) value and never reveals a secret. The Configuration panel masks the raw {@code Object} value and
  * Profile Diff masks {@code String.valueOf(value)} — exactly as the two controllers did — so value-pattern
  * masking stays identical for both.</p>
+ *
+ * <p>Free-text matching on the property <em>name</em> is relaxed-binding aware ({@link RelaxedNames}): a
+ * property supplied as the environment variable {@code BOOTUI_MCP_ENABLED} is enumerated under that literal
+ * name by both Spring and Quarkus, and must still be found by the dotted query {@code bootui.mcp.enabled}.
+ * Value, description and default matching stays literal, and the reported {@code name} and {@code source}
+ * are always the ones the property source gave.</p>
  */
 public final class ConfigService {
 
@@ -57,12 +64,13 @@ public final class ConfigService {
         sorted.sort(Comparator.comparing(ConfigPropertyDto::name));
 
         String normalizedQuery = PagedList.normalize(query);
+        String canonicalQuery = RelaxedNames.canonicalize(normalizedQuery);
         String normalizedSource = sourceFilter == null ? "" : sourceFilter.trim();
         PagedList.Result<ConfigPropertyDto> page = PagedList.from(
                 sorted,
                 property -> matchesSource(property, normalizedSource)
                         && matchesOverrideFilter(property, overridesOnly)
-                        && matchesQuery(property, normalizedQuery),
+                        && matchesQuery(property, normalizedQuery, canonicalQuery),
                 offset,
                 limit);
         return new ConfigReport(
@@ -137,8 +145,8 @@ public final class ConfigService {
         return !overridesOnly || property.override();
     }
 
-    private boolean matchesQuery(ConfigPropertyDto property, String query) {
-        return PagedList.contains(property.name(), query)
+    private boolean matchesQuery(ConfigPropertyDto property, String query, String canonicalQuery) {
+        return RelaxedNames.contains(property.name(), canonicalQuery)
                 || PagedList.contains(text(property.value()), query)
                 || PagedList.contains(property.description(), query)
                 || PagedList.contains(text(property.defaultValue()), query);

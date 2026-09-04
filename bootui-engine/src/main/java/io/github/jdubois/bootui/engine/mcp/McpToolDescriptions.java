@@ -77,7 +77,9 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_config",
                     "Search effective configuration by case-insensitive name or displayed value and return a bounded "
-                            + "result. Secret-like configuration values are masked; prefer a narrow query."),
+                            + "result. Name search is relaxed-binding aware, so `bootui.mcp.enabled` also finds a value "
+                            + "supplied as the environment variable `BOOTUI_MCP_ENABLED`, which is enumerated under that "
+                            + "literal name. Secret-like configuration values are masked; prefer a narrow query."),
             Map.entry(
                     "get_mappings",
                     "Search request routes and handlers and return a bounded result. Use a path, HTTP concept, or handler "

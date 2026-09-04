@@ -445,6 +445,8 @@ Data sources:
 Features:
 
 - List and search all Spring Boot configuration properties visible to the application.
+- Match property names through relaxed binding, so a dotted query also finds a property supplied as an
+  `UPPER_SNAKE_CASE` environment variable, which every property source enumerates under its literal name.
 - Show effective value.
 - Show source property source.
 - Show active profiles.
