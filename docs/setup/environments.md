@@ -104,3 +104,69 @@ On Docker Desktop, use `-e BOOTUI_TRUSTED_PROXIES=192.168.65.0/24` instead.
 Scope `bootui.trusted-proxies` as narrowly as you can: for a user-defined Docker network, prefer that network's specific
 subnet over the broad `172.16.0.0/12`, and keep it limited to trusted local/dev networks. Reserve
 `bootui.allow-non-localhost=true` as a blunt last resort.
+
+### Persisting console state across image rebuilds
+
+BootUI keeps two developer-local files under `.bootui/` in the application's working directory:
+
+| File                            | Holds                                                                                    |
+| ------------------------------- | ---------------------------------------------------------------------------------------- |
+| `application-bootui.properties` | Runtime overrides created from the Configuration panel, including the MCP Server toggle. |
+| `boot-ui.yml`                   | Advisor findings you dismissed, under a `dismissedRules:` node.                          |
+
+Inside a container that directory belongs to the image, so an image rebuilt from source starts from a clean slate:
+toggles are back to their configured value and dismissed findings reappear. `bootui.overrides-file` fixes both at once
+— BootUI resolves `boot-ui.yml` in the **same directory** as the configured overrides file, on Spring MVC, Spring
+WebFlux, and Quarkus alike. Point it at a mounted path:
+
+```yaml
+services:
+  app:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      BOOTUI_TRUST_CONTAINER_GATEWAY: AUTO
+      BOOTUI_OVERRIDES_FILE: /var/bootui/application-bootui.properties
+    volumes:
+      - bootui-state:/var/bootui
+
+volumes:
+  bootui-state:
+```
+
+BootUI creates the directory if it does not exist. Both files now survive `docker compose up --build`.
+
+::: warning Set it from the environment, not from `application.properties`
+The overrides file is read by an `EnvironmentPostProcessor` that runs before your configuration files are loaded, so a
+`bootui.overrides-file` declared in `application.properties` would relocate the dismissed-findings file but not the
+overrides the console writes. Use the environment variable (or a `-D` system property) as shown above, so both files
+agree on one directory.
+:::
+
+Persisting state is not the only option, and for some settings it is not the best one. A value you want to hold across
+every environment belongs in configuration rather than in a file the console rewrites: `BOOTUI_MCP_ENABLED=ON` states
+the intent explicitly and cannot be toggled away by accident. The volume is the right tool for what a developer
+_discovers_ while using the console — dismissals above all.
+
+::: details Committing a baseline of accepted findings
+Because `boot-ui.yml` is a small, stable file, a team can commit it next to the application configuration and copy it
+into the image, so every rebuild starts from the same "these findings are known and accepted here" baseline:
+
+```yaml
+# .bootui/boot-ui.yml
+dismissedRules:
+  - RAPI-MAP-004
+  - HIB-FETCH-001
+```
+
+```dockerfile
+COPY .bootui/boot-ui.yml /var/bootui/boot-ui.yml
+```
+
+Two things to know. Dismissing from the console rewrites the whole file, so if you mount the baseline **read-only** the
+_Dismiss_ button fails; either keep the directory writable (a rebuild still restores the committed baseline) or set the
+advisor panels read-only with `bootui.panels.<id>.read-only=true`, which removes the dismiss and restore controls from
+the UI. And vulnerability dismissals are keyed `<vulnerability id>::<group:artifact>` rather than by a bare rule id —
+see [Dismissing a vulnerability](../features/advisors.md#dismissing-a-vulnerability).
+
+Any other top-level section in the file is preserved when BootUI rewrites it.
+:::

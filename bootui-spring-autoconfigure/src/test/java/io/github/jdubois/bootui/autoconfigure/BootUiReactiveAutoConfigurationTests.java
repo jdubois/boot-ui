@@ -37,6 +37,7 @@ import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
 import io.github.jdubois.bootui.autoconfigure.web.PanelsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -45,6 +46,7 @@ import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +54,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
@@ -517,6 +520,23 @@ class BootUiReactiveAutoConfigurationTests {
                         .isArray()
                         .jsonPath("$.activeProfiles")
                         .isEmpty());
+    }
+
+    @Test
+    void dismissedRulesStoreLivesNextToTheConfiguredOverridesFile(@TempDir Path tempDir) {
+        // Same guarantee as the MVC adapter, documented in docs/setup/environments.md: relocating
+        // bootui.overrides-file onto a mounted volume must move the advisor dismissals with it.
+        Path stateDir = tempDir.resolve("var").resolve("bootui");
+        runner.withPropertyValues(
+                        "bootui.enabled=ON",
+                        "bootui.overrides-file=" + stateDir.resolve("application-bootui.properties"))
+                .run(context -> {
+                    context.getBean(DismissedRulesStore.class).dismiss("RAPI-MAP-004");
+
+                    assertThat(stateDir.resolve("boot-ui.yml")).exists();
+                    assertThat(new DismissedRulesStore(stateDir.resolve("boot-ui.yml")).load())
+                            .containsExactly("RAPI-MAP-004");
+                });
     }
 
     @Test

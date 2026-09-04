@@ -28,6 +28,7 @@ import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.BootUiSpanExporter;
@@ -542,6 +543,23 @@ class BootUiAutoConfigurationTests {
                     context.getBean(ClaudeCodeController.class).dashboard();
                     assertThat(beanFactory.containsSingleton("bootUiClaudeCodeSessionStore"))
                             .isTrue();
+                });
+    }
+
+    @Test
+    void dismissedRulesStoreLivesNextToTheConfiguredOverridesFile(@TempDir Path tempDir) {
+        // Documented in docs/setup/environments.md: relocating bootui.overrides-file onto a mounted
+        // volume must move the advisor dismissals with it, or a container rebuild resets them.
+        Path stateDir = tempDir.resolve("var").resolve("bootui");
+        runner.withPropertyValues(
+                        "bootui.enabled=ON",
+                        "bootui.overrides-file=" + stateDir.resolve("application-bootui.properties"))
+                .run(context -> {
+                    context.getBean(DismissedRulesStore.class).dismiss("RAPI-MAP-004");
+
+                    assertThat(stateDir.resolve("boot-ui.yml")).exists();
+                    assertThat(new DismissedRulesStore(stateDir.resolve("boot-ui.yml")).load())
+                            .containsExactly("RAPI-MAP-004");
                 });
     }
 
