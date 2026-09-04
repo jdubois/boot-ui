@@ -70,6 +70,14 @@ class KotlinBytecodeTests {
     }
 
     @Test
+    void keepsAHandWrittenCopyOnANonDataClass() {
+        List<String> methods = KotlinBytecode.declaredMethods(type("KotlinOrderDraft")).stream()
+                .map(JavaMethod::getName)
+                .toList();
+        assertThat(methods).containsExactlyInAnyOrder("copy", "getCustomer");
+    }
+
+    @Test
     void readsTheDeclaredResultOfASuspendingFunction() {
         JavaClass service = type("KotlinOrderService");
 

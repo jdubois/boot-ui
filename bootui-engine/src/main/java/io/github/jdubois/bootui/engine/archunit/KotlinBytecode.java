@@ -112,12 +112,29 @@ public final class KotlinBytecode {
             // Kotlin mangles every generated member it does not want callable from source with a '$'
             // (foo$default, getFoo$annotations, access$getBar$p, …); '$' is not a legal Kotlin identifier
             // character, so no author-written member can collide with this.
-            return name.indexOf('$') >= 0
-                    || "copy".equals(name)
-                    || DATA_CLASS_COMPONENT.matcher(name).matches();
+            if (name.indexOf('$') >= 0) {
+                return true;
+            }
+            // componentN() and copy() are generated non-synthetic, but only on a data class. Gate them on
+            // that so a hand-written method named copy() on an ordinary Kotlin class stays visible.
+            return ("copy".equals(name) || DATA_CLASS_COMPONENT.matcher(name).matches())
+                    && isDataClass(member.getOwner());
         } catch (RuntimeException | LinkageError ex) {
             return false;
         }
+    }
+
+    /**
+     * Whether this Kotlin class is a {@code data class}, recognized by the {@code copy$default} bridge the
+     * compiler always emits for one.
+     */
+    private static boolean isDataClass(JavaClass type) {
+        for (JavaMethod method : type.getMethods()) {
+            if (method.getName().startsWith("copy$default")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The class's methods with the compiler-generated ones removed. */

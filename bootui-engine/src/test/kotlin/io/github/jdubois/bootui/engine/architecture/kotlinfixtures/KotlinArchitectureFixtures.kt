@@ -23,6 +23,11 @@ fun parseOrderId(reference: String): Long = reference.removePrefix("ORD-").toLon
 /** Data class: `component1`, `component2`, `copy` and `copy$default` are generated, not written. */
 data class KotlinOrder(val id: Long, val customer: String)
 
+/** Ordinary class with a hand-written `copy`: it must stay visible to the rules. */
+class KotlinOrderDraft(val customer: String) {
+    fun copy(): KotlinOrderDraft = KotlinOrderDraft(customer)
+}
+
 /** Kotlin singleton: compiles to a final class with an `INSTANCE` field and instance methods. */
 object KotlinOrderCodes {
     const val CREATED = "CREATED"
