@@ -7,8 +7,12 @@
 The Configuration panel shows effective configuration properties, sources, metadata descriptions, defaults when known,
 active profiles, and masked values. It can create, update, and delete local runtime overrides persisted to
 `.bootui/application-bootui.properties`, with restart and rebinding caveats shown for every mutation. Large property
-tables load in bounded server-side pages for search, source, and override-only filters. The override property-name
-picker limits its datalist suggestions while narrowing against the full metadata catalog as you type.
+tables load in bounded server-side pages for search, source, and override-only filters. Search matches property names
+through relaxed binding — `_` and `-` are treated as `.` and case is ignored — so `bootui.mcp.enabled` also finds a
+value supplied as the environment variable `BOOTUI_MCP_ENABLED`, which Spring and Quarkus both enumerate under that
+literal name. Values, descriptions, and defaults are matched literally, and every row still reports the name and source
+its property source gave. The override property-name picker limits its datalist suggestions while narrowing against the
+full metadata catalog as you type.
 
 ## Profile Diff
 

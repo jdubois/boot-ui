@@ -66,6 +66,63 @@ class ConfigServiceTests {
     }
 
     @Test
+    void dottedQueryFindsAnEnvironmentVariableStyleName() {
+        FakeProvider provider = new FakeProvider().entry("BOOTUI_MCP_ENABLED", "true", "systemEnvironment");
+        ConfigService service = new ConfigService(provider, exposure(ValueExposure.FULL, true));
+
+        ConfigReport report = service.list("bootui.mcp.enabled", null, false, null, null);
+
+        assertThat(report.properties()).hasSize(1);
+        ConfigPropertyDto property = report.properties().get(0);
+        assertThat(property.name()).isEqualTo("BOOTUI_MCP_ENABLED");
+        assertThat(property.source()).isEqualTo("systemEnvironment");
+    }
+
+    @Test
+    void environmentVariableStyleQueryFindsADottedName() {
+        FakeProvider provider = new FakeProvider().entry("bootui.mcp.enabled", "true", "application.properties");
+        ConfigService service = new ConfigService(provider, exposure(ValueExposure.FULL, true));
+
+        assertThat(service.list("BOOTUI_MCP_ENABLED", null, false, null, null).properties())
+                .extracting(ConfigPropertyDto::name)
+                .containsExactly("bootui.mcp.enabled");
+    }
+
+    @Test
+    void kebabAndDottedSeparatorsAreInterchangeableInNameSearch() {
+        FakeProvider provider = new FakeProvider().entry("bootui.conformance.api-token", "x", "app");
+        ConfigService service = new ConfigService(provider, exposure(ValueExposure.FULL, false));
+
+        assertThat(service.list("bootui.conformance.api.token", null, false, null, null)
+                        .properties())
+                .hasSize(1);
+        assertThat(service.list("bootui.conformance.api-token", null, false, null, null)
+                        .properties())
+                .hasSize(1);
+    }
+
+    @Test
+    void relaxedNameMatchingDoesNotWidenValueOrMetadataMatching() {
+        FakeProvider provider = new FakeProvider()
+                .entry("app.name", "demo_value", "app")
+                .suggestion("app.name", "The app_name shown in the header.", "demo_default");
+        ConfigService service = new ConfigService(provider, exposure(ValueExposure.FULL, false));
+
+        assertThat(service.list("demo_value", null, false, null, null).properties())
+                .hasSize(1);
+        assertThat(service.list("app_name shown", null, false, null, null).properties())
+                .hasSize(1);
+        assertThat(service.list("demo_default", null, false, null, null).properties())
+                .hasSize(1);
+        assertThat(service.list("demo.value", null, false, null, null).properties())
+                .isEmpty();
+        assertThat(service.list("app.name shown", null, false, null, null).properties())
+                .isEmpty();
+        assertThat(service.list("demo.default", null, false, null, null).properties())
+                .isEmpty();
+    }
+
+    @Test
     void metadataOnlyExposureHidesAllValues() {
         FakeProvider provider = new FakeProvider().entry("app.name", "demo", "app");
         ConfigService service = new ConfigService(provider, exposure(ValueExposure.METADATA_ONLY, true));
@@ -114,6 +171,7 @@ class ConfigServiceTests {
         private final List<String> sources = new java.util.ArrayList<>();
         private final List<ConfigEntry> entries = new java.util.ArrayList<>();
         private final List<ProfileSource> profileSources = new java.util.ArrayList<>();
+        private final List<ConfigPropertySuggestionDto> suggestions = new java.util.ArrayList<>();
         private String overrideSource;
 
         FakeProvider activeProfiles(String... p) {
@@ -128,6 +186,11 @@ class ConfigServiceTests {
 
         FakeProvider entry(String name, Object value, String source) {
             entries.add(new ConfigEntry(name, value, source));
+            return this;
+        }
+
+        FakeProvider suggestion(String name, String description, Object defaultValue) {
+            suggestions.add(new ConfigPropertySuggestionDto(name, "java.lang.String", description, defaultValue));
             return this;
         }
 
@@ -168,7 +231,7 @@ class ConfigServiceTests {
 
         @Override
         public List<ConfigPropertySuggestionDto> suggestions() {
-            return List.of();
+            return suggestions;
         }
     }
 }

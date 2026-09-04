@@ -1419,6 +1419,35 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     /**
+     * A property is enumerated under the literal name its source uses: an environment variable stays
+     * {@code UPPER_SNAKE_CASE} on Spring and on Quarkus alike, because relaxed binding applies on lookup and
+     * never on enumeration. Free-text search must therefore compare canonicalized names, so the dotted,
+     * kebab-case and {@code UPPER_SNAKE_CASE} spellings of one property all find it on every stack.
+     */
+    @Test
+    void configSearchFindsAPropertyThroughItsRelaxedBindingNameForms() {
+        assumeTrue(isPanelUsableInLiveManifest("config"), "config panel is not available in this environment");
+
+        String key = "bootui.conformance.api-token";
+        String rawSecret = "conformance-raw-secret-value";
+        Response response = probe().get(api("/config?q=BOOTUI_CONFORMANCE_API_TOKEN&limit=10"));
+        assertThat(response.status()).as("relaxed config query status").isEqualTo(200);
+        assertThat(response.body()).as("raw secret must never be serialized").doesNotContain(rawSecret);
+
+        JsonNode matching = null;
+        for (JsonNode property : response.json().path("properties")) {
+            if (key.equals(property.path("name").asText())) {
+                matching = property;
+                break;
+            }
+        }
+        assertThat(matching)
+                .as("an UPPER_SNAKE_CASE query must find the dotted property, as relaxed binding would")
+                .isNotNull();
+        assertThat(matching.path("masked").asBoolean()).isTrue();
+    }
+
+    /**
      * SQL Trace rankings and route attribution must present the same bounded, self-describing shape on
      * Spring MVC, Spring WebFlux and Quarkus. Values differ per runtime and per workload; the contract does
      * not. In particular the response must always say which correlation tiers it could use, so a stack with
