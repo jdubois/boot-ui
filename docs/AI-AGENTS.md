@@ -78,8 +78,10 @@ explicitly enabled, which requires authentication.
 2. **Enable the server.** Set `bootui.mcp.enabled=ON`, or flip the toggle at the top of the **MCP Server** panel
    (`/bootui/#/mcp-server`). The panel toggle overrides the property at runtime for the life of the process, so you can
    turn the server on only while you are pairing with an agent.
-3. **Point your agent at the endpoint.** The MCP Server panel shows a ready-to-copy client configuration. It is the
-   `servers` block a GitHub Copilot or Claude Code `mcp.json` expects:
+3. **Point your agent at the endpoint.** The MCP Server panel shows a ready-to-copy client configuration, with one tab
+   per client because they do not agree on a shape. Replace `8080` with your application's port.
+
+   VS Code (`.vscode/mcp.json`) uses a `servers` block:
 
    ```json
    {
@@ -92,11 +94,74 @@ explicitly enabled, which requires authentication.
    }
    ```
 
-   Replace `8080` with your application's port. No credentials are needed on loopback — the endpoint is exempt from
-   BootUI's browser-only CSRF token so a local non-browser MCP client connects with a plain HTTP config, while the
-   loopback, `Host` allow-list, and cross-site write defenses still apply. If you explicitly enable non-loopback access,
-   configure the MCP client to send the value from `bootui.authentication.token` (or the token BootUI generated at
-   startup) in the standard `Authorization` bearer header.
+   Claude Code registers the server from a terminal in your project:
+
+   ```bash
+   claude mcp add --transport http bootui http://127.0.0.1:8080/bootui/api/mcp
+   ```
+
+   Cursor (`~/.cursor/mcp.json`) keys a remote server on `url` and takes no `type`:
+
+   ```json
+   {
+     "mcpServers": {
+       "bootui": {
+         "url": "http://127.0.0.1:8080/bootui/api/mcp"
+       }
+     }
+   }
+   ```
+
+   Most other clients — including the `.mcp.json` Claude Code writes — accept the `mcpServers` shape with an
+   explicit type:
+
+   ```json
+   {
+     "mcpServers": {
+       "bootui": {
+         "type": "http",
+         "url": "http://127.0.0.1:8080/bootui/api/mcp"
+       }
+     }
+   }
+   ```
+
+   No credentials are needed on loopback — the endpoint is exempt from BootUI's browser-only CSRF token so a local
+   non-browser MCP client connects with a plain HTTP config, while the loopback, `Host` allow-list, and cross-site write
+   defenses still apply.
+
+4. **If the agent is not on loopback, send the bearer token.** An agent that reaches the app from anywhere other than
+   loopback — the common case being an app in a container reached through a published port — is a remote API caller
+   like any other, and every MCP call answers `401` until it presents BootUI's token in the standard `Authorization`
+   header.
+   Tick **Agent connects from another host or container** in the panel and the snippets gain the header. For Claude Code
+   that is:
+
+   ```bash
+   claude mcp add --transport http bootui http://localhost:8080/bootui/api/mcp \
+     --header "Authorization: Bearer <BootUI authentication token>"
+   ```
+
+   and for a JSON client, a `headers` entry beside `url`:
+
+   ```json
+   {
+     "mcpServers": {
+       "bootui": {
+         "type": "http",
+         "url": "http://localhost:8080/bootui/api/mcp",
+         "headers": {
+           "Authorization": "Bearer <BootUI authentication token>"
+         }
+       }
+     }
+   }
+   ```
+
+   The token is the value of `bootui.authentication.token`. When that property is blank, BootUI generates a new token at
+   every start and logs it once — set the property to a stable value if you do not want to re-edit the client
+   configuration after each restart. The browser console does not need this because it authenticates once and keeps an
+   HTTP-only session cookie; a non-browser MCP client has no such fallback.
 
 A `GET /bootui/api/mcp-server` status request returns the advertised tool list, which is handy for inspecting what an
 agent will see before you wire it up.

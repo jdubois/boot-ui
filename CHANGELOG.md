@@ -7,6 +7,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The MCP Server panel now shows a configuration snippet per client, and says out loud that a non-loopback agent
+  needs the bearer header.** The card carried a single VS Code `servers` block, which is not the shape Claude Code or
+  Cursor read: both use `mcpServers`, and Claude Code's normal entry point is `claude mcp add --transport http`. There
+  are now four tabs — VS Code, Claude Code, Cursor, and other clients — each with the shape that client actually
+  accepts. The header requirement was worse than undocumented: the panel decided "remote" from the browser's own
+  hostname, which is exactly wrong for an app in a container reached through a published port, where the page loads from
+  `localhost` while the agent's calls arrive from the Docker gateway and answer `401`. That silent guess is replaced by
+  an **Agent connects from another host or container** switch — still pre-set from the hostname, but now correctable
+  in one click — which adds `Authorization: Bearer …` to every snippet, next to a note explaining that the token
+  regenerates at each start and is logged once unless `bootui.authentication.token` is set. The panel never renders the
+  token itself. `docs/AI-AGENTS.md`, the MCP Server feature page, and the `bootui` agent skill carry the same
+  four shapes and the same header rule ([#928](https://github.com/jdubois/boot-ui/issues/928)).
+
 ### Fixed
 
 - **The Spring advisor and the pentest panel no longer report BootUI's own actuator default as a host

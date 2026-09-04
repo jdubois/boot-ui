@@ -31,26 +31,80 @@ const endpointUrl = computed(() => {
   return origin + path
 })
 
-const remoteAccess = computed(() => {
+function browserIsRemote() {
   if (typeof window === 'undefined' || !window.location) return false
   return !['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname)
+}
+
+const AUTHORIZATION_VALUE = 'Bearer <BootUI authentication token>'
+
+const clients = [
+  {id: 'vscode', label: 'VS Code', file: '.vscode/mcp.json'},
+  {id: 'claude', label: 'Claude Code', file: 'a terminal in your project'},
+  {id: 'cursor', label: 'Cursor', file: '~/.cursor/mcp.json'},
+  {id: 'json', label: 'Other clients', file: '.mcp.json'}
+]
+
+const activeClient = ref('vscode')
+// The browser's own hostname only proves how *this page* was reached: a published container port is
+// reached on localhost while the agent still arrives from a non-loopback source. Seed the switch from
+// that guess, then let the user correct it.
+const remoteAgent = ref(browserIsRemote())
+
+const serverName = computed(() => status.value?.serverName || 'bootui')
+
+function serverEntry(withType) {
+  const server = {}
+  if (withType) server.type = status.value?.transport || 'http'
+  server.url = endpointUrl.value
+  if (remoteAgent.value) server.headers = {Authorization: AUTHORIZATION_VALUE}
+  return server
+}
+
+const vsCodeConfig = computed(() => JSON.stringify({servers: {[serverName.value]: serverEntry(true)}}, null, 2))
+
+// Cursor keys a remote server on `url` and does not use `type`.
+const cursorConfig = computed(() => JSON.stringify({mcpServers: {[serverName.value]: serverEntry(false)}}, null, 2))
+
+const genericConfig = computed(() => JSON.stringify({mcpServers: {[serverName.value]: serverEntry(true)}}, null, 2))
+
+const claudeCommand = computed(() => {
+  const transport = status.value?.transport || 'http'
+  const command = `claude mcp add --transport ${transport} ${serverName.value} ${endpointUrl.value}`
+  if (!remoteAgent.value) return command
+  return `${command} \\\n  --header "Authorization: ${AUTHORIZATION_VALUE}"`
 })
 
-const mcpConfigJson = computed(() => {
-  const server = {
-    type: status.value?.transport || 'http',
-    url: endpointUrl.value
-  }
-  if (remoteAccess.value) {
-    server.headers = {Authorization: 'Bearer <bootui authentication token>'}
-  }
-  const config = {
-    servers: {
-      [status.value?.serverName || 'bootui']: server
-    }
-  }
-  return JSON.stringify(config, null, 2)
-})
+const snippets = computed(() => ({
+  vscode: vsCodeConfig.value,
+  claude: claudeCommand.value,
+  cursor: cursorConfig.value,
+  json: genericConfig.value
+}))
+
+const activeSnippet = computed(() => snippets.value[activeClient.value])
+
+function clientTabId(id) {
+  return `mcp-client-${id}-tab`
+}
+
+function clientPanelId(id) {
+  return `mcp-client-${id}-panel`
+}
+
+function onClientTabKeydown(event, currentId) {
+  const currentIndex = clients.findIndex((client) => client.id === currentId)
+  let targetIndex = null
+  if (event.key === 'ArrowRight') targetIndex = (currentIndex + 1) % clients.length
+  else if (event.key === 'ArrowLeft') targetIndex = (currentIndex - 1 + clients.length) % clients.length
+  else if (event.key === 'Home') targetIndex = 0
+  else if (event.key === 'End') targetIndex = clients.length - 1
+  if (targetIndex === null) return
+  event.preventDefault()
+  const target = clients[targetIndex].id
+  activeClient.value = target
+  document.getElementById(clientTabId(target))?.focus()
+}
 
 async function fetchStatus() {
   try {
@@ -214,24 +268,80 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manif
       <!-- Client configuration -->
       <div class="card mb-4">
         <div class="card-body p-4">
-          <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+          <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
             <h3 class="h6 fw-bold mb-0"><i class="bi bi-filetype-json me-2"></i>Client configuration</h3>
             <button
               type="button"
               class="btn btn-sm"
               :class="copiedKey === 'mcp-config' ? 'btn-success' : 'btn-outline-secondary'"
               :title="copiedKey === 'mcp-config' ? 'Copied!' : 'Copy configuration'"
-              @click="copyToClipboard(mcpConfigJson, 'mcp-config')"
+              @click="copyToClipboard(activeSnippet, 'mcp-config')"
             >
               <i :class="['bi', copiedKey === 'mcp-config' ? 'bi-check-lg' : 'bi-clipboard', 'me-1']"></i>
               {{ copiedKey === 'mcp-config' ? 'Copied!' : 'Copy' }}
             </button>
           </div>
-          <p class="text-muted small mb-2">
-            Paste this into your AI agent's MCP configuration (for example a GitHub Copilot or Claude Code
-            <code>mcp.json</code>) to connect it to this running app.
+
+          <ul class="nav nav-tabs mb-3" role="tablist" aria-label="MCP client">
+            <li v-for="client in clients" :key="client.id" class="nav-item">
+              <button
+                :id="clientTabId(client.id)"
+                :aria-controls="clientPanelId(client.id)"
+                :aria-selected="activeClient === client.id"
+                :class="{active: activeClient === client.id}"
+                :tabindex="activeClient === client.id ? 0 : -1"
+                class="nav-link"
+                role="tab"
+                type="button"
+                @click="activeClient = client.id"
+                @keydown="onClientTabKeydown($event, client.id)"
+              >
+                {{ client.label }}
+              </button>
+            </li>
+          </ul>
+
+          <div
+            v-for="client in clients"
+            v-show="activeClient === client.id"
+            :id="clientPanelId(client.id)"
+            :key="client.id"
+            :aria-labelledby="clientTabId(client.id)"
+            role="tabpanel"
+            tabindex="0"
+          >
+            <p class="text-muted small mb-2">
+              <template v-if="client.id === 'claude'"
+                >Run this in your project directory to register this running app with Claude Code.</template
+              >
+              <template v-else-if="client.id === 'json'"
+                >The <code>mcpServers</code> shape used by Claude Code's <code>.mcp.json</code> and most other MCP
+                clients.</template
+              >
+              <template v-else
+                >Paste this into <code>{{ client.file }}</code
+                >.</template
+              >
+            </p>
+            <pre
+              class="config-block bg-light border rounded p-3 mb-0 small"
+            ><code>{{ snippets[client.id] }}</code></pre>
+          </div>
+
+          <div class="form-check remote-agent-check mt-3">
+            <input id="mcp-remote-agent" v-model="remoteAgent" class="form-check-input" type="checkbox" />
+            <label class="form-check-label small" for="mcp-remote-agent">
+              Agent connects from another host or container
+            </label>
+          </div>
+          <p class="text-muted small mb-0 mt-2">
+            A loopback agent needs no credentials. An agent that reaches this app from anywhere else — a published
+            container port, or any host allowed by <code>bootui.allow-non-localhost</code>,
+            <code>bootui.trusted-proxies</code>, or <code>bootui.trust-container-gateway</code> — must send BootUI's
+            token in the <code>Authorization</code> header, or every call answers <code>401</code>. BootUI generates
+            that token at each start and logs it once; set <code>bootui.authentication.token</code> for a value that
+            survives a restart.
           </p>
-          <pre class="config-block bg-light border rounded p-3 mb-0 small"><code>{{ mcpConfigJson }}</code></pre>
         </div>
       </div>
 
@@ -314,5 +424,20 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manif
 .config-block {
   overflow-x: auto;
   white-space: pre;
+}
+
+/* The narrow-viewport rules grow every checkbox to a 44px touch target, which pushes a label this long
+   onto its own line. Lay the row out as flex so the label keeps its place beside the box and wraps. */
+.remote-agent-check {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  padding-left: 0;
+}
+
+.remote-agent-check .form-check-input {
+  flex: 0 0 auto;
+  float: none;
+  margin-left: 0;
 }
 </style>

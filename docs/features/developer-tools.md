@@ -75,9 +75,11 @@ The server inherits BootUI's full safety model:
 :::
 
 Connection details (transport, protocol revision, and the `bootui.mcp.max-results` cap) are shown alongside a
-ready-to-use, copyable MCP client configuration JSON pointing at this running app — the `servers` block a GitHub Copilot
-or Claude Code `mcp.json` expects. To wire it into an agent, point the client at the loopback HTTP endpoint of your
-running app:
+ready-to-use, copyable client configuration pointing at this running app, with one tab per client because they do not
+agree on a shape: **VS Code** (`.vscode/mcp.json`, a `servers` block), **Claude Code** (a `claude mcp add --transport
+http` command), **Cursor** (`~/.cursor/mcp.json`, an `mcpServers` entry keyed on `url` with no `type`), and **Other
+clients** (the `mcpServers` shape with an explicit type, which is also what Claude Code writes into `.mcp.json`). To
+wire it into an agent, point the client at the loopback HTTP endpoint of your running app:
 
 ```json
 {
@@ -89,6 +91,12 @@ running app:
   }
 }
 ```
+
+A loopback agent needs no credentials. An agent that reaches the app from anywhere else — most often an app in a
+container reached through a published port — is a remote API caller like any other, and every MCP call answers `401`
+until it sends BootUI's token in the `Authorization` header. Ticking **Agent connects from another host or container**
+adds that header to every snippet. The panel never prints the token itself: it is the value of
+`bootui.authentication.token`, and when that is blank BootUI generates a new one at each start and logs it once.
 
 See [docs/PROPERTIES.md](../PROPERTIES.md) for the `bootui.mcp.*` settings, and [AI agents](../AI-AGENTS.md) for an
 end-to-end agent workflow and how BootUI pairs with [Coffilot](https://github.com/jdubois/coffilot).
