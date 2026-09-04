@@ -122,6 +122,49 @@ const maxSeverityCount = computed(() => {
 
 const hasScanData = computed(() => hasScanResult(data.value?.scan?.status))
 
+// Coverage answers "how much of the application did we actually look at?". Without it a green
+// "0 vulnerable" summary reads as full coverage even when the inventory missed most of the
+// classpath, which is exactly the failure this panel used to hide.
+const coverage = computed(() => data.value?.coverage ?? null)
+
+const coverageIncomplete = computed(() => coverage.value?.status === 'INCOMPLETE')
+
+const coverageUnavailable = computed(() => coverage.value?.status === 'UNAVAILABLE')
+
+const unidentifiedArchiveCount = computed(() => (coverageIncomplete.value ? coverage.value.archivesUnidentified : 0))
+
+const unidentifiedArchives = computed(() => coverage.value?.unidentifiedArchives ?? [])
+
+const packagesSkipped = computed(() => data.value?.scan?.packagesSkipped ?? 0)
+
+const coverageMetric = computed(() => {
+  if (coverageUnavailable.value) {
+    return {
+      label: 'Unidentified JARs',
+      value: '—',
+      hint: 'BootUI could not enumerate the JARs on this classpath, so scan coverage is unknown.'
+    }
+  }
+  if (!coverage.value) return null
+  return {
+    label: 'Unidentified JARs',
+    value: coverage.value.archivesUnidentified,
+    hint: `${coverage.value.archivesIdentified} of ${coverage.value.archivesFound} JARs resolved to Maven coordinates.`
+  }
+})
+
+const summaryMetrics = computed(() => {
+  const metrics = [
+    {label: 'Dependencies', value: data.value.total},
+    {label: 'Vulnerable', value: data.value.vulnerable}
+  ]
+  if (coverageMetric.value) metrics.push(coverageMetric.value)
+  metrics.push({label: 'Scanner', value: data.value.scan.scanner, hint: data.value.scan.message})
+  return metrics
+})
+
+const showUnidentifiedArchives = ref(false)
+
 function severityClass(severity) {
   return severityClasses[severity] || 'text-bg-light'
 }
@@ -285,12 +328,47 @@ onMounted(loadDependencies)
         :scan-status-label="scanStatusLabel(data.scan.status)"
         :scan-status-class="scanStatusBadgeClass(data.scan.status)"
         :scan-time="scanTime()"
-        :metrics="[
-          {label: 'Dependencies', value: data.total},
-          {label: 'Vulnerable', value: data.vulnerable},
-          {label: 'Scanner', value: data.scan.scanner, hint: data.scan.message}
-        ]"
+        :metrics="summaryMetrics"
       />
+
+      <div v-if="coverageIncomplete" class="alert alert-warning" role="status">
+        <div class="fw-semibold">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          {{ unidentifiedArchiveCount }} of {{ coverage.archivesFound }} JARs could not be identified and were not
+          scanned
+        </div>
+        <div class="small">
+          These archives carry no Maven coordinates, so OSV.dev cannot be queried for them. Results below cover the
+          {{ coverage.archivesIdentified }} identified JARs only. Adding the <code>cyclonedx-maven-plugin</code> or
+          <code>cyclonedx-gradle-plugin</code> to your build embeds an SBOM that BootUI reads to resolve them.
+        </div>
+        <button
+          v-if="unidentifiedArchives.length"
+          class="btn btn-sm btn-outline-secondary mt-2"
+          type="button"
+          @click="showUnidentifiedArchives = !showUnidentifiedArchives"
+        >
+          {{ showUnidentifiedArchives ? 'Hide' : 'Show' }} unidentified JARs
+        </button>
+        <ul v-if="showUnidentifiedArchives" class="small mt-2 mb-0 unidentified-archives">
+          <li v-for="archive in unidentifiedArchives" :key="archive">{{ archive }}</li>
+        </ul>
+        <div v-if="showUnidentifiedArchives && coverage.unidentifiedArchivesTruncated" class="small text-muted mt-1">
+          Only the first {{ unidentifiedArchives.length }} names are listed.
+        </div>
+      </div>
+
+      <div v-if="coverageUnavailable" class="alert alert-warning" role="status">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        BootUI could not enumerate this application's JARs, so it cannot confirm that every dependency was scanned.
+      </div>
+
+      <div v-if="packagesSkipped > 0" class="alert alert-warning" role="status">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        {{ packagesSkipped }} {{ packagesSkipped === 1 ? 'package was' : 'packages were' }} not sent to OSV.dev because
+        the scan reached the <code>bootui.vulnerabilities.max-packages</code> limit. Raise that property to scan the
+        full inventory.
+      </div>
 
       <div class="card mb-3">
         <div class="card-header"><h3>Severity breakdown</h3></div>
@@ -449,5 +527,10 @@ onMounted(loadDependencies)
 
 .vulnerability-list {
   max-width: 48rem;
+}
+
+.unidentified-archives {
+  max-height: 14rem;
+  overflow-y: auto;
 }
 </style>

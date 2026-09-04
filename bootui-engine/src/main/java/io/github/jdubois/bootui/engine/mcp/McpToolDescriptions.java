@@ -87,7 +87,9 @@ public final class McpToolDescriptions {
                     "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return "
                             + "severity-ranked findings. This makes outbound network calls to a public advisory database; "
                             + "run only when needed and verify a finding's affected version range before changing a "
-                            + "dependency."),
+                            + "dependency. Check `coverage` and `scan.packagesSkipped` before treating a clean result as "
+                            + "proof: JARs published without Maven coordinates cannot be scanned and are reported there "
+                            + "instead of being silently dropped."),
             Map.entry(
                     "get_loggers",
                     "Search configured loggers by case-insensitive name and return their configured and effective "
@@ -137,7 +139,9 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_vulnerabilities_report",
                     "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
-                            + "without contacting OSV.dev or any other network service."),
+                            + "without contacting OSV.dev or any other network service. `coverage` states how many of "
+                            + "the application's JARs the inventory actually accounts for, so a clean report is not "
+                            + "mistaken for full coverage."),
             Map.entry(
                     "get_metrics",
                     "Search the current application metrics inventory and return a bounded page of local meter values. "

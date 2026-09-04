@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.vulnerabilities;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
+import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
@@ -349,6 +350,54 @@ class DependencyReportsTests {
 
         assertThat(enriched.get(0).vulnerabilities().get(0).epssScore()).isEqualTo(0.25d);
         assertThat(enriched.get(0).vulnerabilities().get(0).epssPercentile()).isEqualTo(0.75d);
+    }
+
+    @Test
+    void skippedCandidateCountReportsWhatTheMaxPackagesBoundDroppedRatherThanHidingIt() {
+        DependencyDto first = dependency("org.example", "first", "1.0.0");
+        DependencyDto duplicate = dependency("org.example", "first", "1.0.0");
+        DependencyDto second = dependency("org.example", "second", "2.0.0");
+        DependencyDto third = dependency("org.example", "third", "3.0.0");
+        List<DependencyDto> dependencies = List.of(first, duplicate, second, third);
+
+        // Deduplication happens before the bound, so the duplicate is not counted as skipped.
+        assertThat(DependencyReports.skippedCandidateCount(dependencies, 2)).isEqualTo(1);
+        assertThat(DependencyReports.skippedCandidateCount(dependencies, 3)).isZero();
+        assertThat(DependencyReports.skippedCandidateCount(dependencies, 500)).isZero();
+        // scanCandidates clamps a non-positive bound to 1, and the skipped count must agree with it.
+        assertThat(DependencyReports.skippedCandidateCount(dependencies, 0)).isEqualTo(2);
+        assertThat(DependencyReports.scanCandidates(dependencies, 0)).hasSize(1);
+    }
+
+    @Test
+    void reportDefaultsToUnavailableCoverageWhenTheAdapterCannotDescribeIt() {
+        DependenciesReport report =
+                DependencyReports.report(true, "SCANNED", "done", 1L, 1, List.of(dependency("org.example", "a", "1")));
+
+        assertThat(report.coverage().status()).isEqualTo("UNAVAILABLE");
+        assertThat(report.scan().packagesSkipped()).isZero();
+    }
+
+    @Test
+    void applyDismissalsPreservesCoverageAndSkippedPackages() {
+        DependencyCoverageDto coverage = DependencyCoverageDto.of(3, 1, List.of("mystery-1.0.0.jar"));
+        DependenciesReport report = DependencyReports.report(
+                true,
+                "SCANNED",
+                "done",
+                1L,
+                2,
+                7,
+                List.of(vulnerableDependency("org.example", "lib", "1.0.0", "CRITICAL")),
+                coverage);
+
+        DependenciesReport updated = DependencyReports.applyDismissals(
+                report, Set.of(DependencyReports.dismissalKey("V-lib", "org.example:lib")));
+
+        assertThat(updated.scan().packagesSkipped()).isEqualTo(7);
+        assertThat(updated.coverage()).isEqualTo(coverage);
+        assertThat(updated.coverage().status()).isEqualTo("INCOMPLETE");
+        assertThat(updated.coverage().archivesIdentified()).isEqualTo(2);
     }
 
     @Test

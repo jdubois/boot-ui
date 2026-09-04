@@ -26,6 +26,12 @@ class BootUiRuntimeHintsTests {
                 .accepts(hints);
         assertThat(RuntimeHintsPredicates.resource().forResource("bootui-version.properties"))
                 .accepts(hints);
+        // The Vulnerabilities panel reads the application's CycloneDX SBOM; without these the native image
+        // loses the only source of coordinates for JARs published with no Maven descriptor.
+        assertThat(RuntimeHintsPredicates.resource().forResource("META-INF/sbom/application.cdx.json"))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.resource().forResource("META-INF/sbom/bom.json"))
+                .accepts(hints);
     }
 
     @Test

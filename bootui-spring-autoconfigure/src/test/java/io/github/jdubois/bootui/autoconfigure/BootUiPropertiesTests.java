@@ -146,9 +146,11 @@ class BootUiPropertiesTests {
     }
 
     @Test
-    void defaultVulnerabilitiesMaxPackagesIs250() {
+    void defaultVulnerabilitiesMaxPackagesCoversATypicalApplicationsFullJarSet() {
+        // A typical Spring Boot application ships well over 250 JARs, and the old default silently dropped
+        // the remainder from the scan.
         BootUiProperties props = new BootUiProperties();
-        assertThat(props.getVulnerabilities().getMaxPackages()).isEqualTo(250);
+        assertThat(props.getVulnerabilities().getMaxPackages()).isEqualTo(500);
     }
 
     // -------------------------------------------------------------------------

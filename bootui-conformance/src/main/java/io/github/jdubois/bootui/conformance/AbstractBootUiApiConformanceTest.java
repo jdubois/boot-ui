@@ -864,6 +864,31 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(report.path("total").isInt())
                 .as("$.total must be an integer")
                 .isTrue();
+        assertThat(report.path("scan").path("packagesSkipped").isInt())
+                .as("$.scan.packagesSkipped must be an integer")
+                .isTrue();
+        // Coverage tells the caller how much of the application the inventory actually accounts for, so a
+        // clean report can never be mistaken for a full-coverage scan. Every adapter must report it.
+        JsonNode coverage = report.path("coverage");
+        assertThat(coverage.isObject()).as("$.coverage must be an object").isTrue();
+        assertThat(coverage.path("status").asText())
+                .as("$.coverage.status must be one of the canonical states")
+                .isIn("COMPLETE", "INCOMPLETE", "UNAVAILABLE");
+        assertThat(coverage.path("archivesFound").isInt())
+                .as("$.coverage.archivesFound must be an integer")
+                .isTrue();
+        assertThat(coverage.path("archivesIdentified").isInt())
+                .as("$.coverage.archivesIdentified must be an integer")
+                .isTrue();
+        assertThat(coverage.path("archivesUnidentified").isInt())
+                .as("$.coverage.archivesUnidentified must be an integer")
+                .isTrue();
+        assertThat(coverage.path("unidentifiedArchives").isArray())
+                .as("$.coverage.unidentifiedArchives must be an array")
+                .isTrue();
+        assertThat(coverage.path("unidentifiedArchivesTruncated").isBoolean())
+                .as("$.coverage.unidentifiedArchivesTruncated must be a boolean")
+                .isTrue();
     }
 
     @Test

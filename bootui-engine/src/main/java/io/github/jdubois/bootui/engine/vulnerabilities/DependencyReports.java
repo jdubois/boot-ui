@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.vulnerabilities;
 
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
+import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyScanStatusDto;
 import io.github.jdubois.bootui.core.dto.DependencySeverityCountDto;
@@ -61,6 +62,35 @@ public final class DependencyReports {
             Long scannedAt,
             int packagesScanned,
             List<DependencyDto> dependencies) {
+        return report(
+                scanningEnabled,
+                status,
+                message,
+                scannedAt,
+                packagesScanned,
+                0,
+                dependencies,
+                DependencyCoverageDto.unavailable());
+    }
+
+    /**
+     * Assembles a report that states its own coverage on both axes a green summary could otherwise hide:
+     * {@code coverage} says how many of the application's real JAR archives the inventory accounts for, and
+     * {@code packagesSkipped} says how many inventory packages the configured scan bound dropped before the
+     * scanner ever ran.
+     *
+     * @param packagesSkipped inventory packages dropped by the {@code max-packages} bound
+     * @param coverage the inventory's coverage of the application's archives; {@code null} means unknown
+     */
+    public static DependenciesReport report(
+            boolean scanningEnabled,
+            String status,
+            String message,
+            Long scannedAt,
+            int packagesScanned,
+            int packagesSkipped,
+            List<DependencyDto> dependencies,
+            DependencyCoverageDto coverage) {
         List<DependencyDto> orderedDependencies =
                 dependencies.stream().sorted(DEPENDENCY_ORDER).toList();
         int vulnerabilitiesFound = orderedDependencies.stream()
@@ -74,7 +104,14 @@ public final class DependencyReports {
                         .count(),
                 severityCounts(orderedDependencies),
                 new DependencyScanStatusDto(
-                        "OSV.dev", status, message, scannedAt, packagesScanned, vulnerabilitiesFound),
+                        "OSV.dev",
+                        status,
+                        message,
+                        scannedAt,
+                        packagesScanned,
+                        Math.max(0, packagesSkipped),
+                        vulnerabilitiesFound),
+                coverage,
                 orderedDependencies);
     }
 
@@ -233,9 +270,16 @@ public final class DependencyReports {
                         scan.message(),
                         scan.scannedAt(),
                         scan.packagesScanned(),
+                        scan.packagesSkipped(),
                         vulnerabilitiesFound);
         return new DependenciesReport(
-                report.scanningEnabled(), report.total(), vulnerable, severityCounts(marked), updatedScan, marked);
+                report.scanningEnabled(),
+                report.total(),
+                vulnerable,
+                severityCounts(marked),
+                updatedScan,
+                report.coverage(),
+                marked);
     }
 
     private static DependencyDto markDismissals(DependencyDto dependency, Set<String> dismissedIds) {
@@ -306,6 +350,15 @@ public final class DependencyReports {
             distinct.add(dependency.packageName() + ":" + dependency.version());
         }
         return distinct.size();
+    }
+
+    /**
+     * How many distinct package/version inputs {@link #scanCandidates(List, int)} drops for the same
+     * {@code maxPackages} bound. Reported alongside {@code packagesScanned} so a bounded scan is visibly
+     * partial rather than reading as full coverage of the inventory.
+     */
+    public static int skippedCandidateCount(List<DependencyDto> dependencies, int maxPackages) {
+        return Math.max(0, scanCandidateCount(dependencies) - Math.max(1, maxPackages));
     }
 
     /**
