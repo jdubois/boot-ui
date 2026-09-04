@@ -2102,7 +2102,9 @@ Shared modules:
 
 - `bootui-core`: immutable DTO records, secret masking, version metadata, and safe value rendering.
 - `bootui-engine`: framework-neutral services and advisor engines plus the neutral
-  `io.github.jdubois.bootui.spi` ports.
+  `io.github.jdubois.bootui.spi` ports. The bytecode-reading advisors here are Kotlin-aware — compiler-generated
+  members and classes are filtered out and suspending functions are judged on their declared signature — implemented by
+  bytecode name only, so no Kotlin runtime dependency is added and every adapter behaves identically.
 - `bootui-conformance`: the shared HTTP contract suite and golden panel manifests run against every adapter.
 - `bootui-ui`: the Vue 3 / Composition API / Vite / Bootstrap 5.3 SPA, built once into
   `META-INF/resources/bootui/` and served unchanged by every adapter.

@@ -3,6 +3,9 @@ package io.github.jdubois.bootui.engine.hibernate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
+import io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinJvmFieldEntity;
+import io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinLateinitEntity;
+import io.github.jdubois.bootui.engine.support.KotlinReflection;
 import jakarta.persistence.Basic;
 import jakarta.persistence.Cacheable;
 import jakarta.persistence.CascadeType;
@@ -901,6 +904,44 @@ class HibernateRulesTests {
         HibernateRuleResultDto result = new PublicPersistentFieldRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void publicPersistentFieldRuleIgnoresKotlinPropertyBackingFields() {
+        HibernateRuleResultDto result =
+                new PublicPersistentFieldRule().evaluate(context(new TestEnvironment(), KotlinLateinitEntity.class));
+
+        // lateinit leaves the backing field public so the initialisation check can run from outside the
+        // class, while every access still goes through the generated accessors. Kotlin offers no way to
+        // make that field private, so the finding would ask for a change nobody can make.
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void publicPersistentFieldRuleStillFlagsKotlinJvmFieldProperties() {
+        HibernateRuleResultDto result =
+                new PublicPersistentFieldRule().evaluate(context(new TestEnvironment(), KotlinJvmFieldEntity.class));
+
+        // @JvmField is the author asking for a plain public field, and generates no accessors at all.
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("code"));
+    }
+
+    @Test
+    void kotlinAccessorPairsAreRecognisedForEveryPropertyNameShape() {
+        assertThat(KotlinReflection.isAccessorBackedProperty(KotlinLateinitEntity.class, "name"))
+                .isTrue();
+        // "isoCode" only looks like the boolean spelling: its accessors are getIsoCode / setIsoCode.
+        assertThat(KotlinReflection.isAccessorBackedProperty(KotlinLateinitEntity.class, "isoCode"))
+                .isTrue();
+        // "isActive" is the boolean spelling: isActive / setActive, with no "get" and no "setIsActive".
+        assertThat(KotlinReflection.isAccessorBackedProperty(KotlinLateinitEntity.class, "isActive"))
+                .isTrue();
+        assertThat(KotlinReflection.isAccessorBackedProperty(KotlinJvmFieldEntity.class, "code"))
+                .isFalse();
+        assertThat(KotlinReflection.isAccessorBackedProperty(PublicFieldEntity.class, "name"))
+                .isFalse();
     }
 
     @Test

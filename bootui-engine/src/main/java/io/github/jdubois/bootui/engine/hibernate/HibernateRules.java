@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
+import io.github.jdubois.bootui.engine.support.KotlinReflection;
 import java.io.Serializable;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
@@ -1852,12 +1853,42 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
                 // fieldMember (not the "()"-suffixed name heuristic) is what actually distinguishes field
                 // access from property (getter) access; property-access entities resolve their attributes
                 // from a public getter Method, which is fully JPA/Hibernate-instrumented and not a finding.
-                if (attribute.publicMember() && attribute.fieldMember() && !attribute.isTransient()) {
+                if (attribute.publicMember()
+                        && attribute.fieldMember()
+                        && !attribute.isTransient()
+                        && !isKotlinPropertyBackingField(entity, attribute)) {
                     details.add(attribute.description() + " is exposed as a public field.");
                 }
             }
         }
         return violation(details);
+    }
+
+    /**
+     * Whether this attribute is the backing field of a Kotlin property, which the compiler must leave
+     * public even though the author declared no public field.
+     *
+     * <p>A {@code lateinit var} is reached through its generated accessors from every language that
+     * consumes it, so Hibernate's instrumentation is intact and there is nothing here to encapsulate.
+     * A field the author did expose, written {@code @JvmField var}, has no accessors and stays reported.
+     */
+    private static boolean isKotlinPropertyBackingField(
+            HibernateEntityModel entity, HibernateAttributeModel attribute) {
+        return KotlinReflection.isAccessorBackedProperty(declaringClass(entity, attribute), attribute.name());
+    }
+
+    /**
+     * The class that declares this attribute, found by walking the entity hierarchy for the name the
+     * attribute records. Null when the model carries no Java type, as hand-built models in tests do.
+     */
+    private static Class<?> declaringClass(HibernateEntityModel entity, HibernateAttributeModel attribute) {
+        for (Class<?> current = entity.javaType(); current != null && current != Object.class; ) {
+            if (current.getName().equals(attribute.entityName())) {
+                return current;
+            }
+            current = current.getSuperclass();
+        }
+        return null;
     }
 }
 

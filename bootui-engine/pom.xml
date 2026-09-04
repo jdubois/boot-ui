@@ -217,6 +217,21 @@
         </dependency>
 
         <!--
+          Test-scope only: the Kotlin advisor fixtures (src/test/kotlin) are compiled so the Kotlin-awareness
+          in KotlinBytecode is verified against bytecode a real Kotlin compiler produced — compiler-generated
+          file facades/companions/$default bridges and the Continuation-based shape of a suspending function —
+          rather than against a hand-written Java imitation of it. Production code never references Kotlin: it
+          matches kotlin.Metadata, kotlin.coroutines.Continuation and kotlin.Unit by name only, so BootUI adds
+          no Kotlin dependency to a host application and behaves identically when Kotlin is absent.
+        -->
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+            <version>${kotlin.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
           Test-scope only: JdbcActivityStoreTests exercises the plain-JDBC Live Activity persistence
           store against a real, disposable database rather than mocking java.sql.*. H2's version is
           managed by the imported spring-boot-dependencies BOM.
@@ -230,6 +245,32 @@
 
     <build>
         <plugins>
+            <!--
+              Compiles the Kotlin advisor fixtures under src/test/kotlin before the Java test sources that
+              reference them. Test scope only: no Kotlin source, and no Kotlin dependency, reaches any
+              published BootUI artifact.
+            -->
+            <plugin>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>test-compile</id>
+                        <phase>process-test-sources</phase>
+                        <goals>
+                            <goal>test-compile</goal>
+                        </goals>
+                        <configuration>
+                            <sourceDirs>
+                                <sourceDir>${project.basedir}/src/test/kotlin</sourceDir>
+                            </sourceDirs>
+                        </configuration>
+                    </execution>
+                </executions>
+                <configuration>
+                    <jvmTarget>${java.version}</jvmTarget>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>

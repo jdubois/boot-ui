@@ -44,6 +44,25 @@ because they also key on the shared `jakarta.*` annotations (`jakarta.transactio
 below for which category it falls into, and `ArchitectureCdiNeutralityTests` for the automated check that pins this
 property across every `SPRING_STEREOTYPES` rule against a pure-CDI fixture set.
 
+## Kotlin applications
+
+The rules read compiled bytecode, so they run unchanged on Kotlin classes, and the engine recognizes Kotlin constructs
+by bytecode name only — BootUI never adds a `kotlin-stdlib` dependency to your application.
+
+- **Compiler-generated members and classes are never reported.** Synthetic and bridge members, `$suspendImpl` /
+  `$default` / `$annotations` helpers, `componentN` and `copy` accessors on `data class`es, `Companion` and
+  `DefaultImpls` holders, `WhenMappings` tables, and top-level `FooKt` file facades are filtered out before any rule
+  sees them. This matters in practice: an `open suspend fun` is compiled into the declared function *plus* a static
+  synthetic `$suspendImpl` that carries a **copy of the original annotations**, which would otherwise produce duplicate
+  and outright false findings.
+- **Suspending functions are judged on their declared signature.** A `suspend` function is compiled with a trailing
+  `kotlin.coroutines.Continuation` parameter and an erased return type; BootUI hides that parameter and reads the real
+  result type from `Continuation<? super T>`. `kotlin.Unit` is treated as `void`.
+- **Final-by-default is respected in the advice, not the detection.** Kotlin classes and members are final unless marked
+  `open`, but the `kotlin-spring` (all-open) and `no-arg` compiler plugins change the emitted bytecode, so proxyability
+  and entity rules stay accurate. Where a recommendation would otherwise say "remove `final`", it offers the Kotlin
+  equivalent instead.
+
 ## What BootUI does not do
 
 - It does not run project-specific layered-architecture rules — BootUI cannot know the host app's intended layering, so
@@ -189,8 +208,14 @@ Dismissed rules remove all of their instances from the score.
 
 - **Severity**: LOW
 - **Inspects**: classes that extend `Exception` or `RuntimeException`.
-- **Fires when**: an exception type's simple class name does not end with `Exception`.
-- **Recommendation**: rename exception classes to end with `Exception` so their purpose is immediately clear.
+- **Fires when**: an exception type's simple class name does not end with `Exception`, and no enclosing class does
+  either.
+- **Recommendation**: rename exception classes to end with `Exception` so their purpose is immediately clear, or nest
+  them inside the exception type they specialise.
+- **Kotlin note**: the variants of a `sealed class` hierarchy are nested inside their parent so the compiler can close
+  the hierarchy, which leaves them with names like `ClaimException.AlreadyAssigned`. Those are exempt: the enclosing
+  name already says what the type is at every call site, and adding the suffix would only make it stutter. The same
+  applies to a nested Java exception hierarchy.
 
 ### ARCH-CODE-011 - Interfaces should not have names ending with 'Interface'
 
@@ -253,6 +278,9 @@ Dismissed rules remove all of their instances from the score.
 - **Fires when**: such a utility class is not `final`, or it can be instantiated through a non-private constructor.
 - **Recommendation**: make utility classes `final` and give them a single private constructor so they cannot be
   instantiated or subclassed.
+- **Kotlin note**: compiler-generated holders — top-level `FooKt` file facades, `Companion`, `DefaultImpls` and
+  `WhenMappings` classes — are skipped, since their shape is not under the author's control. Idiomatic Kotlin `object`
+  declarations are not utility classes (their members are instance members on `INSTANCE`) and never fire.
 
 ### ARCH-CODE-016 - Classes should not use standard-annotation field injection
 
@@ -268,6 +296,7 @@ Dismissed rules remove all of their instances from the score.
   Spring annotations anywhere on its classpath.
 - **Recommendation**: prefer constructor injection so dependencies are explicit, final, and easy to test; CDI containers
   such as Quarkus' Arc inject constructor parameters just as readily as fields.
+- **Kotlin note**: an injected `lateinit var` is a true positive; take the dependency as a constructor `val` instead.
 
 ### ARCH-CODE-017 - Classes should not directly instantiate Thread
 
@@ -306,6 +335,7 @@ Dismissed rules remove all of their instances from the score.
 - **Why it matters**: field injection hides required dependencies, prevents `final` fields, and makes classes harder to
   instantiate in tests.
 - **Recommendation**: prefer constructor injection so dependencies are explicit, final, and easy to test.
+- **Kotlin note**: an `@Autowired lateinit var` is a true positive; take the dependency as a constructor `val` instead.
 - **Quarkus/CDI note**: deliberately scoped to Spring's own annotations only, so it never fires on plain
   `jakarta.inject.Inject` / `@Resource` field injection — the idiomatic style on a CDI/Quarkus application. See
   ARCH-CODE-016 for the framework-neutral equivalent that covers those standard annotations instead.
@@ -354,6 +384,15 @@ Dismissed rules remove all of their instances from the score.
   passes through the proxy — a real correctness bug, not just a style issue.
 - **Recommendation**: refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or,
   only if necessary, inject a `@Lazy` self-reference and call through it.
+- **Kotlin note**: Kotlin behaves identically — marking a function `open` does not make a `this`-call go through the
+  proxy. Two compiler-generated shapes are read as what the developer wrote rather than as extra self-invocations.
+  Calls a function makes into its own helpers (such as the `$suspendImpl` of an `open suspend fun`, or the `$default`
+  bridge that fills in default arguments) are not reported, because nobody can refactor a call the compiler makes.
+  Conversely, a call that omits a default argument is compiled into a call to that `$default` bridge, and it is
+  followed through to the function it dispatches to — so a genuine self-invocation stays reported, named after the
+  function you can actually change, instead of disappearing the moment a proxied function gains a default parameter
+  value. A self-invocation written inside a lambda is still reported: the compiler puts the body in a synthetic
+  method, but the code is yours and the behaviour really is lost.
 - **Quarkus/CDI note**: this rule is skipped on Quarkus. Arc deliberately supports intercepted self-invocation, unlike
   standard proxy-based Spring AOP, so reporting the Spring limitation there would be a false positive. See the
   [Quarkus CDI reference](https://quarkus.io/version/3.33/guides/cdi-reference#intercepted-self-invocation).
@@ -406,17 +445,22 @@ Dismissed rules remove all of their instances from the score.
   asynchronous, or caching behavior.
 - **Recommendation**: for portable Spring proxy behavior, use a public, non-static, non-final method. On Quarkus, avoid
   private interceptor-bound methods.
+- **Kotlin note**: classes and members are final by default — mark them `open`, or apply the `kotlin-spring` compiler
+  plugin, which opens Spring-annotated classes for you.
 
 ### ARCH-SPRING-011 - Async methods should return void or Future
 
 - **Severity**: MEDIUM
 - **Inspects**: methods annotated with `@Async`, and methods declared on `@Async` classes.
 - **Fires when**: an async method returns a value type that is neither `void` nor assignable to
-  `java.util.concurrent.Future`.
+  `java.util.concurrent.Future`, or a Kotlin suspending function is annotated with `@Async`.
 - **Why it matters**: Spring supports async methods with `void` return values or `Future`/`CompletableFuture` handles;
-  other return values do not provide the caller a valid asynchronous result.
+  other return values do not provide the caller a valid asynchronous result. Spring's async interceptor does not support
+  suspending functions at all, so the annotation is silently ineffective there.
 - **Recommendation**: use `void` for fire-and-forget async work, or return `Future` / `CompletableFuture` when callers
   need a result.
+- **Kotlin note**: launch the work in a coroutine (for example `withContext(Dispatchers.IO)`) rather than annotating a
+  suspending function with `@Async`.
 
 ### ARCH-SPRING-012 - Scheduled methods should have supported signatures
 
@@ -435,6 +479,10 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: declare scheduled methods without parameters and return `void` unless using a supported deferred
   reactive type (a Reactor/Reactive Streams `Publisher`, `java.util.concurrent.Flow.Publisher`, RxJava 3, or SmallRye
   Mutiny `Uni`/`Multi`).
+- **Kotlin note**: suspending scheduled functions are supported — Spring bridges them through the coroutine-reactor
+  adapter. They are judged on their declared signature, so the implicit `Continuation` parameter is not counted and a
+  `Unit` result is treated as `void`; a suspending function that declares a real result type still reports the ignored
+  return value.
 
 ### ARCH-SPRING-013 - Async should not be used in configuration classes
 
