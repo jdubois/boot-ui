@@ -445,7 +445,7 @@ resources directly.
 
 The default H2 profile keeps the demo self-contained. To checkpoint the sample
 app against the real PostgreSQL and Redis services instead (the `docker` profile,
-backed by [`compose.yaml`](../compose.yaml)), two extra constraints apply because
+backed by [`compose.yaml`](./compose.yaml)), two extra constraints apply because
 CRaC snapshots live OS resources:
 
 - **Both services must be reachable when the checkpoint is taken and when it is

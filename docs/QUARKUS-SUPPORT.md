@@ -164,8 +164,9 @@ those fields so the same UI build renders the correct sidebar and status on each
 > **Action-capable panels behave identically to Spring**, behind the shared `LocalhostGuard` write floor: Heap Dump
 > (capture/analyze/delete/download), Threads (download), the advisor scans, Loggers (set level), HTTP Probe, Cache
 > (clear), Flyway (migrate/clean), Liquibase (update), Traces (clear), Email (clear), Kafka (clear), RabbitMQ (clear),
-> REST Client Reactive (clear + recording toggle), and the MCP Server toggle. Eight panels — **GraalVM**, **CRaC**,
-> **Conditions**, **Startup Timeline**, **HTTP Sessions**, **Spring Data**, **Spring Security**, and **Spring DevTools** — are
+> REST Client Reactive (clear + recording toggle), and the MCP Server toggle. Nine panels — **GraalVM**, **CRaC**,
+> **Conditions**, **Startup Timeline**, **HTTP Sessions**, **Spring Data**, **Spring Security**, **Spring DevTools**, and
+> **Transactions** — are
 > intentionally unavailable with a panel-specific not-applicable reason (§5.5). **JMS** is the sole panel that is not yet
 > available on Quarkus (§5.6). The per-panel `**Implemented**` markers below and `docs/features/` carry the authoritative,
 > current per-platform detail.
