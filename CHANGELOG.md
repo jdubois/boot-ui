@@ -24,6 +24,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Configuration search now finds a property whatever spelling it was supplied in.** `get_config` with
+  `{"query": "bootui.mcp.enabled"}` answered `matched: 0` on a value that was set, effective, and visibly working,
+  because it came from the environment variable `BOOTUI_MCP_ENABLED`: relaxed binding applies when a name is looked up,
+  never when a property source is enumerated, so the inventory carries the raw `UPPER_SNAKE_CASE` key and a literal
+  substring search could not reach it. The engine now compares canonicalized names — case-insensitive, with `_` and `-`
+  treated as `.` — so the dotted, kebab-case, and environment-variable spellings of one property all find it, in the
+  Configuration panel's search box as well as over MCP and the CLI. Values, descriptions, and defaults keep matching
+  literally, so a relaxed query never widens the search into unrelated values, and each row still reports the exact name
+  and source its property source gave. Fixed once in `bootui-engine`, so Spring MVC, WebFlux, and Quarkus behave
+  identically ([#939](https://github.com/jdubois/boot-ui/issues/939)).
+
 - **The Security Advisor no longer reports an actuator protected inside a single `anyRequest` chain as unprotected.**
   `SEC-ACT-003` decided whether the actuator was covered by looking for the base path in a chain's `securityMatcher`
   *description*. A whole-application chain renders as `any request` and never mentions `/actuator`, so an application
