@@ -2,9 +2,23 @@
 
 BootUI's advisors run explicit, on-demand, rule-based scans and surface severity-ranked findings that feed the weighted
 score on the Overview dashboard. Each advisor is read-only and inspects a different facet of the application — compiled
-architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. Once an advisor has run,
-its panel shows the same 0–100 score the Overview computes for it (100 minus the weighted finding penalty), so panel and
-dashboard always agree.
+architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. A complete advisor
+assessment shows the same 0–100 score in its panel and Overview (100 minus the weighted finding penalty).
+
+### Score eligibility
+
+A diagnostic report is not necessarily eligible for a score. Only `SCANNED` reports with a valid severity summary
+score. `PARTIAL` reports show **Incomplete**, without a numeric score; failed, disabled, and unscanned reports also
+remain unscored. Findings, severity counts, and diagnostics remain available even when the assessment is incomplete.
+Intentionally skipped, inapplicable rules do not by themselves make a scan incomplete.
+
+Vulnerabilities also requires `coverage.status=COMPLETE` and no active `UNKNOWN` severity findings. Missing or
+unavailable coverage is unknown, not complete. `NONE` (CVSS zero) is scoreable with no penalty. Dismissing an UNKNOWN
+finding can restore eligibility; restoring it removes the score again. Coverage is only as reliable as the
+inventory provider's report: this presentation policy cannot detect an inventory that incorrectly claims completeness.
+
+During a new request, or if transport fails, the last accepted report remains visible. A newly received incomplete,
+failed, or disabled report replaces the previous assessment and immediately removes its score from Overview.
 
 ### Single-flight scans
 
@@ -18,7 +32,8 @@ visible and shows the conflict as a warning. Different scanners remain independe
 Every advisor finding can be **dismissed** when it does not apply to your project. Each rule result carries a _Dismiss_
 button; dismissing moves the rule into a collapsed "Dismissed rules" list and excludes it from the panel's finding
 count, severity bars, advisor score, and the weighted Overview score. The panel's score recomputes immediately, and the
-Overview dashboard re-reads the advisor's score when you return to it, so a dismissal or restore shows in both places.
+Overview dashboard re-reads previously observed reports when you return to it, without rescanning, so a dismissal or
+restore updates both the score and eligibility in both places.
 Rules can be restored at any time from that list.
 
 ::: details Where dismissals are stored
@@ -187,10 +202,15 @@ On the Quarkus adapter the framework-application advisor above is relabelled **Q
 ruleset in place of the Spring rules. It takes the same explicit, read-only approach against the running application and
 its MicroProfile `Config`, but the rules target Quarkus idioms:
 
-- CDI/Arc scopes and shared mutable state on `@ApplicationScoped`/`@Singleton` beans.
-- Build-time type-safe configuration (`@ConfigProperty` vs `@ConfigMapping`).
-- Reactive-versus-blocking endpoints and `@Scheduled` clustering.
-- Production-profile hygiene (destructive Hibernate schema strategies, SQL logging).
+- Resolved CDI/Arc scopes and publicly exposed state on shared beans and REST resources.
+- Production configuration evidence, including schema actions, SQL logging and explicit in-memory storage.
+- Effective managed REST-client timers, HTTP compression and request-draining configuration.
+- Conditional synchronized virtual-thread pinning on the running JDK 21-23.
+
+Missing configuration annotations, production overrides, pool-size overrides, or clustered scheduling are not
+defects by themselves. Neither does a JDBC dependency alongside reactive endpoints prove event-loop blocking.
+The advisor keeps useful declarations as inspection information, and reports incomplete evidence explicitly
+instead of treating unreadable metadata or unseen production configuration as clean.
 
 It is the **same panel and menu slot** as the Spring advisor — the same `/spring` route, `/bootui/api/spring` endpoint,
 and report contract — so the shared UI simply renders the "Quarkus" label and copy. The report is a heuristic review

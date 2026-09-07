@@ -14,8 +14,8 @@ final class ExceptionHandlersDoNotReturnRawStringsRule extends AbstractRestApiRu
                 RestApiCategory.ERROR_HANDLING,
                 "LOW",
                 "An exception handler that returns a raw String exposes an unstructured error contract with no stable"
-                        + " fields for type, status, detail, or correlation metadata.",
-                "Return a typed error DTO or an RFC 9457 problem-details representation instead of a raw String.",
+                        + " fields in its signature. An intentional text error is valid; view names are excluded.",
+                "Consider a typed error DTO or optional RFC 9457 representation if structured metadata benefits clients.",
                 RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
     }
 

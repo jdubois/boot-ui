@@ -48,6 +48,12 @@ groups:
 Tools whose backing panel/controller is not present (for example Hibernate or Spring Security when those libraries are
 absent) are simply not advertised.
 
+MCP clients with prompt support can also select `diagnose_runtime_issue`, `review_application`, or
+`assess_application`. The assessment workflow collects bounded evidence, reports coverage, and proposes a versioned
+action plan before stopping for approval of specific action IDs. These are instructions for the external agent, not new
+scan tools or an execution interface in this panel. See
+[Assess an application and approve an action plan](../AI-AGENTS.md#assess-an-application-and-approve-an-action-plan).
+
 ::: details Safety model
 
 The server inherits BootUI's full safety model:
