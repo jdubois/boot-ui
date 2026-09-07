@@ -1,17 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
-import io.github.jdubois.bootui.autoconfigure.config.BootUiContributedProperties;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
 import java.time.Duration;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import org.springframework.boot.context.properties.bind.Bindable;
-import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.core.env.ConfigurableEnvironment;
-import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
 
 /**
@@ -30,7 +24,6 @@ record SpringContext(
         boolean pooledTaskExecutorPresent,
         boolean asyncEnabled,
         boolean devToolsPresent,
-        boolean hikariDataSourcePresent,
         boolean customAsyncConfigurerPresent,
         List<BeanRef> transactionManagers,
         boolean transactionManagementConfigurerPresent,
@@ -46,7 +39,8 @@ record SpringContext(
         boolean webClientBeanPresent,
         int reactiveHandlerMethodCount,
         List<String> defaultPackageBeans,
-        List<String> mutableSingletonFields) {
+        List<String> mutableSingletonFields,
+        SpringObservations observations) {
 
     SpringContext {
         objectMappers = List.copyOf(objectMappers);
@@ -62,7 +56,7 @@ record SpringContext(
 
     String firstProperty(String... keys) {
         for (String key : keys) {
-            String value = environment.getProperty(key);
+            String value = bind(key, String.class);
             if (value != null && !value.isBlank()) {
                 return value.trim();
             }
@@ -75,89 +69,76 @@ record SpringContext(
      * reports only what the host application configured.
      */
     String firstHostProperty(String... keys) {
-        return BootUiContributedProperties.firstHostProperty(environment, keys);
+        for (String key : keys) {
+            String value = SpringProperties.bind(environment, true, key, Bindable.of(String.class));
+            if (value != null) return value.trim();
+        }
+        return null;
+    }
+
+    <T> T bind(String key, Class<T> type) {
+        return SpringProperties.bind(environment, false, key, Bindable.of(type));
+    }
+
+    boolean isPropertyFalse(String key) {
+        return Boolean.FALSE.equals(bind(key, Boolean.class));
     }
 
     Integer firstIntegerProperty(String... keys) {
         for (String key : keys) {
-            try {
-                Integer value = environment.getProperty(key, Integer.class);
-                if (value != null) {
-                    return value;
-                }
-            } catch (RuntimeException ex) {
-                // Ignore unparseable values and try the next key.
+            Integer value = bind(key, Integer.class);
+            if (value != null) {
+                return value;
             }
         }
         return null;
     }
 
     boolean isPropertyTrue(String... keys) {
-        String value = firstProperty(keys);
-        return value != null && "true".equalsIgnoreCase(value);
+        for (String key : keys) {
+            Boolean value = bind(key, Boolean.class);
+            if (value != null) return value;
+        }
+        return false;
     }
 
     /**
-     * Returns the millisecond value of a {@link Duration} property, or {@code null} if unset or
-     * unparsable. Uses the relaxed {@link Binder} (rather than {@code Environment.getProperty}) because
-     * a plain {@code Environment} has no {@code String -> Duration} converter registered; only Boot's
-     * configuration property binding infrastructure does.
+     * Binds Duration without rounding positive sub-millisecond values to zero. Invalid or unresolved
+     * configuration is an analysis error, never an inferred default.
      */
-    Long firstDurationMillisProperty(String... keys) {
+    Duration firstDurationProperty(String... keys) {
         for (String key : keys) {
-            try {
-                Duration value = Binder.get(environment)
-                        .bind(key, Bindable.of(Duration.class))
-                        .orElse(null);
-                if (value != null) {
-                    return value.toMillis();
-                }
-            } catch (RuntimeException ex) {
-                // Ignore unparsable values and try the next key.
+            Duration value = bind(key, Duration.class);
+            if (value != null) {
+                return value;
             }
         }
         return null;
     }
 
     boolean hasProperty(String key) {
-        try {
-            return environment.containsProperty(key);
-        } catch (RuntimeException ex) {
-            return false;
-        }
-    }
-
-    Set<String> propertyNamesWithPrefix(String prefix) {
-        if (!(environment instanceof ConfigurableEnvironment configurable)) {
-            return Set.of();
-        }
-        Set<String> names = new LinkedHashSet<>();
-        for (var source : configurable.getPropertySources()) {
-            if (source instanceof EnumerablePropertySource<?> enumerable) {
-                for (String name : enumerable.getPropertyNames()) {
-                    if (name.startsWith(prefix)) {
-                        names.add(name);
-                    }
-                }
-            }
-        }
-        return Set.copyOf(names);
+        return SpringProperties.present(environment, key);
     }
 
     boolean isVirtualThreadsEnabled() {
         return isPropertyTrue("spring.threads.virtual.enabled");
     }
 
-    String[] activeProfiles() {
+    String[] effectiveProfiles() {
         try {
-            return environment.getActiveProfiles();
+            String[] active = environment.getActiveProfiles();
+            String[] profiles = active.length == 0 ? environment.getDefaultProfiles() : active;
+            if (profiles.length > 100) throw new IllegalStateException();
+            for (String profile : profiles)
+                if (profile != null && profile.length() > 256) throw new IllegalStateException();
+            return profiles;
         } catch (RuntimeException ex) {
-            return new String[0];
+            throw new SpringProperties.InspectionFailure("Effective profiles could not be inspected.");
         }
     }
 
     boolean isProductionProfileActive() {
-        for (String profile : activeProfiles()) {
+        for (String profile : effectiveProfiles()) {
             if (profile == null) {
                 continue;
             }
@@ -178,24 +159,6 @@ record SpringContext(
     boolean managementWebDisabled() {
         Integer port = firstIntegerProperty("management.server.port");
         return port != null && port < 0;
-    }
-
-    /**
-     * True when Actuator endpoints share the application's HTTP port (so any web exposure is on the
-     * same, typically public, connector). A distinct {@code management.server.port} moves them to a
-     * separate connector.
-     */
-    boolean managementOnApplicationPort() {
-        if (managementWebDisabled()) {
-            return false;
-        }
-        Integer managementPort = firstIntegerProperty("management.server.port");
-        if (managementPort == null) {
-            return true;
-        }
-        Integer serverPort = firstIntegerProperty("server.port");
-        int effectiveServerPort = serverPort != null ? serverPort : 8080;
-        return managementPort == effectiveServerPort;
     }
 
     static Builder builder(Environment environment) {
@@ -219,7 +182,6 @@ record SpringContext(
         private boolean pooledTaskExecutorPresent;
         private boolean asyncEnabled;
         private boolean devToolsPresent;
-        private boolean hikariDataSourcePresent;
         private boolean customAsyncConfigurerPresent;
         private List<BeanRef> transactionManagers = List.of();
         private boolean transactionManagementConfigurerPresent;
@@ -236,9 +198,15 @@ record SpringContext(
         private int reactiveHandlerMethodCount;
         private List<String> defaultPackageBeans = List.of();
         private List<String> mutableSingletonFields = List.of();
+        private SpringObservations observations = SpringObservations.unknown();
 
         private Builder(Environment environment) {
             this.environment = environment;
+        }
+
+        Builder observations(SpringObservations value) {
+            this.observations = value;
+            return this;
         }
 
         Builder virtualThreadsSupported(boolean value) {
@@ -288,11 +256,6 @@ record SpringContext(
 
         Builder devToolsPresent(boolean value) {
             this.devToolsPresent = value;
-            return this;
-        }
-
-        Builder hikariDataSourcePresent(boolean value) {
-            this.hikariDataSourcePresent = value;
             return this;
         }
 
@@ -394,7 +357,6 @@ record SpringContext(
                     pooledTaskExecutorPresent,
                     asyncEnabled,
                     devToolsPresent,
-                    hikariDataSourcePresent,
                     customAsyncConfigurerPresent,
                     transactionManagers,
                     transactionManagementConfigurerPresent,
@@ -410,7 +372,8 @@ record SpringContext(
                     webClientBeanPresent,
                     reactiveHandlerMethodCount,
                     defaultPackageBeans,
-                    mutableSingletonFields);
+                    mutableSingletonFields,
+                    observations);
         }
     }
 }

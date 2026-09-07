@@ -571,9 +571,8 @@ public class BootUiEngineProducer {
     }
 
     /**
-     * The Quarkus-native application advisor scanner over a config-driven {@link QuarkusAppSnapshotProviderImpl}.
-     * Evaluates a Quarkus idiom ruleset (CDI scopes, @ConfigProperty, reactive/blocking, profiles) into the
-     * shared Spring advisor report.
+     * The Quarkus application advisor over resolved build metadata and bounded native configuration.
+     * Unavailable evidence remains explicit in the shared Spring advisor report.
      */
     @Produces
     @Singleton

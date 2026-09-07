@@ -16,8 +16,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Real-boot checks for the Quarkus-native application advisor ({@code SpringResource} over the shared engine
  * {@code QuarkusAppScanner}). The rule logic is unit-tested in {@code QuarkusAppScannerTest}; this pins the
- * end-to-end wiring: the test app uses no {@code @ConfigProperty}, so {@code POST /scan} must surface a
- * {@code QA-*} rule, proving the build-time idiom counts reached the engine via config.
+ * end-to-end wiring: a resolved singleton fixture exposes a public field, so {@code POST /scan} must
+ * surface QA-CDI-003. Missing production deployment evidence must remain explicitly incomplete.
  */
 @QuarkusTest
 class BootUiQuarkusSpringResourceTest {
@@ -42,14 +42,18 @@ class BootUiQuarkusSpringResourceTest {
         Response scan = probe().post("/bootui/api/spring/scan", JSON_HEADERS);
         assertThat(scan.status()).isEqualTo(200);
         JsonNode scanned = scan.json();
-        assertThat(scanned.path("scan").path("status").asText()).isEqualTo("SCANNED");
+        assertThat(scanned.path("scan").path("status").asText()).isEqualTo("PARTIAL");
         assertThat(scanned.path("rulesEvaluated").asInt()).isGreaterThan(0);
+        assertThat(scanned.path("analysisErrors").size()).isGreaterThan(0);
         assertThat(ruleIds(scanned))
                 .as("any application advisor finding must be a Quarkus QA-* rule, never a Spring one")
-                .allMatch(id -> id.startsWith("QA-"));
+                .allMatch(id -> id.startsWith("QA-"))
+                .contains("QA-CDI-003")
+                .doesNotContain("QA-CFG-001", "QA-RX-001", "QA-SCH-001", "QA-PROD-001", "QA-PROF-001", "QA-DB-001");
 
         Response cached = probe().get("/bootui/api/spring");
-        assertThat(cached.json().path("scan").path("status").asText()).isEqualTo("SCANNED");
+        assertThat(cached.json().path("scan").path("status").asText()).isEqualTo("PARTIAL");
+        assertThat(cached.json().path("analysisErrors")).isEqualTo(scanned.path("analysisErrors"));
     }
 
     private static List<String> ruleIds(JsonNode report) {

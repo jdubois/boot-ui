@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.memory;
 import io.github.jdubois.bootui.core.dto.KubernetesMemoryRecommendationDto;
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
 import io.github.jdubois.bootui.spi.HealthProbeManifest;
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -115,9 +114,8 @@ final class MemoryKubernetesSizer {
         if (!calculation.valid() || calculation.totalMemoryBytes() <= 0) {
             return 0;
         }
-        double calculated = calculation.heapBytes() * 100.0 / calculation.totalMemoryBytes();
-        double floored = Math.floor(calculated * 1000.0) / 1000.0;
-        return floored > 0 ? floored : calculated;
+        return MemoryCalculator.heapPercentageThousandths(calculation.heapBytes(), calculation.totalMemoryBytes())
+                / 1000.0;
     }
 
     private static long estimateCurrentSnapshotBytes(
@@ -178,7 +176,11 @@ final class MemoryKubernetesSizer {
                     "Health probes use the framework's default paths and the named container port \"http\"; verify both against custom application or management-server settings.");
         }
         warnings.add(
-                "JAVA_TOOL_OPTIONS uses MaxRAMPercentage, MinRAMPercentage, and InitialRAMPercentage so HotSpot follows the container limit across small and regular heaps. Metaspace, code cache, and thread-stack caps remain fixed.");
+                "JAVA_TOOL_OPTIONS uses MaxRAMPercentage, MinRAMPercentage, and InitialRAMPercentage against JVM-visible RAM, not the memory request. Verify container support and the generated limit; existing -Xmx, -Xms, or RAM-sizing overrides can change the result.");
+        warnings.add(
+                "Generated heap values are requests: collector and platform alignment can raise the effective heap. Model validity checks generic flag constraints, not JVM startup or workload sufficiency; verify effective settings on the target JVM.");
+        warnings.add(
+                "Fixed metaspace, code-cache, and stack settings do not cap total process memory. Unmodeled native allocations and container charges can exceed selected headroom; validate after warmup and under representative peak load.");
         warnings.add(
                 "Direct memory is modeled at "
                         + formatMi(calculation.directMemoryBytes())
@@ -186,9 +188,10 @@ final class MemoryKubernetesSizer {
         if (detectedContainerLimitBytes != null && detectedContainerLimitBytes.longValue() != limitBytes) {
             warnings.add("Detected cgroup memory limit is "
                     + formatMi(detectedContainerLimitBytes)
+                    + " (rounded up for display)"
                     + ", which differs from the calculator total "
                     + formatMi(limitBytes)
-                    + "; update the total memory input if you want the manifest to match the live container limit.");
+                    + "; review the selected whole-MiB limit before deployment.");
         }
         if (!nativeMemoryTrackingEnabled) {
             warnings.add("Native Memory Tracking is not enabled; this model cannot attribute all native JVM memory.");
@@ -305,11 +308,8 @@ final class MemoryKubernetesSizer {
     }
 
     static String formatMi(long bytes) {
-        long mebibytes = Math.max(0, (bytes + MB - 1) / MB);
+        long nonNegativeBytes = nonNegative(bytes);
+        long mebibytes = nonNegativeBytes / MB + (nonNegativeBytes % MB == 0 ? 0 : 1);
         return mebibytes + "Mi";
-    }
-
-    private static String formatPercentage(double percentage) {
-        return BigDecimal.valueOf(percentage).stripTrailingZeros().toPlainString();
     }
 }

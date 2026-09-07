@@ -67,9 +67,28 @@ class KotlinRestApiModelTests {
     }
 
     @Test
+    void resolvesSuspendStatusEnvelopesAndReactiveUnit() {
+        assertThat(handler("suspendEnvelope").returnsResponseEntity()).isTrue();
+        assertThat(handler("suspendEnvelope").bodyTypeName())
+                .isEqualTo("io.github.jdubois.bootui.engine.restapi.kotlinfixtures.KotlinOrderDto");
+        assertThat(handler("reactiveUnit").returnsVoid()).isTrue();
+        assertThat(handler("optionalDefault").hasUnboundedPrimitiveRequestParam())
+                .isFalse();
+        assertThat(handler("optionalWithoutDefault").hasUnboundedPrimitiveRequestParam())
+                .isFalse();
+    }
+
+    @Test
     void compilerGeneratedMembersDoNotBecomeHandlers() {
         assertThat(model().handlers())
                 .extracting(HandlerMethodModel::methodName)
-                .containsExactlyInAnyOrder("findOrder", "listOrders", "createOrder");
+                .containsExactlyInAnyOrder(
+                        "findOrder",
+                        "listOrders",
+                        "createOrder",
+                        "suspendEnvelope",
+                        "reactiveUnit",
+                        "optionalDefault",
+                        "optionalWithoutDefault");
     }
 }

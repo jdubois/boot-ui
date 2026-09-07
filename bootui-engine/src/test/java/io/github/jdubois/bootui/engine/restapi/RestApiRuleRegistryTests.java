@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.restapi;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -54,6 +55,55 @@ class RestApiRuleRegistryTests {
             assertThat(definition.recommendation()).isNotBlank();
             assertThat(definition.category()).isNotNull();
             assertThat(definition.severity()).isIn(severities);
+        }
+    }
+
+    @Test
+    void retiredDefinitionsKeepTheirIdsWithoutEmittingFindings() {
+        Set<String> retired = Set.of("RAPI-MAP-008", "RAPI-NAME-004", "RAPI-ERR-011", "RAPI-DOC-003");
+        RestApiContext empty = new RestApiContext(
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                true,
+                false,
+                false,
+                List.of(),
+                List.of(),
+                RestApiModel.Framework.SPRING);
+        List<RestApiRule> rules = RestApiRuleRegistry.activeRules();
+        assertThat(rules.stream()
+                        .filter(rule -> retired.contains(rule.definition().id())))
+                .hasSize(4);
+        for (RestApiRule rule : rules) {
+            if (retired.contains(rule.definition().id())) {
+                var result = rule.evaluate(empty);
+                assertThat(result.id()).isEqualTo(rule.definition().id());
+                assertThat(result.status()).isEqualTo("SKIPPED");
+                assertThat(result.violationCount()).isZero();
+            }
+        }
+        assertThat(rules.stream()
+                        .filter(rule -> !retired.contains(rule.definition().id())))
+                .hasSize(52);
+    }
+
+    @Test
+    void weakDeclarationSignalsHaveCalibratedSeverity() {
+        Map<String, String> expected = Map.ofEntries(
+                Map.entry("RAPI-MAP-003", "LOW"), Map.entry("RAPI-MAP-005", "INFO"),
+                Map.entry("RAPI-MAP-010", "INFO"), Map.entry("RAPI-NAME-001", "INFO"),
+                Map.entry("RAPI-NAME-003", "INFO"), Map.entry("RAPI-RESP-001", "LOW"),
+                Map.entry("RAPI-RESP-008", "INFO"), Map.entry("RAPI-RESP-009", "INFO"),
+                Map.entry("RAPI-VALID-001", "LOW"), Map.entry("RAPI-DTO-002", "LOW"),
+                Map.entry("RAPI-VER-003", "INFO"), Map.entry("RAPI-ERR-001", "INFO"));
+        for (RestApiRule rule : RestApiRuleRegistry.activeRules()) {
+            if (expected.containsKey(rule.definition().id())) {
+                assertThat(rule.definition().severity())
+                        .as(rule.definition().id())
+                        .isEqualTo(expected.get(rule.definition().id()));
+            }
         }
     }
 

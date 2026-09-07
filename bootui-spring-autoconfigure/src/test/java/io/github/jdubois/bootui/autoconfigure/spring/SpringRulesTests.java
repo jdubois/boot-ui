@@ -1,923 +1,644 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
+import static io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.Fact.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.AsyncSelection;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.Fact;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.mock.env.MockEnvironment;
 
-/** Focused coverage for the rules added or corrected during the Spring Advisor audit. */
+/** Requirement boundaries; real discovery/provenance is covered separately in SpringInventoryTests. */
 class SpringRulesTests {
-
-    private static MockEnvironment env() {
-        return new MockEnvironment();
+    static SpringObservations facts(Map<Fact, Object> facts) {
+        return new SpringObservations(facts, List.of());
     }
 
-    private static SpringContext.Builder context(MockEnvironment environment) {
-        return SpringContext.builder(environment).beanDefinitionCount(50);
+    static SpringContext.Builder context(MockEnvironment env, Map<Fact, Object> evidence) {
+        return SpringContext.builder(env).observations(facts(evidence));
     }
 
-    private static BeanRef fallbackCandidate(String name) {
-        return new BeanRef(name, false, true, true, true);
+    static SpringRuleResultDto evaluate(SpringRule rule, MockEnvironment env, Map<Fact, Object> evidence) {
+        return rule.evaluate(context(env, evidence).build());
     }
 
-    private static BeanRef nonAutowireCandidate(String name) {
-        return new BeanRef(name, false, false, false, true);
+    static MockEnvironment env(String key, String value) {
+        return new MockEnvironment().withProperty(key, value);
     }
 
-    private static BeanRef nonDefaultCandidate(String name) {
-        return new BeanRef(name, false, true, false, false);
-    }
-
-    // ── SPRING-WEB-002: only flag explicit server.shutdown=immediate ──────────────
+    static final Map<Fact, Object> ENDPOINT_EVIDENCE =
+            Map.of(ENDPOINTS, Set.of("health", "env", "configprops", "beans", "heapdump", "shutdown"));
+    static final List<BeanRef> TWO = List.of(new BeanRef("first", false), new BeanRef("second", false));
 
     @Test
-    void gracefulShutdownFlagsOnlyImmediate() {
-        GracefulShutdownDisabledRule rule = new GracefulShutdownDisabledRule();
+    void registryPinsAllThirtyEightRulesAndOnlyFourRetirements() {
+        var ids = SpringRuleRegistry.activeRules().stream()
+                .map(rule -> rule.definition().id())
+                .toList();
+        assertThat(ids)
+                .hasSize(38)
+                .doesNotHaveDuplicates()
+                .contains("SPRING-REACTIVE-003")
+                .doesNotContain("SPRING-PROFILE-001", "SPRING-PERF-004", "SPRING-WEB-006", "SPRING-REACTIVE-002");
+        assertThat(SpringRuleRegistry.activeRules().stream()
+                        .filter(r -> Set.of(
+                                        "SPRING-WIRING-003",
+                                        "SPRING-WIRING-004",
+                                        "SPRING-WIRING-005",
+                                        "SPRING-WIRING-006",
+                                        "SPRING-CONFIG-001",
+                                        "SPRING-CONFIG-006",
+                                        "SPRING-PROFILE-002",
+                                        "SPRING-PROFILE-003",
+                                        "SPRING-PERF-001",
+                                        "SPRING-PERF-002",
+                                        "SPRING-PERF-005",
+                                        "SPRING-CACHE-001",
+                                        "SPRING-WEB-001",
+                                        "SPRING-WEB-003",
+                                        "SPRING-WEB-005")
+                                .contains(r.definition().id())))
+                .allSatisfy(rule -> assertThat(rule.definition().severity()).isEqualTo("INFO"));
+    }
 
-        assertThat(rule.evaluate(context(env().withProperty("server.shutdown", "immediate"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("server.shutdown", "graceful"))
+    @Test
+    void factoryStateWinsOverPropertiesWithoutInferringActualOverrideOrCycle() {
+        MockEnvironment env = env("spring.main.allow-bean-definition-overriding", "false")
+                .withProperty("spring.main.allow-circular-references", "false");
+        for (var pair : Map.of(
+                        new BeanDefinitionOverridingRule(), OVERRIDING, new CircularReferencesAllowedRule(), CIRCULAR)
+                .entrySet()) {
+            assertThat(evaluate(pair.getKey(), env, Map.of(pair.getValue(), true))
+                            .status())
+                    .isEqualTo("VIOLATION");
+            assertThat(evaluate(pair.getKey(), env, Map.of(pair.getValue(), false))
+                            .status())
+                    .isEqualTo("PASS");
+            assertThat(evaluate(pair.getKey(), env, Map.of()).status()).isEqualTo("SKIPPED");
+        }
+    }
+
+    @Test
+    void candidateFlagsAliasesAndJacksonGenerationsHaveDifferentBoundaries() {
+        var mapper = new DuplicateObjectMapperRule();
+        BeanRef jackson2 = new BeanRef("objectMapper", false, true, false, true, true, List.of("mapper"), "jackson2");
+        BeanRef jackson3 = new BeanRef("jsonMapper", false, true, false, true, true, List.of(), "jackson3");
+        assertThat(mapper.evaluate(SpringContext.builder(new MockEnvironment())
+                                .objectMappers(List.of(jackson2, jackson3))
                                 .build())
                         .status())
                 .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    @Test
-    void gracefulShutdownFlagsZeroedGracePeriod() {
-        GracefulShutdownDisabledRule rule = new GracefulShutdownDisabledRule();
-
-        // Zero grace period defeats graceful shutdown just like server.shutdown=immediate.
-        assertThat(rule.evaluate(context(env().withProperty("spring.lifecycle.timeout-per-shutdown-phase", "0"))
+        assertThat(mapper.evaluate(SpringContext.builder(new MockEnvironment())
+                                .objectMappers(TWO)
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.lifecycle.timeout-per-shutdown-phase", "0s"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        // A positive grace period (the 30s default or an explicit override) is fine.
-        assertThat(rule.evaluate(context(env().withProperty("spring.lifecycle.timeout-per-shutdown-phase", "20s"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-WIRING-003: union of Jackson 2 + Jackson 3 mapper beans ────────────
-
-    @Test
-    void duplicateJsonMappersFlaggedWithoutPrimary() {
-        DuplicateObjectMapperRule rule = new DuplicateObjectMapperRule();
-
-        SpringRuleResultDto twoNoPrimary = rule.evaluate(context(env())
-                .objectMappers(List.of(new BeanRef("objectMapper", false), new BeanRef("jsonMapper", false)))
-                .build());
-        assertThat(twoNoPrimary.status()).isEqualTo("VIOLATION");
-
-        SpringRuleResultDto onePrimary = rule.evaluate(context(env())
-                .objectMappers(List.of(new BeanRef("objectMapper", true), new BeanRef("jsonMapper", false)))
-                .build());
-        assertThat(onePrimary.status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-WIRING-004: conventional names / AsyncConfigurer suppress ──────────
-
-    @Test
-    void taskExecutorAmbiguitySuppressedByConvention() {
-        AmbiguousTaskExecutorRule rule = new AmbiguousTaskExecutorRule();
-        List<BeanRef> two = List.of(new BeanRef("a", false), new BeanRef("b", false));
-
-        assertThat(rule.evaluate(context(env()).taskExecutors(two).build()).status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env())
-                                .taskExecutors(List.of(new BeanRef("taskExecutor", false), new BeanRef("b", false)))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env())
-                                .taskExecutors(two)
-                                .customAsyncConfigurerPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-    }
-
-    @Test
-    void beanAmbiguityRulesHonorFrameworkCandidateMetadata() {
-        List<BeanRef> ambiguous = List.of(new BeanRef("first", false), new BeanRef("second", false));
-        List<BeanRef> preferredAndFallback = List.of(new BeanRef("preferred", false), fallbackCandidate("fallback"));
-
+        assertThat(SpringModel.hasName(List.of(jackson2), "mapper")).isTrue();
+        for (BeanRef secondary : List.of(
+                new BeanRef("secondary", false, false, false, true),
+                new BeanRef("secondary", false, true, false, false),
+                new BeanRef("secondary", false, true, true, true))) {
+            assertThat(SpringModel.hasResolvedCandidateMetadata(List.of(new BeanRef("main", false), secondary)))
+                    .isTrue();
+        }
+        assertThat(SpringModel.hasResolvedCandidateMetadata(List.of(new BeanRef("a", true), new BeanRef("b", true))))
+                .isFalse();
+        BeanRef unknown = new BeanRef("manual", false, false, false, false, false, List.of(), "");
         assertThat(new AmbiguousDataSourceRule()
-                        .evaluate(context(env()).dataSources(ambiguous).build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(new DuplicateObjectMapperRule()
-                        .evaluate(context(env())
-                                .objectMappers(preferredAndFallback)
+                        .evaluate(SpringContext.builder(new MockEnvironment())
+                                .dataSources(List.of(unknown))
                                 .build())
                         .status())
-                .isEqualTo("PASS");
-        assertThat(new AmbiguousTaskExecutorRule()
-                        .evaluate(context(env())
-                                .taskExecutors(preferredAndFallback)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
+                .isEqualTo("SKIPPED");
         assertThat(new AmbiguousDataSourceRule()
-                        .evaluate(
-                                context(env()).dataSources(preferredAndFallback).build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(new AmbiguousTransactionManagerRule()
-                        .evaluate(context(env())
-                                .transactionManagers(preferredAndFallback)
+                        .evaluate(SpringContext.builder(new MockEnvironment())
+                                .dataSources(TWO)
                                 .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(SpringModel.hasResolvedCandidateMetadata(
-                        List.of(new BeanRef("default", false), nonDefaultCandidate("restricted"))))
-                .isTrue();
-        assertThat(SpringModel.hasResolvedCandidateMetadata(
-                        List.of(new BeanRef("eligible", false), nonAutowireCandidate("internal"))))
-                .isTrue();
-    }
-
-    // ── SPRING-PERF-003: @Async left on the unreviewed Boot-default executor ──────
-
-    @Test
-    void asyncWithoutCustomExecutorFlagsUnreviewedBootDefault() {
-        AsyncWithoutCustomExecutorRule rule = new AsyncWithoutCustomExecutorRule();
-        List<BeanRef> bootDefaultOnly = List.of(new BeanRef("applicationTaskExecutor", false));
-
-        // No @EnableAsync at all: nothing to check.
-        assertThat(rule.evaluate(context(env()).taskExecutors(bootDefaultOnly).build())
-                        .status())
-                .isEqualTo("PASS");
-
-        // Virtual threads replace the pooled executor entirely, so the rule does not apply.
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
-                                .asyncEnabled(true)
-                                .taskExecutors(bootDefaultOnly)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-
-        // Rare case: TaskExecutionAutoConfiguration itself is absent, so @Async falls back to the
-        // truly unbounded SimpleAsyncTaskExecutor.
-        assertThat(rule.evaluate(context(env()).asyncEnabled(true).build()).status())
-                .isEqualTo("VIOLATION");
-
-        // Common case: the only TaskExecutor is Boot's auto-configured applicationTaskExecutor, left
-        // at its default pool size — this is the real, previously-missed risk.
-        assertThat(rule.evaluate(context(env())
-                                .asyncEnabled(true)
-                                .taskExecutors(bootDefaultOnly)
-                                .bootApplicationTaskExecutorPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env())
-                                .asyncEnabled(true)
-                                .taskExecutors(List.of(
-                                        new BeanRef("applicationTaskExecutor", false),
-                                        new BeanRef("taskScheduler", false)))
-                                .bootApplicationTaskExecutorPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-
-        // Spring Framework also accepts an Executor (not necessarily a TaskExecutor) named taskExecutor.
-        assertThat(rule.evaluate(context(env())
-                                .asyncEnabled(true)
-                                .executors(List.of(new BeanRef("taskExecutor", false)))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-
-        // Reviewing the pool size (core-size or max-size) suppresses the finding.
-        assertThat(rule.evaluate(context(env().withProperty("spring.task.execution.pool.core-size", "16"))
-                                .asyncEnabled(true)
-                                .taskExecutors(bootDefaultOnly)
-                                .bootApplicationTaskExecutorPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("spring.task.execution.pool.max-size", "32"))
-                                .asyncEnabled(true)
-                                .taskExecutors(bootDefaultOnly)
-                                .bootApplicationTaskExecutorPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-
-        // A custom, deliberately-named executor (not the Boot default) is assumed reviewed.
-        assertThat(rule.evaluate(context(env())
-                                .asyncEnabled(true)
-                                .taskExecutors(List.of(new BeanRef("reportingExecutor", false)))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-
-        // Multiple executors are an ambiguity case handled by SPRING-WIRING-004, not this rule.
-        assertThat(rule.evaluate(context(env())
-                                .asyncEnabled(true)
-                                .taskExecutors(List.of(
-                                        new BeanRef("applicationTaskExecutor", false), new BeanRef("other", false)))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-    }
-
-    // ── SPRING-WIRING-006: multiple transaction managers ─────────────────────────
-
-    @Test
-    void transactionManagerAmbiguityFlaggedUnlessResolved() {
-        AmbiguousTransactionManagerRule rule = new AmbiguousTransactionManagerRule();
-
-        assertThat(rule.evaluate(context(env())
-                                .transactionManagers(List.of(new BeanRef("a", false), new BeanRef("b", false)))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env())
+                        .severity())
+                .isEqualTo("INFO");
+        var tx = new AmbiguousTransactionManagerRule();
+        assertThat(tx.evaluate(SpringContext.builder(new MockEnvironment())
                                 .transactionManagers(
-                                        List.of(new BeanRef("transactionManager", false), new BeanRef("b", false)))
+                                        List.of(new BeanRef("transactionManager", false), new BeanRef("other", false)))
                                 .build())
                         .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env())
-                                .transactionManagers(List.of(new BeanRef("a", false), new BeanRef("b", false)))
+                .isEqualTo("VIOLATION");
+        assertThat(tx.evaluate(SpringContext.builder(new MockEnvironment())
+                                .transactionManagers(TWO)
                                 .transactionManagementConfigurerPresent(true)
                                 .build())
                         .status())
-                .isEqualTo("PASS");
+                .isEqualTo("SKIPPED");
     }
 
-    // ── SPRING-WIRING-007: RestTemplate present ──────────────────────────────────
+    @Test
+    void packagingAndMutableFieldsRemainLowReviewPrompts() {
+        var c = SpringContext.builder(new MockEnvironment())
+                .defaultPackageBeans(List.of("product"))
+                .mutableSingletonFields(List.of("app.Counter#count"))
+                .restTemplates(TWO)
+                .build();
+        for (SpringRule rule : List.of(
+                new DefaultPackageComponentsRule(), new MutableSingletonFieldRule(), new RestTemplateInUseRule())) {
+            assertThat(rule.evaluate(c).status()).isEqualTo("VIOLATION");
+            assertThat(rule.definition().severity()).isEqualTo("LOW");
+        }
+        assertThat(new RestTemplateInUseRule().definition().recommendation())
+                .contains("Boot's RestClient.Builder")
+                .doesNotContain("RestClient.create()");
+        assertThat(new DefaultPackageComponentsRule().definition().description())
+                .contains("does not itself");
+        assertThat(new MutableSingletonFieldRule().definition().description()).contains("not proof");
+    }
 
     @Test
-    void restTemplatePresenceFlagged() {
-        RestTemplateInUseRule rule = new RestTemplateInUseRule();
-
-        assertThat(rule.evaluate(context(env())
-                                .restTemplates(List.of(new BeanRef("restTemplate", false)))
+    void lazyOpportunityUsesDefinitionMetadataAndSuppressesExplicitChoices() {
+        var rule = new LazyInitializationDisabledRule();
+        assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(LAZY_DEFINITIONS, 0))
+                                .beanDefinitionCount(301)
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-WIRING-008: default-package components ────────────────────────────
-
-    @Test
-    void defaultPackageComponentsFlagged() {
-        DefaultPackageComponentsRule rule = new DefaultPackageComponentsRule();
-
-        assertThat(rule.evaluate(context(env())
-                                .defaultPackageBeans(List.of("rootBean"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-WIRING-009: public mutable fields on singleton beans ──────────────
-
-    @Test
-    void mutableSingletonFieldsFlagged() {
-        MutableSingletonFieldRule rule = new MutableSingletonFieldRule();
-
-        assertThat(rule.evaluate(context(env())
-                                .mutableSingletonFields(List.of("com.example.Counter#hits"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-CONFIG-003: renamed/removed Boot 4 properties ─────────────────────
-
-    @Test
-    void renamedOrRemovedPropertiesFlagged() {
-        RemovedOrRenamedPropertyRule rule = new RemovedOrRenamedPropertyRule();
-
-        // spring.dao.exceptiontranslation.enabled is NOT a dead/renamed key (still read directly by
-        // DataSourceTransactionManagerAutoConfiguration), so it must never be flagged here — this
-        // guards against re-introducing that false positive.
-        assertThat(rule.evaluate(context(env().withProperty("spring.dao.exceptiontranslation.enabled", "true"))
+        assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(LAZY_DEFINITIONS, 0))
+                                .beanDefinitionCount(300)
                                 .build())
                         .status())
                 .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("server.undertow.threads.io", "4"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        // management.tracing.enabled was deprecated (level: error) in favour of
-        // management.tracing.export.enabled since Boot 4.0, so it must be flagged.
-        assertThat(rule.evaluate(context(env().withProperty("management.tracing.enabled", "true"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        // Sample one entry from each of the other newly-added rename groups.
-        assertThat(rule.evaluate(context(env().withProperty("server.error.include-stacktrace", "always"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("server.servlet.encoding.charset", "UTF-8"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.http.client.connect-timeout", "5s"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.data.mongodb.host", "localhost"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.session.redis.namespace", "spring:session"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.http.reactiveclient.connector", "reactor"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        SpringRuleResultDto mongoSession =
-                rule.evaluate(context(env().withProperty("spring.session.mongodb.collection-name", "sessions"))
-                        .build());
-        assertThat(mongoSession.status()).isEqualTo("VIOLATION");
-        assertThat(mongoSession.sampleViolations())
-                .singleElement()
-                .asString()
-                .contains("org.mongodb:mongodb-spring-session");
-        // server.servlet.encoding.mapping is deliberately NOT in the rename list (still works as-is).
-        assertThat(rule.evaluate(context(env().withProperty("server.servlet.encoding.mapping", "*.html"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        // spring.data.mongodb.gridfs.* is a Spring Data setting, unrelated to the connection-property
-        // rename, and must not be flagged either.
-        assertThat(rule.evaluate(context(env().withProperty("spring.data.mongodb.gridfs.database", "files"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-CONFIG-004 / 005 ──────────────────────────────────────────────────
-
-    @Test
-    void applicationNameAndConfigOnNotFound() {
-        MissingApplicationNameRule nameRule = new MissingApplicationNameRule();
-        assertThat(nameRule.evaluate(context(env()).build()).status()).isEqualTo("VIOLATION");
-        assertThat(nameRule.evaluate(context(env().withProperty("spring.application.name", "svc"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-
-        ConfigOnNotFoundIgnoreRule notFoundRule = new ConfigOnNotFoundIgnoreRule();
-        assertThat(notFoundRule
-                        .evaluate(context(env().withProperty("spring.config.on-not-found", "ignore"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(notFoundRule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-PROFILE-003 ───────────────────────────────────────────────────────
-
-    @Test
-    void profileValidationDisabledFlagged() {
-        ProfileValidationDisabledRule rule = new ProfileValidationDisabledRule();
-        assertThat(rule.evaluate(context(env().withProperty("spring.profiles.validate", "false"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    @Test
-    void lazyInitializationIsSuggestedOnlyForLargeEagerContexts() {
-        LazyInitializationDisabledRule rule = new LazyInitializationDisabledRule();
-
-        assertThat(rule.evaluate(context(env()).beanDefinitionCount(300).build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env()).beanDefinitionCount(301).build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.main.lazy-initialization", "true"))
+        assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(LAZY_DEFINITIONS, 1))
                                 .beanDefinitionCount(301)
                                 .build())
                         .status())
                 .isEqualTo("PASS");
+        assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
+                                .beanDefinitionCount(301)
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+        for (String value : List.of("true", "false"))
+            assertThat(rule.evaluate(context(env("spring.main.lazy-initialization", value), Map.of(LAZY_DEFINITIONS, 0))
+                                    .beanDefinitionCount(301)
+                                    .build())
+                            .status())
+                    .isEqualTo("PASS");
     }
 
     @Test
-    void pooledExecutorIsFlaggedWhenVirtualThreadsAreEnabled() {
-        VirtualThreadsOverriddenByPoolRule rule = new VirtualThreadsOverriddenByPoolRule();
+    void configurationAdviceIsQualifiedAndMigrationCatalogueKeepsLiveKeys() {
+        var legacy = new RemovedOrRenamedPropertyRule();
+        for (String key : SpringMigrationProperties.ENTRIES.keySet())
+            assertThat(evaluate(legacy, env(key, "secret-value"), Map.of()).status())
+                    .as(key)
+                    .isEqualTo("VIOLATION");
+        for (String key : List.of(
+                "spring.dao.exceptiontranslation.enabled",
+                "spring.jackson.read.accept-any-property-name",
+                "spring.jackson.write.write-nan-as-strings",
+                "server.servlet.encoding.mapping.fr",
+                "spring.data.mongodb.gridfs.database",
+                "spring.data.mongodb.auto-index-creation",
+                "spring.data.mongodb.field-naming-strategy",
+                "spring.data.mongodb.representation.big-decimal"))
+            assertThat(evaluate(legacy, env(key, "true"), Map.of()).status())
+                    .as(key)
+                    .isEqualTo("PASS");
+        assertThat(evaluate(legacy, env("spring.data.mongodb.additional-hosts[0]", "secret-host"), Map.of())
+                        .status())
+                .isEqualTo("VIOLATION");
+        MockEnvironment relaxed = new MockEnvironment();
+        relaxed.getPropertySources()
+                .addFirst(new SystemEnvironmentPropertySource(
+                        "systemEnvironment", Map.of("SPRING_CODEC_MAXINMEMORYSIZE", "-1")));
+        assertThat(evaluate(legacy, relaxed, Map.of()).status()).isEqualTo("VIOLATION");
+        assertThat(evaluate(legacy, relaxed, Map.of()).toString()).doesNotContain("secret-host");
+        assertThat(evaluate(new MissingApplicationNameRule(), new MockEnvironment(), Map.of())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(evaluate(new MissingApplicationNameRule(), env("spring.application.name", "orders"), Map.of())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(evaluate(new ConfigOnNotFoundIgnoreRule(), env("spring.config.on-not-found", "ignore"), Map.of())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(evaluate(
+                                new Jackson2DefaultsCompatibilityRule(),
+                                env("spring.jackson.use-jackson2-defaults", "true"),
+                                Map.of())
+                        .status())
+                .isEqualTo("SKIPPED");
+        assertThat(evaluate(
+                                new Jackson2DefaultsCompatibilityRule(),
+                                env("spring.jackson.use-jackson2-defaults", "true"),
+                                Map.of(JACKSON3_CONFIGURATION, true))
+                        .status())
+                .isEqualTo("VIOLATION");
+    }
 
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
+    @Test
+    void loggingAndProfilesDoNotInventRuntimeOrDeploymentState() {
+        MockEnvironment prod = env("debug", "true");
+        prod.setDefaultProfiles("production");
+        assertThat(evaluate(new DebugOrTraceLoggingRule(), prod, Map.of()).severity())
+                .isEqualTo("LOW");
+        assertThat(new DevToolsOnClasspathRule()
+                        .evaluate(SpringContext.builder(prod)
+                                .devToolsPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(new DevToolsOnClasspathRule()
+                        .evaluate(SpringContext.builder(new MockEnvironment())
+                                .devToolsPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(evaluate(new ProfileValidationDisabledRule(), env("spring.profiles.validate", "false"), Map.of())
+                        .severity())
+                .isEqualTo("INFO");
+        for (String level : List.of("DEBUG", "TRACE", "ALL"))
+            assertThat(evaluate(new DebugOrTraceLoggingRule(), env("logging.level.root", level), Map.of())
+                            .status())
+                    .isEqualTo("VIOLATION");
+        assertThat(evaluate(new DebugOrTraceLoggingRule(), env("logging.level.root", "INFO"), Map.of())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void virtualThreadsRemainAnOptionalApplicableOpportunity() {
+        var rule = new VirtualThreadsAvailableRule();
+        assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
+                                .virtualThreadsSupported(true)
+                                .dispatcherServletPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
+                                .virtualThreadsSupported(true)
+                                .reactive(true)
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+        assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
+                                .virtualThreadsSupported(true)
+                                .reactive(true)
+                                .bootApplicationTaskExecutorPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        for (String value : List.of("true", "false"))
+            assertThat(rule.evaluate(SpringContext.builder(env("spring.threads.virtual.enabled", value))
+                                    .virtualThreadsSupported(true)
+                                    .dispatcherServletPresent(true)
+                                    .build())
+                            .status())
+                    .isEqualTo("PASS");
+        assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
+                                .virtualThreadsSupported(false)
+                                .dispatcherServletPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+        assertThat(new VirtualThreadsOverriddenByPoolRule()
+                        .evaluate(SpringContext.builder(env("spring.threads.virtual.enabled", "true"))
+                                .virtualThreadsSupported(true)
                                 .pooledTaskExecutorPresent(true)
                                 .build())
+                        .severity())
+                .isEqualTo("INFO");
+    }
+
+    @Test
+    void asyncAdviceUsesProvenSelectionNotPoolPropertyAbsence() {
+        var fallback = new AsyncWithoutCustomExecutorRule();
+        var queue = new UnboundedAsyncQueueRule();
+        var ambiguous = new AmbiguousTaskExecutorRule();
+        for (SpringRule rule : List.of(fallback, queue, ambiguous))
+            assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
+                                    .asyncEnabled(true)
+                                    .build())
+                            .status())
+                    .isEqualTo("SKIPPED");
+        assertThat(fallback.evaluate(context(
+                                        env("spring.threads.virtual.enabled", "true"),
+                                        Map.of(ASYNC_SELECTION, AsyncSelection.FRAMEWORK_FALLBACK))
+                                .asyncEnabled(true)
+                                .build())
                         .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
+        assertThat(fallback.evaluate(context(new MockEnvironment(), Map.of(ASYNC_SELECTION, AsyncSelection.SELECTED))
+                                .asyncEnabled(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(ambiguous
+                        .evaluate(context(new MockEnvironment(), Map.of(ASYNC_SELECTION, AsyncSelection.AMBIGUOUS))
+                                .asyncEnabled(true)
+                                .build())
+                        .severity())
+                .isEqualTo("INFO");
+        assertThat(queue.evaluate(context(new MockEnvironment(), Map.of(ASYNC_QUEUE_CAPACITY, Integer.MAX_VALUE))
+                                .asyncEnabled(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(queue.evaluate(context(new MockEnvironment(), Map.of(ASYNC_QUEUE_CAPACITY, 10))
+                                .asyncEnabled(true)
                                 .build())
                         .status())
                 .isEqualTo("PASS");
     }
 
-    // ── SPRING-PERF-005 / 006 ────────────────────────────────────────────────────
-
     @Test
-    void schedulerPoolAndAsyncQueue() {
-        SchedulerPoolTooSmallRule scheduler = new SchedulerPoolTooSmallRule();
-        assertThat(scheduler
-                        .evaluate(context(env()).schedulingEnabled(true).build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(scheduler
-                        .evaluate(context(env().withProperty("spring.task.scheduling.pool.size", "4"))
+    void schedulerRequiresMultipleRegisteredTasksAndObservedSelectedSize() {
+        var rule = new SchedulerPoolTooSmallRule();
+        assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(SCHEDULER_POOL_SIZE, 1, SCHEDULED_TASK_COUNT, 2))
                                 .schedulingEnabled(true)
                                 .build())
                         .status())
-                .isEqualTo("PASS");
-        assertThat(scheduler
-                        .evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
+                .isEqualTo("VIOLATION");
+        for (Map<Fact, Object> facts : List.of(
+                Map.<Fact, Object>of(SCHEDULER_POOL_SIZE, 1, SCHEDULED_TASK_COUNT, 1),
+                Map.<Fact, Object>of(SCHEDULER_POOL_SIZE, 2, SCHEDULED_TASK_COUNT, 2)))
+            assertThat(rule.evaluate(context(new MockEnvironment(), facts)
+                                    .schedulingEnabled(true)
+                                    .build())
+                            .status())
+                    .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env("spring.task.scheduling.pool.size", "1"), Map.of())
                                 .schedulingEnabled(true)
                                 .build())
                         .status())
-                .isEqualTo("PASS");
-
-        UnboundedAsyncQueueRule async = new UnboundedAsyncQueueRule();
-        List<BeanRef> bootDefaultOnly = List.of(new BeanRef("applicationTaskExecutor", false));
-        assertThat(async.evaluate(context(env())
-                                .asyncEnabled(true)
-                                .taskExecutors(bootDefaultOnly)
-                                .bootApplicationTaskExecutorPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(async.evaluate(context(env())
-                                .asyncEnabled(true)
-                                .taskExecutors(List.of(
-                                        new BeanRef("applicationTaskExecutor", false),
-                                        new BeanRef("taskScheduler", false)))
-                                .bootApplicationTaskExecutorPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(async.evaluate(context(env().withProperty("spring.task.execution.pool.queue-capacity", "100"))
-                                .asyncEnabled(true)
-                                .taskExecutors(bootDefaultOnly)
-                                .bootApplicationTaskExecutorPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(async.evaluate(context(env())
-                                .asyncEnabled(true)
-                                .taskExecutors(List.of(new BeanRef("reportingExecutor", false)))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
+                .isEqualTo("SKIPPED");
     }
 
-    // ── SPRING-CACHE-001 ─────────────────────────────────────────────────────────
-
     @Test
-    void inMemoryCacheManagerFlaggedOnlyWhenAllInMemory() {
-        InMemoryCacheManagerRule rule = new InMemoryCacheManagerRule();
-
-        assertThat(rule.evaluate(context(env())
+    void cacheRuleDoesNotCallNoOpUnboundedOrRequireDistributedCaching() {
+        var rule = new InMemoryCacheManagerRule();
+        for (String type : List.of(
+                "org.springframework.cache.support.NoOpCacheManager",
+                "org.springframework.cache.caffeine.CaffeineCacheManager"))
+            assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
+                                    .cachingEnabled(true)
+                                    .cacheManagers(List.of(new CacheManagerRef("cache", type)))
+                                    .build())
+                            .status())
+                    .isEqualTo("PASS");
+        assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
+                                .cachingEnabled(true)
+                                .cacheManagers(List.of(new CacheManagerRef("custom", "app.CustomCacheManager")))
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+        assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
                                 .cachingEnabled(true)
                                 .cacheManagers(List.of(new CacheManagerRef(
-                                        "cacheManager",
-                                        "org.springframework.cache.concurrent.ConcurrentMapCacheManager")))
+                                        "cache", "org.springframework.cache.concurrent.ConcurrentMapCacheManager")))
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
-
-        assertThat(rule.evaluate(context(env())
-                                .cachingEnabled(true)
-                                .cacheManagers(List.of(
-                                        new CacheManagerRef(
-                                                "dev",
-                                                "org.springframework.cache.concurrent.ConcurrentMapCacheManager"),
-                                        new CacheManagerRef(
-                                                "real", "com.github.benmanes.caffeine.CaffeineCacheManager")))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-
-        assertThat(rule.evaluate(context(env()).cachingEnabled(true).build()).status())
-                .isEqualTo("PASS");
     }
 
-    // ── SPRING-WEB-004 ───────────────────────────────────────────────────────────
-
     @Test
-    void errorDetailsExposedFlagsOnlySpringWebErrorPrefix() {
-        ErrorDetailsExposedRule rule = new ErrorDetailsExposedRule();
+    void originOpportunitiesRequireProvenanceAndRespectOptOutsOnBothStacks() {
+        for (boolean reactive : List.of(false, true))
+            for (var pair : Map.of(
+                            new ResponseCompressionDisabledRule(),
+                            "server.compression.enabled",
+                            new Http2DisabledRule(),
+                            "server.http2.enabled")
+                    .entrySet()) {
+                assertThat(pair.getKey()
+                                .evaluate(context(new MockEnvironment(), Map.of(BOOT_WEB_SERVER, true))
+                                        .reactive(reactive)
+                                        .build())
+                                .status())
+                        .isEqualTo("VIOLATION");
+                assertThat(pair.getKey()
+                                .evaluate(context(new MockEnvironment(), Map.of())
+                                        .reactive(reactive)
+                                        .build())
+                                .status())
+                        .isEqualTo("SKIPPED");
+                for (String value : List.of("true", "false"))
+                    assertThat(pair.getKey()
+                                    .evaluate(context(env(pair.getValue(), value), Map.of(BOOT_WEB_SERVER, true))
+                                            .reactive(reactive)
+                                            .build())
+                                    .status())
+                            .isEqualTo("PASS");
+            }
+    }
 
-        assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-stacktrace", "always"))
-                                .build())
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "0s", "PT0S"})
+    void exactlyZeroGraceIsFlagged(String duration) {
+        assertThat(evaluate(
+                                new GracefulShutdownDisabledRule(),
+                                env("spring.lifecycle.timeout-per-shutdown-phase", duration),
+                                Map.of(BOOT_WEB_SERVER, true))
                         .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-message", "always"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-exception", "true"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-stacktrace", "never"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-exception", "false"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        // server.error.* was renamed to spring.web.error.* in Boot 4 (SPRING-CONFIG-003 owns flagging
-        // the stale key itself), so it no longer has any live effect and must not be flagged here —
-        // otherwise this rule and SPRING-CONFIG-003 would double-report the exact same misconfiguration
-        // under two different rule IDs.
-        assertThat(rule.evaluate(context(env().withProperty("server.error.include-message", "always"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("server.error.include-exception", "true"))
-                                .build())
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1ns", "PT0.000000001S", "30s", "1"})
+    void positiveGraceIsNotRoundedToZero(String duration) {
+        assertThat(evaluate(
+                                new GracefulShutdownDisabledRule(),
+                                env("spring.lifecycle.timeout-per-shutdown-phase", duration),
+                                Map.of(BOOT_WEB_SERVER, true))
                         .status())
                 .isEqualTo("PASS");
     }
 
-    // ── SPRING-CONFIG-002: debug/trace flags and verbose framework logging ───────
-
     @Test
-    void verboseLoggingFlaggedForFlagsAndLevels() {
-        DebugOrTraceLoggingRule rule = new DebugOrTraceLoggingRule();
-
-        assertThat(rule.evaluate(context(env().withProperty("debug", "true")).build())
+    void errorDetailsUseBoot4NamespaceAndOnParamIsNotConfidentiality() {
+        var rule = new ErrorDetailsExposedRule();
+        for (String key : List.of("include-stacktrace", "include-message", "include-binding-errors"))
+            for (String value : List.of("always", "on-param"))
+                assertThat(evaluate(rule, env("spring.web.error." + key, value), Map.of(BOOT_ERROR_HANDLING, true))
+                                .status())
+                        .isEqualTo("VIOLATION");
+        assertThat(evaluate(rule, env("spring.web.error.include-exception", "true"), Map.of(BOOT_ERROR_HANDLING, true))
                         .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("logging.level.org.springframework", "DEBUG"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("logging.level.root", "trace"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("logging.level.root", "ALL"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("logging.level.org.springframework", "INFO"))
-                                .build())
+        assertThat(evaluate(rule, env("server.error.include-stacktrace", "always"), Map.of(BOOT_ERROR_HANDLING, true))
                         .status())
                 .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    @Test
-    void verboseLoggingIsMediumInProduction() {
-        DebugOrTraceLoggingRule rule = new DebugOrTraceLoggingRule();
-
-        MockEnvironment prod = env();
-        prod.setActiveProfiles("prod");
-        prod.setProperty("debug", "true");
-        SpringRuleResultDto result = rule.evaluate(context(prod).build());
-
-        assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.severity()).isEqualTo("MEDIUM");
-
-        // Outside a production-like profile the declared LOW severity is unchanged.
-        assertThat(rule.evaluate(context(env().withProperty("debug", "true")).build())
-                        .severity())
-                .isEqualTo("LOW");
-    }
-
-    // ── SPRING-WEB-005 ───────────────────────────────────────────────────────────
-
-    @Test
-    void httpClientTimeoutsRequireAClientBean() {
-        HttpClientTimeoutsUnsetRule rule = new HttpClientTimeoutsUnsetRule();
-
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env()).restClientBeanPresent(true).build())
+        assertThat(evaluate(rule, env("spring.web.error.include-stacktrace", "always"), Map.of())
                         .status())
-                .isEqualTo("VIOLATION");
-        // Only one of the two timeouts is still a violation: outbound calls can still hang.
-        assertThat(rule.evaluate(context(env().withProperty("spring.http.clients.connect-timeout", "2s"))
+                .isEqualTo("SKIPPED");
+        assertThat(rule.definition().recommendation()).contains("never/false").contains("do not use on-param");
+    }
+
+    @Test
+    void clientGroupsAreIndependentAndDoNotClaimArbitraryClientsHaveNoTimeouts() {
+        var rule = new HttpClientTimeoutsUnsetRule();
+        assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
                                 .restClientBeanPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.http.clients.read-timeout", "5s"))
-                                .restClientBeanPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.http.clients.connect-timeout", "2s")
-                                        .withProperty("spring.http.clients.read-timeout", "5s"))
-                                .restClientBeanPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-    }
-
-    @Test
-    void httpClientTimeoutsAlsoDetectWebClientBean() {
-        HttpClientTimeoutsUnsetRule rule = new HttpClientTimeoutsUnsetRule();
-
-        // A WebClient bean alone (no RestTemplate/RestClient) is enough to trigger the check: the same
-        // spring.http.clients.* namespace configures the reactive client too in Spring Boot 4.
-        assertThat(rule.evaluate(context(env()).webClientBeanPresent(true).build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.http.clients.connect-timeout", "2s")
-                                        .withProperty("spring.http.clients.read-timeout", "5s"))
                                 .webClientBeanPresent(true)
                                 .build())
                         .status())
+                .isEqualTo("SKIPPED");
+        var groups = env("spring.http.serviceclient.[complete].connect-timeout", "1s")
+                .withProperty("spring.http.serviceclient.[complete].read-timeout", "2s")
+                .withProperty("spring.http.serviceclient.[incomplete].connect-timeout", "1s");
+        assertThat(evaluate(rule, groups, Map.of(HTTP_SERVICE_GROUPS, true)).violationCount())
+                .isEqualTo(1);
+        groups.withProperty("spring.http.serviceclient.[incomplete].read-timeout", "2s");
+        assertThat(evaluate(rule, groups, Map.of(HTTP_SERVICE_GROUPS, true)).status())
                 .isEqualTo("PASS");
-    }
-
-    @Test
-    void namedHttpServiceClientTimeoutsAreRecognized() {
-        HttpClientTimeoutsUnsetRule rule = new HttpClientTimeoutsUnsetRule();
-
-        SpringRuleResultDto complete = rule.evaluate(
-                context(env().withProperty("spring.http.serviceclient.inventory.base-url", "https://inventory.example")
-                                .withProperty("spring.http.serviceclient.inventory.connect-timeout", "2s")
-                                .withProperty("spring.http.serviceclient.inventory.read-timeout", "5s"))
-                        .restClientBeanPresent(true)
-                        .build());
-        assertThat(complete.status()).isEqualTo("PASS");
-
-        SpringRuleResultDto incomplete = rule.evaluate(
-                context(env().withProperty("spring.http.serviceclient.inventory.base-url", "https://inventory.example")
-                                .withProperty("spring.http.serviceclient.inventory.connect-timeout", "2s"))
-                        .restClientBeanPresent(true)
-                        .build());
-        assertThat(incomplete.status()).isEqualTo("VIOLATION");
-        assertThat(incomplete.sampleViolations()).singleElement().asString().contains("inventory", "read-timeout");
-
-        SpringRuleResultDto inheritedGlobal = rule.evaluate(context(env().withProperty(
-                                "spring.http.clients.connect-timeout", "2s")
-                        .withProperty("spring.http.serviceclient.inventory.base-url", "https://inventory.example")
-                        .withProperty("spring.http.serviceclient.inventory.read-timeout", "5s"))
-                .restClientBeanPresent(true)
-                .build());
-        assertThat(inheritedGlobal.status()).isEqualTo("PASS");
-    }
-
-    @Test
-    void explicitlyReviewedHikariPoolSizeTenDoesNotFlagVirtualThreads() {
-        ConnectionPoolSmallForVirtualThreadsRule rule = new ConnectionPoolSmallForVirtualThreadsRule();
-
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
-                                .hikariDataSourcePresent(true)
-                                .build())
+        assertThat(evaluate(rule, groups, Map.of(HTTP_SERVICE_GROUPS, true, HTTP_CLIENT_DEFAULTS, true))
                         .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true")
-                                        .withProperty("spring.datasource.hikari.maximum-pool-size", "10"))
-                                .hikariDataSourcePresent(true)
-                                .build())
+        groups.withProperty("spring.http.clients.connect-timeout", "1s")
+                .withProperty("spring.http.clients.read-timeout", "2s");
+        assertThat(evaluate(rule, groups, Map.of(HTTP_CLIENT_DEFAULTS, true, HTTP_SERVICE_GROUPS, true))
                         .status())
                 .isEqualTo("PASS");
     }
 
     @Test
-    void jackson2DefaultsCompatibilityModeIsFlagged() {
-        Jackson2DefaultsCompatibilityRule rule = new Jackson2DefaultsCompatibilityRule();
-
-        assertThat(rule.evaluate(context(env().withProperty("spring.jackson.use-jackson2-defaults", "true"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    @Test
-    void inMemoryR2dbcUrlIsFlaggedOnlyForProductionLikeProfiles() {
-        InMemoryR2dbcInProductionRule rule = new InMemoryR2dbcInProductionRule();
-        MockEnvironment prod = env().withProperty("spring.r2dbc.url", "r2dbc:h2:mem:///orders");
-        prod.setActiveProfiles("prod");
-
-        assertThat(rule.evaluate(context(prod).build()).status()).isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.r2dbc.url", "r2dbc:h2:mem:///orders"))
+    void osivRequiresRegistrationNotEmfOrPropertyAndStaysMedium() {
+        var rule = new OpenSessionInViewEnabledRule();
+        var prod = env("spring.jpa.open-in-view", "true");
+        prod.setDefaultProfiles("prod");
+        assertThat(rule.evaluate(SpringContext.builder(prod)
+                                .entityManagerFactoryPresent(true)
+                                .dispatcherServletPresent(true)
                                 .build())
                         .status())
                 .isEqualTo("SKIPPED");
-
-        MockEnvironment durable = env().withProperty("spring.r2dbc.url", "r2dbc:postgresql://db/orders");
-        durable.setActiveProfiles("production");
-        assertThat(rule.evaluate(context(durable).build()).status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-WEB-006 ───────────────────────────────────────────────────────────
-
-    @Test
-    void forwardHeadersStrategyRequiredUnderProdProfile() {
-        ForwardHeadersStrategyUnsetRule rule = new ForwardHeadersStrategyUnsetRule();
-
-        MockEnvironment prod = env();
-        prod.setActiveProfiles("prod");
-        assertThat(rule.evaluate(context(prod).build()).status()).isEqualTo("VIOLATION");
-
-        MockEnvironment prodConfigured = env();
-        prodConfigured.setActiveProfiles("prod");
-        prodConfigured.withProperty("server.forward-headers-strategy", "framework");
-        assertThat(rule.evaluate(context(prodConfigured).build()).status()).isEqualTo("PASS");
-
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-WEB-007 ───────────────────────────────────────────────────────────
-
-    @Test
-    void tomcatThreadCapRequiresAnEmbeddedTomcatServer() {
-        RedundantTomcatThreadsRule rule = new RedundantTomcatThreadsRule();
-
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true")
-                                        .withProperty("server.tomcat.threads.max", "200"))
-                                .tomcatWebServerPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
-                                .tomcatWebServerPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true")
-                                        .withProperty("server.tomcat.threads.max", "200"))
+        assertThat(evaluate(rule, prod, Map.of(OSIV, "Boot servlet interceptor/configurer registration"))
+                        .severity())
+                .isEqualTo("MEDIUM");
+        assertThat(rule.evaluate(context(prod, Map.of(OSIV, "registration"))
                                 .reactive(true)
-                                .tomcatWebServerPresent(true)
                                 .build())
                         .status())
+                .isEqualTo("SKIPPED");
+        assertThat(rule.definition().description()).contains("does not prove a held JDBC connection");
+    }
+
+    @Test
+    void databaseRulesUseSanitizedSupportedProvenanceAndDefaultProfiles() {
+        var prod = env("spring.datasource.url", "jdbc:h2:mem:secret;PASSWORD=do-not-display");
+        prod.setDefaultProfiles("production");
+        assertThat(evaluate(new InMemoryDatasourceInProductionRule(), prod, Map.of())
+                        .status())
+                .isEqualTo("SKIPPED");
+        var result = evaluate(new InMemoryDatasourceInProductionRule(), prod, Map.of(JDBC_KIND, "H2 memory"));
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.toString()).doesNotContain("do-not-display", "jdbc:h2", "secret;");
+        assertThat(evaluate(new InMemoryDatasourceInProductionRule(), prod, Map.of(JDBC_KIND, "other"))
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(SpringInventory.jdbcKind("jdbc:postgresql://db/test?hint=jdbc:h2:mem:foo"))
+                .isEqualTo("other");
+        assertThat(evaluate(new InMemoryR2dbcInProductionRule(), prod, Map.of(R2DBC_KIND, "H2 memory"))
+                        .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true")
-                                        .withProperty("server.tomcat.threads.max", "200"))
+        assertThat(evaluate(new InMemoryR2dbcInProductionRule(), prod, Map.of()).status())
+                .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void codecRuleOnlyFlagsObservedUnlimitedCurrentConfiguration() {
+        var rule = new UnlimitedCodecAggregationRule();
+        for (Map<Fact, Object> evidence : List.of(
+                Map.<Fact, Object>of(BOOT_CODEC_CONFIGURATION, true),
+                Map.<Fact, Object>of(BOOT_CODEC_CONFIGURATION, true, CODEC_LIMIT, 262144L)))
+            assertThat(rule.evaluate(context(new MockEnvironment(), evidence)
+                                    .reactive(true)
+                                    .build())
+                            .status())
+                    .isEqualTo("PASS");
+        assertThat(rule.evaluate(
+                                context(new MockEnvironment(), Map.of(BOOT_CODEC_CONFIGURATION, true, CODEC_LIMIT, -1L))
+                                        .reactive(true)
+                                        .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env("spring.http.codecs.max-in-memory-size", "-1"), Map.of())
+                                .reactive(true)
                                 .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+        assertThat(rule.evaluate(
+                                context(new MockEnvironment(), Map.of(BOOT_CODEC_CONFIGURATION, true, CODEC_LIMIT, -1L))
+                                        .build())
                         .status())
                 .isEqualTo("SKIPPED");
     }
 
-    // ── SPRING-MGMT-001 ──────────────────────────────────────────────────────────
-
     @Test
-    void actuatorExposeAllFlagged() {
-        ActuatorExposeAllRule rule = new ActuatorExposeAllRule();
-
-        SpringRuleResultDto exposeAll =
-                rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*"))
-                        .build());
-        assertThat(exposeAll.status()).isEqualTo("VIOLATION");
-        assertThat(exposeAll.severity()).isEqualTo("MEDIUM");
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "health,info"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        // Disabled management web port: exposure no longer reachable, so not flagged.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*")
-                                        .withProperty("management.server.port", "-1"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        // exclude=* cancels the wildcard include, so nothing is actually exposed.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*")
-                                        .withProperty("management.endpoints.web.exposure.exclude", "*"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
+    void actuatorBoot411DefaultsRequireExplicitAccessEvenWithInclude() {
+        var rule = new DangerousActuatorEndpointsAccessibleRule();
+        for (String include : List.of("*", "heapdump,shutdown")) {
+            var config = env("management.endpoints.web.exposure.include", include);
+            assertThat(evaluate(rule, config, ENDPOINT_EVIDENCE).status()).isEqualTo("PASS");
+            config.withProperty("management.endpoint.heapdump.access", "read-only");
+            assertThat(evaluate(rule, config, ENDPOINT_EVIDENCE).violationCount())
+                    .isEqualTo(1);
+            config.withProperty("management.endpoint.shutdown.access", "read-only");
+            assertThat(evaluate(rule, config, ENDPOINT_EVIDENCE).violationCount())
+                    .isEqualTo(1);
+            config.withProperty("management.endpoint.shutdown.access", "unrestricted");
+            assertThat(evaluate(rule, config, ENDPOINT_EVIDENCE).violationCount())
+                    .isEqualTo(2);
+            config.withProperty("management.endpoints.access.max-permitted", "read-only");
+            assertThat(evaluate(rule, config, ENDPOINT_EVIDENCE).violationCount())
+                    .isEqualTo(1);
+            config.withProperty("management.endpoints.access.max-permitted", "none");
+            assertThat(evaluate(rule, config, ENDPOINT_EVIDENCE).status()).isEqualTo("PASS");
+        }
     }
 
     @Test
-    void actuatorExposeAllIsHighInProductionOnApplicationPort() {
-        ActuatorExposeAllRule rule = new ActuatorExposeAllRule();
-
-        MockEnvironment prod = env();
-        prod.setActiveProfiles("prod");
-        prod.withProperty("management.endpoints.web.exposure.include", "*");
-        SpringRuleResultDto result = rule.evaluate(context(prod).build());
-        assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.severity()).isEqualTo("HIGH");
-
-        // A separate management port keeps it at the base MEDIUM severity.
-        MockEnvironment prodSeparate = env();
-        prodSeparate.setActiveProfiles("prod");
-        prodSeparate.withProperty("management.endpoints.web.exposure.include", "*");
-        prodSeparate.withProperty("management.server.port", "9001");
-        assertThat(rule.evaluate(context(prodSeparate).build()).severity()).isEqualTo("MEDIUM");
-    }
-
-    // ── SPRING-MGMT-002: explicitly-named sensitive endpoints ────────────────────
-
-    @Test
-    void sensitiveActuatorEndpointsFlaggedWhenExplicitlyExposed() {
-        SensitiveActuatorEndpointsExposedRule rule = new SensitiveActuatorEndpointsExposedRule();
-
-        assertThat(rule.evaluate(context(env().withProperty(
-                                                "management.endpoints.web.exposure.include", "health,info,env,beans"))
-                                .build())
+    void actuatorEndpointOverridesGlobalLegacyAndSameScopeConflictsAreErrors() {
+        var rule = new DangerousActuatorEndpointsAccessibleRule();
+        var config = env("management.endpoints.web.exposure.include", "shutdown")
+                .withProperty("management.endpoints.access.default", "none")
+                .withProperty("management.endpoint.shutdown.enabled", "true");
+        config.setActiveProfiles("prod");
+        assertThat(evaluate(rule, config, ENDPOINT_EVIDENCE).severity()).isEqualTo("HIGH");
+        config.withProperty("management.endpoint.shutdown.access", "unrestricted");
+        assertThat(evaluate(rule, config, ENDPOINT_EVIDENCE).status()).isEqualTo("ERROR");
+        config.withProperty("management.endpoints.web.exposure.exclude", "*");
+        assertThat(evaluate(rule, config, ENDPOINT_EVIDENCE).status()).isEqualTo("ERROR");
+        var globalConflict = env("management.endpoints.web.exposure.include", "env")
+                .withProperty("management.endpoints.access.default", "none")
+                .withProperty("management.endpoints.enabled-by-default", "true");
+        assertThat(evaluate(new SensitiveActuatorEndpointsExposedRule(), globalConflict, ENDPOINT_EVIDENCE)
                         .status())
-                .isEqualTo("VIOLATION");
-        // The wildcard case is owned by MGMT-001, so MGMT-002 stays silent for it.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "health,info"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        // Excluded again → not reachable.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
-                                        .withProperty("management.endpoints.web.exposure.exclude", "env"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        // Access forced to none → not readable.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
-                                        .withProperty("management.endpoint.env.access", "none"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
-                                        .withProperty("management.endpoints.enabled-by-default", "false"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
-                                        .withProperty("management.endpoints.access.default", "none")
-                                        .withProperty("management.endpoint.env.enabled", "true"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-    }
-
-    // ── SPRING-MGMT-003: show-values / show-details = always ─────────────────────
-
-    @Test
-    void actuatorShowValuesAlwaysFlaggedWhenReadable() {
-        ActuatorShowValuesAlwaysRule rule = new ActuatorShowValuesAlwaysRule();
-
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
-                                        .withProperty("management.endpoint.env.show-values", "ALWAYS"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "health")
-                                        .withProperty("management.endpoint.health.show-details", "always"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        // health is web-exposed by default even without an explicit include list.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoint.health.show-details", "always"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        // show-values=ALWAYS but the endpoint is not exposed → not reachable, so no finding.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoint.env.show-values", "ALWAYS"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
-                                        .withProperty("management.endpoint.env.show-values", "WHEN_AUTHORIZED"))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
+                .isEqualTo("ERROR");
     }
 
     @Test
-    void actuatorShowDetailsAlwaysIgnoresBootUiOwnDefault() {
-        // Regression for #923: BootUiActuatorDefaultsEnvironmentPostProcessor contributes
-        // show-details=always into the lowest-priority defaultProperties source whenever BootUI is active,
-        // and a real application also has Spring Boot's attached "configurationProperties" source in front
-        // of it. Neither must be reported as host misconfiguration.
-        ActuatorShowValuesAlwaysRule rule = new ActuatorShowValuesAlwaysRule();
-
-        MockEnvironment bootUiContributed = env();
-        bootUiContributed
-                .getPropertySources()
+    void actuatorEmptyIncludesExcludesMissingEndpointsAndHostOnlyDefaults() {
+        var show = new ActuatorShowValuesAlwaysRule();
+        var config = env("management.endpoints.web.exposure.include", "")
+                .withProperty("management.endpoint.health.show-details", "always");
+        assertThat(evaluate(show, config, ENDPOINT_EVIDENCE).status()).isEqualTo("VIOLATION");
+        config.withProperty("management.endpoints.web.exposure.exclude", "*");
+        assertThat(evaluate(show, config, ENDPOINT_EVIDENCE).status()).isEqualTo("PASS");
+        assertThat(evaluate(show, env("management.endpoint.health.show-details", "always"), Map.of(ENDPOINTS, Set.of()))
+                        .status())
+                .isEqualTo("PASS");
+        MockEnvironment defaults = new MockEnvironment();
+        defaults.getPropertySources()
                 .addLast(new MapPropertySource(
                         "defaultProperties",
                         Map.of(
@@ -925,307 +646,69 @@ class SpringRulesTests {
                                 "always",
                                 "management.endpoints.web.exposure.include",
                                 BootUiActuatorDefaultsEnvironmentPostProcessor.REQUIRED_ENDPOINTS)));
-        ConfigurationPropertySources.attach(bootUiContributed);
-
-        assertThat(rule.evaluate(context(bootUiContributed).build()).status()).isEqualTo("PASS");
-
-        // A host that configures the same value itself is still reported.
-        MockEnvironment hostConfigured = env().withProperty("management.endpoint.health.show-details", "always");
-        ConfigurationPropertySources.attach(hostConfigured);
-
-        assertThat(rule.evaluate(context(hostConfigured).build()).status()).isEqualTo("VIOLATION");
+        ConfigurationPropertySources.attach(defaults);
+        for (SpringRule rule : List.of(show, new ActuatorExposeAllRule(), new SensitiveActuatorEndpointsExposedRule()))
+            assertThat(evaluate(rule, defaults, ENDPOINT_EVIDENCE).status()).isEqualTo("PASS");
+        MockEnvironment host = new MockEnvironment();
+        host.getPropertySources()
+                .addFirst(new SystemEnvironmentPropertySource(
+                        "systemEnvironment", Map.of("MANAGEMENT_ENDPOINT_HEALTH_SHOWDETAILS", "always")));
+        ConfigurationPropertySources.attach(host);
+        assertThat(evaluate(show, host, ENDPOINT_EVIDENCE).status()).isEqualTo("VIOLATION");
+        assertThat(evaluate(
+                                new SensitiveActuatorEndpointsExposedRule(),
+                                env("management.endpoints.web.exposure.include[0]", "env"),
+                                ENDPOINT_EVIDENCE)
+                        .status())
+                .isEqualTo("VIOLATION");
     }
 
-    // ── SPRING-MGMT-004: shutdown / heapdump reachable ───────────────────────────
-
     @Test
-    void dangerousActuatorEndpointsFlagged() {
-        DangerousActuatorEndpointsAccessibleRule rule = new DangerousActuatorEndpointsAccessibleRule();
-
-        // Legacy enabled flag + exposed → write reachable.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "shutdown")
-                                        .withProperty("management.endpoint.shutdown.enabled", "true"))
-                                .build())
+    void actuatorWildcardIsFixedMediumAndRespectsAccessDisabledWebAndDeduplication() {
+        var config = env("management.endpoints.web.exposure.include", "*");
+        config.setActiveProfiles("prod");
+        assertThat(evaluate(new ActuatorExposeAllRule(), config, ENDPOINT_EVIDENCE)
+                        .severity())
+                .isEqualTo("MEDIUM");
+        assertThat(evaluate(new SensitiveActuatorEndpointsExposedRule(), config, ENDPOINT_EVIDENCE)
                         .status())
-                .isEqualTo("VIOLATION");
-        // Boot 4 access model.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "shutdown")
-                                        .withProperty("management.endpoint.shutdown.access", "unrestricted"))
-                                .build())
+                .isEqualTo("PASS");
+        config.withProperty("management.server.port", "-1");
+        assertThat(evaluate(new ActuatorExposeAllRule(), config, ENDPOINT_EVIDENCE)
                         .status())
-                .isEqualTo("VIOLATION");
-        // The still-supported global legacy setting also raises shutdown's default access.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "shutdown")
-                                        .withProperty("management.endpoints.enabled-by-default", "true"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        // Heapdump defaults to read-only access, so being exposed is enough.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "heapdump"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        // Shutdown exposed but left at default access (none) → not reachable, no finding.
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*")
-                                        .withProperty("management.endpoints.web.exposure.exclude", "heapdump"))
-                                .build())
+                .isEqualTo("PASS");
+        config.withProperty("management.server.port", "0").withProperty("management.endpoints.access.default", "none");
+        assertThat(evaluate(new ActuatorExposeAllRule(), config, ENDPOINT_EVIDENCE)
                         .status())
                 .isEqualTo("PASS");
     }
 
     @Test
-    void shutdownOnApplicationPortInProductionIsCritical() {
-        DangerousActuatorEndpointsAccessibleRule rule = new DangerousActuatorEndpointsAccessibleRule();
-
-        MockEnvironment prod = env();
-        prod.setActiveProfiles("prod");
-        prod.withProperty("management.endpoints.web.exposure.include", "shutdown");
-        prod.withProperty("management.endpoint.shutdown.access", "unrestricted");
-        SpringRuleResultDto result = rule.evaluate(context(prod).build());
-        assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.severity()).isEqualTo("CRITICAL");
-    }
-
-    // ── SPRING-JPA-001: Open Session in View ─────────────────────────────────────
-
-    @Test
-    void openSessionInViewFlaggedOnlyWithJpaAndWeb() {
-        OpenSessionInViewEnabledRule rule = new OpenSessionInViewEnabledRule();
-
-        // No EntityManagerFactory / DispatcherServlet → inapplicable.
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("SKIPPED");
-
-        // JPA + web present, property absent → defaults to enabled → violation.
-        assertThat(rule.evaluate(context(env())
-                                .entityManagerFactoryPresent(true)
-                                .dispatcherServletPresent(true)
-                                .build())
+    void malformedAndUnresolvedPropertiesAreSanitizedErrorsNotDefaults() {
+        Map<SpringRule, String> cases = Map.of(
+                new VirtualThreadsAvailableRule(), "spring.threads.virtual.enabled",
+                new DebugOrTraceLoggingRule(), "debug",
+                new GracefulShutdownDisabledRule(), "spring.lifecycle.timeout-per-shutdown-phase",
+                new ActuatorShowValuesAlwaysRule(), "management.endpoint.health.show-details",
+                new DangerousActuatorEndpointsAccessibleRule(), "management.endpoint.heapdump.access");
+        for (var test : cases.entrySet()) {
+            var environment = env(test.getValue(), "${secret-missing}")
+                    .withProperty("management.endpoints.web.exposure.include", "*");
+            Map<Fact, Object> evidence = new java.util.HashMap<>(ENDPOINT_EVIDENCE);
+            evidence.put(BOOT_WEB_SERVER, true);
+            var result = test.getKey()
+                    .evaluate(context(environment, evidence)
+                            .virtualThreadsSupported(true)
+                            .dispatcherServletPresent(true)
+                            .build());
+            assertThat(result.status()).as(test.getValue()).isEqualTo("ERROR");
+            assertThat(result.toString()).doesNotContain("secret-missing", "${");
+        }
+        assertThat(evaluate(
+                                new ActuatorExposeAllRule(),
+                                env("management.endpoints.web.exposure.include", "${secret}"),
+                                ENDPOINT_EVIDENCE)
                         .status())
-                .isEqualTo("VIOLATION");
-        // Explicit true → violation.
-        assertThat(rule.evaluate(context(env().withProperty("spring.jpa.open-in-view", "true"))
-                                .entityManagerFactoryPresent(true)
-                                .dispatcherServletPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        // Explicit false → pass.
-        assertThat(rule.evaluate(context(env().withProperty("spring.jpa.open-in-view", "false"))
-                                .entityManagerFactoryPresent(true)
-                                .dispatcherServletPresent(true)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-    }
-
-    @Test
-    void openSessionInViewIsHighInProduction() {
-        OpenSessionInViewEnabledRule rule = new OpenSessionInViewEnabledRule();
-
-        MockEnvironment prod = env();
-        prod.setActiveProfiles("prod");
-        SpringRuleResultDto result = rule.evaluate(context(prod)
-                .entityManagerFactoryPresent(true)
-                .dispatcherServletPresent(true)
-                .build());
-        assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.severity()).isEqualTo("HIGH");
-    }
-
-    // ── SPRING-DATA-001: in-memory datasource in production ──────────────────────
-
-    @Test
-    void inMemoryDatasourceSkippedOutsideProduction() {
-        InMemoryDatasourceInProductionRule rule = new InMemoryDatasourceInProductionRule();
-
-        assertThat(rule.evaluate(context(env().withProperty("spring.datasource.url", "jdbc:h2:mem:testdb"))
-                                .build())
-                        .status())
-                .isEqualTo("SKIPPED");
-    }
-
-    @Test
-    void inMemoryDatasourceFlaggedInProductionForEachEngine() {
-        InMemoryDatasourceInProductionRule rule = new InMemoryDatasourceInProductionRule();
-
-        MockEnvironment h2 = env();
-        h2.setActiveProfiles("prod");
-        h2.setProperty("spring.datasource.url", "jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1");
-        assertThat(rule.evaluate(context(h2).build()).status()).isEqualTo("VIOLATION");
-
-        MockEnvironment hsqldb = env();
-        hsqldb.setActiveProfiles("production");
-        hsqldb.setProperty("spring.datasource.url", "jdbc:hsqldb:mem:testdb");
-        assertThat(rule.evaluate(context(hsqldb).build()).status()).isEqualTo("VIOLATION");
-
-        MockEnvironment derby = env();
-        derby.setActiveProfiles("prod");
-        derby.setProperty("spring.datasource.url", "jdbc:derby:memory:testdb;create=true");
-        assertThat(rule.evaluate(context(derby).build()).status()).isEqualTo("VIOLATION");
-    }
-
-    @Test
-    void inMemoryDatasourcePassesInProductionForARealDatabase() {
-        InMemoryDatasourceInProductionRule rule = new InMemoryDatasourceInProductionRule();
-
-        MockEnvironment prod = env();
-        prod.setActiveProfiles("prod");
-        prod.setProperty("spring.datasource.url", "jdbc:postgresql://db.internal:5432/app");
-        assertThat(rule.evaluate(context(prod).build()).status()).isEqualTo("PASS");
-
-        // File-backed H2 (not jdbc:h2:mem:) is a legitimate durable embedded deployment.
-        MockEnvironment fileH2 = env();
-        fileH2.setActiveProfiles("prod");
-        fileH2.setProperty("spring.datasource.url", "jdbc:h2:file:/var/data/app");
-        assertThat(rule.evaluate(context(fileH2).build()).status()).isEqualTo("PASS");
-
-        MockEnvironment noUrl = env();
-        noUrl.setActiveProfiles("prod");
-        assertThat(rule.evaluate(context(noUrl).build()).status()).isEqualTo("PASS");
-    }
-
-    // ── SPRING-PERF-001: reactive-aware violation message ─────────────────────────
-
-    @Test
-    void virtualThreadsAvailableSkippedWithoutJvmSupport() {
-        VirtualThreadsAvailableRule rule = new VirtualThreadsAvailableRule();
-
-        assertThat(rule.evaluate(context(env()).virtualThreadsSupported(false).build())
-                        .status())
-                .isEqualTo("SKIPPED");
-    }
-
-    @Test
-    void virtualThreadsAvailablePassesWhenEnabled() {
-        VirtualThreadsAvailableRule rule = new VirtualThreadsAvailableRule();
-
-        assertThat(rule.evaluate(context(env().withProperty("spring.threads.virtual.enabled", "true"))
-                                .virtualThreadsSupported(true)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-    }
-
-    @Test
-    void virtualThreadsAvailableMentionsWebFluxOnlyWhenReactive() {
-        VirtualThreadsAvailableRule rule = new VirtualThreadsAvailableRule();
-
-        SpringRuleResultDto servletResult =
-                rule.evaluate(context(env()).virtualThreadsSupported(true).build());
-        assertThat(servletResult.status()).isEqualTo("VIOLATION");
-        assertThat(servletResult.sampleViolations().get(0)).doesNotContain("WebFlux");
-
-        SpringRuleResultDto reactiveResult = rule.evaluate(
-                context(env()).virtualThreadsSupported(true).reactive(true).build());
-        assertThat(reactiveResult.status()).isEqualTo("VIOLATION");
-        assertThat(reactiveResult.sampleViolations().get(0)).contains("WebFlux");
-        assertThat(reactiveResult.sampleViolations().get(0)).doesNotContain("Reactor Netty");
-    }
-
-    // ── Reactive-only "learn more" links stay accurate per adapter ────────────────
-
-    @Test
-    void learnMoreUrlSwitchesToReactiveDocsOnWebFlux() {
-        String servletDocs = "https://docs.spring.io/spring-boot/reference/web/servlet.html";
-        String reactiveDocs = "https://docs.spring.io/spring-boot/reference/web/reactive.html";
-
-        assertThat(new ResponseCompressionDisabledRule()
-                        .evaluate(context(env()).build())
-                        .learnMoreUrl())
-                .isEqualTo(servletDocs);
-        assertThat(new ResponseCompressionDisabledRule()
-                        .evaluate(context(env()).reactive(true).build())
-                        .learnMoreUrl())
-                .isEqualTo(reactiveDocs);
-
-        assertThat(new Http2DisabledRule().evaluate(context(env()).build()).learnMoreUrl())
-                .isEqualTo(servletDocs);
-        assertThat(new Http2DisabledRule()
-                        .evaluate(context(env()).reactive(true).build())
-                        .learnMoreUrl())
-                .isEqualTo(reactiveDocs);
-
-        assertThat(new ErrorDetailsExposedRule()
-                        .evaluate(context(env()).build())
-                        .learnMoreUrl())
-                .isEqualTo(servletDocs);
-        assertThat(new ErrorDetailsExposedRule()
-                        .evaluate(context(env()).reactive(true).build())
-                        .learnMoreUrl())
-                .isEqualTo(reactiveDocs);
-
-        assertThat(new ForwardHeadersStrategyUnsetRule()
-                        .evaluate(context(env()).build())
-                        .learnMoreUrl())
-                .isEqualTo(servletDocs);
-        assertThat(new ForwardHeadersStrategyUnsetRule()
-                        .evaluate(context(env()).reactive(true).build())
-                        .learnMoreUrl())
-                .isEqualTo(reactiveDocs);
-    }
-
-    // ── SPRING-REACTIVE-001: reactive handlers alongside a blocking datasource ────
-
-    @Test
-    void reactiveHandlerWithBlockingDatasourceSkippedWhenNotReactive() {
-        ReactiveHandlerWithBlockingDatasourceRule rule = new ReactiveHandlerWithBlockingDatasourceRule();
-
-        assertThat(rule.evaluate(context(env())
-                                .reactiveHandlerMethodCount(3)
-                                .dataSources(List.of(new BeanRef("dataSource", false)))
-                                .build())
-                        .status())
-                .isEqualTo("SKIPPED");
-    }
-
-    @Test
-    void reactiveHandlerWithBlockingDatasourceFlaggedOnlyWhenBothPresent() {
-        ReactiveHandlerWithBlockingDatasourceRule rule = new ReactiveHandlerWithBlockingDatasourceRule();
-
-        // Reactive, but no Mono/Flux handler methods discovered -> nothing to warn about.
-        assertThat(rule.evaluate(context(env())
-                                .reactive(true)
-                                .dataSources(List.of(new BeanRef("dataSource", false)))
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        // Reactive handlers present, but no blocking JDBC DataSource -> nothing to warn about.
-        assertThat(rule.evaluate(context(env())
-                                .reactive(true)
-                                .reactiveHandlerMethodCount(3)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        // Both present -> flag it for manual verification.
-        assertThat(rule.evaluate(context(env())
-                                .reactive(true)
-                                .reactiveHandlerMethodCount(3)
-                                .dataSources(List.of(new BeanRef("dataSource", false)))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.definition().description()).doesNotContain("Reactor Netty");
-    }
-
-    // ── SPRING-REACTIVE-002: codec in-memory buffer limit ─────────────────────────
-
-    @Test
-    void codecMaxInMemorySizeSkippedWhenNotReactive() {
-        CodecMaxInMemorySizeUnsetRule rule = new CodecMaxInMemorySizeUnsetRule();
-
-        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("SKIPPED");
-    }
-
-    @Test
-    void codecMaxInMemorySizeFlaggedOnlyWhenUnsetOnWebFlux() {
-        CodecMaxInMemorySizeUnsetRule rule = new CodecMaxInMemorySizeUnsetRule();
-
-        assertThat(rule.evaluate(context(env()).reactive(true).build()).status())
-                .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(env().withProperty("spring.codec.max-in-memory-size", "1MB"))
-                                .reactive(true)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
+                .isEqualTo("ERROR");
     }
 }

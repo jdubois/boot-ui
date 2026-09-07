@@ -28,7 +28,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 class SpringScannerTests {
 
-    private static final int RULE_COUNT = 41;
+    private static final int RULE_COUNT = 38;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T10:00:00Z"), ZoneOffset.UTC);
     private final ApplicationContextRunner taskRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(TaskExecutionAutoConfiguration.class));
@@ -60,6 +60,13 @@ class SpringScannerTests {
                 .objectMappers(List.of(new BeanRef("objectMapper", false)))
                 .dataSources(List.of(new BeanRef("dataSource", false)))
                 .devToolsPresent(true)
+                .observations(SpringRulesTests.facts(java.util.Map.of(
+                        SpringObservations.Fact.OVERRIDING,
+                        true,
+                        SpringObservations.Fact.CIRCULAR,
+                        true,
+                        SpringObservations.Fact.BOOT_WEB_SERVER,
+                        true)))
                 .build();
         SpringScanner scanner = new SpringScanner(context, CLOCK);
 
@@ -77,8 +84,6 @@ class SpringScannerTests {
                         "SPRING-WIRING-001",
                         "SPRING-WIRING-002",
                         "SPRING-CONFIG-002",
-                        "SPRING-PROFILE-001",
-                        "SPRING-PROFILE-002",
                         "SPRING-WEB-001",
                         "SPRING-WEB-002",
                         "SPRING-WEB-003");
@@ -121,7 +126,7 @@ class SpringScannerTests {
     }
 
     @Test
-    void scannerDetectsTomcatFactoriesAcrossWebStacks() {
+    void tomcatFactoryTypeAloneDoesNotProveExecutorCustomization() {
         assertTomcatFactoryTriggersThreadCapRule(TomcatServletWebServerFactory.class, false);
         assertTomcatFactoryTriggersThreadCapRule(TomcatReactiveWebServerFactory.class, true);
     }
@@ -137,9 +142,7 @@ class SpringScannerTests {
             SpringReport report =
                     new SpringScanner(context.getBeanFactory(), context.getEnvironment(), false, CLOCK).scan();
 
-            assertThat(report.results())
-                    .extracting(SpringRuleResultDto::id)
-                    .contains("SPRING-PERF-003", "SPRING-PERF-006");
+            assertThat(report.results()).extracting(SpringRuleResultDto::id).doesNotContain("SPRING-PERF-003");
         });
         taskRunner
                 .withUserConfiguration(ExceptionOnlyAsyncConfigurerConfiguration.class)
@@ -149,7 +152,7 @@ class SpringScannerTests {
 
                     assertThat(report.results())
                             .extracting(SpringRuleResultDto::id)
-                            .contains("SPRING-PERF-003", "SPRING-PERF-006");
+                            .doesNotContain("SPRING-PERF-003", "SPRING-PERF-006");
                 });
     }
 
@@ -168,7 +171,7 @@ class SpringScannerTests {
 
                     assertThat(report.results())
                             .extracting(SpringRuleResultDto::id)
-                            .contains("SPRING-PERF-005");
+                            .doesNotContain("SPRING-PERF-005");
                 });
     }
 
@@ -225,6 +228,13 @@ class SpringScannerTests {
                 .objectMappers(List.of(new BeanRef("objectMapper", false)))
                 .dataSources(List.of(new BeanRef("dataSource", false)))
                 .devToolsPresent(true)
+                .observations(SpringRulesTests.facts(java.util.Map.of(
+                        SpringObservations.Fact.OVERRIDING,
+                        true,
+                        SpringObservations.Fact.CIRCULAR,
+                        true,
+                        SpringObservations.Fact.BOOT_WEB_SERVER,
+                        true)))
                 .build();
     }
 
@@ -246,7 +256,7 @@ class SpringScannerTests {
 
         SpringReport report = new SpringScanner(beanFactory, environment, reactive, CLOCK).scan();
 
-        assertThat(report.results()).extracting(SpringRuleResultDto::id).contains("SPRING-WEB-007");
+        assertThat(report.results()).extracting(SpringRuleResultDto::id).doesNotContain("SPRING-WEB-007");
     }
 
     @Test
@@ -262,6 +272,69 @@ class SpringScannerTests {
 
         assertThat(errors).extracting(SpringRuleResultDto::id).containsExactly("SPRING-T-003", "SPRING-T-004");
         assertThat(errors).extracting(SpringRuleResultDto::status).containsOnly(SpringRuleSupport.ERROR);
+    }
+
+    @Test
+    void singleFlightRejectsOverlappingScanAndReleasesAdmission() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory() {
+            @Override
+            public String[] getBeanDefinitionNames() {
+                calls.incrementAndGet();
+                entered.countDown();
+                try {
+                    if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new IllegalStateException();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException();
+                }
+                return super.getBeanDefinitionNames();
+            }
+        };
+        SpringScanner scanner = new SpringScanner(factory, new MockEnvironment(), false, CLOCK);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var first = executor.submit(scanner::scan);
+            assertThat(entered.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            org.assertj.core.api.Assertions.assertThatThrownBy(scanner::scan)
+                    .isInstanceOf(io.github.jdubois.bootui.engine.action.ActionBusyException.class);
+            assertThat(calls).hasValue(1);
+            release.countDown();
+            assertThat(first.get(10, java.util.concurrent.TimeUnit.SECONDS)
+                            .scan()
+                            .status())
+                    .isEqualTo("SCANNED");
+            assertThat(scanner.scan().scan().status()).isEqualTo("SCANNED");
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void retiredDismissalsDoNotSuppressNewCodecRuleAndRestoreIsStable() {
+        var context = SpringContext.builder(new MockEnvironment())
+                .reactive(true)
+                .observations(SpringRulesTests.facts(java.util.Map.of(
+                        SpringObservations.Fact.BOOT_CODEC_CONFIGURATION,
+                        true,
+                        SpringObservations.Fact.CODEC_LIMIT,
+                        -1L)))
+                .build();
+        SpringScanner scanner = new SpringScanner(context, CLOCK);
+        var report = scanner.scan();
+        var retired = scanner.applyDismissals(
+                report, Set.of("SPRING-PROFILE-001", "SPRING-PERF-004", "SPRING-WEB-006", "SPRING-REACTIVE-002"));
+        assertThat(retired.results())
+                .filteredOn(result -> result.id().equals("SPRING-REACTIVE-003"))
+                .allSatisfy(result -> assertThat(result.dismissed()).isFalse());
+        var dismissed = scanner.applyDismissals(report, Set.of("SPRING-REACTIVE-003"));
+        assertThat(dismissed.results())
+                .filteredOn(result -> result.id().equals("SPRING-REACTIVE-003"))
+                .allSatisfy(result -> assertThat(result.dismissed()).isTrue());
+        assertThat(scanner.applyDismissals(report, Set.of())).isSameAs(report);
     }
 
     private static SpringRuleResultDto result(String id, String status) {

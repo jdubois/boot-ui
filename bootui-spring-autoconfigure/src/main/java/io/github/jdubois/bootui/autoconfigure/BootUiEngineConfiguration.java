@@ -110,9 +110,12 @@ import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.restclient.RestClientCustomizer;
 import org.springframework.boot.restclient.RestTemplateCustomizer;
+import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.cache.interceptor.CacheOperationSource;
 import org.springframework.context.ApplicationContext;
@@ -226,7 +229,8 @@ public class BootUiEngineConfiguration {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
-    RestApiScanner bootUiRestApiScanner(BasePackageProvider basePackageProvider, Environment environment) {
+    RestApiScanner bootUiRestApiScanner(
+            BasePackageProvider basePackageProvider, Environment environment, ApplicationContext applicationContext) {
         // Live policy: base packages are re-read on every scan via the shared BasePackageProvider SPI, the
         // OpenAPI annotation presence (Swagger's @Operation, honored by springdoc) is probed live, and the
         // ArchUnit import runs only on demand (POST /scan). The Quarkus adapter probes for the equivalent
@@ -235,7 +239,7 @@ public class BootUiEngineConfiguration {
                 basePackageProvider::basePackages,
                 () -> ClassUtils.isPresent(
                         "io.swagger.v3.oas.annotations.Operation", BootUiEngineConfiguration.class.getClassLoader()),
-                () -> isSpringMvcApiVersioningConfigured(environment),
+                () -> isSpringApiVersioningConfigured(environment, applicationContext),
                 Clock.systemUTC());
     }
 
@@ -1271,13 +1275,26 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    private static boolean isSpringMvcApiVersioningConfigured(Environment environment) {
-        return hasTextProperty(environment, "spring.mvc.apiversion.supported")
-                || hasTextProperty(environment, "spring.mvc.apiversion.default")
-                || hasTextProperty(environment, "spring.mvc.apiversion.use.header")
-                || hasTextProperty(environment, "spring.mvc.apiversion.use.path")
-                || hasTextProperty(environment, "spring.mvc.apiversion.use.query-parameter")
-                || hasTextProperty(environment, "spring.mvc.apiversion.use.media-type");
+    private static boolean isSpringApiVersioningConfigured(
+            Environment environment, ApplicationContext applicationContext) {
+        String prefix = applicationContext instanceof ReactiveWebApplicationContext
+                ? "spring.webflux.apiversion"
+                : "spring.mvc.apiversion";
+        Binder binder = Binder.get(environment);
+        return binder.bind(prefix + ".supported", Bindable.listOf(String.class)).orElse(List.of()).stream()
+                        .anyMatch(value -> !value.isBlank())
+                || hasTextProperty(environment, prefix + ".default")
+                || hasTextProperty(environment, prefix + ".use.header")
+                || (hasTextProperty(environment, prefix + ".use.path-segment")
+                        && binder.bind(prefix + ".use.path-segment", Integer.class)
+                                .isBound())
+                || hasTextProperty(environment, prefix + ".use.query-parameter")
+                || binder
+                        .bind(prefix + ".use.media-type-parameter", Bindable.mapOf(String.class, String.class))
+                        .orElseGet(java.util.Map::of)
+                        .values()
+                        .stream()
+                        .anyMatch(value -> !value.isBlank());
     }
 
     private static boolean hasTextProperty(Environment environment, String name) {
