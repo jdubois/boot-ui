@@ -32,8 +32,8 @@ visible and shows the conflict as a warning. Different scanners remain independe
 Every advisor finding can be **dismissed** when it does not apply to your project. Each rule result carries a _Dismiss_
 button; dismissing moves the rule into a collapsed "Dismissed rules" list and excludes it from the panel's finding
 count, severity bars, advisor score, and the weighted Overview score. The panel's score recomputes immediately, and the
-Overview dashboard re-reads previously observed reports when you return to it, without rescanning, so a dismissal or
-restore updates both the score and eligibility in both places.
+Overview dashboard reads cached reports on initial navigation and when you return to it, without rescanning, so a
+panel-originated scan, dismissal, or restore updates both the score and eligibility in both places.
 Rules can be restored at any time from that list.
 
 ::: details Where dismissals are stored

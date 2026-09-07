@@ -32,7 +32,7 @@ function stubFetch(handlers) {
     vi.fn((input) => {
       const url = typeof input === 'string' ? input : input.url
       const match = Object.keys(handlers).find((key) => url.includes(key))
-      const body = match ? handlers[match] : {}
+      const body = match ? handlers[match] : severityReport([], 'NOT_SCANNED')
       return Promise.resolve(new Response(JSON.stringify(body), {status: 200}))
     })
   )
@@ -175,10 +175,184 @@ describe('Overview', () => {
     stubFetch(fetchHandlers)
     const wrapper = mountOverview(allPanels)
     await flushPromises()
-    // No POST scan endpoint should have been hit on mount; only panels/overview reads.
+    // Cached report reads are safe; neither scans nor GitHub refreshes run on mount.
     const calls = fetch.mock.calls.map((call) => call[0])
     expect(calls.some((url) => String(url).includes('/scan'))).toBe(false)
+    expect(calls.some((url) => String(url).includes('api/github'))).toBe(false)
     expect(wrapper.text()).toContain('Run all scanners')
+  })
+
+  it('reads every supported cached advisor once on initial KeepAlive activation', async () => {
+    stubFetch(Object.fromEntries(onlyPanels().panels.map(({id}) => [`api/${id}`, severityReport([])])))
+    const {wrapper} = mountKeptAlive({
+      panels: onlyPanels().panels.map((panel) => ({...panel, available: true, enabled: true}))
+    })
+    await flushPromises()
+    expect(fetch.mock.calls.map(([url]) => url).sort()).toEqual(
+      onlyPanels()
+        .panels.filter(({id}) => id !== 'github')
+        .map(({id}) => `api/${id}`)
+        .sort()
+    )
+    expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true)
+    expect(wrapper.text()).toContain('9 of 10 scanners scored')
+  })
+
+  it.each(['SCANNED', 'PARTIAL', 'ERROR', 'DISABLED', 'NOT_SCANNED'])(
+    'loads an existing %s report on a direct Overview mount without rescanning',
+    async (status) => {
+      stubFetch({'api/hibernate': severityReport([{severity: 'HIGH', count: 1}], status)})
+      const wrapper = mountOverview(onlyPanels('hibernate'))
+      await flushPromises()
+      const card = scannerCard(wrapper, 'Hibernate')
+      expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/hibernate'])
+      expect(card.text()).toContain('1 high')
+      expect(card.find('.scanner-score').exists()).toBe(status === 'SCANNED')
+      if (status === 'SCANNED') expect(card.find('.scanner-score').text()).toBe('90')
+      if (status === 'PARTIAL') expect(card.text()).toContain('Incomplete')
+      if (status === 'NOT_SCANNED') {
+        expect(card.props('state')).toBe('idle')
+        expect(card.find('button').text()).toBe('Run scan')
+      }
+    }
+  )
+
+  it('discovers a panel-originated report on return without a prior Overview scan', async () => {
+    const handlers = {'api/hibernate': severityReport([], 'NOT_SCANNED')}
+    stubFetch(handlers)
+    const {wrapper, show} = mountKeptAlive(onlyPanels('hibernate'))
+    await flushPromises()
+    expect(scannerCard(wrapper, 'Hibernate').props('state')).toBe('idle')
+    show.value = false
+    await flushPromises()
+    handlers['api/hibernate'] = severityReport([{severity: 'HIGH', count: 1}], 'PARTIAL')
+    show.value = true
+    await flushPromises()
+    const card = scannerCard(wrapper, 'Hibernate')
+    expect(card.text()).toContain('Incomplete')
+    expect(card.text()).toContain('1 high')
+    expect(card.find('.scanner-score').exists()).toBe(false)
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/hibernate', 'api/hibernate'])
+  })
+
+  it('waits for the shell manifest and skips disabled, unavailable, and unknown endpoints', async () => {
+    stubFetch({'api/hibernate': severityReport([])})
+    const panels = ref(null)
+    const {wrapper} = mountKeptAlive(panels)
+    await flushPromises()
+    expect(fetch).not.toHaveBeenCalled()
+    panels.value = {
+      panels: [
+        {id: 'hibernate', available: true, enabled: true},
+        {id: 'architecture', available: true, enabled: false},
+        {id: 'memory', available: false, enabled: true}
+      ]
+    }
+    await flushPromises()
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/hibernate'])
+    expect(scannerCard(wrapper, 'Architecture')).toBeUndefined()
+    expect(scannerCard(wrapper, 'Memory')).toBeUndefined()
+  })
+
+  it('defers discovery when the manifest arrives while Overview is inactive', async () => {
+    stubFetch({'api/hibernate': severityReport([])})
+    const panels = ref(null)
+    const {show} = mountKeptAlive(panels)
+    await flushPromises()
+    show.value = false
+    await flushPromises()
+    panels.value = onlyPanels('hibernate')
+    await flushPromises()
+    expect(fetch).not.toHaveBeenCalled()
+    show.value = true
+    await flushPromises()
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/hibernate'])
+  })
+
+  it('loads standalone availability before reading reports and surfaces manifest failures with retry', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', {status: 503})))
+    )
+    const wrapper = mount(Overview, {global: {stubs: {RouterLink: true}}})
+    await flushPromises()
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/panels'])
+    expect(wrapper.get('[role="alert"]').text()).toContain('Unable to load panel availability')
+    stubFetch({'api/panels': onlyPanels('hibernate'), 'api/hibernate': severityReport([])})
+    await wrapper.get('[role="alert"] button').trigger('click')
+    await flushPromises()
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/panels', 'api/hibernate'])
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(scannerCard(wrapper, 'Hibernate').find('.scanner-score').text()).toBe('100')
+  })
+
+  it('surfaces an initial cached report failure without claiming to have a previous report', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('offline')))
+    )
+    const wrapper = mountOverview(onlyPanels('hibernate'))
+    await flushPromises()
+    const card = scannerCard(wrapper, 'Hibernate')
+    expect(card.text()).toContain('Unable to refresh Hibernate')
+    expect(card.text()).not.toContain('last report')
+    expect(card.find('.scanner-score').exists()).toBe(false)
+  })
+
+  it.each(['response', 'failure'])('ignores a stale initial GET %s after a newer explicit scan', async (outcome) => {
+    document.cookie = 'XSRF-TOKEN=test-token; path=/'
+    let resolveRead
+    let rejectRead
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url, init) => {
+        if (init?.method === 'POST')
+          return Promise.resolve(new Response(JSON.stringify(severityReport([{severity: 'HIGH', count: 1}]))))
+        return new Promise((resolve, reject) => {
+          resolveRead = resolve
+          rejectRead = reject
+        })
+      })
+    )
+    const wrapper = mountOverview(onlyPanels('architecture'))
+    await flushPromises()
+    scannerCard(wrapper, 'Architecture').vm.$emit('run')
+    await flushPromises()
+    expect(architectureScore(wrapper)).toBe('90')
+    expect(fetch).toHaveBeenCalledTimes(2)
+    if (outcome === 'response') resolveRead(new Response(JSON.stringify(severityReport([], 'NOT_SCANNED'))))
+    else rejectRead(new TypeError('offline'))
+    await flushPromises()
+    expect(architectureScore(wrapper)).toBe('90')
+    expect(scannerCard(wrapper, 'Architecture').props('state')).toBe('done')
+    expect(wrapper.text()).not.toContain('Unable to refresh')
+  })
+
+  it('ignores a slower cached GET after returning to a newer panel report', async () => {
+    let finishRead
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishRead = resolve
+            })
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify(severityReport([{severity: 'HIGH', count: 1}], 'PARTIAL'))))
+    )
+    const {wrapper, show} = mountKeptAlive(onlyPanels('architecture'))
+    await flushPromises()
+    show.value = false
+    await flushPromises()
+    show.value = true
+    await flushPromises()
+    finishRead(new Response(JSON.stringify(severityReport([]))))
+    await flushPromises()
+    expect(scannerCard(wrapper, 'Architecture').text()).toContain('Incomplete')
+    expect(scannerCard(wrapper, 'Architecture').text()).toContain('1 high')
+    expect(wrapper.text()).toContain('0 of 1 scanners scored')
   })
 
   it('computes a score after running a scanner on demand', async () => {
@@ -295,7 +469,7 @@ describe('Overview', () => {
             new Response(JSON.stringify(busy), {status: 409, headers: {'Content-Type': 'application/json'}})
           )
         }
-        return Promise.resolve(new Response('{}', {status: 200}))
+        return Promise.resolve(new Response(JSON.stringify(severityReport([], 'NOT_SCANNED')), {status: 200}))
       })
     )
     const wrapper = mountOverview({
@@ -490,8 +664,7 @@ describe('Overview', () => {
     })
     await flushPromises()
 
-    const runButton = wrapper.findAll('button').find((button) => button.text().includes('Run scan'))
-    await runButton.trigger('click')
+    scannerCard(wrapper, 'Architecture').vm.$emit('run')
     await flushPromises()
     expect(architectureScore(wrapper)).toBe('90')
     expect(wrapper.text()).toContain('1 high')
@@ -562,9 +735,7 @@ describe('Overview', () => {
     vi.stubGlobal('fetch', fetchMock)
     const {wrapper, show} = mountKeptAlive(onlyPanels('vulnerabilities'))
     await flushPromises()
-    expect(fetchMock).not.toHaveBeenCalled()
-    scannerCard(wrapper, 'Vulnerabilities').vm.$emit('run')
-    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('0 of 1 scanners scored')
     for (const [unknown, score] of [
       [0, '90'],
@@ -584,8 +755,8 @@ describe('Overview', () => {
       if (score) expect(card.find('.scanner-score').text()).toBe(score)
       expect(card.text()).toContain('1 high')
     }
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
-    expect(fetchMock.mock.calls.filter(([url, init]) => url === 'api/vulnerabilities' && !init?.method)).toHaveLength(3)
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0)
+    expect(fetchMock.mock.calls.filter(([url, init]) => url === 'api/vulnerabilities' && !init?.method)).toHaveLength(4)
   })
 
   it('preserves a cached score on transport failure, then accepts an unscanned GET report', async () => {
@@ -616,6 +787,9 @@ describe('Overview', () => {
     show.value = true
     await flushPromises()
     expect(scannerCard(wrapper, 'Architecture').find('.scanner-score').exists()).toBe(false)
+    expect(scannerCard(wrapper, 'Architecture').props('state')).toBe('idle')
+    expect(scannerCard(wrapper, 'Architecture').text()).not.toContain('1 high')
+    expect(scannerCard(wrapper, 'Architecture').text()).not.toContain('Showing the last report')
     expect(wrapper.text()).toContain('0 of 1 scanners scored')
   })
 
@@ -644,14 +818,14 @@ describe('Overview', () => {
     await flushPromises()
     show.value = true
     await flushPromises()
-    expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(0)
+    expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(1)
     expect(wrapper.text()).toContain('Scanning')
     cachedStatus = 'PARTIAL'
     finishScan(new Response(JSON.stringify(severityReport([], cachedStatus))))
     await flushPromises()
     expect(wrapper.text()).toContain('Incomplete')
     expect(wrapper.text()).toContain('0 of 1 scanners scored')
-    expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(1)
+    expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(2)
   })
 
   it.each(['PARTIAL', 'ERROR', 'DISABLED'])(

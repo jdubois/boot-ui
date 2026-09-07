@@ -1,10 +1,15 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
-import {registerAdvisorScoringTests} from '../../../bootui-spring-sample-app/e2e/scenarios/advisor-scoring.js'
+import {
+  registerAdvisorScoringTests,
+  stubUnscannedAdvisorReports
+} from '../../../bootui-spring-sample-app/e2e/scenarios/advisor-scoring.js'
 
 registerAdvisorScoringTests(test, expect)
 
 test.describe('Overview view (Quarkus)', () => {
+  test.beforeEach(async ({page}) => stubUnscannedAdvisorReports(page))
+
   test('renders the panel header and the scanner dashboard', async ({openView}) => {
     const page = await openView('overview', 'Overview')
 
@@ -40,7 +45,7 @@ test.describe('Overview view (Quarkus)', () => {
   test('does not run scanners until requested, then scores on demand', async ({openView, page}) => {
     await openView('overview', 'Overview')
 
-    // Nothing is scored on load.
+    // The cached reports are explicitly unscanned, independently of earlier tests' scans.
     await expect(page.locator('.overall-card').first()).toContainText('0 of')
 
     const architectureCard = page.locator('.scanner-card', {hasText: 'Architecture'})

@@ -74,6 +74,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Overview now discovers cached advisor reports from panel and agent scans.** Initial and return navigation read
+  supported, enabled advisors without starting scans or external queries. Incomplete findings remain visible without
+  invented scores, explicit `NOT_SCANNED` responses clear old scan display after a restart, and dismissal/restore
+  refreshes retain the existing in-flight scan protections ([#986](https://github.com/jdubois/boot-ui/issues/986)).
+
 - **Advisor browser coverage now distinguishes incomplete reports from numeric scores.** Live Spring and Quarkus
   scenarios retain findings and dismissal/restore assertions without requiring a score for `PARTIAL` results.
   Shared complete-report scenarios continue to verify exact dismissal and restore score changes across runtimes

@@ -5,7 +5,9 @@
 The Overview panel is BootUI's landing page: a guided "understand your app in minutes" dashboard rather than a static
 summary. It opens with the standard panel header and a link to the running application's homepage.
 
-Its centrepiece is an **on-demand security and health scoring dashboard**. Nothing is scanned on load. Before any scan
+Its centrepiece is an **on-demand security and health scoring dashboard**. Nothing is scanned on load. Overview reads
+the existing cached reports on initial navigation and when you return from another panel, including scans started in
+an advisor panel or by a local agent. These GET requests never start a scan, probe, or external query. Before any scan
 has run the overall-score card stays honest — it shows how many scanners have been scored and a prompt to run them,
 rather than an empty gauge.
 
@@ -27,10 +29,13 @@ alerts, but only when the credential is connected and authenticated.
 
 The overall score, scored count, and contribution breakdown include only scanners that actually scored. The available
 scanner total does not shrink when a report is incomplete: "2 of 4 scanners scored" means the mean covers two
-assessments, not that all four passed. Only scanners whose panels are available for this application are shown.
-Returning from a panel refreshes previously observed reports with GET requests, including Vulnerabilities after
+assessments, not that all four passed. Disabled and unavailable panels are excluded; automatic reads wait for the
+panel manifest and only use supported, enabled advisor endpoints.
+Returning from a panel refreshes cached reports with GET requests, including Vulnerabilities after
 dismissal or restoration. A busy or failed request retains the last accepted report with a warning or error; an
-authoritative new incomplete/failed report replaces its old score.
+authoritative new incomplete/failed report replaces its old score. A `NOT_SCANNED` response, such as after an application
+restart, replaces the old findings and returns the card to **Run scan**. An Overview scan already in progress finishes
+before the return-navigation refresh reads its updated report.
 
 The panel is fully available on every adapter. The scoring dashboard is rendered entirely in the browser: the shell
 aggregates each advisor's own scan endpoints and computes the same combined score, so no backend dashboard service is

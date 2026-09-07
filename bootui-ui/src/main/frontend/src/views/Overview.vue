@@ -1,7 +1,8 @@
 <script setup>
-import {actionBusyMessage, apiFetch, getJson, isActionBusyError} from '../api.js'
+import {actionBusyMessage, getJson, isActionBusyError} from '../api.js'
 import {getBootUiApplicationPath} from '../utils/bootUiPath.js'
-import {computed, inject, onActivated, onMounted, reactive, ref} from 'vue'
+import {computed, inject, onActivated, onDeactivated, onMounted, reactive, ref, watch} from 'vue'
+import {createPanelLookup} from '../utils/panelNavigation.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {
@@ -19,17 +20,15 @@ import SpinnerButton from './components/SpinnerButton.vue'
 const injectedPanels = inject('panels', null)
 const applicationPath = getBootUiApplicationPath()
 
-// Locally fetched panel availability when the shell has not provided it yet.
+// Standalone mounts fetch availability; the application shell owns its injected manifest.
 const localPanels = ref(null)
-const panelLookup = computed(() => {
-  const source = injectedPanels?.value?.panels ?? localPanels.value?.panels ?? []
-  return new Map(source.map((panel) => [panel.id, panel]))
-})
+const panelsError = ref(null)
+const panelLookup = computed(() => createPanelLookup(injectedPanels?.value ?? localPanels.value))
 
 function panelAvailable(id) {
   const panel = panelLookup.value.get(id)
   // Treat unknown panels as available so the dashboard degrades gracefully.
-  return !panel || panel.available !== false
+  return !panel || (panel.available !== false && panel.enabled !== false)
 }
 
 const platform = computed(() => injectedPanels?.value?.platform ?? localPanels.value?.platform ?? 'spring-boot')
@@ -170,7 +169,7 @@ function applyReport(def, state, report) {
   const status = report?.scan?.status
   state.statusLabel = scanStatusLabel(status)
   state.statusTone = scanStatusBadgeClass(status)
-  state.state = 'done'
+  state.state = status === 'NOT_SCANNED' ? 'idle' : 'done'
   state.error = null
   state.warning = validSummary ? null : 'The report has an invalid severity summary. Its counts cannot be displayed.'
 }
@@ -205,10 +204,11 @@ async function runScanner(def) {
 // The dashboard is kept alive (App.vue wraps it in <keep-alive include="Overview">), so its
 // scores survive navigation. Dismissing/restoring an advisor rule in a panel changes that
 // advisor's server-side score, which would otherwise leave the dashboard showing a stale value.
-// Refresh observed reports even when unscoreable: dismissing UNKNOWN can restore eligibility.
+// Discover panel/agent-originated reports too, even when unscoreable: dismissing UNKNOWN
+// can restore eligibility. Only read endpoints confirmed by the panel manifest.
 async function refreshScanner(def) {
   const state = scanners[def.id]
-  if (!def.reportEndpoint || !state.hasReport) return
+  if (!def.reportEndpoint || !panelLookup.value.has(def.id) || !panelAvailable(def.id)) return
   // A cached GET during a scan still contains the previous report, not a newer assessment.
   if (state.state === 'running') {
     pendingRefreshes.add(def.id)
@@ -222,7 +222,7 @@ async function refreshScanner(def) {
   } catch (e) {
     if (token !== requestTokens[def.id]) return
     state.state = 'error'
-    state.error = describeLoadError(e, `Unable to refresh ${displayTitle(def)}; showing the last report`).message
+    state.error = describeLoadError(e, `Unable to refresh ${displayTitle(def)}`).message
   }
 }
 
@@ -325,17 +325,30 @@ async function runAll() {
 }
 
 async function ensurePanels() {
-  if (injectedPanels?.value?.panels || localPanels.value) return
+  if (injectedPanels || localPanels.value) return
+  panelsError.value = null
   try {
-    const res = await apiFetch('api/panels')
-    if (res.ok) localPanels.value = await res.json()
-  } catch {
-    // Availability is best-effort; missing data simply shows every scanner card.
+    localPanels.value = await getJson('api/panels')
+  } catch (e) {
+    panelsError.value = describeLoadError(e, 'Unable to load panel availability').message
   }
 }
 
-onMounted(ensurePanels)
-onActivated(refreshScores)
+const active = ref(false)
+onMounted(() => {
+  active.value = true
+  ensurePanels()
+})
+onActivated(() => (active.value = true))
+onDeactivated(() => (active.value = false))
+// Mount and initial KeepAlive activation share one refresh, after availability is known.
+watch(
+  [active, panelLookup],
+  ([isActive]) => {
+    if (isActive) refreshScores()
+  },
+  {flush: 'post'}
+)
 </script>
 
 <template>
@@ -353,6 +366,11 @@ onActivated(refreshScores)
         </a>
       </template>
     </PanelHeader>
+
+    <div v-if="panelsError" class="alert alert-danger" role="alert">
+      {{ panelsError }}
+      <button type="button" class="btn btn-sm btn-outline-danger ms-2" @click="ensurePanels">Retry</button>
+    </div>
 
     <div class="row gx-3 gy-4 mb-4">
       <div class="col-12">
