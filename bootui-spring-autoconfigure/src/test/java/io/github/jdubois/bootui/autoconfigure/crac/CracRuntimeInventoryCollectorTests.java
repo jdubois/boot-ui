@@ -28,7 +28,6 @@ import org.springframework.core.SpringProperties;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.jms.connection.SingleConnectionFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler;
@@ -483,10 +482,13 @@ class CracRuntimeInventoryCollectorTests {
     }
 
     @Test
-    void exactManagedTypeMetadataIncludesLettuceWithoutConstructingAClient() {
-        // Class literals and assignability do not initialize clients or resolve their resource values.
-        // The real singleton boundary is tested above; Lettuce's optional driver need not be added.
-        assertThat(CracRuntimeInventoryCollector.isKnownManagedType(LettuceConnectionFactory.class))
+    void exactManagedTypeMetadataIncludesLettuceWithoutConstructingAClient() throws ClassNotFoundException {
+        // Avoid compile-time resolution of Lettuce's optional driver signatures on newer javac versions.
+        Class<?> lettuceFactory = Class.forName(
+                "org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory",
+                false,
+                getClass().getClassLoader());
+        assertThat(CracRuntimeInventoryCollector.isKnownManagedType(lettuceFactory))
                 .isTrue();
         assertThat(CracRuntimeInventoryCollector.isKnownManagedType(CachingConnectionFactory.class))
                 .isTrue();
