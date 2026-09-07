@@ -2529,10 +2529,18 @@ Design rules:
   envelope whose `total` counts every item before the query and filters are applied and whose `matched` counts what they
   kept, so a non-zero `total` beside `matched: 0` is an empty query result rather than absent data; tool guidance states
   that distinction where a narrow query would otherwise be read as a missing value.
-- **Prompt surface.** `prompts/list` advertises two argument-free workflows: `diagnose_runtime_issue` for evidence-led
-  runtime diagnosis and `review_application` for a focused advisor review. `prompts/get` returns the selected workflow as
-  a user message. Both prompts require agents to distinguish evidence from hypotheses, avoid blind fixes, minimize active
-  scans, and include verification steps.
+- **Prompt surface.** `prompts/list` advertises three argument-free workflows: `diagnose_runtime_issue` for evidence-led
+  runtime diagnosis, `review_application` for a focused advisor review, and `assess_application` for a capability-aware
+  application assessment and prioritized action plan. `prompts/get` returns the selected workflow as a user message,
+  without executing scans or changes. All prompts distinguish evidence from hypotheses and avoid blind fixes.
+  The assessment starts with existing evidence, declares collection budgets, asks for an explicit fresh-scan scope
+  (separate approval for GC, loopback probes, external vulnerability queries, and database metadata inspection), and
+  reports unavailable, skipped, failed, stale, partial, or insufficient evidence honestly. Its versioned plan records
+  context, coverage, stable action IDs with evidence/risks/acceptance criteria, and an explicit approval stop.
+  Execution belongs to the external coding agent under its host's permissions: only approved actions may proceed,
+  changed context requires renewed approval, and a retained sanitized baseline supports reassessment after restart.
+  This adds no assessment tool, scheduler, browser approval interface, or code-execution endpoint. The BootUI skill
+  teaches the same workflow through existing MCP/CLI tools; see [AI agents](AI-AGENTS.md#assess-an-application-and-approve-an-action-plan).
 - **Same safety model as the panels.** The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host`
   allow-list, cross-site write protection). The dispatcher enforces per-panel access: read tools require the backing
   panel to be enabled, action tools are additionally refused when the panel is read-only or `bootui.read-only=true`.

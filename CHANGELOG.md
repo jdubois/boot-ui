@@ -24,6 +24,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **GraalVM readiness findings now distinguish classpath discovery from scanner configuration and cached results,
+  recognize quoted SpEL bean names and factory references, and give more accurate Spring AOT and native-image
+  remediation.** Nested dependency inspection stops before opening libraries beyond its 500-JAR budget, and generated
+  metadata/Docker scaffolds explain first-use hint conditions and remaining native-library requirements
+  ([#958](https://github.com/jdubois/boot-ui/issues/958)).
+
 - **The documentation now says how to keep console state across container image rebuilds.** An application rebuilt from
   source many times a day lost its dismissed advisor findings on every rebuild, because `.bootui/` lives in the image's
   working directory. The answer already existed — `bootui.overrides-file` locates the runtime overrides file *and* the
@@ -58,6 +64,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   share eligibility, including complete inventory coverage and no active UNKNOWN severity for Vulnerabilities.
   Dismissal/restore refreshes vulnerability eligibility, and Overview's mean and scored count use the same contributors
   ([#954](https://github.com/jdubois/boot-ui/issues/954)).
+
+- **Memory advisor findings now preserve measurement uncertainty.** Unknown buffer readings and discontinuous GC
+  counters no longer become healthy zeros, and missing observations break consecutive-growth evidence. Histogram
+  success is no longer treated as proof of a completed full GC, net growth is not called missing releases, and
+  snapshots or system swap do not imply a safe heap reduction or JVM residency. Supplier failures retain unrelated
+  findings through the existing partial-report contract. All 36 rule IDs and dismissal/public DTO contracts remain
+  unchanged; the complete source-backed audit and collector/version caveats are documented in `MEMORY-CHECKS.md`
+  ([#956](https://github.com/jdubois/boot-ui/issues/956)).
+
+- **JVM Tuning no longer approves known-invalid tiny heap requests or wraps large memory observations to zero.**
+  The shared calculator checks both fixed and three-decimal percentage requests against HotSpot's generic 2 MiB
+  maximum-heap lower bound, without increasing an exhausted budget. Default footprint arithmetic and MiB formatting
+  avoid overflow, detected budgets round down to whole MiB consistently with generated Kubernetes limits, and limit
+  and usage reuse one cgroup sample. Sizing notes distinguish requested settings from effective heap alignment and
+  JVM-visible percentage denominators; model validity is not a startup or production-sizing guarantee. The full
+  source-backed audit records retained policies and deferred metaspace/probe work
+  ([#955](https://github.com/jdubois/boot-ui/issues/955)).
 
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application

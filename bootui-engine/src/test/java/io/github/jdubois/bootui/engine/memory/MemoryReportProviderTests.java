@@ -1,10 +1,15 @@
 package io.github.jdubois.bootui.engine.memory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
 import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
+import java.util.OptionalLong;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -175,5 +180,29 @@ class MemoryReportProviderTests {
 
         assertThat(oversized.calculation().totalMemoryBytes()).isEqualTo(MemoryCalculator.MAX_TOTAL_MEMORY_BYTES);
         assertThat(negative.calculation().totalMemoryBytes()).isEqualTo(MemoryCalculator.MIN_TOTAL_MEMORY_BYTES);
+    }
+
+    @Test
+    void detectedBudgetRoundsDownAndUsesOneCgroupSample() {
+        long mebibyte = 1024L * 1024L;
+        long detectedBytes = 1024L * mebibyte + mebibyte - 1;
+        ContainerMemoryLimitDetector detector = mock(ContainerMemoryLimitDetector.class);
+        when(detector.detect())
+                .thenReturn(new ContainerMemoryLimitDetector.CgroupMemorySample(
+                        OptionalLong.of(detectedBytes), OptionalLong.of(256L * mebibyte), OptionalLong.empty()));
+        MemoryReportProvider provider = new MemoryReportProvider(new MemoryCalculator(), detector);
+
+        LiveMemoryReport report = provider.buildReport(null, 50, 10, false, false);
+
+        assertThat(report.calculation().totalMemoryBytes()).isEqualTo(1024L * mebibyte);
+        assertThat(report.kubernetes().limitMemoryBytes())
+                .isEqualTo(report.calculation().totalMemoryBytes());
+        assertThat(report.kubernetes().limitMemory()).isEqualTo("1024Mi");
+        assertThat(report.kubernetes().yaml()).contains("memory: \"1024Mi\"");
+        assertThat(report.kubernetes().detectedContainerLimitBytes()).isEqualTo(detectedBytes);
+        assertThat(report.kubernetes().currentSnapshotBytes()).isEqualTo(256L * mebibyte);
+        assertThat(report.kubernetes().confidence()).isEqualTo("Low");
+        verify(detector).detect();
+        verifyNoMoreInteractions(detector);
     }
 }
