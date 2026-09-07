@@ -84,7 +84,7 @@
         <frontend-maven-plugin.version>2.0.2</frontend-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
         <cyclonedx-maven-plugin.version>2.9.3</cyclonedx-maven-plugin.version>
-        <native-build-tools-plugin.version>1.1.10</native-build-tools-plugin.version>
+        <native-build-tools-plugin.version>1.1.11</native-build-tools-plugin.version>
         <picocli.version>4.7.7</picocli.version>
         <archunit.version>1.5.0</archunit.version>
         <!-- Test-scope only: compiles the engine's Kotlin advisor fixtures. No BootUI module ships Kotlin. -->
