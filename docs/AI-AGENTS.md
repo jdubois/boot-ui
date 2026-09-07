@@ -174,7 +174,10 @@ the classpath) are simply not advertised.
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `database_advisor_scan`,
   `memory_scan`, `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, and
   `vulnerabilities_scan`. Each runs the same scan as the panel's action button and returns the report DTO;
-  `vulnerabilities_scan` additionally makes outbound calls to OSV.dev.
+  `vulnerabilities_scan` additionally sends package names/versions to OSV.dev and, when EPSS is enabled, CVE ids to FIRST.
+  Run it only with approval. Inspect `scan.status`, `scan.message`, `coverage`, and `scan.packagesSkipped`; partial or
+  unknown evidence is not a clean result. Fix candidates need compatibility checks, and EPSS is the highest available
+  per-CVE probability, not a combined probability or severity. See [Vulnerabilities checks](VULNERABILITIES-CHECKS.md).
 - **Cached advisor reports:** `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
   `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
   `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report` return the last

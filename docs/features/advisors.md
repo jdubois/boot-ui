@@ -529,10 +529,15 @@ result.
 
 ![BootUI Vulnerabilities panel](../images/bootui-vulnerabilities.webp)
 
-The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results, helping identify
-known-vulnerable dependencies from the running project's dependency set during the local development loop. Findings are
+The Vulnerabilities panel shows locally discovered dependency inventory and explicit OSV vulnerability lookup results,
+helping identify known-vulnerable dependencies from the running project's dependency set during the local development loop. Findings are
 ordered by severity first (dismissed findings sink to the bottom regardless of severity), with dependencies and
 advisories alphabetized within the same severity.
+
+The [Vulnerabilities checks catalogue](../VULNERABILITIES-CHECKS.md) documents the interpretation rules, official
+sources/version caveats, full audit disposition, and deferred inventory limitations. A completed lookup is not proof
+of application safety or complete runtime discovery. Advisor scoring, Overview/gauges, and dismissal refresh belong
+to the independent central scoring workstream, not the evidence-interpretation change described here.
 
 ### Severity scoring
 
@@ -543,34 +548,41 @@ neither a parseable CVSS v3 score nor a `database_specific` label renders as `UN
 dropped.
 
 ::: details How a CVSS score is selected and parsed
-Per the [OSV schema](https://ossf.github.io/osv-schema/#severity), a package-level `affected[].severity` entry takes
-priority over the advisory's top-level `severity[]` when present for the dependency being scored. The schema states the
-two are mutually exclusive, and some advisories only carry severity at the package level, so the scanner looks there
-first before falling back to the top-level array. When an array has multiple valid CVSS v3 entries, the highest Base
-Score is used conservatively.
+BootUI matches exact `Maven` ecosystem and `groupId:artifactId`, allowing only OSV's literal `*` package wildcard,
+not arbitrary globs or other Maven repository ecosystems. It evaluates the installed version against the union of
+explicit versions and supported Maven `ECOSYSTEM` ranges. Applicability is matched, not matched, or unresolved;
+unsupported `SEMVER`/`GIT` or malformed evidence never becomes an unaffected verdict. A positive OSV query retains
+the finding even when detail association is unsupported or contradictory, with `PARTIAL` and an explanation.
 
-A CVSS v3.0/v3.1 vector (for example `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`) is parsed using the formula from the
-[FIRST.org CVSS v3.1 specification](https://www.first.org/cvss/v3-1/specification-document). CVSS v4.0 has no closed-form
-Base Score equation (its MacroVector lookup table is a much larger undertaking), and BootUI's calculator is intentionally
-v3-specific rather than implementing the separate CVSS v2 formula. Both therefore fall back to the advisory's
-`database_specific.severity` label (`CRITICAL`/`HIGH`/`MODERATE`/`LOW`, normalized to BootUI's `MEDIUM`) when no v3 score
-is present at either level.
+Choose the highest valid v3 Base score across applicable matching package assessments, excluding unrelated branches.
+Only when no applicable package severity is supplied does top-level severity supply the fallback. OSV makes package
+and top-level severity mutually exclusive: invalid/unsupported applicable package severity must not borrow a
+conflicting top-level score. A recognized `database_specific.severity` label remains a compatibility fallback,
+otherwise the finding is `UNKNOWN`. `MODERATE` maps to `MEDIUM`; a valid zero remains `NONE`.
+
+A CVSS v3.0/v3.1 vector (for example `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`) uses the
+[FIRST CVSS v3.1 specification](https://www.first.org/cvss/v3.1/specification-document). All eight Base metrics are
+required. Valid metric orders and optional Temporal/Environmental metrics are accepted, but optional values are also
+validated; empty/trailing segments, unknown metrics, duplicates, and invalid values are rejected. Calculation remains
+**Base only**, with the specified scope and Roundup rules. CVSS v2/v4 calculation is deferred; v4 has a
+[public reference calculator](https://github.com/FIRSTdotorg/cvss-v4-calculator) but requires a separate implementation.
+Unsupported vectors do not remove findings.
 :::
 
 ### OSV querying and robustness
 
 Advisories carrying a `withdrawn` timestamp are excluded. OSV omits withdrawn records from POST query responses but
 returns them from `GET /v1/vulns/{id}`, so the scanner keeps a defensive detail-stage check. Detail fetches run with a
-small bounded concurrency (up to 10 at a time), so a dependency tree with many advisories no longer risks a scan taking
-up to `maxAdvisories` times the request timeout on a bad network (OSV documents no rate limit for this endpoint). A
-single detail fetch that fails (network hiccup, rate limiting) no longer aborts the whole scan: it is counted, the scan
+small bounded concurrency (up to 10 at a time), with a configured advisory-detail cap. Request timeouts are not a
+whole-scan deadline; a total elapsed-time budget and retry policy remain deferred. A single detail fetch that fails
+(network hiccup, rate limiting) does not abort the whole scan: it is counted, the scan
 degrades to `PARTIAL`, and every advisory that *did* fetch is kept.
 
 ::: details Pagination, batching, and result validation
-OSV's `/v1/querybatch` endpoint paginates when an individual query matches more than 1,000 vulnerabilities or the whole
-batch exceeds 3,000 total, returning a `next_page_token` per affected query. The scanner follows that token with
-follow-up calls, merging every page into one result set, bounded by a fixed page-count safety limit so a pathological
-advisory can't loop the scan forever (degrading to `PARTIAL` if the bound is hit rather than silently truncating).
+OSV's `/v1/querybatch` endpoint returns a `next_page_token` per query when pagination is needed; upstream pagination
+thresholds can change. The scanner follows that token with follow-up calls, retaining validated pages incrementally,
+bounded by 20 page rounds per chunk so a pathological advisory can't loop the scan forever (degrading to `PARTIAL` if
+the bound is hit rather than silently truncating).
 
 OSV also enforces a hard limit of 1,000 queries per `/v1/querybatch` request; the scanner partitions the (already
 `max-packages`-bounded) package list into batches of at most 1,000 before querying, so configuring `max-packages` above
@@ -578,8 +590,11 @@ OSV also enforces a hard limit of 1,000 queries per `/v1/querybatch` request; th
 structurally valid result per query, and every reported vulnerability reference must carry a non-blank id; missing,
 short, or malformed result arrays fail visibly instead of reading as a clean scan. Repeated advisory ids are
 fetched/reported once per dependency, a detail response whose id does not match the request is counted as a failed fetch,
-and if a later chunk fails after an earlier one completed, the completed results are preserved as `PARTIAL` and
-`packagesScanned` reports only the completed package queries.
+and a later page or chunk failure preserves previous pages and completed queries as `PARTIAL`. This includes queries
+already completed in the same chunk as a failed page. `packagesScanned` counts only queries exhausted without a token,
+including at the page cap; a token-only empty page is not complete. Failure before any valid page is `ERROR` with local
+inventory. `packagesSkipped` counts only the configured package-cap omission; unfinished/failed work is explained in
+the message. Per-request streaming limits remain 5 MiB for queries and 1 MiB for details/EPSS.
 :::
 
 ### EPSS enrichment
@@ -591,26 +606,37 @@ that probability ranks against every other scored CVE — a likelihood-of-exploi
 replaces, CVSS's severity-if-exploited score. It renders as a secondary badge next to the severity/CVSS badge (for
 example "2.3% EPSS", with a tooltip spelling out the percentile).
 
+When several CVEs are available, the badge uses the **highest available per-CVE probability**, with the percentile from
+that same record and a stable CVE tie-break. This is a prioritization heuristic, not combined advisory/application
+exploit likelihood. A missing alias does not hide an available score; a valid zero is available, not unknown.
+
 ::: details EPSS request and validation details
 Enrichment runs as one or more batched `GET /data/v1/epss?cve=...` requests per scan, each respecting FIRST's documented
 2,000-character maximum for the comma-separated `cve` parameter, alongside the OSV calls and following the same "network
-call only on the user-initiated scan action" pattern. Returned ids must belong to the request, and probability/percentile
+call only on the user-initiated scan action" pattern. Validate an object root, array `data`, and supplied numeric
+`total`/`offset`/`limit` metadata. Follow smaller service pages with progress validation, bounded to
+`min(20, requested CVE count)` pages per chunk. Returned ids must belong to the request, and probability/percentile
 values must be finite numbers from 0 to 1. EPSS lookups can be disabled independently of OSV scanning via
 `bootui.vulnerabilities.epss-enabled=false`, and a failed or unreachable EPSS request never fails the scan or discards
-the OSV results — it simply omits the badge for that scan.
+the OSV results. Successful earlier pages/chunks and scores survive later failure. `scan.message` appends
+requested/available/no-data counts or an incomplete/failure explanation without changing OSV status. A successfully
+exhausted lookup with no row is no data, not zero; an empty body or malformed envelope is not a successful no-data
+response. No canonical CVE or disabled EPSS makes no FIRST call. Enrichment covers the own ID and at most 20 retained
+aliases; selected CVE/date/model provenance and date pinning across daily updates are not exposed by the unchanged DTO.
 :::
 
 ### Fix availability
 
-Each advisory carries a derived `fixAvailable` boolean, computed by comparing the dependency's currently-resolved version
-against the advisory's Maven fixed-version candidates with `ComparableVersion` qualifier ordering (including
-alpha/beta/milestone/RC/SNAPSHOT/release/service-pack semantics). Git commit hashes from `GIT` ranges are not presented
-as Maven upgrades, and candidates are de-duplicated and sorted using Maven semantics. The UI renders a newer candidate as
-"fixed in `x.y.z`"; if every reported candidate is at or below the installed version, it says only that OSV reported no
-newer fixed version, never that the installed dependency is fixed. When OSV reports no `fixed` event, the UI says only
-"No fixed version reported by OSV": under the OSV schema a range may instead close with a mutually exclusive
-`last_affected` event, which names the final vulnerable version without naming the first non-vulnerable one, so absence of
-`fixedVersions` is not proof that no fix exists.
+Each advisory carries unchanged `fixedVersions` and `fixAvailable` fields with evidence-backed candidate semantics.
+A candidate must be a `fixed` event closing a supported Maven `ECOSYSTEM` interval containing the installed version,
+be positively newer under Maven `ComparableVersion` qualifier ordering, and be proven unaffected across **all matching
+entries**, including explicit versions and overlapping/reintroduced intervals. Unknown comparison or unresolved target
+evidence does not establish a fix. Neither Git/SEMVER ranges nor `last_affected`/`limit` boundaries supply Maven upgrades.
+
+Applicable newer candidates are filtered before de-duplication, Maven ordering, and the ten-candidate limit. A false
+signal or empty list means no target was established under these rules, not that the dependency is safe or no upstream
+fix exists. Candidates are reported upgrade evidence, not guarantees of artifact publication, compatibility, or
+reachability remediation; BootUI does not install them.
 
 ### Dismissing a vulnerability
 
@@ -628,8 +654,9 @@ read-only.
 The Spring adapter resolves coordinates from three sources, in decreasing order of authority:
 
 1. **The application's embedded CycloneDX SBOM** (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`, the
-   files Spring Boot's `/actuator/sbom` serves). Each Maven `purl` is exactly `pkg:maven/<groupId>/<artifactId>@<version>`
-   — the `groupId` no manifest header carries. This is what identifies artifacts published without a Maven descriptor.
+   files Spring Boot's `/actuator/sbom` serves). Maven PURLs carry `groupId`, artifact, and version, for example
+   `pkg:maven/org.example/sample@1.0` — including the `groupId` no manifest header carries. This can identify artifacts
+   published without a Maven descriptor; PURL decoding limitations remain deferred below.
 2. **`META-INF/maven/*/*/pom.properties`** descriptors on the classpath, which Spring's resolver also sees inside a
    repackaged archive's nested JARs.
 3. **`java.class.path` entries**, read through the Maven repository directory layout or an adjacent Maven POM (including
@@ -647,19 +674,18 @@ and skipped instead of failing the whole inventory.
 A coordinate-based inventory can only scan what it can name, so the panel also reports what it *couldn't*. Alongside the
 inventory, BootUI takes a census of the application's real archives — the `BOOT-INF/lib/`/`WEB-INF/lib/` entries of a
 repackaged JAR or WAR, or the classpath JARs when running exploded — and attributes each to a resolved coordinate. The
-result is one of three honest states:
+provider reports one of three states, subject to the discovery limitations below:
 
 | `coverage.status` | Meaning |
 | --- | --- |
-| `COMPLETE` | Every enumerated archive resolved to a Maven coordinate and is in the scannable inventory. |
+| `COMPLETE` | The provider reports all enumerated archives identified; this is not independent verification of the runtime inventory. |
 | `INCOMPLETE` | Some archives did not; they are counted and named, and the panel warns that they were not scanned. |
 | `UNAVAILABLE` | The census itself could not run (a blank or synthetic classpath, for example under a native image), so coverage is unknown rather than claimed. |
 
 When coverage is incomplete the panel shows an "Unidentified JARs" metric and a warning naming the gap
 ("139 of 325 JARs could not be identified and were not scanned"), with a collapsible list of the archive names and a
 pointer to adding the CycloneDX plugin to the build. Unidentified archives deliberately stay out of the scannable
-dependency table — they have no coordinates to show. Only the archives' central directories and manifests are read;
-nothing is decompressed or extracted.
+dependency table — they have no coordinates to show. The census does not extract nested JAR contents.
 
 The scan status reports the same kind of gap for the `bootui.vulnerabilities.max-packages` bound: packages beyond it are
 counted in `scan.packagesSkipped` and surfaced as a warning, instead of letting `packagesScanned` present a truncated
@@ -672,23 +698,29 @@ same report contract, CVSS/withdrawn/partial-failure handling, pagination/batch-
 dismiss/restore workflow. `bootui.vulnerabilities.osv-enabled=false` / `bootui.vulnerabilities.epss-enabled=false`
 disable on-demand scanning / EPSS enrichment on both adapters. The one platform difference is dependency discovery: the
 Quarkus inventory is captured at **build time** from the application's resolved runtime dependency model and read back at
-runtime (mirroring the Architecture panel's build-time base-package discovery). Because that model is already fully
-resolved, Quarkus reports `coverage.status=COMPLETE` and has no SBOM-shaped gap to close.
+runtime (mirroring the Architecture panel's build-time base-package discovery). It does not require an SBOM to obtain
+those coordinates. However, the current provider can report `coverage.status=COMPLETE` even for a missing/blank model or
+after malformed entries were skipped. Distinguishing missing, truly empty, and partially decoded models is deferred;
+this change must not be read as repairing or independently verifying Quarkus inventory coverage.
 
 :::
 
 ### Known limitations
 
-Three limitations are documented honestly rather than hidden — and, where a gap remains, it is reported through
-`coverage` rather than left silent:
+Inventory repairs are explicitly deferred. Reported coverage surfaces some gaps, but does not reliably diagnose all
+of them:
 
+- **Discovery can overclaim coverage.** Spring de-duplicates archive basenames and matches filenames without group
+  identity; case/classifier ambiguity can overstate identification. PURL literal-plus decoding and namespace rewriting,
+  SBOM runtime-scope attribution, and a traversal cap on resolved coordinates rather than inspected nodes need separate
+  fixes. Quarkus missing/invalid model coverage can also overclaim completeness, as described above.
 - **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId`
   (`Implementation-Title` is a display name as often as an artifact id, and `Implementation-Vendor-Id` is not a group
   id), so an application built without a CycloneDX SBOM cannot resolve coordinates for artifacts published with no Maven
   descriptor — Spring Framework, Spring Boot, Spring Security, `tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the
-  PostgreSQL driver, and the `opentelemetry-*`/`micrometer-*` families among them. Those archives are reported as
-  unidentified rather than dropped. Resolving them by SHA-1 lookup against Maven Central would work but adds a new
-  outbound service and configuration surface, so it is deliberately not done.
+  PostgreSQL driver, and the `opentelemetry-*`/`micrometer-*` families among them. Archives detected as unidentified by
+  the census are reported through coverage, subject to the attribution limitations above. External hash-based
+  coordinate lookup would add another service and configuration surface, so it is deliberately not done.
 - **Shaded/uber JARs are invisible.** The inventory on both adapters is coordinate-based (one resolved JAR = one Maven
   `groupId:artifactId:version`), so a vulnerable library relocated or repackaged inside a shaded/uber JAR carries no
   `pom.properties`/build-time coordinate of its own and is invisible — the same reduced-fidelity honesty precedent
@@ -697,3 +729,7 @@ Three limitations are documented honestly rather than hidden — and, where a ga
   it from its build-time application dependency graph, but Spring's classpath-based inventory has no equivalent graph
   today (adding one would need POM/Maven-plugin integration, a much larger change), so this is deferred rather than
   shipped as a Quarkus-only asymmetry.
+- **Evidence is bounded, not exhaustive.** Distinct advisory IDs can count the same underlying CVE more than once;
+  alias-cluster merging would change dismissal semantics and is deferred. Full CVSS provenance, CVSS v4 calculation,
+  selected EPSS CVE/date/model fields, cross-request date pinning, and a whole-scan deadline are also deferred.
+  Browser version sorting remains lexical for same-package rows rather than sharing the server's Maven ordering.

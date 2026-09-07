@@ -351,6 +351,23 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).toContain('2.3% EPSS')
     const badge = wrapper.findAll('.badge').find((b) => b.text().includes('EPSS'))
     expect(badge.attributes('title')).toContain('92nd percentile')
+    expect(badge.attributes('title')).toContain('Highest available CVE EPSS: 2.3%')
+    expect(badge.attributes('title')).toContain('not a combined probability for this advisory')
+  })
+
+  it('keeps a zero EPSS score distinct from missing data without requiring a percentile', async () => {
+    const zero = dependency(
+      'org.example:zero-epss',
+      '1.0.0',
+      [vulnerability('CVE-2026-1234', 'HIGH', false, {epssScore: 0, epssPercentile: null})],
+      'HIGH'
+    )
+    const {wrapper} = await mountWithReports([report([zero])])
+    const badge = wrapper.findAll('.badge').find((b) => b.text().includes('EPSS'))
+    expect(badge.text()).toBe('0.0% EPSS')
+    expect(badge.attributes('title')).toContain('Highest available CVE EPSS: 0.0%')
+    expect(badge.attributes('title')).toContain('not a combined probability')
+    expect(badge.attributes('title')).not.toContain('percentile')
   })
 
   it('omits the EPSS badge entirely when epssScore is null', async () => {
