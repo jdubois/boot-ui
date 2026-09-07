@@ -24,6 +24,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Quarkus application checks now distinguish evidence from assumptions.** Retired six unsupported
+  absence/correlation findings and corrected the remaining 13 rules, including create-only schema semantics,
+  legacy-property precedence, resolved CDI scopes/injection, runtime virtual-thread evidence, in-memory storage,
+  per-client timeout resolution and shutdown advice. Bounded scans preserve findings with explicit incomplete
+  coverage rather than guessing unknown values are clean. Retained rule IDs, dismissals and the shared `/spring`
+  report contract remain unchanged ([#959](https://github.com/jdubois/boot-ui/issues/959)).
+
 - **The documentation now says how to keep console state across container image rebuilds.** An application rebuilt from
   source many times a day lost its dismissed advisor findings on every rebuild, because `.bootui/` lives in the image's
   working directory. The answer already existed — `bootui.overrides-file` locates the runtime overrides file *and* the

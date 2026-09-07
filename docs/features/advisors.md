@@ -187,10 +187,15 @@ On the Quarkus adapter the framework-application advisor above is relabelled **Q
 ruleset in place of the Spring rules. It takes the same explicit, read-only approach against the running application and
 its MicroProfile `Config`, but the rules target Quarkus idioms:
 
-- CDI/Arc scopes and shared mutable state on `@ApplicationScoped`/`@Singleton` beans.
-- Build-time type-safe configuration (`@ConfigProperty` vs `@ConfigMapping`).
-- Reactive-versus-blocking endpoints and `@Scheduled` clustering.
-- Production-profile hygiene (destructive Hibernate schema strategies, SQL logging).
+- Resolved CDI/Arc scopes and publicly exposed state on shared beans and REST resources.
+- Production configuration evidence, including schema actions, SQL logging and explicit in-memory storage.
+- Effective managed REST-client timers, HTTP compression and request-draining configuration.
+- Conditional synchronized virtual-thread pinning on the running JDK 21-23.
+
+Missing configuration annotations, production overrides, pool-size overrides, or clustered scheduling are not
+defects by themselves. Neither does a JDBC dependency alongside reactive endpoints prove event-loop blocking.
+The advisor keeps useful declarations as inspection information, and reports incomplete evidence explicitly
+instead of treating unreadable metadata or unseen production configuration as clean.
 
 It is the **same panel and menu slot** as the Spring advisor — the same `/spring` route, `/bootui/api/spring` endpoint,
 and report contract — so the shared UI simply renders the "Quarkus" label and copy. The report is a heuristic review
