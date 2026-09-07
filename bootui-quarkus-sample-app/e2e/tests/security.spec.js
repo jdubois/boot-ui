@@ -14,7 +14,8 @@ test.describe('Security advisor (Quarkus)', () => {
 
     await page.getByRole('button', {name: 'Run security checks'}).click()
 
-    await expect(page.locator('.advisor-summary__value')).toBeVisible({timeout: 20_000})
+    await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete', {timeout: 20_000})
+    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
     await expect(page.locator('main')).toContainText('Heuristic Quarkus rules')
     await expect(page.locator('main')).toContainText('Permission policies')
   })
@@ -22,8 +23,17 @@ test.describe('Security advisor (Quarkus)', () => {
   test('runs security checks and finds the sample app misconfigurations', async ({openView, page}) => {
     await openView('security', 'Security')
 
+    const scanResponse = page.waitForResponse(
+      (response) => response.request().method() === 'POST' && /\/security\/scan$/.test(new URL(response.url()).pathname)
+    )
     await page.getByRole('button', {name: 'Run security checks'}).click()
-    await expect(page.locator('.advisor-summary__value')).toBeVisible({timeout: 20_000})
+    const response = await scanResponse
+    expect(response.ok()).toBeTruthy()
+    const report = await response.json()
+    expect(report.scan.status).toBe('PARTIAL')
+    expect(report.scan.message).toBeTruthy()
+    await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
+    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
 
     // quarkus.http.auth.basic=true with insecure-requests=enabled (the sample's default).
     const basicAuthRow = page.locator('.list-group-item', {hasText: 'QS-AUTH-002'})

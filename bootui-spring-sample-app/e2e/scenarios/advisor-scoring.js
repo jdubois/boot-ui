@@ -13,13 +13,13 @@ const scannerIds = [
   'github'
 ]
 
-function architectureReport(status) {
+function architectureReport(status, dismissed = false) {
   return {
     scan: {status, scannedAt: 1700000000000, message: 'Available evidence retained.'},
-    severityCounts: [{severity: 'HIGH', count: 1}],
+    severityCounts: [{severity: 'HIGH', count: dismissed ? 0 : 1}],
     basePackages: ['example.app'],
     rulesEvaluated: 1,
-    violationsFound: 1,
+    violationsFound: dismissed ? 0 : 1,
     classesAnalyzed: 2,
     disclaimer: 'Heuristic findings.',
     results: [
@@ -32,7 +32,7 @@ function architectureReport(status) {
         category: 'TEST',
         violationCount: 1,
         violations: [],
-        dismissed: false,
+        dismissed,
         recommendation: 'Review the finding.'
       }
     ]
@@ -140,6 +140,33 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await expect(page.locator('.advisor-score-card')).toContainText('Incomplete')
       await expect(page.getByText('Retained architecture finding', {exact: true})).toBeVisible()
       await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+    })
+
+    test('dismisses and restores a complete report finding with exact score changes', async ({page}) => {
+      let dismissed = false
+      let scans = 0
+      await page.route(`**${apiPath}/architecture{,/scan}`, async (route) => {
+        if (route.request().method() === 'POST') scans++
+        await route.fulfill({json: architectureReport('SCANNED', dismissed)})
+      })
+      await page.route(`**${apiPath}/dismissed-rules/ARCH-TEST-1`, async (route) => {
+        expect(['POST', 'DELETE']).toContain(route.request().method())
+        dismissed = route.request().method() === 'POST'
+        await route.fulfill({json: {dismissed: dismissed ? ['ARCH-TEST-1'] : []}})
+      })
+      await page.goto(`${uiPath}/#/architecture`)
+      await expect(page.locator('.advisor-summary__value')).toHaveText('90')
+      await page.getByRole('button', {name: /Dismiss$/}).click()
+      await expect(page.locator('.list-group-item.opacity-50')).toContainText('ARCH-TEST-1')
+      await expect(page.locator('.advisor-summary__dismissed')).toContainText(
+        '1 dismissed rule(s) excluded from this score'
+      )
+      await expect(page.locator('.advisor-summary__value')).toHaveText('100')
+      await page.getByRole('button', {name: /Restore$/}).click()
+      await expect(page.locator('.list-group-item.opacity-50')).toHaveCount(0)
+      await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
+      await expect(page.locator('.advisor-summary__value')).toHaveText('90')
+      expect(scans).toBe(0)
     })
 
     test('refreshes UNKNOWN dismissal and restore eligibility using only cached report GETs', async ({page}) => {

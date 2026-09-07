@@ -78,21 +78,21 @@ test.describe('Metrics view', () => {
   test('filters meters by explanation source on the server', async ({openView, page}) => {
     await openView('metrics', 'Metrics')
 
-    const explanationRequest = page.waitForRequest((request) => {
-      const url = new URL(request.url())
+    const explanationResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
       return url.pathname.endsWith('/api/metrics') && url.searchParams.get('explanation') === 'CURATED'
     })
     await page.getByLabel('Filter meters by explanation source').selectOption('CURATED')
-    await explanationRequest
+    const response = await explanationResponse
+    expect(response.ok()).toBeTruthy()
+    const {meters} = await response.json()
+    expect(meters.every((meter) => meter.provenance?.explanationSource === 'CURATED')).toBeTruthy()
 
     // Which meters carry a registry description depends on third-party metadata, so assert the invariant instead
-    // of a specific meter: everything rendered under this filter is explained by the catalogue.
+    // of a specific meter. Wait for the filtered response's rows, not the previous list's size.
     const sources = page.locator('.meter-list .meter-source')
-    const rendered = await sources.count()
-    for (let index = 0; index < rendered; index += 1) {
-      await expect(sources.nth(index)).toContainText('BootUI catalogue')
-    }
-    if (rendered === 0) {
+    await expect(sources).toHaveText(meters.map(() => 'BootUI catalogue'))
+    if (meters.length === 0) {
       await expect(page.locator('.meter-list')).toContainText('No meters match')
     }
   })

@@ -18,12 +18,18 @@ test.describe('Quarkus advisor', () => {
   test('runs Quarkus checks and renders the advisor report', async ({openView, page}) => {
     await openView('spring', /^Quarkus/)
 
+    const scanResponse = page.waitForResponse(
+      (response) => response.request().method() === 'POST' && /\/spring\/scan$/.test(new URL(response.url()).pathname)
+    )
     await page.getByRole('button', {name: /Run Quarkus checks/}).click()
+    const response = await scanResponse
+    expect(response.ok()).toBeTruthy()
+    const report = await response.json()
+    expect(report.scan.status).toBe('PARTIAL')
+    expect(report.scan.message).toBeTruthy()
 
-    // A successful scan renders the shared advisor summary score and the platform-aware "Idioms
-    // inspected" card. The state-changing POST also proves the Quarkus LocalhostOnlyFilter accepts a
-    // same-origin browser request without Spring Security's CSRF token.
-    await expect(page.locator('.advisor-summary__value')).toBeVisible({timeout: 20_000})
+    await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
+    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
     await expect(page.locator('main')).toContainText('Idioms inspected')
   })
 })

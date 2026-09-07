@@ -36,13 +36,11 @@ async function findingsCount(metric) {
 }
 
 /**
- * Reads the numeric advisor score rendered by the shared AdvisorSummary.
- *
  * @param {import('@playwright/test').Page} page
- * @returns {Promise<number>}
  */
-async function scoreValue(page) {
-  return Number.parseInt((await page.locator('.advisor-summary__value').innerText()).trim(), 10)
+async function expectIncompleteAssessment(page) {
+  await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
+  await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
 }
 
 test.describe('Advisor rule dismiss/restore', () => {
@@ -58,10 +56,19 @@ test.describe('Advisor rule dismiss/restore', () => {
     await clearDismissedRules(request)
   })
 
-  test('dismisses a finding server-side so it leaves the score, then restores it', async ({openView, page}) => {
+  test('dismisses and restores a real finding without scoring an incomplete report', async ({openView, page}) => {
     await openView('hibernate', 'Hibernate')
 
+    const scanResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && /\/hibernate\/scan$/.test(new URL(response.url()).pathname)
+    )
     await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
+    const response = await scanResponse
+    expect(response.ok()).toBeTruthy()
+    const report = await response.json()
+    expect(report.scan.status).toBe('PARTIAL')
+    expect(report.scan.message).toBeTruthy()
 
     // Wait for the rule-results list to populate with at least one dismissible finding.
     const activeItems = page.locator('.list-group-item').filter({has: page.getByRole('button', {name: 'Dismiss'})})
@@ -73,9 +80,7 @@ test.describe('Advisor rule dismiss/restore', () => {
     // Nothing is dismissed yet, so the dismissed-note line is absent.
     await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
 
-    // The advisor score card renders once a scan has produced findings.
-    await expect(page.locator('.advisor-score-card')).toBeVisible()
-    const scoreBefore = await scoreValue(page)
+    await expectIncompleteAssessment(page)
 
     // Capture the rule id of the first active finding so we can target it precisely.
     const firstActive = activeItems.first()
@@ -90,34 +95,26 @@ test.describe('Advisor rule dismiss/restore', () => {
 
     await firstActive.getByRole('button', {name: 'Dismiss'}).click()
 
-    // The rule moves into the "Dismissed rules" list, the score subtracts it, and
-    // the dismissed subline appears. Because we cleared dismissals first, it reads "1 dismissed".
+    // Dismissal changes the active findings, not the incomplete assessment's eligibility.
     const dismissedItem = dismissedItemFor(ruleId)
     await expect(dismissedItem).toBeVisible()
     await expect(page.getByText('— not counted in score')).toBeVisible()
-    await expect(page.locator('.advisor-summary__dismissed')).toContainText('1 dismissed')
+    await expect(page.locator('.advisor-summary__dismissed')).toContainText(
+      '1 dismissed rule(s) excluded from active findings'
+    )
     await expect.poll(async () => findingsCount(findingsCard)).toBe(before - 1)
-
-    // Dismissing a finding removes its weighted penalty. The score therefore rises or
-    // holds: the sample app's Hibernate model has enough findings to clamp the raw score
-    // at 0, so dropping a single rule can leave the displayed score unchanged. The strict
-    // "dismiss raises the score" guarantee is unit-tested in Spring.test.js against a
-    // non-clamped report; here we assert it never *decreases* and that the score card
-    // notes the exclusion. The exact-restore check below is what pins the wiring down.
-    await expect(page.getByText('excluded from this score')).toBeVisible()
-    await expect.poll(async () => scoreValue(page)).toBeGreaterThanOrEqual(scoreBefore)
+    await expectIncompleteAssessment(page)
 
     // The rule is no longer offered as an active (dismissible) finding.
     await expect(activeItemFor(ruleId)).toHaveCount(0)
 
-    // Restoring returns the finding to the active list and the score to its original value.
+    // Restoring returns the finding to the active list without inventing a score.
     await dismissedItem.getByRole('button', {name: 'Restore'}).click()
 
     await expect(dismissedItemFor(ruleId)).toHaveCount(0)
     await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
-    await expect(page.getByText('excluded from this score')).toHaveCount(0)
     await expect.poll(async () => findingsCount(findingsCard)).toBe(before)
-    await expect.poll(async () => scoreValue(page)).toBe(scoreBefore)
+    await expectIncompleteAssessment(page)
     await expect(activeItemFor(ruleId)).toHaveCount(1)
   })
 })
