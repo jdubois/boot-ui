@@ -67,6 +67,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The Spring application advisor now qualifies optimization advice and distinguishes configuration from runtime
+  evidence on MVC and WebFlux.** The Boot 4.1.1 audit corrects Actuator defaults, bean candidate selection, executor,
+  client, persistence and codec guidance; bounds non-eager collection; and reports missing evidence without raw URLs
+  or exception details. Useful INFO opportunities remain, four unsupported rule IDs are retired without losing
+  dismissals, and a new rule reviews explicitly unlimited codec aggregation. The complete catalogue and primary
+  sources are documented in Spring checks ([#969](https://github.com/jdubois/boot-ui/issues/969)).
+
 - **The REST API advisor now distinguishes declaration evidence from runtime behavior.** Corrected response wrappers,
   path bindings, exception declarations, and versioning hints reduce false positives across MVC, WebFlux, and Quarkus.
   Four unsupported heuristics now return `SKIPPED` without changing their rule or dismissal IDs; all 56 definitions
