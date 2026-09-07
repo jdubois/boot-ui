@@ -48,7 +48,7 @@ open class KotlinOrderService {
         log.debug("refreshing orders")
     }
 
-    /** Flagged: the declared result is discarded exactly like a synchronous return value. */
+    /** Supported: Spring ignores coroutine result emissions just as it ignores publisher emissions. */
     @Scheduled(fixedRate = 1_000L)
     open suspend fun countOrders(): Long = 0L
 
@@ -56,6 +56,11 @@ open class KotlinOrderService {
     @Async
     open suspend fun notifyCustomer() {
         log.debug("notifying customer")
+    }
+
+    class KotlinScheduledArguments {
+        @Scheduled(fixedDelay = 1_000L)
+        suspend fun reloadOrders(customer: String): Long = customer.length.toLong()
     }
 
     /** Supported: a plain suspending function carries no proxy expectation. */

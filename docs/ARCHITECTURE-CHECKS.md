@@ -28,13 +28,18 @@ such as the Quarkus runtime classloader's `quarkus:` scheme — so a scan never 
 warnings.
 
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
-without an extra application dependency; the Quarkus adapter bundles ArchUnit itself. The panel is available only when:
+without an extra application dependency; the Quarkus adapter bundles ArchUnit itself. Spring's availability check requires:
 
 - ArchUnit is on the classpath, and
 - a base package is resolvable from the running application.
 
-If no classes can be imported (for example in some fat-jar or DevTools restart-classloader situations), the panel
-degrades to a stable, empty report with an explanatory reason rather than failing.
+Quarkus uses its own panel availability and build-time package discovery; panel availability alone does not prove that
+usable package roots or importable classes were found.
+
+Known package-discovery or import failures produce an `ERROR` scan, not a successful empty result. If a rule fails,
+the scan is `PARTIAL` when other rules could be evaluated, or `ERROR` if none could; valid findings remain available
+alongside per-rule `analysisErrors`. Failure details identify the error type without exposing arbitrary exception
+messages. An actual empty package/class result is distinguished by its explanatory message and zero evaluated rules.
 
 The exact same rules, including the `SPRING_STEREOTYPES` category below, run unmodified against Quarkus/CDI
 applications: rules keyed on Spring-only annotations (`@Autowired`, `@Component`, `@Service`, …) simply match zero
@@ -49,15 +54,14 @@ property across every `SPRING_STEREOTYPES` rule against a pure-CDI fixture set.
 The rules read compiled bytecode, so they run unchanged on Kotlin classes, and the engine recognizes Kotlin constructs
 by bytecode name only — BootUI never adds a `kotlin-stdlib` dependency to your application.
 
-- **Compiler-generated members and classes are never reported.** Synthetic and bridge members, `$suspendImpl` /
+- **Compiler-generated shapes are filtered where recognized.** Synthetic and bridge members, `$suspendImpl` /
   `$default` / `$annotations` helpers, `componentN` and `copy` accessors on `data class`es, `Companion` and
-  `DefaultImpls` holders, `WhenMappings` tables, and top-level `FooKt` file facades are filtered out before any rule
-  sees them. This matters in practice: an `open suspend fun` is compiled into the declared function *plus* a static
+  `DefaultImpls` holders, `WhenMappings` tables, and top-level `FooKt` file facades receive rule-specific filtering.
+  This matters in practice: an `open suspend fun` is compiled into the declared function *plus* a static
   synthetic `$suspendImpl` that carries a **copy of the original annotations**, which would otherwise produce duplicate
   and outright false findings.
-- **Suspending functions are judged on their declared signature.** A `suspend` function is compiled with a trailing
-  `kotlin.coroutines.Continuation` parameter and an erased return type; BootUI hides that parameter and reads the real
-  result type from `Continuation<? super T>`. `kotlin.Unit` is treated as `void`.
+- **Scheduled suspend functions do not require a Unit result.** BootUI excludes the compiler-added Continuation
+  parameter from this check. Both Unit and value-returning functions are supported; only real source arguments fail.
 - **Final-by-default is respected in the advice, not the detection.** Kotlin classes and members are final unless marked
   `open`, but the `kotlin-spring` (all-open) and `no-arg` compiler plugins change the emitted bytecode, so proxyability
   and entity rules stay accurate. Where a recommendation would otherwise say "remove `final`", it offers the Kotlin
@@ -66,11 +70,28 @@ by bytecode name only — BootUI never adds a `kotlin-stdlib` dependency to your
 ## What BootUI does not do
 
 - It does not run project-specific layered-architecture rules — BootUI cannot know the host app's intended layering, so
-  it ships only universally-sensible heuristics.
+  it ships general conventions that may not fit every application.
 - It does not modify, compile, or instrument application code; it reads already-compiled bytecode.
 - It is **not a replacement for a project-authored ArchUnit test suite**. Generic rules are necessarily weaker than
   rules written with knowledge of the application's design. Treat the panel as a starting point and review aid, and
   consider writing your own ArchUnit tests for project-specific invariants.
+
+### Static-analysis limits
+
+An error-free scan means the imported classes were evaluated, not that runtime behavior or import completeness was
+proved. ArchUnit can resolve external references to stubs without full annotation or hierarchy information; those
+omissions need not throw. Imports are restricted by package roots, not a class-count or execution-time budget, and
+runtime test output under the same roots is not automatically excluded. Package cycles are evaluated per root and
+top-level slice, not across every possible module boundary.
+
+Most Spring rules recognize direct annotations, not Spring's full merged/aliased metadata model; the scheduling check
+also recognizes repeatable and composed presence. Proxy checks do not observe per-bean JDK/CGLIB/AspectJ configuration.
+Same declaring class does not prove a `this` receiver, and filtering Kotlin dispatch helpers can hide authored calls
+inside `$suspendImpl` bodies or mangled internal members. These remain known limitations, not fixes claimed by the
+logger, scheduling, and ThreadFactory improvements. See the
+[ArchUnit import model](https://github.com/TNG/ArchUnit/blob/v1.5.0/docs/userguide/006_The_Core_API.adoc),
+[Spring proxy semantics](https://github.com/spring-projects/spring-framework/blob/v7.0.9/framework-docs/modules/ROOT/pages/core/aop/proxying.adoc),
+and [Kotlin 2.2.20 suspend lowering](https://github.com/JetBrains/kotlin/blob/v2.2.20/compiler/ir/backend.jvm/lower/src/org/jetbrains/kotlin/backend/jvm/lower/AddContinuationLowering.kt).
 
 ## Severity scale
 
@@ -225,15 +246,21 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: name interfaces after the role or behaviour they expose instead of appending an `Interface`
   suffix.
 
-### ARCH-CODE-012 - Loggers should be private static final
+### ARCH-CODE-012 - Loggers should be private final or container-managed
 
 - **Severity**: LOW
 - **Inspects**: logger fields whose raw type is SLF4J, Log4j2, Commons Logging, JBoss Logging, `java.util.logging`, or
   Logback.
-- **Fires when**: a logger field is not `private`, `static`, and `final` — with two recognized alternate patterns.
+- **Fires when**: a logger field is not `private` and `final`, with supported injection and abstract-base exceptions.
+  Both static and instance loggers are valid; SLF4J does not prefer one over the other.
   Container-managed injection points (`@Inject`, `@Autowired`, or `jakarta.annotation.Resource`, e.g. Quarkus's idiomatic
   `@Inject Logger log;`) are exempt entirely, since a field wired by the container is non-static by construction — see the
-  [Quarkus Logging guide's "logging with injection" section](https://quarkus.io/guides/logging#logging-with-injection).
+  [Quarkus Logging guide](https://quarkus.io/guides/logging#injection-of-a-configured-logger).
+  On Quarkus, a non-static, non-final `org.jboss.logging.Logger` field with `io.quarkus.logging.LoggerName`
+  is also exempt without `@Inject`, matching the documented default auto-injection behavior in
+  [Quarkus 3.33.3.1](https://github.com/quarkusio/quarkus/blob/3.33.3.1/docs/src/main/asciidoc/logging.adoc).
+  This exemption does not apply on Spring, to producer fields, to other field types, or when only an unrelated same-name annotation is
+  present. The scanner does not observe overrides of Quarkus's default auto-injection configuration.
   Legacy `javax.annotation.Resource` is deliberately not exempt: Spring Framework 7 removed support for
   `javax.annotation` annotations, and Quarkus 3 uses the Jakarta namespace, so it is not a container-managed injection
   point on either supported baseline.
@@ -243,10 +270,12 @@ Dismissed rules remove all of their instances from the score.
   recommend static over instance loggers ("we no longer recommend one approach over the other") and documents instance
   loggers as IOC-friendly — see the [SLF4J FAQ](https://www.slf4j.org/faq.html#declared_static). A plain non-final,
   non-static, non-injected, non-abstract-base-class logger field (e.g. a mutable public field) still fails.
-- **Recommendation**: make logger fields `private static final` to avoid accidental external access and per-instance
-  logger allocations. For a logger shared with subclasses, declare it `protected`, non-static, and `final` in an
+- **Recommendation**: make logger fields `private final`, optionally `static`, to prevent reassignment and external
+  access. Instance fields do not necessarily allocate a new underlying logger. For a logger shared with subclasses,
+  declare it `protected`, non-static, and `final` in an
   abstract base class, initialized with `LoggerFactory.getLogger(getClass())`. Container-managed logger injection
-  points are exempt because the container wires them, not the class itself.
+  points are exempt because the container wires them, not the class itself. The independent field-injection convention
+  in ARCH-CODE-016 is unchanged.
 
 ### ARCH-CODE-013 - Application classes should not depend on test frameworks
 
@@ -302,17 +331,22 @@ Dismissed rules remove all of their instances from the score.
 
 - **Severity**: MEDIUM
 - **Inspects**: `new Thread(...)` constructor calls, including instantiating a class that extends `Thread`.
-- **Fires when**: application code directly constructs a `Thread` (or a `Thread` subclass) instead of using a managed
-  executor.
+- **Fires when**: application code directly constructs a `Thread` (or a subclass), except inside an actual public,
+  non-static `ThreadFactory.newThread(Runnable)` implementation with a Thread-compatible return type.
+  The [JDK 17 ThreadFactory example](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/ThreadFactory.html)
+  explicitly constructs a thread there. An unrelated `newThread` method, an overload, or another method in the factory
+  class is not exempt. Named and anonymous implementations and covariant returns are recognized.
 - **Why it matters**: an unmanaged thread bypasses pool sizing, naming, and uncaught-exception handling, and sits
   outside both frameworks' managed-concurrency story — Spring's `TaskExecutor` / `@Async` (and
   `spring.threads.virtual.enabled` on Java 21+), or Quarkus's `ManagedExecutor` / `@RunOnVirtualThread`. This mirrors
   [Effective Java Item 80](https://www.oreilly.com/library/view/effective-java-3rd/9780134686097/), "Prefer executors,
   tasks, and streams to threads", and the JDK `java.util.concurrent.Executor` Javadoc. See the
   [Quarkus context-propagation guide](https://quarkus.io/guides/context-propagation).
-- **Recommendation**: use a managed executor instead of instantiating `Thread` directly:
-  `java.util.concurrent.ExecutorService`/`Executors`, Spring's `TaskExecutor` or `@Async`, or Quarkus's
-  `ManagedExecutor` or `@RunOnVirtualThread`.
+- **Recommendation**: prefer Spring's `TaskExecutor`/`@Async` or Quarkus's `ManagedExecutor`, or use an
+  application-owned `ExecutorService` with explicit shutdown. Plain `Executors` factories are not automatically
+  container-managed.
+- **Limitations**: construction does not prove that a thread starts. Lambda factories, constructor references, delegated
+  factory helpers and shutdown-hook patterns are not resolved through dataflow; the exemption is deliberately narrow.
 
 ### ARCH-CODE-018 - Assertions should have a detail message
 
@@ -465,24 +499,26 @@ Dismissed rules remove all of their instances from the score.
 ### ARCH-SPRING-012 - Scheduled methods should have supported signatures
 
 - **Severity**: MEDIUM
-- **Inspects**: methods annotated with `@Scheduled`.
-- **Fires when**: a scheduled method declares parameters, or returns a non-`void`, non-reactive value type whose result
-  Spring will ignore.
-- **Why it matters**: Spring invokes scheduled methods without arguments; synchronous return values are discarded, which
-  often indicates a misunderstood job contract. Spring's `ScheduledAnnotationReactiveSupport` recognizes a fixed,
-  evolving set of deferred reactive return types via `ReactiveAdapterRegistry`: any `org.reactivestreams.Publisher`
-  (Reactor's `Mono`/`Flux` included), the JDK's own `java.util.concurrent.Flow.Publisher`, Kotlin's
-  `Flow`/`Deferred`, RxJava **3** types (`io.reactivex.rxjava3.*`), and SmallRye Mutiny's `Uni`/`Multi` when on the
-  classpath — but never RxJava 2 (`io.reactivex.*`, without the `rxjava3` segment) or `CompletionStage`/
-  `CompletableFuture`, both of which Spring registers as non-deferred and so discards exactly like any other synchronous
-  return value.
-- **Recommendation**: declare scheduled methods without parameters and return `void` unless using a supported deferred
-  reactive type (a Reactor/Reactive Streams `Publisher`, `java.util.concurrent.Flow.Publisher`, RxJava 3, or SmallRye
-  Mutiny `Uni`/`Multi`).
-- **Kotlin note**: suspending scheduled functions are supported — Spring bridges them through the coroutine-reactor
-  adapter. They are judged on their declared signature, so the implicit `Continuation` parameter is not counted and a
-  `Unit` result is treated as `void`; a suspending function that declares a real result type still reports the ignored
-  return value.
+- **Inspects**: direct `@Scheduled`, nonempty repeatable `@Schedules`, and composed annotations, including transitive
+  composition. Repeated schedules do not multiply the same signature finding; empty containers do not count.
+- **Fires when**: a scheduled method declares source parameters, returns a non-deferred `CompletionStage`/
+  `CompletableFuture`, or returns another non-void type not recognized as a standard reactive type. An ordinary
+  synchronous return is a review prompt about discarded values, not an invalid method declaration.
+- **Supported types**: Reactive Streams `Publisher` (including Reactor `Mono`/`Flux`), JDK `Flow.Publisher`, Kotlin
+  `Flow`/`Deferred`, RxJava 3 `Flowable`/`Observable`/`Single`/`Maybe`/`Completable`, and Mutiny `Uni`/`Multi`, including
+  resolvable subtypes. Merely sharing their package is insufficient. RxJava 2 is not a standard Spring 7 adapter family;
+  a type implementing Reactive Streams Publisher can still qualify through that interface.
+- **Non-deferred distinction**: Spring 7.0.9's standard Reactor registrar supplies a non-deferred CompletionStage
+  adapter. Scheduling rejects that adapter when active; without it, the ordinary return value is ignored. See
+  [ScheduledAnnotationReactiveSupport](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-context/src/main/java/org/springframework/scheduling/annotation/ScheduledAnnotationReactiveSupport.java)
+  and [ReactiveAdapterRegistry](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-core/src/main/java/org/springframework/core/ReactiveAdapterRegistry.java).
+- **Recommendation**: declare no source parameters; use void/Unit, a supported deferred reactive type, or a Kotlin
+  suspend function. Custom adapter registrations must be checked separately.
+- **Kotlin note**: both Unit and value-returning suspend functions are supported. The Continuation is not a source
+  parameter, and emitted results are ignored just like publisher emissions. The runtime requires
+  `kotlinx-coroutines-reactor`; the bytecode check does not verify that bridge is available.
+- **Limits**: this is signature analysis, not proof the bean/scheduler is active, configuration aliases are resolved,
+  all external type metadata is imported, or the effective runtime adapter registry matches Spring defaults.
 
 ### ARCH-SPRING-013 - Async should not be used in configuration classes
 

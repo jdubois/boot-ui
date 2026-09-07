@@ -54,6 +54,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Architecture checks accept supported logger, scheduling and thread-factory patterns, and distinguish failed
+  scans from successful analysis.** Private final instance loggers and Quarkus `@LoggerName` injection are recognized;
+  scheduled signatures include repeatable/composed annotations and precise reactive types without flagging valid
+  suspend results; actual `ThreadFactory.newThread(Runnable)` implementations may allocate threads. Known discovery,
+  import and rule failures use `ERROR`/`PARTIAL` scan status while preserving valid findings
+  ([#957](https://github.com/jdubois/boot-ui/issues/957)).
+
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
   collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,

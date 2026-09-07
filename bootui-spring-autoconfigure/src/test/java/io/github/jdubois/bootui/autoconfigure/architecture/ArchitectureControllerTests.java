@@ -12,12 +12,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
+import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureScanStatusDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -80,6 +83,52 @@ class ArchitectureControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scan.status").value("SCANNED"))
                 .andExpect(jsonPath("$.violationsFound").value(3));
+        verify(scanner).scan();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ERROR", "PARTIAL"})
+    void failedOrPartialScanStatusAndAnalysisErrorsSurvivePostAndCachedGet(String scanStatus) throws Exception {
+        ArchitectureScanner scanner = mock(ArchitectureScanner.class);
+        DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
+        ArchitectureReport base = report(scanStatus, 0);
+        ArchitectureRuleResultDto error = new ArchitectureRuleResultDto(
+                "ARCH-CODE-012",
+                "Logger rule",
+                "Coding practices",
+                "LOW",
+                "description",
+                "ERROR",
+                0,
+                List.of("Rule could not be evaluated (LinkageError)."),
+                "recommendation",
+                null);
+        ArchitectureReport scanned = new ArchitectureReport(
+                base.localOnly(),
+                base.disclaimer(),
+                base.basePackages(),
+                base.classesAnalyzed(),
+                base.rulesEvaluated(),
+                base.violationsFound(),
+                base.severityCounts(),
+                base.scan(),
+                base.results(),
+                List.of(error));
+        when(scanner.initialReport()).thenReturn(report("NOT_SCANNED", 0));
+        when(scanner.scan()).thenReturn(scanned);
+        when(dismissedRules.load()).thenReturn(Set.of());
+        when(scanner.applyDismissals(eq(scanned), any())).thenReturn(scanned);
+        MockMvc mvc = standaloneSetup(new ArchitectureController(scanner, dismissedRules))
+                .build();
+
+        mvc.perform(post("/bootui/api/architecture/scan"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scan.status").value(scanStatus))
+                .andExpect(jsonPath("$.analysisErrors[0].status").value("ERROR"));
+        mvc.perform(get("/bootui/api/architecture"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scan.status").value(scanStatus))
+                .andExpect(jsonPath("$.analysisErrors[0].id").value("ARCH-CODE-012"));
         verify(scanner).scan();
     }
 }

@@ -21,7 +21,6 @@ import com.tngtech.archunit.core.domain.JavaFieldAccess;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
-import com.tngtech.archunit.core.domain.JavaType;
 import com.tngtech.archunit.core.domain.properties.CanBeAnnotated;
 import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
@@ -74,7 +73,8 @@ abstract class AbstractArchitectureRule implements ArchitectureRule {
             // Catch LinkageError as well as RuntimeException so one rule that trips over an unresolvable class
             // reports an ERROR result instead of aborting the whole scan; VirtualMachineError still propagates.
         } catch (RuntimeException | LinkageError ex) {
-            return ArchitectureRuleSupport.error(definition, "Rule could not be evaluated: " + ex.getMessage());
+            return ArchitectureRuleSupport.error(
+                    definition, "Rule could not be evaluated (" + ex.getClass().getSimpleName() + ").");
         }
     }
 }
@@ -241,7 +241,9 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
             // See AbstractArchitectureRule#evaluate: LinkageError is caught to degrade to an ERROR result rather
             // than aborting the scan; VirtualMachineError (e.g. OutOfMemoryError) is intentionally not caught.
         } catch (RuntimeException | LinkageError ex) {
-            return ArchitectureRuleSupport.error(definition(), "Rule could not be evaluated: " + ex.getMessage());
+            return ArchitectureRuleSupport.error(
+                    definition(),
+                    "Rule could not be evaluated (" + ex.getClass().getSimpleName() + ").");
         }
     }
 }
@@ -874,12 +876,12 @@ final class InterfacesShouldNotHaveInterfaceSuffixRule extends AbstractArchitect
 }
 
 /**
- * Flags loggers that are not private static final, except for two well-known alternate patterns.
+ * Flags mutable or externally exposed loggers, with supported injection and abstract-base exceptions.
  *
  * <p>Container-managed injection points ({@code @Inject}/{@code @Autowired}/{@code @Resource}) are
  * exempt entirely: a field wired by the container is non-static by construction, so the idiomatic
  * Quarkus CDI pattern {@code @Inject Logger log;} is not a violation. See the Quarkus Logging guide's
- * "logging with injection" section: https://quarkus.io/guides/logging#logging-with-injection .
+ * injection section: https://quarkus.io/guides/logging#injection-of-a-configured-logger .
  *
  * <p>A {@code protected}, non-static, {@code final} logger declared in an abstract base class and
  * initialized via {@code LoggerFactory.getLogger(getClass())} is also accepted as an alternate valid
@@ -887,9 +889,8 @@ final class InterfacesShouldNotHaveInterfaceSuffixRule extends AbstractArchitect
  * the field to be an instance (non-static) member. The SLF4J FAQ explicitly declines to recommend
  * static over instance loggers ("we no longer recommend one approach over the other") and documents
  * instance loggers as IOC-friendly: https://www.slf4j.org/faq.html#declared_static . This is
- * implemented as an alternate passing condition alongside the primary private/static/final rule, not a
- * weakening of it: a plain non-final, non-static, non-injected, non-abstract-base-class logger field
- * (e.g. a mutable public field) still fails.
+ * accepted alongside private final instance or static loggers. Mutable or externally exposed fields
+ * still fail unless they match a supported injection or abstract-base pattern.
  */
 final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRule {
 
@@ -902,16 +903,16 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
     LoggersShouldBePrivateStaticFinalRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-CODE-012",
-                "Loggers should be private static final",
+                "Loggers should be private final or container-managed",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
                 "Detects logger fields (SLF4J, Log4j2, Commons Logging, JBoss Logging, java.util.logging, or"
-                        + " Logback) that are not private, static, and final. Exempts container-managed injection"
+                        + " Logback) that are not private and final; static is optional. Exempts container-managed injection"
                         + " points (@Inject/@Autowired/jakarta.annotation.Resource, e.g. Quarkus's"
-                        + " `@Inject Logger log;`) and a"
+                        + " `@Inject Logger log;`, and Quarkus @LoggerName JBoss logger fields) and a"
                         + " protected, non-static, final logger declared in an abstract base class and initialized"
                         + " via LoggerFactory.getLogger(getClass()) so each subclass logs under its own name.",
-                "Make logger fields private, static, and final. For a logger shared with subclasses, declare it"
+                "Make logger fields private and final; either static or instance loggers are valid. For a logger shared with subclasses, declare it"
                         + " protected, non-static, and final in an abstract base class, initialized with"
                         + " LoggerFactory.getLogger(getClass()). Container-managed logger injection points are"
                         + " exempt because the container wires them, not the class itself.",
@@ -933,19 +934,19 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                 .or()
                 .haveRawType("ch.qos.logback.classic.Logger")
                 .should(
-                        new ArchCondition<JavaField>("be private, static and final; a container-managed injection"
+                        new ArchCondition<JavaField>("be private and final; a container-managed injection"
                                 + " point; or a protected instance logger in an abstract base class") {
                             @Override
                             public void check(JavaField field, ConditionEvents events) {
-                                if (isContainerManagedInjectionPoint(field)
-                                        || isPrivateStaticFinal(field)
+                                if (isContainerManagedInjectionPoint(field, context.platform())
+                                        || isPrivateFinal(field)
                                         || isProtectedAbstractBaseClassLogger(field)) {
                                     return;
                                 }
                                 events.add(SimpleConditionEvent.violated(
                                         field,
                                         "Logger field " + field.getFullName()
-                                                + " should be private, static, and final (or,"
+                                                + " should be private and final, with static optional (or,"
                                                 + " for a base-class logger shared with subclasses, protected, final, and"
                                                 + " initialized via LoggerFactory.getLogger(getClass()) in an abstract"
                                                 + " class)"));
@@ -954,15 +955,19 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                 .allowEmptyShould(true);
     }
 
-    private static boolean isContainerManagedInjectionPoint(JavaField field) {
-        return CONTAINER_MANAGED_ANNOTATIONS.stream().anyMatch(field::isAnnotatedWith);
+    private static boolean isContainerManagedInjectionPoint(JavaField field, ArchitecturePlatform platform) {
+        return CONTAINER_MANAGED_ANNOTATIONS.stream().anyMatch(field::isAnnotatedWith)
+                || (platform == ArchitecturePlatform.QUARKUS
+                        && field.getRawType().getName().equals("org.jboss.logging.Logger")
+                        && field.isAnnotatedWith("io.quarkus.logging.LoggerName")
+                        && !field.isAnnotatedWith("jakarta.enterprise.inject.Produces")
+                        && !field.getModifiers().contains(JavaModifier.STATIC)
+                        && !field.getModifiers().contains(JavaModifier.FINAL));
     }
 
-    private static boolean isPrivateStaticFinal(JavaField field) {
+    private static boolean isPrivateFinal(JavaField field) {
         Set<JavaModifier> modifiers = field.getModifiers();
-        return modifiers.contains(JavaModifier.PRIVATE)
-                && modifiers.contains(JavaModifier.STATIC)
-                && modifiers.contains(JavaModifier.FINAL);
+        return modifiers.contains(JavaModifier.PRIVATE) && modifiers.contains(JavaModifier.FINAL);
     }
 
     private static boolean isProtectedAbstractBaseClassLogger(JavaField field) {
@@ -1271,24 +1276,27 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
 }
 
 /**
- * Flags scheduled methods with parameters or unsupported return types.
- *
- * <p>Spring's {@code ScheduledAnnotationReactiveSupport} recognizes a fixed, evolving set of
- * deferred reactive return types via {@code ReactiveAdapterRegistry}: any {@code
- * org.reactivestreams.Publisher} (Reactor's {@code Mono}/{@code Flux} included), the JDK's own
- * {@code java.util.concurrent.Flow.Publisher}, Kotlin's {@code Flow}/{@code Deferred}, RxJava
- * <strong>3</strong> types, and SmallRye Mutiny's {@code Uni}/{@code Multi} when on the classpath —
- * but never RxJava 2 ({@code io.reactivex.*}, without the {@code rxjava3} segment) or {@code
- * CompletionStage}/{@code CompletableFuture}, both of which Spring registers as non-deferred and so
- * discards exactly like any other synchronous return value.</p>
- *
- * <p>Kotlin suspending functions are supported by Spring (the coroutine-reactor bridge adapts them to
- * a {@code Publisher}), so their compiler-added {@code Continuation} parameter and erased {@code
- * Object} return type are unwrapped here rather than reported: the rule judges the declared
- * signature, so {@code suspend fun task()} passes while {@code suspend fun task(): Long} is still
- * flagged for the result Spring discards.</p>
+ * Checks source signatures, not runtime scheduler activation or custom reactive adapter registrations.
+ * Spring supports deferred reactive types and suspend functions (including value-returning ones).
+ * A registered non-deferred adapter is rejected, unlike an ordinary ignored synchronous return value.
  */
 final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractArchitectureRule {
+
+    private static final String SCHEDULES = "org.springframework.scheduling.annotation.Schedules";
+    private static final Set<String> DEFERRED_TYPES = Set.of(
+            "org.reactivestreams.Publisher",
+            "java.util.concurrent.Flow$Publisher",
+            "reactor.core.publisher.Mono",
+            "reactor.core.publisher.Flux",
+            "io.reactivex.rxjava3.core.Flowable",
+            "io.reactivex.rxjava3.core.Observable",
+            "io.reactivex.rxjava3.core.Single",
+            "io.reactivex.rxjava3.core.Maybe",
+            "io.reactivex.rxjava3.core.Completable",
+            "kotlinx.coroutines.flow.Flow",
+            "kotlinx.coroutines.Deferred",
+            "io.smallrye.mutiny.Uni",
+            "io.smallrye.mutiny.Multi");
 
     ScheduledMethodsShouldHaveSupportedSignaturesRule() {
         super(new ArchitectureRuleDefinition(
@@ -1296,8 +1304,8 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                 "Scheduled methods should have supported signatures",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Scheduled methods that accept parameters or return non-void, non-reactive values that Spring ignores. Kotlin suspending functions are supported and judged on their declared signature.",
-                "Declare scheduled methods without parameters and return void (Unit in Kotlin) unless using a supported deferred reactive type (a Reactor/Reactive Streams Publisher, java.util.concurrent.Flow.Publisher, RxJava 3, or SmallRye Mutiny Uni/Multi).",
+                "Reviews direct, repeated and composed @Scheduled signatures: source parameters, non-deferred CompletionStage returns, and non-void returns not recognized as standard reactive types. Kotlin suspend results are supported. Runtime adapters and scheduling activation are not inspected.",
+                "Declare scheduled methods without source parameters. Use void/Unit, a Kotlin suspend function (with kotlinx-coroutines-reactor), or a supported deferred reactive type. CompletionStage is not deferred by Spring's standard adapter; ordinary synchronous values are ignored. Verify custom adapters separately.",
                 "https://docs.spring.io/spring-framework/reference/integration/scheduling.html"));
     }
 
@@ -1308,7 +1316,7 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
-                            if (SpringStereotypes.SCHEDULED_ANNOTATED.test(method)) {
+                            if (hasSchedule(method.getAnnotations(), new HashSet<>())) {
                                 checkParameters(method, events);
                                 checkReturnType(method, events);
                             }
@@ -1318,8 +1326,28 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                 .as("Scheduled methods should have supported signatures");
     }
 
+    private static boolean hasSchedule(Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visitedTypes) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            String name = annotation.getRawType().getName();
+            if (name.equals(SpringStereotypes.SCHEDULED)) {
+                return true;
+            }
+            if (name.equals(SCHEDULES)) {
+                Object value = annotation.get("value").orElse(null);
+                if (value instanceof JavaAnnotation<?>[] schedules && schedules.length > 0) {
+                    return true;
+                }
+            } else if (visitedTypes.add(name)
+                    && hasSchedule(annotation.getRawType().getAnnotations(), visitedTypes)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static void checkParameters(JavaMethod method, ConditionEvents events) {
-        if (!KotlinBytecode.declaredParameters(method).isEmpty()) {
+        int sourceParameters = method.getRawParameterTypes().size() - (isSuspendFunction(method) ? 1 : 0);
+        if (sourceParameters > 0) {
             events.add(SimpleConditionEvent.violated(
                     method,
                     "Scheduled method " + method.getFullName()
@@ -1328,7 +1356,10 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
     }
 
     private static void checkReturnType(JavaMethod method, ConditionEvents events) {
-        JavaClass returnType = declaredReturnType(method);
+        if (isSuspendFunction(method)) {
+            return;
+        }
+        JavaClass returnType = method.getRawReturnType();
         if (returnType.isEquivalentTo(void.class)
                 || KotlinBytecode.isUnit(returnType.getName())
                 || isKnownReactiveReturnType(returnType)) {
@@ -1338,27 +1369,21 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                 method,
                 "Scheduled method " + method.getFullName()
                         + " returns " + returnType.getName()
-                        + "; synchronous @Scheduled return values are ignored"));
-    }
-
-    /**
-     * The return type the developer declared. A suspending function's JVM return type is always
-     * {@code Object}; its declared result lives in the {@code Continuation<? super T>} parameter.
-     */
-    private static JavaClass declaredReturnType(JavaMethod method) {
-        return KotlinBytecode.suspendResultType(method).map(JavaType::toErasure).orElseGet(method::getRawReturnType);
+                        + (returnType.isAssignableTo(java.util.concurrent.CompletionStage.class)
+                                ? "; Spring's standard CompletionStage adapter is non-deferred and is rejected for"
+                                        + " reactive scheduling when active; without that adapter the return value is ignored"
+                                : "; not recognized as a standard deferred reactive type; synchronous @Scheduled"
+                                        + " return values are ignored (custom adapters are not inspected)")));
     }
 
     private static boolean isKnownReactiveReturnType(JavaClass returnType) {
-        String name = returnType.getName();
-        return returnType.isAssignableTo("org.reactivestreams.Publisher")
-                || returnType.isAssignableTo(java.util.concurrent.Flow.Publisher.class)
-                || name.startsWith("reactor.core.publisher.")
-                || name.equals("kotlinx.coroutines.flow.Flow")
-                || name.equals("kotlinx.coroutines.Deferred")
-                || name.startsWith("io.reactivex.rxjava3.")
-                || name.equals("io.smallrye.mutiny.Uni")
-                || name.equals("io.smallrye.mutiny.Multi");
+        return DEFERRED_TYPES.stream().anyMatch(returnType::isAssignableTo);
+    }
+
+    private static boolean isSuspendFunction(JavaMethod method) {
+        return KotlinBytecode.isKotlinClass(method.getOwner())
+                && method.getRawReturnType().isEquivalentTo(Object.class)
+                && KotlinBytecode.isSuspendFunction(method);
     }
 }
 
@@ -2060,14 +2085,15 @@ final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractAr
 final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
 
     NoDirectThreadInstantiationRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-017",
-                "Classes should not directly instantiate Thread",
-                ArchitectureCategory.CODING_PRACTICES,
-                "MEDIUM",
-                "Detects new Thread(...) construction (including instantiating a Thread subclass), which bypasses pool sizing/naming/uncaught-exception handling and does not participate in Spring's TaskExecutor/@Async or Quarkus's ManagedExecutor/@RunOnVirtualThread managed-concurrency model.",
-                "Use a managed executor instead of instantiating Thread directly: java.util.concurrent.ExecutorService/Executors, Spring's TaskExecutor or @Async, or Quarkus's ManagedExecutor or @RunOnVirtualThread.",
-                "https://quarkus.io/guides/context-propagation"));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-017",
+                        "Classes should not directly instantiate Thread",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "MEDIUM",
+                        "Reviews new Thread(...) construction, including Thread subclasses, outside an actual ThreadFactory.newThread(Runnable) implementation. Direct construction can bypass executor lifecycle and context management; this check does not prove the thread is started.",
+                        "Prefer Spring's TaskExecutor/@Async or Quarkus's ManagedExecutor, or an application-owned ExecutorService with explicit shutdown. ThreadFactory implementations may construct threads for an executor; plain Executors factories are not automatically container-managed.",
+                        "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/ThreadFactory.html"));
     }
 
     @Override
@@ -2077,10 +2103,22 @@ final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
                 .callConstructorWhere(new DescribedPredicate<JavaConstructorCall>("a Thread constructor is called") {
                     @Override
                     public boolean test(JavaConstructorCall call) {
-                        return call.getTarget().getOwner().isAssignableTo(Thread.class);
+                        return call.getTarget().getOwner().isAssignableTo(Thread.class)
+                                && !isThreadFactoryImplementation(call.getOrigin());
                     }
                 })
                 .as("Classes should not directly instantiate Thread");
+    }
+
+    private static boolean isThreadFactoryImplementation(JavaCodeUnit origin) {
+        return origin instanceof JavaMethod method
+                && method.getOwner().isAssignableTo(java.util.concurrent.ThreadFactory.class)
+                && method.getName().equals("newThread")
+                && method.getModifiers().contains(JavaModifier.PUBLIC)
+                && !method.getModifiers().contains(JavaModifier.STATIC)
+                && method.getRawParameterTypes().size() == 1
+                && method.getRawParameterTypes().get(0).isEquivalentTo(Runnable.class)
+                && method.getRawReturnType().isAssignableTo(Thread.class);
     }
 }
 
