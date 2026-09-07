@@ -41,9 +41,9 @@ import java.util.Set;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.env.Environment;
@@ -128,21 +128,18 @@ class BootUiEngineConfigurationTests {
 
     @Test
     @SuppressWarnings("unchecked")
-    void hibernateScannerFactoryWiresPropertyLookupAndActiveProfilesSeam() {
-        // Pins the R2 config seam: the nested HibernateAdvisorConfiguration must read host config through a
-        // neutral property-lookup + active-profiles seam derived from the Environment. We feed a distinctive
-        // property (ddl-auto=update) AND a distinctive active profile (prod); the ddl-auto rule only escalates
-        // to a "production-like profile" violation when BOTH the property value and the profile flow through.
-        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "update");
+    void hibernateScannerFactoryWiresUnitObservationAndActiveProfilesSeam() {
+        // The native unit reports UPDATE; a conflicting global CREATE must not override it.
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "create");
         environment.setActiveProfiles("prod");
-        ObjectProvider<EntityManagerFactory> entityManagerFactories = mock(ObjectProvider.class);
-        when(entityManagerFactories.stream()).thenReturn(Stream.of(stubFactoryWithOneEntity()));
-        ObjectProvider<ListableBeanFactory> beanFactories = mock(ObjectProvider.class);
-        when(beanFactories.getIfAvailable()).thenReturn(null);
+        EntityManagerFactory factory = stubFactoryWithOneEntity();
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("factory", factory);
 
-        HibernateScanner scanner = new BootUiEngineConfiguration.HibernateAdvisorConfiguration()
-                .bootUiHibernateScanner(
-                        entityManagerFactories, beanFactories, environment, mock(ApplicationContext.class));
+        var configuration = new BootUiEngineConfiguration.HibernateAdvisorConfiguration();
+        HibernateScanner scanner =
+                configuration.bootUiHibernateScanner(configuration.bootUiHibernateAdvisorObservationSource(
+                        beans, environment, mock(ApplicationContext.class)));
         HibernateReport report = scanner.scan();
 
         HibernateRuleResultDto ddlAuto = report.results().stream()
@@ -151,6 +148,7 @@ class BootUiEngineConfigurationTests {
                 .orElseThrow(
                         () -> new AssertionError("ddl-auto rule did not surface; property/profile seam not wired"));
         assertThat(ddlAuto.sampleViolations()).anyMatch(detail -> detail.contains("production-like profile"));
+        assertThat(ddlAuto.severity()).isEqualTo("HIGH");
     }
 
     @Test
@@ -412,10 +410,12 @@ class BootUiEngineConfigurationTests {
     /**
      * Minimal {@link EntityManagerFactory} backed by JDK proxies that exposes a single mapped entity, so
      * the scanner does not short-circuit on an empty metamodel and the config rules (which read the
-     * property-lookup + active-profiles seam) actually evaluate. Mockito is avoided for the metamodel
+     * per-unit settings + active-profiles seam) actually evaluate. Mockito is avoided for the metamodel
      * types because they are generic interfaces; hand-rolled proxies keep the fixture dependency-free.
      */
     private static EntityManagerFactory stubFactoryWithOneEntity() {
+        var nativeFactory = mock(org.hibernate.engine.spi.SessionFactoryImplementor.class);
+        when(nativeFactory.getProperties()).thenReturn(java.util.Map.of("hibernate.hbm2ddl.auto", "update"));
         EntityType<?> entityType = (EntityType<?>) Proxy.newProxyInstance(
                 BootUiEngineConfigurationTests.class.getClassLoader(),
                 new Class<?>[] {EntityType.class},
@@ -434,7 +434,11 @@ class BootUiEngineConfigurationTests {
         return (EntityManagerFactory) Proxy.newProxyInstance(
                 BootUiEngineConfigurationTests.class.getClassLoader(),
                 new Class<?>[] {EntityManagerFactory.class},
-                (proxy, method, args) -> "getMetamodel".equals(method.getName()) ? metamodel : defaultValue(method));
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getMetamodel" -> metamodel;
+                    case "unwrap" -> nativeFactory;
+                    default -> defaultValue(method);
+                });
     }
 
     private static Object defaultValue(Method method) {

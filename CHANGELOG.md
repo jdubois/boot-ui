@@ -54,6 +54,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The Hibernate advisor now distinguishes evidence gaps from clean scans and reviews each persistence unit's own
+  settings.** Verified JPA repository metadata, effective factory observations and explicit incomplete-scan handling
+  replace cross-unit/default guesses. The complete 75-rule audit retires five unsupported or duplicated checks and
+  corrects batching, pagination, identifiers, mapping, caching and platform-specific advice without changing surviving
+  IDs or the JSON report shape. The catalog records remaining mapping/query evidence limits and version-specific primary
+  research ([#964](https://github.com/jdubois/boot-ui/issues/964)).
+
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
   collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,

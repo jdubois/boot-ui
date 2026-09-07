@@ -182,7 +182,7 @@ class HibernateRulesTests {
     // --- HIB-QUERY-007 ------------------------------------------------------
 
     @Test
-    void multipleCollectionJoinFetchRuleFlagsMultipleBagsAsHigh() {
+    void multipleCollectionJoinFetchRuleReviewsPossibleBagsWithoutClaimingAnException() {
         HibernateRepositoryModel repository = new HibernateRepositoryModel(
                 "com.example.Repo",
                 MultiCollectionRoot.class,
@@ -195,9 +195,11 @@ class HibernateRulesTests {
                 .evaluate(context(new TestEnvironment(), List.of(repository), MultiCollectionRoot.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
         assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("MultipleBagFetchException"));
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("classification is unobserved")
+                        .doesNotContain("throws"));
     }
 
     @Test
@@ -216,7 +218,7 @@ class HibernateRulesTests {
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
         assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("Cartesian product"));
+                .anySatisfy(sample -> assertThat(sample).contains("may multiply result rows"));
     }
 
     @Test
@@ -312,14 +314,14 @@ class HibernateRulesTests {
     }
 
     @Test
-    void openInViewRuleFlagsUnsetBootDefault() {
+    void openInViewRuleDoesNotGuessActivationFromUnsetProperty() {
         TestEnvironment environment =
                 new TestEnvironment().withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true");
 
         HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
 
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+        assertThat(result.sampleViolations()).containsExactly("Open Session in View activation is unknown.");
     }
 
     @Test
@@ -334,7 +336,7 @@ class HibernateRulesTests {
     }
 
     @Test
-    void openInViewRuleEscalatesToHighInProduction() {
+    void openInViewRuleStaysMediumInProduction() {
         TestEnvironment environment = new TestEnvironment()
                 .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true")
                 .withProperty("spring.jpa.open-in-view", "true");
@@ -343,19 +345,18 @@ class HibernateRulesTests {
         HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
     }
 
     @Test
-    void openInViewRuleEscalatesUnsetBootDefaultToHighInProduction() {
+    void openInViewRuleKeepsUnknownActivationUnknownInProduction() {
         TestEnvironment environment =
                 new TestEnvironment().withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true");
         environment.setActiveProfiles("prod");
 
         HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
 
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
     }
 
     @Test
@@ -480,11 +481,12 @@ class HibernateRulesTests {
     void inClausePaddingRuleMatchesNamedParameterInPredicate() {
         HibernateRepositoryModel repository = new HibernateRepositoryModel(
                 "com.example.Repo",
-                Object.class,
-                List.of(queryMethod("findByIds", "select o from Order o where o.id in :ids", List.of(List.class))));
+                IdentityEntity.class,
+                List.of(queryMethod(
+                        "findByIds", "select o from IdentityEntity o where o.id in :ids", List.of(List.class))));
 
-        HibernateRuleResultDto result =
-                new InClausePaddingRule().evaluate(context(new TestEnvironment(), List.of(repository)));
+        HibernateRuleResultDto result = new InClausePaddingRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), IdentityEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
     }
@@ -493,14 +495,14 @@ class HibernateRulesTests {
     void inClausePaddingRuleDoesNotMatchJoinKeyword() {
         HibernateRepositoryModel repository = new HibernateRepositoryModel(
                 "com.example.Repo",
-                Object.class,
+                IdentityEntity.class,
                 List.of(queryMethod(
                         "findWithJoin",
-                        "select o from Order o join fetch o.lines where o.code = :code",
+                        "select o from IdentityEntity o join fetch o.lines where o.code = :code",
                         List.of(List.class))));
 
-        HibernateRuleResultDto result =
-                new InClausePaddingRule().evaluate(context(new TestEnvironment(), List.of(repository)));
+        HibernateRuleResultDto result = new InClausePaddingRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), IdentityEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -509,14 +511,14 @@ class HibernateRulesTests {
     void inClausePaddingRuleIgnoresInsideQuotedLiteral() {
         HibernateRepositoryModel repository = new HibernateRepositoryModel(
                 "com.example.Repo",
-                Object.class,
+                IdentityEntity.class,
                 List.of(queryMethod(
                         "findByLabel",
-                        "select o from Order o where o.label = 'shipped in (transit)' and o.id = :id",
+                        "select o from IdentityEntity o where o.label = 'shipped in (transit)' and o.id = :id",
                         List.of(List.class))));
 
-        HibernateRuleResultDto result =
-                new InClausePaddingRule().evaluate(context(new TestEnvironment(), List.of(repository)));
+        HibernateRuleResultDto result = new InClausePaddingRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), IdentityEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -686,13 +688,12 @@ class HibernateRulesTests {
     // --- HIB-MAP-002 --------------------------------------------------------
 
     @Test
-    void manyToManyListRuleRetainsOrderedListsAsAnAdvisory() {
+    void manyToManyListRuleAcceptsIntentionalOrderedLists() {
         HibernateRuleResultDto result =
                 new ManyToManyListRule().evaluate(context(new TestEnvironment(), OrderedManyToManyEntity.class));
 
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("@OrderColumn"));
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+        assertThat(result.sampleViolations()).isEmpty();
     }
 
     // --- HIB-MAP-011 / HIB-MAP-018 -----------------------------------------
@@ -1019,12 +1020,12 @@ class HibernateRulesTests {
 
         assertThat(uuidResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(uuidResult.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("is a UUID id without @UuidGenerator"));
+                .anySatisfy(sample -> assertThat(sample).contains("supported generated UUID", "not observed"));
         assertThat(generatedValueResult.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
     @Test
-    void uuidIdentifierGeneratorRuleRecommendsVersion7OnHibernate7AndAbove() {
+    void uuidIdentifierGeneratorRuleDoesNotInferIndexLocalityFromHibernate7() {
         HibernateEntityModel entity = HibernateEntityModel.fromClass(UuidIdentifierEntity.class);
         HibernateContext context = new HibernateContext(
                 List.of(entity), List.of(), new TestEnvironment().lookup(), List.of(), "7.0.0.Final");
@@ -1032,12 +1033,13 @@ class HibernateRulesTests {
         HibernateRuleResultDto result = new UuidIdentifierGeneratorRule().evaluate(context);
 
         assertThat(result.sampleViolations())
-                .anySatisfy(sample ->
-                        assertThat(sample).contains("style = VERSION_7").doesNotContain("style = TIME"));
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("not observed")
+                        .doesNotContain("style = VERSION_7", "style = TIME"));
     }
 
     @Test
-    void uuidIdentifierGeneratorRuleRecommendsTimeStyleBeforeHibernate7() {
+    void uuidIdentifierGeneratorRuleDoesNotPrescribeTimeStyleBeforeHibernate7() {
         HibernateEntityModel entity = HibernateEntityModel.fromClass(UuidIdentifierEntity.class);
         HibernateContext context = new HibernateContext(
                 List.of(entity), List.of(), new TestEnvironment().lookup(), List.of(), "6.6.5.Final");
@@ -1046,8 +1048,8 @@ class HibernateRulesTests {
 
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample)
-                        .contains("style = TIME")
-                        .contains("no more index-friendly than random")
+                        .contains("not observed")
+                        .doesNotContain("style = TIME")
                         .doesNotContain("VERSION_7")
                         .doesNotContain("VERSION_6"));
     }
@@ -1086,20 +1088,21 @@ class HibernateRulesTests {
     // --- HIB-ENTITY-006 --------------------------------------------------------
 
     @Test
-    void primitiveIdentifierOrVersionRuleFlagsPrimitiveIdentifier() {
+    void primitiveIdentifierOrVersionRuleAcceptsLegalPrimitiveIdentifier() {
         HibernateRuleResultDto result = new PrimitiveIdentifierOrVersionRule()
                 .evaluate(context(new TestEnvironment(), PrimitiveIdEntity.class));
 
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("primitive long"));
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+        assertThat(result.sampleViolations()).isEmpty();
     }
 
     @Test
     void primitiveIdentifierOrVersionRuleFlagsPrimitiveVersion() {
         HibernateRuleResultDto result = new PrimitiveIdentifierOrVersionRule()
-                .evaluate(context(new TestEnvironment(), PrimitiveVersionEntity.class));
+                .evaluate(context(
+                        new TestEnvironment(),
+                        List.of(new HibernateRepositoryModel("Repo", PrimitiveVersionEntity.class, List.of(), true)),
+                        PrimitiveVersionEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.sampleViolations())
@@ -1125,7 +1128,7 @@ class HibernateRulesTests {
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("does not implement Persistable"));
+                .anySatisfy(sample -> assertThat(sample).contains("no nullable @Version", "Persistable"));
     }
 
     @Test
@@ -1180,7 +1183,7 @@ class HibernateRulesTests {
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample)
-                        .contains("not Serializable")
+                        .doesNotContain("not Serializable")
                         .contains("no public/protected no-arg ctor")
                         .contains("no equals() override")
                         .contains("no hashCode() override"));
@@ -1211,15 +1214,12 @@ class HibernateRulesTests {
     }
 
     @Test
-    void compositeIdentifierContractRuleFlagsIdClassMissingOnlySerializable() {
+    void compositeIdentifierContractRuleAcceptsPersistence32KeyWithoutSerializable() {
         HibernateRuleResultDto result = new CompositeIdentifierContractRule()
                 .evaluate(context(new TestEnvironment(), BrokenIdClassEntity.class));
 
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("not Serializable"));
-        assertThat(result.sampleViolations())
-                .noneSatisfy(sample -> assertThat(sample).contains("override"));
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+        assertThat(result.sampleViolations()).isEmpty();
     }
 
     // --- HIB-CONFIG-018 ----------------------------------------------------------
@@ -1811,7 +1811,7 @@ class HibernateRulesTests {
         ProtectedConstructorEmbeddedIdKey id;
     }
 
-    record RecordEmbeddedIdKey(Long orderId, Long lineNumber) implements Serializable {}
+    record RecordEmbeddedIdKey(Long orderId, Long lineNumber) {}
 
     @Entity
     static class RecordEmbeddedIdEntity {

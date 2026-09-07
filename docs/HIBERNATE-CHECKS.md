@@ -1,7 +1,7 @@
 # Hibernate checks
 
 The Hibernate panel runs a fixed, on-demand ruleset against the host application's mapped JPA entities. It reads
-the JPA `EntityManagerFactory` metamodel, selected persistence properties, and Spring Data repository metadata when
+the JPA `EntityManagerFactory` metamodel, selected persistence-unit observations, and verified Spring Data JPA repository metadata when
 available; it does not intercept runtime queries, invoke repositories, execute SQL, or modify mappings.
 
 The checks are heuristic review prompts. They highlight common Hibernate/JPA performance and maintainability risks, but
@@ -15,10 +15,47 @@ the metamodel cannot be read, BootUI returns a stable empty report with an expla
 The scan is bounded to mapped entities reported by the application's own JPA metamodel. This also covers entities added
 through `@EntityScan` or custom persistence-unit configuration without scanning the entire classpath.
 
+The active catalog contains **70 rules**. Five retired identifiers remain documented below so old links and persisted
+dismissals retain their meaning; retired identifiers are never reused.
+
+### Evidence and incomplete scans
+
+Factory settings belong to their persistence unit, not to whichever factory was discovered first. The advisor reads an
+allowlisted snapshot of effective Hibernate factory options where available and attributes findings to that unit.
+Factory defaults do not establish per-session overrides, query-cache opt-in, entity-cache eligibility, or workload.
+Missing or unreadable evidence is not an observed `false`, zero, or framework default.
+
+Repository checks require JPA provenance and unambiguous unit/domain attribution. Native queries, composed query
+annotations, projections and entity graphs affect applicability. Unsupported or ambiguous query shapes are not guessed;
+Panache query methods remain outside the repository analysis.
+
+Rule failures and unavailable required evidence produce an incomplete `PARTIAL` scan while retaining valid findings.
+The report's `results` list still contains findings only; the scan message explains coverage and failures using bounded
+identifiers and controlled reasons. Intentional platform inapplicability is distinct from a failed applicable check.
+`rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.
+
+In this implementation, pool auto-commit guarantees (HIB-CONFIG-008) and effective cache access strategy
+(HIB-CONFIG-011) are not fully observable. When applicable, these and unsupported query-plan evidence can make ordinary
+scans `PARTIAL` even if entity discovery succeeds. This is deliberate coverage disclosure, not a claim that the
+application is broken.
+
+The declaration-based mapping checks are not a complete runtime mapping interpreter. XML overrides, auto-apply
+converters, custom generators, physical naming, runtime query changes and some collection classifications cannot be
+reconstructed from annotations alone. The individual limitations below matter when interpreting both findings and an
+absence of findings.
+
+### Version baseline
+
+The audited dependency baselines are Spring Boot **4.1.1 / Hibernate 7.4.5.Final** and Quarkus
+**3.33.3.1 / Hibernate 7.2.19.Final**, both using Jakarta Persistence **3.2.0**. Host applications may override these
+versions; version-dependent conclusions use runtime evidence. Primary references and version caveats are listed at the
+end of this catalog.
+
 ## Severity scale
 
 - **CRITICAL** - a configuration choice that can immediately damage production data. Currently emitted by
-  HIB-CONFIG-002 for `ddl-auto=create` or `create-drop` under a production-like profile.
+  HIB-CONFIG-002 for destructive schema actions under a production-like profile. Quarkus/Jakarta `create` is
+  create-only, unlike Hibernate `hbm2ddl.auto=create`.
 - **HIGH** - a mapping choice that commonly causes large performance surprises.
 - **MEDIUM** - a mapping or configuration issue that usually warrants review before production use.
 - **LOW** - reserved for lower-impact hygiene findings.
@@ -50,8 +87,8 @@ Dismissed rules remove all of their findings from the score.
 
 - **Severity**: HIGH
 - **Inspects**: Spring Data JPA `@Query` methods with a `Pageable` parameter and resolvable JPQL `JOIN FETCH` paths.
-- **Fires when**: Hibernate is older than 7.4 (or the runtime version cannot be detected), Spring Data repository
-  metadata is available, and a paged repository query fetch-joins a mapped collection on the repository domain entity.
+- **Fires when**: an attributable, supported paged JPA query fetch-joins a mapped collection and the known runtime or
+  declared query hint establishes an in-memory pagination risk. An unknown runtime is not treated as an older version.
 - **Why it matters (Hibernate < 7.4)**: collection fetch joins duplicate root rows, and versions before 7.4 applied the
   `Pageable` limit in memory after loading the full, duplicated result set instead of at the SQL level.
 - **Recommendation**: page root identifiers first, then fetch the required collection graph in a second query inside the
@@ -59,28 +96,22 @@ Dismissed rules remove all of their findings from the score.
 - **Hibernate 7.4+**: the ["Limits and fetch joins"](https://github.com/hibernate/hibernate-orm/blob/7.4/migration-guide.adoc#limits-and-fetch-joins)
   migration-guide entry documents that the limit for a paged query with a collection `JOIN FETCH` is now applied in the
   generated SQL itself; the `org.hibernate.limitInMemory` query hint restores the pre-7.4 in-memory behavior. The check
-  is skipped (not silently dropped) on 7.4+ runtimes, and the skip reason explains why.
+  does not certify SQL pushdown merely from the version: dialect/query-plan fallback remains possible, and an explicit
+  true hint can bypass the ordinary pagination guard. Unknown query/runtime evidence is reported as a coverage gap,
+  not a blanket warning or proof of safety.
 
 ### HIB-FETCH-004 - Review entities with multiple bag collections
 
-- **Severity**: INFO
-- **Inspects**: `@OneToMany` and `@ManyToMany` collection attributes.
-- **Fires when**: an entity declares two or more unordered `List` / `Collection` associations (bags) without
-  `@OrderColumn`.
-- **Why it matters**: declaring multiple bags is common and safe on its own - the risk is only realized if two of them
-  are ever join-fetched in the same query, which throws `MultipleBagFetchException`. HIB-QUERY-007 already flags that
-  specific case (`JOIN FETCH` of 2+ collections in the same query); this rule is downgraded to an informational reminder
-  to keep it that way rather than standing as a violation on ordinary, safe aggregate-root entities that never fetch
-  both bags together.
-- **Recommendation**: no action is required unless you plan to fetch these together: never `JOIN FETCH` more than one of
-  these collections in the same query. Add `@OrderColumn` when list order is persistent, or use `Set<>` if you do need
-  to fetch two of them eagerly in one query.
+**Retired.** Multiple lazy bag declarations are valid; their existence does not establish simultaneous fetching.
+HIB-QUERY-007 reviews supported query shapes instead. A Java `List` without `@OrderColumn` does not itself prove
+effective BAG semantics because Hibernate can supply an implicit list index. Changing collections to sets also does not
+eliminate Cartesian multiplication when multiple collections are fetched together.
 
 ### HIB-FETCH-002 - Batch fetching should cover lazy secondary-select associations
 
 - **Severity**: INFO
-- **Inspects**: lazy to-one and collection mappings, `hibernate.default_batch_fetch_size` / Spring's
-  `spring.jpa.properties.hibernate.default_batch_fetch_size`, association-level `@org.hibernate.annotations.BatchSize`,
+- **Inspects**: lazy to-one and collection mappings, the owning factory's default batch-fetch size,
+  association-level `@org.hibernate.annotations.BatchSize`,
   and target-entity `@BatchSize` for lazy to-one associations.
 - **Fires when**: a lazy association can initialize through secondary selects and no global or applicable local batch
   fetch size is detected.
@@ -88,9 +119,8 @@ Dismissed rules remove all of their findings from the score.
   is traversed across multiple owner rows.
 - **Recommendation**: set a bounded global batch-fetch size or targeted `@BatchSize` for associations traversed across
   multiple owners; use explicit fetch plans or paged/filtered queries for a single oversized collection.
-- **Quarkus**: `hibernate.default_batch_fetch_size` maps to `quarkus.hibernate-orm.fetch.batch-size` via
-  `QuarkusHibernatePropertyLookup`, so a global batch-fetch size configured with the native Quarkus property name is
-  read back correctly and this rule does not false-positive.
+- **Quarkus**: effective factory options include Quarkus's integration default even when
+  `quarkus.hibernate-orm.fetch.batch-size` is absent from raw configuration. Named units are inspected separately.
 
 ### HIB-FETCH-005 - Enhanced @Lob attributes should be loaded lazily
 
@@ -98,7 +128,8 @@ Dismissed rules remove all of their findings from the score.
 - **Inspects**: persistent attributes annotated with `@Lob` on bytecode-enhanced entities.
 - **Fires when**: enhancement is available and a `@Lob` attribute does not declare
   `@Basic(fetch = FetchType.LAZY)`.
-- **Why it matters**: large CLOB/BLOB payloads are read for every entity hydration unless lazy loading is requested.
+- **Why it matters**: infrequently used materialized CLOB/BLOB values can increase hydration cost. Locator-backed LOB
+  behavior depends on the driver and transaction; `@Lob` does not prove that the full payload is read every time.
 - **Recommendation**: on enhanced entities, annotate infrequently accessed `@Lob` fields with
   `@Basic(fetch = FetchType.LAZY)`.
 - **Enhancement requirement**: Hibernate ORM 7 requires bytecode enhancement to honor lazy basic attributes. This rule
@@ -112,8 +143,9 @@ Dismissed rules remove all of their findings from the score.
 - **Severity**: MEDIUM
 - **Inspects**: collection associations annotated with Hibernate's `@Fetch`.
 - **Fires when**: a `@OneToMany` or `@ManyToMany` declares `@Fetch(FetchMode.JOIN)`.
-- **Why it matters**: this forces every fetch path through a SQL JOIN, undermines pagination, and risks cartesian
-  products.
+- **Why it matters**: mapping-level joins can load more collection state than a use case needs. They do not force
+  every JPQL query to join: query fetching directives determine that path. The declaration does not prove an actual
+  Cartesian product or pagination failure.
 - **Recommendation**: prefer `@Fetch(FetchMode.SELECT)`, an explicit entity query, or a DTO projection, and request
   `JOIN FETCH` only in the specific queries that need the graph.
 
@@ -121,7 +153,8 @@ Dismissed rules remove all of their findings from the score.
 
 - **Severity**: MEDIUM
 - **Inspects**: attributes declaring `@Basic(fetch = FetchType.LAZY)` and the owning entity's enhancement state.
-- **Fires when**: a lazy basic attribute belongs to an entity that is not bytecode enhanced.
+- **Fires when**: a lazy basic attribute belongs to an entity whose relevant enhancement is known to be absent.
+  Unavailable enhancement evidence is not treated as verified absence.
 - **Why it matters**: without enhancement, Hibernate cannot intercept access to a basic field and the requested lazy
   column loading is ineffective.
 - **Recommendation**: enable Hibernate bytecode enhancement, or remove the misleading `LAZY` declaration.
@@ -131,15 +164,14 @@ Dismissed rules remove all of their findings from the score.
 - **Severity**: INFO
 - **Inspects**: collection associations declaring `@Fetch(FetchMode.SUBSELECT)`.
 - **Fires when**: a mapped `@OneToMany` or `@ManyToMany` uses subselect fetching.
-- **Why it matters**: accessing one collection initializes the same collection role for every matching owner currently
-  loaded in the persistence context. This avoids classic N+1 selects, but an unexpectedly large owner set can fetch much
-  more data than the caller needs.
+- **Why it matters**: initialization can load the same collection role for the originating registered query/load group,
+  not necessarily every owner in the persistence context. A large owner group can fetch more data than the caller needs.
 - **Recommendation**: keep `SUBSELECT` only for bounded owner sets. Prefer an explicit entity query or DTO projection when
   owner or collection cardinality can be large.
 
 ## Identifiers
 
-### HIB-ID-001 - Generated identifiers should avoid GenerationType.IDENTITY
+### HIB-ID-001 - Review IDENTITY insert-generation trade-offs
 
 - **Severity**: MEDIUM
 - **Inspects**: mapped attributes annotated with `@GeneratedValue`.
@@ -147,42 +179,39 @@ Dismissed rules remove all of their findings from the score.
 - **Why it matters**: identity columns require the insert to execute immediately so Hibernate can read the generated key,
   which disables JDBC batch inserts for those entities.
 - **Recommendation**: prefer `SEQUENCE` with an allocation size and Hibernate pooled optimizer when the database supports
-  sequences.
+  sequences and insert throughput justifies it. IDENTITY is a supported choice, not a mapping defect. When HIB-ID-006
+  provides the stronger batching-specific finding, this generic advice is not counted again.
 
-### HIB-ID-002 - Generated identifiers should avoid GenerationType.TABLE
+### HIB-ID-002 - Review table-based identifier allocation
 
-- **Severity**: HIGH
+- **Severity**: MEDIUM
 - **Inspects**: mapped attributes annotated with `@GeneratedValue`.
 - **Fires when**: the generator strategy is `GenerationType.TABLE`.
 - **Why it matters**: table generators emulate sequences through row updates, which can serialize identifier allocation
   under concurrent inserts.
-- **Recommendation**: prefer `SEQUENCE` with pooled allocation, or `IDENTITY` only when the database has no sequence
-  support.
+- **Recommendation**: compare generator and pooling choices against the database and insert workload. The declaration
+  does not demonstrate contention, and pooled table allocation may be intentional.
 
-### HIB-ID-003 - @SequenceGenerator should use pooled allocation
+### HIB-ID-003 - Review sequence allocation declarations
 
 - **Severity**: MEDIUM
 - **Inspects**: field-level and class-level `@SequenceGenerator` declarations.
 - **Fires when**: `allocationSize=1`.
-- **Why it matters**: allocation size 1 requires a sequence round-trip for every inserted row.
-- **Recommendation**: use an allocation size greater than 1 and keep it aligned with the database sequence increment.
+- **Why it matters**: when this declaration selects the active generator, an allocation size of 1 cannot pool sequence
+  values. An unused or overridden declaration does not establish runtime allocation behavior.
+- **Recommendation**: measure allocation overhead before increasing the size; coordinate the optimizer, database
+  sequence increment and other writers. The advisor does not resolve every named, package-level or custom generator.
 
-### HIB-ID-004 - @GeneratedValue should declare an explicit strategy
+### HIB-ID-004 - Review provider-selected identifier strategies
 
-- **Severity**: MEDIUM
+- **Severity**: INFO
 - **Inspects**: identifier attributes annotated with `@GeneratedValue`, excluding `UUID`-typed identifiers.
 - **Fires when**: `strategy` is omitted (or set to `AUTO`).
-- **Why it matters**: for numeric identifiers, `AUTO` never resolves to the database's native `IDENTITY`/auto-increment
-  column. Hibernate's `GeneratorBinder` always maps the JPA `AUTO` strategy to its own `SequenceStyleGenerator`, which
-  uses a real database `SEQUENCE` where the dialect supports one (PostgreSQL, Oracle, H2, SQL Server, ...) and falls back
-  to a slower, row-locking table-based emulation otherwise (e.g. MySQL, which has no native sequence object) - verified
-  directly against the current Hibernate ORM source (`correspondingGeneratorName(GenerationType)` in `GeneratorBinder`,
-  whose `default` case - covering `AUTO` - always returns `SequenceStyleGenerator`, never `IDENTITY`) and the ORM user
-  guide's "Interpreting AUTO" section. Leaving the strategy on `AUTO` means silently accepting whichever of those two
-  Hibernate picks for the current database, instead of a strategy the team has actually reviewed.
-- **Recommendation**: pick the strategy that fits the target database (for example `SEQUENCE` with `allocationSize` on
-  Postgres/Oracle, `IDENTITY` only when truly required) and set it explicitly instead of relying on `AUTO`'s
-  dialect-dependent sequence-or-table fallback.
+- **Why it matters**: `AUTO` deliberately delegates generator selection to the provider. Hibernate normally uses
+  sequence-style generation for numeric identifiers, with a table fallback where sequences are unavailable, but
+  named/custom generators can affect resolution. Explicit AUTO is legal and is not equivalent to IDENTITY.
+- **Recommendation**: review the selected generator when portability or allocation throughput matters. Retain AUTO
+  when its behavior fits the application; choosing an explicit strategy is not universally required.
 - **UUID identifiers**: skipped entirely - for a `UUID`-typed identifier, Hibernate 6 interprets `AUTO` as the
   `UuidGenerator`, not a sequence, so this rule's "sequence-or-table fallback" rationale does not apply. HIB-ID-005 owns
   the UUID case exclusively, so a `UUID @Id @GeneratedValue` with no explicit strategy is flagged only once, by
@@ -192,31 +221,34 @@ Dismissed rules remove all of their findings from the score.
   application. A custom identifier the application declares itself (including on a `PanacheEntityBase` subclass) is
   still checked normally.
 
-### HIB-ID-005 - UUID identifiers should use @UuidGenerator
+### HIB-ID-005 - Review generated UUID strategy when index locality matters
 
 - **Severity**: LOW
 - **Inspects**: `UUID` identifier attributes annotated with `@GeneratedValue`, and the runtime Hibernate ORM version.
 - **Fires when**: the attribute is not also annotated with `@UuidGenerator`.
-- **Why it matters**: the JPA default generates random UUIDs (v4), which fragment B-tree indexes.
+- **Why it matters**: default random UUID generation can affect index locality, depending on the database and workload.
+  This declaration-level check does not establish an effective custom generator or measured index fragmentation.
 - **Recommendation (Hibernate 7.0+)**: annotate the identifier with `@UuidGenerator(style = VERSION_7)` (`VERSION_6` is
   also acceptable). Both styles are monotonic, index-friendly UUID variants and only exist starting in Hibernate 7.0
   (both `@Incubating`) - confirmed by diffing `UuidGenerator.java` between the 6.6 branch (only `AUTO`/`RANDOM`/`TIME`)
   and the 7.0 branch (adds `VERSION_6`/`VERSION_7`).
-- **Recommendation (before Hibernate 7.0)**: `style = TIME` is the only style available. It produces an RFC 4122
+- **Older-runtime caveat**: `style = TIME` produces an RFC 4122
   **version 1** UUID (per `@UuidGenerator`'s own Javadoc: "time-based generation strategy consistent with RFC 4122
   version 1, but with IP address instead of MAC address"), which places the fast-changing `time_low` field first and is
   **not materially more index-friendly than a random (v4) UUID** - it does not yield the monotonic ordering that makes
   `VERSION_6`/`VERSION_7` genuinely index-friendly. The recommendation is annotated with this caveat rather than
-  presenting `TIME` as a real fix.
+  presenting `TIME` as a real fix. An unknown runtime is not assumed to be an older release.
+- **Generator caveat**: `@UuidGenerator` without a style still defaults to AUTO/RANDOM; its presence does not prove
+  ordered UUIDs. String-based, named and custom generators are not fully resolved by this check.
 - **Version detection**: the runtime Hibernate ORM version is read from `HibernateContext`/`HibernateEntityModel` the
   same way HIB-FETCH-003/HIB-CONFIG-016 gate their Hibernate-7.4 pagination behavior.
 
 ### HIB-ID-006 - GenerationType.IDENTITY disables JDBC batch inserts
 
 - **Severity**: HIGH
-- **Inspects**: `spring.jpa.properties.hibernate.jdbc.batch_size`, `hibernate.jdbc.batch_size`, and identifier attributes
+- **Inspects**: the owning factory's effective JDBC batch size and identifier attributes
   annotated with `@GeneratedValue`.
-- **Fires when**: a positive JDBC batch size is configured and an identifier uses `GenerationType.IDENTITY`.
+- **Fires when**: the effective JDBC batch size is greater than 1 and an identifier uses `GenerationType.IDENTITY`.
 - **Why it matters**: Hibernate must execute each identity insert immediately so it can read back the generated key,
   preventing JDBC insert batching for those entities despite the configured batch size.
 - **Recommendation**: switch IDENTITY identifiers to `SEQUENCE` with a pooled `allocationSize` so Hibernate can batch
@@ -226,12 +258,14 @@ Dismissed rules remove all of their findings from the score.
 
 - **Severity**: HIGH
 - **Inspects**: `@EmbeddedId` attribute types and `@IdClass` values (including inherited from a superclass).
-- **Fires when**: the composite identifier class is not `Serializable`; a non-record class has no public or protected
+- **Fires when**: a non-record class has no public or protected
   no-arg constructor; or the class does not override both `equals` and `hashCode`.
 - **Why it matters**: a composite identifier needs stable equality and a construction path that JPA can use. A record
   supplies its canonical constructor and generated equality methods, so it is exempt from the no-arg-constructor check.
-- **Recommendation**: make the composite identifier class implement `Serializable`. For a non-record class, declare a
+- **Recommendation**: for a non-record class, declare a
   public or protected no-arg constructor and override both `equals` and `hashCode` over every identifier field.
+- **Persistence 3.2**: Serializable is not a composite-key requirement. This check verifies detectable structure,
+  not whether an equality implementation actually compares the correct identifier state.
 - **Quarkus/Panache**: applies identically - this check inspects only the identifier class via reflection, with no
   framework-specific behavior.
 
@@ -248,23 +282,26 @@ Dismissed rules remove all of their findings from the score.
   on the parent so the child's foreign key owns the relationship. If a unidirectional mapping is intentional, add
   `@JoinColumn` to drop the join table and review the extra update statements flagged by HIB-MAP-020.
 
-### HIB-MAP-002 - Many-to-many associations should use Set semantics
+### HIB-MAP-002 - Review many-to-many list semantics
 
 - **Severity**: MEDIUM
 - **Inspects**: `@ManyToMany` mappings and their Java collection type.
-- **Fires when**: a many-to-many association is declared as `List`.
-- **Why it matters**: a many-to-many link table is not owned by either entity like a child foreign key is. A `List` adds
-  ordering and lifecycle complexity even when `@OrderColumn` persists that order.
-- **Recommendation**: use `Set` when ordering is not domain-significant. When link order or attributes matter, model the
-  link table as an entity instead.
+- **Fires when**: a many-to-many association is declared as `List` without an explicit persistent order column.
+  An explicitly indexed ordered list is not reported merely for using List.
+- **Why it matters**: collection semantics affect link-table mutation costs. Hibernate's effective default list semantics
+  and XML mappings can also provide indexing; this declaration-only check does not resolve every case.
+- **Recommendation**: preserve domain ordering when required. Benchmark mutation behavior; consider Set only when its
+  uniqueness semantics fit, or a link entity when the relationship has its own attributes or lifecycle.
 
 ### HIB-MAP-003 - Enum attributes should declare an explicit storage strategy
 
 - **Severity**: MEDIUM
 - **Inspects**: enum-valued mapped attributes.
-- **Fires when**: an enum attribute omits `@Enumerated` and therefore relies on JPA's default ordinal storage.
-- **Why it matters**: default ordinal persistence is easy to enable accidentally, and reordering enum constants changes the
-  stored meaning unless the ordinal values are treated as a stable schema contract.
+- **Fires when**: an enum attribute lacks an observed storage declaration after supported explicit conversion and
+  `@EnumeratedValue` exclusions. Absence of a member annotation alone does not establish effective ordinal storage.
+- **Why it matters**: positional ordinal persistence couples stored values to enum order. Persistence 3.2 can infer
+  STRING storage from a String `@EnumeratedValue`, and auto-apply/class-level/XML converters can replace default storage.
+  Full converter resolution remains outside this rule's evidence.
 - **Recommendation**: use `@Enumerated(EnumType.STRING)`, a database-native enum type, or an explicit converter with
   stable database codes.
 
@@ -298,13 +335,14 @@ Dismissed rules remove all of their findings from the score.
 - **Recommendation**: use `@MapsId` when the child row is lifecycle-dependent on the parent; keep a separate foreign key
   only when the model requires independent identity.
 
-### HIB-MAP-007 - Entity inheritance should avoid TABLE_PER_CLASS
+### HIB-MAP-007 - Review TABLE_PER_CLASS polymorphic queries
 
-- **Severity**: MEDIUM
+- **Severity**: INFO
 - **Inspects**: class-level `@Inheritance`.
 - **Fires when**: the strategy is `InheritanceType.TABLE_PER_CLASS`.
 - **Why it matters**: polymorphic queries over the base type require a `UNION` across concrete subtype tables.
-- **Recommendation**: prefer `SINGLE_TABLE` or `JOINED` unless each subtype is always queried independently.
+- **Recommendation**: evaluate the polymorphic query workload before changing inheritance strategy. Subtype-only access
+  can make TABLE_PER_CLASS intentional; the declaration does not prove expensive queries are executed.
 
 ### HIB-MAP-008 - @NotFound(IGNORE) should be reviewed
 
@@ -321,22 +359,20 @@ Dismissed rules remove all of their findings from the score.
 - **Severity**: MEDIUM
 - **Inspects**: mapped attributes whose raw Java type is `java.util.Optional`.
 - **Fires when**: an `Optional` field or property is part of the mapped model.
-- **Why it matters**: `Optional` is a return-type convenience, not a stable persistent attribute type.
+- **Why it matters**: Optional is not a standard portable persistent basic type. A custom type or converter can make
+  a mapping valid; raw Java type alone does not prove a broken runtime mapping.
 - **Recommendation**: map the underlying nullable type and expose `Optional` from a non-persistent getter if desired.
 
-### HIB-MAP-010 - @ElementCollection List should persist order with @OrderColumn
+### HIB-MAP-010 - Review element-collection list ordering and mutation cost
 
 - **Severity**: MEDIUM
 - **Inspects**: `@ElementCollection` attributes typed as `List`.
 - **Fires when**: the list does not declare `@OrderColumn` - regardless of whether it declares `@OrderBy`.
-- **Why it matters**: without `@OrderColumn`, Hibernate cannot compute a minimal diff on mutation and instead deletes and
-  reinserts the entire collection table. `@OrderBy` is **not** an equivalent fix: it only adds a query-time SQL
-  `ORDER BY` and is never persisted, so it does nothing to change this mutation behavior. The sibling rule HIB-MAP-004's
-  `isBagAttribute()` helper already treats only `@OrderColumn` as removing bag semantics and deliberately ignores
-  `@OrderBy`, so this rule now matches that same standard instead of presenting `@OrderBy` as an alternative.
-- **Recommendation**: add `@OrderColumn` to persist the list's index so Hibernate can update rows in place. `@OrderBy`
-  does not solve the mutation cost - keep it only if you also want read-time ordering, alongside `@OrderColumn`, not
-  instead of it. Otherwise prefer `Set<>` if insertion order does not matter.
+- **Why it matters**: unindexed bag-like collections can need broad delete/reinsert work for some mutations. The
+  effective collection classification and mutation determine the cost; absent `@OrderColumn` does not prove every change
+  rewrites every row, especially with Hibernate's implicit list-index support.
+- **Recommendation**: use an order column when persistent positional order is required, or Set when its semantics fit.
+  `@OrderBy` provides read-time sorting, not an index. Do not combine `@OrderBy` and `@OrderColumn` as a generic fix.
 
 ### HIB-MAP-011 - Entity classes should not be final
 
@@ -347,18 +383,14 @@ Dismissed rules remove all of their findings from the score.
   Bytecode enhancement is a valid alternative and is not itself blocked by a final declaration.
 - **Recommendation**: prefer non-final entities (and `open` Kotlin entities) when lazy subclass proxies are needed.
   Bytecode-enhanced entities are exempt.
-- **Kotlin note**: Kotlin classes are final by default, so mark entities `open` or apply the `kotlin-allopen` /
-  `kotlin-jpa` compiler plugin (the `kotlin-jpa` plugin also generates the no-arg constructor JPA requires). Detection
-  is accurate either way because these plugins change the emitted bytecode.
+- **Kotlin note**: Kotlin classes are final by default. Before Kotlin 2.3.20 the JPA plugin supplied no-arg constructors
+  but did not itself enable all-open; since 2.3.20 JPA setup enables both. Boot's managed Kotlin 2.3.21 and Quarkus's
+  2.3.10 therefore differ. The emitted class, not dependency or plugin-name presence, determines finality.
 
 ### HIB-MAP-012 - SINGLE_TABLE inheritance should declare @DiscriminatorColumn
 
-- **Severity**: INFO
-- **Inspects**: `@Inheritance(strategy = SINGLE_TABLE)` roots.
-- **Fires when**: the root entity does not declare `@DiscriminatorColumn`.
-- **Why it matters**: the default discriminator name, type, and length are implicit, which makes generated schemas and
-  cross-team reviews harder to reason about.
-- **Recommendation**: declare `@DiscriminatorColumn` explicitly so the chosen contract is visible.
+**Retired.** Jakarta Persistence defines a valid implicit discriminator column. Requiring an explicit annotation solely
+for visibility scores a supported default without evidence of an incorrect mapping.
 
 ### HIB-MAP-013 - String columns should declare explicit length
 
@@ -367,8 +399,8 @@ Dismissed rules remove all of their findings from the score.
 - **Fires when**: there is no `@Column` mapping and no `columnDefinition`. Reflection cannot distinguish
   `@Column(length = 255)` from the annotation's default length, so an existing `@Column` is treated as an explicit
   mapping.
-- **Why it matters**: generated DDL defaults to 255 characters, which can clash with domain expectations or database
-  constraints.
+- **Why it matters**: default generated string DDL may not match domain expectations. Annotation absence does not prove
+  the physical column length: migrations, validation integration, converters and XML overrides can determine it.
 - **Recommendation**: set `@Column(length=...)` to match the domain, or use `@Lob`/`columnDefinition` for free-text
   payloads.
 
@@ -377,34 +409,39 @@ Dismissed rules remove all of their findings from the score.
 - **Severity**: MEDIUM
 - **Inspects**: persistent `BigDecimal` attributes.
 - **Fires when**: `@Column(precision=..., scale=...)` is missing or precision is zero.
-- **Why it matters**: provider defaults vary by database, which can silently round monetary or scientific values.
-- **Recommendation**: always set precision and scale on `BigDecimal` mappings so DDL and Bean Validation agree.
+- **Why it matters**: generated numeric DDL varies by database. Missing declaration or zero precision is not evidence of
+  actual rounding, and a column mapping is not input validation. Effective converters, column definitions and validation
+  metadata are not fully resolved.
+- **Recommendation**: review the actual numeric storage and required precision/scale; configure DDL and validation
+  deliberately when needed rather than assuming every default is wrong.
 
 ### HIB-MAP-015 - Date/time attributes should use java.time
 
 - **Severity**: LOW
 - **Inspects**: persistent attributes typed as `java.util.Date`, `java.util.Calendar`, or `java.sql` temporal types.
 - **Fires when**: any of those legacy types is detected on a mapped attribute.
-- **Why it matters**: legacy temporal types are mutable, not time-zone aware, and require `@Temporal` plumbing.
+- **Why it matters**: older temporal types have mutable or less expressive APIs. Persistence 3.2 deprecates `@Temporal`
+  in favor of modern types, but the correct replacement must preserve date, wall-clock, instant and offset semantics.
 - **Recommendation**: migrate to `java.time` (`Instant`, `LocalDate`, `LocalDateTime`, `OffsetDateTime`, `ZonedDateTime`)
-  so JDBC binding is immutable and explicit about zones.
+  where semantically equivalent. Not every java.time type carries a zone.
 
 ### HIB-MAP-016 - @ManyToOne should set optional=false when the join column is non-nullable
 
 - **Severity**: LOW
 - **Inspects**: `@ManyToOne` associations and their `@JoinColumn`.
 - **Fires when**: `@JoinColumn(nullable=false)` is set but `optional=false` is not.
-- **Why it matters**: when the foreign key is mandatory, Hibernate can skip the secondary SELECT it would otherwise
-  issue to discriminate between null and a real proxy.
+- **Why it matters**: the object-level optionality declaration and column-nullability declaration convey inconsistent
+  intent. This does not prove a secondary SELECT occurs, and neither declaration alone verifies physical constraints.
 - **Recommendation**: set `@ManyToOne(optional=false)` whenever the join column is non-nullable.
 
-### HIB-MAP-018 - Non-owning @OneToOne triggers N+1 queries
+### HIB-MAP-018 - Review lazy inverse @OneToOne without enhancement
 
-- **Severity**: HIGH
+- **Severity**: MEDIUM
 - **Inspects**: non-owning (`mappedBy`) `@OneToOne` associations and whether the declaring entity is bytecode enhanced.
-- **Fires when**: bytecode enhancement is not proven and an entity declares a non-owning `@OneToOne` association.
-- **Why it matters**: without bytecode enhancement Hibernate cannot create a lazy proxy for a non-owning `@OneToOne`, so
-  it loads the association eagerly with an extra query per parent row — the classic N+1 pattern.
+- **Fires when**: relevant enhancement is known absent and an entity declares an explicitly lazy non-owning
+  `@OneToOne`. Eager declarations and unknown enhancement do not establish a failed lazy-loading request.
+- **Why it matters**: determining whether the inverse row exists can prevent the expected lazy behavior. Query plans,
+  optionality, cache state and access patterns determine actual queries; this declaration does not prove N+1.
 - **Recommendation**: enable bytecode enhancement, or replace the bidirectional `@OneToOne` with a shared primary key
   (`@MapsId`) and a unidirectional mapping.
 - **Quarkus**: bytecode enhancement is verified by the adapter's unconditional build-time entity enhancement, so this
@@ -412,30 +449,18 @@ Dismissed rules remove all of their findings from the score.
 
 ### HIB-MAP-019 - Missing foreign key indexes
 
-- **Severity**: INFO
-- **Inspects**: `@ManyToOne` and owning `@OneToOne` join columns against the leading columns of `@Index` declarations in
-  the entity's `@Table` mapping.
-- **Fires when**: Hibernate/Jakarta schema management is set to a schema-creating mode (`create`, `create-only`,
-  `create-drop`, `drop-and-create`, or `update`), an association declares an explicit join-column name, and that column
-  is not the leading column of any JPA-declared `@Index`.
-- **Why it matters**: databases do not always index foreign keys automatically. An unindexed foreign key forces full table
-  scans when joining the association or when deleting parent rows for constraint and cascade checks, which can lead to
-  lock contention and deadlocks.
-- **Recommendation**: declare an `@Index` in `@Table` with the foreign-key column as the leading column. If you manage the
-  schema with Flyway/Liquibase, ensure the index exists in your migrations.
-- **Noise controls**: inferred join-column names are skipped because a physical naming strategy can rewrite them, and
-  migration-managed schemas are skipped because JPA annotations cannot prove whether the migration created an index.
-  Shared-primary-key `@MapsId` associations are also skipped because the join column is already the primary-key access
-  path.
+**Retired.** Annotation declarations cannot verify physical index coverage, and explicit annotation names can still be
+rewritten by a physical naming strategy. Database structural checks own index evidence; the Hibernate advisor does not
+duplicate that work by assuming absent `@Index` means absent database index.
 
-### HIB-MAP-020 - Unidirectional @OneToMany with @JoinColumn issues extra UPDATE statements
+### HIB-MAP-020 - Review writable unidirectional one-to-many join-column DML
 
 - **Severity**: MEDIUM
 - **Inspects**: unidirectional `@OneToMany` associations and their join-column annotations.
 - **Fires when**: a `@OneToMany` has no `mappedBy`, declares a join column, and that join column is not read-only
-  (`insertable=false, updatable=false`).
-- **Why it matters**: Hibernate inserts the child rows first and then issues separate `UPDATE` statements to set the
-  foreign key.
+  (`insertable=false, updatable=false`). Composite `@JoinColumns` is exempt only when every join column is read-only.
+- **Why it matters**: this ownership shape can require separate foreign-key UPDATE work depending on the effective
+  mapping and mutation. The declaration alone does not prove an exact INSERT/UPDATE sequence.
 - **Recommendation**: make the association bidirectional with `@ManyToOne` on the child and `@OneToMany(mappedBy=...)` on
   the parent so the child's foreign key is written in the `INSERT`. A read-only `@JoinColumn(insertable=false,
   updatable=false)` is exempt.
@@ -457,7 +482,8 @@ Dismissed rules remove all of their findings from the score.
 - **Severity**: INFO
 - **Inspects**: enum attributes declaring `@Enumerated(EnumType.ORDINAL)`.
 - **Fires when**: ordinal storage is explicit, so the mapping is intentional but still carries a schema-evolution risk.
-- **Why it matters**: inserting or reordering enum constants changes the meaning of existing numeric values.
+- **Why it matters**: positional ordinal storage changes meaning when enum constants are inserted or reordered.
+  Persistence 3.2 also permits stable numeric codes through `@EnumeratedValue`; numeric storage is not always position.
 - **Recommendation**: prefer `STRING`, a database-native enum, or a stable-code converter. Keep `ORDINAL` only when
   append-only ordering is an explicit schema contract.
 
@@ -483,25 +509,14 @@ Dismissed rules remove all of their findings from the score.
 
 ### HIB-ENTITY-003 - equals/hashCode should not include lazy associations
 
-- **Severity**: INFO
-- **Inspects**: entities that override both `equals` and `hashCode` and declare JPA associations.
-- **Fires when**: such an entity is detected. Generated implementations (Lombok `@Data` / `@EqualsAndHashCode` without
-  exclusions, IDE templates) typically include those associations.
-- **Why it matters**: comparing entities that participate in collections then triggers lazy loading or proxy/initialized
-  mismatches.
-- **Recommendation**: base `equals` and `hashCode` on a stable business key or natural id only; exclude lazy associations
-  explicitly when generated tooling is used.
+**Retired.** The existence of equality overrides and associations does not show that the methods traverse associations.
+Safe ID-only implementations also matched. HIB-ENTITY-001 still checks an inconsistent equals/hashCode pair; it does not
+claim to validate method bodies.
 
 ### HIB-ENTITY-004 - toString should not include lazy associations
 
-- **Severity**: INFO
-- **Inspects**: entities that override `toString` and declare JPA associations.
-- **Fires when**: such an entity is detected. Generated implementations (Lombok `@Data` / `@ToString` without
-  exclusions, IDE templates) typically traverse associations.
-- **Why it matters**: logging or debugging the entity then pulls the object graph, triggering N+1 lazy loads or
-  `LazyInitializationException` outside an open session.
-- **Recommendation**: base `toString` on the identifier and a few stable scalar fields; exclude associations explicitly
-  (for example with `@ToString(exclude = ...)`).
+**Retired.** A toString override plus association declarations does not establish traversal. No method-body analysis
+proves lazy loading here; safe ID-only implementations must not receive this finding.
 
 ### HIB-ENTITY-005 - Persistent fields should not be public
 
@@ -513,47 +528,46 @@ Dismissed rules remove all of their findings from the score.
   attributes are never flagged either, even when the underlying getter method is `public` - the metamodel resolves those
   attributes from a `Method`, not a `Field`, and public getters are the normal, fully JPA/Hibernate-instrumented way to
   expose a property-access attribute.
-- **Why it matters**: public fields let callers bypass Hibernate's instrumentation for lazy loading and dirty tracking.
+- **Why it matters**: public fields can weaken encapsulation and proxy-based interception. Bytecode enhancement can
+  instrument field access; a public field is not proof that Hibernate dirty checking is broken.
 - **Recommendation**: keep persistent fields private (or package-private) and expose mutators when needed; this
-  preserves proxy substitution and bytecode-enhancer guarantees.
+  preserves application encapsulation without claiming that visibility alone establishes enhancer behavior.
 - **Kotlin note**: a `lateinit var` is exempt. Kotlin has no public fields — the property is read and written through
   its generated `getX`/`setX` pair — but the compiler must leave the backing field public so the initialisation check
   can run from outside the class, and the language offers no way to change that. A property the author did expose,
   written `@JvmField var`, generates no accessors at all and is still reported: that is the same encapsulation break a
   Java public field is.
-- **Quarkus/Panache**: skipped app-wide when a Panache extension (`quarkus-hibernate-orm-panache` or
-  `quarkus-hibernate-reactive-panache`) is on the runtime classpath. Panache's active-record entities are meant to be
+- **Quarkus/Panache**: skipped with verified adapter-provided Panache transformation capability, not merely an unrelated
+  Panache class on the runtime classpath. Panache's active-record entities are meant to be
   used with public fields; once a Panache extension is present, its build-time bytecode transformation rewrites *every*
   public field access on *any* Hibernate-managed class (not just `PanacheEntityBase` subclasses) into the matching
   getter/setter call, so the accessor-bypass concern this check targets does not apply.
 
-### HIB-ENTITY-006 - Avoid primitive @Id or @Version types
+### HIB-ENTITY-006 - Review primitive-version newness semantics
 
-- **Severity**: HIGH
-- **Inspects**: the Java type of attributes annotated with `@Id`, `@EmbeddedId`, or `@Version`.
-- **Fires when**: an identifier or version attribute uses a primitive type.
-- **Why it matters**: primitives have default values (for example `0` for `long`), so Hibernate/JPA can no longer treat
-  `null` as the signal for "not yet persisted." Frameworks and code paths that rely on that signal - Spring Data's
-  default `isNew()` strategy, Hibernate's own transient/detached detection for cascading and merging - can then
-  misidentify a genuinely new entity as already existing, triggering an unnecessary pre-`INSERT` `SELECT` or a wrong
-  merge decision.
-- **Recommendation**: use wrapper classes (`Long`, `Integer`) so the default value is `null`, enabling both Hibernate and
-  Spring Data to cleanly detect new entities and skip the pre-insert `SELECT`.
-- **Quarkus/Panache**: applies identically. This check inspects only the mapped Java type, so it fires the same way on
-  a Panache active-record entity's `id`/`version` fields as on a plain getter/setter entity.
+- **Severity**: INFO
+- **Inspects**: primitive-version declarations in the supported Spring Data JPA newness context.
+- **Why it matters**: primitive identifiers and versions are legal. Spring Data recognizes zero-valued numeric primitive
+  identifiers as new, but cannot use a primitive version as a nullable newness signal and falls back to identifier
+  inspection. A wrapper alone does not prove correct custom newness or equality behavior.
+- **Recommendation**: review the repository's actual save/persist/merge policy when nullable version detection is
+  needed. Do not replace valid primitive IDs merely to satisfy a generic Hibernate warning.
+- **Quarkus/Panache**: Spring Data newness advice is inapplicable without verified JPA repository metadata.
 
-### HIB-ENTITY-007 - Assigned IDs should implement Persistable
+### HIB-ENTITY-007 - Review assigned-ID Spring Data newness
 
 - **Severity**: MEDIUM
 - **Inspects**: Spring Data repository domain entities with assigned identifiers (lacking `@GeneratedValue`) and no
-  `@Version` attribute.
+  nullable `@Version` attribute.
 - **Fires when**: a discovered Spring Data repository domain entity does not implement
-  `org.springframework.data.domain.Persistable`.
-- **Why it matters**: when using assigned identifiers such as a natural key or application-created UUID, Spring Data cannot
-  determine whether the entity is new or detached because the ID is already populated. It assumes the entity might exist
-  and issues a `SELECT` before `INSERT`.
-- **Recommendation**: implement `Persistable<ID>` and manage the `isNew()` flag manually, for example via a `@Transient`
-  flag set after loading or defaulting to true, so Spring Data avoids the unnecessary `SELECT` before every insert.
+  `org.springframework.data.domain.Persistable`, including through inherited subinterfaces, within the supported
+  default newness policy. A primitive Version does not supply a nullable signal. Unresolved custom behavior is unknown.
+- **Why it matters**: with populated assigned identifiers, the standard save policy can choose merge rather than persist.
+  Actual SELECT/INSERT behavior depends on entity state and provider execution; a query before every insert is not
+  guaranteed.
+- **Recommendation**: consider a nullable version, a correctly managed `Persistable<ID>` lifecycle, or another deliberate
+  persistence policy. Incorrect custom `isNew()` handling can itself cause errors; implementing Persistable is not
+  universally required.
 - **Quarkus**: skipped entirely because no Spring Data repository metadata is available. The concern is specific to
   Spring Data's repository `save()` merge-vs-persist decision; Panache's own `persist()`/`persistAndFlush()` always
   issues an `INSERT` and never probes existence first, so there is nothing to recommend on a Quarkus/Panache app.
@@ -565,8 +579,9 @@ Dismissed rules remove all of their findings from the score.
   `@EmbeddedId`, `@Version`, association, or `@Transient`).
 - **Fires when**: the entity declares no `@Version` attribute and has not opted into versionless optimistic locking
   (`@OptimisticLocking(DIRTY|ALL)`) or `@org.hibernate.annotations.Immutable`.
-- **Why it matters**: without a version column, two concurrent transactions that read and then update the same row will
-  silently overwrite each other's changes (a lost update) because nothing detects the stale snapshot.
+- **Why it matters**: without optimistic version checks, concurrent read/modify/write operations can overwrite changes.
+  Pessimistic locking, isolation, append-only use and external coordination may already protect the workflow; their
+  absence is not inferred from annotations.
 - **Recommendation**: add a `@Version` attribute (for example a `Long` or `Instant`) so concurrent updates fail fast with
   an optimistic-lock exception; skip this only for append-only, read-only, or reference data where lost updates cannot
   occur.
@@ -583,44 +598,50 @@ Dismissed rules remove all of their findings from the score.
   well-documented performance pattern. This is advisory, not a defect: a unique column is not always a natural lookup
   key, so the finding is INFO severity.
 - **Recommendation**: consider annotating the business-key attribute(s) with `@NaturalId` so lookups by that value can
-  use Hibernate's natural-id resolution instead of a full query.
+  use Hibernate's natural-id resolution instead of a full query. Adding the annotation does not automatically reroute
+  existing repository queries through natural-id lookup or cache APIs.
 - **Quarkus/Panache**: applies identically - this check inspects only annotation metadata via reflection.
 
 ## Query
 
-All HIB-QUERY rules currently inspect Spring Data repository metadata. Quarkus/Panache does not expose equivalent
+All HIB-QUERY rules inspect verified Spring Data JPA repository metadata. Quarkus/Panache does not expose equivalent
 runtime repository/query metadata with enough fidelity to evaluate these rules reliably, so they remain unavailable on
 Quarkus rather than guessing from Panache method names or generated bytecode. Mapping, identifier, fetching, configuration,
 and caching rules still run on Quarkus against the live JPA metamodel.
 
-The JPQL checks deliberately use bounded, heuristic parsing rather than a full JPQL parser. Queries with nested aliases,
-subqueries, or multiple roots may be skipped rather than inferred incorrectly.
+The JPQL checks deliberately use bounded, conservative lexical analysis rather than a full JPQL parser. Comments and
+quoted literals are not fetch paths. Queries with nested aliases, subqueries, multiple roots, a root inconsistent with
+the repository domain, or unresolved rewriting/projection/graph effects may be skipped rather than inferred incorrectly.
+Named and dynamic queries outside the observed metadata remain outside coverage.
 
 ### HIB-QUERY-001 - @Modifying bulk queries should clear stale persistence context
 
 - **Severity**: INFO
 - **Inspects**: Spring Data JPA `@Modifying` annotations on repository methods.
-- **Fires when**: a `@Modifying` method does not set `clearAutomatically`.
+- **Fires when**: a supported declared bulk query's merged `@Modifying` annotation does not set `clearAutomatically`.
 - **Why it matters**: the persistence context can hold stale entities after a bulk update or delete, leading to
   hard-to-diagnose data inconsistencies. `flushAutomatically` only synchronizes pending changes before the bulk query;
   it does not evict the stale managed entities afterward.
 - **Recommendation**: set `@Modifying(clearAutomatically=true)` (and `flushAutomatically=true` when pending changes must
-  be applied first), or evict affected entities explicitly before issuing the bulk statement.
+  be applied first), or manage affected state explicitly in a suitably isolated persistence context. Automatic clear
+  detaches managed state and can discard unflushed changes; it is not an unconditional safe fix.
 
-### HIB-QUERY-002 - Streaming repository methods need a transactional, read-only scope
+### HIB-QUERY-002 - Review streaming query resource lifetime
 
-- **Severity**: MEDIUM
+- **Severity**: INFO
 - **Inspects**: Spring Data repository methods returning `java.util.stream.Stream`.
-- **Fires when**: a repository method returns `Stream<>`.
+- **Fires when**: a verified query-backed repository method returns `Stream<>`.
 - **Why it matters**: streaming methods keep the underlying JDBC cursor open and only behave correctly inside an open
   transaction with the caller closing the stream.
-- **Recommendation**: annotate the caller with `@Transactional(readOnly = true)`, consume the stream inside a
-  try-with-resources block, and close it before the transaction ends; otherwise prefer `Page<>` or a bounded `List<>`.
+- **Recommendation**: consume and close the stream within the required transaction, normally using try-with-resources.
+  Read-only transaction hints can help read-only workloads but are not a universal correctness requirement. The method
+  signature does not prove that the caller has failed to do this.
 
 ### HIB-QUERY-003 - Native Page queries should review count derivation
 
 - **Severity**: INFO
-- **Inspects**: Spring Data `@Query(nativeQuery=true)` methods returning `Page<>`.
+- **Inspects**: Spring Data `@Query(nativeQuery=true)`, `@NativeQuery`, and supported composed annotations returning
+  `Page<>`.
 - **Fires when**: `countQuery` is missing.
 - **Why it matters**: Spring Data can derive a count query for some simple native SQL, but complex SQL can require an
   explicit count query or JSqlParser support.
@@ -631,22 +652,24 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 
 - **Severity**: MEDIUM
 - **Inspects**: Spring Data derived query methods named `deleteBy...` or `removeBy...`.
-- **Fires when**: a derived delete method has no explicit `@Query`.
+- **Fires when**: supported query metadata establishes derivation rather than merely a delete/remove method name.
+  Known annotated, custom/default or unresolved named-query implementations are not assumed derived.
 - **Why it matters**: Spring Data implements derived deletes by selecting matching entities first and deleting them one
   by one, which is expensive on large result sets.
 - **Recommendation**: for bulk removals prefer an explicit `@Modifying @Query("delete from ... where ...")` with
-  `clearAutomatically=true`; reserve derived `deleteBy` methods for small or cascading deletes.
+  appropriate persistence-context handling; reserve derived `deleteBy` methods for small or cascading deletes.
+  Bulk DML changes callbacks, cascades and optimistic-lock behavior, so it is not a drop-in replacement.
 
 ### HIB-QUERY-005 - Eager to-one associations should be JOIN FETCHed in entity-returning queries
 
 - **Severity**: INFO
 - **Inspects**: Spring Data JPQL `@Query` methods that return multiple whole entities (`List`/`Set`/`Collection`,
   `Stream`, `Page`, `Slice`, or arrays) on a repository whose domain entity declares an eager `@ManyToOne` / `@OneToOne`
-  association (explicit `FetchType.EAGER` or the to-one default) without `@Fetch(JOIN)` / `@Fetch(SUBSELECT)`.
+  association (explicit `FetchType.EAGER` or the to-one default). Mapping-level `@Fetch(JOIN)` is not a JPQL exemption.
 - **Fires when**: such a query selects the whole root entity (for example `select o from Entity o`) but does not
   `JOIN FETCH` the eager to-one association.
-- **Why it matters**: JPQL does not automatically add joins for eager to-one mappings, so Hibernate issues an extra
-  secondary `SELECT` for the association on every returned row, producing an N+1 query pattern.
+- **Why it matters**: JPQL can require secondary loads to satisfy eager mappings. Repeated targets, caches and actual
+  fetch plans determine the query count; this does not prove a SELECT for every row.
 - **Recommendation**: `JOIN FETCH` the eager association in the query, or map it `FetchType.LAZY` (see HIB-FETCH-001) and
   fetch it explicitly only where the use case needs it. Complements HIB-FETCH-001 by pinpointing the specific finders
   affected.
@@ -658,34 +681,37 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
   `Slice`, or `Stream` return type).
 - **Fires when**: the query selects the whole root entity (for example `select o from Entity o`) rather than a
   constructor expression (`select new ...(...)`) or an interface/DTO projection.
-- **Why it matters**: hydrating whole managed entities for read-mostly, paged, or streamed endpoints loads every mapped
-  column and tracks each row in the persistence context, which is wasteful when the caller only needs a few fields.
+- **Why it matters**: whole managed entities can load and track more state than a read model needs. Enhanced lazy basic
+  attributes and read-only settings change that cost; whole-entity reads can be intentional.
 - **Recommendation**: return a DTO/interface projection so Hibernate selects only the columns the caller needs; reserve
   whole-entity reads for cases that mutate the loaded entities.
 
 ### HIB-QUERY-007 - Queries should not JOIN FETCH more than one collection
 
-- **Severity**: HIGH (MEDIUM for multi-collection fetches without multiple bags)
+- **Severity**: MEDIUM
 - **Inspects**: Spring Data repository `@Query` methods, resolvable JPQL `JOIN FETCH` paths, and collection/bag metadata
   on the repository domain entity.
 - **Fires when**: a non-native JPQL query `JOIN FETCH`es two or more collection associations from the same root entity.
-  Two or more bag collections are reported as HIGH; other multi-collection fetch joins are reported as MEDIUM.
-- **Why it matters**: fetching multiple bags throws `MultipleBagFetchException`, and fetching multiple collections
-  multiplies the result set into a cartesian product.
+  Runtime bag classification is not established, so presumed bags do not receive a higher-severity exception prediction.
+- **Why it matters**: simultaneous fetching of actual bags is unsupported, while parallel collections can multiply the
+  row set. Java List declarations alone do not fully establish runtime BAG semantics, so the finding describes the
+  parallel-fetch risk rather than predicting a guaranteed exception.
 - **Recommendation**: fetch at most one collection per query. Initialize the remaining collections with separate queries,
-  `@EntityGraph` attribute nodes, or `@BatchSize` / `default_batch_fetch_size`, and use `Set` collections to avoid
-  `MultipleBagFetchException`.
+  or suitably bounded batch fetching. An entity graph requesting the same parallel collections is not a universal fix,
+  and Set does not eliminate row multiplication.
 
 ## Configuration
 
 ### HIB-CONFIG-001 - Open Session in View should be disabled
 
-- **Severity**: MEDIUM; HIGH under a production-like profile
-- **Inspects**: adapter-provided servlet applicability, `spring.jpa.open-in-view`, and active Spring profiles.
-- **Fires when**: the application is a Spring servlet web application and the property is `true` or absent, matching
-  Spring Boot's servlet default. This mirrors `SPRING-JPA-001` so both advisor panels assign the same severity.
+- **Severity**: MEDIUM
+- **Inspects**: adapter-provided non-eager evidence of registered OSIV interceptors or filters.
+- **Fires when**: OSIV is observed active in a Spring servlet application. A missing property or a servlet class on
+  the classpath alone does not prove activation; unavailable evidence is skipped. Severity does not escalate solely
+  because of a profile name. An interceptor bean or Boot MVC configurer alone is insufficient: an application extending
+  `WebMvcConfigurationSupport` directly can ignore that configurer, and filter beans can be disabled or unregistered.
 - **Why it matters**: lazy loading after the service transaction has completed can hide missing fetch plans and move data
-  access into the web layer.
+  access into the web layer. OSIV does not by itself prove a JDBC connection is held for the entire request.
 - **Recommendation**: set `spring.jpa.open-in-view=false` and fetch data inside transactional service boundaries.
 - **Applicability**: the Spring adapter supplies the servlet-context signal to the framework-neutral engine. Reactive,
   non-web, and Quarkus applications skip this rule; Quarkus has no Open Session in View mechanism.
@@ -693,8 +719,8 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 ### HIB-CONFIG-003 - Lazy loading outside transactions should stay disabled
 
 - **Severity**: HIGH
-- **Inspects**: `hibernate.enable_lazy_load_no_trans` and Spring's `spring.jpa.properties.*` variant.
-- **Fires when**: the property is `true`.
+- **Inspects**: the owning persistence unit's known lazy-loading-outside-transactions setting.
+- **Fires when**: that observed setting is `true`; unrelated or absent raw configuration does not establish runtime state.
 - **Why it matters**: it hides missing fetch plans by opening temporary sessions outside the intended transaction boundary.
 - **Recommendation**: remove the setting and fetch required data inside transactions with explicit fetch plans or DTO
   queries.
@@ -702,20 +728,22 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 ### HIB-CONFIG-004 - JDBC batching should be configured for writes
 
 - **Severity**: INFO
-- **Inspects**: `hibernate.jdbc.batch_size` and Spring's `spring.jpa.properties.*` variant.
-- **Fires when**: the property is absent or less than 2. A batch size of 1 cannot combine multiple statements.
+- **Inspects**: the owning factory's effective JDBC batch size.
+- **Fires when**: the observed size is less than 2. A batch size of 1 cannot combine multiple statements; an unreadable
+  size is unknown, not disabled batching.
 - **Why it matters**: write-heavy code otherwise sends insert/update/delete statements one at a time.
-- **Recommendation**: start with a bounded batch size between 5 and 30, then tune it with representative workloads.
-- **Quarkus**: `quarkus.hibernate-orm.jdbc.statement-batch-size` has no native default, so an unset value leaves
-  Hibernate batching disabled and this INFO prompt remains applicable.
+- **Recommendation**: benchmark a bounded batch size against representative writes. Read-mostly workloads may not
+  benefit; no single range is optimal for every driver or statement shape.
+- **Quarkus**: absence of `quarkus.hibernate-orm.jdbc.statement-batch-size` does not establish disabled batching.
+  The observed Hibernate factory value is authoritative, including provider/dialect defaults.
 
 ### HIB-CONFIG-005 - JDBC batching should order inserts and updates
 
 - **Severity**: INFO
-- **Inspects**: `hibernate.order_inserts` and `hibernate.order_updates` when JDBC batching is enabled.
-- **Fires when**: a batch size greater than 1 is configured but either ordering property is not `true`.
+- **Inspects**: effective factory insert/update ordering when JDBC batching is enabled.
+- **Fires when**: an observed batch size greater than 1 is configured but a known ordering option is disabled.
 - **Why it matters**: batches are grouped by SQL/table shape; interleaved entity types reduce batch efficiency.
-- **Recommendation**: enable both ordering properties when batching writes across multiple entity types.
+- **Recommendation**: benchmark ordering when writes are interleaved across multiple entity types; sorting adds cost.
 - **Quarkus**: `hibernate.order_inserts`/`hibernate.order_updates` have no first-class `quarkus.hibernate-orm.*`
   equivalent, but `QuarkusHibernatePropertyLookup` falls back to Quarkus' generic
   `quarkus.hibernate-orm.unsupported-properties."hibernate.order_inserts"` (and `"hibernate.order_updates"`) escape
@@ -728,7 +756,7 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 
 - **Severity**: INFO
 - **Inspects**: Hibernate slow-query threshold properties.
-- **Fires when**: no positive threshold is configured.
+- **Fires when**: an observed threshold is not positive. Unavailable runtime evidence is not an unset effective default.
 - **Why it matters**: a local slow-query threshold helps spot expensive SQL before it reaches shared environments.
 - **Recommendation**: configure a bounded threshold in development and staging profiles.
 - **Quarkus**: the neutral Hibernate threshold keys map to
@@ -737,11 +765,11 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 ### HIB-CONFIG-007 - Hibernate statistics should be enabled when tuning
 
 - **Severity**: INFO
-- **Inspects**: `hibernate.generate_statistics` and Spring's `spring.jpa.properties.*` variant.
-- **Fires when**: the property is not `true`.
+- **Inspects**: the live statistics-enabled state of the owning factory.
+- **Fires when**: statistics are observed disabled.
 - **Why it matters**: statistics expose query counts, fetch counts, and cache hit ratios useful during performance tuning.
 - **Recommendation**: enable statistics in development or performance-test profiles when investigating data-access
-  behavior.
+  behavior. Leaving statistics disabled outside tuning sessions can intentionally avoid collection overhead.
 - **Quarkus**: `hibernate.generate_statistics` maps to `quarkus.hibernate-orm.statistics` via
   `QuarkusHibernatePropertyLookup`, so this rule no longer false-positives when statistics are enabled with the
   native Quarkus property name.
@@ -752,11 +780,9 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 ### HIB-CONFIG-008 - Connection providers should disable auto-commit explicitly
 
 - **Severity**: INFO
-- **Inspects**: `hibernate.connection.provider_disables_autocommit`, JTA transaction settings, and
-  `spring.datasource.hikari.auto-commit`.
-- **Fires when**: JTA is not detected, `hibernate.connection.provider_disables_autocommit` is not enabled, and Hikari is
-  explicitly configured with `spring.datasource.hikari.auto-commit=false`. If the pool's auto-commit behavior cannot be
-  confirmed, the check is skipped with guidance.
+- **Inspects**: attributed connection-provider and transaction evidence, not a stale Hikari property in isolation.
+- **Fires when**: supported observations establish a resource-local provider guarantee that makes the recommendation
+  applicable. Otherwise the check is skipped; BootUI never acquires a JDBC connection to discover auto-commit.
 - **Why it matters**: when the pool already disables auto-commit, this setting lets Hibernate delay connection acquisition.
 - **Recommendation**: configure the pool with auto-commit disabled and set
   `hibernate.connection.provider_disables_autocommit=true`.
@@ -773,30 +799,31 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
   read correctly. The repository-scanning half of this rule only inspects Spring Data JPQL query methods, so it has
   nothing to flag on a Panache-based Quarkus app regardless of the property value.
 
-### HIB-CONFIG-010 - Query cache requires a second-level cache provider
+### HIB-CONFIG-010 - Query caching requires effective region support
 
 - **Severity**: HIGH
-- **Inspects**: Hibernate query-cache, second-level-cache, and region-factory properties.
-- **Fires when**: query cache is enabled without a configured second-level cache provider, or when second-level cache is
-  explicitly disabled.
-- **Why it matters**: query caching depends on the second-level cache infrastructure and proper entity caching.
-- **Recommendation**: disable query caching or configure an effective region factory and cache entities returned by
-  cacheable entity queries.
+- **Inspects**: effective factory query-cache state and region-factory availability.
+- **Fires when**: query caching is enabled and effective region infrastructure is known unusable. Missing explicit
+  region-factory configuration is not a failure, and disabled entity second-level caching does not itself prohibit
+  query caching.
+- **Why it matters**: query-result and timestamp regions require a working provider; entity regions have separate
+  eligibility and concurrency semantics.
+- **Recommendation**: configure appropriate provider infrastructure or disable query caching. Entity-cache coverage
+  is a separate workload choice; factory query-cache enablement does not prove that any query opts in.
 - **Quarkus**: `hibernate.cache.use_query_cache` maps to `quarkus.hibernate-orm.second-level-caching-enabled` via
   `QuarkusHibernatePropertyLookup` — Quarkus exposes a single unified toggle for second-level/query caching, not a
   separate query-cache property, so both the query-cache and second-level-cache reads resolve to the same Quarkus
   setting. When enabled, Quarkus supplies its integrated second-level cache implementation even though it does not
   expose a `hibernate.cache.region.factory_class` property.
 
-### HIB-CONFIG-011 - Cacheable entities should declare an explicit cache strategy
+### HIB-CONFIG-011 - Review effective cache concurrency strategy
 
 - **Severity**: MEDIUM
-- **Inspects**: entity-level `@Cacheable` and Hibernate `@Cache` when second-level caching appears configured.
-- **Fires when**: an entity is JPA-cacheable but does not declare an explicit Hibernate cache strategy or a valid
-  `hibernate.cache.default_cache_concurrency_strategy` is not configured.
-- **Why it matters**: cache concurrency behavior should be explicit for cached entities.
-- **Recommendation**: add a Hibernate cache concurrency strategy, configure a valid default cache concurrency strategy,
-  or remove `@Cacheable` when the entity should not use the second-level cache.
+- **Inspects**: observed cache activation and available concurrency-strategy evidence.
+- **Fires when**: supported evidence establishes a strategy problem, not merely absence of a Hibernate `@Cache`
+  annotation. Providers may supply a valid default; unresolved effective strategy/eligibility is unknown.
+- **Why it matters**: concurrency behavior must fit the data, but an explicit annotation is not mandatory.
+- **Recommendation**: review the effective strategy and data mutability before adding annotations or changing cache use.
 - **Quarkus**: `hibernate.cache.use_second_level_cache` maps to the same
   `quarkus.hibernate-orm.second-level-caching-enabled` toggle as HIB-CONFIG-010, so the precondition check for
   "second-level caching appears configured" is read correctly on Quarkus too.
@@ -804,13 +831,14 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 ### HIB-CONFIG-002 - Schema generation should not mutate non-test databases
 
 - **Severity**: INFO (can emit MEDIUM, HIGH, or CRITICAL based on profile and value)
-- **Inspects**: `spring.jpa.hibernate.ddl-auto`, `spring.jpa.properties.hibernate.hbm2ddl.auto`,
-  `hibernate.hbm2ddl.auto`, and active Spring profiles.
-- **Fires when**: the configured value is `update`, `create`, or `create-drop` outside a test profile. A production-like
-  profile wins over any other active profile: `create` / `create-drop` emits CRITICAL, and `update` emits HIGH. Dev/local
-  disposable profiles emit INFO; unpinned non-test profiles emit MEDIUM.
+- **Inspects**: the owning unit's normalized schema database action and active profiles.
+- **Fires when**: a mutating action is observed outside a test profile. Production-like profiles take precedence:
+  destructive drop/drop-and-create actions emit CRITICAL, create-only/update emit HIGH. Dev/local profiles emit INFO;
+  unpinned non-test profiles emit MEDIUM. A profile name does not prove the database is disposable.
 - **Why it matters**: automatic schema mutation is convenient locally but risky against shared or persistent databases,
-  and `create` / `create-drop` can drop and recreate live schemas at application startup.
+  and destructive actions can remove live schema data. Hibernate `hbm2ddl.auto=create` is destructive; Jakarta/Quarkus
+  `create` is CREATE_ONLY and must not be described as guaranteed deletion. In Quarkus 3.33.3.1 an explicitly configured
+  deprecated `database.generation` takes precedence over `schema-management.strategy`.
 - **Recommendation**: use versioned migrations for shared databases and reserve mutating `ddl-auto` values for disposable
   test environments.
 
@@ -821,18 +849,22 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
   `org.hibernate.orm.jdbc.bind` / `org.hibernate.type.descriptor.sql.BasicBinder`.
 - **Fires when**: any of those are enabled while a profile named `prod`, `production`, `staging`, or `*-prod` /
   `*-production` is active.
-- **Why it matters**: logging every statement degrades throughput dramatically and can leak parameter values in
-  application logs.
+- **Why it matters**: statement logging adds workload-dependent overhead and can reveal sensitive SQL text. Parameter
+  values have a separate binding logger checked by HIB-CONFIG-018; no measured throughput loss is inferred.
 - **Recommendation**: keep SQL logging off in production-like environments and rely on structured slow-query logging or
   the database's statement audit.
 
-### HIB-CONFIG-013 - Configure hibernate.jdbc.time_zone
+### HIB-CONFIG-013 - Review applicable JDBC temporal binding
 
 - **Severity**: LOW
 - **Inspects**: `spring.jpa.properties.hibernate.jdbc.time_zone` and `hibernate.jdbc.time_zone`.
-- **Fires when**: neither property is set.
-- **Why it matters**: without a fixed zone, JDBC binds and reads use the JVM default zone, so results vary across hosts.
-- **Recommendation**: pin `hibernate.jdbc.time_zone=UTC` (or another fixed zone) for deterministic timestamp handling.
+- **Fires when**: supported temporal mapping/binding evidence makes a JDBC-zone review applicable and no fixed zone is
+  observed. Without temporal mappings this advice is inapplicable; unavailable binding evidence is not nondeterminism.
+- **Why it matters**: some timestamp bindings depend on JVM or JDBC timezone behavior, while native/UTC Instant
+  mappings and local wall-clock values have different semantics. Missing `hibernate.jdbc.time_zone` is not universally
+  wrong.
+- **Recommendation**: choose temporal types and binding semantics deliberately; configure a JDBC zone where needed,
+  rather than treating UTC as a universal fix for every date/time mapping.
 - **Quarkus**: `hibernate.jdbc.time_zone` maps to `quarkus.hibernate-orm.jdbc.timezone` via
   `QuarkusHibernatePropertyLookup`, so this rule no longer false-positives when the zone is pinned with the native
   Quarkus property name.
@@ -840,17 +872,18 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 ### HIB-CONFIG-014 - Hibernate's built-in connection pool should not be used
 
 - **Severity**: HIGH
-- **Inspects**: `hibernate.connection.pool_size`.
-- **Fires when**: the property is set.
-- **Why it matters**: the property activates Hibernate's internal connection pool, which is intended for testing only
-  and lacks the resilience and monitoring of a production pool.
-- **Recommendation**: remove the property and rely on Spring Boot's managed `DataSource` (HikariCP by default).
+- **Inspects**: the actual selected Hibernate connection-provider classification.
+- **Fires when**: the built-in test-oriented connection pool is observed selected. `pool_size` presence does not select
+  it in preference to a managed DataSource or explicit provider; unknown provider evidence is skipped.
+- **Why it matters**: the built-in pool is not intended for production use.
+- **Recommendation**: use the framework's managed DataSource/provider or an appropriate production pool.
 
 ### HIB-CONFIG-015 - Deferred script initialization should have an intentional order
 
 - **Severity**: INFO
 - **Inspects**: `spring.jpa.defer-datasource-initialization` and `spring.jpa.hibernate.ddl-auto`.
-- **Fires when**: deferred initialization is enabled.
+- **Fires when**: supported Spring initializer evidence establishes deferred initialization. Ignored Spring property
+  names in Quarkus cannot activate this rule.
 - **Why it matters**: the property moves script-based datasource initialization until after JPA initialization. That can
   be intentional with schema validation or externally managed schemas, but the initialization owner and ordering should
   be explicit.
@@ -862,17 +895,17 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 - **Severity**: HIGH (INFO when only the safety-net setting is missing)
 - **Inspects**: the `hibernate.query.fail_on_pagination_over_collection_fetch` property and paginated collection
   `JOIN FETCH` repository queries.
-- **Fires when**: Hibernate is older than 7.4 (or the runtime version cannot be detected) and the property is absent,
-  false, or unparseable. If matching paginated collection fetch queries exist, the finding is HIGH; otherwise it is INFO
-  hardening guidance for future queries.
+- **Fires when**: supported unit/runtime/query evidence establishes an applicable missing guard. Unknown runtime or
+  guard state is not assumed to be an older unsafe configuration. Concrete query findings are counted once each;
+  explanatory summary text does not add a fictitious finding.
 - **Why it matters (Hibernate < 7.4)**: without this guard, affected runtimes can allow a paginated collection fetch join
   to fetch the whole result set into memory instead of failing fast.
 - **Recommendation**: set `spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true` to throw
-  an exception instead of risking a full-table fetch and memory exhaustion.
-- **Hibernate 7.4+**: as described under HIB-FETCH-003, the limit for a paged collection fetch join is now applied in
-  the generated SQL by default, so the in-memory blowup this safety net guards against no longer happens without opting
-  back in via `org.hibernate.limitInMemory`. The check is skipped (not silently dropped) on 7.4+ runtimes, and the skip
-  reason explains why.
+  an exception on covered in-memory pagination paths. The risk concerns an unbounded matching result, not necessarily
+  an entire table.
+- **Hibernate 7.4+**: collection-fetch pagination can be pushed into SQL, but dialect/query-plan fallback still matters.
+  An explicit `org.hibernate.limitInMemory=true` hint opts back into in-memory limiting and can bypass the ordinary
+  factory guard. The advisor does not certify SQL pushdown or claim the guard overrides that hint.
 - **Quarkus**: `hibernate.query.fail_on_pagination_over_collection_fetch` maps to
   `quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch` via `QuarkusHibernatePropertyLookup`, so this
   rule no longer false-positives when the safety net is enabled with the native Quarkus property name.
@@ -881,7 +914,8 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 
 - **Severity**: LOW
 - **Inspects**: the `hibernate.format_sql` property, SQL-logging state, and active Spring profiles.
-- **Fires when**: a production profile is active, `hibernate.format_sql` is `true`, and SQL logging is enabled.
+- **Fires when**: a production profile is active, `hibernate.format_sql` is `true`, and statement logging is enabled.
+  Binder-only logging does not establish that SQL statements are formatted.
 - **Why it matters**: Hibernate formats a statement only when it logs that statement. Formatting every verbose SQL log
   line adds avoidable CPU and allocation work in production.
 - **Recommendation**: disable `hibernate.format_sql` when verbose SQL logging is enabled in production.
@@ -907,14 +941,15 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 - **Severity**: INFO
 - **Inspects**: `hibernate.use_sql_comments`.
 - **Fires when**: generated SQL comments are enabled.
-- **Why it matters**: comments add text to every generated statement and can increase network traffic or fragment
-  database/JDBC statement caches when comment text varies.
+- **Why it matters**: comments add statement text. Varying text can affect statement-cache keys, but stable comments
+  need not fragment caches, and the advisor does not measure either traffic or cache behavior.
 - **Recommendation**: keep comments only when their measured observability benefit outweighs the statement-cache cost.
 
 ### HIB-CONFIG-020 - Oracle JDBC fetch size should exceed the driver default
 
 - **Severity**: INFO
-- **Inspects**: configured database kind, dialect, JDBC URL/driver, and `hibernate.jdbc.fetch_size`.
+- **Inspects**: attributed database/driver classification and the owning unit's fetch-size evidence. Raw JDBC URLs and
+  credentials are not report evidence.
 - **Fires when**: Oracle is identifiable and the fetch size is absent or no greater than Oracle JDBC's default of 10.
 - **Why it matters**: iterating result sets larger than ten rows can require avoidable database roundtrips. PostgreSQL and
   MySQL have different driver behavior, so this check deliberately does not prescribe a global fetch size.
@@ -928,20 +963,24 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 
 - **Severity**: INFO
 - **Inspects**: entities annotated with `@Cacheable` or Hibernate `@Cache` and the entities they associate with.
-- **Fires when**: an association on a cached entity targets another entity that is itself uncached.
+- **Fires when**: a cache-enabled unit contains an observed cached-source declaration pointing to an apparently
+  uncached target. A collection's `@Cache` stores membership, not the target entity state, and does not exempt its target.
 - **Why it matters**: loading a cached aggregate can still query an uncached target, but caching target entities and
   caching collection roles have different semantics and costs. The right coverage depends on real hit rates, mutability,
   and access patterns.
 - **Recommendation**: measure cache hit rates and access patterns before caching associated entities or collection roles.
   Leave mutable or low-hit targets uncached when that better fits the workload.
+- **Limit**: annotations are not complete provider eligibility evidence; factory enablement does not prove an entity
+  region exists or gets useful hits.
 
 ### HIB-CACHE-002 - READ_ONLY cache strategy on writable entities is unsafe
 
 - **Severity**: MEDIUM
 - **Inspects**: entities annotated with `@Cache(usage = READ_ONLY)`.
-- **Fires when**: the entity also has `@Version` or `@DynamicUpdate`, both signals that the entity is mutable.
-- **Why it matters**: `READ_ONLY` throws when Hibernate detects state changes and silently misses updates from other
-  transactions on the same entity.
+- **Fires when**: caching is active and a non-immutable entity has an observed update-oriented declaration.
+  `@Immutable` with `@Version` alone is not writable, and disabled caches do not produce active-cache findings.
+- **Why it matters**: READ_ONLY is unsuitable for managed state that is actually updated. No cache strategy is inferred
+  to observe external writers automatically.
 - **Recommendation**: switch to `READ_WRITE` or `NONSTRICT_READ_WRITE` for mutable entities.
 
 ### HIB-CACHE-003 - Immutable cached entities should use READ_ONLY
@@ -951,4 +990,26 @@ subqueries, or multiple roots may be skipped rather than inferred incorrectly.
 - **Fires when**: an immutable cached entity uses `READ_WRITE`, `NONSTRICT_READ_WRITE`, or `TRANSACTIONAL`.
 - **Why it matters**: Hibernate documents `READ_ONLY` as the simplest, safest, and best-performing strategy for immutable
   entities; mutable strategies add coordination overhead for updates the mapping forbids.
-- **Recommendation**: use `@Cache(usage = READ_ONLY)`, or remove `@Immutable` if the entity is expected to change.
+- **Recommendation**: consider `@Cache(usage = READ_ONLY)` for genuinely immutable cached state; do not remove
+  `@Immutable` merely to silence a cache-efficiency prompt. Disabled caching makes this check inapplicable.
+
+## Primary research references
+
+The audit covered every registered rule, including retained workload-dependent advice and the retired identifiers.
+These are primary implementation/specification sources, not proof of a measured problem in the host application.
+
+| Topic | Sources and version caveats |
+| --- | --- |
+| Exact managed dependencies | [Spring Boot 4.1.1 BOM](https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-dependencies/4.1.1/spring-boot-dependencies-4.1.1.pom), [Quarkus 3.33.3.1 BOM](https://repo.maven.apache.org/maven2/io/quarkus/platform/quarkus-bom/3.33.3.1/quarkus-bom-3.33.3.1.pom). Application overrides remain possible. |
+| Factory options and batching | [ORM 7.2.19 options](https://github.com/hibernate/hibernate-orm/blob/7.2.19/hibernate-core/src/main/java/org/hibernate/boot/spi/SessionFactoryOptions.java), [ORM 7.4.5 options](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/spi/SessionFactoryOptions.java), [batching guide](https://github.com/hibernate/hibernate-orm/blob/7.2.6/documentation/src/main/asciidoc/userguide/chapters/batch/Batching.adoc). Factory defaults differ from session overrides. |
+| Fetching and entity graphs | [ORM 7.4.5 fetching](https://github.com/hibernate/hibernate-orm/blob/7.4.5/documentation/src/main/asciidoc/userguide/chapters/fetching/Fetching.adoc), [Persistence 3.2 entity operations](https://github.com/jakartaee/persistence/blob/3.2-3.2.0-RELEASE/spec/src/main/asciidoc/ch03-entity-operations.adoc). EAGER and graph requirements do not prove one SQL join. |
+| Collection-fetch pagination | [ORM 7.4.5 hint contract](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/jpa/HibernateHints.java#L245-L259), [execution path](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/query/sqm/internal/SqmSelectionQueryImpl.java#L405-L456). Explicit in-memory hints and fallback prevent a blanket 7.4 safety claim. |
+| Identifiers and records | [Persistence 3.2 IdClass](https://github.com/jakartaee/persistence/blob/3.2-3.2.0-RELEASE/api/src/main/java/jakarta/persistence/IdClass.java), [EmbeddedId](https://github.com/jakartaee/persistence/blob/3.2-3.2.0-RELEASE/api/src/main/java/jakarta/persistence/EmbeddedId.java), [Hibernate identifier guide](https://github.com/hibernate/hibernate-orm/blob/7.2.6/documentation/src/main/asciidoc/userguide/chapters/domain/identifiers.adoc), [ORM 7.2.19 UUID styles](https://github.com/hibernate/hibernate-orm/blob/7.2.19/hibernate-core/src/main/java/org/hibernate/annotations/UuidGenerator.java). Record support and Serializable guidance follow Persistence 3.2. |
+| Mapping defaults and lists | [Persistence 3.2 discriminator](https://github.com/jakartaee/persistence/blob/3.2-3.2.0-RELEASE/api/src/main/java/jakarta/persistence/DiscriminatorColumn.java), [OrderColumn](https://github.com/jakartaee/persistence/blob/3.2-3.2.0-RELEASE/api/src/main/java/jakarta/persistence/OrderColumn.java), [ORM 7.4.5 collection semantics](https://github.com/hibernate/hibernate-orm/blob/7.4.5/documentation/src/main/asciidoc/userguide/chapters/domain/collections.adoc). List declarations are not complete runtime collection classification. |
+| Enum/converter semantics | [Persistence 3.2 Enumerated](https://github.com/jakartaee/persistence/blob/3.2-3.2.0-RELEASE/api/src/main/java/jakarta/persistence/Enumerated.java), [Convert](https://github.com/jakartaee/persistence/blob/3.2-3.2.0-RELEASE/api/src/main/java/jakarta/persistence/Convert.java), [Converter](https://github.com/jakartaee/persistence/blob/3.2-3.2.0-RELEASE/api/src/main/java/jakarta/persistence/Converter.java). Auto-apply and XML resolution remain outside declaration-only checks. |
+| Entity equality and locking | [Hibernate entity guide](https://github.com/hibernate/hibernate-orm/blob/7.2.6/documentation/src/main/asciidoc/userguide/chapters/domain/entity.adoc), [locking guide](https://github.com/hibernate/hibernate-orm/blob/7.2.6/documentation/src/main/asciidoc/userguide/chapters/locking/Locking.adoc). General guidance is pinned to 7.2.6; no method-body or workload inference is claimed. |
+| Spring Data queries and newness | [Spring Data JPA query methods 4.1.0](https://github.com/spring-projects/spring-data-jpa/blob/4.1.0/src/main/antora/modules/ROOT/pages/jpa/query-methods.adoc), [primitive identifier handling 4.1.1](https://github.com/spring-projects/spring-data-commons/blob/4.1.1/src/main/java/org/springframework/data/repository/core/support/AbstractEntityInformation.java#L43-L56), [primitive version fallback 4.1.1](https://github.com/spring-projects/spring-data-jpa/blob/4.1.1/spring-data-jpa/src/main/java/org/springframework/data/jpa/repository/support/JpaMetamodelEntityInformation.java#L253-L264). Custom save/newness and runtime query rewriting need separate evidence. |
+| Cache infrastructure and defaults | [ORM 7.4.5 cache option construction](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/internal/SessionFactoryOptionsBuilder.java#L444-L477), [provider strategy defaults](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/model/internal/EntityBinder.java#L1838-L1882), [Quarkus ORM guide 3.33.0](https://github.com/quarkusio/quarkus/blob/3.33.0/docs/src/main/asciidoc/hibernate-orm.adoc). Cache enablement, region support and actual use are distinct. |
+| Pool selection and OSIV | [ORM 7.4.5 provider selection](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/engine/jdbc/connections/internal/ConnectionProviderInitiator.java#L134-L159), [Boot 4.1.1 OSIV activation](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-jpa/src/main/java/org/springframework/boot/jpa/autoconfigure/JpaBaseConfiguration.java), [Spring 7.0.9 MVC delegation](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-webmvc/src/main/java/org/springframework/web/servlet/config/annotation/DelegatingWebMvcConfiguration.java). Property or configurer-bean presence alone is insufficient. |
+| Quarkus schema actions | [3.33.3.1 provider precedence](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/runtime/src/main/java/io/quarkus/hibernate/orm/runtime/FastBootHibernatePersistenceProvider.java#L497-L499), [3.33.3.1 action configuration](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/runtime/src/main/java/io/quarkus/hibernate/orm/runtime/HibernateOrmRuntimeConfigPersistenceUnit.java), [ORM 7.2.19 Action](https://github.com/hibernate/hibernate-orm/blob/7.2.19/hibernate-core/src/main/java/org/hibernate/tool/schema/Action.java). Jakarta create-only and Hibernate destructive create differ. |
+| Kotlin and Panache | [Kotlin 2.3.20 JPA change](https://github.com/JetBrains/kotlin-web-site/blob/master/docs/topics/whatsnew/whatsnew2320.md#L395-L421), [Kotlin 2.3.10 plugin](https://github.com/JetBrains/kotlin/blob/v2.3.10/libraries/tools/kotlin-noarg/src/common/kotlin/org/jetbrains/kotlin/noarg/gradle/KotlinJpaSubplugin.kt), [Kotlin 2.3.21 plugin](https://github.com/JetBrains/kotlin/blob/v2.3.21/libraries/tools/kotlin-noarg/src/common/kotlin/org/jetbrains/kotlin/noarg/gradle/KotlinJpaSubplugin.kt), [Panache guide 3.33.0](https://github.com/quarkusio/quarkus/blob/3.33.0/docs/src/main/asciidoc/hibernate-orm-panache.adoc). Compiler output and platform transformation, not classpath presence, establish capability. |
