@@ -326,26 +326,41 @@ public abstract class AbstractMcpConformanceTest {
                             "/bootui/api/mcp",
                             Map.of("Content-Type", "application/json"),
                             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prompts/list\"}");
+            assertThat(list.status()).isEqualTo(200);
             JsonNode prompts = list.json().path("result").path("prompts");
             assertThat(prompts.isArray()).isTrue();
-            assertThat(prompts).isNotEmpty();
+            assertThat(prompts)
+                    .extracting(prompt -> prompt.path("name").asText())
+                    .containsExactly("diagnose_runtime_issue", "review_application", "assess_application");
 
-            String name = prompts.get(0).path("name").asText();
-            Response get = probe().request(
-                            "POST",
-                            "/bootui/api/mcp",
-                            Map.of("Content-Type", "application/json"),
-                            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"prompts/get\"," + "\"params\":{\"name\":\""
-                                    + name + "\"}}");
-            JsonNode result = get.json().path("result");
-            assertThat(result.path("description").isTextual()).isTrue();
-            assertThat(result.path("messages").get(0).path("role").asText()).isEqualTo("user");
-            assertThat(result.path("messages")
-                            .get(0)
-                            .path("content")
-                            .path("type")
-                            .asText())
-                    .isEqualTo("text");
+            for (JsonNode prompt : prompts) {
+                String name = prompt.path("name").asText();
+                assertThat(prompt.path("arguments").isArray()).isTrue();
+                assertThat(prompt.path("arguments")).isEmpty();
+                Response get = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                Map.of("Content-Type", "application/json"),
+                                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"prompts/get\"," + "\"params\":{\"name\":\""
+                                        + name + "\"}}");
+                assertThat(get.status()).isEqualTo(200);
+                JsonNode result = get.json().path("result");
+                assertThat(result.path("description").isTextual()).isTrue();
+                assertThat(result.path("messages")).hasSize(1);
+                JsonNode message = result.path("messages").get(0);
+                assertThat(message.path("role").asText()).isEqualTo("user");
+                assertThat(message.path("content").path("type").asText()).isEqualTo("text");
+                assertThat(message.path("content").path("text").asText()).isNotBlank();
+                if ("assess_application".equals(name)) {
+                    assertThat(message.path("content").path("text").asText())
+                            .contains(
+                                    "Start with existing evidence only",
+                                    "STOP after presenting the plan",
+                                    "specific plan version",
+                                    "external agent host's permissions",
+                                    "rule AND affected target");
+                }
+            }
         } finally {
             disableMcp();
         }
