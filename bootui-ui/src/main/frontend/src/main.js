@@ -9,10 +9,13 @@ import './assets/theme-minimal.css'
 import './assets/theme-win95.css'
 import App from './App.vue'
 import {routes} from './routes.js'
+import {createRouteAssetRecovery, routeAssetRecoveryKey} from './utils/routeAssetRecovery.js'
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes
 })
 
-createApp(App).use(router).mount('#app')
+const routeAssetRecovery = createRouteAssetRecovery(router)
+
+createApp(App).provide(routeAssetRecoveryKey, routeAssetRecovery).use(router).mount('#app')
