@@ -24,6 +24,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Quarkus application checks now distinguish evidence from assumptions.** Retired six unsupported
+  absence/correlation findings and corrected the remaining 13 rules, including create-only schema semantics,
+  legacy-property precedence, resolved CDI scopes/injection, runtime virtual-thread evidence, in-memory storage,
+  per-client timeout resolution and shutdown advice. Bounded scans preserve findings with explicit incomplete
+  coverage rather than guessing unknown values are clean. Retained rule IDs, dismissals and the shared `/spring`
+  report contract remain unchanged ([#959](https://github.com/jdubois/boot-ui/issues/959)).
+
 - **GraalVM readiness findings now distinguish classpath discovery from scanner configuration and cached results,
   recognize quoted SpEL bean names and factory references, and give more accurate Spring AOT and native-image
   remediation.** Nested dependency inspection stops before opening libraries beyond its 500-JAR budget, and generated

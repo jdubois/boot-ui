@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.SpringSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
+import io.github.jdubois.bootui.spi.QuarkusAppMetadata;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshot;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -19,16 +20,16 @@ import java.util.function.Supplier;
 /**
  * Quarkus-native application advisor scanner. The Quarkus replacement for the Spring {@code SpringScanner}:
  * it shares the {@link SpringReport} DTO (so the panel and UI are identical) but evaluates a framework-specific
- * ruleset over a neutral {@link QuarkusAppSnapshot} (CDI scope hygiene, build-time config, reactive idioms,
- * profiles, dev services). The catalogue lives in {@code docs/QUARKUS-ADVISOR-CHECKS.md}. Framework-free: depends only
+ * ruleset over a neutral {@link QuarkusAppSnapshot}. The catalogue lives in
+ * {@code docs/QUARKUS-ADVISOR-CHECKS.md}. Framework-free: depends only
  * on core DTOs and the SPI carrier.
  */
 public final class QuarkusAppScanner {
 
     static final String ANALYZER = "BootUI Quarkus advisor";
     private static final String DISCLAIMER =
-            "Heuristic local checks against the Quarkus application idioms (CDI scopes, MicroProfile config, "
-                    + "reactive vs blocking, profiles). Review prompts only; not a substitute for a manual review.";
+            "Evidence-based local review prompts for Quarkus application declarations and observed configuration."
+                    + " Not proof of a deployed production setting, runtime defect, or complete application review.";
     private static final Comparator<SpringRuleResultDto> IMPORTANCE = Comparator.comparingInt(
                     (SpringRuleResultDto r) -> SeverityOrder.rank(r.severity()))
             .thenComparing(r -> -r.violationCount())
@@ -54,6 +55,8 @@ public final class QuarkusAppScanner {
                 null,
                 List.of(),
                 0,
+                0,
+                List.of(),
                 List.of());
     }
 
@@ -66,27 +69,44 @@ public final class QuarkusAppScanner {
         try {
             snap = snapshotSupplier.get();
         } catch (RuntimeException | LinkageError ex) {
-            return report(
-                    "ERROR", "Could not read Quarkus application idioms.", clock.millis(), List.of(), 0, List.of());
+            snap = null;
         }
-        List<SpringRuleResultDto> violations = QuarkusAppChecks.evaluate(snap);
-        List<String> inspected = inspected(snap);
+        QuarkusAppChecks.Evaluation evaluation = QuarkusAppChecks.evaluate(snap);
+        String status =
+                evaluation.errors().isEmpty() ? "SCANNED" : evaluation.evidenceInspected() ? "PARTIAL" : "ERROR";
+        String message =
+                switch (status) {
+                    case "SCANNED" -> "Quarkus application evidence analysed.";
+                    case "PARTIAL" ->
+                        "Quarkus checks are incomplete. Available findings are retained; review evidence errors.";
+                    default -> "Could not inspect Quarkus application evidence.";
+                };
         return report(
-                "SCANNED",
-                "Quarkus application idioms analysed.",
+                status,
+                message,
                 clock.millis(),
-                inspected,
-                snap.beanCount(),
-                violations);
+                inspected(snap),
+                snap == null || snap.metadata() == null ? 0 : snap.metadata().beanCount(),
+                evaluation.rulesEvaluated(),
+                evaluation.findings(),
+                evaluation.errors());
     }
 
     private static List<String> inspected(QuarkusAppSnapshot s) {
         List<String> out = new ArrayList<>();
-        out.add(s.beanCount() + " managed beans");
-        out.add(s.endpointCount() + " JAX-RS endpoints");
-        out.add(s.configPropertyCount() + " @ConfigProperty sites");
+        if (s == null) {
+            return out;
+        }
+        QuarkusAppMetadata metadata = s.metadata();
+        if (metadata != null && metadata.available()) {
+            out.add(metadata.beanCount() + " resolved application class beans");
+            out.add(metadata.endpointCount() + " registered REST endpoints");
+            out.add(metadata.configPropertyCount() + " @ConfigProperty sites");
+            out.add(metadata.configMappingCount() + " configuration mappings");
+            out.add(metadata.scheduledDeclarationCount() + " scheduled declarations (not an active job count)");
+        }
         if (!s.activeProfiles().isEmpty()) {
-            out.add("profiles: " + String.join(",", s.activeProfiles()));
+            out.add(s.activeProfiles().size() + " active profiles");
         }
         return out;
     }
@@ -97,27 +117,23 @@ public final class QuarkusAppScanner {
             Long scannedAt,
             List<String> inspected,
             int componentsAnalyzed,
-            List<SpringRuleResultDto> raw) {
+            int rulesEvaluated,
+            List<SpringRuleResultDto> raw,
+            List<SpringRuleResultDto> errors) {
         List<SpringRuleResultDto> violations = raw.stream().sorted(IMPORTANCE).toList();
         SpringScanStatusDto scan = new SpringScanStatusDto(
-                ANALYZER,
-                status,
-                message,
-                scannedAt,
-                QuarkusAppChecks.ruleCount(),
-                componentsAnalyzed,
-                violations.size());
+                ANALYZER, status, message, scannedAt, rulesEvaluated, componentsAnalyzed, violations.size());
         return new SpringReport(
                 true,
                 DISCLAIMER,
                 inspected,
                 componentsAnalyzed,
-                QuarkusAppChecks.ruleCount(),
+                rulesEvaluated,
                 violations.size(),
                 severityCounts(violations),
                 scan,
                 violations,
-                List.of());
+                errors);
     }
 
     public SpringReport applyDismissals(SpringReport report, Set<String> dismissedIds) {
