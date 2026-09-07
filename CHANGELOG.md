@@ -24,6 +24,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **GraalVM readiness findings now distinguish classpath discovery from scanner configuration and cached results,
+  recognize quoted SpEL bean names and factory references, and give more accurate Spring AOT and native-image
+  remediation.** Nested dependency inspection stops before opening libraries beyond its 500-JAR budget, and generated
+  metadata/Docker scaffolds explain first-use hint conditions and remaining native-library requirements
+  ([#958](https://github.com/jdubois/boot-ui/issues/958)).
+
 - **The documentation now says how to keep console state across container image rebuilds.** An application rebuilt from
   source many times a day lost its dismissed advisor findings on every rebuild, because `.bootui/` lives in the image's
   working directory. The answer already existed — `bootui.overrides-file` locates the runtime overrides file *and* the

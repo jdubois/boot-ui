@@ -32,7 +32,8 @@ public final class GraalVmReadinessScanner {
     static final String DISCLAIMER =
             "Heuristic static checks run against the host application's own classes only, plus a survey of which "
                     + "dependencies ship reachability metadata. They complement, but do not replace, the GraalVM "
-                    + "tracing agent and an actual native-image build.";
+                    + "tracing agent and an actual native-image build and runtime tests. The scan does not determine "
+                    + "whether imported calls execute or whether existing framework hints cover them.";
 
     private static final Comparator<GraalVmFindingDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (GraalVmFindingDto finding) -> SeverityOrder.rank(finding.severity()))

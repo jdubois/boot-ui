@@ -115,7 +115,7 @@ final class ReflectionUsageCheck extends AbstractArchUnitGraalVmCheck {
                 GraalVmCategory.REFLECTION,
                 "MEDIUM",
                 "Detects calls to reflection APIs that require metadata when their targets are not constant (Class.forName/arrayType/member lookups, Method.invoke, Constructor.newInstance, and Field value access). Reflective metadata accessors such as Field.getName() are intentionally ignored.",
-                "Register the reflectively accessed types in reachability-metadata.json, or for application code register them with Spring's RuntimeHints (e.g. via @ImportRuntimeHints / RuntimeHintsRegistrar). Spring AOT already covers Spring-managed beans.",
+                "Review the actual target members and existing Spring AOT or dependency hints before adding registrations in reachability-metadata.json or Spring RuntimeHints. Spring AOT covers supported framework contracts, not every reflective operation performed by a Spring-managed bean.",
                 "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
@@ -314,7 +314,7 @@ final class ClassLoaderUsageCheck extends AbstractArchUnitGraalVmCheck {
                 "Dynamic class loading may need reflection metadata",
                 GraalVmCategory.REFLECTION,
                 "MEDIUM",
-                "Detects calls to ClassLoader.loadClass, which load classes by name at run time. Native Image can resolve some constant calls, while runtime-computed names need reflection metadata or experimental run-time class loading.",
+                "Detects calls to ClassLoader.loadClass, which resolve classes by name. Native Image can resolve some constant calls; other lookups within the image may need reflection metadata. Loading genuinely new bytecode is a separate, release-dependent experimental capability, not a general metadata remedy.",
                 "Register the dynamically loaded types under reflection in reachability-metadata.json, or replace ClassLoader.loadClass with direct class literals where possible.",
                 "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
@@ -557,9 +557,9 @@ final class RuntimeClassGenerationCheck extends AbstractArchUnitGraalVmCheck {
                 "Runtime class generation needs experimental native-image support",
                 GraalVmCategory.CLASS_GENERATION,
                 "HIGH",
-                "Detects runtime bytecode/class generation (ClassLoader/MethodHandles.Lookup/Unsafe defineClass methods, CGLIB, ByteBuddy, Javassist). GraalVM can enable experimental run-time class loading with -H:+RuntimeClassLoading (and optional JIT support), while the tracing agent's experimental Predefined Classes mode can replay a bounded set of previously seen classes. Both approaches need explicit build configuration and have important reachability, loading, and compatibility constraints.",
-                "Prefer Spring AOT or another build-time generator, or replace generated types with statically compiled equivalents. If generation truly cannot be avoided, validate the exact workload against -H:+RuntimeClassLoading and its -H:Preserve requirements, or evaluate Predefined Classes for bytecode that is stable across runs.",
-                "https://github.com/oracle/graal/blob/master/substratevm/docs/runtime-class-loading.md"));
+                "Detects runtime bytecode/class generation (ClassLoader/MethodHandles.Lookup/Unsafe defineClass methods, CGLIB, ByteBuddy, Javassist). Experimental runtime loading depends on the exact GraalVM release: 25.0.0 documents only trivial classes without fields or methods. The tracing agent's experimental Predefined Classes mode is also constrained and requires previously observed, stable bytecode.",
+                "Prefer Spring AOT or another build-time generator, or replace generated types with statically compiled equivalents. If generation cannot be avoided, validate the exact workload and experimental options against the shipped GraalVM distribution; current development-branch documentation is not a compatibility guarantee for GraalVM 25.",
+                "https://github.com/oracle/graal/blob/vm-25.0.0/substratevm/docs/runtime-class-loading.md"));
     }
 
     @Override
@@ -704,19 +704,29 @@ final class ActiveSerializationCheck extends AbstractArchUnitGraalVmCheck {
 }
 
 /**
- * Flags runtime classpath/component scanning (Spring's
+ * Flags classpath/component discovery operations (Spring's
  * {@code ClassPathScanningCandidateComponentProvider}, the Reflections library, or ClassGraph). The
- * closed-world native image has no scannable classpath at run time, so such scans return nothing.
+ * closed-world native image has no ordinary runtime classpath; call sites alone do not establish
+ * whether discovery happens during AOT processing or at runtime.
  */
 final class RuntimeClasspathScanningCheck extends AbstractArchUnitGraalVmCheck {
+
+    private static final Set<String> CLASSGRAPH_DISCOVERY = Set.of(
+            "scan",
+            "scanAsync",
+            "getClasspath",
+            "getClasspathFiles",
+            "getClasspathURIs",
+            "getClasspathURLs",
+            "getModules");
 
     RuntimeClasspathScanningCheck() {
         super(new GraalVmCheckDefinition(
                 "GRAAL-SCAN-001",
-                "Runtime classpath scanning does not work in native images",
+                "Classpath discovery calls require runtime versus build-time review",
                 GraalVmCategory.CLASSPATH_SCANNING,
                 "HIGH",
-                "Detects runtime classpath/component scanning (ClassPathScanningCandidateComponentProvider.findCandidateComponents, the Reflections library, or ClassGraph); the closed-world native image has no scannable classpath at run time.",
+                "Detects scan/discovery operations in Spring, Reflections, and ClassGraph, excluding scanner configuration and consumption of existing results. A native image has no ordinary runtime classpath; this static scan cannot determine whether a call executes at runtime, only during AOT processing, or not at all.",
                 "Resolve the scanning at build time. For Spring components rely on Spring AOT/component indexing rather than runtime scanning; replace library-based scanning with an explicit, statically known set of types.",
                 "https://docs.spring.io/spring-framework/reference/core/aot.html"));
     }
@@ -730,18 +740,34 @@ final class RuntimeClasspathScanningCheck extends AbstractArchUnitGraalVmCheck {
                     public boolean test(JavaCall<?> call) {
                         CodeUnitCallTarget target = call.getTarget();
                         String name = target.getName();
-                        String ownerName = target.getOwner().getName();
                         if ("findCandidateComponents".equals(name)
-                                && "org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider"
-                                        .equals(ownerName)) {
+                                && target.getOwner()
+                                        .isAssignableTo(
+                                                "org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider")) {
                             return true;
                         }
-                        // The Reflections library and ClassGraph commonly scan in their constructors, so match any
-                        // code unit (including <init>) on those types.
-                        if ("org.reflections.Reflections".equals(ownerName)) {
-                            return true;
+                        if (target.getOwner().isAssignableTo("org.reflections.Reflections")) {
+                            List<JavaClass> parameters = target.getRawParameterTypes();
+                            if ("<init>".equals(name)) {
+                                return !parameters.isEmpty()
+                                        && ("org.reflections.Configuration"
+                                                        .equals(parameters
+                                                                .get(0)
+                                                                .getName())
+                                                || parameters.get(0).isEquivalentTo(String.class)
+                                                || parameters.get(0).isEquivalentTo(Object[].class));
+                            }
+                            if ("scan".equals(name)) {
+                                return true;
+                            }
+                            // Static collect discovers metadata on the classpath; stream/file overloads do not.
+                            return "collect".equals(name)
+                                    && (parameters.isEmpty()
+                                            || "java.lang.String"
+                                                    .equals(parameters.get(0).getName()));
                         }
-                        return ownerName.startsWith("io.github.classgraph.");
+                        return CLASSGRAPH_DISCOVERY.contains(name)
+                                && target.getOwner().isAssignableTo("io.github.classgraph.ClassGraph");
                     }
                 })
                 .as("Classes should not scan the classpath at run time");
@@ -803,7 +829,7 @@ final class RuntimeInstanceSupplierCheck extends AbstractArchUnitGraalVmCheck {
                 GraalVmCategory.SPRING_AOT,
                 "HIGH",
                 "Detects bean definitions backed by a programmatic instance supplier (setInstanceSupplier, or registerBean/BeanDefinitionBuilder with a Supplier); Spring AOT cannot trace through the supplier lambda at build time, so the bean's type and dependencies may be missing from the native image.",
-                "Prefer declarative bean definitions (@Bean methods / component scanning) whose types Spring AOT can resolve, or use Spring Framework 7's BeanRegistrar / BeanRegistrarDsl for AOT-friendly programmatic registration; alternatively provide a RuntimeHintsRegistrar that registers the supplied type for reflection.",
+                "Prefer an AOT-discoverable constructor or factory-method bean definition (@Bean), or Spring Framework 7's BeanRegistrar / BeanRegistrarDsl. Infrastructure can supply a custom AOT code-generation contribution. RuntimeHintsRegistrar alone cannot generate the missing bean-instantiation code; add hints separately for remaining dynamic access.",
                 "https://docs.spring.io/spring-framework/reference/core/aot.html"));
     }
 
@@ -1029,32 +1055,39 @@ final class SpringAotConditionSupport {
         }
     }
 
-    private static boolean containsBeanReference(String expression) {
-        boolean singleQuoted = false;
-        boolean doubleQuoted = false;
-        for (int i = 0; i < expression.length() - 1; i++) {
+    static boolean containsBeanReference(String expression) {
+        char quote = 0;
+        for (int i = 0; i < expression.length(); i++) {
             char current = expression.charAt(i);
-            if (current == '\\' && doubleQuoted) {
-                i++;
-                continue;
-            }
-            if (current == '\'' && !doubleQuoted) {
-                if (singleQuoted && expression.charAt(i + 1) == '\'') {
-                    i++;
-                } else {
-                    singleQuoted = !singleQuoted;
+            if (quote != 0) {
+                if (current == quote) {
+                    if (i + 1 < expression.length() && expression.charAt(i + 1) == quote) {
+                        i++;
+                    } else {
+                        quote = 0;
+                    }
                 }
                 continue;
             }
-            if (current == '"' && !singleQuoted) {
-                doubleQuoted = !doubleQuoted;
+            if (current == '\'' || current == '"') {
+                quote = current;
                 continue;
             }
-            if (!singleQuoted
-                    && !doubleQuoted
-                    && current == '@'
-                    && Character.isJavaIdentifierStart(expression.charAt(i + 1))) {
-                return true;
+            if (current == '@' || current == '&') {
+                if (current == '&' && i + 1 < expression.length() && expression.charAt(i + 1) == '&') {
+                    i++;
+                    continue;
+                }
+                int next = i + 1;
+                while (next < expression.length() && Character.isWhitespace(expression.charAt(next))) {
+                    next++;
+                }
+                if (next < expression.length()) {
+                    char first = expression.charAt(next);
+                    if (Character.isJavaIdentifierStart(first) || first == '\'' || first == '"') {
+                        return true;
+                    }
+                }
             }
         }
         return false;
@@ -1133,11 +1166,11 @@ final class SpelUsageCheck extends AbstractArchUnitGraalVmCheck {
     SpelUsageCheck() {
         super(new GraalVmCheckDefinition(
                 "GRAAL-SPEL-001",
-                "Programmatic SpEL expression parsing relies on reflection with no AOT visibility",
+                "Programmatic SpEL expressions may require application-specific reflection hints",
                 GraalVmCategory.SPRING_AOT,
                 "MEDIUM",
                 "Detects calls to ExpressionParser.parseExpression / parseRaw (SpEL programmatic API); runtime-parsed expressions can use reflection to access object properties that are not visible to native-image, and the SpEL bytecode compiler is unsupported in native images.",
-                "Replace programmatic SpEL with direct Java code or annotation-driven evaluation (@PreAuthorize, @Value, @Cacheable) that Spring AOT processes statically. If programmatic SpEL is required, register all reflectively accessed types under reflection in reachability-metadata.json.",
+                "Prefer direct Java code where practical. If SpEL is required, review the actual types and members accessed and register missing reflection hints. Annotation-driven expressions such as @PreAuthorize, @Value, and @Cacheable can also need application-specific hints; annotation placement alone does not guarantee coverage. Exercise the expressions in the native executable.",
                 "https://docs.spring.io/spring-framework/reference/core/aot.html"));
     }
 

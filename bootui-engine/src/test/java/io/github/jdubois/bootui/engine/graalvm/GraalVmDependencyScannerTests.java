@@ -7,12 +7,16 @@ import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencyScanner.Dependen
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
+import java.util.zip.ZipEntry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -284,6 +288,93 @@ class GraalVmDependencyScannerTests {
 
         assertThat(survey.truncated()).isTrue();
         assertThat(survey.dependencies()).hasSize(GraalVmDependencyScanner.maxDependencies());
+    }
+
+    @Test
+    void nestedInspectionStopsBeforeOpeningExcessLibraries(@TempDir Path dir) throws IOException {
+        int limit = GraalVmDependencyScanner.maxDependencies();
+        for (int count : new int[] {limit - 1, limit, limit + 1}) {
+            Path archive = fatJarWithLibraries(dir, count);
+            try (CountingJarFile jar = new CountingJarFile(archive, limit, () -> {})) {
+                var result = new GraalVmDependencyScanner(() -> "").inspect(jar, limit);
+                assertThat(result.dependencies()).hasSize(Math.min(count, limit));
+                assertThat(jar.nestedOpened).isEqualTo(Math.min(count, limit));
+                assertThat(result.truncated()).isEqualTo(count > limit);
+            }
+        }
+    }
+
+    @Test
+    void nestedInspectionHonorsRemainingBudgetAndCancellation(@TempDir Path dir) throws IOException {
+        Path archive = fatJarWithLibraries(dir, 3);
+        GraalVmDependencyScanner scanner = new GraalVmDependencyScanner(() -> "");
+        try (CountingJarFile jar = new CountingJarFile(archive, 1, () -> {})) {
+            assertThat(scanner.inspect(jar, 1).truncated()).isTrue();
+            assertThat(jar.nestedOpened).isEqualTo(1);
+        }
+        try (CountingJarFile jar = new CountingJarFile(archive, 1, scanner::cancel)) {
+            assertThat(scanner.inspect(jar, 3).dependencies()).hasSize(1);
+            assertThat(jar.nestedOpened).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void surveyPassesRemainingBudgetToFatJar(@TempDir Path dir) throws IOException {
+        Path ordinary = jar(dir, "ordinary.jar", Map.of("App.class", "data"));
+        Path archive = fatJarWithLibraries(dir, 3);
+        String classpath = String.join(
+                        File.pathSeparator,
+                        Collections.nCopies(GraalVmDependencyScanner.maxDependencies() - 2, ordinary.toString()))
+                + File.pathSeparator
+                + archive;
+
+        DependencySurvey result = new GraalVmDependencyScanner(() -> classpath).scan();
+        assertThat(result.dependencies()).hasSize(GraalVmDependencyScanner.maxDependencies());
+        assertThat(result.truncated()).isTrue();
+        assertThat(result.dependencies())
+                .filteredOn(dep -> dep.name().startsWith("nested-"))
+                .hasSize(2);
+    }
+
+    @Test
+    void exactlyFullOrdinaryClasspathDoesNotClaimTruncation(@TempDir Path dir) throws IOException {
+        Path ordinary = jar(dir, "ordinary.jar", Map.of("App.class", "data"));
+        String classpath = String.join(
+                File.pathSeparator,
+                Collections.nCopies(GraalVmDependencyScanner.maxDependencies(), ordinary.toString()));
+        assertThat(new GraalVmDependencyScanner(() -> classpath).scan().truncated())
+                .isFalse();
+    }
+
+    private static Path fatJarWithLibraries(Path dir, int count) throws IOException {
+        Map<String, byte[]> libraries = new LinkedHashMap<>();
+        byte[] contents = jarBytes(Map.of("App.class", "data"));
+        for (int i = 0; i < count; i++) {
+            libraries.put("BOOT-INF/lib/nested-" + i + "-1.0.jar", contents);
+        }
+        return jarWithNestedJars(dir, "app-" + count + ".jar", Map.of(), libraries);
+    }
+
+    private static final class CountingJarFile extends JarFile {
+        private final int maximum;
+        private final Runnable onNestedOpen;
+        private int nestedOpened;
+
+        CountingJarFile(Path path, int maximum, Runnable onNestedOpen) throws IOException {
+            super(path.toFile());
+            this.maximum = maximum;
+            this.onNestedOpen = onNestedOpen;
+        }
+
+        @Override
+        public InputStream getInputStream(ZipEntry entry) throws IOException {
+            if (entry.getName().startsWith("BOOT-INF/lib/")) {
+                nestedOpened++;
+                assertThat(nestedOpened).as("nested streams opened").isLessThanOrEqualTo(maximum);
+                onNestedOpen.run();
+            }
+            return super.getInputStream(entry);
+        }
     }
 
     @Test
