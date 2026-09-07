@@ -746,6 +746,14 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
+- Calculate the same numeric score in the panel and Overview only for `SCANNED` reports with a valid severity
+  summary, `coverage.status=COMPLETE`, and no active UNKNOWN severity. NONE (CVSS zero) has no penalty; dismissed
+  UNKNOWN findings do not block scoring, but restoring them does. Missing coverage is unknown, not complete.
+  As with every scored advisor, PARTIAL displays Incomplete without a number, and ERROR/DISABLED/NOT_SCANNED never
+  score. Retain findings and diagnostic reports independently of eligibility. Overall averages and counts only
+  eligible scores, without changing the available-scanner total; report refresh after dismissal is GET-only.
+  Preserve the last accepted report on busy or transport failure, but replace its score when a new authoritative
+  incomplete or failed report arrives. Intentional rule inapplicability is not missing required evidence.
 - Derive severity only from OSV entries explicitly typed `CVSS_V3` and carrying a valid CVSS v3.0/v3.1 vector (per the
   FIRST.org specification), choosing the highest valid v3 Base Score when multiple entries exist. Prefer a
   package-level `affected[].severity` entry matching the scanned dependency over the advisory's top-level

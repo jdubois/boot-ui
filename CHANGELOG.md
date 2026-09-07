@@ -54,6 +54,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Advisor scores now exclude incomplete and failed assessments without hiding their findings.** Panels and Overview
+  share eligibility, including complete inventory coverage and no active UNKNOWN severity for Vulnerabilities.
+  Dismissal/restore refreshes vulnerability eligibility, and Overview's mean and scored count use the same contributors
+  ([#954](https://github.com/jdubois/boot-ui/issues/954)).
+
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
   collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,
