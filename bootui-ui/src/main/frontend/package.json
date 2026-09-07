@@ -22,7 +22,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.8",
     "@vitest/coverage-v8": "4.1.11",
-    "@vue/test-utils": "2.4.11",
+    "@vue/test-utils": "2.5.0",
     "fonteditor-core": "2.6.3",
     "jsdom": "30.0.1",
     "prettier": "3.9.6",
