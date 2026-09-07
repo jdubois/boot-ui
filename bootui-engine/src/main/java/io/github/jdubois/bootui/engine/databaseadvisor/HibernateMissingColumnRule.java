@@ -5,68 +5,84 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEnt
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedForeignKeyFacts;
 import java.util.List;
 
-/**
- * Cross-references every explicitly-named mapped column — basic {@code @Column(name=...)} attributes and
- * {@code @JoinColumn(s)} join columns — against the columns the table actually has.
- *
- * <p>A mapped column that does not exist physically is not a style question: every query touching that
- * attribute fails at runtime with "column does not exist", usually only on the code path that first selects
- * it. It normally means a migration was never applied, was applied to a different schema, or the entity is
- * ahead of the database.</p>
- *
- * <p>Only explicit names are checked (the bridge never guesses a naming strategy), and only tables whose
- * column metadata was read completely — a truncated column list would make every unread column look missing.
- * Hibernate's own {@code ddl-auto} validation covers the same ground at startup, but it is off in most
- * applications and it fails the boot instead of reporting; this reports it as a finding against the live
- * schema.</p>
- */
+/** Reviews annotation column names against a complete column inventory, not Hibernate's effective mapping. */
 final class HibernateMissingColumnRule extends AbstractHibernateCrossReferenceRule {
 
     HibernateMissingColumnRule() {
         super(new DatabaseAdvisorRuleDefinition(
                 "DB-HIB-006",
-                "Mapped column not found in the physical table",
+                "Declared column name not found in the observed relation",
                 DatabaseAdvisorCategory.HIBERNATE_MAPPING,
-                DatabaseAdvisorRuleSupport.HIGH,
+                DatabaseAdvisorRuleSupport.MEDIUM,
                 "Cross-references explicitly named @Column(name=...) attributes and @JoinColumn(s) join columns "
                         + "against DatabaseMetaData.getColumns() for the resolved physical table.",
-                "Apply the missing migration, or correct the mapping. Every query touching a mapped column that "
-                        + "does not exist fails at runtime with a \"column does not exist\" error, typically only "
-                        + "on the code path that first selects it.",
+                "Confirm the effective physical naming strategy and attribute placement, then compare the declaration "
+                        + "with migrations. Annotation names may differ from runtime physical names; this review "
+                        + "does not establish that queries will fail.",
                 "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html"));
     }
 
     @Override
-    void checkEntity(
+    boolean hasApplicableDeclarations(MappedEntityFacts entity) {
+        return !entity.columns().isEmpty()
+                || entity.foreignKeys().stream().anyMatch(key -> !key.columns().isEmpty());
+    }
+
+    @Override
+    boolean sufficientMetadata(TableModel table) {
+        return table.metadata().columnsRead() && !table.metadata().truncated();
+    }
+
+    @Override
+    int checkEntity(
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
             List<String> details) {
+        int eligible = 0;
         for (MappedColumnFacts column : entity.columns()) {
             MappedTableResolution resolution = resolveItemTable(context, entity, primary, column.tableName());
             if (!resolution.resolved()) {
                 continue;
             }
             TableModel table = resolution.table();
-            if (!table.hasColumn(column.columnName())) {
+            ColumnModel physical = resolution.schema().declaredColumn(table, column.columnName());
+            if (physical == null
+                    && unknownColumn(
+                            context, resolution.schema(), table, column.columnName(), column.attributeDescription())) {
+                continue;
+            }
+            eligible++;
+            if (physical == null) {
                 details.add(resolution.schema().dataSourceName() + ": " + column.attributeDescription()
-                        + " maps column " + table.qualifiedName() + "." + column.columnName()
-                        + ", which does not exist in the physical table.");
+                        + " declares column " + table.qualifiedName() + "." + column.columnName()
+                        + ", whose declaration name was not found in the observed relation's column inventory.");
             }
         }
         for (MappedForeignKeyFacts foreignKey : entity.foreignKeys()) {
+            if (foreignKey.columns().isEmpty()) {
+                continue;
+            }
             MappedTableResolution resolution = resolveItemTable(context, entity, primary, foreignKey.tableName());
             if (!resolution.resolved()) {
                 continue;
             }
             TableModel table = resolution.table();
             for (String column : foreignKey.columns()) {
-                if (!table.hasColumn(column)) {
+                ColumnModel physical = resolution.schema().declaredColumn(table, column);
+                if (physical == null
+                        && unknownColumn(
+                                context, resolution.schema(), table, column, foreignKey.attributeDescription())) {
+                    continue;
+                }
+                eligible++;
+                if (physical == null) {
                     details.add(resolution.schema().dataSourceName() + ": " + foreignKey.attributeDescription()
-                            + " maps join column " + table.qualifiedName() + "." + column
-                            + ", which does not exist in the physical table.");
+                            + " declares join column " + table.qualifiedName() + "." + column
+                            + ", whose declaration name was not found in the observed relation's column inventory.");
                 }
             }
         }
+        return eligible;
     }
 }

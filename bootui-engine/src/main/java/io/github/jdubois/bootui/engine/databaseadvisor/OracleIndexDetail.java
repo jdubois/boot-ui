@@ -2,7 +2,7 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 /**
  * One Oracle index's {@code all_indexes} attributes that JDBC's {@code getIndexInfo} cannot report: whether
- * it is usable, visible to the optimizer, automatically created to back a constraint, and whether its
+ * it is usable, visible to the optimizer, has a generated name, and whether its
  * per-partition status must be checked separately because the index itself is partitioned.
  *
  * @param indexType {@code all_indexes.index_type} (e.g. {@code NORMAL}, {@code BITMAP},
@@ -12,8 +12,7 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  *     {@link #partitioned()} — a partitioned index's real status lives on its partitions/subpartitions
  *     instead, in {@link OracleIndexPartitionStatus})
  * @param visibility {@code all_indexes.visibility} ({@code VISIBLE}/{@code INVISIBLE})
- * @param automatic {@code all_indexes.generated = 'Y'}: Oracle created this index itself to back a primary
- *     key or unique constraint, rather than the user creating it directly
+ * @param automatic {@code all_indexes.generated = 'Y'} means a generated name, not constraint ownership
  * @param partitioned {@code all_indexes.partitioned = 'YES'}
  */
 record OracleIndexDetail(
@@ -25,10 +24,43 @@ record OracleIndexDetail(
         String status,
         String visibility,
         boolean automatic,
-        boolean partitioned) {
+        boolean partitioned,
+        String tableOwner,
+        boolean uniquenessKnown) {
+
+    OracleIndexDetail(
+            String schema,
+            String table,
+            String index,
+            String indexType,
+            boolean unique,
+            String status,
+            String visibility,
+            boolean automatic,
+            boolean partitioned,
+            String tableOwner) {
+        this(schema, table, index, indexType, unique, status, visibility, automatic, partitioned, tableOwner, true);
+    }
+
+    OracleIndexDetail(
+            String schema,
+            String table,
+            String index,
+            String indexType,
+            boolean unique,
+            String status,
+            String visibility,
+            boolean automatic,
+            boolean partitioned) {
+        this(schema, table, index, indexType, unique, status, visibility, automatic, partitioned, schema, true);
+    }
 
     String qualifiedTable() {
-        return schema == null || schema.isBlank() ? table : schema + "." + table;
+        return tableOwner == null || tableOwner.isBlank() ? table : tableOwner + "." + table;
+    }
+
+    boolean unusable() {
+        return "UNUSABLE".equalsIgnoreCase(status);
     }
 
     boolean usable() {

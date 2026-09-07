@@ -5,8 +5,8 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  *
  * <p>A key part is either a plain column ({@code columnName} set) or an expression/functional key part
  * ({@code expression} set, {@code columnName} {@code null}). {@code prefixLength} carries MySQL/MariaDB's
- * {@code SUB_PART} — an index on {@code name(10)} indexes only the first ten characters, so it can neither
- * fully support an equality lookup nor enforce full-column uniqueness.</p>
+ * {@code SUB_PART} — an index on {@code name(10)} indexes only the first ten characters. Lookup applicability
+ * needs review; a positively known unique value prefix is stronger than full-value uniqueness.</p>
  *
  * @param columnName the indexed column, or {@code null} for an expression key part
  * @param expression the indexed expression, or {@code null} for a plain column key part
@@ -34,7 +34,7 @@ record IndexKeyPart(String columnName, String expression, Boolean ascending, Int
     }
 
     boolean matchesColumn(String candidate) {
-        return columnName != null && candidate != null && columnName.equalsIgnoreCase(candidate);
+        return columnName != null && candidate != null && columnName.equals(candidate);
     }
 
     String describe() {

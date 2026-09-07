@@ -3,49 +3,23 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Statements that look like they embed changing literal values where a bind parameter belongs.
- *
- * <p>The evidence is deliberately narrow, because "this SQL contains a number" is not evidence of anything.
- * A statement is reported only when all of the following hold over the retained SQL Trace window:</p>
- *
- * <ul>
- *   <li>Several executions normalize to the <em>same</em> shape once literals are replaced — so the
- *       application is running the same query repeatedly.</li>
- *   <li>Their raw texts <em>differ</em> — so the values are baked into the statement text and change from
- *       execution to execution, rather than being one fixed constant such as {@code WHERE deleted = 0}.</li>
- *   <li>At least one literal sits in a predicate position ({@code =}, a comparison, {@code IN (…)} or
- *       {@code LIKE}) — so the changing value is filtering data, which is exactly where a bind parameter
- *       belongs and where an unescaped value would be dangerous.</li>
- * </ul>
- *
- * <p>What this rule does <em>not</em> claim: it is not a SQL-injection finding. Concatenating a value that
- * the application itself derived (a computed id, an enum ordinal, a page size) is a performance and
- * plan-cache concern, not a vulnerability, and BootUI cannot see where the value came from. The rule reports
- * a shape worth reviewing and says so; treating it as proof of an exploitable defect would be wrong.</p>
- *
- * <p>Nothing captured here is a value. Evidence lines carry the normalized, literal-free statement shape and
- * counts only; distinct raw texts are counted through hashes that are never retained or displayed, so a
- * concatenated password, token or personal identifier cannot reach the report.</p>
- *
- * <p>The rule {@code SKIPPED}s when no statements were captured. An empty SQL Trace buffer means the panel
- * was never enabled or nothing has run yet — it is not a clean bill of health.</p>
- */
+/** Bounded observations of different retained SQL texts with the same normalized shape and predicate literals. */
 final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
 
     /** Distinct raw texts of one shape needed before the shape is reported at all. */
     private static final int MIN_VARIANTS = 2;
-
-    /** Distinct raw texts at which the evidence is called strong rather than suggestive. */
-    private static final int HIGH_CONFIDENCE_VARIANTS = 3;
 
     /** Distinct raw texts tracked per shape, bounding memory under a high-cardinality workload. */
     private static final int MAX_TRACKED_VARIANTS = 64;
@@ -53,31 +27,20 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
     /** Shapes examined, bounding the scan when an application runs thousands of distinct statements. */
     private static final int MAX_TRACKED_SHAPES = 500;
 
-    /**
-     * How much of a shape is shown. Deliberately well under {@link
-     * io.github.jdubois.bootui.engine.support.DetailText#DEFAULT_MAX_CHARS}, so one very long statement
-     * cannot push the counts and the confidence qualifier out of the sanitized detail line.
-     */
-    private static final int MAX_SHAPE_LENGTH = 110;
-
     SqlLiteralConcatenationRule() {
         super(new DatabaseAdvisorRuleDefinition(
                 "DB-RUNTIME-001",
-                "Statements that appear to embed literal values instead of bind parameters",
+                "SQL text variations with predicate literals",
                 DatabaseAdvisorCategory.RUNTIME_SQL,
-                DatabaseAdvisorRuleSupport.MEDIUM,
-                "Compares the statements retained by SQL Trace after normalization. Reports a statement shape "
-                        + "whose raw text changes between executions while its normalized form stays the same and a "
-                        + "changing literal sits in a filtering position, which is the signature of values being "
-                        + "concatenated into SQL instead of bound. Evidence is counts and literal-free shapes only; "
-                        + "no captured value is retained or shown.",
-                "Replace the embedded values with bind parameters (a PreparedStatement placeholder, a JPA query "
-                        + "parameter, or the equivalent in your query builder). Bound values let the database reuse "
-                        + "one execution plan instead of hard-parsing every variant, keep the statement text stable "
-                        + "in monitoring, and remove the class of defect where an untrusted value can change the "
-                        + "meaning of the statement. This is a shape worth reviewing, not proof of a vulnerability: "
-                        + "BootUI cannot see where the value came from.",
-                "https://cheatsheetseries.owasp.org/cheatsheets/Query_Parameterization_Cheat_Sheet.html"));
+                DatabaseAdvisorRuleSupport.LOW,
+                "Observes distinct retained SQL texts sharing a normalized shape and containing predicate literals. "
+                        + "Text differences may be in projections, comments or whitespace; this does not identify "
+                        + "which part changed or why. Examines at most 500 eligible shapes in the retained SQL Trace "
+                        + "window and counts at most 64 distinct texts per shape. No SQL text is displayed.",
+                "Review the existing SQL Trace evidence and its capture window to understand these text variations. "
+                        + "Framework-generated constants and formatting differences can explain this observation; "
+                        + "it does not establish a defect or prescribe a query change.",
+                "https://docs.oracle.com/en/java/javase/17/docs/api/java.sql/java/sql/PreparedStatement.html"));
     }
 
     @Override
@@ -89,10 +52,12 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
         }
 
         Map<String, ShapeEvidence> byShape = new LinkedHashMap<>();
+        int readableStatements = 0;
         for (SqlTraceEntryDto statement : statements) {
             if (statement.sql() == null || statement.sql().isBlank()) {
                 continue;
             }
+            readableStatements++;
             SqlStatementNormalizer.Result normalized = SqlStatementNormalizer.normalize(statement.sql());
             if (normalized.predicateLiteralCount() == 0) {
                 continue;
@@ -100,8 +65,13 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
             if (!byShape.containsKey(normalized.fingerprint()) && byShape.size() >= MAX_TRACKED_SHAPES) {
                 continue;
             }
-            byShape.computeIfAbsent(normalized.fingerprint(), key -> new ShapeEvidence(normalized.sql()))
+            byShape.computeIfAbsent(
+                            normalized.fingerprint(),
+                            key -> new ShapeEvidence(digest(key).substring(0, 16)))
                     .add(statement);
+        }
+        if (readableStatements == 0) {
+            return skipped("No readable SQL text was retained in the SQL Trace window.");
         }
 
         List<ShapeEvidence> reportable = byShape.values().stream()
@@ -116,18 +86,26 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
 
         List<String> details = new ArrayList<>();
         for (ShapeEvidence evidence : reportable) {
-            details.add(evidence.describe());
+            details.add(evidence.describe(statements.size()));
         }
         return violation(details);
+    }
+
+    private static String digest(String text) {
+        try {
+            return HexFormat.of()
+                    .formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is required by the Java platform", ex);
+        }
     }
 
     /** One normalized statement shape and the counts that decide whether it is reportable. */
     private static final class ShapeEvidence {
 
         private final String shape;
-        private final Set<Integer> rawTextHashes = new LinkedHashSet<>();
+        private final Set<String> rawTextHashes = new LinkedHashSet<>();
         private int executions;
-        private int nonPreparedExecutions;
 
         private ShapeEvidence(String shape) {
             this.shape = shape;
@@ -135,12 +113,9 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
 
         private void add(SqlTraceEntryDto statement) {
             executions++;
-            if (!"PREPARED".equals(statement.statementType())) {
-                nonPreparedExecutions++;
-            }
             if (rawTextHashes.size() < MAX_TRACKED_VARIANTS) {
                 // Only the hash is kept: it proves two executions differed without retaining what differed.
-                rawTextHashes.add(statement.sql().hashCode());
+                rawTextHashes.add(digest(statement.sql()));
             }
         }
 
@@ -156,26 +131,20 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
             return rawTextHashes.size() >= MIN_VARIANTS;
         }
 
-        private String describe() {
-            String confidence = rawTextHashes.size() >= HIGH_CONFIDENCE_VARIANTS ? "high" : "medium";
+        private String describe(int retainedStatements) {
             StringBuilder detail = new StringBuilder()
-                    .append(truncate(shape))
+                    .append("Shape ")
+                    .append(shape)
                     .append(" \u2014 ")
                     .append(executions)
                     .append(executions == 1 ? " execution, " : " executions, ")
                     .append(rawTextHashes.size())
                     .append(rawTextHashes.size() >= MAX_TRACKED_VARIANTS ? "+" : "")
                     .append(rawTextHashes.size() == 1 ? " distinct text" : " distinct texts")
-                    .append(", changing literal in a filtering position (confidence: ")
-                    .append(confidence);
-            if (nonPreparedExecutions > 0) {
-                detail.append(", ").append(nonPreparedExecutions).append(" via a plain Statement");
-            }
-            return detail.append(").").toString();
-        }
-
-        private static String truncate(String value) {
-            return value.length() <= MAX_SHAPE_LENGTH ? value : value.substring(0, MAX_SHAPE_LENGTH) + "…";
+                    .append(" containing predicate literals. Retained window: ")
+                    .append(retainedStatements)
+                    .append(" statements; at most 500 eligible shapes examined.");
+            return detail.toString();
         }
     }
 }

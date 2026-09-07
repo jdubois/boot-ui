@@ -7,9 +7,9 @@ import java.util.List;
 /**
  * Oracle-specific: an index the catalog reports unusable — {@code all_indexes.status = 'UNUSABLE'} for an
  * ordinary index, or an individual partition/subpartition reported {@code UNUSABLE} for a partitioned one,
- * where the index's own {@code status} reads {@code N/A} instead. An unusable index is silently skipped by
- * the optimizer, and (unless {@code SKIP_UNUSABLE_INDEXES} is enabled, which is Oracle's default since 10g)
- * every {@code INSERT}/{@code UPDATE} against the underlying table can fail outright until it is rebuilt.
+ * where the index's own {@code status} reads {@code N/A} instead. DML consequences depend on the kind of
+ * index and enforcement dependencies; {@code SKIP_UNUSABLE_INDEXES} does not generally bypass unusable
+ * unique indexes.
  *
  * <p>Domain indexes ({@code index_type = 'DOMAIN'}, e.g. Oracle Text or Spatial) are excluded: their status
  * semantics are governed by the domain index implementation's own auxiliary objects, which {@code
@@ -31,10 +31,10 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
                         + "index, whose own status reads N/A — individual UNUSABLE partitions/subpartitions in "
                         + "all_ind_partitions/all_ind_subpartitions. Domain indexes are excluded: their status "
                         + "semantics need their own domain index implementation to interpret reliably.",
-                "Rebuild the index (ALTER INDEX ... REBUILD, or ALTER INDEX ... REBUILD PARTITION/SUBPARTITION "
-                        + "for a single partition) during a maintenance window. An unusable index is never used "
-                        + "by the optimizer, and unless SKIP_UNUSABLE_INDEXES is enabled, DML against the "
-                        + "underlying table can fail outright until it is fixed.",
+                "Review the exact index/partition type and constraint dependencies before a supported rebuild "
+                        + "during a maintenance window. DML behavior depends on index kind, uniqueness enforcement "
+                        + "and SKIP_UNUSABLE_INDEXES; that setting does not generally bypass unusable unique indexes. "
+                        + "LOB/IOT and partitioned objects need their supported object-specific maintenance path.",
                 "https://docs.oracle.com/en/database/oracle/oracle-database/19/sqlrf/ALTER-INDEX.html"));
     }
 
@@ -43,11 +43,36 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
         List<SchemaSnapshot> schemas = context.schemasOf(Dialect.ORACLE);
         String skipReason = VendorRuleSupport.skipReason(
                 schemas, VendorFindingKinds.ORACLE_INDEX_DETAILS, "No Oracle datasource was detected.");
-        if (skipReason != null) {
+        if (skipReason != null
+                && schemas.stream()
+                        .noneMatch(schema -> VendorRuleSupport.available(
+                                schema, VendorFindingKinds.ORACLE_INDEX_PARTITION_STATUS))) {
             return skipped(skipReason);
         }
         List<String> details = new ArrayList<>();
+        int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
+            VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.ORACLE_INDEX_DETAILS);
+            boolean hasPartitioned = schema.vendorFindings().findings(VendorFindingKinds.ORACLE_INDEX_DETAILS).stream()
+                    .anyMatch(OracleIndexDetail::partitioned);
+            if (hasPartitioned) {
+                VendorRuleSupport.coverage(
+                        context, definition().id(), schema, VendorFindingKinds.ORACLE_INDEX_PARTITION_STATUS);
+            }
+            for (OracleIndexDetail index : schema.vendorFindings().findings(VendorFindingKinds.ORACLE_INDEX_DETAILS)) {
+                if (index.domain()) {
+                    continue;
+                }
+                if (index.partitioned()) {
+                    if (VendorRuleSupport.complete(schema, VendorFindingKinds.ORACLE_INDEX_PARTITION_STATUS)) {
+                        eligible++;
+                    }
+                } else if (index.usable() || index.unusable()) {
+                    eligible++;
+                } else {
+                    unknown(context, index.qualifiedTable() + ": index state is unknown, not explicit UNUSABLE.");
+                }
+            }
             if (VendorRuleSupport.available(schema, VendorFindingKinds.ORACLE_INDEX_DETAILS)) {
                 checkOrdinaryIndexes(schema, details);
             }
@@ -55,17 +80,17 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
                 checkPartitions(schema, details);
             }
         }
-        return violation(details);
+        return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 
     private void checkOrdinaryIndexes(SchemaSnapshot schema, List<String> details) {
         for (OracleIndexDetail index : schema.vendorFindings().findings(VendorFindingKinds.ORACLE_INDEX_DETAILS)) {
-            if (index.partitioned() || index.domain() || index.usable()) {
+            if (index.partitioned() || index.domain() || !index.unusable()) {
                 continue;
             }
-            String flavor = index.automatic() ? " (automatically created to back a constraint)" : "";
-            details.add(schema.dataSourceName() + ": index " + index.index() + flavor + " on table "
-                    + index.qualifiedTable() + " is UNUSABLE (" + index.indexType() + ").");
+            String flavor = index.automatic() ? " (system-generated name; not proof of constraint ownership)" : "";
+            details.add(schema.dataSourceName() + ": index " + index.schema() + "." + index.index() + flavor
+                    + " on table " + index.qualifiedTable() + " is UNUSABLE (" + index.indexType() + ").");
         }
     }
 
@@ -75,9 +100,17 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
             if (!partition.unusable()) {
                 continue;
             }
+            boolean domain = schema.vendorFindings().findings(VendorFindingKinds.ORACLE_INDEX_DETAILS).stream()
+                    .anyMatch(index -> java.util.Objects.equals(index.schema(), partition.schema())
+                            && java.util.Objects.equals(index.index(), partition.index())
+                            && index.domain());
+            if (domain) {
+                continue;
+            }
             String level = partition.subpartition() ? "subpartition" : "partition";
             details.add(schema.dataSourceName() + ": " + level + " " + partition.partitionName() + " of index "
-                    + partition.index() + " on table " + partition.qualifiedTable() + " is UNUSABLE.");
+                    + partition.schema() + "." + partition.index() + " on table " + partition.qualifiedTable()
+                    + " is UNUSABLE.");
         }
     }
 }

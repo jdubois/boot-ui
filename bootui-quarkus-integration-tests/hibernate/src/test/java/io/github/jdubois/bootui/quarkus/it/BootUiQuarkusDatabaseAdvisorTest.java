@@ -88,14 +88,16 @@ class BootUiQuarkusDatabaseAdvisorTest {
                 .isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("scan").path("status").asText())
-                .as("after POST /scan against a real H2 datasource the report must be SCANNED")
-                .isEqualTo("SCANNED");
+                .as("scan status; diagnostics: %s", scanned.path("diagnostics"))
+                .isEqualTo("PARTIAL");
+        assertThat(scanned.path("diagnostics").findValuesAsText("message"))
+                .anySatisfy(message -> assertThat(message).contains("access path", "cannot be established"));
         assertThat(scanned.path("tablesAnalyzed").asInt())
                 .as("Category, Product and Tag are all read from DatabaseMetaData")
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared rule registry (schema + dialect + Hibernate cross-reference rules) must have run")
-                .isGreaterThanOrEqualTo(8);
+                .isEqualTo(24);
 
         // Arc reports two DataSource beans here: the real Agroal pool and BootUI's own @Alternative SQL Trace
         // wrapper around it. Introspecting both would analyze the same physical database twice, under two
@@ -140,9 +142,9 @@ class BootUiQuarkusDatabaseAdvisorTest {
 
         // The result is cached, so a subsequent GET reflects the scan without re-running it.
         Response cached = probe().get("/bootui/api/database-advisor");
-        assertThat(cached.json().path("scan").path("status").asText())
+        assertThat(cached.json())
                 .as("the last report is cached across requests")
-                .isEqualTo("SCANNED");
+                .isEqualTo(scanned);
     }
 
     /** Empty on purpose: its only job is to give this class its own isolated Quarkus test instance. */

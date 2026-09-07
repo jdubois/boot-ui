@@ -4,29 +4,21 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * PostgreSQL-specific: a foreign key or check constraint added with {@code NOT VALID} and never validated.
- *
- * <p>{@code ALTER TABLE ... ADD CONSTRAINT ... NOT VALID} is the standard way to add a constraint to a large
- * table without a long lock, with the intent of running {@code VALIDATE CONSTRAINT} afterwards. When that
- * second step never happens the constraint stays half-enforced forever: new rows are checked, existing rows
- * are not, so the data may already violate it and the planner cannot use the constraint for optimization.
- * That is invisible in every generic metadata view — {@code getImportedKeys()} reports the foreign key as if
- * it were fully enforced.</p>
- */
+/** Current validation state, without inferring migration history or invalid application rows. */
 final class PostgresUnvalidatedConstraintRule extends AbstractDatabaseAdvisorRule {
 
     PostgresUnvalidatedConstraintRule() {
         super(new DatabaseAdvisorRuleDefinition(
                 "DB-PG-003",
-                "PostgreSQL NOT VALID constraint never validated",
+                "Unvalidated PostgreSQL constraints",
                 DatabaseAdvisorCategory.SCHEMA,
-                DatabaseAdvisorRuleSupport.HIGH,
+                DatabaseAdvisorRuleSupport.MEDIUM,
                 "Detects foreign key and check constraints with pg_constraint.convalidated = false, excluding "
                         + "system and extension-owned objects.",
-                "Run ALTER TABLE ... VALIDATE CONSTRAINT ... (which takes only a SHARE UPDATE EXCLUSIVE lock) "
-                        + "after fixing any offending rows. Until then the constraint is enforced for new rows "
-                        + "only: existing rows may already violate it, and the planner cannot rely on it.",
+                "Review whether validation is intentionally pending. For an enforced constraint, plan "
+                        + "VALIDATE CONSTRAINT after checking data and operational impact; validation scans "
+                        + "existing rows and takes locks, including locks on a referenced table for foreign keys. "
+                        + "PostgreSQL 18 NOT ENFORCED constraints require a separate enforcement decision first.",
                 "https://www.postgresql.org/docs/current/sql-altertable.html"));
     }
 
@@ -40,6 +32,8 @@ final class PostgresUnvalidatedConstraintRule extends AbstractDatabaseAdvisorRul
         }
         List<String> details = new ArrayList<>();
         for (SchemaSnapshot schema : schemas) {
+            VendorRuleSupport.coverage(
+                    context, definition().id(), schema, VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS);
             if (!VendorRuleSupport.available(schema, VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS)) {
                 continue;
             }
@@ -47,9 +41,19 @@ final class PostgresUnvalidatedConstraintRule extends AbstractDatabaseAdvisorRul
                     schema.vendorFindings().findings(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS)) {
                 details.add(schema.dataSourceName() + ": " + constraint.describeType() + " constraint "
                         + constraint.constraint() + " on " + constraint.qualifiedTable()
-                        + " was added NOT VALID and has never been validated.");
+                        + " is currently not validated. "
+                        + (Boolean.TRUE.equals(constraint.enforced())
+                                ? "New writes are checked. "
+                                : Boolean.FALSE.equals(constraint.enforced())
+                                        ? "It is NOT ENFORCED; new writes are not checked. "
+                                        : "Enforcement state is unknown. ")
+                        + "The snapshot does not establish when this state began or whether any row violates it.");
             }
         }
-        return violation(details);
+        int eligible = (int) schemas.stream()
+                .filter(schema ->
+                        VendorRuleSupport.complete(schema, VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS))
+                .count();
+        return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 }

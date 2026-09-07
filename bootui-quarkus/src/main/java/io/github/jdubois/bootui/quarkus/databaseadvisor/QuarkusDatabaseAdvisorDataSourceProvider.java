@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.quarkus.databaseadvisor;
 
+import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery.Failure;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceProvider;
 import io.github.jdubois.bootui.spi.NamedDataSource;
 import io.quarkus.arc.InjectableBean;
@@ -54,12 +56,18 @@ public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseA
 
     @Override
     public List<NamedDataSource> dataSources() {
+        return discover().requireComplete();
+    }
+
+    @Override
+    public DatabaseAdvisorDataSourceDiscovery discover() {
         if (dataSources.isUnsatisfied()) {
-            return List.of();
+            return new DatabaseAdvisorDataSourceDiscovery(List.of(), List.of());
         }
+        List<Failure> failures = new ArrayList<>();
         List<NamedDataSource> named = new ArrayList<>();
         Set<DataSource> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Candidate candidate : candidates()) {
+        for (Candidate candidate : candidates(failures)) {
             DataSource physical = physicalDataSource(candidate.dataSource());
             if (physical == null || !seen.add(physical)) {
                 continue;
@@ -68,19 +76,31 @@ public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseA
                     candidate.qualifiedName() != null ? candidate.qualifiedName() : positionalName(named.size() + 1);
             named.add(new NamedDataSource(name, candidate.dataSource()));
         }
-        return named;
+        return new DatabaseAdvisorDataSourceDiscovery(named, failures);
     }
 
     /** One {@code DataSource} bean plus the datasource name its Agroal qualifier declares, when it has one. */
     private record Candidate(DataSource dataSource, String qualifiedName) {}
 
-    private List<Candidate> candidates() {
+    private List<Candidate> candidates(List<Failure> failures) {
         List<Candidate> candidates = new ArrayList<>();
         if (dataSources instanceof InjectableInstance<DataSource> injectable) {
+            int position = 0;
             for (InstanceHandle<DataSource> handle : injectable.handles()) {
-                DataSource dataSource = handle.get();
-                if (dataSource != null) {
-                    candidates.add(new Candidate(dataSource, datasourceName(handle.getBean())));
+                String name = positionalName(++position);
+                try {
+                    String qualifiedName = datasourceName(handle.getBean());
+                    if (qualifiedName != null) {
+                        name = qualifiedName;
+                    }
+                    DataSource dataSource = handle.get();
+                    if (dataSource == null) {
+                        failures.add(new Failure(name, "Datasource bean resolved to null."));
+                    } else {
+                        candidates.add(new Candidate(dataSource, name));
+                    }
+                } catch (RuntimeException | LinkageError ex) {
+                    failures.add(new Failure(name, "Datasource bean could not be resolved: " + ex.getMessage()));
                 }
             }
             return candidates;

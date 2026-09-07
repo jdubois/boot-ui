@@ -4,23 +4,7 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Oracle-specific: a primary key, unique, foreign key, or check constraint that is disabled, or enabled
- * without having been validated against the rows that already exist.
- *
- * <p>Oracle constraint state is two independent flags, both worth knowing separately: {@code status}
- * ({@code ENABLED}/{@code DISABLED}) says whether new rows are checked at all, and {@code validated}
- * ({@code VALIDATED}/{@code NOT VALIDATED}) says whether the existing rows were ever confirmed to satisfy it.
- * {@code ALTER TABLE ... ENABLE NOVALIDATE} — the standard way to turn a constraint on for new rows without a
- * full-table validation scan — leaves a constraint that {@code DatabaseMetaData.getImportedKeys()} and every
- * generic JDBC view report as if it were fully enforced.</p>
- *
- * <p>Oracle's own system-generated column-level {@code NOT NULL} check constraint is excluded: it is
- * synthesized automatically for every {@code NOT NULL} column declaration, and reporting one of the dozens a
- * typical schema has would be pure noise rather than something the developer chose to leave incomplete. A
- * user-authored {@code CHECK (...)} constraint — even an unnamed one, which is also system-named — is not
- * excluded, since its search condition is not the exact {@code IS NOT NULL} test Oracle generates.</p>
- */
+/** Enabled and validated are independent catalog states, including for generated NOT NULL constraints. */
 final class OracleInvalidConstraintRule extends AbstractDatabaseAdvisorRule {
 
     OracleInvalidConstraintRule() {
@@ -29,51 +13,52 @@ final class OracleInvalidConstraintRule extends AbstractDatabaseAdvisorRule {
                 "Disabled or unvalidated Oracle constraints",
                 DatabaseAdvisorCategory.SCHEMA,
                 DatabaseAdvisorRuleSupport.HIGH,
-                "Detects primary key/unique/foreign key/check constraints reported all_constraints.status = "
-                        + "DISABLED, or all_constraints.validated = NOT VALIDATED, excluding Oracle's own "
-                        + "system-generated column-level NOT NULL check constraints.",
-                "Run ALTER TABLE ... ENABLE CONSTRAINT ... (after fixing any offending rows) to enable a "
-                        + "disabled constraint, or ALTER TABLE ... VALIDATE CONSTRAINT ... (or ENABLE VALIDATE, "
-                        + "which takes a stronger lock) to validate one already enabled without validation. A "
-                        + "disabled constraint enforces nothing at all, and one enabled NOVALIDATE may already "
-                        + "be violated by existing rows the database never checked.",
-                "https://docs.oracle.com/en/database/oracle/oracle-database/19/sqlrf/ALTER-TABLE.html"));
+                "Reviews explicit DISABLED or NOT VALIDATED primary-key, unique, foreign-key and check "
+                        + "constraint states, including column NOT NULL checks. State does not prove bad rows.",
+                "Review whether the state is intentional before a tested constraint migration. ENABLE NOVALIDATE "
+                        + "checks new writes without certifying existing rows; DISABLE VALIDATE can restrict DML. "
+                        + "Use the appropriate ENABLE VALIDATE transition after checking data, dependencies and locks; "
+                        + "do not assume enabling or validating is lock-free.",
+                "https://docs.oracle.com/en/database/oracle/oracle-database/19/sqlrf/constraint.html"));
     }
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.schemasOf(Dialect.ORACLE);
-        String skipReason = VendorRuleSupport.skipReason(
+        String reason = VendorRuleSupport.skipReason(
                 schemas, VendorFindingKinds.ORACLE_CONSTRAINTS, "No Oracle datasource was detected.");
-        if (skipReason != null) {
-            return skipped(skipReason);
+        if (reason != null) {
+            return skipped(reason);
         }
         List<String> details = new ArrayList<>();
+        int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
-            if (!VendorRuleSupport.available(schema, VendorFindingKinds.ORACLE_CONSTRAINTS)) {
-                continue;
-            }
+            VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.ORACLE_CONSTRAINTS);
             for (OracleConstraintDetail constraint :
                     schema.vendorFindings().findings(VendorFindingKinds.ORACLE_CONSTRAINTS)) {
-                checkConstraint(schema, constraint, details);
+                boolean disabled = "DISABLED".equalsIgnoreCase(constraint.status());
+                boolean unvalidated = "NOT VALIDATED".equalsIgnoreCase(constraint.validated());
+                if ((!disabled && !constraint.enabled())
+                        || (!unvalidated && !constraint.validatedAgainstExistingRows())) {
+                    unknown(context, constraint.qualifiedTable() + ": constraint status/validation is unknown.");
+                    if (!disabled && !unvalidated) {
+                        continue;
+                    }
+                }
+                eligible++;
+                if (disabled || unvalidated) {
+                    details.add(schema.dataSourceName() + ": " + constraint.describeType() + " constraint "
+                            + constraint.constraintName() + " on " + constraint.qualifiedTable() + " is "
+                            + constraint.status() + " / " + constraint.validated() + ". "
+                            + (constraint.enabled()
+                                    ? "New writes are checked; existing rows are not certified by this state."
+                                    : constraint.validatedAgainstExistingRows()
+                                            ? "DISABLE VALIDATE retains validated state and can restrict DML; it does not mean unrestricted writes."
+                                            : "Review the disabled state and any dependent constraints.")
+                            + " The snapshot does not prove invalid rows or forgotten validation.");
+                }
             }
         }
-        return violation(details);
-    }
-
-    private void checkConstraint(SchemaSnapshot schema, OracleConstraintDetail constraint, List<String> details) {
-        if (constraint.systemGeneratedNotNull()) {
-            return;
-        }
-        boolean disabled = !constraint.enabled();
-        boolean unvalidated = !constraint.validatedAgainstExistingRows();
-        if (!disabled && !unvalidated) {
-            return;
-        }
-        String state = disabled && unvalidated
-                ? "disabled and not validated against existing rows"
-                : disabled ? "disabled" : "enabled but not validated against existing rows";
-        details.add(schema.dataSourceName() + ": " + constraint.describeType() + " constraint "
-                + constraint.constraintName() + " on " + constraint.qualifiedTable() + " is " + state + ".");
+        return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 }

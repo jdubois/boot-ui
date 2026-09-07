@@ -24,6 +24,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Database advisor findings now distinguish incomplete evidence from absence.** Qualified JDBC metadata,
+  index/constraint semantics, vendor generator bounds and database-side mapping comparisons are reviewed more
+  conservatively. Four unsupported rules are retired without reusing their IDs, and SQL text variation is a
+  descriptive review rather than an injection or concatenation claim. Discovery failures remain visible alongside
+  readable datasources. The dedicated catalog documents evidence, version gates and limitations
+  ([#977](https://github.com/jdubois/boot-ui/issues/977)).
+
 - **Quarkus application checks now distinguish evidence from assumptions.** Retired six unsupported
   absence/correlation findings and corrected the remaining 13 rules, including create-only schema semantics,
   legacy-property precedence, resolved CDI scopes/injection, runtime virtual-thread evidence, in-memory storage,

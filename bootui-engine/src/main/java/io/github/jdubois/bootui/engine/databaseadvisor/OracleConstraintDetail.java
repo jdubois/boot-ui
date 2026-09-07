@@ -8,13 +8,13 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  *     {@code R} (foreign key), {@code C} (check, which also covers a column-level {@code NOT NULL})
  * @param status {@code all_constraints.status}: {@code ENABLED} or {@code DISABLED}
  * @param validated {@code all_constraints.validated}: {@code VALIDATED} or {@code NOT VALIDATED} — a
- *     {@code DISABLE NOVALIDATE} or {@code ENABLE NOVALIDATE} constraint accepts new rows without checking
- *     them against existing data
+ *     {@code ENABLE NOVALIDATE} checks new writes without certifying existing rows; {@code DISABLE VALIDATE}
+ *     retains validation state and can restrict DML
  * @param systemGeneratedName {@code all_constraints.generated = 'GENERATED NAME'}: Oracle named this
  *     constraint itself (e.g. {@code SYS_C0012345}), most commonly a column-level {@code NOT NULL}
  * @param searchCondition {@code all_constraints.search_condition_vc}, the check expression text — used only
  *     to recognize Oracle's own system-generated {@code NOT NULL} check constraint (the search condition
- *     reads {@code "COLUMN" IS NOT NULL}) so it can be excluded, never to evaluate the condition itself
+ *     reads {@code "COLUMN" IS NOT NULL}), never to evaluate the condition itself or suppress invalid states
  */
 record OracleConstraintDetail(
         String schema,
@@ -24,7 +24,37 @@ record OracleConstraintDetail(
         String status,
         String validated,
         boolean systemGeneratedName,
-        String searchCondition) {
+        String searchCondition,
+        String indexOwner,
+        String indexName,
+        String deferrable,
+        String deferred,
+        String rely) {
+
+    OracleConstraintDetail(
+            String schema,
+            String table,
+            String constraintName,
+            String constraintType,
+            String status,
+            String validated,
+            boolean systemGeneratedName,
+            String searchCondition) {
+        this(
+                schema,
+                table,
+                constraintName,
+                constraintType,
+                status,
+                validated,
+                systemGeneratedName,
+                searchCondition,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
 
     String qualifiedTable() {
         return schema == null || schema.isBlank() ? table : schema + "." + table;

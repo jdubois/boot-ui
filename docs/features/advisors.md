@@ -235,13 +235,12 @@ resolved targets, named `beanName[lookupKey]`.
 
 ::: details The generic structural checks
 - A missing primary key.
-- A foreign key whose complete ordered column list has no usable supporting index.
-- Duplicate or overlapping indexes.
+- A physical foreign key without a known complete leading-column access path, as a contextual review.
+- Exact ordinary-index definition overlap, not merely a shorter leading prefix.
 - A foreign-key column whose type disagrees with the column it references.
 - A redundant unique index duplicating the primary key.
 - Duplicate foreign-key constraints.
 - A narrow auto-generated primary key.
-- A composite foreign key or unique index with partially nullable columns.
 :::
 
 ### Bounded, honest scans
@@ -249,20 +248,22 @@ resolved targets, named `beanName[lookupKey]`.
 Every scan runs under fixed bounds and reports exactly what it could not do:
 
 - at most 300 tables, 300 columns and 100 indexes per table, 500 rows per catalog query;
-- an overall 20-second budget and a 5-second timeout on every catalog statement.
+- a cooperative 20-second budget and a 5-second timeout on every catalog statement.
+
+The budget cannot guarantee interruption of a blocking driver metadata call or connection acquisition.
 
 A reached bound is detected deterministically by reading one row past it, and the connection's original read-only state
 is restored before it returns to the pool. A datasource that could not be read, a refused table, a catalog view a role
 cannot see, a truncated scan, and every skipped or errored rule are reported as per-datasource statuses and
-diagnostics — never as passing checks, and never counted as findings or against the score. Credentials in a JDBC URL or a
+diagnostics — never as passing checks, and never counted as findings. Credentials in a JDBC URL or a
 driver error message are always redacted.
 
 | Status     | Meaning                          |
 | ---------- | -------------------------------- |
 | `SCANNED`  | Everything was read completely   |
 | `PARTIAL`  | Something was not read           |
-| `ERROR`    | Every datasource failed          |
-| `DISABLED` | No `DataSource` bean to inspect  |
+| `ERROR`    | Discovery failed or no schema could be read |
+| `DISABLED` | Successful discovery found no datasource |
 
 A catalog query blocked by restricted privileges makes its rule report `SKIPPED` with that reason instead of silently
 reporting no findings.
@@ -278,14 +279,14 @@ to the generic checks.
 - Invalid or broken indexes (`pg_index`, excluding partitioned index parents and one being built `CONCURRENTLY`).
 - A sequence nearing exhaustion, measured against the smaller of its own maximum and its **owning column's** capacity
   (the classic `bigint` sequence feeding an `integer` column).
-- Constraints added `NOT VALID` and never validated.
-- A table published for logical replication with no usable replica identity.
+- Constraints currently not validated, without inferring migration history.
+- A table publishing updates/deletes with no usable replica identity; INSERT-only publications are excluded.
 
 **MySQL/MariaDB:**
 
 - Tables on a non-transactional storage engine.
-- The legacy three-byte `utf8mb3` character set, with dialect-appropriate collation guidance (MySQL 8.0's
-  `utf8mb4_0900_ai_ci` does not exist on MariaDB).
+- The legacy three-byte `utf8mb3` character set, with version-aware comparison-semantics guidance.
+  MariaDB 11.4.5+ supports `0900` collation names as aliases; older versions must not be assumed to support them.
 - An `AUTO_INCREMENT` counter nearing its column type's signed/unsigned capacity.
 
 **Oracle:**
@@ -326,23 +327,22 @@ Hibernate panel uses. This half is skipped (with a clear reason, not silently dr
 Hibernate metamodel is unavailable.
 
 ::: details What the cross-reference checks
-- Mapped `@JoinColumn`/`@JoinColumns` foreign keys with no supporting physical index, or no physical foreign-key
-  constraint at all — skipping an association declaring `@ForeignKey(ConstraintMode.NO_CONSTRAINT)`, and never
-  double-counting a physical foreign key `DB-SCHEMA-002` already evaluates.
-- An explicitly-`@Table`-named entity or `@SecondaryTable` with no matching physical table.
-- A mapped column that does not exist physically.
-- Type-family and *explicitly declared* nullability mismatches.
-- An *explicitly declared* `@Column(length=...)` longer than the physical column can hold.
+- An explicit association without a matching physical foreign-key constraint, excluding `NO_CONSTRAINT`.
+- An explicit declared table or column name not observed in complete scoped metadata.
+- Supported nondefault nullability declaration mismatches, not guessed Java-to-JDBC type mappings.
+- A nondefault declared `@Column(length=...)` longer than a positively bounded physical string column.
 - A mapped unique constraint with no physical index that genuinely enforces it.
-- A `@SequenceGenerator(allocationSize=...)` that disagrees with the physical sequence's `INCREMENT BY`.
 
 Only entities with an *explicit* `@Table(name = ...)` are cross-referenced — entities relying on the default naming
-strategy are skipped rather than guessed. Matching honors a declared `catalog`/`schema`, and a mapped name that matches
+strategy are skipped rather than guessed. Even explicit names remain logical names subject to a physical naming
+strategy: these are declaration-versus-observation reviews, not effective runtime-mapping validation.
+Matching honors a declared `catalog`/`schema`, and a mapped name that matches
 tables in several readable datasources is treated as ambiguous rather than attributed to an arbitrary one. An entity
 split across secondary tables has each column, join column, and unique constraint checked against the table it is
 actually pinned to. Composite foreign-key matching tolerates the physical constraint's own column order but not a
 different child-to-parent pairing, and verifies the referenced table when resolvable. Attributes whose persisted shape is
-decided by a converter, `@Enumerated`, or `@Lob` are skipped by the type and length rules.
+decided by a converter, `@Enumerated`, or `@Lob` are not treated as known JDBC representations.
+The catalog documents four retired IDs, including annotation-only sequence-allocation inference.
 :::
 
 ::: details Out of scope by design

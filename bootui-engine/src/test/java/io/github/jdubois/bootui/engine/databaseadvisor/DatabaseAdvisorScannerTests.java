@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDataSourceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.io.PrintWriter;
 import java.sql.Connection;
@@ -101,7 +102,12 @@ class DatabaseAdvisorScannerTests {
         DatabaseAdvisorReport report =
                 scannerFor(List.of(new NamedDataSource("primary", dataSource))).scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("DB-SCHEMA-002");
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+            assertThat(diagnostic.message()).contains("access path", "cannot be established");
+        });
         assertThat(report.dataSourceNames()).containsExactly("primary");
         assertThat(report.tablesAnalyzed()).isEqualTo(3);
         assertThat(report.results()).isNotEmpty();
@@ -161,9 +167,11 @@ class DatabaseAdvisorScannerTests {
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.truncated()).isTrue();
-        assertThat(report.tablesAnalyzed()).isEqualTo(1);
+        // H2 returns a filtered system relation first; rejected rows still consume the raw-row bound.
+        assertThat(report.tablesAnalyzed()).isZero();
         assertThat(report.diagnostics())
-                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("Only the first 1 tables"));
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message())
+                        .contains("table metadata row bound", "0 scoped relations", "coverage is incomplete"));
         assertThat(report.dataSources()).singleElement().satisfies(status -> {
             assertThat(status.truncated()).isTrue();
             assertThat(status.status()).isEqualTo("PARTIAL");
@@ -222,7 +230,77 @@ class DatabaseAdvisorScannerTests {
                 },
                 () -> EntityDiscovery.empty(null),
                 FIXED_CLOCK);
-        assertThat(scanner.scan().scan().status()).isEqualTo("DISABLED");
+        DatabaseAdvisorReport report = scanner.scan();
+        assertThat(report.scan().status()).isEqualTo("ERROR");
+        assertThat(report.diagnostics())
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("Datasource discovery failed"));
+    }
+
+    @Test
+    void nullDiscoveryIsNotASuccessfullyEmptyInventory() {
+        DatabaseAdvisorReport report = DatabaseAdvisorScanner.using(
+                        () -> null, () -> EntityDiscovery.empty(null), FIXED_CLOCK)
+                .scan();
+        assertThat(report.scan().status()).isEqualTo("ERROR");
+    }
+
+    @Test
+    void partialBeanDiscoveryRetainsReadableSchemasAndFailedNames() {
+        DatabaseAdvisorReport report = DatabaseAdvisorScanner.usingDiscovery(
+                        () -> new DatabaseAdvisorDataSourceDiscovery(
+                                List.of(new NamedDataSource("primary", dataSource)),
+                                List.of(new DatabaseAdvisorDataSourceDiscovery.Failure(
+                                        "secondary", "Bean initialization failed"))),
+                        () -> EntityDiscovery.empty(null),
+                        List::of,
+                        FIXED_CLOCK)
+                .scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.dataSourceNames()).containsExactly("primary", "secondary");
+        assertThat(report.dataSources())
+                .extracting(DatabaseAdvisorDataSourceDto::status)
+                .containsExactly("AVAILABLE", "FAILED");
+        assertThat(report.results()).anyMatch(result -> result.id().equals("DB-SCHEMA-001"));
+    }
+
+    @Test
+    void failingOptionalEvidenceDoesNotEraseSchemaFindingsOrClaimACompleteScan() {
+        DatabaseAdvisorReport report = DatabaseAdvisorScanner.using(
+                        () -> List.of(new NamedDataSource("primary", dataSource)),
+                        () -> {
+                            throw new IllegalStateException("metamodel unavailable");
+                        },
+                        () -> {
+                            throw new IllegalStateException("trace unavailable");
+                        },
+                        FIXED_CLOCK)
+                .scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.results()).anyMatch(result -> result.id().equals("DB-SCHEMA-001"));
+        assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("Hibernate metadata");
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+        });
+        assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("SQL Trace");
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+        });
+    }
+
+    @Test
+    void retiredIdsAreNotRegisteredOrReusedAndOldDismissalsAreHarmless() {
+        Set<String> retired = Set.of("DB-SCHEMA-008", "DB-SCHEMA-009", "DB-HIB-001", "DB-HIB-008");
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(24);
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules())
+                .noneMatch(rule -> retired.contains(rule.definition().id()));
+        DatabaseAdvisorScanner scanner = scannerFor(List.of(new NamedDataSource("primary", dataSource)));
+        DatabaseAdvisorReport report = scanner.scan();
+        DatabaseAdvisorReport dismissed = scanner.applyDismissals(report, retired);
+        assertThat(dismissed.results()).isEqualTo(report.results());
+        assertThat(dismissed.severityCounts()).isEqualTo(report.severityCounts());
+        assertThat(dismissed.scan().status()).isEqualTo(report.scan().status());
     }
 
     /** Minimal H2-backed {@link DataSource} that opens a fresh connection per call, like a real pool. */

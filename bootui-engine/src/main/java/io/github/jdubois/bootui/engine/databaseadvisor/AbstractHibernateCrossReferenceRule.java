@@ -23,11 +23,13 @@ abstract class AbstractHibernateCrossReferenceRule extends AbstractDatabaseAdvis
     }
 
     /** Adds any findings for one entity, given its resolved primary-table facts. */
-    abstract void checkEntity(
+    abstract int checkEntity(
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
             List<String> details);
+
+    abstract boolean hasApplicableDeclarations(MappedEntityFacts entity);
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
@@ -37,18 +39,42 @@ abstract class AbstractHibernateCrossReferenceRule extends AbstractDatabaseAdvis
         if (context.availableSchemas().isEmpty()) {
             return skipped("No physical schema could be read to cross-reference against.");
         }
+        List<MappedEntityFacts> targeted = context.hibernateEntities().stream()
+                .filter(entity -> entity.explicitTableName() != null
+                        && !entity.explicitTableName().isBlank())
+                .filter(this::hasApplicableDeclarations)
+                .toList();
+        if (targeted.isEmpty()) {
+            return skipped("No applicable explicit mapping declarations with supported table placement were found.");
+        }
+        if (context.schemas().size() != 1) {
+            unknown(context, "The mapping facts do not associate persistence units with the discovered datasources.");
+            return skipped("Multiple datasource inventories cannot be attributed to these mapping declarations.");
+        }
         List<String> details = new ArrayList<>();
-        for (MappedEntityFacts entity : context.hibernateEntities()) {
+        int eligible = 0;
+        for (MappedEntityFacts entity : targeted) {
             MappedTableResolution resolution = MappedTableResolution.resolve(context, entity);
             if (!resolution.resolved()) {
+                if (resolution.status() != MappedTableResolution.Status.NOT_MAPPED
+                        && resolution.status() != MappedTableResolution.Status.NOT_FOUND) {
+                    unknown(
+                            context,
+                            entity.entityName() + ": declaration-name/source resolution is uncertain"
+                                    + (resolution.detail() == null ? "." : ": " + resolution.detail()));
+                }
                 continue;
             }
-            if (!resolution.table().metadata().complete() && requiresCompleteMetadata()) {
+            if (!supportsRelation(resolution.table())) {
                 continue;
             }
-            checkEntity(context, resolution, entity, details);
+            if (!sufficientMetadata(resolution.table())) {
+                unknown(context, entity.entityName() + ": relation metadata is incomplete.");
+                continue;
+            }
+            eligible += checkEntity(context, resolution, entity, details);
         }
-        return violation(details);
+        return assessed(context, eligible, details);
     }
 
     /**
@@ -56,7 +82,7 @@ abstract class AbstractHibernateCrossReferenceRule extends AbstractDatabaseAdvis
      * to: {@code primary} when the item declares no explicit {@code table=} override, or the named
      * {@code @SecondaryTable} otherwise. Returns a resolution with {@link MappedTableResolution#resolved()}
      * {@code false} when the override does not match a declared secondary table, that secondary table cannot
-     * be found unambiguously in the physical schema, or (when {@link #requiresCompleteMetadata()}) its metadata
+     * be found unambiguously in the physical schema, or (according to {@link #sufficientMetadata}) its metadata
      * was not read completely — skip that item rather than guess or risk a false "absent" finding.
      */
     final MappedTableResolution resolveItemTable(
@@ -68,19 +94,50 @@ abstract class AbstractHibernateCrossReferenceRule extends AbstractDatabaseAdvis
                 ? primary
                 : MappedTableResolution.resolveSecondary(context, entity, itemTableName);
         if (!resolution.resolved()) {
+            unknown(context, entity.entityName() + ": item table placement or source identity is unresolved.");
             return resolution;
         }
-        if (requiresCompleteMetadata() && !resolution.table().metadata().complete()) {
-            return new MappedTableResolution(MappedTableResolution.Status.NOT_FOUND, null, null, null);
+        if (!supportsRelation(resolution.table())) {
+            return new MappedTableResolution(MappedTableResolution.Status.NOT_MAPPED, null, null, null);
+        }
+        if (!sufficientMetadata(resolution.table())) {
+            unknown(context, entity.entityName() + ": item relation metadata is incomplete.");
+            return new MappedTableResolution(MappedTableResolution.Status.NOT_MAPPED, null, null, null);
         }
         return resolution;
     }
 
     /**
-     * Whether the rule needs fully-read table metadata. Rules that conclude something is <em>absent</em> must
-     * not run against a table whose metadata was truncated or partly unreadable.
+     * Whether the metadata needed by this rule was read. Unrelated metadata failures do not invalidate
+     * positively observed facts.
      */
-    boolean requiresCompleteMetadata() {
+    boolean sufficientMetadata(TableModel table) {
+        return table.metadata().complete();
+    }
+
+    boolean supportsRelation(TableModel table) {
         return true;
+    }
+
+    /** Called only when no single observed column matched a declaration. */
+    final boolean unknownColumn(
+            DatabaseAdvisorContext context,
+            SchemaSnapshot schema,
+            TableModel table,
+            String declaredName,
+            String description) {
+        if (!schema.declarationCaseKnown(declaredName)
+                || !table.metadata().columnsRead()
+                || table.metadata().truncated()
+                || table.columns().stream()
+                                .filter(column -> schema.declaredMatches(column.name(), declaredName))
+                                .count()
+                        > 1) {
+            unknown(
+                    context,
+                    description + ": column identifier policy or column inventory is incomplete or ambiguous.");
+            return true;
+        }
+        return false;
     }
 }
