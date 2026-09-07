@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.restapi.kotlinfixtures
 
 import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -9,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import reactor.core.publisher.Mono
 
 /**
  * Kotlin REST fixtures. Suspending handler methods are the point: each one compiles to a method with
@@ -33,4 +35,18 @@ class KotlinOrderController {
     suspend fun createOrder(@RequestBody order: KotlinOrderDto) {
         // no result: the declared type is kotlin.Unit, the JVM return type is Object
     }
+
+    @GetMapping("/envelope")
+    suspend fun suspendEnvelope(): ResponseEntity<KotlinOrderDto> =
+        ResponseEntity.ok(KotlinOrderDto(1, "sample"))
+
+    @GetMapping("/empty")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun reactiveUnit(): Mono<Unit> = Mono.empty()
+
+    @GetMapping("/default")
+    fun optionalDefault(@RequestParam(required = false) limit: Int = 10): String = limit.toString()
+
+    @GetMapping("/unknown-default")
+    fun optionalWithoutDefault(@RequestParam(required = false) limit: Int): String = limit.toString()
 }
