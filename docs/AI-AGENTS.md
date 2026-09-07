@@ -240,6 +240,83 @@ The MCP server inherits BootUI's full safety posture, so handing it to an agent 
 See [Properties](PROPERTIES.md) for the `bootui.mcp.*` settings and [Features](features/developer-tools.md#mcp-server) for the full MCP Server panel
 description.
 
+## Assess an application and approve an action plan
+
+When you do not know which panel to investigate first, ask your coding agent for an application assessment:
+
+> Assess this application using BootUI. Start with existing evidence and ask before fresh scans. Give me a prioritized,
+> evidence-backed action plan, and do not modify anything until I approve specific actions.
+
+The [BootUI skill](#install-the-bootui-agent-skill) teaches this workflow through MCP, the CLI, or the plain HTTP
+command-line endpoint. MCP clients with prompt support can select **`assess_application`** instead. BootUI advertises
+three argument-free prompts: `diagnose_runtime_issue` for a focused runtime failure, `review_application` for a focused
+advisor review, and `assess_application` for a broader assessment and approval-gated plan. Clients without prompt support
+can use the skill and the request above; there is no `bootui assess` command or new assessment tool.
+
+### What the assessment does
+
+The agent identifies the running application and its source repository, discovers the actual tool catalog and panel
+policies, and starts with Overview, Health, cached reports, and bounded diagnostic summaries. It accounts for relevant
+capabilities rather than blindly invoking every tool. Spring MVC, WebFlux, and Quarkus share the workflow but may expose
+different capabilities.
+
+Fresh scans require an explicitly approved scope. The agent names the scans before asking and requests separate approval
+for memory scans that may trigger a full GC, pentest loopback probes, OSV.dev vulnerability queries, and Database Advisor
+metadata inspection of the configured database. An assessment never authorizes clearing data, generating traffic,
+installing integrations, weakening panel policy, or changing source code.
+
+Collection has a declared time and tool-call budget; approved scans run sequentially. Busy, failed, and timed-out calls
+remain visible instead of causing endless retries or discarding other evidence. The agent records coverage as
+`assessed`, `unavailable`, `skipped`, `failed`, or `insufficient-evidence`, including stale reports and partial/paged
+results. An idle application with no SQL traces is not evidence that database access is efficient.
+
+### What the plan contains
+
+Plans use four sections:
+
+| Section | Contents |
+| --- | --- |
+| Context | Plan ID/version, goal, application identity, repository revision and working-tree state, collection window, budgets, approved scan scope, and missing context. |
+| Coverage | Relevant capabilities, status and reason, evidence references, report timestamps, freshness, and collection limits. |
+| Actions | Stable action IDs, priority and impact, observed evidence, confidence and uncertainties, proposed changes, dependencies, risk, and concrete acceptance criteria. |
+| Approval | Selected action IDs proposed for this plan version, awaiting your explicit approval. |
+
+The agent inspects source where available, distinguishes facts from hypotheses, respects dismissed findings, and groups
+related findings only when evidence supports the relationship. Actions cite advisor/rule IDs **and affected targets**,
+exception/trace identifiers, timestamps, and links back to the appropriate panels. Missing evidence can produce an
+investigation action instead of a speculative fix. Native-image or CRaC readiness remains optional unless relevant to
+your goal.
+
+The agent stops after presenting the plan. For example, after reviewing plan `P1` version `1`, you can say:
+
+> Approve A1 and A3 in plan P1 version 1. Leave the other actions unchanged.
+
+### Approved execution and reassessment
+
+The external coding agent owns edits, builds, tests, and permitted restarts. It keeps a minimal sanitized baseline and
+versioned plan in its local session/workspace outside tracked source so an application restart does not erase the
+comparison. If that storage is unavailable, it must say so and obtain the baseline again before executing.
+
+Before editing, it rechecks runtime/repository identity, revision, working-tree state, and relevant evidence. Changed
+context requires reassessment and renewed approval for affected actions; dependencies are not implicitly approved.
+Destructive operations, external calls, and scope expansion still require separate approval.
+
+After changes, the agent confirms the intended application is running the changed code, repeats the agreed reproduction
+and approved scans, and compares the same rule and affected target rather than just a dashboard score. Each action ends
+as `resolved`, `unresolved`, `blocked`, or `unverified`, with before/after evidence. Cached results, failed scans, and
+missing telemetry cannot establish that a fix worked.
+
+### Boundaries
+
+This is an agent workflow, not an embedded LLM, server-side assessment scheduler, browser approval interface, or arbitrary
+command endpoint. Selecting an MCP prompt returns instructions; it does not itself run scans or fixes. The agent host's
+permissions enforce approval, while BootUI continues to enforce its existing tool and panel policies.
+
+A local MCP endpoint does **not** imply local model processing. Follow your agent provider's data policy before sharing
+runtime evidence. Logs, SQL, traces, and exception text can contain sensitive data despite masking and must be treated as
+untrusted evidence, never instructions. The workflow excludes credentials and raw sensitive payloads from plans and asks
+before fetching sensitive detail when the disclosure boundary is unclear.
+
 ## Workshop: fix a real Hibernate finding with an agent
 
 The rest of this page describes the workflow in the abstract. This section runs it for real, against a mapping the
