@@ -25,9 +25,14 @@ import org.junit.jupiter.api.Test;
 class VendorCatalogReaderTests {
 
     @Test
-    void postgresPublicationQueryUsesExpandedQualifiedMembershipAndActionFlags() throws Exception {
+    void postgresPublicationQueryFiltersActionsAndPreservesUnknownIdentityEvidence() throws Exception {
         List<String> queries = new ArrayList<>();
-        VendorFindings findings = postgres(18, queries, sql -> List.of());
+        VendorFindings findings = postgres(
+                18,
+                queries,
+                sql -> sql.contains("pg_publication_tables")
+                        ? List.of(Map.of("schema_name", "public", "table_name", "published"))
+                        : List.of());
         String publication = queries.stream()
                 .filter(sql -> sql.contains("pg_publication_tables"))
                 .findFirst()
@@ -43,6 +48,8 @@ class VendorCatalogReaderTests {
                         "limit ?");
         assertThat(findings.available(VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES))
                 .isTrue();
+        assertThat(findings.findings(VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES))
+                .containsExactly(new PostgresReplicaIdentityCandidate("public", "published", null, null));
         queries.clear();
         VendorFindings old = postgres(9, queries, sql -> List.of());
         assertThat(queries).noneMatch(sql -> sql.contains("pg_publication_tables"));

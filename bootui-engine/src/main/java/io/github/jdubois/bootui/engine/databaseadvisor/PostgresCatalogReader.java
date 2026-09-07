@@ -411,7 +411,6 @@ final class PostgresCatalogReader {
                 rs.getString("schema_name"),
                 rs.getString("table_name"),
                 rs.getString("replica_identity"),
-                true,
                 nullableBoolean(rs, "has_identity_index"));
     }
 

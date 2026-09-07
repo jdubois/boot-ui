@@ -401,7 +401,7 @@ class DatabaseAdvisorVendorRulesTests {
                 VendorFindings.builder()
                         .add(VendorAugmentation.available(
                                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
-                                List.of(new PostgresReplicaIdentityCandidate("public", "audit_log", "d", true, false)),
+                                List.of(new PostgresReplicaIdentityCandidate("public", "audit_log", "d", false)),
                                 false))
                         .build());
         DatabaseAdvisorRuleResultDto result = new PostgresReplicaIdentityRule().evaluate(context(postgres));
@@ -421,7 +421,7 @@ class DatabaseAdvisorVendorRulesTests {
                 VendorFindings.builder()
                         .add(VendorAugmentation.available(
                                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
-                                List.of(new PostgresReplicaIdentityCandidate("public", "orders", "n", true, false)),
+                                List.of(new PostgresReplicaIdentityCandidate("public", "orders", "n", false)),
                                 false))
                         .build());
         DatabaseAdvisorRuleResultDto result = new PostgresReplicaIdentityRule().evaluate(context(postgres));
@@ -439,7 +439,7 @@ class DatabaseAdvisorVendorRulesTests {
                 VendorFindings.builder()
                         .add(VendorAugmentation.available(
                                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
-                                List.of(new PostgresReplicaIdentityCandidate("public", "orders", "d", true, false)),
+                                List.of(new PostgresReplicaIdentityCandidate("public", "orders", "d", false)),
                                 false))
                         .build());
         assertThat(new PostgresReplicaIdentityRule().evaluate(context(postgres)).status())
@@ -469,7 +469,7 @@ class DatabaseAdvisorVendorRulesTests {
                 VendorFindings.builder()
                         .add(VendorAugmentation.available(
                                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
-                                List.of(new PostgresReplicaIdentityCandidate("public", "audit_log", "d", true, false)),
+                                List.of(new PostgresReplicaIdentityCandidate("public", "audit_log", "d", false)),
                                 false))
                         .build());
 
@@ -844,23 +844,20 @@ class DatabaseAdvisorVendorRulesTests {
     }
 
     @Test
-    void publicationInsertOnlyAndFullIdentityAreNotFindingsButUnknownIdentityIsSkipped() {
-        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "n", false, false))
+    void publishedFullIdentityPassesButUnknownIdentityIsSkipped() {
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "f", false))
                         .status())
                 .isEqualTo(PASS);
-        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "f", true, false))
-                        .status())
-                .isEqualTo(PASS);
-        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", null, true, null))
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", null, null))
                         .status())
                 .isEqualTo(SKIPPED);
-        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "i", true, null))
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "i", null))
                         .status())
                 .isEqualTo(SKIPPED);
-        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "i", true, false))
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "i", false))
                         .status())
                 .isEqualTo(VIOLATION);
-        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "i", true, true))
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "i", true))
                         .status())
                 .isEqualTo(PASS);
     }

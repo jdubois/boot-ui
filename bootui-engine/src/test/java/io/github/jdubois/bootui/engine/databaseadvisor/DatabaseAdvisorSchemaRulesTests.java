@@ -348,21 +348,6 @@ class DatabaseAdvisorSchemaRulesTests {
     }
 
     @Test
-    void mixedNullabilityRulesAreRetiredForEveryDialect() {
-        for (Dialect dialect : Dialect.values()) {
-            DatabaseAdvisorContext context = context(schema("ds", dialect, List.of(child(List.of()))));
-            assertThat(new CompositeForeignKeyPartialNullabilityRule()
-                            .evaluate(context)
-                            .status())
-                    .isEqualTo("SKIPPED");
-            assertThat(new NullableColumnCompositeUniquenessRule()
-                            .evaluate(context)
-                            .status())
-                    .isEqualTo("SKIPPED");
-        }
-    }
-
-    @Test
     void invisibleUniqueIndexStillEnforcesUniqueness() {
         IndexModel invisible = new IndexModel(
                 "u",

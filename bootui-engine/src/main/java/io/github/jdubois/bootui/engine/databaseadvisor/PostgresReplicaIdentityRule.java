@@ -38,16 +38,9 @@ final class PostgresReplicaIdentityRule extends AbstractDatabaseAdvisorRule {
                     context, definition().id(), schema, VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES);
             for (PostgresReplicaIdentityCandidate candidate :
                     schema.vendorFindings().findings(VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES)) {
-                if (Boolean.FALSE.equals(candidate.publishesUpdateOrDelete())) {
-                    eligible++;
-                    continue;
-                }
-                if (!Boolean.TRUE.equals(candidate.publishesUpdateOrDelete())
-                        || candidate.replicaIdentity() == null
+                if (candidate.replicaIdentity() == null
                         || !List.of("d", "n", "f", "i").contains(candidate.replicaIdentity())) {
-                    unknown(
-                            context,
-                            candidate.qualifiedTable() + ": publication actions or replica identity are unknown.");
+                    unknown(context, candidate.qualifiedTable() + ": replica identity is unknown.");
                     continue;
                 }
                 boolean missing = candidate.nothing();
