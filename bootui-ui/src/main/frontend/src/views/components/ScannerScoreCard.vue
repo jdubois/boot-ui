@@ -12,6 +12,9 @@ const props = defineProps({
   // idle | running | done | error
   state: {type: String, default: 'idle'},
   score: {type: Number, default: null},
+  hasReport: {type: Boolean, default: false},
+  scoreLabel: {type: String, default: 'Not scored'},
+  scoreReason: {type: String, default: ''},
   severityCounts: {type: Array, default: () => []},
   statusLabel: {type: String, default: null},
   statusTone: {type: String, default: 'secondary'},
@@ -25,7 +28,7 @@ const props = defineProps({
 
 const emit = defineEmits(['run'])
 
-const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN', 'NONE']
 const SEVERITY_TONES = {
   CRITICAL: 'text-bg-danger',
   HIGH: 'text-bg-danger',
@@ -40,7 +43,7 @@ const topSeverities = computed(() =>
     .sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity))
 )
 
-const hasScore = computed(() => props.state === 'done' && Number.isFinite(props.score))
+const hasScore = computed(() => Number.isFinite(props.score))
 const bandLabel = computed(() => (hasScore.value ? scoreBandLabel(props.score) : null))
 const bandTone = computed(() => (hasScore.value ? scoreBandTone(props.score) : 'secondary'))
 
@@ -77,12 +80,22 @@ function onRun() {
               <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ errorMessage || 'Scan failed' }}
             </div>
           </template>
-          <template v-else-if="hasScore">
+          <div v-if="hasReport && (state === 'running' || state === 'error')" class="text-muted small my-2">
+            Showing the last report.
+          </div>
+          <template v-if="hasScore">
             <div class="d-flex align-items-baseline gap-2">
               <span :class="['scanner-score', `scanner-score--${bandTone}`]">{{ score }}</span>
               <span class="text-muted small">/ 100</span>
               <span :class="['badge', `text-bg-${bandTone}`, 'ms-auto']">{{ bandLabel }}</span>
             </div>
+          </template>
+          <div v-else-if="hasReport">
+            <div class="fw-semibold">{{ scoreLabel }}</div>
+            <div class="text-muted small">{{ scoreReason }}</div>
+          </div>
+          <div v-else-if="state === 'idle'" class="text-muted small">{{ idleHint }}</div>
+          <template v-if="hasReport || hasScore">
             <div v-if="topSeverities.length" class="d-flex flex-wrap gap-1 mt-2">
               <span
                 v-for="entry in topSeverities"
@@ -92,14 +105,13 @@ function onRun() {
                 {{ entry.count }} {{ entry.severity.toLowerCase() }}
               </span>
             </div>
-            <div v-else class="text-success small mt-2"><i class="bi bi-check-circle me-1"></i>No findings</div>
-          </template>
-          <template v-else>
-            <div class="text-muted small">{{ idleHint }}</div>
+            <div v-else-if="hasScore" class="text-success small mt-2">
+              <i class="bi bi-check-circle me-1"></i>No findings
+            </div>
           </template>
         </slot>
         <div v-if="warningMessage" class="text-warning-emphasis small mt-2" role="status" aria-live="polite">
-          <i class="bi bi-hourglass-split me-1"></i>{{ warningMessage }}
+          <i class="bi bi-exclamation-circle me-1"></i>{{ warningMessage }}
         </div>
       </div>
 

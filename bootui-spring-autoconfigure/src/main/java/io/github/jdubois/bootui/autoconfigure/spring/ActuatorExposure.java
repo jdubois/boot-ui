@@ -4,7 +4,6 @@ import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.boot.context.properties.bind.Bindable;
-import org.springframework.boot.context.properties.bind.Binder;
 
 /**
  * Shared, read-only model of how Spring Boot 4 Actuator endpoints are exposed and what access level
@@ -28,6 +27,13 @@ final class ActuatorExposure {
     private static final int ACCESS_READ_ONLY = 1;
     private static final int ACCESS_UNRESTRICTED = 2;
 
+    /** Same constants as Boot Access, without linking this helper to the optional Actuator API. */
+    private enum Access {
+        NONE,
+        READ_ONLY,
+        UNRESTRICTED
+    }
+
     /** Sensitive read endpoints owned by SPRING-MGMT-002 (shutdown/heapdump belong to MGMT-004). */
     static final Set<String> SENSITIVE_READ_ENDPOINTS =
             Set.of("env", "configprops", "beans", "threaddump", "loggers", "httpexchanges", "startup", "mappings");
@@ -36,6 +42,33 @@ final class ActuatorExposure {
     private static final Set<String> DEFAULT_WEB_EXPOSED = Set.of("health");
 
     private ActuatorExposure() {}
+
+    static boolean applicable(SpringContext context) {
+        if (!context.observations().known(SpringObservations.Fact.ENDPOINTS)) return false;
+        // Boot validates global settings when constructing its resolver, even if all web endpoints
+        // are excluded. Do not reinterpret malformed live configuration as default access.
+        configuredAccess(context, ACCESS_DEFAULT, ENABLED_BY_DEFAULT);
+        maxPermitted(context);
+        includeTokens(context);
+        excludeTokens(context);
+        context.managementWebDisabled();
+        for (Object endpoint : context.observations().get(SpringObservations.Fact.ENDPOINTS, Set.class)) {
+            String id = (String) endpoint;
+            effectiveAccess(
+                    context, id, "heapdump".equals(id) || "shutdown".equals(id) ? ACCESS_NONE : ACCESS_UNRESTRICTED);
+        }
+        return true;
+    }
+
+    static boolean anyAccessible(SpringContext context) {
+        Set<?> endpoints = context.observations().get(SpringObservations.Fact.ENDPOINTS, Set.class);
+        if (endpoints == null) return false;
+        for (Object endpoint : endpoints) {
+            String id = (String) endpoint;
+            if ("shutdown".equals(id) ? shutdownAccessible(context) : isReadable(context, id)) return true;
+        }
+        return false;
+    }
 
     static Set<String> includeTokens(SpringContext context) {
         return tokens(context, INCLUDE);
@@ -62,6 +95,8 @@ final class ActuatorExposure {
 
     /** True when the given endpoint id is reachable over the web exposure (ignoring access level). */
     static boolean isWebExposed(SpringContext context, String id) {
+        Set<?> endpoints = context.observations().get(SpringObservations.Fact.ENDPOINTS, Set.class);
+        if (endpoints == null || !endpoints.contains(id)) return false;
         if (context.managementWebDisabled()) {
             return false;
         }
@@ -75,7 +110,12 @@ final class ActuatorExposure {
 
     /** True when the endpoint is web-exposed and its effective access permits read operations. */
     static boolean isReadable(SpringContext context, String id) {
-        return isWebExposed(context, id) && effectiveAccess(context, id, ACCESS_READ_ONLY) >= ACCESS_READ_ONLY;
+        return isWebExposed(context, id)
+                && effectiveAccess(
+                                context,
+                                id,
+                                "heapdump".equals(id) || "shutdown".equals(id) ? ACCESS_NONE : ACCESS_UNRESTRICTED)
+                        >= ACCESS_READ_ONLY;
     }
 
     /**
@@ -88,82 +128,67 @@ final class ActuatorExposure {
                 && effectiveAccess(context, "shutdown", ACCESS_NONE) >= ACCESS_UNRESTRICTED;
     }
 
-    /** True when the {@code heapdump} endpoint is web-exposed and at least readable (its default). */
+    /** Heapdump also defaults to NONE in Boot 4.1.1; include alone never grants permission. */
     static boolean heapdumpAccessible(SpringContext context) {
         return isReadable(context, "heapdump");
     }
 
     private static int effectiveAccess(SpringContext context, String id, int defaultRank) {
-        String endpointAccess = context.firstProperty("management.endpoint." + id + ".access");
+        Integer endpointAccess = configuredAccess(
+                context, "management.endpoint." + id + ".access", "management.endpoint." + id + ".enabled");
+        Integer defaultAccess = configuredAccess(context, ACCESS_DEFAULT, ENABLED_BY_DEFAULT);
         if (endpointAccess != null) {
-            return capped(context, rankOrDefault(endpointAccess, defaultRank));
+            return capped(context, endpointAccess);
         }
-        String endpointEnabled = context.firstProperty("management.endpoint." + id + ".enabled");
-        if (endpointEnabled != null) {
-            return capped(context, enabledOrDefault(endpointEnabled, defaultRank));
-        }
-        String defaultAccess = context.firstProperty(ACCESS_DEFAULT);
         if (defaultAccess != null) {
-            return capped(context, rankOrDefault(defaultAccess, defaultRank));
-        }
-        String enabledByDefault = context.firstProperty(ENABLED_BY_DEFAULT);
-        if (enabledByDefault != null) {
-            return capped(context, enabledOrDefault(enabledByDefault, defaultRank));
+            return capped(context, defaultAccess);
         }
         return capped(context, defaultRank);
+    }
+
+    private static Integer configuredAccess(SpringContext context, String accessKey, String enabledKey) {
+        Access access = SpringProperties.bind(context.environment(), true, accessKey, Bindable.of(Access.class));
+        Boolean enabled = SpringProperties.bind(context.environment(), true, enabledKey, Bindable.of(Boolean.class));
+        if (access != null && enabled != null)
+            throw new IllegalArgumentException("Conflicting endpoint access settings");
+        if (access != null) return rank(access);
+        return enabled == null ? null : enabled ? ACCESS_UNRESTRICTED : ACCESS_NONE;
     }
 
     private static int capped(SpringContext context, int access) {
         return Math.min(access, maxPermitted(context));
     }
 
-    private static int rankOrDefault(String access, int defaultRank) {
-        int rank = rank(access);
-        return rank >= 0 ? rank : defaultRank;
+    private static int rankOrDefault(SpringContext context, String key, int defaultRank) {
+        Access access = SpringProperties.bind(context.environment(), true, key, Bindable.of(Access.class));
+        return access == null ? defaultRank : rank(access);
     }
 
-    private static int enabledOrDefault(String enabled, int defaultRank) {
-        if ("true".equalsIgnoreCase(enabled)) {
-            return ACCESS_UNRESTRICTED;
-        }
-        if ("false".equalsIgnoreCase(enabled)) {
-            return ACCESS_NONE;
-        }
-        return defaultRank;
+    private static int rank(Access access) {
+        return switch (access) {
+            case NONE -> ACCESS_NONE;
+            case READ_ONLY -> ACCESS_READ_ONLY;
+            case UNRESTRICTED -> ACCESS_UNRESTRICTED;
+        };
     }
 
     private static int maxPermitted(SpringContext context) {
-        String max = context.firstProperty(ACCESS_MAX);
-        if (max == null) {
-            return ACCESS_UNRESTRICTED;
-        }
-        int rank = rank(max);
-        return rank >= 0 ? rank : ACCESS_UNRESTRICTED;
-    }
-
-    private static int rank(String access) {
-        return switch (access.toLowerCase(Locale.ROOT).trim()) {
-            case "none" -> ACCESS_NONE;
-            case "read-only" -> ACCESS_READ_ONLY;
-            case "unrestricted" -> ACCESS_UNRESTRICTED;
-            default -> -1;
-        };
+        return rankOrDefault(context, ACCESS_MAX, ACCESS_UNRESTRICTED);
     }
 
     /** Binds the include/exclude property as a Set so comma strings and YAML lists both resolve. */
     private static Set<String> tokens(SpringContext context, String key) {
         Set<String> normalized = new LinkedHashSet<>();
-        try {
-            Set<String> bound = Binder.get(context.environment())
-                    .bind(key, Bindable.setOf(String.class))
-                    .orElseGet(Set::of);
-            for (String token : bound) {
-                if (token != null && !token.isBlank()) {
-                    normalized.add(token.toLowerCase(Locale.ROOT).trim());
-                }
+        Set<String> bound = SpringProperties.bind(context.environment(), true, key, Bindable.setOf(String.class));
+        if (bound == null) return Set.of();
+        if (bound.size() > 100) throw new IllegalArgumentException("Exposure list exceeds limit");
+        for (String token : bound) {
+            if (token != null && !token.isBlank()) {
+                String id = token.toLowerCase(Locale.ROOT).trim();
+                if (!id.equals("*") && !id.matches("[a-z][a-z0-9-]{0,99}"))
+                    throw new IllegalArgumentException("Invalid endpoint ID");
+                normalized.add(id);
             }
-        } catch (RuntimeException ex) {
-            // Fall back to an empty set if the property cannot be bound.
         }
         return normalized;
     }

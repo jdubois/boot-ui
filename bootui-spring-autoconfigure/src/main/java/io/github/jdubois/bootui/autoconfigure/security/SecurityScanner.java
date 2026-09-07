@@ -1,7 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
+import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.AuthorizationMapping;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.ChainDetails;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChainModel;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.MatcherFacts;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
@@ -11,39 +14,30 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import jakarta.servlet.Filter;
-import jakarta.servlet.http.HttpServletMapping;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.MappingMatch;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.config.SingletonBeanRegistry;
 import org.springframework.core.env.Environment;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
-import org.springframework.security.authentication.dao.AbstractUserDetailsAuthenticationProvider;
+import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authorization.AuthorizationManager;
-import org.springframework.security.authorization.AuthorizationResult;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.authorization.SingleResultAuthorizationManager;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.access.intercept.RequestMatcherDelegatingAuthorizationManager;
-import org.springframework.security.web.authentication.RememberMeServices;
-import org.springframework.security.web.authentication.rememberme.AbstractRememberMeServices;
 import org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter;
 import org.springframework.security.web.context.DelegatingSecurityContextRepository;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -58,16 +52,16 @@ import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcherEntry;
 import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
 
 /**
  * Bounded, on-demand Spring Security advisor.
  *
  * <p>The scanner reads the registered {@code SecurityFilterChain} beans and related security beans,
  * builds a read-only model, and runs a curated registry of static best-practice checks. It never
- * intercepts live requests beyond simulating bounded anonymous authorization decisions against
- * in-memory stubs, and never surfaces credentials, keys, or session identifiers.</p>
+ * executes application authorization, matcher, credential or endpoint callbacks, and never surfaces
+ * credentials, keys, or session identifiers. Unsupported structures remain unknown.</p>
  */
 final class SecurityScanner {
 
@@ -78,23 +72,7 @@ final class SecurityScanner {
                     + "validated against the application's threat model.";
     private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final int MAX_BEAN_SCAN = 5000;
-    private static final List<AuthorizationProbe> AUTHORIZATION_PROBES = List.of(
-            new AuthorizationProbe("GET", "/"),
-            new AuthorizationProbe("GET", "/login"),
-            new AuthorizationProbe("GET", "/admin"),
-            new AuthorizationProbe("GET", "/api"),
-            new AuthorizationProbe("GET", "/actuator/env"),
-            new AuthorizationProbe("GET", "/bootui-authz-probe-8f3c1d20"),
-            new AuthorizationProbe("HEAD", "/bootui-authz-probe-8f3c1d20"),
-            new AuthorizationProbe("POST", "/bootui-authz-probe-8f3c1d20"),
-            new AuthorizationProbe("PUT", "/bootui-authz-probe-8f3c1d20"),
-            new AuthorizationProbe("PATCH", "/bootui-authz-probe-8f3c1d20"),
-            new AuthorizationProbe("DELETE", "/bootui-authz-probe-8f3c1d20"),
-            new AuthorizationProbe("OPTIONS", "/bootui-authz-probe-8f3c1d20"));
     private static final String SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME = "springSecurityFilterChain";
-    private static final String MVC_HANDLER_MAPPING_INTROSPECTOR_BEAN_NAME = "mvcHandlerMappingIntrospector";
-    private static final String MVC_HANDLER_MAPPING_INTROSPECTOR_CLASS_NAME =
-            "org.springframework.web.servlet.handler.HandlerMappingIntrospector";
     private static final String OBSERVATION_AUTHORIZATION_MANAGER_CLASS_NAME =
             "org.springframework.security.authorization.ObservationAuthorizationManager";
 
@@ -155,10 +133,16 @@ final class SecurityScanner {
                 .map(rule -> rule.evaluate(context))
                 .toList();
         int chains = context.chains().size();
-        String status = discovery.errors().isEmpty() ? "SCANNED" : "PARTIAL";
+        boolean incomplete = results.stream()
+                .anyMatch(result -> SecurityRuleSupport.ERROR.equals(result.status())
+                        || SecurityRuleSupport.SKIPPED.equals(result.status()));
+        String status = discovery.errors().isEmpty() && !incomplete ? "SCANNED" : "PARTIAL";
         String message = "Security Advisor completed against " + chains + " filter chain" + (chains == 1 ? "." : "s.");
         if (!discovery.errors().isEmpty()) {
             message += " Some configuration could not be read: " + String.join("; ", discovery.errors());
+        }
+        if (incomplete) {
+            message += " Unsupported or incomplete evidence remains unknown; skipped checks are not security passes.";
         }
         return report(status, message, clock.millis(), chains, results.size(), results);
     }
@@ -230,6 +214,7 @@ final class SecurityScanner {
     }
 
     private SecurityDiscovery safeDiscovery() {
+        lastContext = null;
         try {
             SecurityDiscovery discovery = discoverySupplier.get();
             if (discovery == null) {
@@ -255,26 +240,30 @@ final class SecurityScanner {
             ObjectProvider<FilterChainProxy> filterChainProxies,
             ObjectProvider<ListableBeanFactory> beanFactories,
             Environment environment) {
+        environment = SecurityEnvironmentSnapshot.capture(environment);
         ListableBeanFactory beanFactory;
         try {
             beanFactory = beanFactories.getIfAvailable();
         } catch (RuntimeException | LinkageError ex) {
             return SecurityDiscovery.empty(safeMessage(ex));
         }
-        FilterChainProxy proxy;
-        try {
-            proxy = filterChainProxies.getIfAvailable();
-        } catch (RuntimeException | LinkageError ex) {
-            return SecurityDiscovery.empty(safeMessage(ex));
-        }
+        FilterChainProxy proxy = null;
         boolean securityDebugFilterPresent = false;
-        if (proxy == null && beanFactory != null && beanFactory.containsBean(SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME)) {
-            Object securityFilter = beanFactory.getBean(SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME);
+        if (beanFactory instanceof SingletonBeanRegistry singletons) {
+            Object securityFilter = singletons.getSingleton(SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME);
             if (securityFilter instanceof FilterChainProxy filterChainProxy) {
-                proxy = filterChainProxy;
+                proxy = nativeFilterChainProxy(filterChainProxy);
             } else if (securityFilter instanceof DebugFilter debugFilter) {
-                proxy = debugFilter.getFilterChainProxy();
+                Object wrapped = readField(debugFilter, "filterChainProxy");
+                if (wrapped instanceof FilterChainProxy filterChainProxy)
+                    proxy = nativeFilterChainProxy(filterChainProxy);
                 securityDebugFilterPresent = true;
+            }
+            if (proxy == null) {
+                for (Object singleton : existingSingletons(beanFactory, FilterChainProxy.class)) {
+                    proxy = nativeFilterChainProxy((FilterChainProxy) singleton);
+                    if (proxy != null) break;
+                }
             }
         }
         if (proxy == null) {
@@ -282,14 +271,44 @@ final class SecurityScanner {
         }
 
         List<String> errors = new ArrayList<>();
+        if (beanFactory instanceof SingletonBeanRegistry registry
+                && registry.getSingletonNames().length > MAX_BEAN_SCAN) {
+            errors.add("Singleton inventory limit reached.");
+        }
         List<FilterChainModel> chains = new ArrayList<>();
-        String actuatorProbePath = actuatorProbePath(environment);
+        List<Filter> activeFilters = new ArrayList<>();
+        Map<Integer, List<Filter>> chainFilters = new java.util.LinkedHashMap<>();
         try {
-            List<SecurityFilterChain> securityChains = proxy.getFilterChains();
-            for (int i = 0; i < securityChains.size(); i++) {
+            Object rawChains = readField(proxy, "filterChains");
+            if (!(rawChains instanceof List<?> securityChains)) {
+                throw new IllegalStateException();
+            }
+            if (securityChains.size() > MAX_BEAN_SCAN) errors.add("Chain inventory limit reached.");
+            for (int i = 0; i < Math.min(securityChains.size(), MAX_BEAN_SCAN); i++) {
                 try {
-                    chains.add(toChainModel(i, securityChains.get(i), actuatorProbePath));
+                    Object candidate = securityChains.get(i);
+                    if (isBootUiChain(beanFactory, candidate)) continue;
+                    if (!(candidate instanceof DefaultSecurityFilterChain)
+                            || candidate.getClass() != DefaultSecurityFilterChain.class) {
+                        chains.add(unknownChain(i));
+                        errors.add("Chain " + i + ": unsupported chain implementation.");
+                        continue;
+                    }
+                    SecurityFilterChain chain = (SecurityFilterChain) candidate;
+                    List<Filter> filters = safeFilters(chain);
+                    activeFilters.addAll(filters);
+                    chainFilters.put(i, filters);
+                    FilterChainModel model = toChainModel(i, chain);
+                    chains.add(model);
+                    if (!model.details().filtersKnown()
+                            || !model.details().headersKnown()
+                            || model.details().matcher() == null
+                            || !model.details().matcher().complete()
+                            || model.hasAuthorizationFilter() && model.permitsAllAnonymous() == null) {
+                        errors.add("Chain " + i + ": some framework metadata is unsupported.");
+                    }
                 } catch (RuntimeException | LinkageError ex) {
+                    chains.add(unknownChain(i));
                     errors.add("Chain " + i + ": " + safeMessage(ex));
                 }
             }
@@ -297,12 +316,23 @@ final class SecurityScanner {
             errors.add("Filter chains: " + safeMessage(ex));
         }
 
-        List<PasswordEncoderModel> passwordEncoders = discoverPasswordEncoders(beanFactory);
-        List<String> jwtDecoderTypes = beanTypeNames(beanFactory, "org.springframework.security.oauth2.jwt.JwtDecoder");
+        List<Object> providers = activeProviders(activeFilters);
+        if (providers.size() >= 512) errors.add("Authentication provider inventory limit reached.");
+        List<PasswordEncoderModel> passwordEncoders = discoverPasswordEncoders(providers);
+        List<String> jwtDecoderTypes = providers.stream()
+                .filter(
+                        provider -> provider.getClass()
+                                .getName()
+                                .equals(
+                                        "org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationProvider"))
+                .map(provider -> readField(provider, "jwtDecoder"))
+                .filter(java.util.Objects::nonNull)
+                .map(decoder -> decoder.getClass().getName())
+                .toList();
         List<String> oauth2TokenValidatorTypes =
                 beanTypeNames(beanFactory, "org.springframework.security.oauth2.core.OAuth2TokenValidator");
         List<CorsConfigModel> corsConfigs = new ArrayList<>();
-        CorsDiscoveryResult corsDiscovery = discoverCors(beanFactory, corsConfigs, errors);
+        CorsDiscoveryResult corsDiscovery = discoverAttachedCors(chains, chainFilters, corsConfigs, errors);
         boolean methodSecurityEnabled = !beanTypeNames(
                                 beanFactory,
                                 "org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor")
@@ -315,13 +345,24 @@ final class SecurityScanner {
                         beanFactory,
                         "org.springframework.security.config.annotation.method.configuration.GlobalMethodSecurityConfiguration")
                 .isEmpty();
-        boolean methodSecurityAnnotations = discoverMethodSecurityAnnotations(beanFactory);
-        boolean strictHttpFirewallWeakened = discoverStrictHttpFirewallWeakened(beanFactory);
-        boolean hideUserNotFoundExceptionsDisabled = discoverHideUserNotFoundExceptionsDisabled(beanFactory);
-        List<String> opaqueTokenIntrospectorTypes = beanTypeNames(
-                beanFactory,
-                "org.springframework.security.oauth2.server.resource.introspection.OpaqueTokenIntrospector");
-        boolean generatedUserDetailsManagerPresent = discoverGeneratedUserDetailsManagerPresent(beanFactory);
+        boolean methodSecurityAnnotations = false;
+        boolean strictHttpFirewallWeakened = firewallWeakened(readField(proxy, "firewall"));
+        boolean hideUserNotFoundExceptionsDisabled = providers.stream()
+                .anyMatch(provider -> provider.getClass()
+                                .getName()
+                                .equals("org.springframework.security.authentication.dao.DaoAuthenticationProvider")
+                        && Boolean.FALSE.equals(readField(provider, "hideUserNotFoundExceptions")));
+        List<String> opaqueTokenIntrospectorTypes = providers.stream()
+                .filter(
+                        provider -> provider.getClass()
+                                .getName()
+                                .equals(
+                                        "org.springframework.security.oauth2.server.resource.authentication.OpaqueTokenAuthenticationProvider"))
+                .map(provider -> readField(provider, "introspector"))
+                .filter(java.util.Objects::nonNull)
+                .map(introspector -> introspector.getClass().getName())
+                .toList();
+        boolean generatedUserDetailsManagerPresent = discoverGeneratedUserDetailsManagerPresent(beanFactory, providers);
 
         SecurityContext context = new SecurityContext(
                 chains,
@@ -339,25 +380,25 @@ final class SecurityScanner {
                 opaqueTokenIntrospectorTypes,
                 generatedUserDetailsManagerPresent,
                 securityDebugFilterPresent,
-                environment);
+                environment,
+                discoverEvidence(beanFactory, providers, environment, errors));
         return new SecurityDiscovery(context, errors);
     }
 
-    private static FilterChainModel toChainModel(int index, SecurityFilterChain chain, String actuatorProbePath) {
-        List<Filter> filters = chain.getFilters();
+    private static FilterChainModel toChainModel(int index, SecurityFilterChain chain) {
+        List<Filter> filters = safeFilters(chain);
         List<String> filterNames =
-                filters.stream().map(f -> f.getClass().getSimpleName()).toList();
+                filters.stream().map(SecurityScanner::frameworkTypeName).toList();
         String matcher = matcherDescription(chain);
+        MatcherFacts matcherFacts = matcherFacts(readField(chain, "requestMatcher"), 0);
         AuthorizationManager<HttpServletRequest> authorizationManager = authorizationManager(filters);
-        Boolean permitsAllAnonymous = simulateAnonymous(authorizationManager);
+        List<AuthorizationMapping> mappings = authorizationMappings(authorizationManager);
+        Boolean permitsAllAnonymous = blanketGrant(mappings);
         Boolean sessionFixationDisabled = detectSessionFixationDisabled(filters);
         HeaderWriterInfo headerWriters = detectHeaderWriters(filters);
         Boolean authorizationRuleShadowed = detectAuthorizationRuleShadowed(authorizationManager);
         Integer rememberMeKeyLength = detectRememberMeKeyLength(filters);
         Boolean statelessSecurityContext = detectStatelessSecurityContext(filters);
-        Boolean matchesActuatorPath = detectMatchesActuatorPath(chain, actuatorProbePath);
-        Boolean actuatorAnonymousAllowed =
-                detectActuatorAnonymousAllowed(filters, authorizationManager, actuatorProbePath);
         return new FilterChainModel(
                 index,
                 matcher,
@@ -372,126 +413,54 @@ final class SecurityScanner {
                 authorizationRuleShadowed,
                 rememberMeKeyLength,
                 statelessSecurityContext,
-                matchesActuatorPath,
-                actuatorAnonymousAllowed);
+                null,
+                null,
+                new ChainDetails(
+                        filterMetadataKnown(filters),
+                        headerWriters.known(),
+                        matcherFacts.unconditional(),
+                        matcherFacts,
+                        mappings,
+                        bearerSavesSession(filters),
+                        unconditionalHttpsRedirect(filters)));
     }
 
     private static String matcherDescription(SecurityFilterChain chain) {
-        try {
-            if (chain instanceof DefaultSecurityFilterChain dfc) {
-                return String.valueOf(dfc.getRequestMatcher());
-            }
-        } catch (RuntimeException | LinkageError ex) {
-            // fall through
-        }
-        return "(custom chain: " + chain.getClass().getSimpleName() + ")";
+        return matcherDescription(matcherFacts(readField(chain, "requestMatcher"), 0));
     }
 
-    private static Boolean simulateAnonymous(AuthorizationManager<HttpServletRequest> manager) {
-        if (manager == null) {
-            return null;
-        }
-        AuthorizationManager<HttpServletRequest> unwrappedManager = unwrapObservationAuthorizationManager(manager);
-        if (unwrappedManager == null) {
-            return null;
-        }
-        Authentication anonymous = anonymousAuthentication();
-        boolean indeterminate = false;
-        for (AuthorizationProbe probe : AUTHORIZATION_PROBES) {
-            try {
-                AuthorizationResult result =
-                        unwrappedManager.authorize(() -> anonymous, simulatedRequest(probe.method(), probe.path()));
-                if (result == null || !result.isGranted()) {
-                    return Boolean.FALSE;
-                }
-            } catch (RuntimeException | LinkageError ex) {
-                indeterminate = true;
-            }
-        }
-        return indeterminate ? null : Boolean.TRUE;
+    private static String matcherDescription(MatcherFacts facts) {
+        String description = facts.unconditional()
+                ? "any request"
+                : "path".equals(facts.kind())
+                        ? (facts.method() == null ? "" : facts.method() + " ") + facts.path()
+                        : facts.children().isEmpty()
+                                ? "(" + facts.kind() + " matcher)"
+                                : "(" + facts.kind() + ": "
+                                        + String.join(
+                                                ", ",
+                                                facts.children().stream()
+                                                        .limit(8)
+                                                        .map(SecurityScanner::matcherDescription)
+                                                        .toList())
+                                        + (facts.children().size() > 8 ? ", ..." : "") + ")";
+        return description.length() > 512 ? description.substring(0, 509) + "..." : description;
     }
 
     private static AuthorizationManager<HttpServletRequest> authorizationManager(List<Filter> filters) {
         for (Filter filter : filters) {
-            if (filter instanceof AuthorizationFilter authorizationFilter) {
-                try {
-                    return authorizationFilter.getAuthorizationManager();
-                } catch (RuntimeException | LinkageError ex) {
-                    return null;
+            if (filter.getClass() == AuthorizationFilter.class) {
+                Object manager = readField(filter, "authorizationManager");
+                if (manager instanceof AuthorizationManager<?> authorizationManager) {
+                    @SuppressWarnings("unchecked")
+                    AuthorizationManager<HttpServletRequest> typed =
+                            (AuthorizationManager<HttpServletRequest>) authorizationManager;
+                    return typed;
                 }
             }
         }
         return null;
     }
-
-    /**
-     * The path the advisor probes to reason about actuator protection: a sensitive endpoint under the
-     * configured actuator base path. Authorization is what is being probed, not endpoint existence, so
-     * the path stays representative even when {@code env} itself is not exposed -- an
-     * {@code /actuator/**} rule applies to it either way.
-     */
-    private static String actuatorProbePath(Environment environment) {
-        String basePath = SecurityContext.actuatorBasePath(environment);
-        return basePath.endsWith("/") ? basePath + "env" : basePath + "/env";
-    }
-
-    private static Authentication anonymousAuthentication() {
-        return new AnonymousAuthenticationToken(
-                "bootui-advisor", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
-    }
-
-    /**
-     * {@code TRUE} when this chain's own request matcher accepts a request for the actuator path,
-     * {@code FALSE} when it does not, {@code null} when the matcher could not be evaluated. A
-     * whole-application chain matches here just as much as a dedicated
-     * {@code securityMatcher("/actuator/**")} one, which is what lets the actuator rule reason about
-     * the single-chain shape Spring Boot's reference documents.
-     */
-    private static Boolean detectMatchesActuatorPath(SecurityFilterChain chain, String actuatorProbePath) {
-        try {
-            return chain.matches(simulatedRequest("GET", actuatorProbePath));
-        } catch (RuntimeException | LinkageError ex) {
-            return null;
-        }
-    }
-
-    /**
-     * {@code TRUE} when an anonymous request for the actuator path is granted by this chain's
-     * authorization rules, {@code FALSE} when it is denied, {@code null} when an
-     * {@code AuthorizationManager} is present but could not be probed.
-     *
-     * <p>A chain with no {@code AuthorizationFilter} installs nothing that can deny the request, so it
-     * counts as granting it. An abstaining manager (a {@code null} result) is likewise treated as
-     * granting, because {@code AuthorizationFilter} only rejects an explicit denial -- reporting on a
-     * path nothing refuses keeps the rule fail-closed.</p>
-     */
-    private static Boolean detectActuatorAnonymousAllowed(
-            List<Filter> filters, AuthorizationManager<HttpServletRequest> manager, String actuatorProbePath) {
-        if (manager == null) {
-            boolean authorizationFilterPresent = filters.stream().anyMatch(AuthorizationFilter.class::isInstance);
-            return authorizationFilterPresent ? null : Boolean.TRUE;
-        }
-        AuthorizationManager<HttpServletRequest> unwrappedManager = unwrapObservationAuthorizationManager(manager);
-        if (unwrappedManager == null) {
-            return null;
-        }
-        Authentication anonymous = anonymousAuthentication();
-        try {
-            AuthorizationResult result =
-                    unwrappedManager.authorize(() -> anonymous, simulatedRequest("GET", actuatorProbePath));
-            return result == null || result.isGranted();
-        } catch (RuntimeException | LinkageError ex) {
-            return null;
-        }
-    }
-
-    /**
-     * Matches a Spring Security 7 {@code PathPatternRequestMatcher} toString of the bare, unscoped
-     * catch-all form {@code "PathPattern [/**]"} -- deliberately excluding a method-qualified variant
-     * such as {@code "PathPattern [GET /**]"}, which only shadows requests using that one HTTP method
-     * and so is not treated as an unconditional catch-all here.
-     */
-    private static final Pattern UNCONDITIONAL_CATCH_ALL_PATTERN = Pattern.compile("\\[/\\*\\*]");
 
     /**
      * {@code null} when the chain's {@code AuthorizationManager} could not be introspected, {@code
@@ -525,13 +494,7 @@ final class SecurityScanner {
     }
 
     private static boolean isUnconditionalCatchAllMatcher(RequestMatcher matcher) {
-        if (matcher instanceof AnyRequestMatcher) {
-            return true;
-        }
-        String normalized = String.valueOf(matcher).toLowerCase(Locale.ROOT).trim();
-        return normalized.equals("any request")
-                || normalized.contains("anyrequest")
-                || UNCONDITIONAL_CATCH_ALL_PATTERN.matcher(normalized).find();
+        return matcherFacts(matcher, 0).unconditional();
     }
 
     /**
@@ -544,10 +507,14 @@ final class SecurityScanner {
         for (Filter filter : filters) {
             if (filter instanceof RememberMeAuthenticationFilter rememberMeFilter) {
                 try {
-                    RememberMeServices services = rememberMeFilter.getRememberMeServices();
-                    if (services instanceof AbstractRememberMeServices abstractServices) {
-                        String key = abstractServices.getKey();
-                        return key == null ? null : key.length();
+                    Object services = readField(rememberMeFilter, "rememberMeServices");
+                    if (services != null
+                            && services.getClass()
+                                    .getName()
+                                    .equals(
+                                            "org.springframework.security.web.authentication.rememberme.TokenBasedRememberMeServices")) {
+                        Object key = readField(services, "key");
+                        return key instanceof String text ? text.length() : null;
                     }
                 } catch (RuntimeException | LinkageError ex) {
                     return null;
@@ -573,6 +540,13 @@ final class SecurityScanner {
      * repository types are inspected -- no session identifier or security context is ever read.</p>
      */
     private static Boolean detectStatelessSecurityContext(List<Filter> filters) {
+        for (Filter filter : filters) {
+            if (List.of("UsernamePasswordAuthenticationFilter", "OAuth2LoginAuthenticationFilter")
+                    .contains(frameworkTypeName(filter))) {
+                Object repository = readField(filter, "securityContextRepository");
+                return repository instanceof SecurityContextRepository typed ? statelessVerdict(typed, 0) : null;
+            }
+        }
         return statelessVerdict(securityContextRepository(filters), 0);
     }
 
@@ -601,14 +575,14 @@ final class SecurityScanner {
         if (repository == null || depth > 4) {
             return null;
         }
-        if (repository instanceof HttpSessionSecurityContextRepository) {
+        if (repository.getClass() == HttpSessionSecurityContextRepository.class) {
             return Boolean.FALSE;
         }
-        if (repository instanceof RequestAttributeSecurityContextRepository
-                || repository instanceof NullSecurityContextRepository) {
+        if (repository.getClass() == RequestAttributeSecurityContextRepository.class
+                || repository.getClass() == NullSecurityContextRepository.class) {
             return Boolean.TRUE;
         }
-        if (!(repository instanceof DelegatingSecurityContextRepository)) {
+        if (repository.getClass() != DelegatingSecurityContextRepository.class) {
             return null;
         }
         if (!(readField(repository, "delegates") instanceof Iterable<?> delegates)) {
@@ -616,7 +590,9 @@ final class SecurityScanner {
         }
         boolean anyDelegate = false;
         boolean anyUnknown = false;
+        int count = 0;
         for (Object delegate : delegates) {
+            if (++count > 128) return null;
             anyDelegate = true;
             Boolean verdict =
                     delegate instanceof SecurityContextRepository nested ? statelessVerdict(nested, depth + 1) : null;
@@ -629,40 +605,61 @@ final class SecurityScanner {
     }
 
     private static Boolean detectSessionFixationDisabled(List<Filter> filters) {
+        boolean protectionObserved = false;
+        boolean unknown = false;
         for (Filter filter : filters) {
-            if (!"SessionManagementFilter".equals(filter.getClass().getSimpleName())) {
+            String name = frameworkTypeName(filter);
+            if (!List.of(
+                            "SessionManagementFilter",
+                            "UsernamePasswordAuthenticationFilter",
+                            "OAuth2LoginAuthenticationFilter")
+                    .contains(name)) {
                 continue;
             }
-            Object strategy = readField(filter, "sessionAuthenticationStrategy");
+            Object strategy = readField(
+                    filter,
+                    "SessionManagementFilter".equals(name) ? "sessionAuthenticationStrategy" : "sessionStrategy");
             if (strategy == null) {
-                return null;
+                unknown = true;
+                continue;
             }
             List<String> strategyNames = new ArrayList<>();
             collectStrategyNames(strategy, strategyNames, 0);
+            if (strategyNames.contains("Unknown")) {
+                unknown = true;
+                continue;
+            }
             boolean hasFixationProtection = strategyNames.stream()
-                    .anyMatch(name -> name.contains("SessionFixationProtectionStrategy")
-                            || name.contains("ChangeSessionIdAuthenticationStrategy"));
-            boolean hasNullStrategy =
-                    strategyNames.stream().anyMatch(name -> name.contains("NullAuthenticatedSessionStrategy"));
+                    .anyMatch(strategyName -> strategyName.contains("SessionFixationProtectionStrategy")
+                            || strategyName.contains("ChangeSessionIdAuthenticationStrategy"));
+            boolean hasNullStrategy = strategyNames.stream()
+                    .anyMatch(strategyName -> strategyName.contains("NullAuthenticatedSessionStrategy"));
             if (hasFixationProtection) {
-                return false;
+                protectionObserved = true;
+                continue;
             }
             if (hasNullStrategy) {
                 return true;
             }
-            return null;
+            unknown = true;
         }
-        return null;
+        return protectionObserved && !unknown ? false : null;
     }
 
     private static void collectStrategyNames(Object strategy, List<String> names, int depth) {
         if (strategy == null || depth > 4) {
+            names.add("Unknown");
             return;
         }
-        names.add(strategy.getClass().getSimpleName());
+        names.add(frameworkTypeName(strategy));
         Object delegates = readField(strategy, "delegateStrategies");
         if (delegates instanceof Iterable<?> iterable) {
+            int count = 0;
             for (Object delegate : iterable) {
+                if (++count > 128) {
+                    names.add("Unknown");
+                    return;
+                }
                 collectStrategyNames(delegate, names, depth + 1);
             }
         }
@@ -678,13 +675,15 @@ final class SecurityScanner {
             Long hstsMaxAgeSeconds,
             Boolean hstsIncludeSubdomains,
             String cspPolicyDirectives,
-            Boolean cspReportOnly) {}
+            Boolean cspReportOnly,
+            boolean known) {}
 
-    private static final HeaderWriterInfo NO_HEADER_WRITERS = new HeaderWriterInfo(List.of(), null, null, null, null);
+    private static final HeaderWriterInfo NO_HEADER_WRITERS =
+            new HeaderWriterInfo(List.of(), null, null, null, null, true);
 
     private static HeaderWriterInfo detectHeaderWriters(List<Filter> filters) {
         for (Filter filter : filters) {
-            if (!"HeaderWriterFilter".equals(filter.getClass().getSimpleName())) {
+            if (!"HeaderWriterFilter".equals(frameworkTypeName(filter))) {
                 continue;
             }
             Object writers = readField(filter, "headerWriters");
@@ -693,31 +692,70 @@ final class SecurityScanner {
             Boolean hstsIncludeSubdomains = null;
             String cspPolicyDirectives = null;
             Boolean cspReportOnly = null;
+            boolean known = writers instanceof List<?>;
+            int policies = 0;
+            int hstsWriters = 0;
             if (writers instanceof Iterable<?> iterable) {
+                int count = 0;
                 for (Object writer : iterable) {
+                    if (++count > 128) {
+                        known = false;
+                        break;
+                    }
                     if (writer == null) {
                         continue;
                     }
-                    String simpleName = writer.getClass().getSimpleName();
+                    String simpleName = frameworkTypeName(writer);
+                    if (simpleName.equals("Unknown")
+                            || simpleName.contains("Delegating")
+                            || simpleName.contains("Static")
+                            || simpleName.contains("Composite")) known = false;
                     names.add(simpleName);
                     if (simpleName.contains("Hsts")) {
+                        hstsWriters++;
+                        Object condition = readField(writer, "requestMatcher");
+                        if (condition == null
+                                || !condition
+                                        .getClass()
+                                        .getName()
+                                        .equals(
+                                                "org.springframework.security.web.header.writers.HstsHeaderWriter$SecureRequestMatcher")) {
+                            known = false;
+                            continue;
+                        }
                         if (readField(writer, "maxAgeInSeconds") instanceof Long maxAge) {
                             hstsMaxAgeSeconds = maxAge;
                         }
                         if (readField(writer, "includeSubDomains") instanceof Boolean includeSubDomains) {
                             hstsIncludeSubdomains = includeSubDomains;
                         }
-                    } else if (simpleName.contains("ContentSecurityPolicy")
-                            && readField(writer, "policyDirectives") instanceof String directives) {
-                        cspPolicyDirectives = directives;
-                        if (readField(writer, "reportOnly") instanceof Boolean reportOnly) {
-                            cspReportOnly = reportOnly;
+                    } else if (simpleName.contains("ContentSecurityPolicy")) {
+                        if (!(readField(writer, "policyDirectives") instanceof String directives)) {
+                            known = false;
+                            continue;
                         }
+                        if (readField(writer, "reportOnly") instanceof Boolean reportOnly) {
+                            if (reportOnly && Boolean.FALSE.equals(cspReportOnly)) continue;
+                            if (!reportOnly && Boolean.FALSE.equals(cspReportOnly)) policies++;
+                            cspPolicyDirectives = directives;
+                            cspReportOnly = reportOnly;
+                            if (!reportOnly
+                                    && !io.github.jdubois.bootui.engine.security.CspPolicy.analyze(directives)
+                                            .complete()) known = false;
+                        } else known = false;
                     }
                 }
             }
+            if (policies > 0) {
+                cspPolicyDirectives = null;
+                known = false;
+            }
+            if (hstsWriters > 1) {
+                hstsMaxAgeSeconds = null;
+                known = false;
+            }
             return new HeaderWriterInfo(
-                    names, hstsMaxAgeSeconds, hstsIncludeSubdomains, cspPolicyDirectives, cspReportOnly);
+                    names, hstsMaxAgeSeconds, hstsIncludeSubdomains, cspPolicyDirectives, cspReportOnly, known);
         }
         return NO_HEADER_WRITERS;
     }
@@ -732,133 +770,6 @@ final class SecurityScanner {
      */
     private record CorsDiscoveryResult(boolean sourcePresent, boolean customSourcePresent) {}
 
-    private static final CorsDiscoveryResult NO_CORS_SOURCES = new CorsDiscoveryResult(false, false);
-
-    private static CorsDiscoveryResult discoverCors(
-            ListableBeanFactory beanFactory, List<CorsConfigModel> corsConfigs, List<String> errors) {
-        if (beanFactory == null) {
-            return NO_CORS_SOURCES;
-        }
-        Map<String, CorsConfigurationSource> sources;
-        try {
-            sources = beanFactory.getBeansOfType(CorsConfigurationSource.class);
-        } catch (RuntimeException | LinkageError ex) {
-            errors.add("CORS sources: " + safeMessage(ex));
-            return NO_CORS_SOURCES;
-        }
-        if (sources.isEmpty()) {
-            return NO_CORS_SOURCES;
-        }
-        boolean sourcePresent = false;
-        boolean customSourcePresent = false;
-        for (Map.Entry<String, CorsConfigurationSource> sourceEntry : sources.entrySet()) {
-            CorsConfigurationSource source = sourceEntry.getValue();
-            if (isMvcHandlerMappingIntrospector(sourceEntry.getKey(), source)) {
-                continue;
-            }
-            sourcePresent = true;
-            if (source instanceof UrlBasedCorsConfigurationSource urlSource) {
-                try {
-                    Map<String, CorsConfiguration> configurations = urlSource.getCorsConfigurations();
-                    for (Map.Entry<String, CorsConfiguration> entry : configurations.entrySet()) {
-                        CorsConfiguration config = entry.getValue();
-                        if (config == null) {
-                            continue;
-                        }
-                        corsConfigs.add(new CorsConfigModel(
-                                entry.getKey(),
-                                config.getAllowedOrigins(),
-                                config.getAllowedOriginPatterns(),
-                                config.getAllowedMethods(),
-                                config.getAllowedHeaders(),
-                                config.getAllowCredentials()));
-                    }
-                } catch (RuntimeException | LinkageError ex) {
-                    errors.add("CORS configuration: " + safeMessage(ex));
-                }
-            } else {
-                customSourcePresent = true;
-            }
-        }
-        return sourcePresent ? new CorsDiscoveryResult(true, customSourcePresent) : NO_CORS_SOURCES;
-    }
-
-    private static boolean discoverMethodSecurityAnnotations(ListableBeanFactory beanFactory) {
-        if (beanFactory == null) {
-            return false;
-        }
-        List<Class<?>> annotations = new ArrayList<>();
-        for (String name : List.of(
-                "org.springframework.security.access.prepost.PreAuthorize",
-                "org.springframework.security.access.prepost.PostAuthorize",
-                "org.springframework.security.access.annotation.Secured",
-                "jakarta.annotation.security.RolesAllowed")) {
-            Class<?> type = classForName(name);
-            if (type != null) {
-                annotations.add(type);
-            }
-        }
-        if (annotations.isEmpty()) {
-            return false;
-        }
-        try {
-            String[] beanNames = beanFactory.getBeanDefinitionNames();
-            int scanned = 0;
-            for (String beanName : beanNames) {
-                if (scanned++ > MAX_BEAN_SCAN) {
-                    break;
-                }
-                Class<?> type;
-                try {
-                    type = beanFactory.getType(beanName);
-                } catch (RuntimeException | LinkageError ex) {
-                    continue;
-                }
-                if (type == null) {
-                    continue;
-                }
-                String packageName = type.getPackageName();
-                if (packageName.startsWith("org.springframework")
-                        || packageName.startsWith("io.github.jdubois.bootui")) {
-                    continue;
-                }
-                if (typeUsesAnnotation(type, annotations)) {
-                    return true;
-                }
-            }
-        } catch (RuntimeException | LinkageError ex) {
-            return false;
-        }
-        return false;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static boolean typeUsesAnnotation(Class<?> type, List<Class<?>> annotations) {
-        try {
-            for (Class<?> annotation : annotations) {
-                if (type.isAnnotationPresent((Class<? extends java.lang.annotation.Annotation>) annotation)) {
-                    return true;
-                }
-            }
-            Method[] methods;
-            try {
-                methods = type.getMethods();
-            } catch (RuntimeException | LinkageError ex) {
-                return false;
-            }
-            for (Method method : methods) {
-                for (Class<?> annotation : annotations) {
-                    if (method.isAnnotationPresent((Class<? extends java.lang.annotation.Annotation>) annotation)) {
-                        return true;
-                    }
-                }
-            }
-        } catch (RuntimeException | LinkageError ex) {
-            return false;
-        }
-        return false;
-    }
-
     /**
      * Default tokens a {@code StrictHttpFirewall} blocks in its {@code encodedUrlBlocklist} unless a
      * setter such as {@code setAllowUrlEncodedSlash(true)} explicitly relaxes it. Used to detect when
@@ -868,69 +779,34 @@ final class SecurityScanner {
      */
     private static final List<String> FIREWALL_DEFAULT_BLOCKED_TOKENS = List.of("%2f", "%5c", ";", "%2f%2f");
 
-    private static boolean discoverStrictHttpFirewallWeakened(ListableBeanFactory beanFactory) {
-        if (beanFactory == null) {
-            return false;
-        }
-        Map<String, StrictHttpFirewall> firewalls;
-        try {
-            firewalls = beanFactory.getBeansOfType(StrictHttpFirewall.class);
-        } catch (RuntimeException | LinkageError ex) {
-            return false;
-        }
-        for (StrictHttpFirewall firewall : firewalls.values()) {
-            if (firewall == null) {
-                continue;
-            }
-            Object blocklist = readField(firewall, "encodedUrlBlocklist");
-            if (blocklist instanceof Set<?> blocked
-                    && FIREWALL_DEFAULT_BLOCKED_TOKENS.stream().anyMatch(token -> !blocked.contains(token))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * {@code true} when a {@code DaoAuthenticationProvider} (or another {@code
-     * AbstractUserDetailsAuthenticationProvider}) bean has been explicitly configured with {@code
-     * hideUserNotFoundExceptions=false}, which lets an attacker distinguish "user not found" from
-     * "bad password" and enumerate valid usernames. The field defaults to {@code true}, so this only
-     * fires when a host application has actively disabled the protection.
-     */
-    private static boolean discoverHideUserNotFoundExceptionsDisabled(ListableBeanFactory beanFactory) {
-        if (beanFactory == null) {
-            return false;
-        }
-        Map<String, AbstractUserDetailsAuthenticationProvider> providers;
-        try {
-            providers = beanFactory.getBeansOfType(AbstractUserDetailsAuthenticationProvider.class);
-        } catch (RuntimeException | LinkageError ex) {
-            return false;
-        }
-        for (AbstractUserDetailsAuthenticationProvider provider : providers.values()) {
-            if (provider != null && Boolean.FALSE.equals(readField(provider, "hideUserNotFoundExceptions"))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * {@code true} when Spring Boot's own auto-configured {@code InMemoryUserDetailsManager} bean is
      * present -- the single generated-password "user" account {@code
      * UserDetailsServiceAutoConfiguration} creates only when no other {@code UserDetailsService},
      * {@code AuthenticationManager}, or {@code AuthenticationProvider} bean exists. Matched by the
-     * exact bean name Spring Boot's auto-configuration registers it under ({@code
-     * inMemoryUserDetailsManager}), since the bean's type alone would also match a host application's
-     * own, deliberately-configured {@code InMemoryUserDetailsManager}.
+     * native factory identity and method, with the resulting service attached to an active provider.
      */
-    private static boolean discoverGeneratedUserDetailsManagerPresent(ListableBeanFactory beanFactory) {
-        if (beanFactory == null) {
+    private static boolean discoverGeneratedUserDetailsManagerPresent(
+            ListableBeanFactory beanFactory, List<Object> providers) {
+        if (!(beanFactory instanceof ConfigurableListableBeanFactory configurable)) {
             return false;
         }
         try {
-            return beanFactory.containsBean("inMemoryUserDetailsManager");
+            if (!configurable.containsSingleton("inMemoryUserDetailsManager")
+                    || !configurable.containsBeanDefinition("inMemoryUserDetailsManager")) return false;
+            var definition = configurable.getBeanDefinition("inMemoryUserDetailsManager");
+            String factory = definition.getFactoryBeanName();
+            Object userService = configurable.getSingleton("inMemoryUserDetailsManager");
+            Object factoryBean = factory == null ? null : configurable.getSingleton(factory);
+            return factoryBean != null
+                    && factoryBean
+                            .getClass()
+                            .getName()
+                            .equals(
+                                    "org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration")
+                    && "inMemoryUserDetailsManager".equals(definition.getFactoryMethodName())
+                    && providers.stream()
+                            .anyMatch(provider -> readField(provider, "userDetailsService") == userService);
         } catch (RuntimeException | LinkageError ex) {
             return false;
         }
@@ -939,6 +815,7 @@ final class SecurityScanner {
     // ── Reflection / proxy helpers ───────────────────────────────────────────────
 
     private static Object readField(Object target, String fieldName) {
+        if (target == null) return null;
         Class<?> current = target.getClass();
         while (current != null && current != Object.class) {
             try {
@@ -978,124 +855,6 @@ final class SecurityScanner {
         return (AuthorizationManager<HttpServletRequest>) current;
     }
 
-    private static boolean isMvcHandlerMappingIntrospector(String beanName, CorsConfigurationSource source) {
-        if (MVC_HANDLER_MAPPING_INTROSPECTOR_BEAN_NAME.equals(beanName)) {
-            return true;
-        }
-        Class<?> introspectorType = classForName(MVC_HANDLER_MAPPING_INTROSPECTOR_CLASS_NAME);
-        return introspectorType != null && introspectorType.isInstance(source);
-    }
-
-    /**
-     * Stands in for the servlet mapping a container would attach to the request. Spring's
-     * {@code ServletRequestPathUtils} dereferences it while parsing the request path, which
-     * Spring Security's {@code PathPatternRequestMatcher} does for every path-based matcher, so
-     * without it any path-scoped simulated authorization decision would fail. {@code DEFAULT} models
-     * the root {@code "/"} mapping, i.e. no servlet path prefix to strip.
-     */
-    private static final HttpServletMapping DEFAULT_SERVLET_MAPPING = new HttpServletMapping() {
-
-        @Override
-        public String getMatchValue() {
-            return "";
-        }
-
-        @Override
-        public String getPattern() {
-            return "/";
-        }
-
-        @Override
-        public String getServletName() {
-            return "";
-        }
-
-        @Override
-        public MappingMatch getMappingMatch() {
-            return MappingMatch.DEFAULT;
-        }
-    };
-
-    private static HttpServletRequest simulatedRequest(String requestMethod, String requestPath) {
-        InvocationHandler handler = (proxy, method, args) -> {
-            String name = method.getName();
-            return switch (name) {
-                case "getMethod" -> requestMethod;
-                case "getServletPath", "getRequestURI", "getPathInfo" -> requestPath;
-                case "getContextPath" -> "";
-                case "getScheme" -> "http";
-                case "getProtocol" -> "HTTP/1.1";
-                case "getServerName", "getRemoteHost", "getLocalName" -> "localhost";
-                case "getRemoteAddr", "getLocalAddr" -> "127.0.0.1";
-                case "getRequestURL" -> new StringBuffer("http://localhost" + requestPath);
-                case "getHttpServletMapping" -> DEFAULT_SERVLET_MAPPING;
-                default -> defaultValue(method);
-            };
-        };
-        return (HttpServletRequest) Proxy.newProxyInstance(
-                SecurityScanner.class.getClassLoader(), new Class<?>[] {HttpServletRequest.class}, handler);
-    }
-
-    private static Object defaultValue(Method method) {
-        Class<?> returnType = method.getReturnType();
-        if (returnType.equals(java.util.Enumeration.class)) {
-            return Collections.emptyEnumeration();
-        }
-        if (returnType.equals(boolean.class)) {
-            return Boolean.FALSE;
-        }
-        if (returnType.equals(int.class)) {
-            return 0;
-        }
-        if (returnType.equals(long.class)) {
-            return 0L;
-        }
-        if (returnType.equals(short.class)) {
-            return (short) 0;
-        }
-        if (returnType.equals(byte.class)) {
-            return (byte) 0;
-        }
-        if (returnType.equals(double.class)) {
-            return 0d;
-        }
-        if (returnType.equals(float.class)) {
-            return 0f;
-        }
-        if (returnType.equals(char.class)) {
-            return '\0';
-        }
-        return null;
-    }
-
-    private static final String PASSWORD_ENCODER_CLASS = "org.springframework.security.crypto.password.PasswordEncoder";
-
-    private static List<PasswordEncoderModel> discoverPasswordEncoders(ListableBeanFactory beanFactory) {
-        if (beanFactory == null) {
-            return List.of();
-        }
-        Class<?> type = classForName(PASSWORD_ENCODER_CLASS);
-        if (type == null) {
-            return List.of();
-        }
-        Map<String, ?> beans;
-        try {
-            beans = beanFactory.getBeansOfType(type);
-        } catch (RuntimeException | LinkageError ex) {
-            return beanTypeNames(beanFactory, PASSWORD_ENCODER_CLASS).stream()
-                    .map(name -> new PasswordEncoderModel(name, null))
-                    .toList();
-        }
-        List<PasswordEncoderModel> models = new ArrayList<>();
-        for (Object encoder : beans.values()) {
-            if (encoder == null) {
-                continue;
-            }
-            models.add(new PasswordEncoderModel(encoder.getClass().getName(), bcryptStrength(encoder)));
-        }
-        return models;
-    }
-
     private static Integer bcryptStrength(Object encoder) {
         if (!encoder.getClass().getName().contains("BCryptPasswordEncoder")) {
             return null;
@@ -1113,15 +872,9 @@ final class SecurityScanner {
             return List.of();
         }
         try {
-            String[] names = beanFactory.getBeanNamesForType(type);
             List<String> result = new ArrayList<>();
-            for (String name : names) {
-                try {
-                    Class<?> beanType = beanFactory.getType(name);
-                    result.add(beanType == null ? name : beanType.getName());
-                } catch (RuntimeException | LinkageError ex) {
-                    result.add(name);
-                }
+            for (Object singleton : existingSingletons(beanFactory, type)) {
+                result.add(singleton.getClass().getName());
             }
             return result;
         } catch (RuntimeException | LinkageError ex) {
@@ -1131,14 +884,845 @@ final class SecurityScanner {
 
     private static Class<?> classForName(String name) {
         try {
-            return Class.forName(name);
+            return Class.forName(name, false, SecurityScanner.class.getClassLoader());
         } catch (ClassNotFoundException | LinkageError ex) {
             return null;
         }
     }
 
     private static String safeMessage(Throwable ex) {
-        return ex.getMessage() == null ? ex.getClass().getName() : ex.getMessage();
+        return "Framework metadata could not be read (" + (ex instanceof LinkageError ? "linkage" : "runtime") + ").";
+    }
+
+    private static FilterChainProxy nativeFilterChainProxy(FilterChainProxy candidate) {
+        // Native composites keep their real inventory in a delegate, not the inherited empty list.
+        for (int depth = 0; candidate != null && depth < 8; depth++) {
+            if (candidate.getClass() == FilterChainProxy.class) return candidate;
+            String name = candidate.getClass().getName();
+            if (!name.equals(
+                            "org.springframework.security.config.annotation.web.configuration.WebSecurityConfiguration$CompositeFilterChainProxy")
+                    && !name.equals(
+                            "org.springframework.security.config.annotation.web.configuration.WebMvcSecurityConfiguration$CompositeFilterChainProxy"))
+                return null;
+            Object delegate = readField(candidate, "springSecurityFilterChain");
+            if (!(delegate instanceof FilterChainProxy nested) || nested == candidate) return null;
+            candidate = nested;
+        }
+        return null;
+    }
+
+    private static List<Filter> safeFilters(SecurityFilterChain chain) {
+        if (!(readField(chain, "filters") instanceof List<?> filters) || filters.size() > 512) {
+            throw new IllegalStateException();
+        }
+
+        List<Filter> result = new ArrayList<>();
+        for (Object value : filters) {
+            if (!(value instanceof Filter filter)) throw new IllegalStateException();
+            result.add(filter);
+        }
+        return result;
+    }
+
+    private static boolean isBootUiChain(ListableBeanFactory beanFactory, Object chain) {
+        String name = "bootUiSecurityFilterChain";
+        if (!(beanFactory instanceof ConfigurableListableBeanFactory configurable)
+                || !configurable.containsBeanDefinition(name)
+                || configurable.getSingleton(name) != chain) return false;
+        var definition = configurable.getBeanDefinition(name);
+        return "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration"
+                        .equals(definition.getFactoryBeanName())
+                && name.equals(definition.getFactoryMethodName());
+    }
+
+    private static FilterChainModel unknownChain(int index) {
+        return new FilterChainModel(
+                index,
+                "(unsupported chain)",
+                List.of(),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new ChainDetails(false, false, false, unknownMatcher(), List.of(), null, false));
+    }
+
+    private static String frameworkTypeName(Object value) {
+        if (value == null) return "Unknown";
+        String name = value.getClass().getName();
+        return FRAMEWORK_TYPES.contains(name) || value.getClass() == CorsFilter.class
+                ? value.getClass().getSimpleName()
+                : "Unknown";
+    }
+
+    private static final Set<String> FRAMEWORK_TYPES = Set.of(
+            "org.springframework.security.web.access.intercept.AuthorizationFilter",
+            "org.springframework.security.web.access.intercept.FilterSecurityInterceptor",
+            "org.springframework.security.web.context.SecurityContextHolderFilter",
+            "org.springframework.security.web.context.SecurityContextPersistenceFilter",
+            "org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter",
+            "org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter",
+            "org.springframework.security.web.authentication.www.BasicAuthenticationFilter",
+            "org.springframework.security.web.authentication.AnonymousAuthenticationFilter",
+            "org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter",
+            "org.springframework.security.web.authentication.ui.DefaultLoginPageGeneratingFilter",
+            "org.springframework.security.web.authentication.ui.DefaultLogoutPageGeneratingFilter",
+            "org.springframework.security.web.authentication.ui.DefaultResourcesFilter",
+            "org.springframework.security.web.authentication.logout.LogoutFilter",
+            "org.springframework.security.web.authentication.AuthenticationFilter",
+            "org.springframework.security.web.authentication.preauth.x509.X509AuthenticationFilter",
+            "org.springframework.security.web.csrf.CsrfFilter",
+            "org.springframework.security.web.session.SessionManagementFilter",
+            "org.springframework.security.web.session.ConcurrentSessionFilter",
+            "org.springframework.security.web.session.DisableEncodeUrlFilter",
+            "org.springframework.security.web.access.ExceptionTranslationFilter",
+            "org.springframework.security.web.savedrequest.RequestCacheAwareFilter",
+            "org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter",
+            "org.springframework.security.web.header.HeaderWriterFilter",
+            "org.springframework.security.web.transport.HttpsRedirectFilter",
+            "org.springframework.security.web.access.channel.ChannelProcessingFilter",
+            "org.springframework.security.web.debug.DebugFilter",
+            "org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy",
+            "org.springframework.security.web.authentication.session.SessionFixationProtectionStrategy",
+            "org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy",
+            "org.springframework.security.web.authentication.session.CompositeSessionAuthenticationStrategy",
+            "org.springframework.security.web.authentication.session.ConcurrentSessionControlAuthenticationStrategy",
+            "org.springframework.security.web.authentication.session.RegisterSessionAuthenticationStrategy",
+            "org.springframework.security.web.csrf.CsrfAuthenticationStrategy",
+            "org.springframework.security.web.header.writers.HstsHeaderWriter",
+            "org.springframework.security.web.header.writers.ContentSecurityPolicyHeaderWriter",
+            "org.springframework.security.web.header.writers.XContentTypeOptionsHeaderWriter",
+            "org.springframework.security.web.header.writers.XXssProtectionHeaderWriter",
+            "org.springframework.security.web.header.writers.CacheControlHeadersWriter",
+            "org.springframework.security.web.header.writers.frameoptions.XFrameOptionsHeaderWriter",
+            "org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter",
+            "org.springframework.security.web.header.writers.PermissionsPolicyHeaderWriter",
+            "org.springframework.security.web.header.writers.CrossOriginOpenerPolicyHeaderWriter",
+            "org.springframework.security.web.header.writers.CrossOriginEmbedderPolicyHeaderWriter",
+            "org.springframework.security.web.header.writers.CrossOriginResourcePolicyHeaderWriter",
+            "org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter",
+            "org.springframework.security.oauth2.server.resource.web.OAuth2ProtectedResourceMetadataFilter",
+            "org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter",
+            "org.springframework.security.oauth2.client.web.OAuth2AuthorizationCodeGrantFilter",
+            "org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter");
+
+    private static MatcherFacts unknownMatcher() {
+        return new MatcherFacts("unknown", null, null, List.of());
+    }
+
+    private static MatcherFacts matcherFacts(Object matcher, int depth) {
+        return matcherFacts(matcher, depth, new int[] {512});
+    }
+
+    private static MatcherFacts matcherFacts(Object matcher, int depth, int[] remaining) {
+        if (matcher == null || depth > 8 || --remaining[0] < 0) return unknownMatcher();
+        String name = matcher.getClass().getName();
+        if (matcher.getClass() == AnyRequestMatcher.class) return new MatcherFacts("any", null, null, List.of());
+        if (name.equals("org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher")) {
+            Object pattern = readField(matcher, "pattern");
+            Object method = readField(matcher, "method");
+            String methodName = null;
+            if (method != AnyRequestMatcher.INSTANCE) {
+                if (method == null
+                        || !method.getClass()
+                                .getName()
+                                .equals(
+                                        "org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher$HttpMethodRequestMatcher")) {
+                    return unknownMatcher();
+                }
+                Object httpMethod = readField(method, "method");
+                if (!(httpMethod instanceof org.springframework.http.HttpMethod typed)) return unknownMatcher();
+                methodName = typed.name();
+            }
+            if (pattern != null && pattern.getClass() == org.springframework.web.util.pattern.PathPattern.class) {
+                var typed = (org.springframework.web.util.pattern.PathPattern) pattern;
+                if (!Boolean.TRUE.equals(readField(typed, "caseSensitive"))
+                        || readField(typed, "pathOptions")
+                                != org.springframework.http.server.PathContainer.Options.HTTP_PATH) {
+                    return unknownMatcher();
+                }
+                if (typed.getPatternString().length() > 2048) return unknownMatcher();
+                return new MatcherFacts("path", methodName, typed.getPatternString(), List.of());
+            }
+        }
+        String kind = name.equals("org.springframework.security.web.util.matcher.OrRequestMatcher")
+                ? "or"
+                : name.equals("org.springframework.security.web.util.matcher.AndRequestMatcher") ? "and" : null;
+        if (kind != null
+                && readField(matcher, "requestMatchers") instanceof List<?> children
+                && children.size() <= 128) {
+            return new MatcherFacts(
+                    kind,
+                    null,
+                    null,
+                    children.stream()
+                            .map(child -> matcherFacts(child, depth + 1, remaining))
+                            .toList());
+        }
+        if (name.equals("org.springframework.security.web.util.matcher.NegatedRequestMatcher")) {
+            return new MatcherFacts(
+                    "not",
+                    null,
+                    null,
+                    List.of(matcherFacts(readField(matcher, "requestMatcher"), depth + 1, remaining)));
+        }
+        return unknownMatcher();
+    }
+
+    private static List<AuthorizationMapping> authorizationMappings(AuthorizationManager<HttpServletRequest> manager) {
+        Object unwrapped = unwrapObservationAuthorizationManager(manager);
+        if (unwrapped == null) return List.of();
+        if (unwrapped.getClass() == SingleResultAuthorizationManager.class) {
+            return List.of(
+                    new AuthorizationMapping(new MatcherFacts("any", null, null, List.of()), constantGrant(unwrapped)));
+        }
+        if (unwrapped.getClass() != RequestMatcherDelegatingAuthorizationManager.class
+                || !(readField(unwrapped, "mappings") instanceof List<?> mappings)
+                || mappings.size() > 512) return List.of();
+        List<AuthorizationMapping> result = new ArrayList<>();
+        for (Object value : mappings) {
+            if (!(value instanceof RequestMatcherEntry<?> entry)) return List.of();
+            result.add(new AuthorizationMapping(
+                    matcherFacts(entry.getRequestMatcher(), 0), constantGrant(entry.getEntry())));
+        }
+        return List.copyOf(result);
+    }
+
+    private static Boolean constantGrant(Object manager) {
+        if (manager == null || manager.getClass() != SingleResultAuthorizationManager.class) return null;
+        Object result = readField(manager, "result");
+        if (result == null
+                || result.getClass() != org.springframework.security.authorization.AuthorizationDecision.class) {
+            return null;
+        }
+        Object granted = readField(result, "granted");
+        return granted instanceof Boolean decision ? decision : null;
+    }
+
+    private static Boolean blanketGrant(List<AuthorizationMapping> mappings) {
+        for (AuthorizationMapping mapping : mappings) {
+            if (mapping.grant() == null || !mapping.matcher().complete()) return null;
+            if (!mapping.grant()) return false;
+            if (mapping.matcher().unconditional()) return true;
+        }
+        return null;
+    }
+
+    static Boolean grantFor(List<AuthorizationMapping> mappings, String method, String path) {
+        for (AuthorizationMapping mapping : mappings) {
+            Boolean matches = mapping.matcher().matches(method, path);
+            if (matches == null) return null;
+            if (matches) return mapping.grant();
+        }
+        return null;
+    }
+
+    private static Boolean bearerSavesSession(List<Filter> filters) {
+        for (Filter filter : filters) {
+            if ("BearerTokenAuthenticationFilter".equals(frameworkTypeName(filter))) {
+                Object repository = readField(filter, "securityContextRepository");
+                Boolean stateless =
+                        repository instanceof SecurityContextRepository typed ? statelessVerdict(typed, 0) : null;
+                return stateless == null ? null : !stateless;
+            }
+        }
+        return null;
+    }
+
+    private static List<Object> existingSingletons(ListableBeanFactory beanFactory, Class<?> type) {
+        if (!(beanFactory instanceof SingletonBeanRegistry registry)) return List.of();
+        List<Object> result = new ArrayList<>();
+        String[] names = registry.getSingletonNames();
+        for (int i = 0; i < Math.min(names.length, MAX_BEAN_SCAN); i++) {
+            Object bean = registry.getSingleton(names[i]);
+            if (type.isInstance(bean)) result.add(bean);
+        }
+        return result;
+    }
+
+    private static List<Object> activeProviders(List<Filter> filters) {
+        List<Object> result = new ArrayList<>();
+        for (Filter filter : filters) {
+            if ("Unknown".equals(frameworkTypeName(filter))) continue;
+            collectProviders(readField(filter, "authenticationManager"), result, 0);
+            Object resolver = readField(filter, "authenticationManagerResolver");
+            if (resolver != null
+                    && resolver.getClass().isSynthetic()
+                    && (resolver.getClass()
+                                    .getName()
+                                    .startsWith(
+                                            "org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter$$Lambda")
+                            || resolver.getClass()
+                                    .getName()
+                                    .startsWith(
+                                            "org.springframework.security.config.annotation.web.configurers.oauth2.server.resource.OAuth2ResourceServerConfigurer$$Lambda"))
+                    && resolver.getClass().getDeclaredFields().length == 1) {
+                collectProviders(readField(resolver, "arg$1"), result, 0);
+            }
+        }
+        return result;
+    }
+
+    private static void collectProviders(Object manager, List<Object> providers, int depth) {
+        if (manager != null
+                && manager.getClass()
+                        .getName()
+                        .equals("org.springframework.security.authentication.ObservationAuthenticationManager")
+                && depth <= 8) {
+            collectProviders(readField(manager, "delegate"), providers, depth + 1);
+            return;
+        }
+        if (manager == null || manager.getClass() != ProviderManager.class || depth > 8 || providers.size() > 512)
+            return;
+        if (readField(manager, "providers") instanceof List<?> list && list.size() <= 128) {
+            for (Object provider : list)
+                if (providers.stream().noneMatch(existing -> existing == provider)) providers.add(provider);
+        }
+        collectProviders(readField(manager, "parent"), providers, depth + 1);
+    }
+
+    private static List<PasswordEncoderModel> discoverPasswordEncoders(List<Object> providers) {
+        List<PasswordEncoderModel> result = new ArrayList<>();
+        for (Object provider : providers) {
+            if (!provider.getClass()
+                    .getName()
+                    .equals("org.springframework.security.authentication.dao.DaoAuthenticationProvider")) continue;
+            Object supplier = readField(provider, "passwordEncoder");
+            Object encoder = readField(supplier, "singletonInstance");
+            Object defaultSupplier = readField(supplier, "instanceSupplier");
+            if (encoder == null
+                    && supplier != null
+                    && supplier.getClass().getName().equals("org.springframework.util.function.SingletonSupplier")
+                    && defaultSupplier != null
+                    && defaultSupplier.getClass().isSynthetic()
+                    && defaultSupplier
+                            .getClass()
+                            .getName()
+                            .startsWith(
+                                    "org.springframework.security.authentication.dao.DaoAuthenticationProvider$$Lambda")
+                    && defaultSupplier.getClass().getDeclaredFields().length == 0) {
+                result.add(new PasswordEncoderModel(
+                        "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder", 10));
+                continue;
+            }
+            if (!(encoder instanceof PasswordEncoder)
+                    && supplier != null
+                    && supplier.getClass().isSynthetic()
+                    && supplier.getClass()
+                            .getName()
+                            .startsWith(
+                                    "org.springframework.security.authentication.dao.DaoAuthenticationProvider$$Lambda")) {
+                encoder = readField(supplier, "arg$1");
+            }
+            if (encoder != null
+                    && encoder.getClass()
+                            .getName()
+                            .equals("org.springframework.security.crypto.password.DelegatingPasswordEncoder")) {
+                encoder = readField(encoder, "passwordEncoderForEncode");
+            }
+            if (encoder instanceof PasswordEncoder
+                    && KNOWN_ENCODERS.contains(encoder.getClass().getName())) {
+                result.add(new PasswordEncoderModel(encoder.getClass().getName(), bcryptStrength(encoder)));
+            } else {
+                result.add(new PasswordEncoderModel("Unknown active provider encoder", null));
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private static final Set<String> KNOWN_ENCODERS = Set.of(
+            "org.springframework.security.crypto.password.NoOpPasswordEncoder",
+            "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder",
+            "org.springframework.security.crypto.argon2.Argon2PasswordEncoder",
+            "org.springframework.security.crypto.password.Pbkdf2PasswordEncoder",
+            "org.springframework.security.crypto.scrypt.SCryptPasswordEncoder",
+            "org.springframework.security.crypto.password.StandardPasswordEncoder",
+            "org.springframework.security.crypto.password.MessageDigestPasswordEncoder",
+            "org.springframework.security.crypto.password.Md4PasswordEncoder",
+            "org.springframework.security.crypto.password.LdapShaPasswordEncoder");
+
+    private static boolean firewallWeakened(Object firewall) {
+        return firewall != null
+                && firewall.getClass() == StrictHttpFirewall.class
+                && readField(firewall, "encodedUrlBlocklist") instanceof Set<?> blocked
+                && FIREWALL_DEFAULT_BLOCKED_TOKENS.stream().anyMatch(token -> !blocked.contains(token));
+    }
+
+    private static boolean unconditionalHttpsRedirect(List<Filter> filters) {
+        for (Filter filter : filters) {
+            if (!filter.getClass().getName().equals("org.springframework.security.web.transport.HttpsRedirectFilter"))
+                continue;
+            Object mapper = readField(filter, "portMapper");
+            Object redirect = readField(filter, "redirectStrategy");
+            if (mapper != null
+                    && mapper.getClass().getName().equals("org.springframework.security.web.PortMapperImpl")
+                    && Map.of(80, 443, 8080, 8443).equals(readField(mapper, "httpsPortMappings"))
+                    && redirect != null
+                    && redirect.getClass().getName().equals("org.springframework.security.web.DefaultRedirectStrategy")
+                    && Boolean.FALSE.equals(readField(redirect, "contextRelative"))
+                    && readField(redirect, "statusCode") instanceof org.springframework.http.HttpStatus status
+                    && Set.of(
+                                    org.springframework.http.HttpStatus.MOVED_PERMANENTLY,
+                                    org.springframework.http.HttpStatus.FOUND,
+                                    org.springframework.http.HttpStatus.SEE_OTHER,
+                                    org.springframework.http.HttpStatus.TEMPORARY_REDIRECT,
+                                    org.springframework.http.HttpStatus.PERMANENT_REDIRECT)
+                            .contains(status)
+                    && matcherFacts(readField(filter, "requestMatcher"), 0).unconditional()) return true;
+        }
+
+        return false;
+    }
+
+    private static boolean filterMetadataKnown(List<Filter> filters) {
+        for (Filter filter : filters) {
+            String name = frameworkTypeName(filter);
+            if (name.equals("Unknown")) return false;
+            if (name.equals("CsrfFilter")) {
+                Object matcher = readField(filter, "requireCsrfProtectionMatcher");
+                if (matcher == null
+                        || !matcher.getClass()
+                                .getName()
+                                .equals("org.springframework.security.web.csrf.CsrfFilter$DefaultRequiresCsrfMatcher"))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    private static SecurityContext.Evidence discoverEvidence(
+            ListableBeanFactory beanFactory, List<Object> providers, Environment environment, List<String> errors) {
+        List<SecurityContext.Operation> operations = new ArrayList<>();
+        boolean operationsKnown = false;
+        Set<String> enabled = new java.util.LinkedHashSet<>();
+        Set<String> used = new java.util.LinkedHashSet<>();
+        boolean methodKnown = true;
+        boolean bootJwt = false;
+        if (beanFactory instanceof ConfigurableListableBeanFactory configurable) {
+            String[] definitions = configurable.getBeanDefinitionNames();
+            if (definitions.length > MAX_BEAN_SCAN) {
+                methodKnown = false;
+                errors.add("Bean metadata inventory limit reached.");
+            }
+            for (int index = 0; index < Math.min(definitions.length, MAX_BEAN_SCAN); index++) {
+                String name = definitions[index];
+                var definition = configurable.getBeanDefinition(name);
+                String factory = definition.getFactoryBeanName();
+                String className = definition.getBeanClassName();
+                String configuration = factory != null ? factory : className;
+                if (configuration != null) {
+                    String prefix = "org.springframework.security.config.annotation.method.configuration.";
+                    if (configuration.equals(prefix + "PrePostMethodSecurityConfiguration")) enabled.add("pre-post");
+                    if (configuration.equals(prefix + "SecuredMethodSecurityConfiguration")) enabled.add("secured");
+                    if (configuration.equals(prefix + "Jsr250MethodSecurityConfiguration")) enabled.add("jsr250");
+                }
+                if (configurable.containsSingleton(name)) {
+                    Object singleton = configurable.getSingleton(name);
+                    Object factoryBean = factory == null ? null : configurable.getSingleton(factory);
+                    String factoryMethod = definition.getFactoryMethodName();
+                    if (singleton != null
+                            && (singleton
+                                            .getClass()
+                                            .getName()
+                                            .equals("org.springframework.security.oauth2.jwt.NimbusJwtDecoder")
+                                    || singleton
+                                            .getClass()
+                                            .getName()
+                                            .equals("org.springframework.security.oauth2.jwt.SupplierJwtDecoder"))
+                            && factoryBean != null
+                            && factoryBean
+                                    .getClass()
+                                    .getName()
+                                    .equals(
+                                            "org.springframework.boot.security.oauth2.server.resource.autoconfigure.JwtDecoderConfiguration")
+                            && factoryMethod != null
+                            && Set.of("jwtDecoderByPublicKeyValue", "jwtDecoderByJwkKeySetUri", "jwtDecoderByIssuerUri")
+                                    .contains(factoryMethod)
+                            && providers.stream().anyMatch(provider -> readField(provider, "jwtDecoder") == singleton))
+                        bootJwt = true;
+                }
+                Class<?> type = className == null ? null : classForName(className);
+                if (type == null && configurable.containsSingleton(name)) {
+                    Object singleton = configurable.getSingleton(name);
+                    if (singleton != null) type = singleton.getClass();
+                }
+                if (type == null || type.getName().startsWith("org.springframework.")) continue;
+                methodKnown &= collectMethodFamilies(type, used, new java.util.HashSet<>(), 0);
+            }
+        } else methodKnown = false;
+        Class<?> advisorType = classForName("org.springframework.security.authorization.method.AuthorizationAdvisor");
+        if (advisorType != null) {
+            for (Object advisor : existingSingletons(beanFactory, advisorType)) {
+                String type = advisor.getClass().getName();
+                if (type.equals(
+                                "org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor")
+                        || type.equals(
+                                "org.springframework.security.authorization.method.AuthorizationManagerAfterMethodInterceptor")) {
+                    Object manager = readField(advisor, "authorizationManager");
+                    if (manager == null) {
+                        methodKnown = false;
+                        continue;
+                    }
+                    String name = manager.getClass().getName();
+                    if (name.equals("org.springframework.security.authorization.method.SecuredAuthorizationManager"))
+                        enabled.add("secured");
+                    else if (name.equals(
+                            "org.springframework.security.authorization.method.Jsr250AuthorizationManager"))
+                        enabled.add("jsr250");
+                    else if (name.equals(
+                                    "org.springframework.security.authorization.method.PreAuthorizeAuthorizationManager")
+                            || name.equals(
+                                    "org.springframework.security.authorization.method.PostAuthorizeAuthorizationManager"))
+                        enabled.add("pre-post");
+                    else methodKnown = false;
+                } else if (type.equals(
+                                "org.springframework.security.authorization.method.PreFilterAuthorizationMethodInterceptor")
+                        || type.equals(
+                                "org.springframework.security.authorization.method.PostFilterAuthorizationMethodInterceptor")) {
+                    enabled.add("pre-post");
+                } else if (!type.equals(
+                                "org.springframework.security.authorization.method.AuthorizeReturnObjectMethodInterceptor")
+                        && !type.equals(
+                                "org.springframework.security.config.annotation.method.configuration.DeferringMethodInterceptor")) {
+                    methodKnown = false;
+                }
+            }
+        }
+        try {
+            String servletPath = environment.getProperty("spring.mvc.servlet.path");
+            if (!SecurityActuatorObservation.observe(environment).separateManagementPort()
+                    && (servletPath == null || servletPath.isBlank() || servletPath.equals("/"))) {
+                for (Object singleton : existingSingletons(beanFactory, Object.class)) {
+                    if (!singleton
+                            .getClass()
+                            .getName()
+                            .equals(
+                                    "org.springframework.boot.webmvc.actuate.endpoint.web.WebMvcEndpointHandlerMapping"))
+                        continue;
+                    Object endpointMapping = readField(singleton, "endpointMapping");
+                    Object prefix = readField(endpointMapping, "path");
+                    Object endpoints = readField(singleton, "endpoints");
+                    if (!(prefix instanceof String base)
+                            || !(endpoints instanceof java.util.Collection<?> inventory)
+                            || inventory.size() > 256) {
+                        errors.add("Actuator operation inventory is unsupported.");
+                        continue;
+                    }
+                    operationsKnown = true;
+                    for (Object endpoint : inventory) {
+                        if (endpoint == null
+                                || !endpoint.getClass()
+                                        .getName()
+                                        .equals(
+                                                "org.springframework.boot.actuate.endpoint.web.annotation.DiscoveredWebEndpoint")) {
+                            operationsKnown = false;
+                            continue;
+                        }
+                        Object id = readField(readField(endpoint, "id"), "value");
+                        Object defaultAccess = readField(endpoint, "defaultAccess");
+                        Object raw = readField(endpoint, "operations");
+                        if (!(id instanceof String endpointId)
+                                || !(raw instanceof List<?> endpointOperations)
+                                || endpointOperations.size() > 256) {
+                            operationsKnown = false;
+                            continue;
+                        }
+                        for (Object operation : endpointOperations) {
+                            if (operations.size() >= 1024
+                                    || operation == null
+                                    || !operation
+                                            .getClass()
+                                            .getName()
+                                            .equals(
+                                                    "org.springframework.boot.actuate.endpoint.web.annotation.DiscoveredWebOperation")) {
+                                operationsKnown = false;
+                                continue;
+                            }
+                            Object predicate = readField(operation, "requestPredicate");
+                            Object path = readField(predicate, "path");
+                            Object method = readField(predicate, "httpMethod");
+                            if (!(path instanceof String operationPath) || !(method instanceof Enum<?> httpMethod)) {
+                                operationsKnown = false;
+                                continue;
+                            }
+                            if (operationPath.contains("{") || operationPath.contains("*")) {
+                                operationsKnown = false;
+                                continue;
+                            }
+                            if (!(defaultAccess instanceof Enum<?> access)) {
+                                operationsKnown = false;
+                                continue;
+                            }
+                            operations.add(new SecurityContext.Operation(
+                                    endpointId,
+                                    httpMethod.name(),
+                                    (base.endsWith("/") ? base.substring(0, base.length() - 1) : base)
+                                            + (operationPath.startsWith("/") ? "" : "/")
+                                            + operationPath,
+                                    access.name()));
+                        }
+                    }
+                }
+            }
+        } catch (SecurityActuatorObservation.ObservationLimitException ex) {
+            operationsKnown = false;
+            errors.add("Actuator configuration evidence is incomplete.");
+        }
+        return new SecurityContext.Evidence(operations, operationsKnown, bootJwt, enabled, used, methodKnown);
+    }
+
+    private static final Map<String, List<String>> METHOD_ANNOTATIONS = Map.of(
+            "pre-post",
+                    List.of(
+                            "org.springframework.security.access.prepost.PreAuthorize",
+                            "org.springframework.security.access.prepost.PostAuthorize",
+                            "org.springframework.security.access.prepost.PreFilter",
+                            "org.springframework.security.access.prepost.PostFilter"),
+            "secured", List.of("org.springframework.security.access.annotation.Secured"),
+            "jsr250",
+                    List.of(
+                            "jakarta.annotation.security.RolesAllowed",
+                            "jakarta.annotation.security.DenyAll",
+                            "jakarta.annotation.security.PermitAll"));
+
+    private static boolean collectMethodFamilies(
+            Class<?> type, Set<String> families, Set<Class<?>> visited, int depth) {
+        if (type == null || type == Object.class || !visited.add(type)) return true;
+        if (depth > 8 || visited.size() > 128) return false;
+        try {
+            boolean complete = collectAnnotationFamilies(type, families, 0);
+            Method[] methods = type.getDeclaredMethods();
+            if (methods.length > 2000) return false;
+            for (Method method : methods) complete &= collectAnnotationFamilies(method, families, 0);
+            for (Class<?> contract : type.getInterfaces())
+                complete &= collectMethodFamilies(contract, families, visited, depth + 1);
+            return collectMethodFamilies(type.getSuperclass(), families, visited, depth + 1) && complete;
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static boolean collectAnnotationFamilies(
+            java.lang.reflect.AnnotatedElement element, Set<String> families, int depth) {
+        return collectAnnotationFamilies(element, families, depth, new java.util.HashSet<>());
+    }
+
+    private static boolean collectAnnotationFamilies(
+            java.lang.reflect.AnnotatedElement element, Set<String> families, int depth, Set<Class<?>> visited) {
+        if (depth > 8 || visited.size() > 128) return false;
+        var annotations = element.getDeclaredAnnotations();
+        if (annotations.length > 128) return false;
+        boolean complete = true;
+        for (var annotation : annotations) {
+            Class<?> type = annotation.annotationType();
+            for (var family : METHOD_ANNOTATIONS.entrySet()) {
+                if (family.getValue().contains(type.getName())) families.add(family.getKey());
+            }
+            if (!type.getName().startsWith("java.lang.annotation.") && visited.add(type)) {
+                complete &= collectAnnotationFamilies(type, families, depth + 1, visited);
+            }
+        }
+        return complete;
+    }
+
+    private static CorsDiscoveryResult discoverAttachedCors(
+            List<FilterChainModel> chains,
+            Map<Integer, List<Filter>> chainFilters,
+            List<CorsConfigModel> configs,
+            List<String> errors) {
+        boolean present = false;
+        boolean unknown = false;
+        List<MatcherFacts> earlierChains = new ArrayList<>();
+        for (FilterChainModel owner : chains) {
+            List<Filter> filters = chainFilters.getOrDefault(owner.index(), List.of());
+            for (Filter filter : filters) {
+                if (filter.getClass() != CorsFilter.class) continue;
+                present = true;
+                if (filters.stream().filter(CorsFilter.class::isInstance).count() != 1
+                        || !owner.details().filtersKnown()) {
+                    unknown = true;
+                    continue;
+                }
+                Object source = readField(filter, "configSource");
+                if (source == null || source.getClass() != UrlBasedCorsConfigurationSource.class) {
+                    unknown = true;
+                    continue;
+                }
+                Object processor = readField(filter, "processor");
+                if (processor == null
+                        || processor.getClass() != org.springframework.web.cors.DefaultCorsProcessor.class
+                        || readField(source, "pathMatcher") != readField(source, "defaultPathMatcher")
+                        || readField(source, "urlPathHelper")
+                                != org.springframework.web.util.UrlPathHelper.defaultInstance
+                        || !Boolean.TRUE.equals(readField(source, "allowInitLookupPath"))) {
+                    unknown = true;
+                    continue;
+                }
+                Object mappings = readField(source, "corsConfigurations");
+                if (!(mappings instanceof java.util.LinkedHashMap<?, ?> map)
+                        || map.getClass() != java.util.LinkedHashMap.class
+                        || map.size() > 512) {
+                    unknown = true;
+                    continue;
+                }
+                List<MatcherFacts> earlierMappings = new ArrayList<>();
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    if (configs.size() >= 512) {
+                        unknown = true;
+                        break;
+                    }
+                    MatcherFacts mapping = corsMatcher(entry.getKey());
+                    Boolean applicable =
+                            corsApplicable(owner.details().matcher(), mapping, earlierChains, earlierMappings);
+                    earlierMappings.add(mapping);
+                    if (Boolean.FALSE.equals(applicable)) continue;
+                    if (applicable == null) {
+                        unknown = true;
+                        continue;
+                    }
+                    if (entry.getValue() == null || entry.getValue().getClass() != CorsConfiguration.class) {
+                        unknown = true;
+                        continue;
+                    }
+                    CorsConfiguration config = (CorsConfiguration) entry.getValue();
+                    if (!boundedCorsValues(config.getAllowedOrigins())
+                            || !boundedCorsValues(config.getAllowedOriginPatterns())
+                            || !boundedCorsValues(config.getAllowedMethods())
+                            || !boundedCorsValues(config.getAllowedHeaders())) {
+                        unknown = true;
+                        continue;
+                    }
+                    configs.add(new CorsConfigModel(
+                            mapping.path(),
+                            config.getAllowedOrigins(),
+                            config.getAllowedOriginPatterns(),
+                            config.getAllowedMethods(),
+                            config.getAllowedHeaders(),
+                            config.getAllowCredentials(),
+                            owner.index()));
+                }
+            }
+            earlierChains.add(owner.details().matcher());
+        }
+        if (unknown) errors.add("Attached CORS metadata is unsupported.");
+        return new CorsDiscoveryResult(present, unknown);
+    }
+
+    private static MatcherFacts corsMatcher(Object key) {
+        if (key != null
+                && key.getClass() == org.springframework.web.util.pattern.PathPattern.class
+                && Boolean.TRUE.equals(readField(key, "caseSensitive"))
+                && readField(key, "pathOptions") == org.springframework.http.server.PathContainer.Options.HTTP_PATH) {
+            String path = ((org.springframework.web.util.pattern.PathPattern) key).getPatternString();
+            if (path.length() <= 2048) return new MatcherFacts("path", null, path, List.of());
+        }
+        return unknownMatcher();
+    }
+
+    private static Boolean corsApplicable(
+            MatcherFacts owner,
+            MatcherFacts mapping,
+            List<MatcherFacts> earlierChains,
+            List<MatcherFacts> earlierMappings) {
+        PathRegion chainRegion = PathRegion.of(owner);
+        PathRegion mappingRegion = PathRegion.of(mapping);
+        if (chainRegion == null || mappingRegion == null) return null;
+        PathRegion intersection = chainRegion.intersect(mappingRegion);
+        if (intersection == null) return false;
+        List<MatcherFacts> earlier = new ArrayList<>(earlierChains);
+        earlier.addAll(earlierMappings);
+        String ownerMethod = singleMatcher(owner).method();
+        for (MatcherFacts prior : earlier) {
+            PathRegion region = PathRegion.of(prior);
+            MatcherFacts effectivePrior = singleMatcher(prior);
+            if (region != null
+                    && region.covers(intersection)
+                    && (effectivePrior.method() == null
+                            || effectivePrior.method().equals(ownerMethod))
+                    && Boolean.TRUE.equals(
+                            prior.matches(ownerMethod == null ? "GET" : ownerMethod, intersection.path()))) {
+                return false;
+            }
+        }
+        boolean unknown = false;
+        int candidates = intersection.prefix() ? earlier.size() + 2 : 1;
+        List<String> methods = ownerMethod == null
+                ? List.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                : List.of(ownerMethod);
+        for (String method : methods) {
+            for (int index = 0; index < candidates; index++) {
+                String path = index == 0 ? intersection.path() : intersection.path() + "/__bootui_observation_" + index;
+                Boolean owned = owner.matches(method, path);
+                if (!Boolean.TRUE.equals(owned)) {
+                    unknown |= owned == null;
+                    continue;
+                }
+                boolean reachable = true;
+                for (MatcherFacts prior : earlier) {
+                    Boolean matches = prior == null ? null : prior.matches(method, path);
+                    if (matches == null) unknown = true;
+                    if (!Boolean.FALSE.equals(matches)) {
+                        reachable = false;
+                        break;
+                    }
+                }
+                if (reachable) return true;
+            }
+        }
+        // A finite set of method witnesses cannot exhaust a method-agnostic chain's domain.
+        return unknown || intersection.prefix() || ownerMethod == null ? null : false;
+    }
+
+    private static MatcherFacts singleMatcher(MatcherFacts matcher) {
+        while (matcher != null
+                && matcher.children().size() == 1
+                && ("and".equals(matcher.kind()) || "or".equals(matcher.kind()))) {
+            matcher = matcher.children().get(0);
+        }
+        return matcher;
+    }
+
+    private record PathRegion(String path, boolean prefix) {
+        static PathRegion of(MatcherFacts matcher) {
+            if (matcher == null) return null;
+            if (("or".equals(matcher.kind()) || "and".equals(matcher.kind()))
+                    && matcher.children().size() == 1) {
+                return of(matcher.children().get(0));
+            }
+            if (matcher.unconditional()) return new PathRegion("", true);
+            if (!"path".equals(matcher.kind()) || !matcher.complete()) return null;
+            String path = matcher.path();
+            return path.endsWith("/**")
+                    ? new PathRegion(path.substring(0, path.length() - 3), true)
+                    : new PathRegion(path, false);
+        }
+
+        boolean covers(PathRegion other) {
+            return prefix
+                    ? path.isEmpty()
+                            || path.equals(other.path())
+                            || other.path().startsWith(path + "/")
+                    : !other.prefix() && path.equals(other.path());
+        }
+
+        PathRegion intersect(PathRegion other) {
+            if (covers(other)) return other;
+            if (other.covers(this)) return this;
+            return null;
+        }
+    }
+
+    private static boolean boundedCorsValues(List<String> values) {
+        return values == null
+                || values.size() <= 512 && values.stream().allMatch(value -> value != null && value.length() <= 4096);
     }
 
     // ── Aggregation ──────────────────────────────────────────────────────────────
@@ -1171,12 +1755,14 @@ final class SecurityScanner {
         return SecurityRuleSupport.VIOLATION.equals(result.status());
     }
 
-    private record AuthorizationProbe(String method, String path) {}
-
     private record SecurityDiscovery(SecurityContext context, List<String> errors) {
 
         SecurityDiscovery {
-            errors = List.copyOf(errors);
+            if (errors.size() > 20) {
+                List<String> bounded = new ArrayList<>(errors.subList(0, 20));
+                bounded.add("Additional incomplete observations omitted.");
+                errors = List.copyOf(bounded);
+            } else errors = List.copyOf(errors);
         }
 
         static SecurityDiscovery empty(String reason) {

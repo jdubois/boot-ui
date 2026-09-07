@@ -1,17 +1,38 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
+import static io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.Fact.*;
+
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.AsyncSelection;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.springframework.boot.context.properties.bind.Bindable;
 
 abstract class AbstractSpringRule implements SpringRule {
-
+    static final String BOOT = "https://docs.spring.io/spring-boot/reference/";
     private final SpringRuleDefinition definition;
 
-    AbstractSpringRule(SpringRuleDefinition definition) {
-        this.definition = definition;
+    AbstractSpringRule(
+            String id,
+            String name,
+            SpringCategory category,
+            String severity,
+            String description,
+            String recommendation,
+            String reference) {
+        this.definition = new SpringRuleDefinition(
+                "SPRING-" + id,
+                name,
+                category,
+                severity,
+                description,
+                recommendation,
+                reference.startsWith("https:") ? reference : BOOT + reference);
     }
 
     @Override
@@ -26,7 +47,10 @@ abstract class AbstractSpringRule implements SpringRule {
         try {
             return evaluateRule(context);
         } catch (RuntimeException | LinkageError ex) {
-            return SpringRuleSupport.error(definition, "Rule could not be evaluated: " + ex.getMessage());
+            // Exception messages, causes and property values can contain credentials.
+            return SpringRuleSupport.error(
+                    definition,
+                    "Required configuration or metadata could not be inspected safely; no runtime conclusion was made.");
         }
     }
 
@@ -38,1599 +62,979 @@ abstract class AbstractSpringRule implements SpringRule {
         return SpringRuleSupport.skipped(definition, reason);
     }
 
+    SpringRuleResultDto unknown() {
+        return skipped("Required non-eager metadata is unavailable or custom; observation is unknown.");
+    }
+
+    SpringRuleResultDto violation(String detail) {
+        return violation(List.of(detail));
+    }
+
     SpringRuleResultDto violation(List<String> details) {
         return details.isEmpty() ? pass() : SpringRuleSupport.violation(definition, details);
     }
 
-    SpringRuleResultDto violation(String detail) {
-        return SpringRuleSupport.violation(definition, List.of(detail));
-    }
-
-    /** Violation whose severity is raised/lowered from the declared default based on context. */
-    SpringRuleResultDto violation(String severityOverride, List<String> details) {
-        return details.isEmpty() ? pass() : SpringRuleSupport.violation(definition, severityOverride, details);
-    }
-
-    SpringRuleResultDto violation(String severityOverride, String detail) {
-        return SpringRuleSupport.violation(definition, severityOverride, List.of(detail));
-    }
-
     static String names(List<BeanRef> refs) {
-        return refs.stream().map(BeanRef::name).reduce((a, b) -> a + ", " + b).orElse("");
+        return refs.stream()
+                .limit(10)
+                .map(ref -> SpringRuleSupport.detail(ref.name()))
+                .collect(Collectors.joining(", "));
+    }
+
+    SpringRuleResultDto candidates(List<BeanRef> refs, String subject) {
+        if (refs.stream().anyMatch(ref -> !ref.metadataKnown())) return unknown();
+        if (refs.size() > 1 && !SpringModel.hasResolvedCandidateMetadata(refs))
+            return violation(subject + " default candidate metadata is unresolved: " + names(refs)
+                    + ". Qualified/name-matched injection points may be intentional; execution is not established.");
+        return pass();
+    }
+
+    SpringRuleResultDto webLink(SpringContext context, SpringRuleResultDto result) {
+        return context.reactive() ? result.withLearnMoreUrl(BOOT + "web/reactive.html") : result;
     }
 }
 
-// ---------------------------------------------------------------------------
-// Bean wiring
-// ---------------------------------------------------------------------------
-
 final class BeanDefinitionOverridingRule extends AbstractSpringRule {
-
     BeanDefinitionOverridingRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WIRING-001",
-                "Bean definition overriding should stay disabled",
+        super(
+                "WIRING-001",
+                "Review bean definition overriding permission",
                 SpringCategory.BEAN_WIRING,
                 "MEDIUM",
-                "Detects spring.main.allow-bean-definition-overriding=true, which lets a later bean"
-                        + " definition silently replace an earlier one of the same name.",
-                "Remove spring.main.allow-bean-definition-overriding (it defaults to false) and give"
-                        + " conflicting beans distinct names so clashes fail fast at startup.",
-                "https://docs.spring.io/spring-boot/reference/features/spring-application.html"));
+                "The observed bean factory permits replacement of same-name definitions; this does not prove an override occurred.",
+                "Keep overriding disabled unless replacement is deliberate. Review effective factory configuration, not only spring.main properties.",
+                "features/spring-application.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.isPropertyTrue("spring.main.allow-bean-definition-overriding")) {
-            return violation("spring.main.allow-bean-definition-overriding=true allows duplicate bean"
-                    + " definitions to override each other silently.");
-        }
-        return pass();
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        Boolean value = c.observations().get(OVERRIDING, Boolean.class);
+        return value == null
+                ? unknown()
+                : value
+                        ? violation(
+                                "The current bean factory permits bean definition overriding; no actual replacement was inferred.")
+                        : pass();
     }
 }
 
 final class CircularReferencesAllowedRule extends AbstractSpringRule {
-
     CircularReferencesAllowedRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WIRING-002",
-                "Circular bean references should stay disabled",
+        super(
+                "WIRING-002",
+                "Review circular-reference permission",
                 SpringCategory.BEAN_WIRING,
                 "MEDIUM",
-                "Detects spring.main.allow-circular-references=true, which re-enables the legacy"
-                        + " behaviour of resolving circular bean dependencies instead of failing.",
-                "Remove spring.main.allow-circular-references and break the cycle, for example by"
-                        + " introducing an intermediary bean or using setter/@Lazy injection deliberately.",
-                "https://docs.spring.io/spring-boot/reference/features/spring-application.html"));
+                "The current bean factory permits circular-reference resolution. This is not evidence of a dependency cycle.",
+                "Prefer explicit acyclic dependencies and disable circular-reference permission unless deliberately required.",
+                "features/spring-application.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.isPropertyTrue("spring.main.allow-circular-references")) {
-            return violation("spring.main.allow-circular-references=true masks circular dependencies"
-                    + " that Spring would otherwise reject at startup.");
-        }
-        return pass();
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        Boolean value = c.observations().get(CIRCULAR, Boolean.class);
+        return value == null
+                ? unknown()
+                : value
+                        ? violation(
+                                "The current bean factory permits circular-reference resolution; no cycle was inferred.")
+                        : pass();
     }
 }
 
 final class DuplicateObjectMapperRule extends AbstractSpringRule {
-
     DuplicateObjectMapperRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WIRING-003",
-                "Avoid multiple JSON mapper beans",
+        super(
+                "WIRING-003",
+                "Review default JSON mapper selection",
                 SpringCategory.BEAN_WIRING,
-                "LOW",
-                "Detects more than one Jackson JSON mapper bean (Jackson 2 ObjectMapper or the Jackson 3"
-                        + " JsonMapper that Spring Boot 4 auto-configures) without primary/fallback/default"
-                        + " candidate selection, which can lead to inconsistent JSON"
-                        + " (de)serialization.",
-                "Keep a single primary JSON mapper. With Jackson 3 (the Spring Boot 4 default) customize the"
-                        + " auto-configured mapper via a JsonMapperBuilderCustomizer, or mark one bean @Primary.",
-                "https://docs.spring.io/spring-boot/reference/features/json.html"));
+                "INFO",
+                "Checks Jackson 2 ObjectMapper and Jackson 3 JsonMapper groups independently for unresolved default candidate metadata.",
+                "Review qualifiers, aliases, primary/default/fallback flags and intended mapper use. Multiple mappers can be legitimate.",
+                "features/json.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<BeanRef> mappers = context.objectMappers();
-        if (mappers.size() > 1 && !SpringModel.hasResolvedCandidateMetadata(mappers)) {
-            return violation("Found " + mappers.size()
-                    + " JSON mapper beans without primary/fallback/default-candidate selection: "
-                    + names(mappers)
-                    + ".");
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.observations().incomplete().isEmpty()) return unknown();
+        List<String> details = new ArrayList<>();
+        for (List<BeanRef> group : c.objectMappers().stream()
+                .collect(Collectors.groupingBy(BeanRef::group))
+                .values()) {
+            SpringRuleResultDto result = candidates(group, "Same-type JSON mapper");
+            if ("SKIPPED".equals(result.status())) return unknown();
+            details.addAll(result.sampleViolations());
         }
-        return pass();
+        return violation(details);
     }
 }
 
 final class AmbiguousTaskExecutorRule extends AbstractSpringRule {
-
     AmbiguousTaskExecutorRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WIRING-004",
-                "Multiple TaskExecutor beans need a primary",
+        super(
+                "WIRING-004",
+                "Review default async executor selection",
                 SpringCategory.BEAN_WIRING,
-                "MEDIUM",
-                "Detects more than one TaskExecutor bean without primary/fallback/default-candidate selection,"
-                        + " so @Async and other consumers may resolve an unexpected executor. A bean"
-                        + " conventionally named applicationTaskExecutor/taskExecutor, or a custom AsyncConfigurer,"
-                        + " can resolve the ambiguity and suppresses this check.",
-                "Mark the intended executor @Primary, name it applicationTaskExecutor, implement"
-                        + " AsyncConfigurer, or qualify each injection point with the executor bean name.",
-                "https://docs.spring.io/spring-framework/reference/integration/scheduling.html"));
+                "INFO",
+                "With async enabled, unresolved default TaskExecutor metadata is a review opportunity, not proof of failed injection.",
+                "Review @Async qualifiers and AsyncConfigurer. Framework taskExecutor fallback and Boot's applicationTaskExecutor wrapper are distinct; naming alone does not resolve all consumers.",
+                "features/task-execution-and-scheduling.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<BeanRef> executors = context.taskExecutors();
-        if (executors.size() > 1
-                && !SpringModel.hasResolvedCandidateMetadata(executors)
-                && !context.customAsyncConfigurerPresent()
-                && !SpringModel.hasName(executors, "applicationTaskExecutor", "taskExecutor")) {
-            return violation("Found " + executors.size()
-                    + " TaskExecutor beans without primary/fallback/default-candidate selection: "
-                    + names(executors)
-                    + ".");
-        }
-        return pass();
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.asyncEnabled()) return skipped("Async annotation processing is not present.");
+        AsyncSelection selection = c.observations().get(ASYNC_SELECTION, AsyncSelection.class);
+        return selection == null
+                ? unknown()
+                : selection == AsyncSelection.AMBIGUOUS
+                        ? violation(
+                                "Default async candidate metadata is unresolved; explicit qualifiers/configurers and other consumers require separate review.")
+                        : pass();
     }
 }
 
 final class AmbiguousDataSourceRule extends AbstractSpringRule {
-
     AmbiguousDataSourceRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WIRING-005",
-                "Multiple DataSource beans need a primary",
+        super(
+                "WIRING-005",
+                "Review default DataSource selection",
                 SpringCategory.BEAN_WIRING,
-                "MEDIUM",
-                "Detects more than one DataSource bean without primary/fallback/default-candidate selection,"
-                        + " which makes auto-configured consumers (JPA, JdbcTemplate) fail or pick an"
-                        + " unexpected source.",
-                "Mark the main DataSource @Primary and qualify any secondary DataSource explicitly.",
-                "https://docs.spring.io/spring-boot/reference/data/sql.html"));
+                "INFO",
+                "Multiple DataSources are legal. This checks only default candidate metadata, not individual consumers.",
+                "Review primary/default/fallback flags, qualifiers and name/alias matching at injection points.",
+                "data/sql.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<BeanRef> dataSources = context.dataSources();
-        if (dataSources.size() > 1 && !SpringModel.hasResolvedCandidateMetadata(dataSources)) {
-            return violation("Found " + dataSources.size()
-                    + " DataSource beans without primary/fallback/default-candidate selection: "
-                    + names(dataSources)
-                    + ".");
-        }
-        return pass();
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        return c.observations().incomplete().isEmpty() ? candidates(c.dataSources(), "DataSource") : unknown();
     }
 }
 
 final class AmbiguousTransactionManagerRule extends AbstractSpringRule {
-
     AmbiguousTransactionManagerRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WIRING-006",
-                "Multiple transaction managers need a primary",
+        super(
+                "WIRING-006",
+                "Review default imperative transaction manager",
                 SpringCategory.BEAN_WIRING,
-                "MEDIUM",
-                "Detects more than one PlatformTransactionManager bean without"
-                        + " primary/fallback/default-candidate selection, so @Transactional methods may bind to"
-                        + " an unexpected manager. A bean named transactionManager or a"
-                        + " TransactionManagementConfigurer resolves the default and suppresses this check.",
-                "Mark the main transaction manager @Primary, name it transactionManager, implement"
-                        + " TransactionManagementConfigurer, or set @Transactional(\"<name>\") on each usage.",
-                "https://docs.spring.io/spring-framework/reference/data-access/transaction.html"));
+                "INFO",
+                "Checks PlatformTransactionManager metadata only; reactive transaction execution and qualified consumers are outside this observation.",
+                "Review @Transactional qualifiers and TransactionManagementConfigurer. The transactionManager name is not a universal Java-configuration override.",
+                "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<BeanRef> managers = context.transactionManagers();
-        if (managers.size() > 1
-                && !SpringModel.hasResolvedCandidateMetadata(managers)
-                && !context.transactionManagementConfigurerPresent()
-                && !SpringModel.hasName(managers, "transactionManager")) {
-            return violation("Found " + managers.size()
-                    + " PlatformTransactionManager beans without primary/fallback/default-candidate selection: "
-                    + names(managers)
-                    + ".");
-        }
-        return pass();
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (c.transactionManagementConfigurerPresent()
+                || !c.observations().incomplete().isEmpty()) return unknown();
+        return candidates(c.transactionManagers(), "Imperative transaction manager");
     }
 }
 
 final class RestTemplateInUseRule extends AbstractSpringRule {
-
     RestTemplateInUseRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WIRING-007",
-                "Prefer RestClient over RestTemplate",
+        super(
+                "WIRING-007",
+                "Review RestTemplate migration",
                 SpringCategory.BEAN_WIRING,
                 "LOW",
-                "A RestTemplate bean is defined. RestTemplate is in maintenance mode; Spring Boot 4 favours"
-                        + " the fluent, modern RestClient for synchronous HTTP access.",
-                "Migrate RestTemplate usage to RestClient (RestClient.create() or an injected"
-                        + " RestClient.Builder). Keep RestTemplate only where a dependency still requires it.",
-                "https://docs.spring.io/spring-framework/reference/integration/rest-clients.html"));
+                "A RestTemplate bean is declared, not necessarily used. Framework 7 deprecates RestTemplate in favor of RestClient.",
+                "When migrating active call sites, inject Boot's RestClient.Builder to retain shared customizations. Keep dependency-required RestTemplate usage deliberate.",
+                "io/rest-client.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<BeanRef> restTemplates = context.restTemplates();
-        if (!restTemplates.isEmpty()) {
-            return violation("Found " + restTemplates.size() + " RestTemplate bean(s): " + names(restTemplates)
-                    + "; consider migrating to RestClient.");
-        }
-        return pass();
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        return c.restTemplates().isEmpty()
+                ? c.observations().incomplete().isEmpty() ? pass() : unknown()
+                : violation("Declared RestTemplate bean(s): " + names(c.restTemplates())
+                        + "; review actual call sites before migration.");
     }
 }
 
-/**
- * Deliberately kept alongside ARCH-SPRING-005 ({@code StereotypesShouldNotResideInDefaultPackageRule}
- * in {@code bootui-engine}'s Architecture advisor), not a duplicate: ARCH-SPRING-005 runs an ArchUnit
- * static bytecode scan restricted to classes carrying a Spring stereotype annotation directly
- * ({@code @Component}/{@code @Service}/{@code @Repository}/{@code @Controller}/{@code
- * @RestController}/{@code @Configuration}), so it only ever sees classes that are themselves
- * annotated. This rule instead inspects the live bean registry ({@code
- * SpringContext#defaultPackageBeans()}), which flags any application-role bean in the default
- * package regardless of annotation — for example a plain, unannotated POJO whose class happens to
- * live in the default package but is wired up via an {@code @Bean} factory method elsewhere. Empirically
- * verified with a throwaway ArchUnit fixture: an unannotated default-package class registered as a
- * bean is invisible to ARCH-SPRING-005's {@code STEREOTYPE_ANNOTATED} predicate (it does not match,
- * so the ArchUnit rule reports zero violations for it) but is caught here. Since the Spring advisor
- * (this rule's home) and the Architecture advisor are two independently-browsable UI panels, keeping
- * both also lets a user auditing either panel in isolation see this finding without needing to know
- * to check the other.
- */
 final class DefaultPackageComponentsRule extends AbstractSpringRule {
-
     DefaultPackageComponentsRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WIRING-008",
-                "Avoid components in the default package",
+        super(
+                "WIRING-008",
+                "Review default-package application beans",
                 SpringCategory.BEAN_WIRING,
-                "MEDIUM",
-                "Detects application beans whose class lives in the default (unnamed) package. A class there"
-                        + " forces component scanning to scan the entire classpath, slows startup, and breaks"
-                        + " several Spring features.",
-                "Move these classes into a named package (for example com.example.app) so component scanning"
-                        + " is bounded to your application's packages.",
-                "https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<String> beans = context.defaultPackageBeans();
-        if (!beans.isEmpty()) {
-            return violation("Found " + beans.size() + " application bean(s) whose class is in the default package: "
-                    + String.join(", ", beans) + ".");
-        }
-        return pass();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-final class LazyInitializationDisabledRule extends AbstractSpringRule {
-
-    private static final int LARGE_CONTEXT_THRESHOLD = 300;
-
-    LazyInitializationDisabledRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-CONFIG-001",
-                "Consider lazy initialization for large contexts",
-                SpringCategory.CONFIGURATION,
-                "INFO",
-                "A large bean context is initialised eagerly. Lazy initialization can shorten startup"
-                        + " for development, tests, and short-lived or serverless workloads.",
-                "Evaluate spring.main.lazy-initialization=true, weighing the trade-offs: wiring errors"
-                        + " surface on first use instead of at startup, the first request to each bean pays an"
-                        + " initialization cost, and it interacts with AOT/native processing. Keep beans that"
-                        + " must start eagerly (listeners, schedulers) annotated @Lazy(false).",
-                "https://docs.spring.io/spring-boot/reference/features/spring-application.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.isPropertyTrue("spring.main.lazy-initialization")) {
-            return pass();
-        }
-        if (context.beanDefinitionCount() > LARGE_CONTEXT_THRESHOLD) {
-            return violation("The context defines " + context.beanDefinitionCount()
-                    + " beans and is initialised eagerly; lazy initialization may cut startup time.");
-        }
-        return pass();
-    }
-}
-
-final class DebugOrTraceLoggingRule extends AbstractSpringRule {
-
-    /** Root and broad framework loggers whose DEBUG/TRACE output is verbose and detail-leaking. */
-    private static final List<String> VERBOSE_LOGGERS =
-            List.of("root", "web", "sql", "org.springframework", "org.hibernate");
-
-    DebugOrTraceLoggingRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-CONFIG-002",
-                "Disable global debug or trace logging",
-                SpringCategory.CONFIGURATION,
                 "LOW",
-                "Detects debug=true, trace=true, or broad root/web/sql/Spring/Hibernate loggers at"
-                        + " DEBUG/TRACE/ALL, which can leak internal details or slow down the application."
-                        + " Raised to MEDIUM when a production-like profile is active, since the performance"
-                        + " and data-leak cost of verbose logging is highest there.",
-                "Remove the debug/trace flags and configure logging levels per package instead.",
-                "https://docs.spring.io/spring-boot/reference/features/logging.html"));
+                "Resolved application product types, including @Bean return types, are in the unnamed package. A POJO there does not itself trigger classpath-wide scanning.",
+                "Prefer named application packages. Only a component-scan root in the default package implies classpath-wide scanning.",
+                "using/structuring-your-code.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<String> findings = new ArrayList<>();
-        if (context.isPropertyTrue("debug")) {
-            findings.add("debug=true enables verbose auto-configuration debug logging.");
-        }
-        if (context.isPropertyTrue("trace")) {
-            findings.add("trace=true enables verbose auto-configuration trace logging.");
-        }
-        for (String logger : VERBOSE_LOGGERS) {
-            String level = context.firstProperty("logging.level." + logger);
-            if (level != null
-                    && ("debug".equalsIgnoreCase(level)
-                            || "trace".equalsIgnoreCase(level)
-                            || "all".equalsIgnoreCase(level))) {
-                findings.add("logging.level." + logger + "=" + level
-                        + " emits verbose framework logging that can leak internals and slow the application.");
-            }
-        }
-        String severity = context.isProductionProfileActive() ? SpringRuleSupport.MEDIUM : null;
-        return violation(severity, findings);
-    }
-}
-
-final class RemovedOrRenamedPropertyRule extends AbstractSpringRule {
-
-    /**
-     * Curated, individually source-verified keys that were renamed or removed in Spring Boot 4.
-     *
-     * <p>Every entry here was confirmed against the actual Spring Boot 4.1.0 {@code
-     * @ConfigurationProperties} binding classes (not just the deprecation metadata, which can be
-     * misleading — see the note below), so the old key is genuinely dead: no code path reads it
-     * anymore. Two candidates that looked like renames were deliberately excluded after source
-     * verification showed the "old" and "new" keys are actually independent, both-functioning
-     * properties, not a rename:
-     *
-     * <ul>
-     *   <li>{@code spring.dao.exceptiontranslation.enabled} — Boot's own deprecation metadata (and
-     *       the community OpenRewrite migration recipe, which is generated from that same metadata)
-     *       claims this was renamed to {@code spring.persistence.exceptiontranslation.enabled}. It
-     *       was not: {@code DataSourceTransactionManagerAutoConfiguration} (module {@code
-     *       spring-boot-jdbc}) still reads {@code spring.dao.exceptiontranslation.enabled} directly
-     *       to choose between {@code JdbcTransactionManager} and a plain {@code
-     *       DataSourceTransactionManager}. The "replacement" is a different property read by a
-     *       different auto-configuration ({@code PersistenceExceptionTranslationAutoConfiguration},
-     *       module {@code spring-boot-persistence}) that solely gates the JPA {@code @Repository}
-     *       exception-translation post-processor bean. Both properties are independently live.
-     *   <li>{@code spring.jackson.read} / {@code spring.jackson.write} — these bind {@code
-     *       Map<StreamReadFeature/StreamWriteFeature, Boolean>} (Jackson's general, format-agnostic
-     *       features); {@code spring.jackson.json.read} / {@code spring.jackson.json.write} bind a
-     *       different type ({@code Map<JsonReadFeature/JsonWriteFeature, Boolean>}, JSON-specific
-     *       features introduced by the Jackson 3 split). They are two distinct, still-functioning
-     *       property groups, not a rename.
-     * </ul>
-     *
-     * <p>This list also does not attempt to reproduce every entry from the community
-     * spring-boot-40-properties OpenRewrite recipe (96 entries): Kafka/RabbitMQ retry-property
-     * renames, the OTLP exporter namespace restructuring, and the Jackson enum-splitting keys above
-     * were reviewed but excluded as lower-confidence or requiring more per-entry verification than
-     * scoped here.
-     */
-    private static final List<String[]> LEGACY_PROPERTIES = List.of(
-            // --- Undertow removed entirely in Spring Boot 4 -------------------------------------
-            new String[] {
-                "server.undertow.threads.io", "Undertow was removed in Spring Boot 4; this property is ignored"
-            },
-            new String[] {
-                "server.undertow.threads.worker", "Undertow was removed in Spring Boot 4; this property is ignored"
-            },
-            new String[] {
-                "server.undertow.accesslog.enabled", "Undertow was removed in Spring Boot 4; this property is ignored"
-            },
-            new String[] {
-                "server.undertow.buffer-size", "Undertow was removed in Spring Boot 4; this property is ignored"
-            },
-            // --- server.error.* -> spring.web.error.* (spring-boot-web-server) ------------------
-            new String[] {"server.error.include-binding-errors", "renamed to spring.web.error.include-binding-errors"},
-            new String[] {"server.error.include-exception", "renamed to spring.web.error.include-exception"},
-            new String[] {"server.error.include-message", "renamed to spring.web.error.include-message"},
-            new String[] {"server.error.include-path", "renamed to spring.web.error.include-path"},
-            new String[] {"server.error.include-stacktrace", "renamed to spring.web.error.include-stacktrace"},
-            new String[] {"server.error.path", "renamed to spring.web.error.path"},
-            new String[] {"server.error.whitelabel.enabled", "renamed to spring.web.error.whitelabel.enabled"},
-            // --- server.servlet.encoding.* -> spring.servlet.encoding.* (spring-boot-web-server,
-            // spring-boot-servlet) — note server.servlet.encoding.mapping is NOT renamed and still
-            // works, so it is intentionally excluded here. ---------------------------------------
-            new String[] {"server.servlet.encoding.charset", "renamed to spring.servlet.encoding.charset"},
-            new String[] {"server.servlet.encoding.enabled", "renamed to spring.servlet.encoding.enabled"},
-            new String[] {"server.servlet.encoding.force", "renamed to spring.servlet.encoding.force"},
-            new String[] {"server.servlet.encoding.force-request", "renamed to spring.servlet.encoding.force-request"},
-            new String[] {"server.servlet.encoding.force-response", "renamed to spring.servlet.encoding.force-response"
-            },
-            // --- spring.http.client.* -> spring.http.clients.* (spring-boot-http-client); note
-            // .factory moved to .imperative.factory, not a naive pluralization. -------------------
-            new String[] {"spring.http.client.connect-timeout", "renamed to spring.http.clients.connect-timeout"},
-            new String[] {"spring.http.client.factory", "renamed to spring.http.clients.imperative.factory"},
-            new String[] {"spring.http.client.read-timeout", "renamed to spring.http.clients.read-timeout"},
-            new String[] {"spring.http.client.redirects", "renamed to spring.http.clients.redirects"},
-            new String[] {"spring.http.client.ssl.bundle", "renamed to spring.http.clients.ssl.bundle"},
-            new String[] {"spring.http.reactiveclient.connect-timeout", "renamed to spring.http.clients.connect-timeout"
-            },
-            new String[] {"spring.http.reactiveclient.connector", "renamed to spring.http.clients.reactive.connector"},
-            new String[] {"spring.http.reactiveclient.read-timeout", "renamed to spring.http.clients.read-timeout"},
-            new String[] {"spring.http.reactiveclient.redirects", "renamed to spring.http.clients.redirects"},
-            new String[] {"spring.http.reactiveclient.ssl.bundle", "renamed to spring.http.clients.ssl.bundle"},
-            // --- spring.data.mongodb.* connection keys -> spring.mongodb.* (spring-boot-mongodb).
-            // Only these 13 connection-related keys moved; spring.data.mongodb.auto-index-creation,
-            // .field-naming-strategy, .gridfs.*, and .representation.big-decimal are unrelated
-            // Spring Data settings that still live under spring.data.mongodb and are NOT renamed. --
-            new String[] {"spring.data.mongodb.additional-hosts", "renamed to spring.mongodb.additional-hosts"},
-            new String[] {
-                "spring.data.mongodb.authentication-database", "renamed to spring.mongodb.authentication-database"
-            },
-            new String[] {"spring.data.mongodb.database", "renamed to spring.mongodb.database"},
-            new String[] {"spring.data.mongodb.host", "renamed to spring.mongodb.host"},
-            new String[] {"spring.data.mongodb.password", "renamed to spring.mongodb.password"},
-            new String[] {"spring.data.mongodb.port", "renamed to spring.mongodb.port"},
-            new String[] {"spring.data.mongodb.protocol", "renamed to spring.mongodb.protocol"},
-            new String[] {"spring.data.mongodb.replica-set-name", "renamed to spring.mongodb.replica-set-name"},
-            new String[] {"spring.data.mongodb.ssl.bundle", "renamed to spring.mongodb.ssl.bundle"},
-            new String[] {"spring.data.mongodb.ssl.enabled", "renamed to spring.mongodb.ssl.enabled"},
-            new String[] {"spring.data.mongodb.uri", "renamed to spring.mongodb.uri"},
-            new String[] {"spring.data.mongodb.username", "renamed to spring.mongodb.username"},
-            new String[] {"spring.data.mongodb.uuid-representation", "renamed to spring.mongodb.representation.uuid"},
-            // --- management.tracing.enabled -> management.tracing.export.enabled
-            // (spring-boot-micrometer-tracing) ----------------------------------------------------
-            new String[] {"management.tracing.enabled", "renamed to management.tracing.export.enabled"},
-            // --- spring.session.redis.* -> spring.session.data.redis.*
-            // (spring-boot-session-data-redis) ----------------------------------------------------
-            new String[] {"spring.session.redis.cleanup-cron", "renamed to spring.session.data.redis.cleanup-cron"},
-            new String[] {
-                "spring.session.redis.configure-action", "renamed to spring.session.data.redis.configure-action"
-            },
-            new String[] {"spring.session.redis.flush-mode", "renamed to spring.session.data.redis.flush-mode"},
-            new String[] {"spring.session.redis.namespace", "renamed to spring.session.data.redis.namespace"},
-            new String[] {"spring.session.redis.repository-type", "renamed to spring.session.data.redis.repository-type"
-            },
-            new String[] {"spring.session.redis.save-mode", "renamed to spring.session.data.redis.save-mode"},
-            // --- MongoDB-backed Spring Session moved out of Spring Boot 4 ------------------------
-            new String[] {
-                "spring.session.mongodb.collection-name",
-                "removed with Boot's MongoDB session auto-configuration; migrate to org.mongodb:mongodb-spring-session"
-            });
-
-    RemovedOrRenamedPropertyRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-CONFIG-003",
-                "Remove renamed or deleted Spring Boot 4 properties",
-                SpringCategory.CONFIGURATION,
-                "MEDIUM",
-                "Detects configuration keys that were renamed or removed in Spring Boot 4 and therefore no"
-                        + " longer take effect, which can silently change behaviour after an upgrade.",
-                "Update each key to its Spring Boot 4 equivalent (the spring-boot-properties-migrator"
-                        + " module lists the replacements at startup) and remove keys for dropped features.",
-                "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<String> findings = new ArrayList<>();
-        for (String[] entry : LEGACY_PROPERTIES) {
-            if (context.hasProperty(entry[0])) {
-                findings.add(entry[0] + " — " + entry[1] + ".");
-            }
-        }
-        return violation(findings);
-    }
-}
-
-final class MissingApplicationNameRule extends AbstractSpringRule {
-
-    MissingApplicationNameRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-CONFIG-004",
-                "Set spring.application.name",
-                SpringCategory.CONFIGURATION,
-                "INFO",
-                "spring.application.name is not set. The application name labels logs, metrics, tracing,"
-                        + " and service discovery, and several integrations fall back to anonymous defaults"
-                        + " without it.",
-                "Set spring.application.name to a stable identifier for this service.",
-                "https://docs.spring.io/spring-boot/reference/features/spring-application.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.firstProperty("spring.application.name") == null) {
-            return violation("spring.application.name is not set, so logs, metrics, and tracing lack a"
-                    + " stable application identifier.");
-        }
-        return pass();
-    }
-}
-
-final class ConfigOnNotFoundIgnoreRule extends AbstractSpringRule {
-
-    ConfigOnNotFoundIgnoreRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-CONFIG-005",
-                "Do not ignore missing config files",
-                SpringCategory.CONFIGURATION,
-                "MEDIUM",
-                "spring.config.on-not-found=ignore makes Spring silently skip imported configuration files"
-                        + " that are missing, so a typo or a misplaced file can ship without any error.",
-                "Remove spring.config.on-not-found=ignore (the default fails fast) and use the optional:"
-                        + " prefix only on the specific imports that are genuinely optional.",
-                "https://docs.spring.io/spring-boot/reference/features/external-config.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        String value = context.firstProperty("spring.config.on-not-found");
-        if (value != null && "ignore".equalsIgnoreCase(value)) {
-            return violation("spring.config.on-not-found=ignore silently skips missing config imports instead of"
-                    + " failing fast.");
-        }
-        return pass();
-    }
-}
-
-final class Jackson2DefaultsCompatibilityRule extends AbstractSpringRule {
-
-    Jackson2DefaultsCompatibilityRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-CONFIG-006",
-                "Remove the temporary Jackson 2 defaults compatibility mode",
-                SpringCategory.CONFIGURATION,
-                "LOW",
-                "spring.jackson.use-jackson2-defaults=true makes Jackson 3 retain Spring Boot's former Jackson 2"
-                        + " defaults. It is useful during migration, but can hide serialization changes that still"
-                        + " need to be reviewed before the compatibility mode is removed.",
-                "Add serialization compatibility tests, migrate affected payloads explicitly, then remove"
-                        + " spring.jackson.use-jackson2-defaults=true.",
-                "https://docs.spring.io/spring-boot/reference/features/json.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.isPropertyTrue("spring.jackson.use-jackson2-defaults")) {
-            return violation("spring.jackson.use-jackson2-defaults=true keeps Jackson 2-compatible defaults on"
-                    + " Jackson 3 and should remain a temporary migration aid.");
-        }
-        return pass();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Profiles and environment
-// ---------------------------------------------------------------------------
-
-final class NoActiveProfileRule extends AbstractSpringRule {
-
-    NoActiveProfileRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-PROFILE-001",
-                "Run with an explicit active profile",
-                SpringCategory.PROFILES,
-                "INFO",
-                "No Spring profile is active beyond the default, so any profile-specific configuration"
-                        + " (such as application-prod.yml) is never applied.",
-                "Set spring.profiles.active (for example via SPRING_PROFILES_ACTIVE) so the intended"
-                        + " environment configuration takes effect.",
-                "https://docs.spring.io/spring-boot/reference/features/profiles.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.activeProfiles().length == 0) {
-            return violation("No active Spring profile is set; only the default profile is in effect.");
-        }
-        return pass();
-    }
-}
-
-final class DevToolsOnClasspathRule extends AbstractSpringRule {
-
-    DevToolsOnClasspathRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-PROFILE-002",
-                "Spring Boot DevTools should be scoped to development",
-                SpringCategory.PROFILES,
-                "MEDIUM",
-                "Spring Boot DevTools is on the classpath. It enables automatic restart, a live-reload"
-                        + " server, and relaxed caching. DevTools disables itself in a fully packaged jar, but"
-                        + " it is still active here and must never be bundled into a production artifact.",
-                "Scope spring-boot-devtools to development only (Maven <optional>true</optional> /"
-                        + " Gradle developmentOnly) so it is excluded from production builds.",
-                "https://docs.spring.io/spring-boot/reference/using/devtools.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.devToolsPresent()) {
-            String severityNote = context.isProductionProfileActive()
-                    ? " A production-like profile is active, which makes this especially risky."
-                    : "";
-            return violation("Spring Boot DevTools is on the classpath." + severityNote);
-        }
-        return pass();
-    }
-}
-
-final class ProfileValidationDisabledRule extends AbstractSpringRule {
-
-    ProfileValidationDisabledRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-PROFILE-003",
-                "Keep profile-name validation enabled",
-                SpringCategory.PROFILES,
-                "LOW",
-                "spring.profiles.validate=false disables Spring Boot's check that profile names are sensible,"
-                        + " so a malformed or unexpected profile name no longer fails fast.",
-                "Remove spring.profiles.validate=false (validation is on by default) and fix any profile"
-                        + " names that do not satisfy the naming rules.",
-                "https://docs.spring.io/spring-boot/reference/features/profiles.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        String value = context.firstProperty("spring.profiles.validate");
-        if (value != null && "false".equalsIgnoreCase(value)) {
-            return violation("spring.profiles.validate=false disables profile-name validation.");
-        }
-        return pass();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Performance and concurrency
-// ---------------------------------------------------------------------------
-
-final class VirtualThreadsAvailableRule extends AbstractSpringRule {
-
-    VirtualThreadsAvailableRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-PERF-001",
-                "Consider enabling virtual threads",
-                SpringCategory.PERFORMANCE,
-                "INFO",
-                "The JVM supports virtual threads (Java 21+) but spring.threads.virtual.enabled is not"
-                        + " set. Blocking workloads — request-per-thread web handlers, and blocking @Async /"
-                        + " @Scheduled work on either the servlet or WebFlux stack — can often scale further on"
-                        + " virtual threads. On WebFlux, this applies only to explicitly offloaded blocking"
-                        + " work. An opportunity to evaluate, not a defect.",
-                "Consider spring.threads.virtual.enabled=true after verifying that blocking code paths do"
-                        + " not hold synchronized monitors that would pin carrier threads.",
-                "https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.virtualThreadsSupported()) {
-            return skipped("This JVM does not support virtual threads (requires Java 21+).");
-        }
-        if (!context.isVirtualThreadsEnabled()) {
-            if (context.reactive()) {
-                return violation("Virtual threads are supported but spring.threads.virtual.enabled is not true."
-                        + " On WebFlux this only benefits blocking work still offloaded to a thread pool (@Async,"
-                        + " @Scheduled, or Schedulers.boundedElastic()-backed calls) — the reactive HTTP path"
-                        + " itself is non-blocking and does not directly benefit.");
-            }
-            return violation("Virtual threads are supported but spring.threads.virtual.enabled is not true.");
-        }
-        return pass();
-    }
-}
-
-final class VirtualThreadsOverriddenByPoolRule extends AbstractSpringRule {
-
-    VirtualThreadsOverriddenByPoolRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-PERF-002",
-                "Pooled executor cancels virtual-thread benefits",
-                SpringCategory.PERFORMANCE,
-                "MEDIUM",
-                "Virtual threads are enabled, but a platform-thread pool executor (ThreadPoolTaskExecutor)"
-                        + " is also defined, so work routed through it still runs on a bounded pool. A bounded"
-                        + " pool can be intentional (for example to throttle a downstream system), so confirm"
-                        + " whether this executor should keep using platform threads.",
-                "If the pooling is not deliberate, remove the custom ThreadPoolTaskExecutor or replace it"
-                        + " with a virtual-thread executor so asynchronous work benefits from virtual threads.",
-                "https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (context.isVirtualThreadsEnabled() && context.pooledTaskExecutorPresent()) {
-            return violation("Virtual threads are enabled but a ThreadPoolTaskExecutor bean re-pools work"
-                    + " onto bounded platform threads.");
-        }
-        return pass();
-    }
-}
-
-final class AsyncWithoutCustomExecutorRule extends AbstractSpringRule {
-
-    /**
-     * Bean name Spring Boot's {@code TaskExecutionAutoConfiguration} registers for its
-     * auto-configured default executor when the application defines no {@code Executor}/{@code
-     * AsyncConfigurer} of its own.
-     */
-    private static final String DEFAULT_TASK_EXECUTOR_BEAN = "applicationTaskExecutor";
-
-    AsyncWithoutCustomExecutorRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-PERF-003",
-                "@Async should use a reviewed executor",
-                SpringCategory.PERFORMANCE,
-                "MEDIUM",
-                "@EnableAsync is active but the application either defines no TaskExecutor bean at all,"
-                        + " or uses Spring Boot's auto-configured 'applicationTaskExecutor' left at its default"
-                        + " pool settings — a bounded ThreadPoolTaskExecutor with a core pool size of 8 and an"
-                        + " effectively unbounded queue — sized for a generic default, not this application's"
-                        + " actual @Async workload.",
-                "Define a dedicated executor sized for the workload, or explicitly review and set"
-                        + " spring.task.execution.pool.core-size / max-size instead of relying on the"
-                        + " unreviewed default, or enable spring.threads.virtual.enabled so @Async work is"
-                        + " not pooled at all.",
-                "https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.asyncEnabled() || context.isVirtualThreadsEnabled()) {
-            return pass();
-        }
-        List<BeanRef> taskExecutors = context.taskExecutors();
-        if (taskExecutors.isEmpty() && !SpringModel.hasName(context.executors(), "taskExecutor")) {
-            // Rare in practice: TaskExecutionAutoConfiguration always registers a default TaskExecutor
-            // bean unless it was explicitly excluded, so this branch only fires when that
-            // auto-configuration itself is absent — the one case where @Async genuinely falls back to
-            // an unbounded SimpleAsyncTaskExecutor (one new platform thread per task).
-            return violation("@EnableAsync is active with no TaskExecutor and no Executor named taskExecutor, so"
-                    + " @Async uses the unbounded SimpleAsyncTaskExecutor (a new platform thread per task).");
-        }
-        boolean poolSizeReviewed = context.hasProperty("spring.task.execution.pool.core-size")
-                || context.hasProperty("spring.task.execution.pool.max-size");
-        if (context.bootApplicationTaskExecutorPresent() && !poolSizeReviewed) {
-            return violation("@EnableAsync is active and Boot's auto-configured 'applicationTaskExecutor' is"
-                    + " left at its default size (core pool size 8, unbounded queue); this pool backs every"
-                    + " @Async method and has not been reviewed for this workload.");
-        }
-        return pass();
-    }
-}
-
-final class ConnectionPoolSmallForVirtualThreadsRule extends AbstractSpringRule {
-
-    private static final int DEFAULT_HIKARI_POOL_SIZE = 10;
-
-    ConnectionPoolSmallForVirtualThreadsRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-PERF-004",
-                "Connection pool may bottleneck virtual threads",
-                SpringCategory.PERFORMANCE,
-                "LOW",
-                "Virtual threads are enabled while HikariCP is left at its unreviewed default maximum pool size"
-                        + " of 10, so many virtual threads can contend for few database connections.",
-                "Review spring.datasource.hikari.maximum-pool-size against the expected concurrency, and"
-                        + " size it for the database rather than the (now cheap) thread count.",
-                "https://docs.spring.io/spring-boot/reference/data/sql.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.isVirtualThreadsEnabled() || !context.hikariDataSourcePresent()) {
-            return pass();
-        }
-        if (!context.hasProperty("spring.datasource.hikari.maximum-pool-size")) {
-            return violation("Virtual threads are enabled but HikariCP maximum-pool-size is unset, leaving the"
-                    + " unreviewed default of " + DEFAULT_HIKARI_POOL_SIZE
-                    + "; size the pool for the database's capacity rather than the now-cheap thread count.");
-        }
-        return pass();
-    }
-}
-
-final class SchedulerPoolTooSmallRule extends AbstractSpringRule {
-
-    SchedulerPoolTooSmallRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-PERF-005",
-                "Scheduler runs on a single thread",
-                SpringCategory.PERFORMANCE,
-                "INFO",
-                "@EnableScheduling is active but the scheduling pool size is at its default of one thread"
-                        + " (spring.task.scheduling.pool.size), so a long-running or overlapping @Scheduled task"
-                        + " can delay every other scheduled task.",
-                "Increase spring.task.scheduling.pool.size to match the number of concurrent scheduled"
-                        + " tasks, or enable virtual threads (spring.threads.virtual.enabled=true).",
-                "https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.schedulingEnabled() || context.isVirtualThreadsEnabled()) {
-            return pass();
-        }
-        Integer poolSize = context.firstIntegerProperty("spring.task.scheduling.pool.size");
-        int effective = poolSize != null ? poolSize : 1;
-        if (effective <= 1) {
-            return violation("Scheduling is enabled but the scheduler pool size is " + effective
-                    + ", so scheduled tasks run one at a time.");
-        }
-        return pass();
-    }
-}
-
-final class UnboundedAsyncQueueRule extends AbstractSpringRule {
-
-    UnboundedAsyncQueueRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-PERF-006",
-                "Bound the @Async executor queue",
-                SpringCategory.PERFORMANCE,
-                "LOW",
-                "@EnableAsync uses Boot's auto-configured applicationTaskExecutor and"
-                        + " spring.task.execution.pool.queue-capacity is not set, so that executor uses an"
-                        + " effectively unbounded queue that can hide a backlog and grow heap usage under load.",
-                "Set spring.task.execution.pool.queue-capacity (and a matching max pool size) to a bounded"
-                        + " value, or enable virtual threads so async work is not pooled.",
-                "https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.asyncEnabled() || context.isVirtualThreadsEnabled()) {
-            return pass();
-        }
-        if (!context.bootApplicationTaskExecutorPresent()) {
-            return pass();
-        }
-        if (!context.hasProperty("spring.task.execution.pool.queue-capacity")) {
-            return violation("@Async is enabled but spring.task.execution.pool.queue-capacity is unset, leaving the"
-                    + " auto-configured executor with an unbounded queue.");
-        }
-        return pass();
-    }
-}
-
-final class InMemoryCacheManagerRule extends AbstractSpringRule {
-
-    private static final String CONCURRENT_MAP_CACHE_MANAGER =
-            "org.springframework.cache.concurrent.ConcurrentMapCacheManager";
-    private static final String NOOP_CACHE_MANAGER = "org.springframework.cache.support.NoOpCacheManager";
-
-    InMemoryCacheManagerRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-CACHE-001",
-                "Use a real cache provider in production",
-                SpringCategory.PERFORMANCE,
-                "LOW",
-                "Caching is enabled (@EnableCaching) but every CacheManager is an in-memory development"
-                        + " default (ConcurrentMapCacheManager or NoOpCacheManager), which never evicts, has no"
-                        + " TTL, and is not shared across instances.",
-                "Configure a production cache provider (Caffeine, Redis, Hazelcast, …) with eviction and"
-                        + " TTL so cached data is bounded and consistent across instances.",
-                "https://docs.spring.io/spring-boot/reference/io/caching.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.cachingEnabled()) {
-            return pass();
-        }
-        List<SpringModel.CacheManagerRef> managers = context.cacheManagers();
-        if (managers.isEmpty()) {
-            return pass();
-        }
-        boolean allInMemory = managers.stream().allMatch(manager -> isInMemory(manager.className()));
-        if (allInMemory) {
-            return violation("Caching is enabled but the only cache manager(s) are in-memory defaults: "
-                    + cacheManagerSummary(managers) + ".");
-        }
-        return pass();
-    }
-
-    private static boolean isInMemory(String className) {
-        return CONCURRENT_MAP_CACHE_MANAGER.equals(className) || NOOP_CACHE_MANAGER.equals(className);
-    }
-
-    private static String cacheManagerSummary(List<SpringModel.CacheManagerRef> managers) {
-        return managers.stream()
-                .map(manager -> manager.name() + " (" + simpleName(manager.className()) + ")")
-                .reduce((a, b) -> a + ", " + b)
-                .orElse("");
-    }
-
-    private static String simpleName(String className) {
-        if (className == null) {
-            return "unknown";
-        }
-        int lastDot = className.lastIndexOf('.');
-        return lastDot >= 0 ? className.substring(lastDot + 1) : className;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Web and HTTP
-// ---------------------------------------------------------------------------
-
-final class ResponseCompressionDisabledRule extends AbstractSpringRule {
-
-    private static final String REACTIVE_LEARN_MORE_URL =
-            "https://docs.spring.io/spring-boot/reference/web/reactive.html";
-
-    ResponseCompressionDisabledRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WEB-001",
-                "Enable HTTP response compression",
-                SpringCategory.WEB,
-                "LOW",
-                "HTTP response compression is not enabled (server.compression.enabled is not true), so"
-                        + " text responses are sent uncompressed. This may be intentional when a reverse proxy,"
-                        + " load balancer, or CDN already compresses responses at the edge.",
-                "If nothing upstream compresses responses, set server.compression.enabled=true (and tune"
-                        + " mime-types / min-response-size) to reduce bandwidth for JSON, HTML, and other text.",
-                "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        SpringRuleResultDto result = !context.isPropertyTrue("server.compression.enabled")
-                ? violation("server.compression.enabled is not true, so responses are sent uncompressed.")
-                : pass();
-        // server.compression.* is shared config, but the reference page it is documented on differs per
-        // adapter; keep the link accurate to whichever stack is actually running.
-        return context.reactive() ? result.withLearnMoreUrl(REACTIVE_LEARN_MORE_URL) : result;
-    }
-}
-
-final class GracefulShutdownDisabledRule extends AbstractSpringRule {
-
-    GracefulShutdownDisabledRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WEB-002",
-                "Keep graceful shutdown enabled",
-                SpringCategory.WEB,
-                "MEDIUM",
-                "Detects server.shutdown=immediate, or spring.lifecycle.timeout-per-shutdown-phase set to zero,"
-                        + " either of which overrides the Spring Boot 4 default of graceful shutdown so in-flight"
-                        + " requests can be dropped when the application stops.",
-                "Remove server.shutdown=immediate (Spring Boot 4 defaults to graceful) and keep"
-                        + " spring.lifecycle.timeout-per-shutdown-phase at a positive value (30s by default) so"
-                        + " active requests can complete during rollouts.",
-                "https://docs.spring.io/spring-boot/reference/web/graceful-shutdown.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        String shutdown = context.firstProperty("server.shutdown");
-        if (shutdown != null && "immediate".equalsIgnoreCase(shutdown)) {
-            return violation("server.shutdown=immediate overrides Spring Boot 4 graceful shutdown, so in-flight"
-                    + " requests may be dropped on stop.");
-        }
-        Long timeoutMillis = context.firstDurationMillisProperty("spring.lifecycle.timeout-per-shutdown-phase");
-        if (timeoutMillis != null && timeoutMillis == 0) {
-            return violation("spring.lifecycle.timeout-per-shutdown-phase is set to zero, so graceful shutdown has"
-                    + " no grace period and in-flight requests are dropped immediately, the same as"
-                    + " server.shutdown=immediate.");
-        }
-        return pass();
-    }
-}
-
-final class Http2DisabledRule extends AbstractSpringRule {
-
-    private static final String REACTIVE_LEARN_MORE_URL =
-            "https://docs.spring.io/spring-boot/reference/web/reactive.html";
-
-    Http2DisabledRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WEB-003",
-                "Consider enabling HTTP/2",
-                SpringCategory.WEB,
-                "INFO",
-                "HTTP/2 is not enabled (server.http2.enabled is not true). HTTP/2 multiplexing can"
-                        + " improve latency for browsers and modern clients. A reverse proxy or load balancer"
-                        + " often terminates HTTP/2 at the edge, in which case enabling it on the app is"
-                        + " unnecessary.",
-                "If no edge proxy already serves HTTP/2, enable server.http2.enabled=true (over TLS) once"
-                        + " the runtime and clients support it.",
-                "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        SpringRuleResultDto result = !context.isPropertyTrue("server.http2.enabled")
-                ? violation("server.http2.enabled is not true; HTTP/2 multiplexing is unavailable.")
-                : pass();
-        return context.reactive() ? result.withLearnMoreUrl(REACTIVE_LEARN_MORE_URL) : result;
-    }
-}
-
-final class ErrorDetailsExposedRule extends AbstractSpringRule {
-
-    private static final List<String> ERROR_DETAIL_KEYS =
-            List.of("include-stacktrace", "include-message", "include-binding-errors", "include-exception");
-
-    private static final String REACTIVE_LEARN_MORE_URL =
-            "https://docs.spring.io/spring-boot/reference/web/reactive.html";
-
-    ErrorDetailsExposedRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WEB-004",
-                "Do not always expose error details",
-                SpringCategory.WEB,
-                "MEDIUM",
-                "An error-detail property is set to 'always', so stack traces, exception messages, or"
-                        + " binding errors are returned in error responses to every client — a common way to"
-                        + " leak internal implementation details.",
-                "Use 'never' (or 'on-param') for include-stacktrace / include-message / include-binding-errors"
-                        + " under spring.web.error.* so details are not exposed to arbitrary callers.",
-                "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<String> findings = new ArrayList<>();
-        for (String key : ERROR_DETAIL_KEYS) {
-            // Only spring.web.error.* is checked: server.error.* was renamed in Spring Boot 4 and no
-            // longer binds to anything (confirmed via WebProperties source), so treating it as a live
-            // fallback here would false-positive on a stale key that Boot now silently ignores.
-            // Detecting that stale key is SPRING-CONFIG-003's job (RemovedOrRenamedPropertyRule).
-            String value = context.firstProperty("spring.web.error." + key);
-            if (value == null) {
-                continue;
-            }
-            if ("include-exception".equals(key)) {
-                if ("true".equalsIgnoreCase(value)) {
-                    findings.add("error include-exception is set to 'true', exposing the exception type to every"
-                            + " client.");
-                }
-            } else if ("always".equalsIgnoreCase(value)) {
-                findings.add("error " + key + " is set to 'always', exposing details to every client.");
-            }
-        }
-        SpringRuleResultDto result = violation(findings);
-        return context.reactive() ? result.withLearnMoreUrl(REACTIVE_LEARN_MORE_URL) : result;
-    }
-}
-
-final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
-
-    HttpClientTimeoutsUnsetRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WEB-005",
-                "Set HTTP client timeouts",
-                SpringCategory.WEB,
-                "INFO",
-                "A RestClient, WebClient, or RestTemplate bean is defined but neither complete global timeout"
-                        + " defaults nor complete named HTTP service-client timeouts are configured. The client then"
-                        + " relies on implementation-specific defaults that may not match the dependency's latency"
-                        + " budget.",
-                "Set spring.http.clients.connect-timeout and spring.http.clients.read-timeout globally, or set"
-                        + " both spring.http.serviceclient.<name>.connect-timeout and .read-timeout for every named"
-                        + " HTTP service client.",
-                "https://docs.spring.io/spring-boot/reference/io/rest-client.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        boolean clientPresent = context.restClientBeanPresent()
-                || context.webClientBeanPresent()
-                || !context.restTemplates().isEmpty();
-        if (!clientPresent) {
-            return pass();
-        }
-        boolean connectSet = context.hasProperty("spring.http.clients.connect-timeout");
-        boolean readSet = context.hasProperty("spring.http.clients.read-timeout");
-        if (connectSet && readSet) {
-            return pass();
-        }
-        var namedProperties = context.propertyNamesWithPrefix("spring.http.serviceclient.");
-        var clientNames = namedProperties.stream()
-                .map(name -> name.substring("spring.http.serviceclient.".length()))
-                .filter(name -> name.contains("."))
-                .map(name -> name.substring(0, name.indexOf('.')))
-                .distinct()
-                .sorted()
-                .toList();
-        if (!clientNames.isEmpty()) {
-            List<String> incomplete = clientNames.stream()
-                    .filter(name -> !(connectSet
-                                    || context.hasProperty("spring.http.serviceclient." + name + ".connect-timeout"))
-                            || !(readSet || context.hasProperty("spring.http.serviceclient." + name + ".read-timeout")))
-                    .toList();
-            if (incomplete.isEmpty()) {
-                return pass();
-            }
-            return violation(incomplete.stream()
-                    .map(name -> "Named HTTP service client '" + name
-                            + "' does not set both connect-timeout and read-timeout.")
-                    .toList());
-        }
-        if (!connectSet && !readSet) {
-            return violation("An HTTP client bean is defined but neither spring.http.clients.connect-timeout nor"
-                    + " spring.http.clients.read-timeout is set, and no named service client supplies both.");
-        }
-        String missing = connectSet ? "spring.http.clients.read-timeout" : "spring.http.clients.connect-timeout";
-        return violation("An HTTP client bean is defined but " + missing
-                + " is not set, leaving timeout behavior to the underlying client implementation.");
-    }
-}
-
-final class ForwardHeadersStrategyUnsetRule extends AbstractSpringRule {
-
-    private static final String REACTIVE_LEARN_MORE_URL =
-            "https://docs.spring.io/spring-boot/reference/web/reactive.html";
-
-    ForwardHeadersStrategyUnsetRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WEB-006",
-                "Configure forwarded-headers handling behind a proxy",
-                SpringCategory.WEB,
-                "INFO",
-                "A production-like profile is active but server.forward-headers-strategy is not set. Behind a"
-                        + " reverse proxy or load balancer, the app may then build URLs and read client IPs from"
-                        + " the proxy hop instead of the original request.",
-                "If the application runs behind a proxy, set server.forward-headers-strategy=framework (or"
-                        + " native when the container handles it) so X-Forwarded-* headers are honoured.",
-                "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        SpringRuleResultDto result = context.isProductionProfileActive()
-                        && !context.hasProperty("server.forward-headers-strategy")
-                ? violation("A production-like profile is active but server.forward-headers-strategy is" + " not set.")
-                : pass();
-        return context.reactive() ? result.withLearnMoreUrl(REACTIVE_LEARN_MORE_URL) : result;
-    }
-}
-
-final class RedundantTomcatThreadsRule extends AbstractSpringRule {
-
-    RedundantTomcatThreadsRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-WEB-007",
-                "Tomcat thread cap is redundant with virtual threads",
-                SpringCategory.WEB,
-                "LOW",
-                "An embedded Tomcat application enables virtual threads but also sets"
-                        + " server.tomcat.threads.max. Spring Boot replaces Tomcat's protocol-handler executor"
-                        + " with a virtual-thread executor, making the thread cap ineffective.",
-                "Remove server.tomcat.threads.max when running on virtual threads because it no longer"
-                        + " controls Tomcat request concurrency.",
-                "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.tomcatWebServerPresent()) {
-            return skipped(
-                    "The application is not using embedded Tomcat, so server.tomcat.threads.max does not apply.");
-        }
-        if (context.isVirtualThreadsEnabled() && context.hasProperty("server.tomcat.threads.max")) {
-            return violation("Virtual threads are enabled but server.tomcat.threads.max is set, even though"
-                    + " Spring Boot's virtual-thread executor makes that cap ineffective.");
-        }
-        return pass();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Actuator and management
-// ---------------------------------------------------------------------------
-
-final class ActuatorExposeAllRule extends AbstractSpringRule {
-
-    ActuatorExposeAllRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-MGMT-001",
-                "Avoid exposing all Actuator endpoints",
-                SpringCategory.MANAGEMENT,
-                "MEDIUM",
-                "management.endpoints.web.exposure.include is set to '*', which exposes every Actuator"
-                        + " endpoint (including sensitive ones such as env, configprops, and loggers) over the"
-                        + " web. This is convenient in development but rarely intended in production.",
-                "List only the endpoints you need (for example health,info,metrics) instead of '*', and use"
-                        + " management.endpoints.web.exposure.exclude to trim further. Endpoint authorization is"
-                        + " handled separately by the Security advisor.",
-                "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!ActuatorExposure.exposesAll(context) || context.managementWebDisabled()) {
-            return pass();
-        }
-        StringBuilder detail = new StringBuilder(
-                "management.endpoints.web.exposure.include=* exposes all Actuator endpoints over the web");
-        java.util.Set<String> exclude = ActuatorExposure.excludeTokens(context);
-        if (!exclude.isEmpty()) {
-            detail.append(" (except excluded: ")
-                    .append(String.join(", ", exclude))
-                    .append(')');
-        }
-        detail.append('.');
-        boolean prodSamePort = context.isProductionProfileActive() && context.managementOnApplicationPort();
-        String severity = prodSamePort ? SpringRuleSupport.HIGH : null;
-        return violation(severity, detail.toString());
-    }
-}
-
-final class SensitiveActuatorEndpointsExposedRule extends AbstractSpringRule {
-
-    SensitiveActuatorEndpointsExposedRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-MGMT-002",
-                "Do not web-expose sensitive Actuator endpoints",
-                SpringCategory.MANAGEMENT,
-                "MEDIUM",
-                "Sensitive Actuator endpoints (such as env, configprops, beans, threaddump, or loggers) are"
-                        + " explicitly listed in management.endpoints.web.exposure.include and remain readable."
-                        + " They reveal configuration, environment values, and the bean graph to anyone who can"
-                        + " reach the management port.",
-                "Expose only health and info publicly; keep diagnostic endpoints off the web exposure list, move"
-                        + " them to a separate, firewalled management port, and require authentication. The"
-                        + " Security advisor covers endpoint authorization.",
-                "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        // The wildcard case is owned by SPRING-MGMT-001; this rule targets explicitly-named endpoints.
-        if (ActuatorExposure.exposesAll(context) || context.managementWebDisabled()) {
-            return pass();
-        }
-        List<String> findings = new ArrayList<>();
-        for (String id : ActuatorExposure.SENSITIVE_READ_ENDPOINTS) {
-            if (ActuatorExposure.isReadable(context, id)) {
-                findings.add("Actuator endpoint '" + id + "' is web-exposed and readable, revealing internal"
-                        + " details to callers that reach the management port.");
-            }
-        }
-        if (findings.isEmpty()) {
-            return pass();
-        }
-        findings.sort(String::compareTo);
-        boolean prodSamePort = context.isProductionProfileActive() && context.managementOnApplicationPort();
-        String severity = prodSamePort ? SpringRuleSupport.HIGH : null;
-        return violation(severity, findings);
-    }
-}
-
-final class ActuatorShowValuesAlwaysRule extends AbstractSpringRule {
-
-    /** Endpoints whose show-values/show-details=ALWAYS only matters when they are readable. */
-    private static final List<String> VALUE_ENDPOINTS = List.of("env", "configprops");
-
-    ActuatorShowValuesAlwaysRule() {
-        super(
-                new SpringRuleDefinition(
-                        "SPRING-MGMT-003",
-                        "Do not always show Actuator values or health details",
-                        SpringCategory.MANAGEMENT,
-                        "MEDIUM",
-                        "An Actuator endpoint is configured to reveal full values unconditionally"
-                                + " (management.endpoint.env|configprops.show-values=ALWAYS or"
-                                + " management.endpoint.health.show-details=always). Property values, including"
-                                + " credentials, and internal health probe details are then returned to every caller.",
-                        "Use show-values=WHEN_AUTHORIZED and show-details=when-authorized so sensitive values and"
-                                + " health details are only revealed to authenticated, authorized users.",
-                        "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<String> findings = new ArrayList<>();
-        for (String id : VALUE_ENDPOINTS) {
-            // Host-configured values only: BootUI contributes its own actuator defaults (including
-            // show-details=always) so its local panels work, and must not report them against the host.
-            String showValues = context.firstHostProperty("management.endpoint." + id + ".show-values");
-            if ("always".equalsIgnoreCase(showValues) && ActuatorExposure.isReadable(context, id)) {
-                findings.add("management.endpoint." + id + ".show-values=ALWAYS reveals full '" + id
-                        + "' values to every caller; use WHEN_AUTHORIZED.");
-            }
-        }
-        String showDetails = context.firstHostProperty("management.endpoint.health.show-details");
-        if ("always".equalsIgnoreCase(showDetails) && ActuatorExposure.isReadable(context, "health")) {
-            findings.add("management.endpoint.health.show-details=always exposes internal health probe details to"
-                    + " every caller; use when-authorized.");
-        }
-        findings.sort(String::compareTo);
-        return violation(findings);
-    }
-}
-
-final class DangerousActuatorEndpointsAccessibleRule extends AbstractSpringRule {
-
-    DangerousActuatorEndpointsAccessibleRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-MGMT-004",
-                "Do not web-expose shutdown or heapdump endpoints",
-                SpringCategory.MANAGEMENT,
-                "HIGH",
-                "A high-impact Actuator endpoint is reachable over the web: the shutdown endpoint permits a"
-                        + " remote caller to stop the application, and the heapdump endpoint streams a full heap"
-                        + " dump that can contain credentials, tokens, and personal data.",
-                "Keep shutdown disabled (its default access is 'none') and never web-expose it; exclude heapdump"
-                        + " from the web exposure list or restrict it to an authenticated, firewalled management"
-                        + " port.",
-                "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<String> findings = new ArrayList<>();
-        boolean shutdown = ActuatorExposure.shutdownAccessible(context);
-        if (shutdown) {
-            findings.add("The shutdown endpoint is web-exposed with write access, letting a remote caller stop"
-                    + " the application.");
-        }
-        if (ActuatorExposure.heapdumpAccessible(context)) {
-            findings.add("The heapdump endpoint is web-exposed and readable, streaming a full heap dump that can"
-                    + " contain secrets and personal data.");
-        }
-        if (findings.isEmpty()) {
-            return pass();
-        }
-        findings.sort(String::compareTo);
-        // A remotely-triggerable shutdown on the public app port in production is critical.
-        boolean criticalShutdown =
-                shutdown && context.isProductionProfileActive() && context.managementOnApplicationPort();
-        String severity = criticalShutdown ? SpringRuleSupport.CRITICAL : null;
-        return violation(severity, findings);
-    }
-}
-
-/**
- * Deliberately kept alongside HIB-CONFIG-001 ({@code OpenInViewRule} in {@code bootui-engine}'s
- * Hibernate advisor), which checks the same {@code spring.jpa.open-in-view} property but cannot
- * reproduce this rule's skip-guard below: "is a servlet web application present" is a
- * framework-specific concept the framework-neutral engine cannot see. Kept as two rules because they
- * serve two independently-browsable UI panels (Spring vs. Hibernate); the production-profile severity
- * escalation is mirrored on both sides so a user checking either panel sees the same severity for the
- * same misconfiguration.
- */
-final class OpenSessionInViewEnabledRule extends AbstractSpringRule {
-
-    OpenSessionInViewEnabledRule() {
-        super(
-                new SpringRuleDefinition(
-                        "SPRING-JPA-001",
-                        "Disable Open Session in View",
-                        SpringCategory.PERSISTENCE,
-                        "MEDIUM",
-                        "Open Session in View keeps a JPA persistence context (and often its database connection) open"
-                                + " for the whole web request, including view rendering. It hides lazy-loading boundaries,"
-                                + " encourages N+1 queries, and holds connections longer under load. Spring Boot leaves it"
-                                + " enabled by default and only logs a warning.",
-                        "Set spring.jpa.open-in-view=false and load the associations each request needs explicitly (fetch"
-                                + " joins, entity graphs, or DTO projections).",
-                        "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-entity-manager-in-view"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.entityManagerFactoryPresent() || !context.dispatcherServletPresent()) {
-            return skipped("No JPA EntityManagerFactory and servlet web context, so Open Session in View does"
-                    + " not apply.");
-        }
-        String value = context.firstProperty("spring.jpa.open-in-view");
-        if (value == null) {
-            String severity = context.isProductionProfileActive() ? SpringRuleSupport.HIGH : null;
-            return violation(
-                    severity,
-                    "spring.jpa.open-in-view is not set and defaults to enabled, keeping a persistence context"
-                            + " open for the entire web request.");
-        }
-        if ("true".equalsIgnoreCase(value)) {
-            String severity = context.isProductionProfileActive() ? SpringRuleSupport.HIGH : null;
-            return violation(
-                    severity,
-                    "spring.jpa.open-in-view=true keeps a persistence context open for the entire web request.");
-        }
-        return pass();
-    }
-}
-
-final class InMemoryDatasourceInProductionRule extends AbstractSpringRule {
-
-    /**
-     * JDBC URL substrings that identify an in-memory/embedded database. Each engine's in-memory
-     * subsubprotocol is distinct from its on-disk/file form (for example {@code jdbc:h2:file:...} or a
-     * plain path is durable, only {@code jdbc:h2:mem:...} is not), so matching these specific markers
-     * avoids flagging a perfectly normal file- or server-backed connection.
-     */
-    private static final List<String> IN_MEMORY_URL_MARKERS =
-            List.of("jdbc:h2:mem:", "jdbc:hsqldb:mem:", "jdbc:derby:memory:");
-
-    InMemoryDatasourceInProductionRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-DATA-001",
-                "Avoid an in-memory database in production",
-                SpringCategory.PERSISTENCE,
-                "MEDIUM",
-                "spring.datasource.url targets an in-memory/embedded database (H2, HSQLDB, or Derby) while a"
-                        + " production-like profile is active, so data is lost on every restart and can never be"
-                        + " shared across replicas.",
-                "Point spring.datasource.url at a real managed database (PostgreSQL, MySQL, ...) for"
-                        + " production-like profiles; keep the in-memory database for tests and local development.",
-                "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.datasource.embedded"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.isProductionProfileActive()) {
-            return skipped("No production-like profile is active, so an in-memory datasource is expected in"
-                    + " tests and local development.");
-        }
-        String url = context.firstProperty("spring.datasource.url");
-        if (url == null) {
-            return pass();
-        }
-        String normalized = url.toLowerCase(Locale.ROOT);
-        for (String marker : IN_MEMORY_URL_MARKERS) {
-            if (normalized.contains(marker)) {
-                return violation("spring.datasource.url=" + url + " targets an in-memory database while a"
-                        + " production-like profile is active.");
-            }
-        }
-        return pass();
-    }
-}
-
-final class InMemoryR2dbcInProductionRule extends AbstractSpringRule {
-
-    private static final List<String> IN_MEMORY_URL_MARKERS =
-            List.of("r2dbc:h2:mem:", "r2dbc:pool:h2:mem:", "r2dbc:hsqldb:mem:", "r2dbc:pool:hsqldb:mem:");
-
-    InMemoryR2dbcInProductionRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-DATA-002",
-                "Do not run production R2DBC on an in-memory database",
-                SpringCategory.PERSISTENCE,
-                "MEDIUM",
-                "A production-like profile is active while spring.r2dbc.url points at an in-process in-memory"
-                        + " database, so data disappears on restart and cannot be shared across instances.",
-                "Point spring.r2dbc.url at a durable database server for production-like profiles; reserve"
-                        + " in-memory R2DBC URLs for tests and local development.",
-                "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.r2dbc.embedded"));
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.isProductionProfileActive()) {
-            return skipped("No production-like profile is active, so an in-memory R2DBC database is expected in"
-                    + " tests and local development.");
-        }
-        String url = context.firstProperty("spring.r2dbc.url");
-        if (url == null) {
-            return pass();
-        }
-        String normalized = url.toLowerCase(Locale.ROOT);
-        if (IN_MEMORY_URL_MARKERS.stream().anyMatch(normalized::startsWith)) {
-            return violation("Production-like profile uses in-memory R2DBC URL " + url + ".");
-        }
-        return pass();
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (c.defaultPackageBeans().isEmpty() && !c.observations().incomplete().isEmpty()) return unknown();
+        return violation(c.defaultPackageBeans().stream()
+                .limit(50)
+                .map(name -> "Default-package application product: " + SpringRuleSupport.detail(name))
+                .toList());
     }
 }
 
 final class MutableSingletonFieldRule extends AbstractSpringRule {
-
     MutableSingletonFieldRule() {
         super(
-                new SpringRuleDefinition(
-                        "SPRING-WIRING-009",
-                        "Avoid public mutable fields on singleton beans",
-                        SpringCategory.BEAN_WIRING,
-                        "MEDIUM",
-                        "A singleton-scoped bean (the Spring default) declares a public, non-final instance field that"
-                                + " is not an injection point. Singleton beans are a single instance shared across every"
-                                + " concurrent request and thread, so a public mutable field is unsynchronised shared"
-                                + " state that any caller can read or overwrite outside the bean's own control.",
-                        "Make the field private (and final if it is only ever assigned once), encapsulate mutation"
-                                + " behind a synchronized or atomic accessor, or move genuinely per-request state to a"
-                                + " prototype- or request-scoped bean.",
-                        "https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html#beans-factory-scopes-singleton"));
+                "WIRING-009",
+                "Review public mutable singleton fields",
+                SpringCategory.BEAN_WIRING,
+                "LOW",
+                "Public mutable application fields are a shared-state review prompt, not proof of a data race. Injection, configuration binding, synthetic and Kotlin accessor-backed fields are excluded.",
+                "Review ownership and synchronization of exposed state; encapsulate mutations where appropriate.",
+                "https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        List<String> fields = context.mutableSingletonFields();
-        if (fields.isEmpty()) {
-            return pass();
-        }
-        return violation("Found " + fields.size() + " public mutable field(s) on singleton bean(s): "
-                + String.join(", ", fields) + ".");
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        return c.mutableSingletonFields().isEmpty()
+                        && !c.observations().incomplete().isEmpty()
+                ? unknown()
+                : violation(c.mutableSingletonFields());
     }
 }
 
-// ---------------------------------------------------------------------------
-// Reactive (WebFlux only)
-// ---------------------------------------------------------------------------
+final class LazyInitializationDisabledRule extends AbstractSpringRule {
+    LazyInitializationDisabledRule() {
+        super(
+                "CONFIG-001",
+                "Consider lazy initialization for large contexts",
+                SpringCategory.CONFIGURATION,
+                "INFO",
+                "More than 300 definitions is a noise-filtering heuristic, not a measured startup threshold. Definition metadata does not prove every bean was eagerly instantiated.",
+                "If startup time matters, measure before evaluating lazy initialization. Preserve fail-fast behavior where needed; consider first-use latency and heap sizing.",
+                "features/spring-application.html");
+    }
 
-/**
- * Modeled after the Quarkus advisor's QA-RX-001 ("reactive endpoints with a blocking JDBC datasource"),
- * but deliberately coarser: Quarkus can key off an explicit {@code @Blocking}/{@code @Transactional}
- * marker's absence on a reactive-returning method, a structural signal ArC exposes at the bean level.
- * WebFlux has no equivalent per-method marker - whether a blocking call inside a reactive chain is
- * correctly offloaded (for example with {@code Schedulers.boundedElastic()}) is determined by the method
- * body, which this reflection-only scanner cannot see. So this rule stays app-level and INFO-severity: a
- * prompt to double-check, not a per-endpoint finding.
- */
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (c.bind("spring.main.lazy-initialization", Boolean.class) != null || c.beanDefinitionCount() <= 300)
+            return pass();
+        Integer lazy = c.observations().get(LAZY_DEFINITIONS, Integer.class);
+        return lazy == null
+                ? unknown()
+                : c.beanDefinitionCount() - lazy <= 300
+                        ? pass()
+                        : violation(
+                                "More than 300 bean definitions are not marked lazy; this does not prove eager instantiation. If startup time matters, measure before evaluating lazy initialization.");
+    }
+}
+
+final class DebugOrTraceLoggingRule extends AbstractSpringRule {
+    DebugOrTraceLoggingRule() {
+        super(
+                "CONFIG-002",
+                "Review broad verbose logging configuration",
+                SpringCategory.CONFIGURATION,
+                "LOW",
+                "Configured debug/trace intent may increase output and expose internals. It does not establish current runtime logger levels; debug=true affects selected loggers.",
+                "Review the diagnostic need and configure targeted logger levels. Runtime logging changes require separate observation.",
+                "features/logging.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        List<String> details = new ArrayList<>();
+        for (String key : List.of("debug", "trace"))
+            if (c.isPropertyTrue(key))
+                details.add(
+                        key + " is configured for selected diagnostic loggers, not every logger's effective level.");
+        for (String logger : List.of("root", "web", "sql", "org.springframework", "org.hibernate")) {
+            String value = c.firstProperty("logging.level." + logger);
+            if (value == null) continue;
+            String normalized = value.toUpperCase(java.util.Locale.ROOT);
+            if (!Set.of("TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "OFF", "ALL")
+                    .contains(normalized)) throw new IllegalArgumentException();
+            if (Set.of("TRACE", "DEBUG", "ALL").contains(normalized))
+                details.add("Broad verbose logging is configured for " + logger
+                        + "; current effective levels are not established.");
+        }
+        return violation(details);
+    }
+}
+
+final class RemovedOrRenamedPropertyRule extends AbstractSpringRule {
+    RemovedOrRenamedPropertyRule() {
+        super(
+                "CONFIG-003",
+                "Review renamed or removed Boot 4 properties",
+                SpringCategory.CONFIGURATION,
+                "MEDIUM",
+                "Source-verified legacy keys remain configured. The properties migrator can translate supported renames; presence does not prove the key has no effect.",
+                "Migrate to current keys and test binding, including codec settings under spring.http.codecs. Remove settings for removed features.",
+                "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        List<String> details = new ArrayList<>();
+        for (var entry : SpringMigrationProperties.ENTRIES.entrySet())
+            if (c.hasProperty(entry.getKey())) details.add(entry.getKey() + " — " + entry.getValue() + ".");
+        return violation(details);
+    }
+}
+
+final class MissingApplicationNameRule extends AbstractSpringRule {
+    MissingApplicationNameRule() {
+        super(
+                "CONFIG-004",
+                "Consider a stable application name",
+                SpringCategory.CONFIGURATION,
+                "INFO",
+                "Boot's application-name defaults are absent. Other logging, metrics or tracing identifiers may be configured independently.",
+                "Set spring.application.name when Boot's shared identifier is useful for this application.",
+                "features/spring-application.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        return c.firstProperty("spring.application.name") == null
+                ? violation("spring.application.name is absent; Boot's application-name defaults are unavailable.")
+                : pass();
+    }
+}
+
+final class ConfigOnNotFoundIgnoreRule extends AbstractSpringRule {
+    ConfigOnNotFoundIgnoreRule() {
+        super(
+                "CONFIG-005",
+                "Review globally ignored missing configuration",
+                SpringCategory.CONFIGURATION,
+                "MEDIUM",
+                "Explicit spring.config.on-not-found=ignore suppresses missing-config failures globally; no missing file is inferred.",
+                "Prefer optional: on individual optional locations rather than globally suppressing missing configuration.",
+                "features/external-config.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        return "ignore".equalsIgnoreCase(c.firstProperty("spring.config.on-not-found"))
+                ? violation("Global on-not-found=ignore is configured; no actual missing location was observed.")
+                : pass();
+    }
+}
+
+final class Jackson2DefaultsCompatibilityRule extends AbstractSpringRule {
+    Jackson2DefaultsCompatibilityRule() {
+        super(
+                "CONFIG-006",
+                "Review Jackson 2-compatible defaults",
+                SpringCategory.CONFIGURATION,
+                "INFO",
+                "Applicable Jackson 3 configuration requests Jackson 2-compatible defaults. This is not the Jackson 2 implementation or a deprecated compatibility setting.",
+                "Document intent and add payload compatibility tests before changing defaults; no mandatory removal deadline is implied.",
+                "features/json.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.isPropertyTrue("spring.jackson.use-jackson2-defaults")) return pass();
+        return c.observations().yes(JACKSON3_CONFIGURATION)
+                ? violation(
+                        "Jackson 3 Boot configuration requests Jackson 2-compatible defaults; document intent and test payload compatibility before any change.")
+                : unknown();
+    }
+}
+
+final class DevToolsOnClasspathRule extends AbstractSpringRule {
+    DevToolsOnClasspathRule() {
+        super(
+                "PROFILE-002",
+                "Review DevTools packaging for production-like profiles",
+                SpringCategory.PROFILES,
+                "INFO",
+                "DevTools classpath presence alongside production-like effective profile names is a packaging review heuristic, not evidence of active restart or LiveReload.",
+                "Verify development-only packaging. Ordinary dev/local use is expected; profile names do not prove deployment.",
+                "using/devtools.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        return c.devToolsPresent() && c.isProductionProfileActive()
+                ? violation(
+                        "DevTools is present with a production-like effective profile name (naming heuristic only); restart and LiveReload activity are not established.")
+                : pass();
+    }
+}
+
+final class ProfileValidationDisabledRule extends AbstractSpringRule {
+    ProfileValidationDisabledRule() {
+        super(
+                "PROFILE-003",
+                "Review disabled profile-name validation",
+                SpringCategory.PROFILES,
+                "INFO",
+                "Disabling profile-name validation is a supported flexibility choice, not proof of invalid profiles.",
+                "Document why unrestricted profile names are needed; retain validation when its naming constraints fit.",
+                "features/profiles.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        return c.isPropertyFalse("spring.profiles.validate")
+                ? violation("Profile-name validation is explicitly disabled; no invalid name was inferred.")
+                : pass();
+    }
+}
+
+final class VirtualThreadsAvailableRule extends AbstractSpringRule {
+    VirtualThreadsAvailableRule() {
+        super(
+                "PERF-001",
+                "Consider virtual threads for applicable blocking work",
+                SpringCategory.PERFORMANCE,
+                "INFO",
+                "Java 21+ MVC or observed Boot task execution can offer a virtual-thread opportunity, not a guaranteed speedup. Pure reactive HTTP is not the target.",
+                "Measure blocking workload suitability and downstream concurrency limits. CPU work does not become faster. Reactor boundedElastic virtual-thread mode is configured separately; JDK 24 removes synchronized-monitor pinning.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.virtualThreadsSupported()) return skipped("Virtual threads require Java 21+.");
+        if (c.bind("spring.threads.virtual.enabled", Boolean.class) != null) return pass();
+        if (!c.dispatcherServletPresent() && !c.bootApplicationTaskExecutorPresent())
+            return skipped("No applicable MVC or Boot task-execution evidence; reactive HTTP alone is inapplicable.");
+        return violation(
+                "Virtual threads are available but not configured for applicable MVC/Boot task execution. Measure blocking workloads; this does not convert reactive event loops or boundedElastic.");
+    }
+}
+
+final class VirtualThreadsOverriddenByPoolRule extends AbstractSpringRule {
+    VirtualThreadsOverriddenByPoolRule() {
+        super(
+                "PERF-002",
+                "Review pooled executor routing",
+                SpringCategory.PERFORMANCE,
+                "INFO",
+                "A pooled executor coexists with enabled virtual-thread configuration. Actual routing and its thread factory may be unknown; a pool can itself use virtual threads.",
+                "Review intended executor usage, CPU isolation and bounded concurrency before any change. Co-presence does not cancel virtual-thread benefits.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        return c.virtualThreadsSupported() && c.isVirtualThreadsEnabled() && c.pooledTaskExecutorPresent()
+                ? violation(
+                        "A ThreadPoolTaskExecutor coexists with virtual-thread configuration. Its routing and thread factory are not inferred; review intentional pooling.")
+                : pass();
+    }
+}
+
+final class AsyncWithoutCustomExecutorRule extends AbstractSpringRule {
+    AsyncWithoutCustomExecutorRule() {
+        super(
+                "PERF-003",
+                "Review Framework default async fallback",
+                SpringCategory.PERFORMANCE,
+                "LOW",
+                "Positive default-selection metadata identifies Framework's SimpleAsyncTaskExecutor fallback, not an unreviewed Boot pool size.",
+                "Choose deliberate concurrency and admission control for default @Async work. A virtual-thread property alone does not change Framework fallback.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.asyncEnabled()) return skipped("Async annotation processing is not present.");
+        AsyncSelection selection = c.observations().get(ASYNC_SELECTION, AsyncSelection.class);
+        return selection == null
+                ? unknown()
+                : selection == AsyncSelection.FRAMEWORK_FALLBACK
+                        ? violation(
+                                "Default @Async selection falls back to Framework's SimpleAsyncTaskExecutor, creating a new platform thread per task without a configured concurrency limit.")
+                        : pass();
+    }
+}
+
+final class SchedulerPoolTooSmallRule extends AbstractSpringRule {
+    SchedulerPoolTooSmallRule() {
+        super(
+                "PERF-005",
+                "Review single-thread scheduler overlap",
+                SpringCategory.PERFORMANCE,
+                "INFO",
+                "Multiple registered application tasks share a positively identified one-thread scheduler. Overlap requirements, not task count alone, determine suitability.",
+                "Review task duration and overlap requirements before changing concurrency. Preserve fixed-delay semantics; do not automatically increase the pool or enable virtual threads.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.schedulingEnabled()) return skipped("Scheduling is not enabled.");
+        Integer tasks = c.observations().get(SCHEDULED_TASK_COUNT, Integer.class);
+        if (tasks != null && tasks < 2) return pass();
+        Integer size = c.observations().get(SCHEDULER_POOL_SIZE, Integer.class);
+        return tasks == null || size == null
+                ? unknown()
+                : size == 1
+                        ? violation(
+                                "Multiple registered application tasks share an observed one-thread scheduler; review overlap requirements and fixed-delay semantics.")
+                        : pass();
+    }
+}
+
+final class UnboundedAsyncQueueRule extends AbstractSpringRule {
+    UnboundedAsyncQueueRule() {
+        super(
+                "PERF-006",
+                "Review an unbounded default async queue",
+                SpringCategory.PERFORMANCE,
+                "LOW",
+                "The positively selected default @Async executor has an observed effectively unbounded queue, including explicit Integer.MAX_VALUE capacity.",
+                "Review bounded queueing, rejection/backpressure and downstream admission control. Virtual threads are not admission control.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.asyncEnabled()) return skipped("Async annotation processing is not present.");
+        Integer capacity = c.observations().get(ASYNC_QUEUE_CAPACITY, Integer.class);
+        return capacity == null
+                ? unknown()
+                : capacity == Integer.MAX_VALUE
+                        ? violation(
+                                "The observed default @Async executor queue is effectively unbounded; backlog can increase heap use under sustained load.")
+                        : pass();
+    }
+}
+
+final class InMemoryCacheManagerRule extends AbstractSpringRule {
+    InMemoryCacheManagerRule() {
+        super(
+                "CACHE-001",
+                "Review concurrent-map cache capacity",
+                SpringCategory.PERFORMANCE,
+                "INFO",
+                "An exact ConcurrentMapCacheManager has no built-in capacity or expiry policy. NoOp stores nothing; bounded in-process providers such as Caffeine are valid.",
+                "Review cache growth and expiry requirements. A distributed provider is not universally required.",
+                "io/caching.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.cachingEnabled()) return skipped("Caching annotation infrastructure is absent.");
+        var details = c.cacheManagers().stream()
+                .filter(m -> "org.springframework.cache.concurrent.ConcurrentMapCacheManager".equals(m.className()))
+                .limit(50)
+                .map(m -> "ConcurrentMapCacheManager has no built-in capacity/expiry policy: "
+                        + SpringRuleSupport.detail(m.name()))
+                .toList();
+        if (!details.isEmpty()) return violation(details);
+        if (c.cacheManagers().isEmpty()
+                || c.cacheManagers().stream()
+                        .anyMatch(m -> m.className() == null
+                                || !Set.of(
+                                                "org.springframework.cache.support.NoOpCacheManager",
+                                                "org.springframework.cache.caffeine.CaffeineCacheManager")
+                                        .contains(m.className()))) return unknown();
+        return pass();
+    }
+}
+
+final class ResponseCompressionDisabledRule extends AbstractSpringRule {
+    ResponseCompressionDisabledRule() {
+        super(
+                "WEB-001",
+                "Consider origin response compression",
+                SpringCategory.WEB,
+                "INFO",
+                "Compression is not configured for an attributable Boot origin server; this does not establish whether client responses are compressed at the edge.",
+                "If no proxy/CDN already compresses, measure compressible response sizes and CPU cost before evaluating origin compression.",
+                "web/servlet.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        SpringRuleResultDto result = c.bind("server.compression.enabled", Boolean.class) != null
+                ? pass()
+                : c.observations().yes(BOOT_WEB_SERVER)
+                        ? violation(
+                                "Boot origin compression is not configured. If the edge does not compress, evaluate response sizes, bandwidth and CPU cost.")
+                        : unknown();
+        return webLink(c, result);
+    }
+}
+
+final class GracefulShutdownDisabledRule extends AbstractSpringRule {
+    GracefulShutdownDisabledRule() {
+        super(
+                "WEB-002",
+                "Review immediate or zero-grace shutdown",
+                SpringCategory.WEB,
+                "MEDIUM",
+                "Explicit immediate shutdown or exactly zero phase timeout can prevent graceful request completion on an applicable embedded web runtime. Boot 4 defaults to graceful.",
+                "Review lifecycle requirements and allow positive shutdown time where graceful completion is required; no dropped request was observed.",
+                "web/graceful-shutdown.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.observations().yes(BOOT_WEB_SERVER)) return unknown();
+        String shutdown = c.firstProperty("server.shutdown");
+        if (shutdown != null && !Set.of("immediate", "graceful").contains(shutdown.toLowerCase(java.util.Locale.ROOT)))
+            throw new IllegalArgumentException();
+        Duration timeout = c.firstDurationProperty("spring.lifecycle.timeout-per-shutdown-phase");
+        if (timeout != null && timeout.isNegative()) throw new IllegalArgumentException();
+        return "immediate".equalsIgnoreCase(shutdown) || timeout != null && timeout.isZero()
+                ? violation(
+                        "Immediate shutdown or exactly zero phase grace is configured; in-flight work may not have time to finish.")
+                : pass();
+    }
+}
+
+final class Http2DisabledRule extends AbstractSpringRule {
+    Http2DisabledRule() {
+        super(
+                "WEB-003",
+                "Consider origin HTTP/2",
+                SpringCategory.WEB,
+                "INFO",
+                "HTTP/2 is not configured on an attributable Boot origin server; client-facing protocol negotiation at a proxy is not observed.",
+                "Review edge termination, clients, h2/h2c support and measurements before enabling origin HTTP/2. It is optional, not a universal TLS requirement.",
+                "web/servlet.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        SpringRuleResultDto result = c.bind("server.http2.enabled", Boolean.class) != null
+                ? pass()
+                : c.observations().yes(BOOT_WEB_SERVER)
+                        ? violation(
+                                "Boot origin HTTP/2 is not configured; edge HTTP/2 may already satisfy client requirements.")
+                        : unknown();
+        return webLink(c, result);
+    }
+}
+
+final class ErrorDetailsExposedRule extends AbstractSpringRule {
+    ErrorDetailsExposedRule() {
+        super(
+                "WEB-004",
+                "Review configured fallback error details",
+                SpringCategory.WEB,
+                "MEDIUM",
+                "Boot fallback error configuration permits exception details. Custom handling can differ; DevTools defaults may be deliberate. on-param is caller-controlled, not confidentiality protection.",
+                "Use never/false where details must remain private. Review custom handling and development defaults separately; do not use on-param as access control.",
+                "web/servlet.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.observations().yes(BOOT_ERROR_HANDLING)) return webLink(c, unknown());
+        List<String> details = new ArrayList<>();
+        if (c.isPropertyTrue("spring.web.error.include-exception"))
+            details.add("Boot fallback error configuration includes exception types; custom responses may differ.");
+        for (String key : List.of("include-stacktrace", "include-message", "include-binding-errors")) {
+            String value = c.firstProperty("spring.web.error." + key);
+            if (value == null) continue;
+            String normalized = value.toLowerCase(java.util.Locale.ROOT);
+            if (!Set.of("never", "always", "on-param").contains(normalized)) throw new IllegalArgumentException();
+            if (!normalized.equals("never"))
+                details.add(
+                        "spring.web.error." + key
+                                + " allows fallback error details; on-param is not an access-control boundary. DevTools defaults may be deliberate.");
+        }
+        return webLink(c, violation(details));
+    }
+}
+
+final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
+    HttpClientTimeoutsUnsetRule() {
+        super(
+                "WEB-005",
+                "Review Boot HTTP client timeout policy",
+                SpringCategory.WEB,
+                "INFO",
+                "Attributable Boot builder defaults or named service-group configuration lacks a complete timeout policy. Programmatic per-client values and transport defaults are not established.",
+                "Review effective per-client deadlines and overrides. One complete group does not establish settings for other groups or arbitrary client beans.",
+                "io/rest-client.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.observations().yes(HTTP_CLIENT_DEFAULTS) && !c.observations().yes(HTTP_SERVICE_GROUPS)) return unknown();
+        Duration connect = c.bind("spring.http.clients.connect-timeout", Duration.class);
+        Duration read = c.bind("spring.http.clients.read-timeout", Duration.class);
+        Map<String, Map<String, Object>> groups = SpringProperties.bind(
+                c.environment(),
+                false,
+                "spring.http.serviceclient",
+                Bindable.of(org.springframework.core.ResolvableType.forType(
+                        new org.springframework.core.ParameterizedTypeReference<
+                                Map<String, Map<String, Object>>>() {})));
+        List<String> details = new ArrayList<>();
+        if (c.observations().yes(HTTP_CLIENT_DEFAULTS) && (connect == null || read == null))
+            details.add(
+                    "Boot global builder defaults lack a complete connect/read timeout policy; effective per-client deadlines are not established.");
+        if (c.observations().yes(HTTP_SERVICE_GROUPS) && groups != null) {
+            if (groups.size() > 100) throw new IllegalArgumentException();
+            for (var group : groups.entrySet()) {
+                if (group.getKey().length() > 256 || group.getValue().size() > 100)
+                    throw new IllegalArgumentException();
+                String prefix = "spring.http.serviceclient.[" + group.getKey() + "].";
+                Duration groupConnect = c.bind(prefix + "connect-timeout", Duration.class);
+                Duration groupRead = c.bind(prefix + "read-timeout", Duration.class);
+                if ((groupConnect == null && connect == null) || (groupRead == null && read == null))
+                    details.add(
+                            "A named Boot service group lacks a complete connect/read timeout policy; review its effective per-client deadlines.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class RedundantTomcatThreadsRule extends AbstractSpringRule {
+    RedundantTomcatThreadsRule() {
+        super(
+                "WEB-007",
+                "Review a Tomcat cap with a virtual executor",
+                SpringCategory.WEB,
+                "LOW",
+                "Requires observed Boot-managed Tomcat virtual executor customization, Java virtual-thread support and an explicit thread cap. Factory type plus a property is insufficient.",
+                "When the observed virtual executor handles requests, review the redundant thread cap and enforce admission control independently.",
+                "web/servlet.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.virtualThreadsSupported() || !c.tomcatWebServerPresent())
+            return skipped("Applicable Java/Tomcat support is absent.");
+        Integer cap = c.firstIntegerProperty("server.tomcat.threads.max");
+        if (cap == null) return pass();
+        return c.observations().yes(TOMCAT_VIRTUAL_EXECUTOR)
+                ? violation(
+                        "A Boot-managed Tomcat virtual executor is observed alongside an explicit thread cap; review the cap's applicability.")
+                : unknown();
+    }
+}
+
+final class OpenSessionInViewEnabledRule extends AbstractSpringRule {
+    OpenSessionInViewEnabledRule() {
+        super(
+                "JPA-001",
+                "Review servlet Open Session in View",
+                SpringCategory.PERSISTENCE,
+                "MEDIUM",
+                "Observed servlet OSIV registration extends a persistence context across request handling. This does not prove a held JDBC connection or N+1 queries.",
+                "Review explicit fetching through joins, entity graphs or DTOs. For Boot registration consider spring.jpa.open-in-view=false; custom registrations need separate changes.",
+                "data/sql.html#data.sql.jpa-and-spring-data.open-entity-manager-in-view");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (c.reactive()) return skipped("Servlet Open Session in View does not apply to WebFlux.");
+        String evidence = c.observations().get(OSIV, String.class);
+        return evidence == null
+                ? unknown()
+                : violation(
+                        "Observed " + evidence
+                                + "; review persistence-context boundaries and explicit fetching, not inferred connection lifetime.");
+    }
+}
+
+final class InMemoryDatasourceInProductionRule extends AbstractSpringRule {
+    InMemoryDatasourceInProductionRule() {
+        super(
+                "DATA-001",
+                "Review in-memory JDBC with production-like profiles",
+                SpringCategory.PERSISTENCE,
+                "MEDIUM",
+                "An observed supported DataSource URL identifies memory storage with a production-like effective profile name. Profile naming is a heuristic, not proof of deployment.",
+                "Review durability requirements and effective connection configuration. URLs and credentials are never displayed.",
+                "data/sql.html#data.sql.datasource.embedded");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.isProductionProfileActive())
+            return skipped("No production-like effective profile name; deployment purpose is not inferred.");
+        String kind = c.observations().get(JDBC_KIND, String.class);
+        return kind == null
+                ? unknown()
+                : kind.endsWith(" memory")
+                        ? violation(
+                                "Observed supported JDBC memory storage with a production-like effective profile name (naming heuristic); review durability. URL omitted.")
+                        : pass();
+    }
+}
+
+final class InMemoryR2dbcInProductionRule extends AbstractSpringRule {
+    InMemoryR2dbcInProductionRule() {
+        super(
+                "DATA-002",
+                "Review in-memory R2DBC with production-like profiles",
+                SpringCategory.PERSISTENCE,
+                "MEDIUM",
+                "Supported, attributable Boot R2DBC memory configuration accompanies production-like effective profile names. Custom connection details and inactive properties are not runtime evidence.",
+                "Review durability and effective provider configuration; URLs and credentials are omitted.",
+                "data/sql.html#data.sql.r2dbc.embedded");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.isProductionProfileActive())
+            return skipped("No production-like effective profile name; deployment purpose is not inferred.");
+        String kind = c.observations().get(R2DBC_KIND, String.class);
+        if (kind == null) return unknown();
+        return kind.equals("H2 memory")
+                ? violation(
+                        "Supported Boot R2DBC configuration requests H2 memory storage with a production-like effective profile name (naming heuristic). URL omitted.")
+                : pass();
+    }
+}
+
+final class ActuatorExposeAllRule extends AbstractSpringRule {
+    ActuatorExposeAllRule() {
+        super(
+                "MGMT-001",
+                "Review host wildcard Actuator exposure",
+                SpringCategory.MANAGEMENT,
+                "MEDIUM",
+                "Host wildcard exposure includes applicable endpoints allowed by access policy. Exclusions and access suppression apply; BootUI contributions are ignored.",
+                "Prefer an intentional endpoint allowlist. Port equality and profile names do not establish public reachability or authorization.",
+                "actuator/endpoints.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!ActuatorExposure.applicable(c)) return unknown();
+        return ActuatorExposure.exposesAll(c) && ActuatorExposure.anyAccessible(c)
+                ? violation(
+                        "Host wildcard web exposure permits applicable Actuator endpoints after exclusions/access policy; network reachability and authorization are not established.")
+                : pass();
+    }
+}
+
+final class SensitiveActuatorEndpointsExposedRule extends AbstractSpringRule {
+    SensitiveActuatorEndpointsExposedRule() {
+        super(
+                "MGMT-002",
+                "Review explicitly exposed sensitive Actuator endpoints",
+                SpringCategory.MANAGEMENT,
+                "MEDIUM",
+                "Explicit host exposure and access settings allow known sensitive endpoint reads. Optional absent endpoints are not inferred.",
+                "Review exposure and authorization separately. Diagnostic details are available only to callers allowed to access the endpoint.",
+                "actuator/endpoints.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!ActuatorExposure.applicable(c)) return unknown();
+        if (ActuatorExposure.exposesAll(c)) return pass();
+        List<String> details = new ArrayList<>();
+        for (String id : ActuatorExposure.SENSITIVE_READ_ENDPOINTS)
+            if (ActuatorExposure.includeTokens(c).contains(id) && ActuatorExposure.isReadable(c, id))
+                details.add("Known endpoint '" + id
+                        + "' is explicitly web-exposed with read access; caller authorization is not assessed.");
+        details.sort(String::compareTo);
+        return violation(details);
+    }
+}
+
+final class ActuatorShowValuesAlwaysRule extends AbstractSpringRule {
+    ActuatorShowValuesAlwaysRule() {
+        super(
+                "MGMT-003",
+                "Review Actuator values and health details",
+                SpringCategory.MANAGEMENT,
+                "MEDIUM",
+                "Host show-values=always may disclose raw configuration values to callers allowed to access the endpoint. Health details describe probes, not raw config values.",
+                "Use when-authorized where appropriate and separately secure endpoint access. BootUI-contributed defaults are ignored.",
+                "actuator/endpoints.html#actuator.endpoints.sanitization");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!ActuatorExposure.applicable(c)) return unknown();
+        List<String> details = new ArrayList<>();
+        for (String id : List.of("env", "configprops", "health")) {
+            String key = "management.endpoint." + id + (id.equals("health") ? ".show-details" : ".show-values");
+            String value = c.firstHostProperty(key);
+            if (value == null) continue;
+            String normalized = value.toLowerCase(java.util.Locale.ROOT).replace('_', '-');
+            if (!Set.of("never", "always", "when-authorized").contains(normalized))
+                throw new IllegalArgumentException();
+            if (normalized.equals("always") && ActuatorExposure.isReadable(c, id))
+                details.add(key + "=always permits " + (id.equals("health") ? "probe details" : "configuration values")
+                        + " for callers allowed to access this endpoint.");
+        }
+        return violation(details);
+    }
+}
+
+final class DangerousActuatorEndpointsAccessibleRule extends AbstractSpringRule {
+    DangerousActuatorEndpointsAccessibleRule() {
+        super(
+                "MGMT-004",
+                "Review granted heapdump or shutdown web access",
+                SpringCategory.MANAGEMENT,
+                "HIGH",
+                "Boot 4.1.1 heapdump and shutdown both default to access=none. A finding requires known endpoint evidence, exposure and effective read/write permission.",
+                "Keep dangerous endpoints inaccessible unless explicitly needed and protect authorized access. No network reachability is inferred.",
+                "actuator/endpoints.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!ActuatorExposure.applicable(c)) return unknown();
+        List<String> details = new ArrayList<>();
+        if (ActuatorExposure.shutdownAccessible(c))
+            details.add(
+                    "Known shutdown endpoint has web exposure and effective write permission; authorized operation can stop the application.");
+        if (ActuatorExposure.heapdumpAccessible(c))
+            details.add(
+                    "Known heapdump endpoint has web exposure and effective read permission; heap dumps can contain secrets.");
+        return violation(details);
+    }
+}
+
 final class ReactiveHandlerWithBlockingDatasourceRule extends AbstractSpringRule {
-
     ReactiveHandlerWithBlockingDatasourceRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-REACTIVE-001",
-                "Reactive endpoints alongside a blocking JDBC datasource",
+        super(
+                "REACTIVE-001",
+                "Review reactive handlers alongside JDBC",
                 SpringCategory.REACTIVE,
                 "INFO",
-                "This is a WebFlux application with Mono/Flux-returning handler methods, and a blocking JDBC"
-                        + " DataSource is also configured. A blocking JDBC call made directly inside a reactive"
-                        + " chain (instead of offloaded to a bounded scheduler) can block request processing and"
-                        + " reduce concurrent capacity. This check cannot see inside method bodies, so it cannot"
-                        + " tell whether offloading is already done correctly — treat it as a prompt to verify,"
-                        + " not a finding.",
-                "Offload blocking database calls, for example with"
-                        + " Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic()), or migrate to a"
-                        + " reactive driver such as R2DBC; verify this per endpoint.",
-                "https://docs.spring.io/spring-framework/reference/web/webflux/reactive-spring.html"));
+                "Application Mono/Flux handlers coexist with a blocking DataSource. This cannot establish blocking inside handlers; offloaded or migration-only JDBC can be intentional.",
+                "Review actual JDBC call sites and offloading where used. No per-handler defect or mandatory driver migration is inferred.",
+                "https://docs.spring.io/spring-framework/reference/web/webflux/reactive-spring.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.reactive()) {
-            return skipped("This is not a WebFlux application.");
-        }
-        if (context.reactiveHandlerMethodCount() == 0 || context.dataSources().isEmpty()) {
-            return pass();
-        }
-        return violation(context.reactiveHandlerMethodCount() + " reactive (Mono/Flux) handler method(s) found"
-                + " alongside " + context.dataSources().size() + " blocking JDBC DataSource bean(s); verify"
-                + " blocking calls are offloaded to a bounded scheduler rather than invoked directly in the"
-                + " reactive request pipeline.");
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.reactive()) return skipped("This is not a WebFlux application.");
+        if (!c.observations().incomplete().isEmpty()) return unknown();
+        return c.reactiveHandlerMethodCount() > 0 && !c.dataSources().isEmpty()
+                ? violation(
+                        "Application reactive handlers coexist with JDBC DataSource metadata; review actual call sites. Correct offloading and migration-only usage are not defects.")
+                : pass();
     }
 }
 
-final class CodecMaxInMemorySizeUnsetRule extends AbstractSpringRule {
-
-    CodecMaxInMemorySizeUnsetRule() {
-        super(new SpringRuleDefinition(
-                "SPRING-REACTIVE-002",
-                "Set a WebFlux codec in-memory buffer limit",
+final class UnlimitedCodecAggregationRule extends AbstractSpringRule {
+    UnlimitedCodecAggregationRule() {
+        super(
+                "REACTIVE-003",
+                "Review explicitly unlimited codec aggregation",
                 SpringCategory.REACTIVE,
                 "LOW",
-                "This is a WebFlux application and spring.codec.max-in-memory-size is not set, so request and"
-                        + " response body encoding/decoding falls back to the default 256KB in-memory buffer"
-                        + " limit. A request or response body larger than that throws DataBufferLimitException.",
-                "If the application sends or receives payloads larger than 256KB (large JSON bodies, file"
-                        + " uploads, multipart forms), set spring.codec.max-in-memory-size explicitly rather than"
-                        + " relying on the low default.",
-                "https://docs.spring.io/spring-boot/reference/web/reactive.html"));
+                "Observed Boot codec configuration explicitly requests unlimited (-1) aggregation on WebFlux. Unset and positive limits are not violations.",
+                "Review bounded aggregation for expected payloads. No universal byte threshold is prescribed; codec aggregation is not a universal body/upload size limit.",
+                "web/reactive.html");
     }
 
     @Override
-    SpringRuleResultDto evaluateRule(SpringContext context) {
-        if (!context.reactive()) {
-            return skipped("This is not a WebFlux application.");
-        }
-        if (!context.hasProperty("spring.codec.max-in-memory-size")) {
-            return violation("spring.codec.max-in-memory-size is not set; codecs fall back to the default"
-                    + " 256KB in-memory buffer limit.");
-        }
-        return pass();
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.reactive()) return skipped("This is not a WebFlux application.");
+        // Validate the current namespace without confusing it with the startup-bound observation.
+        c.bind("spring.http.codecs.max-in-memory-size", org.springframework.util.unit.DataSize.class);
+        if (!c.observations().yes(BOOT_CODEC_CONFIGURATION)) return unknown();
+        Long limit = c.observations().get(CODEC_LIMIT, Long.class);
+        return limit != null && limit == -1
+                ? violation(
+                        "Observed Boot codec metadata requests explicitly unlimited aggregation (-1); review bounded aggregation, not a universal HTTP body/upload limit.")
+                : pass();
     }
 }

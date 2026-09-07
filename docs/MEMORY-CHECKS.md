@@ -1,297 +1,231 @@
 # Memory checks
 
-The Memory panel runs a fixed, on-demand ruleset against the host JVM's **live management beans**. It takes a read-only snapshot of heap and memory-pool usage, garbage-collector and class-loading counters, a thread census, process-level scalars (uptime, cumulative GC time, pending finalizers, parsed `-Xms`/`-Xss`, physical memory, and swap), and an optional class histogram, then evaluates a curated set of memory-health checks. Rules read only this immutable snapshot; they never perform their own JMX or filesystem I/O. The advisor never mutates the JVM, forces a heap dump on page load, intercepts live traffic, or surfaces secrets.
-
-Most checks are single-snapshot heuristics, while the recent-GC check compares the current scan with the previous scan and heap-pressure checks prefer post-histogram heap readings when available. Snapshot and lifetime counters can still be skewed by transient garbage, startup spikes, or past bursts, so several findings are explicit prompts to confirm with a second reading, the Live Memory panel, or a profiler rather than verdicts. The right remediation still depends on the application's workload, heap sizing, and deployment topology.
-
-This advisor is complementary to the **Live Memory** and **Threads** panels: those show the raw, continuously-updating numbers, whereas the Memory advisor diagnoses them into severity-ranked findings.
-
-## Availability and bounds
-
-The panel is always available (the JVM always exposes memory and thread beans). Readings that a particular JVM does not expose — a class histogram, per-thread CPU time, cumulative GC time, a previous-GC baseline, a container memory limit — are skipped gracefully and reported rather than failing the panel. The class histogram is only collected on an explicit scan. `ThreadMXBean` observations cover platform threads, not virtual threads; the CPU-hot-thread rule also skips when its bounded 1,000-row thread-detail page is incomplete. The Rule results panel lists only checks that found findings, ordered by severity, finding count, and rule id.
-
-## Known limitations
-
-- **Container data is Linux cgroup data, not a process RSS measurement.** The shared detector resolves the process's cgroup through `/proc/self/cgroup` and `/proc/self/mountinfo`, then uses the most restrictive finite limit on its path to the cgroup mount root. When `memory.stat` supplies inactive file cache, container-pressure checks use `current - inactive_file` as a working-set estimate. The estimate remains cgroup-scoped, includes descendants, and can differ from process RSS; unavailable or unsupported cgroup mounts are skipped.
-- **The explicit histogram can influence cumulative GC counters.** `GC.class_histogram` requests a full GC unless the JVM cannot run one at that instant. Recent-GC and G1 Full-GC interval rules use a post-histogram baseline to exclude the scans' own collections, and the latest-event rule ignores an unchanged event from the prior histogram. Lifetime findings remain review prompts that should be correlated with GC logs.
-
-## Severity scale
-
-- **CRITICAL** - an active fault (such as a deadlock) that is already harming the application.
-- **HIGH** - a condition that commonly causes outages or OOM kills and usually needs attention before production.
-- **MEDIUM** - a sizing or contention gap that warrants review.
-- **LOW** - lower-impact hygiene or tuning findings.
-- **INFO** - informational prompts where the right fix depends heavily on project context.
-
-The advisor score applies the shared severity penalty to every concrete finding, not just once per violated rule.
-Dismissed rules remove all of their findings from the score.
-
----
-
-## Heap pressure
-
-### MEM-HEAP-001 - Heap utilization is critically high
-
-- **Severity**: HIGH (MEDIUM when only a pre-GC snapshot is available)
-- **Detects**: Live heap usage is very close to the maximum heap. When post-histogram heap data is available, the rule fires only if the heap is still at least 95% full after a full GC, indicating sustained retained pressure; if post-GC data is unavailable, a single pre-GC snapshot at the same threshold is reported at MEDIUM until confirmed.
-- **Recommendation**: Increase -Xmx (or MaxRAMPercentage), reduce retained objects, or profile the heap to find the growth source.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html>
-
-### MEM-HEAP-002 - Old generation is near its maximum
-
-- **Severity**: MEDIUM
-- **Detects**: The tenured/old-generation pool is nearly full, a common precursor to full GCs and promotion failures. The scan prefers post-GC occupancy after the histogram's full GC so it reflects long-lived retention rather than reclaimable garbage.
-- **Recommendation**: Investigate long-lived object retention; consider raising the heap size or tuning the generation sizes for the active collector.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html>
-
-### MEM-HEAP-003 - Maximum heap is capped well below the container limit
-
-- **Severity**: LOW
-- **Detects**: A small max heap that is already under pressure while a much larger container memory limit is available to grow into. The check prefers post-GC heap occupancy (consistent with MEM-HEAP-001/002) to avoid false positives from transient garbage. The previously documented "effectively unbounded" detection branch has been removed; HotSpot effectively never reports an unbounded heap max, and that branch was dead code.
-- **Recommendation**: Set an explicit -Xmx or -XX:MaxRAMPercentage that lets the heap use a sensible share of the container memory limit instead of staying small while under pressure.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html>
-
-### MEM-HEAP-004 - Max heap is just above the compressed-oops threshold
-
-- **Severity**: INFO
-- **Detects**: A max heap in the narrow 25% window just above the boundary where HotSpot ergonomically disables compressed ordinary object pointers, after which 64-bit references take more space and a heap just over the boundary can hold fewer live objects than one capped just below it. The documented boundary is `4 GiB * ObjectAlignmentInBytes` (32 GiB at the default 8-byte alignment), so the default warning window is above 32 GiB through 40 GiB; deliberately larger heaps such as 47 GiB are not described as "just above." A live `UseCompressedOops=false` result above that boundary is the expected HotSpot symptom and does not suppress the finding. The rule is skipped for ZGC and when compressed oops are explicitly disabled with `-XX:-UseCompressedOops`.
-- **Recommendation**: Either cap the heap just below the compressed-oops boundary, or grow it well past this range (and scale out) when a larger heap is genuinely required.
-- **Learn more**: <https://wiki.openjdk.org/display/HotSpot/CompressedOops>
-
-### MEM-HEAP-006 - Objects are backing up awaiting finalization
-
-- **Severity**: LOW
-- **Detects**: A large backlog of objects pending finalization. The finalizer thread cannot keep up, so these objects (and any native resources they hold) are retained longer than expected. Finalization is deprecated for removal (JEP 421); a backlog usually points to legacy finalizers.
-- **Recommendation**: Replace finalizers with try-with-resources, java.lang.ref.Cleaner, or explicit close() methods, and ensure resources are released promptly.
-- **Learn more**: <https://openjdk.org/jeps/421>
-
-### MEM-HEAP-007 - Committed heap is far above post-GC live data
-
-- **Severity**: INFO
-- **Detects**: When the committed heap is at least twice the post-GC live set and the slack is at least 1 GiB, after at least 10 minutes of uptime. This suggests the heap is over-provisioned: the JVM has committed memory to the OS that the application consistently does not need. Reducing -Xmx can free host memory for other workloads without harming the application.
-- **Recommendation**: Consider lowering -Xmx (or -XX:MaxRAMPercentage) closer to the observed post-GC live set to free host memory; alternatively, confirm the oversized heap is intentional to absorb allocation bursts or reduce GC frequency.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html>
-
-### MEM-HEAP-008 - Post-GC old-generation usage is trending upward across scans
-
-- **Severity**: MEDIUM
-- **Detects**: Tracks post-GC old-generation usage (the same reading MEM-HEAP-002 compares against a static percentage) across consecutive user-triggered scans and flags a monotonic increase over the last 3 consecutive scans with no decrease in between, independent of the absolute percentage. This is the standard textbook Java heap-leak diagnostic — retained-size growth across successive full GCs — and can catch a slow leak (for example, one climbing steadily through 40% old-generation usage) well before MEM-HEAP-002's static high-water-mark threshold fires. Requires several consecutive scans to build a trend; the first scans only establish the baseline.
-- **Recommendation**: Take a heap dump and compare successive class histograms (the Heap Dump panel) to find the retained-object type driving the growth, and confirm with a profiler whether this is a real leak or a temporarily growing cache/working set.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html>
-
-## Native memory
-
-### MEM-FOOTPRINT-001 - Configured JVM memory leaves little container headroom
-
-- **Severity**: HIGH
-- **Detects**: Estimates the configured JVM memory envelope (maximum heap, currently committed non-heap such as Metaspace and code cache, direct-buffer capacity, and an approximate thread-stack reservation) against the detected container limit. At 90% or more, the configuration leaves too little room for native memory as the heap grows. Using maximum rather than currently committed heap catches unsafe sizing before that memory is committed. The estimate is conservative but incomplete: it excludes GC structures, JIT working memory, native libraries, and non-NIO native allocations.
-- **Recommendation**: Lower -Xmx/-XX:MaxRAMPercentage, reduce thread counts or direct-buffer use, or raise the container memory limit so the configured envelope keeps native headroom.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/diagnostic-tools.html>
-
-### MEM-FOOTPRINT-002 - Platform thread stacks reserve a large amount of native memory
-
-- **Severity**: MEDIUM; HIGH only when a worst-case container bound would be breached
-- **Detects**: Estimates native memory reserved for platform thread stacks (live platform threads times the -Xss/-XX:ThreadStackSize reservation) and flags when stacks alone reserve at least 1 GiB or at least 20% of the detected container memory limit. The actual stack size is read from the live `ThreadStackSize` JVM option via HotSpot JMX when available, falling back to any -Xss/-XX:ThreadStackSize command-line flag, and finally to a 1 MiB compile-time default. Thread stacks are demand-paged virtual-memory reservations, not committed/resident memory, so a large reservation alone does not prove memory pressure. HIGH means the working set plus the full reservation would exceed the cgroup limit; it is a worst-case bound, not confirmed residency, because touched stack pages are already included in cgroup usage and therefore counted twice. Virtual threads are excluded because their stacks live on the heap.
-- **Recommendation**: Reduce the platform thread count (bound pools, prefer virtual threads or async I/O) or lower an oversized -Xss so thread stacks do not dominate native memory.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html>
-
-### MEM-FOOTPRINT-003 - Container memory usage is near the cgroup limit
-
-- **Severity**: HIGH
-- **Detects**: Resolves the process's cgroup and reads its limit/current values (cgroup v2: `memory.max`/`memory.current`; cgroup v1: `memory.limit_in_bytes`/`memory.usage_in_bytes`). When `memory.stat` exposes inactive file cache, the rule subtracts it before comparing the working set to the limit. A working set at 90% or more leaves little headroom; if the kernel cannot reclaim enough charged memory for the next allocation, it may OOM-kill a process without invoking JVM OutOfMemoryError handling or heap-dump logic.
-- **Recommendation**: Lower -Xmx/-XX:MaxRAMPercentage, reduce non-heap footprint (thread stacks, Metaspace, direct buffers), or raise the container memory limit to restore headroom.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/diagnostic-tools.html>
-
-### MEM-FOOTPRINT-004 - High swap utilization while JVM footprint exceeds free physical memory
-
-- **Severity**: MEDIUM
-- **Detects**: Uses swap and free-physical-memory values collected once with the rest of the runtime snapshot, and flags when used swap is at least 50% of total swap AND the estimated JVM committed footprint (heap + non-heap + direct buffers + thread-stack reservation) exceeds free physical memory. This combination suggests the JVM may be partially swapped out. The check is skipped where these operating-system MXBean values are unavailable.
-- **Recommendation**: Reduce the JVM's committed footprint (lower -Xmx, reduce thread count, tune direct-buffer use) or add physical memory; avoid large heaps on hosts with active swap.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/diagnostic-tools.html>
-
-## Memory pools
-
-### MEM-POOL-001 - Metaspace is close to its maximum
-
-- **Severity**: MEDIUM
-- **Detects**: The Metaspace pool is nearly full, which can cause OutOfMemoryError: Metaspace, often from classloader leaks or excessive dynamic class generation.
-- **Recommendation**: Raise -XX:MaxMetaspaceSize, or investigate classloader leaks and runtime class generation (proxies, scripting).
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/vm/class-metadata.html>
-
-### MEM-POOL-002 - Code cache is close to its maximum
-
-- **Severity**: MEDIUM
-- **Detects**: Any JIT code-cache segment is nearly full. With tiered compilation the cache is split into separate segments (non-nmethods, profiled, non-profiled); a single saturated segment can stop the JIT even when the aggregate looks healthy, after which the application falls back to slower interpreted execution.
-- **Recommendation**: Increase -XX:ReservedCodeCacheSize, or reduce the amount of compiled code (fewer megamorphic call sites, less code).
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/vm/codecache.html>
-
-### MEM-POOL-003 - Direct buffer usage is high
-
-- **Severity**: LOW
-- **Detects**: java.nio direct (off-heap) buffer capacity that is near an explicit -XX:MaxDirectMemorySize cap, or that is large relative to the effective HotSpot default cap. When -XX:MaxDirectMemorySize is not set, HotSpot defaults the direct-memory cap to the max heap (-Xmx), so the rule compares against that value rather than treating the absence of an explicit flag as "no cap". Direct memory is not bounded by -Xmx and can leak native memory.
-- **Recommendation**: Audit direct ByteBuffer allocations and pooling; set or raise -XX:MaxDirectMemorySize and ensure buffers are released.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/ByteBuffer.html>
-
-### MEM-POOL-004 - Metaspace is unbounded inside a memory-limited container
-
-- **Severity**: LOW
-- **Detects**: A container memory limit with no -XX:MaxMetaspaceSize while Metaspace is already sizable. Unbounded Metaspace can grow until the container is OOM-killed by the kernel instead of failing with a graceful OutOfMemoryError: Metaspace.
-- **Recommendation**: Set -XX:MaxMetaspaceSize to a sensible ceiling so class-metadata growth fails fast inside the JVM rather than triggering a kernel OOM kill.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/vm/class-metadata.html>
-
-### MEM-POOL-005 - Compressed Class Space is close to its maximum
-
-- **Severity**: MEDIUM
-- **Detects**: The Compressed Class Space pool is at or above 85% of its cap. This pool holds the compressed representation of class metadata in the compressed-oops range and has a hard default cap of 1 GiB even when -XX:MaxMetaspaceSize is unset. Exhaustion causes OutOfMemoryError: Compressed class space, which is distinct from OutOfMemoryError: Metaspace.
-- **Recommendation**: Increase -XX:CompressedClassSpaceSize (or reduce dynamic class generation); also set -XX:MaxMetaspaceSize so broader Metaspace growth is bounded.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/vm/class-metadata.html>
-
-### MEM-POOL-006 - JIT compiler is disabled or capped below full optimisation
-
-- **Severity**: LOW
-- **Detects**: `-Xint` (fully interpreted mode), `-XX:-UseCompiler` (JIT disabled), or `-XX:TieredStopAtLevel<4` (JIT capped before C2 full optimization) in the JVM input arguments. These flags are used for debugging and profiling but left in production significantly reduce throughput and increase CPU usage, which can manifest as elevated heap pressure due to longer-living objects.
-- **Recommendation**: Remove -Xint, -XX:-UseCompiler, or -XX:TieredStopAtLevel<4 from production JVM arguments unless specifically required for a diagnostic session.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/vm/java-virtual-machine-technology-overview.html>
-
-### MEM-POOL-007 - Direct buffer usage has grown on every recent scan without release
-
-- **Severity**: MEDIUM (HIGH when MEM-POOL-003's static threshold has also been crossed)
-- **Detects**: Tracks the `direct` `BufferPoolMXBean` used-byte reading across scans and flags usage that has strictly increased on every one of the last 3 consecutive scans with no decrease in between. This is a native-memory-leak signal for leaked direct `ByteBuffer`s, such as NIO-channel or Netty-style misuse where buffers are allocated but never released. Mapped buffers are excluded: their usage follows file mappings rather than the direct-memory cap. Requires several consecutive user-triggered scans to build a trend; confirm it persists under representative load because a warming cache can also grow monotonically.
-- **Recommendation**: Audit code paths that allocate direct ByteBuffers (including NIO channels and libraries like Netty) for missing release/cleaner calls, and confirm the pool eventually plateaus or shrinks under normal load instead of only ever growing.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/BufferPoolMXBean.html>
-
-## GC configuration
-
-### MEM-GC-001 - Heap sizing is left to default container ergonomics
-
-- **Severity**: INFO
-- **Detects**: A detected container memory limit with neither `-Xmx`/`-XX:MaxHeapSize` nor an explicit maximum-RAM sizing option (`-XX:MaxRAMPercentage`, `-XX:MaxRAMFraction`, or `-XX:MaxRAM`) set. The JVM is container-aware and normally defaults the max heap to about 25% of the limit; the small-heap ergonomics can instead use 50%.
-- **Recommendation**: Set `-XX:MaxRAMPercentage` (or an explicit `-Xmx`/`-XX:MaxHeapSize`) if you want the heap sized deliberately rather than by default ergonomics.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html>
-
-### MEM-GC-002 - Cumulative GC time is a large share of uptime
-
-- **Severity**: MEDIUM
-- **Detects**: After at least 10 minutes of uptime, flags when total **stop-the-world** collection time is at least 10% of JVM uptime. ZGC/Shenandoah cycle beans and the legacy CMS concurrent collector are excluded because they report concurrent work; G1's `G1 Concurrent GC` manager remains included because it measures its remark/cleanup VM operations. No collector-independent universal threshold exists, so the rule retains this conservative review threshold rather than tuning it from anecdotal application sizes. The cumulative average can be skewed by startup, so corroborate it with recent GC metrics.
-- **Recommendation**: Increase the heap (-Xmx/-XX:MaxRAMPercentage), reduce the allocation rate, or review the collector choice if GC consistently consumes this much time.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html>
-
-### MEM-GC-003 - Recent GC overhead is high
-
-- **Severity**: MEDIUM (HIGH when recent GC overhead is at least 25%)
-- **Detects**: Compares **stop-the-world** GC time against wall-clock time over the interval from the previous scan's post-histogram sample to the current scan's pre-histogram sample, excluding both scans' own forced histogram GC. ZGC/Shenandoah cycle beans and the legacy CMS concurrent collector are excluded; G1's `G1 Concurrent GC` manager remains included because it measures remark/cleanup VM operations. The first scan only establishes a baseline; later scans fire when GC used at least 10% of the interval, and escalate to HIGH at 25%.
-- **Recommendation**: Re-run the scan after a representative workload; if recent GC overhead stays high, increase the heap (-Xmx/-XX:MaxRAMPercentage), reduce the allocation rate, or review the collector choice.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/GarbageCollectorMXBean.html>
-
-### MEM-GC-004 - Serial GC selected on a multi-core system
-
-- **Severity**: LOW
-- **Detects**: The Serial GC collector (GarbageCollectorMXBean names "Copy" and/or "MarkSweepCompact") running on a JVM with two or more available processors **and** roughly 2 GiB or more of memory (the detected container memory limit, else total physical memory). On supported JDK 17/21/25 releases, G1 is selected ergonomically for server-class machines while Serial remains expected in constrained environments, so the rule avoids false positives on small containers. Above both thresholds, explicitly or unexpectedly staying on Serial underutilises multi-core hosts and causes long stop-the-world pauses.
-- **Recommendation**: Switch to G1 (-XX:+UseG1GC), ZGC (-XX:+UseZGC), or Parallel GC (-XX:+UseParallelGC) to use all available cores, unless binary size or footprint constraints explicitly require Serial.
-- **Learn more**: <https://openjdk.org/jeps/248>
-
-### MEM-GC-005 - G1 Full GC occurred between scans
-
-- **Severity**: MEDIUM
-- **Detects**: An increase in the "G1 Old Generation" GarbageCollectorMXBean collection count from the previous scan's post-histogram sample to the current scan's pre-histogram sample. A G1 Full GC is G1's fallback path, triggered when its normal concurrent-marking/mixed-collection cycle could not keep up with the allocation rate (to-space exhaustion, humongous-allocation failure, or concurrent mark failure). Since JDK 10 (JEP 307, "Parallel Full GC for G1") this fallback runs on multiple threads, so it is not single-threaded — but it is still a fully stop-the-world pause across the entire heap; even one Full GC per scan window is a sign that G1 failed to reclaim memory through its normal cycle and indicates heap or tuning pressure. The first scan only establishes a baseline.
-- **Recommendation**: Increase -Xmx or tune -XX:G1HeapRegionSize to reduce humongous allocations; consider -XX:G1ReservePercent and -XX:InitiatingHeapOccupancyPercent to give G1 more headroom for concurrent marking.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html>
-
-### MEM-GC-006 - Most recently completed GC event was long
-
-- **Severity**: MEDIUM
-- **Detects**: Reads each HotSpot collector bean's `getLastGcInfo()` before the scan's histogram, compares `GcInfo.endTime` values on their shared JVM-uptime time base, and evaluates the event that actually completed most recently. An unchanged event from the prior scan's histogram is skipped, so the advisor does not report its own forced collection as a new outlier. It flags a new event when its duration is at least 1000 ms. Duration is elapsed collection time and is not necessarily a stop-the-world pause for a concurrent collector, so the finding deliberately says "GC event" rather than "pause."
-- **Recommendation**: Capture unified GC logs (`-Xlog:gc*:file=gc.log:time,level,tags`) and inspect the event's phases and cause before tuning heap size, allocation rate, or collector pause goals.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/jdk.management/com/sun/management/GcInfo.html>
-
-### MEM-GC-007 - JVM container awareness is explicitly disabled
-
-- **Severity**: HIGH
-- **Detects**: A visible cgroup memory limit together with `-XX:-UseContainerSupport`. Container support defaults to enabled on JDK 17/21/25; disabling it makes JVM ergonomics use host-level memory and CPU information, which can oversize the heap, GC/JIT worker pools, and common pools relative to the container and lead to throttling or an abrupt cgroup OOM kill.
-- **Recommendation**: Remove `-XX:-UseContainerSupport` so JVM ergonomics respect container limits. Use explicit `-Xmx`/`-XX:MaxRAMPercentage` and `-XX:ActiveProcessorCount` only for deliberate overrides.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html>
-
-### MEM-HEAP-005 - Initial and maximum heap differ for a low-latency collector
-
-- **Severity**: INFO
-- **Detects**: For low-latency collectors (ZGC, Shenandoah), a smaller -Xms than -Xmx makes the JVM grow and re-commit the heap on demand, which can add latency and commit/uncommit churn. Equal -Xms and -Xmx keep the heap fully committed for steady-state, latency-sensitive services. When -Xms is not set in the input arguments the rule falls back to `MemoryMXBean.getHeapMemoryUsage().getInit()`, which returns the ergonomic default initial heap, to avoid false skips on JVMs where the flag is set via environment or ergonomics rather than an explicit `-Xms`.
-- **Recommendation**: For latency-sensitive services using ZGC or Shenandoah, set -Xms equal to -Xmx so the heap is fully committed up front; also consider -XX:+AlwaysPreTouch to touch every heap page at startup and avoid OS demand-paging latency during warmup.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/gctuning/z-garbage-collector.html>
-
-## Threads
-
-### MEM-THREAD-001 - Thread deadlock detected
-
-- **Severity**: CRITICAL
-- **Detects**: Platform threads blocked in a cycle of lock acquisition; deadlocked threads make no progress and can hang request processing.
-- **Recommendation**: Inspect the deadlocked threads in the Threads panel, then establish a consistent global lock-ordering or use tryLock with timeouts.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html#findDeadlockedThreads()>
-
-### MEM-THREAD-002 - High proportion of BLOCKED threads
-
-- **Severity**: MEDIUM
-- **Detects**: A large share of live threads are BLOCKED waiting for monitors, indicating lock contention that limits throughput. Two trigger paths: (1) **ratio path** — at least 5 BLOCKED threads and ≥25% of all live threads; (2) **absolute path** — at least 20 BLOCKED threads and ≥10% of all live threads (the 10% floor prevents false positives in large thread pools where 20 blocked threads may represent a small fraction). Both paths apply to a single snapshot; a transient burst can trigger the rule so confirm the finding persists before acting.
-- **Recommendation**: Identify the contended lock in the Threads panel and reduce the critical section, shard the lock, or use lock-free structures.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Thread.State.html>
-
-### MEM-THREAD-003 - Peak thread count was far above the current count
-
-- **Severity**: INFO
-- **Detects**: A large gap between the all-time peak platform-thread count and the current live count. The peak is monotonic since JVM start, so this reflects a past burst (pool churn or a transient spike) rather than a current leak; treat it as historical context to correlate with a live thread trend, not as evidence of a present problem.
-- **Recommendation**: Review thread-pool sizing and lifecycle; bound pool sizes and ensure short-lived threads are not created per request if these bursts recur.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html>
-
-### MEM-THREAD-004 - Runnable threads with very high lifetime CPU usage
-
-- **Severity**: INFO
-- **Detects**: RUNNABLE platform threads whose accumulated CPU time is a large fraction of the JVM's uptime, i.e. they have kept a core busy for much of the process's life. CPU time is cumulative since the thread started, so this is a hot-loop candidate to investigate, not a confirmed problem. The rule skips when more than 1,000 platform-thread detail rows exist because it cannot make a complete CPU assessment from a bounded page.
-- **Recommendation**: Correlate with two consecutive thread snapshots; if CPU keeps climbing for the same thread, profile its stack for a hot or spinning loop.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html>
-
-## Heap content
-
-Heap-content checks require a class histogram, which is collected only on an explicit scan. They report **shallow** sizes (the bytes attributed to the instances of a class by `GC.class_histogram`), not retained sizes, so a flagged class is a starting point for investigation rather than a confirmed leak.
-
-### MEM-CONTENT-001 - Classes with very large average instance size
-
-- **Severity**: INFO
-- **Detects**: Classes whose average shallow size per instance is large; these big objects dominate allocation, can become G1 humongous allocations, and may fragment the heap.
-- **Recommendation**: Review whether these objects can be streamed, paged, or pooled instead of held whole in memory.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html>
-
-### MEM-CONTENT-002 - Collections occupy a large share of the heap
-
-- **Severity**: MEDIUM (LOW when only shallow evidence is weak)
-- **Detects**: JDK collection or map classes, including their node/entry backing structures, that occupy a large amount of heap by shallow histogram bytes. Severity is raised when the combined collection footprint is a large share of the sampled heap and softened when it is a single shallow contributor; array backing storage such as ArrayList's Object[] is reported separately by MEM-CONTENT-004.
-- **Recommendation**: Confirm whether the offending collection is bounded; if it is meant to be a cache, give it an eviction policy or size limit and verify entries are removed.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html>
-
-### MEM-CONTENT-003 - A single class dominates the sampled heap
-
-- **Severity**: LOW
-- **Detects**: One class (excluding **all** array classes — primitive arrays such as `byte[]`/`char[]` as well as `Object[]` and other reference arrays — which are routinely dominant and reported in aggregate by MEM-CONTENT-004) occupies a large fraction of the sampled heap by shallow bytes. Previously only primitive arrays were excluded, allowing `Object[]` (which backs most collections and is often the top class) to trigger this rule and overlap with MEM-CONTENT-004; the fix excludes all types whose normalised name ends with `[]`.
-- **Recommendation**: Confirm the dominant class is expected; if not, trace its references to find what keeps the instances alive.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html>
-
-### MEM-CONTENT-004 - Arrays dominate the sampled heap
-
-- **Severity**: INFO
-- **Detects**: Array classes (primitive arrays such as byte[]/char[], Object[], and map-node arrays) together occupy at least half of the post-GC histogram bytes. Array dominance is often normal, but it complements the collection view in MEM-CONTENT-002 and the single-dominant-class view in MEM-CONTENT-003 by surfacing aggregate backing storage that those rules exclude.
-- **Recommendation**: Inspect the top array classes below; if growth is unexpected, trace what retains the backing arrays (oversized buffers, unbounded lists/maps, or duplicated byte[]/char[] data).
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html>
-
-## Class loading
-
-### MEM-CLASS-001 - Very large number of loaded classes with little unloading
-
-- **Severity**: INFO
-- **Detects**: At least 50,000 currently loaded classes with less than 1% as many unloads, which can indicate a classloader leak or runaway dynamic class generation and pressures Metaspace. No OpenJDK/Oracle source defines a universally healthy class count, so this remains an INFO-level review heuristic and was not retuned from anecdotal application sizes. Frameworks that generate proxies and configuration classes at runtime can structurally load more classes than build-time-oriented frameworks; compare repeated readings and Metaspace pressure rather than treating the count alone as proof of a leak.
-- **Recommendation**: If the application does not legitimately use this many classes, look for classloader leaks (redeploys, scripting, proxy generation).
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshoot-class-loading.html>
-
-### MEM-CLASS-002 - High class-loading churn
-
-- **Severity**: LOW
-- **Detects**: Heavy class unloading, either a large absolute count or a high sustained unload rate over the JVM's lifetime. Persistent churn points to dynamic proxy/CGLIB generation, scripting, or redeploy-style classloader cycling that strains Metaspace and the GC.
-- **Recommendation**: Identify the source of dynamic class generation (proxies, scripting engines, repeated context refreshes) and cache or bound it.
-- **Learn more**: <https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshoot-class-loading.html>
+The Memory advisor evaluates **36 stable rules** against explicit, on-demand JVM observations. Spring MVC,
+Spring WebFlux, and Quarkus use the same framework-neutral collector, rules, report, and dismissal IDs. MCP and
+the CLI expose that same report. Reading the cached report does not scan, collect a histogram, or start a recording.
+
+Findings are review prompts, not proof of a leak, a sizing prescription, or a production-readiness assessment.
+All numerical thresholds below are **BootUI heuristics**, not Oracle-endorsed universal warning thresholds.
+Interpret them against representative steady-state and burst workloads.
+
+## Measurement quality, availability, and cost
+
+- **Occupancy is not retained size.** `MemoryUsage` describes a snapshot, including objects that may be
+  unreachable but not yet collected. `committed` is capacity available to the JVM for that purpose, not process
+  RSS. An undefined maximum (`-1`) is not proof of unlimited memory. A rule requiring a maximum does not
+  substitute committed capacity, including on collectors whose old-generation committed value equals used.
+- **A histogram is not proof of a full GC.** The existing explicit `GC.class_histogram` command requests GC,
+  but HotSpot can skip the requested collection and still produce rows. Allocations can also resume before the
+  subsequent usage reading. The advisor therefore calls these **post-histogram snapshots**, not verified
+  post-full-GC live sets. A later low snapshot does not explain why usage fell.
+- **The histogram is intrusive.** Oracle rates its impact High, depending on heap size/content. `-all` includes
+  unreachable objects and is not a pause-free alternative; BootUI does not switch to it. No additional GC, heap
+  dump, NMT, JFR, subprocess, network request, or background sampling is introduced by these rules. Scan admission
+  is single-flight. Bounded results do not imply a hard execution-time limit for the JVM diagnostic command.
+- **Unknown is not zero.** Buffer `memoryUsed=-1` stays unknown; NIO capacity and estimated used bytes remain
+  distinct. GC count and elapsed time have independent availability. A partial unknown total is not presented as
+  a complete sum. Overflowing estimates become unavailable instead of wrapping into healthy values.
+- **Unsupported and failed are different.** Ordinary unsupported optional metrics cause the dependent rule to
+  be `SKIPPED`. Actual thread/histogram supplier or rule failures produce existing `ERROR` entries in
+  `analysisErrors` and a `PARTIAL` scan while retaining unrelated valid findings. Failure to collect the whole
+  context returns `ERROR`. The `results` list contains findings, not passing or skipped checks; **no findings
+  does not mean every measurement was available or the JVM is healthy**.
+- **Threads are platform threads.** ThreadMXBean excludes virtual threads and cannot detect every deadlock
+  involving them. The existing synchronizer-capability fallback can cover monitors only. Summary counts remain
+  complete when the detail page is capped at 1,000 threads; CPU-hot-thread analysis skips an incomplete detail page.
+  A failed thread report never becomes a passing deadlock check.
+- **Histogram bytes are shallow.** Totals cover parsed rows; displayed/evaluated class rows are limited to the
+  largest 200, and finding examples remain bounded. Aggregate array/collection observations can consequently
+  undercount the tail. A histogram does not identify one owning collection, retention paths, or retained graphs.
+  HotSpot can also log histogram undercounting separately from its returned rows.
+
+For the underlying contracts and collection caveats, see [MemoryUsage][memory-usage], [MemoryPoolMXBean][memory-pool],
+[GC counters][gc-bean], [BufferPoolMXBean][buffers], [ThreadMXBean][threads], [jcmd][jcmd], and
+[HotSpot's skipped-GC path][histogram-source].
+
+## Time and collector boundaries
+
+Recent-GC comparisons span the previous scan's **post-histogram counter sample** to the current scan's
+**pre-histogram counter sample**, excluding the scans' own histogram request intervals. Missing endpoints,
+non-positive elapsed windows, decreased counters, or changed collector identities cannot become healthy zero
+activity. A valid zero timer delta is possible even when the collection count increases because timers are
+approximate milliseconds. Known counts remain usable when time is unknown, and vice versa.
+
+The time ratio is approximate **collection elapsed time**, not CPU utilization or an exact percentage of application
+pause time. ZGC/Shenandoah whole-cycle timers and legacy CMS concurrent timing are excluded to avoid adding
+overlapping cycle and pause time. G1's concurrent manager remains included because its timer covers remark/cleanup
+VM operations. Collector implementations outside these known conventions need separate interpretation. A completed
+collection that crosses a sampling boundary can distort a short-window ratio. Lifetime totals still include startup
+and diagnostic collections.
+
+The direct-buffer and old-generation trends require **three strict increases across four comparable observations**.
+A plateau, decrease, missing/unknown reading, or failed whole scan breaks consecutive evidence and requires a new
+baseline. This measures sampled net growth: releases and allocations may both occur between endpoints. There is no
+inferred continuous growth, minimum workload, or elapsed-duration guarantee from clicking Scan repeatedly.
+
+| JVM/collector scope | Interpretation |
+| --- | --- |
+| JDK 17 through 26 management APIs | Snapshot, undefined-max, approximate-counter and resettable-thread-peak semantics remain relevant throughout. Implementation details are not promises for every vendor/update build. |
+| Serial / Parallel | Old and young collectors/pools differ. A young collection is not a full old-generation live-set refresh. |
+| G1 | Reclamation is incremental. `G1 Old Gen` is a pool; `G1 Old Generation` is the full-GC manager. A full-GC count does not reveal its cause. Explicit GC and diagnostic requests can contribute. |
+| ZGC | Non-generational ZGC exposes one heap. Generational ZGC arrived in 21, became default ZGC in 23, and replaced non-generational ZGC in 24. JDK 26's old-pool committed equals used; that ratio must not be called cap pressure. Generation maxima are not independent capacities to add together. |
+| Shenandoah | Generational mode was experimental in 24 and productized in 25; non-generational remains default through 26. Exposed pools and collection boundaries depend on the actual mode. |
+| Virtual threads | Previewed in 19/20, finalized in 21. Their heap-backed stacks are not one native `-Xss` reservation each. Scheduler estimates available in newer JDKs are not a full thread census and are not collected by this advisor. |
+
+Sources: [GC event timing][gc-info], [G1 manager implementation][g1-manager], [Generational ZGC][jep439],
+[ZGC default change][jep474], [non-generational ZGC removal][jep490], [ZGC pool accounting][zgc-source],
+[Generational Shenandoah experiment][jep404], [Shenandoah productization][jep521], and [virtual threads][jep444].
+
+## Native and container limits
+
+Configured maxima, reserved address space, committed JVM pools, process RSS, and cgroup charges are different
+measurements. The configured-envelope rule mixes maximum heap, currently committed non-heap, direct-buffer capacity,
+and approximate platform-stack reservation as an **incomplete capacity estimate**, not a measured footprint.
+It excludes GC structures, JIT working memory, native libraries, and non-NIO allocations. A default stack estimate
+may be used when the effective reservation cannot be read; per-thread reservations and touched pages can differ.
+Do not add all stack reservations to cgroup current usage: touched stack pages are already charged there.
+
+Container observations come from Linux cgroups. The existing detector resolves the process cgroup, finds the most
+restrictive finite ancestor limit, and reads **leaf** current/stat values. This can miss siblings competing for
+an ancestor's ceiling; it does not prove available headroom. Finite zero-limit detection and hierarchy-wide usage
+pairing remain detector limitations outside this rule audit. An inactive-file subtraction is a working-set
+approximation, not guaranteed reclaimability. Current usage includes the cgroup and descendants, not just this JVM.
+
+Operating-system swap statistics describe the operating environment, not this JVM's swapped pages or active paging.
+Comparing the JVM's estimated footprint with currently free physical RAM cannot establish process residency.
+
+NMT is useful confirmation evidence but is disabled by default, requires startup enablement, has documented
+overhead, and does not account for all native allocations. Its total includes Java Heap; neither its reserved nor
+committed totals equal RSS. BootUI does not enable NMT or run native-memory commands as part of this advisor.
+See [NMT][nmt], [OS MXBean][os-bean], [Linux cgroups][cgroups], and [Linux process memory][proc].
+
+## Complete rule audit and current behavior
+
+The September 2026 audit retained all **36 IDs**: no rules were added or removed. `Update` means behavior,
+measurement handling, or diagnostic text changed; `Retain` means the existing basic heuristic remains.
+Common arithmetic/availability corrections apply without renumbering rules.
+
+### Heap pressure
+
+| ID | Disposition | Current trigger, severity, and appropriate action |
+| --- | --- | --- |
+| MEM-HEAP-001 | Update | **MEDIUM** at 95% of a known heap maximum, preferring a valid post-histogram snapshot. Histogram success alone no longer escalates to HIGH or claims retained pressure. Confirm representative pressure before changing heap or retention. |
+| MEM-HEAP-002 | Update | **MEDIUM** at 85% of a known old-pool maximum. Skip absent pools/unknown maxima; never divide by committed instead. Investigate collector-specific occupancy, not an asserted fully collected live set. |
+| MEM-HEAP-003 | Update | **LOW** when max heap is below 15% of a container limit of at least 1 GiB and occupancy is at least 80%. A large limit is not free memory: confirm total native/container headroom before raising heap. |
+| MEM-HEAP-004 | Retain | **INFO** just above the approximate compressed-oops boundary through 125% of it; boundary scales with object alignment, normally about 32 GiB at 8 bytes. Skip ZGC/explicit disable; overflow does not manufacture a boundary. This is not a guaranteed capacity improvement. |
+| MEM-HEAP-005 | Retain | **INFO** for smaller initial than maximum heap with ZGC/Shenandoah. The collector uses the JVM's reported initial capacity rather than assuming an earlier argument is effective. Equal initial/max may suit latency-sensitive workloads but trades away footprint/uncommit flexibility. |
+| MEM-HEAP-006 | Retain | **LOW** for at least 1,000 objects pending finalization. Review persistent backlog and resource lifecycle; prefer explicit close/try-with-resources over finalization, deprecated for removal by JEP 421. |
+| MEM-HEAP-007 | Update | **INFO** after 10 minutes uptime when one snapshot has at least 1 GiB slack and committed is at least twice used. Used/committed come from the same observation. No claim of a measured working set, consistently unused memory, or safe production downsizing. |
+| MEM-HEAP-008 | Update | **LOW** after three valid increases in old-generation occupancy. Missing observations break the streak. Normal warmup/load changes can explain it; confirm stable load and collector-appropriate reclamation before investigating retention. |
+
+Evidence: [snapshot contracts][memory-usage], [pool semantics][memory-pool], [leak investigation][leaks],
+[heap-sizing tradeoffs][gc-tuning], [compressed oops][oops], [ZGC tuning][zgc-tuning], and [JEP 421][jep421].
+
+### Native memory
+
+| ID | Disposition | Current trigger, severity, and appropriate action |
+| --- | --- | --- |
+| MEM-FOOTPRINT-001 | Update | **HIGH** when known max heap itself meets/exceeds the container limit; otherwise **MEDIUM** at 90% for the incomplete mixed configured-envelope estimate. Unknown components/overflow cannot become zero. A reservation estimate is not committed or resident pressure. |
+| MEM-FOOTPRINT-002 | Update | **MEDIUM** for approximate platform-stack reservations of at least 1 GiB or 20% of a known container limit. No HIGH escalation from adding already-accounted touched stack pages to container usage. Review pool counts and stack needs before changing `-Xss`. |
+| MEM-FOOTPRINT-003 | Retain | **HIGH** at 90% of the known cgroup limit using current usage or its inactive-file-adjusted working-set estimate. Valid zero usage is not missing. Corroborate hierarchy scope and reclaimability; this is not process RSS. |
+| MEM-FOOTPRINT-004 | Update | **INFO** when coherent OS/environment swap readings show at least 50% used. No JVM-footprint/free-RAM test or per-JVM swap attribution. Inspect process residency and paging before changing heap. |
+
+Evidence: [native accounting][nmt], [OS MXBean scope][os-bean], [cgroup semantics][cgroups], and [process residency][proc].
+
+### Memory pools
+
+| ID | Disposition | Current trigger, severity, and appropriate action |
+| --- | --- | --- |
+| MEM-POOL-001 | Retain | **MEDIUM** at 85% of known Metaspace maximum. Undefined maximum/usage is skipped. Pressure can motivate classloader investigation but is not a diagnosed leak. |
+| MEM-POOL-002 | Update | **MEDIUM** at 90% in any known code-cache segment, including unsegmented `CodeCache`. All undefined maxima mean not assessed. Saturation constrains new compilation; it does not make all existing compiled methods revert to interpretation. |
+| MEM-POOL-003 | Update | **LOW** at 80% of a known effective NIO direct-buffer capacity cap. Resolve a live HotSpot zero/default option to max heap; otherwise use a known explicit cap or skip. No unknown-to-unlimited inference, mapped-buffer aggregation, or substitution of used bytes for capacity. |
+| MEM-POOL-004 | Update | **LOW** for at least 128 MiB Metaspace with no reported maximum inside a detected memory-limited container. Undefined maximum is not proof of a missing effective cap; setting one can cause Metaspace OOM and cannot guarantee graceful failure. |
+| MEM-POOL-005 | Update | **MEDIUM** at 85% of reported Compressed Class Space maximum. Compressed class pointers are distinct from ordinary object pointers; no universal 1 GiB default is asserted across versions/header modes. |
+| MEM-POOL-006 | Update | **INFO** for input arguments selecting interpreted/disabled/reduced-tier compilation. Respect later mode/tier/enable options and inactive tiered compilation. Deliberate startup/development configuration is not proof of throughput or memory failure. |
+| MEM-POOL-007 | Update | **LOW** for three comparable direct-used increases, **MEDIUM** when capacity is also near its known cap. Missing/unknown samples restart the trend. Net growth cannot establish missing releases or a native leak; use supported library lifecycle APIs, not manual Cleaner calls. |
+
+Evidence: [pool contracts][memory-pool], [buffer estimates][buffers], [OpenJDK capacity enforcement][direct-cap],
+[OpenJDK default resolution][direct-default], and [VM options][java-options].
+
+### GC configuration and activity
+
+| ID | Disposition | Current trigger, severity, and appropriate action |
+| --- | --- | --- |
+| MEM-GC-001 | Retain | **INFO** for a detected container without explicit maximum-heap/RAM sizing. HotSpot's approximately 25% default and small-heap ergonomics are context, not a requirement to override them. Recognize `-Xmx`, `MaxHeapSize`, `MaxRAM`, percentage and fraction options. |
+| MEM-GC-002 | Update | **MEDIUM** for approximate lifetime collection time at least 10% of uptime after 10 minutes. Preserve unknown totals/counts independently. Startup and diagnostic collections remain included; do not call this CPU utilization or exact paused time. |
+| MEM-GC-003 | Update | **MEDIUM** at 10% recent approximate collection-time ratio, **HIGH** at 25%, after a valid interval of at least 10 seconds. Reset/incomparable/unknown endpoints do not yield healthy zero deltas. Corroborate collections crossing the interval boundary. |
+| MEM-GC-004 | Update | **LOW** for Serial GC with at least two processors and roughly 2 GiB of known memory. Unknown memory is not proven server-class capacity; small environments skip. Review workload tradeoffs rather than claiming Serial necessarily wastes resources or causes long pauses. |
+| MEM-GC-005 | Update | **INFO** for a positive comparable `G1 Old Generation` count delta outside histogram request intervals. A Full GC can be explicit/diagnostic, not necessarily allocation failure. Inspect GC cause/logs before tuning G1. |
+| MEM-GC-006 | Retain | **MEDIUM** when the most recently completed event lasted at least 1,000 ms. Select by completion time, not historical maximum duration; suppress an unchanged event from the prior histogram. Elapsed concurrent event duration is not necessarily a pause. |
+| MEM-GC-007 | Update | **HIGH** when container awareness remains explicitly disabled despite a visible cgroup limit. Respect a later re-enable option. Keep supported-HotSpot and deliberate-override caveats; no automatic sizing changes. |
+
+Evidence: [GC counters][gc-bean], [event timing][gc-info], [G1 full-GC manager][g1-manager],
+[diagnostic full-GC causes][gc-causes], [collector tradeoffs][collectors], and [VM options][java-options].
+
+### Threads
+
+| ID | Disposition | Current trigger, severity, and appropriate action |
+| --- | --- | --- |
+| MEM-THREAD-001 | Update | **CRITICAL** for detected platform-thread deadlock cycles. Missing/failed thread observations are not PASS. Detection covers the supported monitor/synchronizer scope, not all virtual-thread cycles. |
+| MEM-THREAD-002 | Retain | **MEDIUM** at five BLOCKED threads and 25% of the census, or 20 BLOCKED threads and 10%. Full summary counts support this despite detail paging; a transient snapshot does not prove sustained contention. |
+| MEM-THREAD-003 | Update | **INFO** when peak is at least twice current count with a gap of at least 50. Peak means since start **or last peak reset**, not an all-time monotonic count or current exhaustion. |
+| MEM-THREAD-004 | Update | **INFO** for currently RUNNABLE platform threads with accumulated CPU at least 60 seconds and half JVM uptime. CPU accumulated before the snapshot is not attributed entirely to its current state. Skip unsupported timing/incomplete detail and confirm with consecutive samples. |
+
+Evidence: [ThreadMXBean, including peak reset and deadlock support][threads], and [virtual-thread scope][jep444].
+
+### Heap content and class loading
+
+| ID | Disposition | Current trigger, severity, and appropriate action |
+| --- | --- | --- |
+| MEM-CONTENT-001 | Retain | **INFO** for average shallow instance size at least 512 KiB and at least 10 MiB total. An average cannot prove an individual G1 humongous allocation; that also depends on region size. |
+| MEM-CONTENT-002 | Retain | Collection/node rows reaching 50 MiB or 10% shallow share receive **LOW**; a largest row of 100 MiB or combined selected share of 25% receives **MEDIUM**. This is not one identified collection, retained size, or proof of missing eviction. |
+| MEM-CONTENT-003 | Retain | **LOW** when the largest non-array class reaches 25% of total shallow histogram bytes. Arrays are excluded; unexpected retention requires reference-path evidence. |
+| MEM-CONTENT-004 | Retain | **INFO** when array rows account for at least half of total histogram bytes. Normal backing arrays can dominate. Top-200 truncation can undercount the aggregate tail; no exhaustive retained-memory claim. |
+| MEM-CLASS-001 | Update | **INFO** at 50,000 currently loaded classes, with framework-generation caveats. Historical unloads no longer exempt a large current population: unloading does not prove health or exclude a leak. |
+| MEM-CLASS-002 | Update | **INFO** at 50,000 lifetime unloads or a lifetime average of 1,000/minute after 30 minutes. A past burst or redeployment can explain the total; it is not sustained recent churn. |
+
+Evidence: [histogram cost/shape][jcmd], [stable-workload leak investigation][leaks],
+[class-loading counters][classes], and [optional class unloading][unloading].
+
+## Confirmation work remains explicit
+
+Use GC logs and comparable workload observations first. For a suspected retention issue, an explicitly requested
+heap analysis or JFR old-object/root-path investigation can provide stronger evidence; root-path collection can pause
+the application. For native growth, an already enabled NMT baseline/diff can help but remains incomplete accounting.
+These are investigation choices, not automatic fixes or additional actions performed by this scan.
+
+No rule was removed solely to improve the advisor score. Severity changes reflect evidence confidence, and dismissals
+continue to target the same rule IDs. Shared score calculation and incomplete-report presentation are separate concerns.
+
+[memory-usage]: https://docs.oracle.com/en/java/javase/26/docs/api/java.management/java/lang/management/MemoryUsage.html
+[memory-pool]: https://docs.oracle.com/en/java/javase/26/docs/api/java.management/java/lang/management/MemoryPoolMXBean.html
+[gc-bean]: https://docs.oracle.com/en/java/javase/26/docs/api/java.management/java/lang/management/GarbageCollectorMXBean.html
+[gc-info]: https://docs.oracle.com/en/java/javase/26/docs/api/jdk.management/com/sun/management/GcInfo.html
+[buffers]: https://docs.oracle.com/en/java/javase/26/docs/api/java.management/java/lang/management/BufferPoolMXBean.html
+[threads]: https://docs.oracle.com/en/java/javase/26/docs/api/java.management/java/lang/management/ThreadMXBean.html
+[jcmd]: https://docs.oracle.com/en/java/javase/26/docs/specs/man/jcmd.html
+[histogram-source]: https://github.com/openjdk/jdk/blob/jdk-17-ga/src/hotspot/share/gc/shared/gcVMOperations.cpp#L141-L169
+[g1-manager]: https://github.com/openjdk/jdk/blob/jdk-26-ga/src/hotspot/share/gc/g1/g1MonitoringSupport.cpp#L90-L94
+[gc-causes]: https://github.com/openjdk/jdk/blob/jdk-26-ga/src/hotspot/share/gc/shared/collectedHeap.cpp#L331-L349
+[zgc-source]: https://github.com/openjdk/jdk/blob/jdk-26-ga/src/hotspot/share/gc/z/zServiceability.cpp#L142-L171
+[direct-cap]: https://github.com/openjdk/jdk/blob/jdk-26-ga/src/java.base/share/classes/java/nio/Bits.java#L224-L234
+[direct-default]: https://github.com/openjdk/jdk/blob/jdk-26-ga/src/java.base/share/classes/jdk/internal/misc/VM.java#L247-L260
+[jep439]: https://openjdk.org/jeps/439
+[jep474]: https://openjdk.org/jeps/474
+[jep490]: https://openjdk.org/jeps/490
+[jep404]: https://openjdk.org/jeps/404
+[jep521]: https://openjdk.org/jeps/521
+[jep444]: https://openjdk.org/jeps/444
+[jep421]: https://openjdk.org/jeps/421
+[nmt]: https://docs.oracle.com/en/java/javase/26/vm/native-memory-tracking.html
+[os-bean]: https://docs.oracle.com/en/java/javase/26/docs/api/jdk.management/com/sun/management/OperatingSystemMXBean.html
+[cgroups]: https://docs.kernel.org/admin-guide/cgroup-v2.html
+[proc]: https://docs.kernel.org/filesystems/proc.html
+[leaks]: https://docs.oracle.com/en/java/javase/26/troubleshoot/troubleshooting-memory-leaks.html
+[java-options]: https://docs.oracle.com/en/java/javase/26/docs/specs/man/java.html
+[gc-tuning]: https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html
+[zgc-tuning]: https://docs.oracle.com/en/java/javase/21/gctuning/z-garbage-collector.html
+[collectors]: https://docs.oracle.com/en/java/javase/17/gctuning/available-collectors.html
+[oops]: https://wiki.openjdk.org/display/HotSpot/CompressedOops
+[classes]: https://docs.oracle.com/en/java/javase/26/docs/api/java.management/java/lang/management/ClassLoadingMXBean.html
+[unloading]: https://docs.oracle.com/javase/specs/jls/se26/html/jls-12.html#jls-12.7

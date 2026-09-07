@@ -1,366 +1,412 @@
 package io.github.jdubois.bootui.engine.quarkusapp;
 
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
+import io.github.jdubois.bootui.spi.QuarkusAppEvidenceProblem;
+import io.github.jdubois.bootui.spi.QuarkusAppMetadata;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshot;
+import io.github.jdubois.bootui.spi.QuarkusAppSnapshot.Setting;
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
-/**
- * The fixed Quarkus-native application advisor ruleset (see {@code docs/QUARKUS-ADVISOR-CHECKS.md}). Each rule
- * inspects the neutral {@link QuarkusAppSnapshot} and, when triggered, emits one {@link SpringRuleResultDto}
- * with status {@code VIOLATION}. The full set evaluated is {@link #ruleCount()}; only violations are returned.
- * All signals are build-time computable (CDI scopes, {@code @ConfigProperty}, JAX-RS signatures, profiles) —
- * none require live runtime state or the network.
- */
+/** Fixed, evidence-based Quarkus application checks. Retired identifiers are never reused. */
 final class QuarkusAppChecks {
 
-    private static final String VIOLATION = "VIOLATION";
-    private static final int RULE_COUNT = 19;
-    private static final String GUIDE = "https://quarkus.io/guides/cdi-reference";
-    private static final String CONFIG_GUIDE = "https://quarkus.io/guides/config-reference";
-    private static final String REACTIVE_GUIDE = "https://quarkus.io/guides/getting-started-reactive";
-    private static final String PROFILE_GUIDE = "https://quarkus.io/guides/config-reference#profiles";
-    private static final String HIBERNATE_GUIDE = "https://quarkus.io/guides/hibernate-orm";
-    private static final String DATASOURCE_GUIDE = "https://quarkus.io/guides/datasource";
-    private static final String SCHEDULER_GUIDE = "https://quarkus.io/guides/scheduler-reference";
-    private static final String LOGGING_GUIDE = "https://quarkus.io/guides/logging";
-    private static final String HTTP_GUIDE = "https://quarkus.io/guides/http-reference";
-    private static final String REST_CLIENT_GUIDE = "https://quarkus.io/guides/rest-client";
-    private static final String VIRTUAL_THREADS_GUIDE = "https://quarkus.io/guides/virtual-threads";
+    private static final String GUIDE = "https://quarkus.io/guides/";
+    private static final int MAX_SAMPLES = 20;
+    private static final Set<String> PRODUCTION_RULES =
+            Set.of("QA-CFG-002", "QA-CFG-003", "QA-PROD-002", "QA-PROD-003");
+    private static final List<Check> CHECKS = List.of(
+            new Check(
+                    "QA-CDI-001",
+                    "Public state on an application-scoped bean",
+                    "CDI",
+                    "LOW",
+                    "Resolved application-scoped beans expose potentially mutable public state. This is a review"
+                            + " prompt, not evidence of concurrent mutation or a data race.",
+                    "Review ownership and access to public state. Encapsulate it or use request scope when appropriate;"
+                            + " a final reference alone does not establish deep immutability.",
+                    "cdi-reference",
+                    Set.of(),
+                    Set.of()),
+            new Check(
+                    "QA-CDI-002",
+                    "Public state on a shared REST resource",
+                    "CDI",
+                    "MEDIUM",
+                    "Application REST resources with a resolved shared scope expose potentially mutable public state."
+                            + " Concurrent access is possible; no race or actual mutation has been established.",
+                    "Review state ownership and concurrent access. Prefer request-local state where appropriate;"
+                            + " interceptor locks do not protect direct public-field access.",
+                    "cdi-reference",
+                    Set.of(),
+                    Set.of()),
+            new Check(
+                    "QA-CDI-003",
+                    "Public state on a singleton bean",
+                    "CDI",
+                    "LOW",
+                    "Resolved singleton beans expose potentially mutable public state. This is a review prompt,"
+                            + " not evidence of concurrent mutation or a data race.",
+                    "Review ownership and access to public state. Encapsulate it or use request scope when appropriate;"
+                            + " a final reference alone does not establish deep immutability.",
+                    "cdi-reference",
+                    Set.of(),
+                    Set.of()),
+            new Check(
+                    "QA-CFG-002",
+                    "SQL logging in observed production configuration",
+                    "Configuration",
+                    "MEDIUM",
+                    "Observed production configuration enables SQL logging. SQL literals can contain application data;"
+                            + " this does not establish that bind-parameter logging is enabled or prove a deployed setting.",
+                    "Review whether SQL logging is appropriate for production and its log handling requirements.",
+                    "hibernate-orm",
+                    Set.of("true", "false"),
+                    Set.of("true")),
+            new Check(
+                    "QA-CFG-003",
+                    "Verbose root logging in observed production configuration",
+                    "Configuration",
+                    "MEDIUM",
+                    "Observed production configuration selects verbose root logging. This increases verbosity;"
+                            + " it does not prove a leak, measured overhead, or a future deployment's effective setting.",
+                    "Review the root logging level for the intended production workload and log handling policy.",
+                    "logging",
+                    Set.of("verbose", "normal"),
+                    Set.of("verbose")),
+            new Check(
+                    "QA-CFG-004",
+                    "Legacy schema-generation property",
+                    "Configuration",
+                    "LOW",
+                    "An observed nonblank declaration uses the deprecated Hibernate database.generation property.",
+                    "Migrate to schema-management.strategy and remove the legacy declaration after review;"
+                            + " the explicit legacy property takes precedence on this Quarkus baseline.",
+                    "hibernate-orm",
+                    Set.of("legacy"),
+                    Set.of("legacy")),
+            new Check(
+                    "QA-PROD-002",
+                    "Automatic schema changes in observed production configuration",
+                    "Production",
+                    "HIGH",
+                    "Observed production configuration requests automatic schema changes. create is create-only, not"
+                            + " a drop operation; update alters the schema. drop and drop-and-create can destroy data."
+                            + " These declarations do not prove a future deployment's effective configuration.",
+                    "Review schema creation and alteration before production use; prefer reviewed migrations where"
+                            + " appropriate. Use none or validate when automatic changes are not intended.",
+                    "hibernate-orm",
+                    Set.of("create", "update", "drop", "drop-and-create", "none", "validate"),
+                    Set.of("create", "update", "drop", "drop-and-create")),
+            new Check(
+                    "QA-PROD-003",
+                    "In-memory storage in observed production configuration",
+                    "Production",
+                    "MEDIUM",
+                    "An allowlisted in-memory JDBC URL form was observed in production configuration."
+                            + " Transient storage may be intentional; database kind alone does not prove volatile storage,"
+                            + " and network-accessible in-memory databases may be shared.",
+                    "Confirm that transient storage matches the intended durability requirements.",
+                    "datasource",
+                    Set.of("in-memory", "persistent-or-unclassified"),
+                    Set.of("in-memory")),
+            new Check(
+                    "QA-WEB-001",
+                    "Application-server compression is disabled",
+                    "Web",
+                    "INFO",
+                    "Application-server response compression is disabled. Upstream compression, response media types,"
+                            + " and workload have not been inspected.",
+                    "Consider enabling application-server compression only if upstream handling and suitable response"
+                            + " media types justify it; avoid unnecessary duplicate compression.",
+                    "http-reference",
+                    Set.of("default-disabled", "disabled", "enabled"),
+                    Set.of("default-disabled", "disabled")),
+            new Check(
+                    "QA-WEB-002",
+                    "HTTP request-draining timeout is zero",
+                    "Web",
+                    "MEDIUM",
+                    "The configured zero shutdown timeout disables waiting for in-flight HTTP requests."
+                            + " This is not a statement about completion of every background operation.",
+                    "Set a positive supported duration, for example quarkus.shutdown.timeout=10s, if HTTP request"
+                            + " draining is needed. Removing the override does not enable draining.",
+                    "http-reference",
+                    Set.of("zero", "positive", "absent"),
+                    Set.of("zero")),
+            new Check(
+                    "QA-WEB-003",
+                    "Registered REST client timer is disabled",
+                    "Web",
+                    "MEDIUM",
+                    "An effective connect or read timer is explicitly zero for an observed registered REST client."
+                            + " That timer is disabled; other application deadlines and custom transports are not assessed.",
+                    "Use a positive finite timer appropriate for the remote service, or restore the standard"
+                            + " Quarkus defaults (15s connect / 30s read). Long finite timers are not inherently invalid.",
+                    "rest-client",
+                    Set.of("connect-zero", "read-zero"),
+                    Set.of("connect-zero", "read-zero")),
+            new Check(
+                    "QA-WEB-004",
+                    "HTTP request draining is not configured",
+                    "Web",
+                    "INFO",
+                    "The shutdown timeout is known to be absent. By default, Quarkus does not wait for in-flight"
+                            + " HTTP requests; this does not describe completion of all background operations.",
+                    "If request draining is needed, configure a positive duration such as quarkus.shutdown.timeout=10s.",
+                    "http-reference",
+                    Set.of("zero", "positive", "absent"),
+                    Set.of("absent")),
+            new Check(
+                    "QA-PERF-002",
+                    "Synchronized virtual-thread entry method on JDK 21–23",
+                    "Performance",
+                    "LOW",
+                    "Registered REST methods dispatched on virtual threads are synchronized on the running JDK 21–23."
+                            + " Blocking while holding the monitor can pin a carrier thread; blocking and pinning"
+                            + " have not been observed. JDK 24+ removes this synchronized-related pinning.",
+                    "Review whether these entry methods block while synchronized. Consider targeted locking changes"
+                            + " only when justified, or use JDK 24+; do not replace all synchronization indiscriminately.",
+                    "virtual-threads",
+                    Set.of(),
+                    Set.of()));
 
     private QuarkusAppChecks() {}
 
     static int ruleCount() {
-        return RULE_COUNT;
+        return CHECKS.size();
     }
 
-    static List<SpringRuleResultDto> evaluate(QuarkusAppSnapshot s) {
-        List<SpringRuleResultDto> v = new ArrayList<>();
-
-        if (!s.mutableAppScopedFields().isEmpty()) {
-            v.add(rule(
-                    "QA-CDI-001",
-                    "Shared mutable state on @ApplicationScoped bean",
-                    "CDI",
-                    "MEDIUM",
-                    "@ApplicationScoped beans are single instances shared across threads; public or non-final"
-                            + " fields (other than injected dependencies) hold unsynchronised shared state.",
-                    s.mutableAppScopedFields().size(),
-                    s.mutableAppScopedFields(),
-                    "Make fields private final, or move per-request state to a @RequestScoped bean.",
-                    GUIDE));
-        }
-        if (!s.publicResourceFields().isEmpty()) {
-            v.add(rule(
-                    "QA-CDI-002",
-                    "Public mutable field on a JAX-RS resource",
-                    "CDI",
-                    "MEDIUM",
-                    "JAX-RS resources default to @Singleton, so a public non-final field is process-wide shared"
-                            + " mutable state accessed concurrently across requests. (A resource explicitly"
-                            + " annotated @RequestScoped gets a fresh instance per request and is excluded.)",
-                    s.publicResourceFields().size(),
-                    s.publicResourceFields(),
-                    "Make the field private final, inject it, or move per-request state to a @RequestScoped bean.",
-                    GUIDE));
-        }
-        if (!s.mutableSingletonFields().isEmpty()) {
-            v.add(rule(
-                    "QA-CDI-003",
-                    "Shared mutable state on a @Singleton bean",
-                    "CDI",
-                    "MEDIUM",
-                    "@Singleton beans are a single instance shared across threads, exactly like"
-                            + " @ApplicationScoped; public or non-final fields (other than injected dependencies)"
-                            + " hold unsynchronised shared state.",
-                    s.mutableSingletonFields().size(),
-                    s.mutableSingletonFields(),
-                    "Make fields private final, or move per-request state to a @RequestScoped bean.",
-                    GUIDE));
-        }
-        if (s.beanCount() > 0 && s.configPropertyCount() == 0 && s.configMappingCount() == 0) {
-            v.add(rule(
-                    "QA-CFG-001",
-                    "No type-safe configuration",
-                    "Config",
-                    "LOW",
-                    "The app declares no @ConfigProperty injection sites and no @ConfigMapping interfaces,"
-                            + " suggesting configuration is read ad hoc rather than through type-safe MicroProfile Config.",
-                    1,
-                    List.of("0 @ConfigProperty sites, 0 @ConfigMapping interfaces"),
-                    "Inject configuration with @ConfigProperty or a @ConfigMapping interface.",
-                    CONFIG_GUIDE));
-        }
-        if (s.reactiveEndpointsWithoutBlockingCount() > 0 && s.jdbcDatasourcePresent()) {
-            v.add(rule(
-                    "QA-RX-001",
-                    "Reactive endpoints with a blocking JDBC datasource",
-                    "Reactive",
-                    "HIGH",
-                    "Endpoint(s) return Uni/Multi/RestMulti/CompletionStage/CompletableFuture/Flow.Publisher/"
-                            + "Publisher (run on the I/O event loop), lack a @Blocking or @Transactional guard on"
-                            + " the method or resource class, and a blocking JDBC datasource is configured; a JDBC"
-                            + " call on the event loop stalls it and can throw BlockingOperationNotAllowedException"
-                            + " at runtime.",
-                    s.reactiveEndpointsWithoutBlockingCount(),
-                    List.of(s.reactiveEndpointsWithoutBlockingCount()
-                            + " reactive endpoint(s) without @Blocking/@Transactional, JDBC datasource present"),
-                    "Annotate blocking work with @Blocking (Quarkus also treats @Transactional as blocking), or"
-                            + " use a reactive datasource client.",
-                    REACTIVE_GUIDE));
-        }
-        if (s.prodDevServicesEnabled()) {
-            v.add(rule(
-                    "QA-PROD-001",
-                    "Dev Services override present in the prod profile",
-                    "Profiles",
-                    "LOW",
-                    "A %prod.*devservices.enabled=true key is set. This has no effect in a packaged production"
-                            + " build — Dev Services only runs during augmentation/dev/test, never in a"
-                            + " LaunchMode.NORMAL packaged JAR or native executable — but its presence usually"
-                            + " means leftover or copy-pasted config that should be cleaned up.",
-                    1,
-                    List.of("%prod devservices.enabled=true"),
-                    "Remove the unused %prod devservices override; it does not start containers in production"
-                            + " but can confuse readers of the config.",
-                    PROFILE_GUIDE));
-        }
-        String prodSchemaSeverity = destructiveSchemaSeverity(s.prodSchemaGeneration());
-        if (prodSchemaSeverity != null) {
-            v.add(rule(
-                    "QA-PROD-002",
-                    "Destructive Hibernate schema strategy in the prod profile",
-                    "Profiles",
-                    prodSchemaSeverity,
-                    prodSchemaSeverity.equals("CRITICAL")
-                            ? "A %prod Hibernate schema strategy of drop-and-create/create/drop rebuilds or"
-                                    + " drops the production schema on every boot, destroying data."
-                            : "A %prod Hibernate schema strategy of update lets Hibernate silently alter the"
-                                    + " production schema on every boot (adding/changing columns or tables to"
-                                    + " match the entity model), which can lock tables or apply an unreviewed"
-                                    + " structural change directly to production.",
-                    1,
-                    List.of("%prod quarkus.hibernate-orm schema strategy=" + s.prodSchemaGeneration()),
-                    "Use 'none' (or 'validate') in %prod and manage the schema with Flyway/Liquibase.",
-                    HIBERNATE_GUIDE));
-        }
-        if (isInMemoryProdDatasource(s)) {
-            v.add(rule(
-                    "QA-PROD-003",
-                    "In-memory/dev datasource in the prod profile",
-                    "Profiles",
-                    "MEDIUM",
-                    "The %prod datasource targets an in-memory/embedded database (H2/HSQLDB/Derby), so production"
-                            + " data is lost on restart and never shared across instances.",
-                    1,
-                    List.of("%prod datasource db-kind="
-                            + (s.prodDbKind().isBlank() ? "(in-memory jdbc url)" : s.prodDbKind())),
-                    "Point %prod at a real managed database (PostgreSQL, MySQL, …).",
-                    DATASOURCE_GUIDE));
-        }
-        if (s.jdbcDatasourcePresent() && !s.datasourceMaxSizeConfigured()) {
-            v.add(rule(
-                    "QA-DB-001",
-                    "JDBC datasource without an explicit pool size",
-                    "Database",
-                    "LOW",
-                    "A JDBC datasource is configured, but quarkus.datasource.jdbc.max-size is never set (Agroal"
-                            + " defaults to a max pool size of 50). Under high concurrency — especially with"
-                            + " virtual threads increasing request parallelism — the default pool can become a"
-                            + " bottleneck or exhaust the database's own connection limit.",
-                    1,
-                    List.of("quarkus.datasource.jdbc.max-size not set (Agroal default: 50)"),
-                    "Set quarkus.datasource.jdbc.max-size (with a %prod override if it should differ from dev)"
-                            + " to a value sized for the target database and expected concurrency.",
-                    DATASOURCE_GUIDE));
-        }
-        if (s.prodSqlLoggingEnabled()) {
-            v.add(rule(
-                    "QA-CFG-002",
-                    "Hibernate SQL logging enabled in the prod profile",
-                    "Config",
-                    "MEDIUM",
-                    "%prod.quarkus.hibernate-orm.log.sql=true logs every statement in production, hurting"
-                            + " performance and risking sensitive data in logs.",
-                    1,
-                    List.of("%prod quarkus.hibernate-orm.log.sql=true"),
-                    "Disable SQL logging in %prod; enable it only in %dev when debugging.",
-                    HIBERNATE_GUIDE));
-        }
-        if (s.prodLogLevelVerbose()) {
-            v.add(rule(
-                    "QA-CFG-003",
-                    "Verbose log level in the prod profile",
-                    "Config",
-                    "MEDIUM",
-                    "%prod.quarkus.log.level resolves to DEBUG/TRACE/ALL, far more verbose than production"
-                            + " needs; it hurts performance and risks leaking sensitive data into logs.",
-                    1,
-                    List.of("%prod quarkus.log.level=DEBUG/TRACE/ALL"),
-                    "Set %prod.quarkus.log.level to INFO or WARN; use DEBUG/TRACE only in %dev.",
-                    LOGGING_GUIDE));
-        }
-        if (s.legacySchemaGenerationPropertyUsed()) {
-            v.add(rule(
-                    "QA-CFG-004",
-                    "Legacy Hibernate schema-generation property in use",
-                    "Config",
-                    "LOW",
-                    "quarkus.hibernate-orm.database.generation (or a %profile/named-persistence-unit variant)"
-                            + " is deprecated for removal in favour of"
-                            + " quarkus.hibernate-orm.schema-management.strategy; it still works today but may"
-                            + " be removed in a future Quarkus release.",
-                    1,
-                    List.of("quarkus.hibernate-orm.database.generation present"),
-                    "Migrate to quarkus.hibernate-orm.schema-management.strategy (it accepts the same values:"
-                            + " none/create/drop-and-create/drop/update/validate).",
-                    HIBERNATE_GUIDE));
-        }
-        if (s.scheduledCount() > 0 && !s.clusteredScheduler()) {
-            v.add(rule(
-                    "QA-SCH-001",
-                    "Scheduled tasks without a clustered scheduler",
-                    "Scheduling",
-                    "LOW",
-                    "@Scheduled methods run on every instance; without a clustered scheduler each replica fires"
-                            + " the job, causing duplicate work in a scaled-out deployment.",
-                    s.scheduledCount(),
-                    List.of(s.scheduledCount() + " @Scheduled method(s), no clustered scheduler"),
-                    "For multi-instance deployment, use the Quartz extension with"
-                            + " quarkus.quartz.clustered=true, select a persistent JDBC store"
-                            + " (quarkus.quartz.store-type=jdbc-tx or jdbc-cmt), configure its datasource, and"
-                            + " install the matching Quartz database schema (for example with Flyway). Otherwise"
-                            + " confirm single-instance deployment.",
-                    SCHEDULER_GUIDE));
-        }
-        if (s.prodProfileKeys().isEmpty()) {
-            v.add(rule(
-                    "QA-PROF-001",
-                    "No prod-specific configuration overrides",
-                    "Profiles",
-                    "INFO",
-                    "No %prod. overrides were found. This is fine when production config is externalised (env"
-                            + " vars, Secrets/ConfigMaps); otherwise prod shares dev defaults for every setting.",
-                    1,
-                    List.of("no %prod. keys found"),
-                    "Add %prod. overrides (or externalise config) so production differs from dev defaults.",
-                    PROFILE_GUIDE));
-        }
-        if (!s.compressionEnabled()) {
-            v.add(rule(
-                    "QA-WEB-001",
-                    "HTTP response compression disabled",
-                    "Web",
-                    "INFO",
-                    "quarkus.http.enable-compression is not set (Quarkus's own default), so responses are not"
-                            + " gzip/deflate-compressed, increasing bandwidth and latency for text-heavy payloads.",
-                    1,
-                    List.of("quarkus.http.enable-compression not set"),
-                    "Set quarkus.http.enable-compression=true (tune quarkus.http.compress-media-types if needed).",
-                    HTTP_GUIDE));
-        }
-        if (s.shutdownTimeoutZeroed()) {
-            v.add(rule(
-                    "QA-WEB-002",
-                    "Graceful shutdown grace period zeroed",
-                    "Web",
-                    "MEDIUM",
-                    "quarkus.shutdown.timeout is explicitly set to 0, disabling the graceful-shutdown grace period;"
-                            + " in-flight requests are dropped instead of being allowed to complete on SIGTERM.",
-                    1,
-                    List.of("shutdown timeout=0"),
-                    "Remove the override (or set a positive duration) so in-flight requests can drain before"
-                            + " shutdown.",
-                    HTTP_GUIDE));
-        }
-        if (!s.shutdownTimeoutConfigured()) {
-            v.add(rule(
-                    "QA-WEB-004",
-                    "Graceful shutdown timeout never configured",
-                    "Web",
-                    "INFO",
-                    "quarkus.shutdown.timeout is not set. Quarkus's graceful shutdown is opt-in: with no timeout"
-                            + " configured, the application exits immediately on SIGTERM instead of draining"
-                            + " in-flight requests.",
-                    1,
-                    List.of("no shutdown timeout configured"),
-                    "Set quarkus.shutdown.timeout to a positive duration (e.g. 10s) so in-flight requests can"
-                            + " drain before shutdown.",
-                    HTTP_GUIDE));
-        }
-        if (s.restClientsRegistered() && s.restClientTimeoutZeroOrExcessive()) {
-            v.add(rule(
-                    "QA-WEB-003",
-                    "REST client connect/read timeout disabled or excessive",
-                    "Web",
-                    "MEDIUM",
-                    "A connect-timeout or read-timeout for a @RegisterRestClient interface is explicitly set to"
-                            + " 0 (no timeout) or to an excessively high value (over 5 minutes). Quarkus REST"
-                            + " clients already default to a 15s connect-timeout and 30s read-timeout"
-                            + " (quarkus.rest-client.connect-timeout / read-timeout), so a slow/hanging remote"
-                            + " service is normally bounded; this override removes that safety net.",
-                    1,
-                    List.of("REST client connect-timeout/read-timeout explicitly 0 or > 5m"),
-                    "Remove the override to keep Quarkus's 15s/30s defaults, or set a specific, bounded timeout"
-                            + " appropriate for the remote service.",
-                    REST_CLIENT_GUIDE));
-        }
-        if (s.virtualThreadSynchronizedCount() > 0 && s.jdkMajorVersion() >= 21 && s.jdkMajorVersion() < 24) {
-            v.add(rule(
-                    "QA-PERF-002",
-                    "Virtual-thread pinning via synchronized (JEP 491)",
-                    "Performance",
-                    "HIGH",
-                    s.virtualThreadSynchronizedCount() + " @RunOnVirtualThread method(s) are also declared"
-                            + " synchronized. On JDK " + s.jdkMajorVersion()
-                            + " (21-23), a blocking operation inside a synchronized method pins the carrier thread"
-                            + " instead of yielding it, defeating the scalability benefit of virtual threads; JEP"
-                            + " 491 removes this pinning starting in JDK 24.",
-                    s.virtualThreadSynchronizedCount(),
-                    List.of(s.virtualThreadSynchronizedCount() + " @RunOnVirtualThread synchronized method(s), JDK "
-                            + s.jdkMajorVersion()),
-                    "Replace synchronized with a java.util.concurrent.locks.ReentrantLock, or upgrade to JDK 24+.",
-                    VIRTUAL_THREADS_GUIDE));
-        }
-        return v;
+    static List<String> ruleIds() {
+        return CHECKS.stream().map(Check::id).toList();
     }
 
-    /**
-     * Severity of a {@code %prod} Hibernate schema strategy, mirroring the sibling Hibernate advisor's
-     * {@code HIB-CONFIG-002} split: {@code drop-and-create}/{@code create}/{@code drop} rebuild or drop the
-     * schema outright (CRITICAL), while {@code update} silently alters it in place (HIGH). Returns {@code
-     * null} when the strategy is not a destructive one (e.g. {@code none}/{@code validate}/unset).
-     */
-    private static String destructiveSchemaSeverity(String strategy) {
-        if (strategy == null) {
-            return null;
+    record Evaluation(
+            List<SpringRuleResultDto> findings,
+            List<SpringRuleResultDto> errors,
+            int rulesEvaluated,
+            boolean evidenceInspected) {}
+
+    static Evaluation evaluate(QuarkusAppSnapshot snapshot) {
+        List<SpringRuleResultDto> findings = new ArrayList<>();
+        List<SpringRuleResultDto> errors = new ArrayList<>();
+        Map<String, Set<Reason>> failures = new HashMap<>();
+        QuarkusAppMetadata metadata = snapshot == null ? null : snapshot.metadata();
+        if (snapshot != null) {
+            snapshot.problems().forEach(problem -> recordProblem(failures, problem));
         }
-        String s = strategy.trim().toLowerCase();
-        if (s.equals("drop-and-create") || s.equals("create") || s.equals("drop")) {
-            return "CRITICAL";
+        if (metadata != null) {
+            metadata.problems().forEach(problem -> recordProblem(failures, problem));
         }
-        if (s.equals("update")) {
-            return "HIGH";
+        Set<String> resourceFields = new HashSet<>();
+        if (metadata != null) {
+            metadata.sharedFields().stream()
+                    .filter(QuarkusAppMetadata.SharedField::resource)
+                    .filter(field -> "APPLICATION".equals(field.scope()) || "SINGLETON".equals(field.scope()))
+                    .map(field -> field.className() + "." + field.fieldName())
+                    .forEach(resourceFields::add);
         }
-        return null;
+        int evaluated = 0;
+        boolean inspected = metadata != null && metadata.available();
+        for (Check check : CHECKS) {
+            List<String> samples = new ArrayList<>();
+            String severity = check.severity();
+            if (check.configuration()) {
+                if ((snapshot == null || !snapshot.evaluatedConfigurationRules().contains(check.id()))
+                        && !failures.containsKey(check.id())) {
+                    fail(failures, check.id(), Reason.CONFIGURATION_UNAVAILABLE);
+                }
+                if (snapshot != null) {
+                    for (Setting setting :
+                            snapshot.settings().stream().distinct().toList()) {
+                        if (!check.id().equals(setting.ruleId())) {
+                            continue;
+                        }
+                        if (setting.value() == null || !check.accepted().contains(setting.value())) {
+                            fail(failures, check.id(), Reason.INVALID_CONFIGURATION);
+                            continue;
+                        }
+                        inspected = true;
+                        if (check.triggers().contains(setting.value())) {
+                            samples.add(setting.target() + ": " + setting.value() + " (" + setting.provenance() + ")");
+                            if (check.id().equals("QA-PROD-002")
+                                    && Set.of("drop", "drop-and-create").contains(setting.value())) {
+                                severity = "CRITICAL";
+                            }
+                        }
+                    }
+                }
+            } else if (check.id().equals("QA-PERF-002")
+                    && snapshot != null
+                    && snapshot.runtimeJdkMajorVersion() > 0
+                    && (snapshot.runtimeJdkMajorVersion() < 21 || snapshot.runtimeJdkMajorVersion() >= 24)) {
+                // The running JDK establishes non-applicability, independently of the augmentation JDK.
+                failures.remove(check.id());
+                inspected = true;
+            } else {
+                if (metadata == null || !metadata.available()) {
+                    fail(failures, check.id(), Reason.METADATA_UNAVAILABLE);
+                }
+                if (metadata != null) {
+                    if (check.id().equals("QA-PERF-002")) {
+                        if (snapshot.runtimeJdkMajorVersion() <= 0) {
+                            fail(failures, check.id(), Reason.RUNTIME_JDK_UNAVAILABLE);
+                        } else {
+                            samples.addAll(metadata.synchronizedVirtualThreadMethods());
+                        }
+                    } else {
+                        for (QuarkusAppMetadata.SharedField field : metadata.sharedFields()) {
+                            if (!"APPLICATION".equals(field.scope()) && !"SINGLETON".equals(field.scope())) {
+                                fail(failures, check.id(), Reason.UNRESOLVED_DECLARATION);
+                                continue;
+                            }
+                            String fieldRule = field.resource()
+                                    ? "QA-CDI-002"
+                                    : "APPLICATION".equals(field.scope()) ? "QA-CDI-001" : "QA-CDI-003";
+                            String identity = field.className() + "." + field.fieldName();
+                            if (check.id().equals(fieldRule)
+                                    && (field.resource() || !resourceFields.contains(identity))) {
+                                samples.add(identity);
+                            }
+                        }
+                    }
+                }
+            }
+            List<String> unique = samples.stream().distinct().sorted().toList();
+            if (!unique.isEmpty()) {
+                inspected = true;
+                findings.add(check.result(
+                        severity,
+                        "VIOLATION",
+                        unique.size(),
+                        unique.stream().limit(MAX_SAMPLES).toList()));
+            }
+            if (failures.containsKey(check.id())) {
+                errors.add(error(check, failures.get(check.id())));
+            } else {
+                evaluated++;
+                inspected = true;
+            }
+        }
+        return new Evaluation(List.copyOf(findings), List.copyOf(errors), evaluated, inspected);
     }
 
-    private static boolean isInMemoryProdDatasource(QuarkusAppSnapshot s) {
-        String kind = s.prodDbKind() == null ? "" : s.prodDbKind().trim().toLowerCase();
-        return s.prodJdbcUrlInMemory() || kind.equals("h2") || kind.equals("hsqldb") || kind.equals("derby");
+    private static void recordProblem(Map<String, Set<Reason>> failures, QuarkusAppEvidenceProblem problem) {
+        fail(failures, problem.ruleId(), Reason.classify(problem.message()));
     }
 
-    private static SpringRuleResultDto rule(
+    private static void fail(Map<String, Set<Reason>> failures, String ruleId, Reason reason) {
+        failures.computeIfAbsent(ruleId, ignored -> EnumSet.noneOf(Reason.class))
+                .add(reason);
+    }
+
+    private static SpringRuleResultDto error(Check check, Set<Reason> reasons) {
+        String description = reasons.stream().map(reason -> reason.description).collect(Collectors.joining(" "));
+        String recommendation =
+                "Restore the required application metadata or configuration evidence and run the checks again.";
+        if (PRODUCTION_RULES.contains(check.id())) {
+            description += " Loaded declarations cannot reconstruct a future production deployment's effective"
+                    + " configuration, external overrides, or unloaded profile-aware files.";
+            recommendation = "Review loaded production declarations separately from the intended deployment's"
+                    + " configuration. " + recommendation;
+        }
+        return new SpringRuleResultDto(
+                check.id(),
+                check.name(),
+                check.category(),
+                check.severity(),
+                description,
+                "ERROR",
+                0,
+                List.of(),
+                recommendation,
+                GUIDE + check.guide());
+    }
+
+    private enum Reason {
+        PRODUCTION_UNOBSERVED(
+                "Only loaded production declarations were inspected; effective production coverage is unavailable."),
+        DECLARATION_LIMIT(
+                "Application declaration collection reached its safety limit; metadata coverage is incomplete."),
+        CONFIGURATION_LIMIT(
+                "Configuration discovery reached an inspection limit; configuration coverage is incomplete."),
+        CLIENT_LIMIT("REST client discovery reached its inspection limit; client coverage is incomplete."),
+        UNRESOLVED_DECLARATION("Application declaration metadata could not be resolved."),
+        INVALID_RESOURCE("The application declaration resource is invalid or unreadable."),
+        METADATA_UNAVAILABLE("Required application declaration metadata is unavailable."),
+        CAPABILITY_UNAVAILABLE("Required ORM or JDBC capability evidence is unavailable."),
+        CLIENT_UNAVAILABLE("REST client registration evidence is unavailable."),
+        CONFIGURATION_UNAVAILABLE("Required configuration evidence could not be completely read or converted."),
+        INVALID_CONFIGURATION("A required configuration value could not be classified safely."),
+        RUNTIME_JDK_UNAVAILABLE("The running JDK version could not be determined."),
+        UNKNOWN("Required evidence could not be completely inspected for this rule.");
+
+        private final String description;
+
+        Reason(String description) {
+            this.description = description;
+        }
+
+        static Reason classify(String message) {
+            if (message == null) {
+                return UNKNOWN;
+            }
+            // Match adapter-owned literals only. Never copy arbitrary evidence or exception text into reports.
+            return switch (message) {
+                case "Only loaded production declarations were inspected; effective production configuration, "
+                        + "external overrides and unloaded profile-aware files are unavailable." ->
+                    PRODUCTION_UNOBSERVED;
+                case "Application declaration collection reached its safety limit." -> DECLARATION_LIMIT;
+                case "Configuration name discovery reached its inspection limit.",
+                        "A configuration name could not be inspected within the name limit.",
+                        "Production source discovery reached its inspection limit." -> CONFIGURATION_LIMIT;
+                case "REST client discovery reached its inspection limit." -> CLIENT_LIMIT;
+                case "Application declaration metadata could not be resolved." -> UNRESOLVED_DECLARATION;
+                case "Application declaration resource is invalid or unreadable." -> INVALID_RESOURCE;
+                case "ORM and JDBC capability evidence is unavailable." -> CAPABILITY_UNAVAILABLE;
+                case "REST client registration evidence is unavailable." -> CLIENT_UNAVAILABLE;
+                case "Required configuration evidence could not be read or converted." -> CONFIGURATION_UNAVAILABLE;
+                case "A schema action could not be classified safely.",
+                        "The logging level could not be classified safely.",
+                        "The shutdown duration is invalid.",
+                        "A managed REST client timer could not be classified safely." -> INVALID_CONFIGURATION;
+                default -> UNKNOWN;
+            };
+        }
+    }
+
+    private record Check(
             String id,
             String name,
             String category,
             String severity,
             String description,
-            int count,
-            List<String> samples,
             String recommendation,
-            String learnMore) {
-        return new SpringRuleResultDto(
-                id, name, category, severity, description, VIOLATION, count, samples, recommendation, learnMore);
+            String guide,
+            Set<String> accepted,
+            Set<String> triggers) {
+        boolean configuration() {
+            return !accepted.isEmpty();
+        }
+
+        SpringRuleResultDto result(String effectiveSeverity, String status, int count, List<String> samples) {
+            return new SpringRuleResultDto(
+                    id,
+                    name,
+                    category,
+                    effectiveSeverity,
+                    description,
+                    status,
+                    count,
+                    samples,
+                    recommendation,
+                    GUIDE + guide);
+        }
     }
 }

@@ -8,7 +8,10 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,24 +42,35 @@ public final class HibernateScanner {
             .thenComparing(HibernateRuleResultDto::id);
 
     private final Supplier<EntityDiscovery> entityDiscoverySupplier;
-    private final Supplier<HibernateRuntimeVersion> hibernateVersionSupplier;
-    private final Function<String, String> propertyLookup;
     private final Supplier<List<String>> activeProfiles;
     private final Clock clock;
+    private final HibernateAdvisorObservationSource observationSource;
+    private final List<HibernateRule> rules;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
 
     /**
-     * Builds the scanner an adapter wires: entity discovery (typically the engine
-     * {@link JpaMetamodelReader} plus any framework-specific repositories) is read <em>live</em> on
-     * every scan, and configuration is read through a neutral property-lookup + active-profiles seam.
+     * Compatibility factory for declaration-only discovery. The property callback is retained for
+     * source compatibility, but arbitrary application properties are not evidence of unit-effective
+     * settings. Use {@link #observing(HibernateAdvisorObservationSource, Clock)} for native observations.
      */
     public static HibernateScanner using(
             Supplier<EntityDiscovery> entityDiscoverySupplier,
             Function<String, String> propertyLookup,
             Supplier<List<String>> activeProfiles,
             Clock clock) {
-        return new HibernateScanner(
-                entityDiscoverySupplier, propertyLookup, activeProfiles, clock, HibernateRuntimeVersion::detect);
+        return new HibernateScanner(entityDiscoverySupplier, activeProfiles, clock);
+    }
+
+    public static HibernateScanner observing(HibernateAdvisorObservationSource source, Clock clock) {
+        return new HibernateScanner(source, clock, HibernateRuleRegistry.activeRules());
+    }
+
+    HibernateScanner(HibernateAdvisorObservationSource source, Clock clock, List<HibernateRule> rules) {
+        this.observationSource = source;
+        this.clock = clock;
+        this.rules = List.copyOf(rules);
+        this.entityDiscoverySupplier = null;
+        this.activeProfiles = List::of;
     }
 
     HibernateScanner(
@@ -64,12 +78,7 @@ public final class HibernateScanner {
             Function<String, String> propertyLookup,
             List<String> activeProfiles,
             Clock clock) {
-        this(
-                () -> new EntityDiscovery(entities, List.of(), List.of()),
-                propertyLookup,
-                () -> activeProfiles,
-                clock,
-                HibernateRuntimeVersion::detect);
+        this(() -> new EntityDiscovery(entities, List.of(), List.of()), () -> activeProfiles, clock);
     }
 
     HibernateScanner(
@@ -78,12 +87,7 @@ public final class HibernateScanner {
             Function<String, String> propertyLookup,
             List<String> activeProfiles,
             Clock clock) {
-        this(
-                () -> new EntityDiscovery(entities, repositories, List.of()),
-                propertyLookup,
-                () -> activeProfiles,
-                clock,
-                HibernateRuntimeVersion::detect);
+        this(() -> new EntityDiscovery(entities, repositories, List.of()), () -> activeProfiles, clock);
     }
 
     HibernateScanner(
@@ -93,25 +97,16 @@ public final class HibernateScanner {
             List<String> activeProfiles,
             Clock clock,
             String hibernateVersion) {
-        this(
-                () -> new EntityDiscovery(entities, repositories, List.of()),
-                propertyLookup,
-                () -> activeProfiles,
-                clock,
-                () -> HibernateRuntimeVersion.parse(hibernateVersion));
+        this(() -> new EntityDiscovery(entities, repositories, List.of()), () -> activeProfiles, clock);
     }
 
     private HibernateScanner(
-            Supplier<EntityDiscovery> entityDiscoverySupplier,
-            Function<String, String> propertyLookup,
-            Supplier<List<String>> activeProfiles,
-            Clock clock,
-            Supplier<HibernateRuntimeVersion> hibernateVersionSupplier) {
+            Supplier<EntityDiscovery> entityDiscoverySupplier, Supplier<List<String>> activeProfiles, Clock clock) {
         this.entityDiscoverySupplier = entityDiscoverySupplier;
-        this.hibernateVersionSupplier = hibernateVersionSupplier;
-        this.propertyLookup = propertyLookup;
         this.activeProfiles = activeProfiles;
         this.clock = clock;
+        this.observationSource = null;
+        this.rules = HibernateRuleRegistry.activeRules();
     }
 
     public HibernateReport initialReport() {
@@ -130,38 +125,173 @@ public final class HibernateScanner {
     }
 
     private HibernateReport doScan() {
-        EntityDiscovery discovery = safeEntityDiscovery();
-        if (discovery.entities().isEmpty()) {
-            String message = discovery.errors().isEmpty()
+        HibernateAdvisorObservation observation = safeObservation();
+        List<HibernateEntityModel> entities = observation.units().stream()
+                .flatMap(unit -> unit.entities().stream())
+                .toList();
+        if (entities.isEmpty()) {
+            String message = observation.diagnostics().isEmpty()
                     ? "No EntityManagerFactory beans or mapped entities were found to inspect."
-                    : "Hibernate metamodel could not be read: " + String.join("; ", discovery.errors());
-            return report("DISABLED", message, clock.millis(), List.of(), 0, 0, List.of());
+                    : "Required Hibernate observations are unavailable.";
+            return report(
+                    observation.diagnostics().isEmpty() ? "DISABLED" : "PARTIAL",
+                    message,
+                    clock.millis(),
+                    List.of(),
+                    0,
+                    0,
+                    List.of());
         }
 
-        HibernateContext context = new HibernateContext(
-                discovery.entities(),
-                discovery.repositories(),
-                propertyLookup,
-                activeProfiles.get(),
-                hibernateVersionSupplier.get());
-        List<HibernateRuleResultDto> results = HibernateRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(context))
-                .toList();
-        String status = discovery.errors().isEmpty() ? "SCANNED" : "PARTIAL";
-        String message =
-                "Hibernate Advisor completed against " + discovery.entities().size() + " mapped entit"
-                        + (discovery.entities().size() == 1 ? "y." : "ies.");
-        if (!discovery.errors().isEmpty()) {
-            message += " Some persistence units could not be read: " + String.join("; ", discovery.errors());
+        Map<String, HibernateRuleResultDto> violations = new LinkedHashMap<>();
+        Set<String> failed = new LinkedHashSet<>();
+        Set<String> unknown = new LinkedHashSet<>();
+        int skipped = 0;
+        int attempts = 0;
+        HibernateApplicationFacts app = observation.application();
+        Boolean logging = app.sqlLoggerEnabled();
+        if (observation.units().stream()
+                .anyMatch(unit -> Boolean.TRUE.equals(unit.settings().showSql()))) {
+            logging = true;
+        } else if (!Boolean.TRUE.equals(logging)
+                && observation.units().stream().anyMatch(unit -> unit.settings().showSql() == null)) {
+            logging = null;
         }
+        HibernateApplicationFacts globalApp = new HibernateApplicationFacts(
+                app.activeProfiles(),
+                app.openInView(),
+                app.deferredDatasourceInitialization(),
+                logging,
+                app.bindLoggerEnabled(),
+                app.panacheEnhancementVerified());
+        HibernateContext global = HibernateContext.observed(
+                new HibernatePersistenceUnitObservation(
+                        "application",
+                        "application",
+                        entities,
+                        List.of(),
+                        null,
+                        HibernateFactorySettings.unknown(),
+                        null),
+                globalApp);
+        for (HibernateRule rule : rules) {
+            List<HibernatePersistenceUnitObservation> units =
+                    applicationRule(rule.definition().id()) ? List.of() : observation.units();
+            List<HibernateContext> contexts = units.isEmpty()
+                    ? List.of(global)
+                    : units.stream()
+                            .map(unit -> HibernateContext.observed(unit, app))
+                            .toList();
+            for (int i = 0; i < contexts.size(); i++) {
+                HibernateContext context = contexts.get(i);
+                String label = units.isEmpty() ? "application" : units.get(i).label();
+                String identity = rule.definition().id() + " [" + label + "]";
+                context.evidence().reset();
+                attempts++;
+                HibernateRuleResultDto result;
+                try {
+                    result = rule.evaluate(context);
+                } catch (RuntimeException | LinkageError ex) {
+                    result = HibernateRuleSupport.error(rule.definition(), "Rule evaluation failed.");
+                }
+                if (HibernateRuleSupport.ERROR.equals(result.status())) failed.add(identity);
+                if (context.evidence().requiredUnknown) unknown.add(identity);
+                if (HibernateRuleSupport.SKIPPED.equals(result.status())) skipped++;
+                if (isViolation(result)) mergeViolation(violations, result, label);
+            }
+        }
+        boolean incomplete = !observation.diagnostics().isEmpty() || !failed.isEmpty() || !unknown.isEmpty();
+        String message = "Hibernate Advisor inspected " + entities.size() + " entity mappings across "
+                + observation.units().size() + " persistence units. Attempted " + rules.size()
+                + " distinct rules (" + attempts + " unit/application evaluations); failed " + failed.size()
+                + ", skipped " + skipped + ", required evidence unavailable " + unknown.size() + ".";
+        if (!failed.isEmpty()) message += " Failed: " + bounded(failed) + ".";
+        if (!unknown.isEmpty()) message += " Incomplete: " + bounded(unknown) + ".";
+        if (!observation.diagnostics().isEmpty())
+            message += " Discovery: "
+                    + bounded(observation.diagnostics().stream()
+                            .map(diagnostic -> "[" + diagnostic.unitLabel() + "] " + diagnostic.reason())
+                            .toList())
+                    + ".";
         return report(
-                status,
+                incomplete ? "PARTIAL" : "SCANNED",
                 message,
                 clock.millis(),
-                entityPackages(discovery.entities()),
-                discovery.entities().size(),
-                results.size(),
-                results);
+                entityPackages(entities),
+                entities.size(),
+                rules.size(),
+                List.copyOf(violations.values()));
+    }
+
+    private static boolean applicationRule(String id) {
+        return Set.of("HIB-CONFIG-001", "HIB-CONFIG-012", "HIB-CONFIG-015", "HIB-CONFIG-018")
+                .contains(id);
+    }
+
+    private static String bounded(java.util.Collection<String> values) {
+        return String.join("; ", values.stream().limit(8).toList())
+                + (values.size() > 8 ? "; +" + (values.size() - 8) + " more" : "");
+    }
+
+    private static void mergeViolation(
+            Map<String, HibernateRuleResultDto> results, HibernateRuleResultDto result, String label) {
+        HibernateRuleResultDto previous = results.get(result.id());
+        List<String> samples = new ArrayList<>();
+        if (previous != null) samples.addAll(previous.sampleViolations());
+        for (String sample : result.sampleViolations()) {
+            if (samples.size() == 10) break;
+            samples.add(HibernateRuleSupport.detail("[" + label + "] " + sample));
+        }
+        String severity =
+                previous != null && SeverityOrder.rank(previous.severity()) < SeverityOrder.rank(result.severity())
+                        ? previous.severity()
+                        : result.severity();
+        results.put(
+                result.id(),
+                new HibernateRuleResultDto(
+                        result.id(),
+                        result.name(),
+                        result.category(),
+                        severity,
+                        result.description(),
+                        result.status(),
+                        result.violationCount() + (previous == null ? 0 : previous.violationCount()),
+                        samples,
+                        result.recommendation(),
+                        result.learnMoreUrl()));
+    }
+
+    private HibernateAdvisorObservation safeObservation() {
+        try {
+            if (observationSource != null) {
+                HibernateAdvisorObservation observation = observationSource.observe();
+                if (observation != null) return observation;
+                throw new IllegalStateException();
+            }
+            EntityDiscovery legacy = safeEntityDiscovery();
+            return new HibernateAdvisorObservation(
+                    legacy.entities().isEmpty()
+                            ? List.of()
+                            : List.of(new HibernatePersistenceUnitObservation(
+                                    "legacy",
+                                    "legacy",
+                                    legacy.entities(),
+                                    legacy.repositories(),
+                                    null,
+                                    HibernateFactorySettings.unknown(),
+                                    null)),
+                    HibernateApplicationFacts.unknown(activeProfiles.get()),
+                    legacy.errors().isEmpty()
+                            ? List.of()
+                            : List.of(new HibernateObservationDiagnostic(
+                                    "legacy", HibernateObservationDiagnostic.Reason.METAMODEL_UNAVAILABLE)));
+        } catch (RuntimeException | LinkageError ex) {
+            return new HibernateAdvisorObservation(
+                    List.of(),
+                    null,
+                    List.of(new HibernateObservationDiagnostic(
+                            "application", HibernateObservationDiagnostic.Reason.SOURCE_UNAVAILABLE)));
+        }
     }
 
     private HibernateReport report(

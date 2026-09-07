@@ -61,6 +61,6 @@ invocation in that script. Do not put `${maven.multiModuleProjectDirectory}/.m2`
 may pass it through literally as a non-absolute path. Do not commit a project-wide repository override solely for
 worktree isolation.
 
-Detailed rules are path-scoped under `.github/instructions/` and apply automatically by file path. The
-`bootui-vertical-pr` custom agent under `.github/agents/` is available for end-to-end feature delivery; it supplements
-rather than replaces repository safety rules.
+Detailed rules are path-scoped under `.github/instructions/` and apply automatically by file path. Two custom agents
+under `.github/agents/` are available: `bootui-vertical-pr` for end-to-end feature delivery, and `bootui-release` for
+conducting a release or changing release machinery. They supplement rather than replace repository safety rules.

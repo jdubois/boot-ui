@@ -39,6 +39,9 @@ class RestApiScanWiringTest {
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.basePackages()).contains("io.github.jdubois.bootui.sample");
         assertThat(report.controllersAnalyzed()).isPositive();
-        assertThat(report.rulesEvaluated()).isPositive();
+        assertThat(report.rulesEvaluated()).isEqualTo(56);
+        assertThat(report.results())
+                .extracting(result -> result.id())
+                .doesNotContain("RAPI-MAP-008", "RAPI-NAME-004", "RAPI-ERR-011", "RAPI-DOC-003");
     }
 }

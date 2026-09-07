@@ -33,11 +33,10 @@ class GraalVmDockerfileGeneratorTests {
     void runtimeStageIsDistrolessWithoutCurlHealthcheck() {
         String dockerfile = generator.generate("my-service");
 
-        // Minimal-attack-surface runtime: distroless ships glibc but no shell/curl/perl/tar, which
-        // keeps the runtime's OS-package CVE surface near zero.
         assertThat(dockerfile).contains("FROM gcr.io/distroless/base-debian12:nonroot");
-        // A "mostly static" binary links only glibc dynamically, so the glibc base needs no zlib.
-        assertThat(dockerfile).contains("NATIVE_IMAGE_OPTIONS=\"-H:+StaticExecutableWithDynamicLibC\"");
+        assertThat(dockerfile).contains("NATIVE_IMAGE_OPTIONS=\"--static-nolibc\"");
+        assertThat(dockerfile).contains("libstdc++/libgcc", "dependencies with ldd", "not a guarantee");
+        assertThat(dockerfile).doesNotContain("only shared library", "OS-package CVEs");
         // No Docker HEALTHCHECK directive and no curl probe (distroless has neither shell nor curl).
         assertThat(dockerfile).doesNotContain("HEALTHCHECK --");
         assertThat(dockerfile).doesNotContain("curl -s -o /dev/null");

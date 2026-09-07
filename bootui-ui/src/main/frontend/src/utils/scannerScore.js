@@ -1,4 +1,6 @@
-// Simple weighted-penalty scoring model shared by the Overview dashboard.
+import {isCompleteScan, scanStatusLabel} from './scanStatus.js'
+
+// Simple weighted-penalty scoring model shared by the advisor panels and Overview.
 // Each finding subtracts a fixed number of points from a perfect score of 100.
 const SEVERITY_WEIGHTS = {
   CRITICAL: 25,
@@ -18,6 +20,71 @@ function severityWeight(severity) {
 
 export function isKnownSeverity(severity) {
   return typeof severity === 'string' && Object.hasOwn(SEVERITY_WEIGHTS, severity.toUpperCase())
+}
+
+export function advisorAssessment(report, {vulnerabilities = false} = {}) {
+  const status = report?.scan?.status
+  const unscored = (label, reason, invalid = false) => ({score: null, label, reason, invalid})
+  if (!isCompleteScan(status)) {
+    const message = typeof report?.scan?.message === 'string' ? report.scan.message.trim() : ''
+    const withDetails = (reason) => (message ? `${reason} ${message}` : reason)
+    if (status === 'PARTIAL') {
+      return unscored(
+        'Incomplete',
+        withDetails('The scan is incomplete. Available findings are retained, but no score is calculated.')
+      )
+    }
+    return unscored(
+      'Not scored',
+      withDetails(
+        status === 'NOT_SCANNED'
+          ? 'Run a scan to calculate a score.'
+          : `${scanStatusLabel(status)}. A completed scan is required to calculate a score.`
+      )
+    )
+  }
+  const counts = report?.severityCounts
+  if (!isValidSeveritySummary(counts, {vulnerabilities})) {
+    return unscored('Not scored', 'Scanner returned an invalid severity summary.', true)
+  }
+  if (vulnerabilities) {
+    if (report.coverage?.status !== 'COMPLETE') {
+      return unscored(
+        'Incomplete',
+        report.coverage?.status === 'INCOMPLETE'
+          ? 'Dependency inventory coverage is incomplete. Available findings are retained, but no score is calculated.'
+          : 'Dependency inventory coverage is unknown. Complete coverage is required to calculate a score.'
+      )
+    }
+    if (counts.some((entry) => entry.severity.toUpperCase() === 'UNKNOWN' && entry.count > 0)) {
+      return unscored(
+        'Incomplete',
+        'Active findings have unknown severity. No score is calculated until their severity is known or they are dismissed.'
+      )
+    }
+  }
+  return {score: scoreFromSeverityCounts(counts), label: '', reason: '', invalid: false}
+}
+
+export function isValidSeveritySummary(counts, {vulnerabilities = false} = {}) {
+  return (
+    Array.isArray(counts) &&
+    !counts.some(
+      (entry) =>
+        !entry ||
+        typeof entry !== 'object' ||
+        Array.isArray(entry) ||
+        !(
+          isKnownSeverity(entry.severity) ||
+          (vulnerabilities &&
+            typeof entry.severity === 'string' &&
+            ['UNKNOWN', 'NONE'].includes(entry.severity.toUpperCase()))
+        ) ||
+        typeof entry.count !== 'number' ||
+        !Number.isFinite(entry.count) ||
+        entry.count < 0
+    )
+  )
 }
 
 // Computes a 0-100 score from a list of {severity, count} entries.

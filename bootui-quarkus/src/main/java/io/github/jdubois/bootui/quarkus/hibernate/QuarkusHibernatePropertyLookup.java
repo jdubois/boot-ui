@@ -6,25 +6,22 @@ import java.util.function.Function;
 import org.eclipse.microprofile.config.Config;
 
 /**
- * Translates the engine Hibernate advisor's configuration keys into the {@code quarkus.hibernate-orm.*}
- * namespace, so the shared {@code HibernateScanner}'s config-driven rules evaluate correctly on Quarkus.
+ * Compatibility lookup for application/declaration signals in the {@code quarkus.hibernate-orm.*}
+ * namespace. The advisor now reads unit-effective settings through
+ * {@link QuarkusHibernateAdvisorObservationSource}; this lookup must not override those observations.
  *
  * <p>The engine rules read Spring / native-Hibernate property keys ({@code spring.jpa.*},
  * {@code hibernate.*}); Quarkus does not expose those keys through MicroProfile Config and uses its own
  * {@code quarkus.hibernate-orm.*} surface instead. A naive {@code config.getOptionalValue(key, ...)} would
- * therefore make every config rule a silent false-negative. This lookup ("swap the API" — the engine rules
- * stay unchanged) maps the high-confidence keys to their Quarkus equivalents, and additionally:</p>
+ * lose declaration provenance. This legacy helper retains key translation, not proof of factory defaults:</p>
  *
  * <ul>
  *   <li><strong>Translates the {@code ddl-auto} value</strong> {@code drop-and-create} &rarr;
- *       {@code create-drop} so the engine's {@code RISKY_VALUES}/{@code creates} classification (which only
- *       knows the JPA value vocabulary) flags Quarkus' riskiest schema-generation setting. Other generation
- *       values pass through unchanged ({@code create}/{@code update} are already risky; {@code none}/
- *       {@code validate} are safe).</li>
+ *       {@code create-drop}, and {@code create} to {@code create-only}. Quarkus create is not Hibernate's
+ *       destructive create action. Explicit deprecated generation takes precedence in 3.33.3.1.</li>
  *   <li><strong>Neutralizes the Spring-only Open-Session-in-View concept</strong>: Quarkus has no OSIV, so
- *       {@code spring.jpa.open-in-view} resolves to {@code "false"} (its effective state). Without this the
- *       {@code HIB-CONFIG-001} rule — which treats an <em>absent</em> value as Spring Boot's web default of
- *       {@code true} — would render a hard false-positive on every Quarkus scan.</li>
+ *       {@code spring.jpa.open-in-view} resolves to {@code "false"}. Native observations classify this
+ *       concept as not applicable instead of inferring activation from a Spring property.</li>
  *   <li><strong>Reports Quarkus bytecode enhancement as adapter-verified</strong>: Quarkus enhances every entity
  *       at build time unconditionally (see {@code HibernateOrmProcessor.enhancerDomainObjects()}, an ungated
  *       build step) — there is no {@code quarkus.hibernate-orm.enhancement.*} switch to turn it off. The engine
@@ -61,17 +58,14 @@ import org.eclipse.microprofile.config.Config;
  * {@code quarkus.hibernate-orm.*} equivalent <em>and</em> no realistic {@code unsupported-properties} path
  * either, because they key off a Hikari-specific property Agroal has no equivalent for at all (
  * {@code spring.datasource.hikari.auto-commit}, read directly by {@code HIB-CONFIG-008}) or a pool
- * implementation-specific concept (Hibernate's built-in pool vs. Agroal, {@code HIB-CONFIG-014}'s
- * {@code hibernate.connection.pool_size} advice still applies verbatim since that property, if force-set via
- * {@code unsupported-properties}, reaches Hibernate exactly as documented — only the Hikari-specific
- * auto-commit *signal* this rule also inspects has no Agroal analogue). That bounded limitation is documented
- * in {@code docs/features/advisors.md}.</p>
+ * implementation-specific concept. Property presence, including {@code pool_size}, is not proof of selected
+ * provider activation. These limitations are why the native observation path does not consume this lookup.</p>
  */
 public final class QuarkusHibernatePropertyLookup implements Function<String, String> {
 
     // Quarkus 3.33 renamed quarkus.hibernate-orm.database.generation to
     // quarkus.hibernate-orm.schema-management.strategy (same value vocabulary); the legacy key is still
-    // honored but deprecated. We read the new key first and fall back to the legacy one (see schemaStrategy()).
+    // honored but deprecated. Its explicit value takes precedence (see schemaStrategy()).
     static final String SCHEMA_STRATEGY_KEY = "quarkus.hibernate-orm.schema-management.strategy";
 
     static final String LEGACY_GENERATION_KEY = "quarkus.hibernate-orm.database.generation";
@@ -201,7 +195,8 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
         String quarkusKey = KEY_ALIASES.get(key);
         if (SCHEMA_STRATEGY_KEY.equals(quarkusKey)) {
             String value = schemaStrategy();
-            return "drop-and-create".equalsIgnoreCase(value) ? "create-drop" : value;
+            if ("drop-and-create".equalsIgnoreCase(value)) return "create-drop";
+            return "create".equalsIgnoreCase(value) ? "create-only" : value;
         }
         if (quarkusKey != null) {
             String value = raw(quarkusKey);
@@ -212,14 +207,11 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
     }
 
     /**
-     * Reads the schema-generation strategy, preferring the Quarkus 3.33+
-     * {@code quarkus.hibernate-orm.schema-management.strategy} key and falling back to the
-     * deprecated-but-still-supported {@code quarkus.hibernate-orm.database.generation} so the advisor reads
-     * the operator's setting whichever name they use.
+     * Quarkus 3.33.3.1 explicitly gives the deprecated generation key precedence when present.
      */
     private String schemaStrategy() {
-        String value = raw(SCHEMA_STRATEGY_KEY);
-        return value != null ? value : raw(LEGACY_GENERATION_KEY);
+        String value = raw(LEGACY_GENERATION_KEY);
+        return value != null ? value : raw(SCHEMA_STRATEGY_KEY);
     }
 
     /**

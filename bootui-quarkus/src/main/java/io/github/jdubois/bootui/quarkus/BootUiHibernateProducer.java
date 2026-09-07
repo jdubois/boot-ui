@@ -38,6 +38,16 @@ public class BootUiHibernateProducer {
 
     @Produces
     @Singleton
+    public io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource
+            hibernateAdvisorObservationSource(
+                    @Any Instance<EntityManagerFactory> entityManagerFactories,
+                    org.eclipse.microprofile.config.Config config) {
+        return new io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernateAdvisorObservationSource(
+                entityManagerFactories, config);
+    }
+
+    @Produces
+    @Singleton
     public EntityDiscoverySource hibernateEntityDiscoverySource(
             @Any Instance<EntityManagerFactory> entityManagerFactories) {
         return () -> QuarkusEntityDiscovery.discover(entityManagerFactories);

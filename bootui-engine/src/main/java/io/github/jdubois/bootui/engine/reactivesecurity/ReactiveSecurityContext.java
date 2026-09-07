@@ -34,10 +34,7 @@ record ReactiveSecurityContext(
     }
 
     boolean isTlsConfigured() {
-        if (environment.globalTlsConfigured()) {
-            return true;
-        }
-        return chains.stream().anyMatch(WebFilterChainObservation::hasHttpsRedirectFilter);
+        return environment.globalTlsConfigured();
     }
 
     private static Set<String> tokenize(String commaSeparated) {
@@ -55,6 +52,11 @@ record ReactiveSecurityContext(
     }
 
     Set<String> effectiveSensitiveActuatorExposure() {
+        if (environment.effectiveActuatorEndpoints() != null) {
+            Set<String> exposed = new LinkedHashSet<>(environment.effectiveActuatorEndpoints());
+            exposed.retainAll(SENSITIVE_ACTUATOR_ENDPOINTS);
+            return exposed;
+        }
         String include = environment.managementExposureInclude();
         if (include == null) {
             return Set.of();
@@ -62,7 +64,7 @@ record ReactiveSecurityContext(
         String normalized = include.trim();
         Set<String> excluded = tokenize(environment.managementExposureExclude());
         boolean wildcardInclude = normalized.equals("*");
-        if (wildcardInclude && excluded.isEmpty()) {
+        if (excluded.contains("*")) {
             return Set.of();
         }
         Set<String> included = wildcardInclude ? Set.of() : tokenize(normalized);
@@ -77,12 +79,19 @@ record ReactiveSecurityContext(
     }
 
     boolean exposesBeyondHealthAndInfo() {
+        if (environment.effectiveActuatorEndpoints() != null) {
+            return environment.effectiveActuatorEndpoints().stream()
+                    .anyMatch(endpoint -> !endpoint.equals("health") && !endpoint.equals("info"));
+        }
         String include = environment.managementExposureInclude();
         if (include == null) {
             return false;
         }
         String normalized = include.toLowerCase(Locale.ROOT).trim();
         Set<String> excluded = tokenize(environment.managementExposureExclude());
+        if (excluded.contains("*")) {
+            return false;
+        }
         if (normalized.equals("*")) {
             if (excluded.isEmpty()) {
                 return true;
