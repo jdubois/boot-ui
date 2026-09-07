@@ -999,6 +999,32 @@ class BootUiQuarkusProcessor {
                 HIBERNATE_PRODUCER_CLASS);
     }
 
+    @BuildStep
+    void registerHibernatePanacheFacts(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            CurateOutcomeBuildItem curateOutcome,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL || !capabilities.isPresent(Capability.HIBERNATE_ORM))
+            return;
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.hibernate-panache-enhancement",
+                Boolean.toString(
+                        hasPanacheExtension(curateOutcome.getApplicationModel().getRuntimeDependencies()))));
+    }
+
+    static boolean hasPanacheExtension(Iterable<ResolvedDependency> dependencies) {
+        for (ResolvedDependency dependency : dependencies) {
+            // Only a resolved Quarkus extension proves the platform transformation is installed.
+            // A matching API class on the runtime classpath does not.
+            if (dependency.isRuntimeExtensionArtifact()
+                    && "io.quarkus".equals(dependency.getGroupId())
+                    && Set.of("quarkus-hibernate-orm-panache", "quarkus-hibernate-orm-panache-kotlin")
+                            .contains(dependency.getArtifactId())) return true;
+        }
+        return false;
+    }
+
     /**
      * Wires the Quarkus SQL Trace ORM-capture path: a Hibernate {@code StatementInspector}
      * ({@code BootUiHibernateStatementInspector}) Quarkus registers into the persistence unit so

@@ -373,25 +373,32 @@ safe in an application with no JDBC datasource extension; a bean with no such qu
 ![BootUI Hibernate panel](../images/bootui-hibernate.webp)
 
 The Hibernate panel runs an explicit, read-only scan against the JPA `EntityManagerFactory` metamodel when Hibernate ORM
-is present. It reviews mapped entities, selected persistence configuration, and Spring Data repository metadata for
+is present. It reviews mapped entities, attributed persistence-unit observations, and verified Spring Data JPA repository metadata for
 common Hibernate/JPA performance and mapping risks such as eager fetching, problematic identifier generators, collection
 fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. The report is a review prompt,
 not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies mappings. See
 [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md) for the full catalogue and remediation links.
 
+The catalog has 70 active rules; five declaration-only or structurally duplicated checks are retired without reusing
+their identifiers. Unavailable required observations and rule failures yield `PARTIAL` while retaining valid findings.
+The scan message distinguishes attempted-rule coverage from successful evaluation; an empty findings list is not proof
+that every mapping or query was verified. XML overrides, auto-apply converters, custom generators and runtime query
+plans are not fully reconstructed.
+
 ::: details On Quarkus
 
-The panel runs the same 72-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
+The panel runs the same 70-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
 discovered from the live JPA `EntityManagerFactory` metamodel (across all persistence units, de-duplicated by identity),
 and most mapping/identifier/fetch rules apply unchanged. Spring Data query rules skip when repository metadata is
 unavailable instead of reporting a clean result. Four platform differences are worth noting:
 
-- **Configuration keys are translated.** A key-mapping layer (`QuarkusHibernatePropertyLookup`) maps the
-  Spring/native-Hibernate property names the rules expect onto their Quarkus equivalents (see below).
-- **Open-Session-in-View is inert.** Quarkus has no OSIV concept, so the effective state is always disabled and the rule
-  never fires (on Spring a missing `spring.jpa.open-in-view` defaults to the web-on behaviour).
+- **Effective factory settings are unit-scoped.** Live native options include integration defaults and programmatic
+  settings; named units do not inherit the first factory's values. Native property translation supplements appropriate
+  declaration/application facts but is not proof of effective factory state.
+- **Spring Open-Session-in-View is inapplicable.** The Spring-specific rule does not fire on Quarkus. Spring requires
+  actual activation evidence rather than inferring activation solely from a missing property.
 - **Bytecode enhancement is always enabled.** Quarkus enhances every entity unconditionally at build time with no
-  opt-out, so the two lazy-`@OneToOne` findings that depend on enhancement being disabled never fire.
+  opt-out, so known-absent-enhancement findings do not fire with the verified adapter capability.
 - **Panache active-record entities are handled specially** (see below).
 
 **The Quarkus property-key mapping**
@@ -409,25 +416,26 @@ unavailable instead of reporting a clean result. Four platform differences are w
 | `query.fail_on_pagination_over_collection_fetch`  | `quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch` |
 | `cache.use_query_cache` / `cache.use_second_level_cache` | `quarkus.hibernate-orm.second-level-caching-enabled` (single unified toggle) |
 
-(*) or the deprecated `quarkus.hibernate-orm.database.generation`, including the `drop-and-create` ↔ `create-drop` value
-alias.
+(*) In Quarkus 3.33.3.1, explicitly configured deprecated `quarkus.hibernate-orm.database.generation` takes precedence.
+Quarkus/Jakarta `create` is create-only; Hibernate `hbm2ddl.auto=create` is destructive. The advisor preserves that
+difference rather than treating the keys as interchangeable raw strings.
 
 A native `quarkus.hibernate-orm.log.bind-parameters` flag is also read as the neutral bind-parameter-logging signal. For
 any other `hibernate.*` key with no first-class Quarkus option (for example `hibernate.order_inserts` /
 `hibernate.order_updates`), the lookup falls back to Quarkus' generic `quarkus.hibernate-orm.unsupported-properties."..."`
-escape hatch, which a live-boot test confirmed reaches Hibernate's own bootstrapped settings. Only a handful of genuinely
-Hikari/Spring-specific signals stay unmapped (Hikari's auto-commit setting, which Agroal has no equivalent for) and their
-INFO advisories may still cite the Spring-flavored property name.
+escape hatch. The advisor uses the bootstrapped factory options for supported facts rather than assuming that the
+presence or absence of a property proves a value. Unsupported Spring/Hikari-specific evidence is not guessed from an
+unrelated property, and no connection is acquired to inspect it.
 
 **Panache active-record entities**
 
-Once a Panache extension (`quarkus-hibernate-orm-panache` or `quarkus-hibernate-reactive-panache`) is on the classpath,
-its build-time bytecode rewrite makes public-field access on any Hibernate-managed class behave like a getter/setter
-call app-wide, so the public-persistent-field finding does not fire. The `@GeneratedValue`-without-strategy finding
+With verified Panache transformation capability, build-time bytecode rewriting makes public-field access on
+Hibernate-managed classes behave like getter/setter calls, so the public-persistent-field finding does not fire.
+Mere classpath presence is not proof that transformation ran. The `@GeneratedValue`-without-strategy finding
 ignores the `id` field Panache's own base entity declares (an application-declared identifier is still checked normally).
 Spring Data repository hints (missing-strategy-aware `isNew()` detection for assigned identifiers) are specific to Spring
-Data JPA's `save()` semantics: without Spring Data Commons on the classpath — the normal case for a Panache app, whose
-`persist()` has no such ambiguity — that whole check is skipped rather than reported.
+Data JPA's `save()` semantics: without verified, attributable JPA repository metadata, that check is inapplicable.
+Panache query methods are not inferred from names or generated bytecode.
 
 :::
 

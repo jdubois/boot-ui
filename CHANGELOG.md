@@ -67,6 +67,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The Hibernate advisor now distinguishes evidence gaps from clean scans and reviews each persistence unit's own
+  settings.** Verified JPA repository metadata, effective factory observations and explicit incomplete-scan handling
+  replace cross-unit/default guesses. The complete 75-rule audit retires five unsupported or duplicated checks and
+  corrects batching, pagination, identifiers, mapping, caching and platform-specific advice without changing surviving
+  IDs or the JSON report shape. The catalog records remaining mapping/query evidence limits and version-specific primary
+  research ([#964](https://github.com/jdubois/boot-ui/issues/964)).
+
 - **The Spring application advisor now qualifies optimization advice and distinguishes configuration from runtime
   evidence on MVC and WebFlux.** The Boot 4.1.1 audit corrects Actuator defaults, bean candidate selection, executor,
   client, persistence and codec guidance; bounds non-eager collection; and reports missing evidence without raw URLs

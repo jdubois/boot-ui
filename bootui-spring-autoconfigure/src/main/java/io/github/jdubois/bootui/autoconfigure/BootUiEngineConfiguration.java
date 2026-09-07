@@ -19,7 +19,6 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRe
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
-import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernatePropertyLookup;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatisticsProvider;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
@@ -477,20 +476,22 @@ public class BootUiEngineConfiguration {
         @Bean
         @Lazy
         @ConditionalOnMissingBean
+        io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource
+                bootUiHibernateAdvisorObservationSource(
+                        ListableBeanFactory beanFactory,
+                        Environment environment,
+                        ApplicationContext applicationContext) {
+            // Resolving factories and repository metadata remains deferred to an explicit scan.
+            return new io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateAdvisorObservationSource(
+                    beanFactory, environment, applicationContext);
+        }
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
         HibernateScanner bootUiHibernateScanner(
-                ObjectProvider<EntityManagerFactory> entityManagerFactories,
-                ObjectProvider<ListableBeanFactory> beanFactories,
-                Environment environment,
-                ApplicationContext applicationContext) {
-            // Entity discovery (jakarta metamodel via the engine JpaMetamodelReader) + Spring-Data repository
-            // discovery live in the adapter; the engine scanner reads config through a neutral property-lookup
-            // + active-profiles seam and runs the metamodel walk only on demand (POST /scan).
-            return HibernateScanner.using(
-                    () -> SpringHibernateDiscovery.discover(entityManagerFactories, beanFactories),
-                    new SpringHibernatePropertyLookup(
-                            environment, SpringHibernatePropertyLookup.isServletWebApplication(applicationContext)),
-                    () -> List.of(environment.getActiveProfiles()),
-                    Clock.systemUTC());
+                io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource observations) {
+            return HibernateScanner.observing(observations, Clock.systemUTC());
         }
 
         /**

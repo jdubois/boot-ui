@@ -127,6 +127,11 @@ public record HibernateEntityModel(String name, Class<?> javaType, List<Hibernat
         return value instanceof Enum<?> enumValue ? enumValue.name() : null;
     }
 
+    String annotationStringValue(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof String stringValue ? stringValue : null;
+    }
+
     Integer annotationIntValue(Annotation annotation, String attributeName) {
         Object value = annotationValue(annotation, attributeName);
         return value instanceof Integer integerValue ? integerValue : null;

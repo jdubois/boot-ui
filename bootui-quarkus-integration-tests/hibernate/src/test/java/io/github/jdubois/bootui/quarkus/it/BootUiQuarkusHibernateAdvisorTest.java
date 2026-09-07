@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.hibernate.SessionFactory;
+import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
 
@@ -24,14 +25,12 @@ import org.junit.jupiter.api.Test;
  *
  * <p>It pins the Quarkus-specific end-to-end pipeline: that the {@code HIBERNATE_ORM} capability lights up the
  * panel, that {@code POST /scan} reads the application's mapped entities from the {@code EntityManagerFactory}
- * metamodel (via the capability-gated {@code QuarkusEntityDiscovery}) and runs the shared engine rule registry,
+ * metamodel (via the capability-gated {@code QuarkusHibernateAdvisorObservationSource}) and runs the shared engine rule registry,
  * that a known annotation-driven advisory fires against the deliberately-imperfect {@link org.acme.hibdemo.Product}
  * entity, and — crucially — that the Spring-only Open-Session-in-View rule {@code HIB-CONFIG-001} stays inert,
- * proving {@code QuarkusHibernatePropertyLookup}'s OSIV neutralization works against a live SmallRye Config. It
- * also proves five more {@code QuarkusHibernatePropertyLookup} aliases end to end (batch fetching, slow-query
- * logging, statistics, second-level caching, JDBC time zone — see {@code application.properties}):
- * {@code HIB-FETCH-002}/{@code HIB-CONFIG-006}/{@code HIB-CONFIG-007}/{@code HIB-CONFIG-010}/
- * {@code HIB-CONFIG-013} would each false-positive on every Quarkus scan without them.</p>
+ * proving OSIV is classified not applicable. Native factory defaults, rather than property aliases,
+ * provide batch/cache/statistics evidence; unavailable scalar observations remain incomplete instead
+ * of producing false-positive findings.</p>
  */
 @QuarkusTest
 class BootUiQuarkusHibernateAdvisorTest {
@@ -43,6 +42,9 @@ class BootUiQuarkusHibernateAdvisorTest {
 
     @Inject
     EntityManagerFactory entityManagerFactory;
+
+    @Inject
+    io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource observationSource;
 
     private BootUiHttpProbe probe() {
         return new BootUiHttpProbe(baseUrl.toExternalForm());
@@ -84,26 +86,34 @@ class BootUiQuarkusHibernateAdvisorTest {
         assertThat(scan.status()).as("POST /bootui/api/hibernate/scan status").isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("scan").path("status").asText())
-                .as("after POST /scan with mapped entities the report must be SCANNED")
-                .isEqualTo("SCANNED");
+                .as("missing required evidence must not be presented as a complete clean evaluation")
+                .isEqualTo("PARTIAL");
+        assertThat(scanned.path("scan").path("message").asText()).contains("required evidence unavailable");
         assertThat(scanned.path("entitiesAnalyzed").asInt())
                 .as("Category, Product and Tag are all read from the metamodel")
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared curated rule registry must have run")
-                .isGreaterThan(0);
+                .isEqualTo(70);
 
         List<String> violationIds = ruleIds(scanned.path("results"));
+        assertThat(violationIds)
+                .doesNotHaveDuplicates()
+                .doesNotContain("HIB-FETCH-004", "HIB-MAP-012", "HIB-ENTITY-003", "HIB-ENTITY-004", "HIB-MAP-019");
+        for (JsonNode result : scanned.path("results")) {
+            assertThat(result.path("status").asText()).isEqualTo("VIOLATION");
+            for (JsonNode sample : result.path("sampleViolations"))
+                assertThat(sample.asText()).startsWith("[");
+        }
         assertThat(violationIds)
                 .as("the eager @ManyToOne on Product triggers the eager-fetch advisory")
                 .contains("HIB-FETCH-001");
         assertThat(violationIds)
                 .as("Open-Session-in-View (HIB-CONFIG-001) must stay inert on Quarkus — there is no OSIV, so the"
-                        + " property lookup reports it disabled and the rule passes")
+                        + " observation reports it not applicable")
                 .doesNotContain("HIB-CONFIG-001");
         assertThat(violationIds)
-                .as("quarkus.hibernate-orm.fetch.batch-size=16 (application.properties) must be read back as"
-                        + " hibernate.default_batch_fetch_size, so the Product.tags lazy @ManyToMany collection is"
+                .as("the effective factory fetch batch size is 16, so the Product.tags lazy @ManyToMany collection is"
                         + " covered and HIB-FETCH-002 does not false-positive")
                 .doesNotContain("HIB-FETCH-002");
         assertThat(violationIds)
@@ -127,7 +137,23 @@ class BootUiQuarkusHibernateAdvisorTest {
         Response cached = probe().get("/bootui/api/hibernate");
         assertThat(cached.json().path("scan").path("status").asText())
                 .as("the last report is cached across requests")
-                .isEqualTo("SCANNED");
+                .isEqualTo(scanned.path("scan").path("status").asText());
+    }
+
+    @Test
+    void observationUsesNativeQuarkusFactoryDefaultsAndVerifiedEnhancement() {
+        var observed = observationSource.observe();
+        var options =
+                entityManagerFactory.unwrap(SessionFactoryImplementor.class).getSessionFactoryOptions();
+        assertThat(observed.units()).singleElement().satisfies(unit -> {
+            assertThat(unit.settings().jdbcBatchSize()).isEqualTo(options.getJdbcBatchSize());
+            assertThat(unit.settings().defaultBatchFetchSize()).isEqualTo(options.getDefaultBatchFetchSize());
+            assertThat(unit.settings().queryCache()).isEqualTo(options.isQueryCacheEnabled());
+            assertThat(unit.settings().secondLevelCache()).isEqualTo(options.isSecondLevelCacheEnabled());
+            assertThat(unit.enhancementVerified()).isTrue();
+            assertThat(unit.repositories()).isEmpty();
+        });
+        assertThat(observed.diagnostics()).isEmpty();
     }
 
     @Test

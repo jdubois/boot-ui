@@ -761,16 +761,15 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public HibernateScanner hibernateScanner(Instance<EntityDiscoverySource> sources, Config config) {
-        Supplier<EntityDiscovery> discovery;
-        if (sources.isUnsatisfied()) {
-            discovery = () -> EntityDiscovery.empty("Hibernate ORM is not configured on this Quarkus application.");
-        } else {
-            EntityDiscoverySource source = sources.get();
-            discovery = source::discover;
-        }
-        return HibernateScanner.using(
-                discovery, new QuarkusHibernatePropertyLookup(config), () -> activeProfiles(config), Clock.systemUTC());
+    public HibernateScanner hibernateScanner(
+            Instance<io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource> sources,
+            Config config) {
+        return HibernateScanner.observing(
+                sources.isUnsatisfied()
+                        ? () -> new io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation(
+                                List.of(), null, List.of())
+                        : sources.get(),
+                Clock.systemUTC());
     }
 
     /**
