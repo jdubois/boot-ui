@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
+import io.github.jdubois.bootui.engine.security.CspPolicy;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Pattern;
 
 /**
  * Bounded, read-only snapshot of the host application's Spring Security configuration. Built by the
@@ -16,9 +16,8 @@ final class SecurityModel {
     /**
      * One {@code SecurityFilterChain} and the salient, read-only facts the advisor needs about it.
      *
-     * @param permitsAllAnonymous best-effort result of simulating a bounded set of anonymous requests
-     *     across common paths and HTTP methods through the chain's authorization manager ({@code
-     *     TRUE} when every probe is granted, {@code null} when it could not be determined)
+     * @param permitsAllAnonymous structural unconditional-grant observation; no authorization
+     *     manager or matcher is executed. {@code null} denotes unsupported or incomplete structure.
      * @param sessionFixationDisabled {@code TRUE} when the session-management strategy was detected
      *     to skip session-fixation protection, {@code null} when it could not be determined
      * @param headerWriterNames simple class names of the {@code HeaderWriter}s installed by the
@@ -42,19 +41,10 @@ final class SecurityModel {
      *     {@code RememberMeAuthenticationFilter} is present and its key could be read, {@code null}
      *     otherwise. Only the length is retained -- never the key itself -- so a short/predictable
      *     key can be flagged without the key value ever leaving this process.
-     * @param statelessSecurityContext {@code TRUE} when the chain's {@code SecurityContextRepository}
-     *     never persists the security context in an HTTP session (what
-     *     {@code sessionCreationPolicy(STATELESS)} configures), {@code FALSE} when an
-     *     {@code HttpSessionSecurityContextRepository} is part of it, {@code null} when the
-     *     repository was absent, custom, or could not be introspected
-     * @param matchesActuatorPath {@code TRUE} when this chain's own request matcher accepts a request
-     *     for the actuator base path -- which a whole-application ({@code anyRequest}) chain does just
-     *     as much as a dedicated {@code securityMatcher("/actuator/**")} one -- {@code FALSE} when it
-     *     does not, {@code null} when the matcher could not be evaluated
-     * @param actuatorAnonymousAllowed {@code TRUE} when an anonymous request for the actuator base
-     *     path is granted by this chain's authorization rules (or the chain installs no
-     *     {@code AuthorizationFilter} at all, so nothing can deny it), {@code FALSE} when it is
-     *     denied, {@code null} when the chain's {@code AuthorizationManager} could not be introspected
+     * @param statelessSecurityContext holder-filter repository scope; this does not establish the
+     *     authentication filters' save behavior
+     * @param matchesActuatorPath legacy compatibility field; exact operation scope is in {@code details}
+     * @param actuatorAnonymousAllowed legacy compatibility field; exact authorization facts are in {@code details}
      */
     record FilterChainModel(
             int index,
@@ -71,18 +61,52 @@ final class SecurityModel {
             Integer rememberMeKeyLength,
             Boolean statelessSecurityContext,
             Boolean matchesActuatorPath,
-            Boolean actuatorAnonymousAllowed) {
+            Boolean actuatorAnonymousAllowed,
+            ChainDetails details) {
+
+        FilterChainModel(
+                int index,
+                String matcher,
+                List<String> filterNames,
+                Boolean permitsAllAnonymous,
+                Boolean sessionFixationDisabled,
+                List<String> headerWriterNames,
+                Long hstsMaxAgeSeconds,
+                Boolean hstsIncludeSubdomains,
+                String cspPolicyDirectives,
+                Boolean cspReportOnly,
+                Boolean authorizationRuleShadowed,
+                Integer rememberMeKeyLength,
+                Boolean statelessSecurityContext,
+                Boolean matchesActuatorPath,
+                Boolean actuatorAnonymousAllowed) {
+            this(
+                    index,
+                    matcher,
+                    filterNames,
+                    permitsAllAnonymous,
+                    sessionFixationDisabled,
+                    headerWriterNames,
+                    hstsMaxAgeSeconds,
+                    hstsIncludeSubdomains,
+                    cspPolicyDirectives,
+                    cspReportOnly,
+                    authorizationRuleShadowed,
+                    rememberMeKeyLength,
+                    statelessSecurityContext,
+                    matchesActuatorPath,
+                    actuatorAnonymousAllowed,
+                    new ChainDetails(
+                            true,
+                            true,
+                            "any request".equals(matcher) || "/**".equals(matcher),
+                            null,
+                            List.of(),
+                            null,
+                            false));
+        }
 
         private static final long HSTS_MIN_MAX_AGE_SECONDS = 31536000L; // HstsHeaderWriter's own 1-year default
-
-        /**
-         * Matches a Spring Security 7 {@code PathPatternRequestMatcher} toString of the form
-         * {@code "PathPattern [/**]"} or {@code "PathPattern [GET /**]"} (an optional HTTP method
-         * followed by the catch-all pattern), so a whole-chain matcher is recognized whether or not
-         * it is method-qualified, without mistaking a scoped pattern like {@code "PathPattern
-         * [/api/**]"} for a catch-all.
-         */
-        private static final Pattern CATCH_ALL_BRACKETED_PATTERN = Pattern.compile("\\[(?:[a-z]+\\s+)?/\\*\\*]");
 
         FilterChainModel {
             filterNames = List.copyOf(filterNames);
@@ -142,7 +166,7 @@ final class SecurityModel {
                     hstsMaxAgeSeconds,
                     hstsIncludeSubdomains,
                     cspPolicyDirectives,
-                    null,
+                    cspPolicyDirectives == null ? null : Boolean.FALSE,
                     null,
                     null,
                     null,
@@ -172,7 +196,7 @@ final class SecurityModel {
                     hstsMaxAgeSeconds,
                     hstsIncludeSubdomains,
                     cspPolicyDirectives,
-                    null,
+                    cspPolicyDirectives == null ? null : Boolean.FALSE,
                     authorizationRuleShadowed,
                     rememberMeKeyLength,
                     null,
@@ -181,8 +205,7 @@ final class SecurityModel {
         }
 
         /**
-         * Convenience constructor for callers that predate the actuator-coverage fields, leaving both
-         * verdicts indeterminate so the actuator rule falls back to its matcher-string heuristic.
+         * Convenience constructor for callers that predate exact operation observations.
          */
         FilterChainModel(
                 int index,
@@ -233,72 +256,46 @@ final class SecurityModel {
         }
 
         boolean hasCspDirective(String directive) {
-            return !Boolean.TRUE.equals(cspReportOnly)
+            if ("frame-ancestors".equals(directive)) {
+                return Boolean.FALSE.equals(cspReportOnly)
+                        && CspPolicy.analyze(cspPolicyDirectives).restrictiveFrameAncestors();
+            }
+            return Boolean.FALSE.equals(cspReportOnly)
                     && cspPolicyDirectives != null
                     && hasDirective(cspPolicyDirectives.toLowerCase(Locale.ROOT), directive.toLowerCase(Locale.ROOT));
         }
 
+        Boolean framingProtected() {
+            if (!details.headersKnown()) return null;
+            boolean frameOptions = hasHeaderWriterContaining("XFrameOptions");
+            if (!hasHeaderWriterContaining("ContentSecurityPolicy") || Boolean.TRUE.equals(cspReportOnly)) {
+                return frameOptions;
+            }
+            if (!Boolean.FALSE.equals(cspReportOnly)) return null;
+            CspPolicy.Analysis policy = CspPolicy.analyze(cspPolicyDirectives);
+            if (!policy.complete()) return null;
+            return policy.frameAncestorsPresent() ? policy.restrictiveFrameAncestors() : frameOptions;
+        }
+
         /**
-         * {@code true} when an {@code HstsHeaderWriter} is present but configured with a max-age
-         * under one year or without {@code includeSubDomains}, weakening the protocol-downgrade and
-         * cookie-hijacking protection HSTS is meant to provide. {@code false} when no HSTS writer was
-         * detected or its fields could not be read.
+         * Whether a known HSTS policy is shorter than the framework's one-year default.
          */
         boolean hasWeakHsts() {
-            if (hstsMaxAgeSeconds == null) {
+            if (!details.headersKnown() || hstsMaxAgeSeconds == null) {
                 return false;
             }
-            return hstsMaxAgeSeconds < HSTS_MIN_MAX_AGE_SECONDS || Boolean.FALSE.equals(hstsIncludeSubdomains);
+            return hstsMaxAgeSeconds < HSTS_MIN_MAX_AGE_SECONDS;
         }
 
         /**
-         * {@code true} when a {@code ContentSecurityPolicyHeaderWriter} policy allows
-         * {@code 'unsafe-inline'} / {@code 'unsafe-eval'}, a bare/unscoped wildcard {@code *} source
-         * in {@code default-src}/{@code script-src} (a scoped wildcard such as {@code
-         * https://*.example.com} is not flagged), or omits the {@code base-uri} / {@code
-         * frame-ancestors} hardening directives entirely (neither falls back to {@code default-src}
-         * per the CSP spec, unlike {@code object-src}). {@code false} when no CSP writer was detected
-         * or its policy could not be read.
+         * Whether the bounded shared parser recognizes permissive effective script controls.
          */
         boolean hasWeakCsp() {
-            if (cspPolicyDirectives == null) {
-                return false;
-            }
-            String normalized = cspPolicyDirectives.toLowerCase(Locale.ROOT);
-            if (normalized.contains("'unsafe-inline'") || normalized.contains("'unsafe-eval'")) {
-                return true;
-            }
-            if (hasUnscopedWildcardSource(normalized, "default-src")
-                    || hasUnscopedWildcardSource(normalized, "script-src")) {
-                return true;
-            }
-            if (!hasDirective(normalized, "base-uri") || !hasDirective(normalized, "frame-ancestors")) {
-                return true;
-            }
-            // object-src falls back to default-src per the CSP spec, so only flag its absence when
-            // default-src is also missing (nothing would restrict plugin/object content at all).
-            return !hasDirective(normalized, "object-src") && !hasDirective(normalized, "default-src");
-        }
-
-        /**
-         * {@code true} when the named directive's source list includes a bare, unscoped {@code *}
-         * token -- as opposed to a scoped wildcard such as {@code https://*.example.com}, which
-         * legitimately restricts the wildcard to a single trusted registrable domain and is not
-         * flagged.
-         */
-        private static boolean hasUnscopedWildcardSource(String normalizedPolicy, String directive) {
-            for (String segment : normalizedPolicy.split(";")) {
-                String remainder = directiveValue(segment, directive);
-                if (remainder == null) {
-                    continue;
-                }
-                for (String token : remainder.split("\\s+")) {
-                    if (token.equals("*")) {
-                        return true;
-                    }
-                }
-            }
-            return false;
+            CspPolicy.Analysis policy = CspPolicy.analyze(cspPolicyDirectives);
+            return details.headersKnown()
+                    && Boolean.FALSE.equals(cspReportOnly)
+                    && policy.complete()
+                    && (policy.unsafeInlineScript() || policy.unsafeEvalScript() || policy.unrestrictedScript());
         }
 
         /** {@code true} when the named directive appears anywhere in the policy (with any value). */
@@ -326,31 +323,7 @@ final class SecurityModel {
             return null;
         }
 
-        /**
-         * A chain is considered session-creating (stateful) when it keeps the security context in an
-         * HTTP session, installs the remember-me filter, maintains concurrent-session control, or runs
-         * an interactive form-login or OAuth2/OIDC login flow.
-         *
-         * <p>The authoritative signal is {@link #statelessSecurityContext()}, read from the chain's
-         * {@code SecurityContextRepository}: {@code sessionCreationPolicy(STATELESS)} swaps that
-         * repository for a request-scoped one, so the security context is never persisted in a
-         * session. Filter presence alone cannot answer the question -- {@code SessionManagementFilter}
-         * is installed for any {@code sessionManagement} block, including a stateless one -- so it is
-         * only used as a fallback when the repository could not be introspected.</p>
-         *
-         * <p>Remember-me and concurrent-session control are checked first because both keep state of
-         * their own (an auto-resent remember-me cookie, a session registry) regardless of how the
-         * security context is stored. A {@code FALSE} repository verdict is deliberately not treated
-         * as proof of statefulness on its own: every default chain carries an
-         * {@code HttpSessionSecurityContextRepository}, so the remaining heuristics still decide.
-         * Spring Security 6 no longer installs a {@code SessionManagementFilter} by default, so a
-         * normal form-login chain that still creates HTTP sessions would otherwise look stateless
-         * here; the interactive-login signal restores that. {@code OAuth2LoginAuthenticationFilter} is
-         * included because the authorization_code login flow stores request state (state/nonce/PKCE,
-         * the pre-auth redirect target) in the HTTP session just like form login does. A chain that
-         * also accepts bearer tokens is treated as a stateless token API and is excluded from the
-         * interactive-login heuristic.</p>
-         */
+        /** Legacy contextual session heuristic, not a CSRF or bearer-persistence observation. */
         boolean isStateful() {
             if (hasFilter("RememberMeAuthenticationFilter") || hasFilterContaining("ConcurrentSession")) {
                 return true;
@@ -362,22 +335,24 @@ final class SecurityModel {
                 return true;
             }
             boolean interactiveLogin = hasFilter("UsernamePasswordAuthenticationFilter")
-                    || hasFilter("DefaultLoginPageGeneratingFilter")
                     || hasFilterContaining("OAuth2LoginAuthenticationFilter");
-            return interactiveLogin && !hasFilterContaining("BearerTokenAuthenticationFilter");
+            return interactiveLogin;
+        }
+
+        boolean browserCredentials() {
+            return hasFilter("UsernamePasswordAuthenticationFilter")
+                    || hasFilter("OAuth2LoginAuthenticationFilter")
+                    || hasFilter("RememberMeAuthenticationFilter");
         }
 
         boolean isFormOrBasic() {
-            return hasFilter("UsernamePasswordAuthenticationFilter")
-                    || hasFilter("BasicAuthenticationFilter")
-                    || hasFilter("DefaultLoginPageGeneratingFilter");
+            return hasFilter("UsernamePasswordAuthenticationFilter") || hasFilter("BasicAuthenticationFilter");
         }
 
         boolean hasAuthenticationFilter() {
             return isFormOrBasic()
                     || hasFilterContaining("BearerTokenAuthenticationFilter")
                     || hasFilterContaining("OAuth2LoginAuthenticationFilter")
-                    || hasFilterContaining("OAuth2AuthorizationCodeGrantFilter")
                     || hasFilterContaining("AuthenticationFilter");
         }
 
@@ -389,9 +364,8 @@ final class SecurityModel {
          */
         boolean hasRealAuthenticationFilter() {
             return filterNames.stream()
-                            .anyMatch(name -> name.endsWith("AuthenticationFilter")
-                                    && !name.equals("AnonymousAuthenticationFilter"))
-                    || hasFilterContaining("OAuth2AuthorizationCodeGrantFilter");
+                    .anyMatch(name ->
+                            name.endsWith("AuthenticationFilter") && !name.equals("AnonymousAuthenticationFilter"));
         }
 
         boolean hasAuthorizationFilter() {
@@ -399,23 +373,7 @@ final class SecurityModel {
         }
 
         boolean matchesAnyRequest() {
-            if (matcher == null) {
-                return false;
-            }
-            String normalized = matcher.toLowerCase(Locale.ROOT).trim();
-            if (normalized.contains("any request") || normalized.contains("anyrequest")) {
-                return true;
-            }
-            // An explicit whole-application matcher such as securityMatcher("/**"). The "/**" token is
-            // matched only when delimited -- standing alone, quoted, or bracketed (optionally with a
-            // leading HTTP method inside the brackets, e.g. Spring Security 7's
-            // PathPatternRequestMatcher toString "PathPattern [/**]" / "PathPattern [GET /**]") -- so
-            // scoped patterns like "/api/**" or "PathPattern [/api/**]" are not mistaken for a
-            // catch-all.
-            return normalized.equals("/**")
-                    || normalized.contains("'/**'")
-                    || normalized.contains("\"/**\"")
-                    || CATCH_ALL_BRACKETED_PATTERN.matcher(normalized).find();
+            return details.unconditional();
         }
 
         /**
@@ -445,7 +403,25 @@ final class SecurityModel {
             List<String> allowedOriginPatterns,
             List<String> allowedMethods,
             List<String> allowedHeaders,
-            Boolean allowCredentials) {
+            Boolean allowCredentials,
+            Integer ownerChainIndex) {
+
+        CorsConfigModel(
+                String pattern,
+                List<String> allowedOrigins,
+                List<String> allowedOriginPatterns,
+                List<String> allowedMethods,
+                List<String> allowedHeaders,
+                Boolean allowCredentials) {
+            this(
+                    pattern,
+                    allowedOrigins,
+                    allowedOriginPatterns,
+                    allowedMethods,
+                    allowedHeaders,
+                    allowCredentials,
+                    null);
+        }
 
         CorsConfigModel {
             allowedOrigins = allowedOrigins == null ? List.of() : List.copyOf(allowedOrigins);
@@ -490,8 +466,8 @@ final class SecurityModel {
             if (value.isEmpty() || !value.contains("*") || value.equals("*")) {
                 return false; // exact "*" is handled by SEC-CORS-001/002
             }
-            if (value.equals("**") || value.contains("*://")) {
-                return true; // wildcard everything or wildcard scheme
+            if (value.equals("**")) {
+                return true;
             }
             String host = value;
             int scheme = host.indexOf("://");
@@ -517,15 +493,15 @@ final class SecurityModel {
             }
             if (firstLabel.contains("*")) {
                 // A leftmost-label wildcard is only acceptable with a concrete, multi-label suffix.
-                return rest.isEmpty() || !rest.contains(".");
+                return rest.isEmpty();
             }
             return false;
         }
 
         String describe() {
-            String path = (pattern == null || pattern.isBlank()) ? "(all paths)" : pattern;
-            List<String> origins = allowedOrigins.isEmpty() ? allowedOriginPatterns : allowedOrigins;
-            return path + " allows origins " + origins;
+            return ownerChainIndex == null
+                    ? "An attached CORS policy"
+                    : "An attached CORS policy in chain #" + ownerChainIndex;
         }
     }
 
@@ -538,4 +514,85 @@ final class SecurityModel {
      *     represents the framework default (effective strength 10).
      */
     record PasswordEncoderModel(String type, Integer bcryptStrength) {}
+
+    record ChainDetails(
+            boolean filtersKnown,
+            boolean headersKnown,
+            boolean unconditional,
+            MatcherFacts matcher,
+            List<AuthorizationMapping> mappings,
+            Boolean bearerSavesSession,
+            boolean httpsRedirect) {
+        ChainDetails {
+            mappings = List.copyOf(mappings);
+        }
+    }
+
+    record MatcherFacts(String kind, String method, String path, List<MatcherFacts> children) {
+        MatcherFacts {
+            children = List.copyOf(children);
+        }
+
+        Boolean matches(String requestMethod, String requestPath) {
+            if ("any".equals(kind)) return true;
+            if ("unknown".equals(kind)) return null;
+            if ("path".equals(kind)) {
+                if (method != null && !method.equals(requestMethod)) return false;
+                if ("/**".equals(path)) return true;
+                if (path != null
+                        && !path.contains("*")
+                        && !path.contains("{")
+                        && !path.contains("}")
+                        && !path.contains("?")) {
+                    return path.equals(requestPath);
+                }
+                if (path != null
+                        && path.endsWith("/**")
+                        && path.indexOf('*') == path.length() - 2
+                        && !path.contains("{")
+                        && !path.contains("}")
+                        && !path.contains("?")) {
+                    String prefix = path.substring(0, path.length() - 3);
+                    return requestPath.equals(prefix) || requestPath.startsWith(prefix + "/");
+                }
+                return null;
+            }
+            if ("not".equals(kind) && children.size() == 1) {
+                Boolean child = children.get(0).matches(requestMethod, requestPath);
+                return child == null ? null : !child;
+            }
+            boolean unknown = false;
+            for (MatcherFacts child : children) {
+                Boolean result = child.matches(requestMethod, requestPath);
+                if (result == null) return null;
+                if ("or".equals(kind) && Boolean.TRUE.equals(result)) return true;
+                if ("and".equals(kind) && Boolean.FALSE.equals(result)) return false;
+                unknown |= result == null;
+            }
+            return unknown || children.isEmpty() ? null : "and".equals(kind);
+        }
+
+        boolean unconditional() {
+            if ("or".equals(kind)) {
+                for (MatcherFacts child : children) {
+                    if (!child.complete()) return false;
+                    if (child.unconditional()) return true;
+                }
+                return false;
+            }
+            return "any".equals(kind)
+                    || ("path".equals(kind) && method == null && "/**".equals(path))
+                    || ("and".equals(kind)
+                            && !children.isEmpty()
+                            && children.stream().allMatch(MatcherFacts::unconditional));
+        }
+
+        boolean complete() {
+            return !"unknown".equals(kind)
+                    && (!"path".equals(kind) || matches(method, "/__bootui_observation__") != null)
+                    && children.stream().allMatch(MatcherFacts::complete);
+        }
+    }
+
+    record AuthorizationMapping(MatcherFacts matcher, Boolean grant) {}
 }

@@ -465,14 +465,15 @@ report contract.
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)
 
-On Spring Boot it analyses Spring Security when it is on the classpath: it introspects the registered
-`SecurityFilterChain` beans, simulates an anonymous authorization decision, and inspects security-relevant beans
-(`PasswordEncoder`, `CorsConfigurationSource`, `JwtDecoder`) and `Environment` properties. See
+On Spring Boot it analyses Spring Security when it is on the classpath: it inspects already-created
+`SecurityFilterChain` configuration and supported security metadata without executing application authorization
+managers, custom matchers or credential providers. Unsupported evidence remains incomplete rather than becoming a
+security verdict. See
 [SECURITY-CHECKS.md](../SECURITY-CHECKS.md) for the full catalogue and remediation links.
 
 ### Spring WebFlux
 
-On Spring Boot WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
+On Spring Boot WebFlux it evaluates a dedicated 25-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
 application's `SecurityWebFilterChain` beans, reactive CORS/OAuth2 beans, and security-relevant configuration. The Spring
 adapter owns collection and excludes BootUI's own permit-all chain; the shared engine owns deterministic rule evaluation
 and never receives Spring types or secret values.

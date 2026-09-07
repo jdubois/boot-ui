@@ -25,9 +25,32 @@ abstract class AbstractReactiveSecurityRule implements ReactiveSecurityRule {
     @Override
     public final SecurityRuleResultDto evaluate(ReactiveSecurityContext context) {
         try {
-            return evaluateRule(context);
+            String failure = context.environment().analysisFailures().get(definition.id());
+            if (failure != null) {
+                return ReactiveSecuritySupport.error(definition, "Configuration observation failed: " + failure);
+            }
+            SecurityRuleResultDto result = evaluateRule(context);
+            boolean chainRule = definition.id().startsWith("SEC-RXF-AUTHZ-")
+                    || definition.id().startsWith("SEC-RXF-CSRF-")
+                    || definition.id().startsWith("SEC-RXF-HEAD-")
+                    || definition.id().startsWith("SEC-RXF-SESSION-")
+                    || definition.id().equals("SEC-RXF-CONFIG-002");
+            if (!ReactiveSecuritySupport.VIOLATION.equals(result.status()) && chainRule) {
+                for (WebFilterChainObservation chain : context.chains()) {
+                    if (chain.analysisFailure() != null) {
+                        return ReactiveSecuritySupport.error(
+                                definition, "Chain metadata observation failed: " + chain.analysisFailure());
+                    }
+                }
+            }
+            if (!ReactiveSecuritySupport.VIOLATION.equals(result.status())
+                    && context.environment().incompleteRules().contains(definition.id())) {
+                return skipped("Configuration provenance or inventory is incomplete.");
+            }
+            return result;
         } catch (RuntimeException | LinkageError ex) {
-            return ReactiveSecuritySupport.error(definition, "Rule could not be evaluated: " + ex.getMessage());
+            return ReactiveSecuritySupport.error(
+                    definition, "Rule could not be evaluated: " + ex.getClass().getName());
         }
     }
 
@@ -65,7 +88,8 @@ abstract class AbstractReactiveSecurityRule implements ReactiveSecurityRule {
         if (details.isEmpty()
                 && context.chains().stream()
                         .anyMatch(chain -> !chain.filtersObserved()
-                                || (chain.hasHeaderWriterWebFilter() && !chain.headerWritersObserved()))) {
+                                || (chain.hasHeaderWriterWebFilter()
+                                        && (!chain.headerWritersObserved() || !chain.cspObserved())))) {
             return skipped("Header-writer details could not be fully observed.");
         }
         return violation(details);

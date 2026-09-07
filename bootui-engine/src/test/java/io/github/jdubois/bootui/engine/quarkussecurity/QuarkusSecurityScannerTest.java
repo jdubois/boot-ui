@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
+import io.github.jdubois.bootui.spi.QuarkusSecurityEndpoint;
+import io.github.jdubois.bootui.spi.QuarkusSecurityEvidence;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
 import java.time.Clock;
@@ -104,6 +106,7 @@ class QuarkusSecurityScannerTest {
         boolean nonAppRootPathMerged = false;
         int quarkusAuthorizationAnnotations = 0;
         boolean defaultRolesAllowed = false;
+        QuarkusSecurityEvidence evidence = QuarkusSecurityEvidence.LEGACY;
 
         QuarkusSecuritySnapshot build() {
             return new QuarkusSecuritySnapshot(
@@ -174,7 +177,8 @@ class QuarkusSecurityScannerTest {
                     tlsHostnameVerificationDisabled,
                     nonAppRootPathMerged,
                     quarkusAuthorizationAnnotations,
-                    defaultRolesAllowed);
+                    defaultRolesAllowed,
+                    evidence);
         }
     }
 
@@ -238,7 +242,7 @@ class QuarkusSecurityScannerTest {
         s.form = true;
         s.csrf = false;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-AUTH-003").severity()).isEqualTo("HIGH");
+        assertThat(find(r, "QS-AUTH-003").severity()).isEqualTo("LOW");
     }
 
     @Test
@@ -269,11 +273,11 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void proactiveAuthDisabledFlagsAuth005() {
+    void proactiveTimingDoesNotReviveRetiredAuth005() {
         Snap s = new Snap();
         s.proactiveDisabled = true;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-AUTH-005").severity()).isEqualTo("INFO");
+        assertThat(find(r, "QS-AUTH-005")).isNull();
     }
 
     @Test
@@ -281,7 +285,7 @@ class QuarkusSecurityScannerTest {
         Snap s = new Snap();
         s.permissions = List.of(new QuarkusSecurityPermission("open", "/*", "permit", null));
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-AUTHZ-002").severity()).isEqualTo("HIGH");
+        assertThat(find(r, "QS-AUTHZ-002").severity()).isEqualTo("INFO");
     }
 
     @Test
@@ -289,6 +293,7 @@ class QuarkusSecurityScannerTest {
         Snap s = new Snap();
         s.basic = false;
         s.authenticated = 0;
+        s.denyUnannotated = false;
         s.permissions = List.of(new QuarkusSecurityPermission("open", "/*", "permit", null));
 
         assertThat(find(scan(s), "QS-AUTH-001")).isNotNull();
@@ -307,14 +312,14 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void mostlyUnsecuredEndpointsFlagsAuthz003() {
+    void annotationRatioDoesNotReviveRetiredAuthz003() {
         Snap s = new Snap();
         s.endpoints = 6;
         s.secured = 1;
         s.authenticated = 1;
         s.denyUnannotated = true; // isolate from QS-AUTHZ-004
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-AUTHZ-003").severity()).isEqualTo("LOW");
+        assertThat(find(r, "QS-AUTHZ-003")).isNull();
     }
 
     @Test
@@ -381,13 +386,13 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void wildcardCorsWithCredentialsIsCritical() {
+    void wildcardCorsWithCredentialsIsHighReview() {
         Snap s = new Snap();
         s.cors = true;
         s.corsOrigins = "*";
         s.corsCreds = true;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-CORS-002").severity()).isEqualTo("CRITICAL");
+        assertThat(find(r, "QS-CORS-002").severity()).isEqualTo("HIGH");
         assertThat(find(r, "QS-CORS-001")).isNull();
     }
 
@@ -398,18 +403,18 @@ class QuarkusSecurityScannerTest {
         s.corsOrigins = "*";
         s.corsCreds = false;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-CORS-001").severity()).isEqualTo("MEDIUM");
+        assertThat(find(r, "QS-CORS-001").severity()).isEqualTo("LOW");
     }
 
     @Test
-    void pinnedCorsWithCredentialsAndWildcardMethodsFlagsCors003() {
+    void trustedOriginReflectionDoesNotReviveRetiredCors003() {
         Snap s = new Snap();
         s.cors = true;
         s.corsOrigins = "https://app.example";
         s.corsCreds = true;
         s.corsMethods = "*";
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-CORS-003").severity()).isEqualTo("MEDIUM");
+        assertThat(find(r, "QS-CORS-003")).isNull();
         assertThat(find(r, "QS-CORS-002")).isNull();
     }
 
@@ -426,14 +431,14 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void pinnedCredentialedCorsWithUnsetMethodsFlagsCors003() {
+    void trustedOriginDefaultMethodsDoNotReviveRetiredCors003() {
         Snap s = new Snap();
         s.cors = true;
         s.corsOrigins = "https://app.example";
         s.corsCreds = true;
         s.corsMethods = null;
         s.corsHeaders = "Content-Type";
-        assertThat(find(scan(s), "QS-CORS-003").severity()).isEqualTo("MEDIUM");
+        assertThat(find(scan(s), "QS-CORS-003")).isNull();
     }
 
     @Test
@@ -571,6 +576,7 @@ class QuarkusSecurityScannerTest {
         s.oidcAppType = "web-app";
         s.oidcCookieSecure = false;
         s.ssl = false;
+        s.insecure = "enabled";
         s.behindProxy = true;
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-OIDC-002").severity()).isEqualTo("MEDIUM");
@@ -602,7 +608,7 @@ class QuarkusSecurityScannerTest {
         Snap s = new Snap();
         s.secrets = List.of("app.api.password");
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-CFG-001").severity()).isEqualTo("CRITICAL");
+        assertThat(find(r, "QS-CFG-001").severity()).isEqualTo("MEDIUM");
     }
 
     @Test
@@ -660,7 +666,7 @@ class QuarkusSecurityScannerTest {
         s.jwt = true;
         s.jwtInlineKey = true;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-AUTH-009").severity()).isEqualTo("LOW");
+        assertThat(find(r, "QS-AUTH-009").severity()).isEqualTo("INFO");
     }
 
     @Test
@@ -729,19 +735,19 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void missingReferrerPolicyFlagsHdr007() {
+    void missingReferrerPolicyDoesNotReviveRetiredHdr007() {
         Snap s = new Snap();
         s.referrerPolicy = false;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-HDR-007").severity()).isEqualTo("INFO");
+        assertThat(find(r, "QS-HDR-007")).isNull();
     }
 
     @Test
-    void missingPermissionsPolicyFlagsHdr008() {
+    void missingPermissionsPolicyDoesNotReviveRetiredHdr008() {
         Snap s = new Snap();
         s.permissionsPolicy = false;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-HDR-008").severity()).isEqualTo("INFO");
+        assertThat(find(r, "QS-HDR-008")).isNull();
     }
 
     @Test
@@ -753,12 +759,12 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void nonApplicationRootPathCollapsedFlagsMgmt002() {
+    void mergedNamespaceDoesNotReviveRetiredMgmt002() {
         Snap s = new Snap();
         s.nonAppRootPath = "/";
         s.nonAppRootPathMerged = true;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-MGMT-002").severity()).isEqualTo("MEDIUM");
+        assertThat(find(r, "QS-MGMT-002")).isNull();
     }
 
     @Test
@@ -770,11 +776,11 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void customHttpRootCollapseFlagsMgmt002() {
+    void customMergedNamespaceDoesNotReviveRetiredMgmt002() {
         Snap s = new Snap();
         s.nonAppRootPath = "/api";
         s.nonAppRootPathMerged = true;
-        assertThat(find(scan(s), "QS-MGMT-002")).isNotNull();
+        assertThat(find(scan(s), "QS-MGMT-002")).isNull();
     }
 
     @Test
@@ -804,7 +810,7 @@ class QuarkusSecurityScannerTest {
         s.csrf = true;
         s.formSameSiteNone = true;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-SESSION-002").severity()).isEqualTo("MEDIUM");
+        assertThat(find(r, "QS-SESSION-002").severity()).isEqualTo("LOW");
     }
 
     @Test
@@ -967,29 +973,29 @@ class QuarkusSecurityScannerTest {
     void managementDisabledDoesNotFlagMgmt003() {
         Snap s = new Snap();
         s.mgmtEnabled = false;
-        s.mgmtHostUnpinnedForProd = true;
+        s.mgmtHostUnpinnedForProd = false;
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-MGMT-003")).isNull();
     }
 
     @Test
-    void unsetCorsOriginsFlagsCors005AsInfoNotWildcard() {
+    void unsetCorsOriginsRemainRestrictiveWithoutRetiredCors005() {
         Snap s = new Snap();
         s.cors = true;
         s.corsOrigins = null;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-CORS-005").severity()).isEqualTo("INFO");
+        assertThat(find(r, "QS-CORS-005")).isNull();
         assertThat(find(r, "QS-CORS-001")).isNull();
         assertThat(find(r, "QS-CORS-002")).isNull();
     }
 
     @Test
-    void blankCorsOriginsFlagsCors005() {
+    void blankCorsOriginsDoNotReviveRetiredCors005() {
         Snap s = new Snap();
         s.cors = true;
         s.corsOrigins = "  ";
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-CORS-005").severity()).isEqualTo("INFO");
+        assertThat(find(r, "QS-CORS-005")).isNull();
     }
 
     @Test
@@ -1029,20 +1035,18 @@ class QuarkusSecurityScannerTest {
         Snap s = new Snap();
         s.permissions = List.of(new QuarkusSecurityPermission("open", "/*", "permit", null));
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-AUTHZ-002").severity()).isEqualTo("HIGH");
+        assertThat(find(r, "QS-AUTHZ-002").severity()).isEqualTo("INFO");
     }
 
     @Test
-    void methodScopedProtectivePolicyDoesNotSuppressAuthz004() {
-        // Regression: a protective policy scoped to only one HTTP method (e.g. GET) does not actually cover
-        // every unannotated endpoint, so it must not suppress the "no deny-by-default" finding.
+    void methodScopedProtectivePolicyDeniesOtherMethods() {
         Snap s = new Snap();
         s.endpoints = 4;
         s.secured = 2;
         s.denyUnannotated = false;
         s.permissions = List.of(new QuarkusSecurityPermission("get-only", "/*", "authenticated", "GET"));
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-AUTHZ-004").severity()).isEqualTo("MEDIUM");
+        assertThat(find(r, "QS-AUTHZ-004")).isNull();
     }
 
     @Test
@@ -1079,7 +1083,7 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void quarkusAuthorizationAnnotationsContributeToCoverageReview() {
+    void quarkusAuthorizationAnnotationsDoNotReviveRetiredCoverageRatio() {
         Snap s = new Snap();
         s.authenticated = 0;
         s.endpoints = 4;
@@ -1087,7 +1091,7 @@ class QuarkusSecurityScannerTest {
         s.quarkusAuthorizationAnnotations = 1;
         s.denyUnannotated = true;
 
-        assertThat(find(scan(s), "QS-AUTHZ-003")).isNotNull();
+        assertThat(find(scan(s), "QS-AUTHZ-003")).isNull();
     }
 
     @Test
@@ -1123,6 +1127,149 @@ class QuarkusSecurityScannerTest {
         s.secured = 0;
         SecurityReport r = scan(s);
         assertThat(r.results()).allSatisfy(x -> assertThat(x.id()).startsWith("QS-"));
-        assertThat(r.scan().rulesEvaluated()).isEqualTo(49);
+        assertThat(r.scan().rulesEvaluated()).isEqualTo(42);
+    }
+
+    @Test
+    void incompleteEvidenceDoesNotEraseUnrelatedKnownViolationsOrInventPasses() {
+        Snap s = new Snap();
+        s.insecure = "enabled";
+        s.jwt = true;
+        s.jwtIssuer = false;
+        s.evidence = new QuarkusSecurityEvidence(
+                Set.of("QS-AUTH-004"),
+                List.of("custom verifier"),
+                List.of("JWT configuration could not be read"),
+                List.of(),
+                true);
+        SecurityReport report = scan(s);
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(find(report, "QS-AUTH-002")).isNotNull();
+        assertThat(find(report, "QS-AUTH-004")).isNull();
+        assertThat(report.analysisErrors())
+                .singleElement()
+                .satisfies(error -> assertThat(error.status()).isEqualTo("ERROR"));
+        assertThat(report.results()).allMatch(result -> result.status().equals("VIOLATION"));
+    }
+
+    @Test
+    void nullOrFailedSnapshotHasValueFreeAnalysisError() {
+        var report = QuarkusSecurityScanner.usingSnapshot(
+                        () -> {
+                            throw new IllegalArgumentException("secret-value");
+                        },
+                        CLOCK)
+                .scan();
+        assertThat(report.scan().status()).isEqualTo("ERROR");
+        assertThat(report.analysisErrors()).hasSize(1);
+        assertThat(report.toString()).doesNotContain("secret-value");
+        assertThat(QuarkusSecurityScanner.usingSnapshot(() -> null, CLOCK)
+                        .scan()
+                        .scan()
+                        .status())
+                .isEqualTo("ERROR");
+    }
+
+    @Test
+    void nativeEndpointEvidenceUsesWinningPathRatherThanBroadPolicyShortcut() {
+        Snap s = new Snap();
+        s.denyUnannotated = false;
+        s.secured = 0;
+        s.permissions = List.of(
+                new QuarkusSecurityPermission("root", "/*", "authenticated", null),
+                new QuarkusSecurityPermission("open", "/open", "permit", null));
+        s.evidence = new QuarkusSecurityEvidence(
+                Set.of(),
+                List.of(),
+                List.of(),
+                List.of(
+                        new QuarkusSecurityEndpoint("/open", "GET", QuarkusSecurityEndpoint.Access.UNANNOTATED, false),
+                        new QuarkusSecurityEndpoint(
+                                "/closed", "GET", QuarkusSecurityEndpoint.Access.UNANNOTATED, false),
+                        new QuarkusSecurityEndpoint(
+                                "/intentional", "GET", QuarkusSecurityEndpoint.Access.PERMIT, false)),
+                true);
+        assertThat(find(scan(s), "QS-AUTHZ-004").violationCount()).isEqualTo(1);
+    }
+
+    @Test
+    void exactRootPermissionIsNotAnApplicationWidePublicDefault() {
+        Snap s = new Snap();
+        s.permissions = List.of(new QuarkusSecurityPermission("root", "/", "permit", null));
+        assertThat(find(scan(s), "QS-AUTHZ-002")).isNull();
+    }
+
+    @Test
+    void httpsMaterialDoesNotSecureOidcCookiesOnAcceptedHttp() {
+        Snap s = new Snap();
+        s.oidc = true;
+        s.oidcAppType = "web-app";
+        s.oidcCookieSecure = false;
+        s.ssl = true;
+        s.insecure = "enabled";
+        assertThat(find(scan(s), "QS-OIDC-002")).isNotNull();
+        s.oidcCookieSecure = true;
+        assertThat(find(scan(s), "QS-OIDC-002")).isNull();
+    }
+
+    @Test
+    void scriptPolicyIgnoresStyleOnlyInlineAndHonorsRestrictiveOverrides() {
+        for (String policy : List.of(
+                "script-src 'self'; style-src 'unsafe-inline'",
+                "default-src *; script-src 'none'",
+                "script-src 'nonce-YWJjZA==' 'strict-dynamic' 'unsafe-inline' https:")) {
+            Snap s = new Snap();
+            s.cspValue = policy;
+            assertThat(find(scan(s), "QS-HDR-002")).as(policy).isNull();
+        }
+    }
+
+    @Test
+    void universalFramingDirectiveIsNotClickjackingProtection() {
+        Snap s = new Snap();
+        s.xFrame = false;
+        s.cspValue = "script-src 'self'; frame-ancestors *";
+        assertThat(find(scan(s), "QS-HDR-005")).isNotNull();
+    }
+
+    @Test
+    void enforcingFrameAncestorsOverridesOtherwiseValidXFrameOptions() {
+        Snap s = new Snap();
+        s.xFrame = true;
+        s.cspValue = "script-src 'self'; frame-ancestors *";
+        assertThat(find(scan(s), "QS-HDR-005")).isNotNull();
+        s.cspValue = "script-src 'self'";
+        assertThat(find(scan(s), "QS-HDR-005")).isNull();
+        s.xFrame = false;
+        assertThat(find(scan(s), "QS-HDR-005")).isNotNull();
+        s.cspValue = "script-src 'self'; frame-ancestors";
+        assertThat(find(scan(s), "QS-HDR-005")).isNull();
+    }
+
+    @Test
+    void incompleteCspNeverEstablishesMissingFramingOrWeakScriptPolicy() {
+        for (String policy : java.util.Arrays.asList(null, "script-src *, frame-ancestors 'none'", "x".repeat(8193))) {
+            for (boolean xFrame : new boolean[] {false, true}) {
+                Snap s = new Snap();
+                s.csp = true;
+                s.xFrame = xFrame;
+                s.cspValue = policy;
+                var report = scan(s);
+                assertThat(report.scan().status()).isEqualTo("PARTIAL");
+                assertThat(find(report, "QS-HDR-002")).isNull();
+                assertThat(find(report, "QS-HDR-005")).isNull();
+                assertThat(report.analysisErrors()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void regexUniversalOriginInsideListIsCredentialedReview() {
+        Snap s = new Snap();
+        s.cors = true;
+        s.corsCreds = true;
+        s.corsOrigins = "/.*/,https://app.example";
+        assertThat(find(scan(s), "QS-CORS-002")).isNotNull();
+        assertThat(find(scan(s), "QS-CORS-001")).isNull();
     }
 }

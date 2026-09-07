@@ -50,6 +50,17 @@
 
         <!-- Plain JUnit 5 + AssertJ (versions managed by quarkus-bom) for the BasePackageRoots antichain
              unit test. The base-package reduction is pure logic, so it needs no Quarkus bootstrap. -->
+        <!-- Test-only native augmentation fixture for additional secured methods and advisor ordering. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit-internal</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-security</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- Test-only: the MicroProfile / SmallRye Fault Tolerance annotations the fault tolerance scan reads.
              They are compiled into the test fixtures so the Jandex index the test builds is the real thing.
              Deliberately not a compile dependency: the scan matches annotations by DotName and must stay

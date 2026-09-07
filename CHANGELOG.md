@@ -67,6 +67,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Security advisor findings distinguish observed configuration from unknown application behavior across all three
+  stacks.** The MVC, WebFlux and Quarkus catalogs were audited against Boot 4.1.1 / Spring Security 7.1.1 and Quarkus
+  3.33.3.1. Collection no longer evaluates application policy merely to infer metadata; framework defaults, ordered
+  authorization scope, browser credentials, Actuator access, CORS and OAuth/OIDC settings receive more precise
+  interpretation. Sixteen duplicate or low-signal rules are retired, one INFO reactive chain-ordering rule is added,
+  and static verification-key advice is consistently informational. Unknown evidence remains incomplete rather than
+  creating false missing-control findings. Existing active rule IDs and dismissal keys are preserved
+  ([#965](https://github.com/jdubois/boot-ui/issues/965)).
+
 - **The Hibernate advisor now distinguishes evidence gaps from clean scans and reviews each persistence unit's own
   settings.** Verified JPA repository metadata, effective factory observations and explicit incomplete-scan handling
   replace cross-unit/default guesses. The complete 75-rule audit retires five unsupported or duplicated checks and

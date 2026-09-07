@@ -16,7 +16,7 @@ class SecurityDocumentationTests {
     private static final Pattern SERVLET_RULE_HEADING = Pattern.compile("(?m)^### (SEC-(?!RXF-)[A-Z0-9-]+) - ");
 
     @Test
-    void servletCatalogDocumentsEveryActiveRuleWithMatchingSeverity() throws IOException {
+    void servletCatalogDocumentsEveryActiveRuleWithMatchingTitleAndSeverity() throws IOException {
         String documentation = Files.readString(securityChecksDocumentation());
         Set<String> documentedRuleIds = new LinkedHashSet<>();
         Matcher headings = SERVLET_RULE_HEADING.matcher(documentation);
@@ -37,6 +37,9 @@ class SecurityDocumentationTests {
             int nextSection = documentation.indexOf("\n### ", sectionStart + heading.length());
             String section =
                     documentation.substring(sectionStart, nextSection < 0 ? documentation.length() : nextSection);
+            assertThat(section)
+                    .as("documented title for %s", definition.id())
+                    .startsWith(heading + definition.name() + "\n");
             assertThat(section)
                     .as("documented severity for %s", definition.id())
                     .contains("- **Severity**: " + definition.severity());
