@@ -1,6 +1,17 @@
 <script setup>
 import {apiFetch} from './api.js'
-import {computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch} from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  inject,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  provide,
+  reactive,
+  ref,
+  watch
+} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import {
   applyTheme,
@@ -24,11 +35,16 @@ import {
 } from './utils/panelNavigation.js'
 import {recordRecentPanel} from './utils/recentPanels.js'
 import {safeLocalStorage} from './utils/safeStorage.js'
+import {routeAssetRecoveryKey} from './utils/routeAssetRecovery.js'
 import CommandPalette from './views/components/CommandPalette.vue'
 const ConfirmDialog = defineAsyncComponent(() => import('./views/components/ConfirmDialog.vue'))
 
 const router = useRouter()
 const route = useRoute()
+const routeAssetRecovery = inject(routeAssetRecoveryKey, null)
+const failedPanelTitle = computed(() =>
+  routeAssetRecovery?.failure.value ? resolveRouteTitle(routeAssetRecovery.failure.value, panels.value?.platform) : null
+)
 const overview = ref(null)
 const panels = ref(null)
 const shellError = ref(null)
@@ -954,6 +970,17 @@ function onGlobalKeydown(e) {
         </header>
 
         <main ref="mainContentRef" class="content-stage" tabindex="-1">
+          <div v-if="failedPanelTitle" class="alert alert-warning shell-error shadow-sm" role="alert">
+            <div class="shell-error__title">
+              <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+              <strong>Could not open {{ failedPanelTitle }}</strong>
+            </div>
+            <p>
+              BootUI could not load this panel's files. The application may have been rebuilt or stopped. Once it is
+              running, reload to get the current UI. Reloading discards unsaved input in this tab.
+            </p>
+            <button class="btn btn-primary" type="button" @click="routeAssetRecovery.reload">Reload BootUI</button>
+          </div>
           <div
             v-if="shellErrorMessage"
             :class="['alert', shellServerUnreachable ? 'alert-warning' : 'alert-danger']"
