@@ -10,6 +10,8 @@ public class Reflections {
 
     public Reflections(String basePackage) {}
 
+    public Reflections(Store store) {}
+
     public Set<Class<?>> getSubTypesOf(Class<?> type) {
         return Set.of();
     }

@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ActiveSerializer;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AnnotationReader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AotFriendlyBeanRegistrar;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.AsyncClasspathDiscovery;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AutoConfigurationExpression;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.BooleanPropertyConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CglibProxyGenerator;
@@ -35,6 +36,7 @@ import io.github.jdubois.bootui.engine.graalvm.fixtures.MethodHandleUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ModuleResourceLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.NativeLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.NativeMethodHolder;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.PassiveClasspathMetadata;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.PropertyExpressionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ProxyClassFactory;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.QuotedAtExpressionConfiguration;
@@ -59,6 +61,9 @@ import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /** Positive and negative coverage for each curated readiness check in isolation. */
 class GraalVmChecksTests {
@@ -227,6 +232,8 @@ class GraalVmChecksTests {
         assertThat(finding.id()).isEqualTo("GRAAL-CLASSGEN-001");
         assertThat(finding.severity()).isEqualTo("HIGH");
         assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(finding.description()).contains("25.0.0", "only trivial classes without fields or methods");
+        assertThat(finding.recommendation()).contains("shipped GraalVM distribution", "not a compatibility guarantee");
         assertThat(evaluate(new RuntimeClassGenerationCheck(), CglibProxyGenerator.class)
                         .status())
                 .isEqualTo("REVIEW");
@@ -268,6 +275,17 @@ class GraalVmChecksTests {
     }
 
     @Test
+    void runtimeClasspathScanningIgnoresConfigurationAndExistingMetadata() {
+        assertThat(evaluate(new RuntimeClasspathScanningCheck(), PassiveClasspathMetadata.class)
+                        .status())
+                .isEqualTo("OK");
+        GraalVmFindingDto discovery = evaluate(new RuntimeClasspathScanningCheck(), AsyncClasspathDiscovery.class);
+        assertThat(discovery.status()).isEqualTo("REVIEW");
+        assertThat(discovery.occurrenceCount()).isEqualTo(2);
+        assertThat(discovery.description()).contains("only during AOT processing", "or not at all");
+    }
+
+    @Test
     void runtimeSingletonRegistrationCheckDetectsRegisterSingleton() {
         GraalVmFindingDto finding = evaluate(new RuntimeSingletonRegistrationCheck(), RuntimeSingletonRegistrar.class);
         assertThat(finding.id()).isEqualTo("SPRING-AOT-001");
@@ -284,6 +302,8 @@ class GraalVmChecksTests {
         assertThat(finding.id()).isEqualTo("SPRING-AOT-002");
         assertThat(finding.severity()).isEqualTo("HIGH");
         assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(finding.recommendation())
+                .contains("RuntimeHintsRegistrar alone cannot", "AOT code-generation contribution");
         // BeanDefinitionBuilder.genericBeanDefinition(Class, Supplier) overload is also captured.
         assertThat(evaluate(new RuntimeInstanceSupplierCheck(), SupplierBeanDefiner.class)
                         .status())
@@ -345,6 +365,61 @@ class GraalVmChecksTests {
     }
 
     @Test
+    void beanReferenceClassifierRecognizesSpelTokensRatherThanLiteralContents() {
+        for (String expression : List.of(
+                "@bean.enabled",
+                "@'order.service'.enabled",
+                "@\"order.service\".enabled",
+                "&factory.enabled",
+                "&'order.factory'.enabled",
+                "@ bean",
+                "& \"factory.name\"",
+                "'it''s literal' == '' or @bean.enabled",
+                "\"say \"\"hello\"\"\" == '' or &factory.enabled")) {
+            assertThat(SpringAotConditionSupport.containsBeanReference(expression))
+                    .as(expression)
+                    .isTrue();
+        }
+        for (String expression : List.of(
+                "'@bean'",
+                "\"&factory\"",
+                "'it''s @bean'",
+                "\"say \"\"@bean\"\"\"",
+                "true && false",
+                "true &&flag",
+                "${feature.enabled:false}",
+                "@",
+                "&",
+                "@  ",
+                "'@\\'")) {
+            assertThat(SpringAotConditionSupport.containsBeanReference(expression))
+                    .as(expression)
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void quotedAndFactoryReferencesUseDedicatedRuleOnComponentsAndBeanMethods() {
+        GraalVmFindingDto finding = evaluate(new SpringAotBeanExpressionCheck(), QuotedBeanConditions.class);
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(finding.occurrenceCount()).isEqualTo(2);
+        assertThat(evaluate(new SpringAotConditionedBeansCheck(), QuotedBeanConditions.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Configuration
+    @ConditionalOnExpression("@'order.service'.enabled")
+    static class QuotedBeanConditions {
+
+        @Bean
+        @ConditionalOnExpression("&'order.factory'.enabled")
+        String configuredBean() {
+            return "configured";
+        }
+    }
+
+    @Test
     void springAotConditionedBeansCheckDetectsCustomComposedConditions() {
         GraalVmFindingDto finding =
                 evaluate(new SpringAotConditionedBeansCheck(), CustomConditionedConfiguration.class);
@@ -401,6 +476,8 @@ class GraalVmChecksTests {
         // this check is grouped under Spring AOT rather than Reflection.
         assertThat(finding.category()).isEqualTo(GraalVmCategory.SPRING_AOT.label());
         assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(finding.recommendation())
+                .contains("annotation placement alone does not guarantee coverage", "native executable");
         assertThat(evaluate(new SpelUsageCheck(), CleanComponent.class).status())
                 .isEqualTo("OK");
     }
