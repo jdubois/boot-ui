@@ -175,7 +175,10 @@ DTOs.
 5. Answer with read commands where you can. Do not run a tool the catalog marks as an action — every `… scan`,
    `clear`, `pause`, `resume`, and heap analysis — unless the user asked for it or approves after you name it. Prefer
    an existing `… report` over a fresh scan, and treat `vulnerabilities scan` as always requiring approval because it
-   queries OSV.dev over the network.
+   sends package names/versions to OSV.dev and, when enabled, CVE ids to FIRST for EPSS enrichment. Inspect scan status,
+   message, inventory coverage and skipped packages; partial evidence and UNKNOWN severity are not a clean result.
+   Fixed versions are affected-interval candidates, not guaranteed compatible upgrades. EPSS is the highest available
+   per-CVE probability, not combined probability or severity.
 6. Record a baseline: finding identifiers and severities, health, failing request, exception, and relevant metrics.
 
 Treat unavailable panels honestly. Their backing library, capability, configuration, or adapter support may be absent.

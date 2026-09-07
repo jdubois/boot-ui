@@ -54,6 +54,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Vulnerabilities interprets OSV evidence for the installed Maven version rather than unrelated affected branches.**
+  Applicable severity and verified newer fix candidates share a neutral interpreter, CVSS v3 vectors receive strict
+  Base-only validation, and later OSV pagination failures retain earlier results with accurate completed-query counts.
+  Optional EPSS enrichment preserves partial data and selects the highest available per-CVE signal without changing
+  OSV status. The new [checks catalogue](docs/VULNERABILITIES-CHECKS.md) records sources and every audit disposition;
+  inventory repairs and CVSS v4 remain deferred, and scoring/Overview changes belong to the independent central
+  scoring workstream ([#978](https://github.com/jdubois/boot-ui/issues/978)).
+
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
   collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,

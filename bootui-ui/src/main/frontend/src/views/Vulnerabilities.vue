@@ -209,15 +209,16 @@ function epssBadgeText(vulnerability) {
 }
 
 // FIRST.org EPSS (https://www.first.org/epss/) estimates likelihood-of-exploitation in the next 30
-// days, complementing CVSS's severity-if-exploited score. Only set for CVE-aliased advisories.
+// days, complementing CVSS's severity-if-exploited score. The backend selects one available CVE.
 function epssTooltip(vulnerability) {
   const percent = formatEpssPercent(vulnerability.epssScore)
   if (!percent) return ''
+  const signal = `Highest available CVE EPSS: ${percent} likelihood of exploitation in the next 30 days`
   if (vulnerability.epssPercentile == null) {
-    return `${percent} likelihood of exploitation in the next 30 days (EPSS)`
+    return `${signal}. A prioritization signal, not a combined probability for this advisory.`
   }
   const percentile = ordinal(Math.round(vulnerability.epssPercentile * 100))
-  return `${percent} likelihood of exploitation in the next 30 days, ${percentile} percentile (EPSS)`
+  return `${signal}, ${percentile} percentile for that CVE. A prioritization signal, not a combined probability for this advisory.`
 }
 
 const aliasLinkBuilders = [
