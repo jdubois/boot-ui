@@ -60,6 +60,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The REST API advisor now distinguishes declaration evidence from runtime behavior.** Corrected response wrappers,
+  path bindings, exception declarations, and versioning hints reduce false positives across MVC, WebFlux, and Quarkus.
+  Four unsupported heuristics now return `SKIPPED` without changing their rule or dismissal IDs; all 56 definitions
+  remain, with 52 potentially emitting rules and calibrated severities. Observed analysis failures report `PARTIAL`
+  while retaining reliable findings. The REST checks reference includes the complete audit dispositions and limits
+  ([#962](https://github.com/jdubois/boot-ui/issues/962)).
+
 - **Advisor scores now exclude incomplete and failed assessments without hiding their findings.** Panels and Overview
   share eligibility, including complete inventory coverage and no active UNKNOWN severity for Vulnerabilities.
   Dismissal/restore refreshes vulnerability eligibility, and Overview's mean and scored count use the same contributors
