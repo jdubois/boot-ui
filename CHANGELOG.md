@@ -79,6 +79,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   invented scores, explicit `NOT_SCANNED` responses clear old scan display after a restart, and dismissal/restore
   refreshes retain the existing in-flight scan protections ([#986](https://github.com/jdubois/boot-ui/issues/986)).
 
+- **Panel navigation now recovers from stale UI assets after a backend rebuild.** Missing lazy-loaded JavaScript or
+  stylesheets show an explicit **Reload BootUI** action instead of silently leaving navigation stuck or blank.
+  Recovery preserves the intended route and custom mount, warns before discarding unsaved input, and never refreshes
+  automatically or masks ordinary API/application errors ([#985](https://github.com/jdubois/boot-ui/issues/985)).
+
 - **Advisor browser coverage now distinguishes incomplete reports from numeric scores.** Live Spring and Quarkus
   scenarios retain findings and dismissal/restore assertions without requiring a score for `PARTIAL` results.
   Shared complete-report scenarios continue to verify exact dismissal and restore score changes across runtimes

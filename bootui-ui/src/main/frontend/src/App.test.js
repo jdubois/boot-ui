@@ -118,10 +118,16 @@ async function mountApp(initialPath = '/overview', options = {}) {
   if (typeof window.matchMedia !== 'function') stubMatchMedia()
   vi.resetModules()
   const {default: App} = await import('./App.vue')
+  const {createRouteAssetRecovery, routeAssetRecoveryKey} = await import('./utils/routeAssetRecovery.js')
   const router = createRouter({
     history: createMemoryHistory(),
     routes: shellRoutes()
   })
+  const browser = {
+    location: {href: 'http://localhost/bootui/#/overview', reload: vi.fn()},
+    history: {state: null, replaceState: vi.fn()}
+  }
+  const recovery = createRouteAssetRecovery(router, browser)
 
   await router.push(initialPath)
   await router.isReady()
@@ -130,6 +136,7 @@ async function mountApp(initialPath = '/overview', options = {}) {
     attachTo: document.body,
     global: {
       plugins: [router],
+      provide: {[routeAssetRecoveryKey]: recovery},
       stubs: {
         CommandPalette: options.stubCommandPalette === false ? false : true,
         RouterView: options.stubRouterView === false ? false : {template: '<div />'}
@@ -138,7 +145,7 @@ async function mountApp(initialPath = '/overview', options = {}) {
   })
   await flushPromises()
 
-  return {router, wrapper}
+  return {router, wrapper, browser}
 }
 
 function groupToggle(wrapper, title) {
@@ -159,6 +166,36 @@ describe('App sidebar navigation', () => {
     vi.unstubAllGlobals()
     restoreLocalStorage()
     document.body.innerHTML = ''
+  })
+
+  it('shows one actionable asset failure without replacing the current panel', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const {router, wrapper, browser} = await mountApp('/overview', {stubRouterView: false})
+    router.addRoute({
+      path: '/hibernate',
+      name: 'hibernate',
+      meta: {title: 'Hibernate', group: 'advisors'},
+      component: () => Promise.reject(new TypeError('Failed to fetch dynamically imported module: old.js'))
+    })
+    await expect(router.push('/hibernate')).rejects.toThrow()
+    await flushPromises()
+
+    const alerts = wrapper.findAll('[role="alert"]')
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0].text()).toContain('Could not open Hibernate')
+    expect(alerts[0].text()).toContain('Reloading discards unsaved input')
+    expect(wrapper.find('main section').exists()).toBe(true)
+    expect(browser.location.reload).not.toHaveBeenCalled()
+    const reload = alerts[0].find('button')
+    expect(reload.text()).toBe('Reload BootUI')
+    expect(reload.attributes('type')).toBe('button')
+    await reload.trigger('click')
+    expect(browser.location.reload).toHaveBeenCalledTimes(1)
+
+    await router.push('/health')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('moves the active group away from Security after navigating to another group', async () => {

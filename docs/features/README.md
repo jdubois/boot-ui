@@ -17,6 +17,13 @@ the search box to jump straight to a panel by name.
 
 ## Rules that apply to every panel
 
+**An old tab can recover after a UI rebuild.** If opening a panel fails because its JavaScript or stylesheet is no
+longer available, BootUI keeps the current panel and shows **Reload BootUI**. Once the application is running, use that
+action to fetch the current UI and open the intended panel, including its route query and hash. Custom console mounts
+are preserved. Reloading discards unsaved input in the tab, so BootUI never does it automatically. If loading still
+fails, the alert remains available; there is no automatic retry, reload loop, or background connection probe.
+Ordinary panel/API errors keep their existing error handling.
+
 **Unavailable panels are visible, not hidden.** When a panel's backing infrastructure is missing, the sidebar moves it
 into a collapsed *Disabled / unavailable* group, and opening it shows the reason at the top of the page.
 
