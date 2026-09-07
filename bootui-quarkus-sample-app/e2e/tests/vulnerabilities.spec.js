@@ -23,7 +23,8 @@ test.describe('Vulnerabilities (Quarkus)', () => {
     await page.getByRole('button', {name: 'Scan with OSV.dev'}).click()
 
     // The fixture-backed server is configured with max-packages=3, below the real inventory size.
-    await expect(page.getByText('Partial scan', {exact: true})).toBeVisible()
+    await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
+    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
     // A truncated scan must say so rather than letting the result read as a complete one.
     const truncationWarning = page.locator('.alert-warning', {hasText: 'not sent to OSV.dev'})
     await expect(truncationWarning).toBeVisible()

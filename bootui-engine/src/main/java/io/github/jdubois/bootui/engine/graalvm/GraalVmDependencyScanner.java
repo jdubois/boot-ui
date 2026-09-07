@@ -161,28 +161,18 @@ final class GraalVmDependencyScanner {
                 truncated = true;
                 break;
             }
-            List<InspectedDependency> found = inspect(file);
-            int remaining = MAX_DEPENDENCIES - inspected.size();
-            if (found.size() >= remaining) {
-                // A single fat/uber jar can expand into more nested dependencies than the remaining
-                // budget; take only as many as fit and stop, same as the single-dependency case below.
-                inspected.addAll(found.subList(0, remaining));
-                truncated = true;
-                progress.set(new Progress(
-                        true,
-                        "dependencies.inspect",
-                        inspected.size(),
-                        0,
-                        "Inspecting classpath JARs (" + inspected.size() + " found)."));
-                break;
-            }
-            inspected.addAll(found);
+            Inspection found = inspect(file, MAX_DEPENDENCIES - inspected.size());
+            inspected.addAll(found.dependencies());
             progress.set(new Progress(
                     true,
                     "dependencies.inspect",
                     inspected.size(),
                     0,
                     "Inspecting classpath JARs (" + inspected.size() + " found)."));
+            if (found.truncated()) {
+                truncated = true;
+                break;
+            }
         }
         progress.set(new Progress(
                 true,
@@ -375,51 +365,71 @@ final class GraalVmDependencyScanner {
      * java.class.path} would otherwise cause every bundled dependency to be silently missed (see the
      * class-level Javadoc).
      */
-    private List<InspectedDependency> inspect(File jar) {
+    private Inspection inspect(File jar, int remaining) {
         try (JarFile jarFile = new JarFile(jar)) {
-            boolean hasMetadataJson = false;
-            boolean hasBuildArgs = false;
-            List<Coordinates> pomCandidates = new ArrayList<>();
-            List<JarEntry> nestedLibraryEntries = new ArrayList<>();
-            Enumeration<JarEntry> entries = jarFile.entries();
-            while (entries.hasMoreElements()) {
-                JarEntry entry = entries.nextElement();
-                String name = entry.getName();
-                if (name.startsWith(METADATA_PREFIX)) {
-                    String lower = name.toLowerCase(Locale.ROOT);
-                    if (isReachabilityMetadataFile(name)) {
-                        hasMetadataJson = true;
-                    } else if (lower.endsWith("native-image.properties")) {
-                        hasBuildArgs = true;
-                    }
-                }
-                if (name.startsWith(MAVEN_POM_PREFIX) && name.endsWith("/pom.properties")) {
-                    readPomProperties(jarFile, entry).ifPresent(pomCandidates::add);
-                }
-                if (!entry.isDirectory() && isNestedLibraryJar(name)) {
-                    nestedLibraryEntries.add(entry);
-                }
-            }
-            if (!nestedLibraryEntries.isEmpty()) {
-                List<InspectedDependency> nested = new ArrayList<>(nestedLibraryEntries.size());
-                for (JarEntry nestedEntry : nestedLibraryEntries) {
-                    nested.add(inspectNestedLibrary(jarFile, nestedEntry));
-                }
-                return nested;
-            }
-            Coordinates coordinates =
-                    selectPomCoordinates(jar.getName(), pomCandidates).orElse(null);
-            if (coordinates == null) {
-                coordinates = coordinatesFromMavenRepositoryPath(jar).orElse(null);
-            }
-            if (coordinates == null) {
-                coordinates = coordinatesFromJarName(jar.getName()).orElse(null);
-            }
-            return List.of(toInspectedDependency(jar.getName(), hasMetadataJson, hasBuildArgs, coordinates));
+            return inspect(jarFile, remaining);
         } catch (Exception ex) {
-            return List.of(
-                    new InspectedDependency(jar.getName(), false, "Could not read JAR: " + ex.getMessage(), null));
+            return new Inspection(
+                    List.of(new InspectedDependency(
+                            jar.getName(), false, "Could not read JAR: " + ex.getMessage(), null)),
+                    false);
         }
+    }
+
+    /** Package-private so tests can observe which nested streams are actually opened. */
+    Inspection inspect(JarFile jarFile, int remaining) {
+        boolean hasMetadataJson = false;
+        boolean hasBuildArgs = false;
+        boolean truncated = false;
+        List<Coordinates> pomCandidates = new ArrayList<>();
+        List<JarEntry> nestedLibraryEntries = new ArrayList<>();
+        Enumeration<JarEntry> entries = jarFile.entries();
+        while (entries.hasMoreElements() && !cancellationRequested.get()) {
+            JarEntry entry = entries.nextElement();
+            String name = entry.getName();
+            if (name.startsWith(METADATA_PREFIX)) {
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (isReachabilityMetadataFile(name)) {
+                    hasMetadataJson = true;
+                } else if (lower.endsWith("native-image.properties")) {
+                    hasBuildArgs = true;
+                }
+            }
+            if (name.startsWith(MAVEN_POM_PREFIX) && name.endsWith("/pom.properties")) {
+                readPomProperties(jarFile, entry).ifPresent(pomCandidates::add);
+            }
+            if (!entry.isDirectory() && isNestedLibraryJar(name)) {
+                if (nestedLibraryEntries.size() >= remaining) {
+                    truncated = true;
+                    break;
+                }
+                nestedLibraryEntries.add(entry);
+            }
+        }
+        if (!nestedLibraryEntries.isEmpty()) {
+            List<InspectedDependency> nested = new ArrayList<>(nestedLibraryEntries.size());
+            for (JarEntry nestedEntry : nestedLibraryEntries) {
+                if (cancellationRequested.get()) {
+                    break;
+                }
+                nested.add(inspectNestedLibrary(jarFile, nestedEntry));
+            }
+            return new Inspection(nested, truncated);
+        }
+        if (cancellationRequested.get() || truncated) {
+            return new Inspection(List.of(), truncated);
+        }
+        File jar = new File(jarFile.getName());
+        Coordinates coordinates =
+                selectPomCoordinates(jar.getName(), pomCandidates).orElse(null);
+        if (coordinates == null) {
+            coordinates = coordinatesFromMavenRepositoryPath(jar).orElse(null);
+        }
+        if (coordinates == null) {
+            coordinates = coordinatesFromJarName(jar.getName()).orElse(null);
+        }
+        return new Inspection(
+                List.of(toInspectedDependency(jar.getName(), hasMetadataJson, hasBuildArgs, coordinates)), false);
     }
 
     /**
@@ -596,6 +606,8 @@ final class GraalVmDependencyScanner {
             this(dependencies, truncated, false);
         }
     }
+
+    record Inspection(List<InspectedDependency> dependencies, boolean truncated) {}
 
     record InspectedDependency(String name, boolean shipsMetadata, String note, Coordinates coordinates) {
         GraalVmDependencyDto toDto(Optional<RepositoryCoverage> coverage, String repositoryNote) {

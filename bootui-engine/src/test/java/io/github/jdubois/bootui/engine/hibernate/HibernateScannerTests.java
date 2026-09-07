@@ -57,7 +57,7 @@ import org.springframework.data.domain.Page;
 
 class HibernateScannerTests {
 
-    private static final int RULE_COUNT = 75;
+    private static final int RULE_COUNT = 70;
     private static final String AFFECTED_HIBERNATE_VERSION = "7.3.9.Final";
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
@@ -71,7 +71,7 @@ class HibernateScannerTests {
 
         HibernateReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.entitiesAnalyzed()).isEqualTo(1);
         assertThat(report.rulesEvaluated()).isEqualTo(RULE_COUNT);
         assertThat(report.results())
@@ -102,10 +102,9 @@ class HibernateScannerTests {
         assertThat(report.results())
                 .filteredOn(result -> result.id().equals("HIB-MAP-003"))
                 .singleElement()
-                .satisfies(
-                        result -> assertThat(result.sampleViolations())
-                                .contains(
-                                        "io.github.jdubois.bootui.engine.hibernate.HibernateScannerTests$ProblemOrder#status relies on JPA's default ORDINAL enum storage."));
+                .satisfies(result -> assertThat(result.sampleViolations())
+                        .anySatisfy(sample -> assertThat(sample)
+                                .contains("[test]", "#status has no explicit enum storage annotation")));
     }
 
     @Test
@@ -232,16 +231,11 @@ class HibernateScannerTests {
                         "HIB-CONFIG-005",
                         "HIB-CONFIG-006",
                         "HIB-CONFIG-007",
-                        "HIB-CONFIG-008",
                         "HIB-CONFIG-009",
-                        "HIB-CONFIG-010",
-                        "HIB-CONFIG-011",
                         "HIB-CONFIG-012",
                         "HIB-CONFIG-013",
-                        "HIB-CONFIG-014",
                         "HIB-CONFIG-015",
                         "HIB-FETCH-003",
-                        "HIB-FETCH-004",
                         "HIB-FETCH-006",
                         "HIB-FETCH-007",
                         "HIB-ID-002",
@@ -257,21 +251,31 @@ class HibernateScannerTests {
                         "HIB-MAP-009",
                         "HIB-MAP-010",
                         "HIB-MAP-011",
-                        "HIB-MAP-012",
                         "HIB-MAP-013",
                         "HIB-MAP-014",
                         "HIB-MAP-015",
                         "HIB-MAP-016",
                         "HIB-ENTITY-002",
-                        "HIB-ENTITY-003",
-                        "HIB-ENTITY-004",
                         "HIB-ENTITY-005",
                         "HIB-QUERY-001",
                         "HIB-QUERY-002",
                         "HIB-QUERY-003",
-                        "HIB-QUERY-004",
+                        "HIB-QUERY-004");
+        assertThat(report.results())
+                .extracting(HibernateRuleResultDto::id)
+                .doesNotContain(
+                        "HIB-FETCH-004",
+                        "HIB-MAP-012",
+                        "HIB-ENTITY-003",
+                        "HIB-ENTITY-004",
+                        "HIB-MAP-019",
+                        "HIB-CONFIG-008",
+                        "HIB-CONFIG-010",
+                        "HIB-CONFIG-011",
+                        "HIB-CONFIG-014",
                         "HIB-CACHE-001",
-                        "HIB-CACHE-002");
+                        "HIB-CACHE-002",
+                        "HIB-ID-001");
     }
 
     @Test
@@ -290,21 +294,18 @@ class HibernateScannerTests {
     }
 
     @Test
-    void paginationOverCollectionFetchRulesSkipAtAndAfterHibernate74() {
+    void paginationOverCollectionFetchRulesDoNotCertifyPushdownFromVersionAlone() {
         for (String version : List.of("7.4.0.Final", "7.5.0.Final")) {
             HibernateContext context = collectionFetchPaginationContext(version);
 
             HibernateRuleResultDto queryResult = new CollectionJoinFetchPageableRule().evaluate(context);
             HibernateRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
 
-            assertThat(queryResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
-            assertThat(queryResult.sampleViolations())
-                    .anySatisfy(sample ->
-                            assertThat(sample).contains("Hibernate " + version, "generated SQL", "limitInMemory"));
+            assertThat(queryResult.status()).isNotEqualTo(HibernateRuleSupport.VIOLATION);
+            assertThat(context.evidence().requiredUnknown).isTrue();
             assertThat(configResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
             assertThat(configResult.sampleViolations())
-                    .anySatisfy(sample ->
-                            assertThat(sample).contains("Hibernate " + version, "generated SQL", "limitInMemory"));
+                    .anySatisfy(sample -> assertThat(sample).contains("not proven"));
         }
     }
 
@@ -349,7 +350,8 @@ class HibernateScannerTests {
 
         HibernateReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.scan().message()).contains("required evidence unavailable");
         assertThat(report.violationsFound()).isZero();
         assertThat(report.results()).isEmpty();
     }
@@ -368,11 +370,11 @@ class HibernateScannerTests {
                     assertThat(result.violationCount()).isEqualTo(3);
                     assertThat(result.sampleViolations())
                             .contains(
-                                    BatchFetchRiskOrder.class.getName()
+                                    "[test] " + BatchFetchRiskOrder.class.getName()
                                             + "#customer can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.",
-                                    BatchFetchRiskOrder.class.getName()
+                                    "[test] " + BatchFetchRiskOrder.class.getName()
                                             + "#lineItems can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.",
-                                    BatchFetchRiskOrder.class.getName()
+                                    "[test] " + BatchFetchRiskOrder.class.getName()
                                             + "#tags can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.");
                     assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("#defaultEagerCustomer"));
                 });
@@ -555,8 +557,8 @@ class HibernateScannerTests {
         assertThat(result.violationCount()).isZero();
         assertThat(result.sampleViolations()).hasSize(1);
         assertThat(result.sampleViolations().get(0))
-                .contains("Rule could not be evaluated:")
-                .contains("boom");
+                .isEqualTo("Rule evaluation failed.")
+                .doesNotContain("boom");
     }
 
     @Test
@@ -565,7 +567,9 @@ class HibernateScannerTests {
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.ERROR);
         assertThat(result.violationCount()).isZero();
-        assertThat(result.sampleViolations().get(0)).contains("missing");
+        assertThat(result.sampleViolations().get(0))
+                .isEqualTo("Rule evaluation failed.")
+                .doesNotContain("missing");
     }
 
     @Test
@@ -640,15 +644,29 @@ class HibernateScannerTests {
 
     private HibernateScanner scanner(
             TestEnvironment environment, List<HibernateRepositoryModel> repositories, Class<?>... entityTypes) {
-        return new HibernateScanner(
-                List.of(entityTypes).stream()
-                        .map(HibernateEntityModel::fromClass)
-                        .toList(),
-                repositories,
-                environment.lookup(),
-                environment.activeProfiles(),
-                CLOCK,
-                AFFECTED_HIBERNATE_VERSION);
+        return HibernateScanner.observing(
+                () -> new HibernateAdvisorObservation(
+                        List.of(new HibernatePersistenceUnitObservation(
+                                "test",
+                                "test",
+                                List.of(entityTypes).stream()
+                                        .map(HibernateEntityModel::fromClass)
+                                        .toList(),
+                                repositories.stream()
+                                        .map(repository -> new HibernateRepositoryModel(
+                                                repository.repositoryInterface(),
+                                                repository.domainType(),
+                                                repository.methods().stream()
+                                                        .map(HibernateObservationFixtures::verified)
+                                                        .toList(),
+                                                true))
+                                        .toList(),
+                                AFFECTED_HIBERNATE_VERSION,
+                                HibernateObservationFixtures.settings(environment),
+                                false)),
+                        HibernateObservationFixtures.application(environment),
+                        List.of()),
+                CLOCK);
     }
 
     private HibernateContext collectionFetchPaginationContext(String hibernateVersion) {

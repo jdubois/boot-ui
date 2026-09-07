@@ -4,6 +4,8 @@ import {scoreBandLabel, scoreBandTone} from '../../utils/scannerScore.js'
 
 const props = defineProps({
   score: {type: Number, default: null},
+  scoreLabel: {type: String, default: ''},
+  scoreReason: {type: String, default: ''},
   dismissedCount: {type: Number, default: 0},
   scanStatusLabel: {type: String, default: ''},
   scanStatusClass: {type: String, default: 'text-bg-secondary'},
@@ -39,6 +41,11 @@ const gaugeLabel = computed(() =>
 
         <div v-if="hasScore" class="advisor-summary__divider" aria-hidden="true"></div>
 
+        <div v-if="!hasScore && scoreLabel" class="advisor-summary__assessment">
+          <div class="fw-semibold">{{ scoreLabel }}</div>
+          <div class="small text-muted">{{ scoreReason }}</div>
+        </div>
+
         <dl class="advisor-summary__metrics">
           <div class="advisor-summary__metric advisor-summary__metric--status">
             <dt>Scan status</dt>
@@ -56,7 +63,8 @@ const gaugeLabel = computed(() =>
       </div>
 
       <p v-if="dismissedCount > 0" class="advisor-summary__dismissed">
-        <i class="bi bi-eye-slash me-1"></i>{{ dismissedCount }} dismissed rule(s) excluded from this score
+        <i class="bi bi-eye-slash me-1"></i>{{ dismissedCount }} dismissed rule(s) excluded from
+        {{ hasScore ? 'this score' : 'active findings' }}
       </p>
     </div>
   </div>
@@ -75,6 +83,10 @@ const gaugeLabel = computed(() =>
   align-items: center;
   gap: 0.9rem;
   flex-shrink: 0;
+}
+
+.advisor-summary__assessment {
+  flex: 1 1 16rem;
 }
 
 /* Tone (success/warning/danger) is carried by the global, theme-tuned .text-* utility

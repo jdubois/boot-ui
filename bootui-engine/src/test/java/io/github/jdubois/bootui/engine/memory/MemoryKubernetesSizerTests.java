@@ -163,6 +163,7 @@ class MemoryKubernetesSizerTests {
                 HealthProbeManifest.SPRING_ACTUATOR);
 
         assertThat(recommendation.currentSnapshotBytes()).isEqualTo(Long.MAX_VALUE);
+        assertThat(recommendation.currentSnapshotMemory()).isEqualTo("8796093022208Mi");
         assertThat(recommendation.burstableRequestMemoryBytes()).isEqualTo(1024 * MB);
         assertThat(recommendation.requestMemoryBytes()).isEqualTo(1024 * MB);
         assertThat(recommendation.qosClass()).isEqualTo("Depends on CPU");
@@ -236,6 +237,35 @@ class MemoryKubernetesSizerTests {
     }
 
     @Test
+    void percentageBoundaryFailureCannotLeakDeploymentOptionsOrAnAvailableQos() {
+        MemoryCalculationDto calculation = calculator.calculate(519 * MB, 250, 0, 0, 10, 0);
+
+        KubernetesMemoryRecommendationDto recommendation = recommend(
+                calculation,
+                64 * MB,
+                64 * MB,
+                0,
+                false,
+                519 * MB,
+                128 * MB,
+                true,
+                true,
+                HealthProbeManifest.QUARKUS_SMALLRYE);
+
+        assertThat(calculation.valid()).isFalse();
+        assertThat(recommendation.qosClass()).isEqualTo("Unavailable");
+        assertThat(recommendation.confidence()).isEqualTo("Low");
+        assertThat(recommendation.javaToolOptions()).isEmpty();
+        assertThat(recommendation.yaml()).isEmpty();
+        assertThat(recommendation.maxRamPercentage()).isZero();
+        assertThat(recommendation.initialRamPercentage()).isZero();
+        assertThat(recommendation.requestMemoryBytes()).isZero();
+        assertThat(recommendation.limitMemoryBytes()).isEqualTo(519 * MB);
+        assertThat(recommendation.currentSnapshotBytes()).isEqualTo(128 * MB);
+        assertThat(recommendation.warnings()).containsExactly(calculation.error());
+    }
+
+    @Test
     void modelConfidenceStaysLowWithoutMatchingCgroupObservations() {
         MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000);
 
@@ -266,6 +296,38 @@ class MemoryKubernetesSizerTests {
         assertThat(calculator.buildKubernetesJvmOptions(calculation, percentage, percentage))
                 .contains("-XX:MaxRAMPercentage=" + percentage)
                 .contains("-XX:MinRAMPercentage=" + percentage);
+    }
+
+    @Test
+    void percentageUsesAnExactDownwardFloorAtThreeDecimalPlaces() {
+        MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_001, 7, 40, 5_001);
+        long expectedThousandths = calculation.heapBytes() * 100_000L / calculation.totalMemoryBytes();
+
+        assertThat(MemoryKubernetesSizer.heapPercentage(calculation)).isEqualTo(expectedThousandths / 1000.0);
+        assertThat(expectedThousandths * calculation.totalMemoryBytes())
+                .isLessThanOrEqualTo(calculation.heapBytes() * 100_000L);
+        assertThat(calculation.headRoomBytes()).isEqualTo(calculation.totalMemoryBytes() * 7 / 100);
+    }
+
+    @Test
+    void mebibyteFormattingPreservesBoundariesWithoutOverflow() {
+        assertThat(MemoryKubernetesSizer.formatMi(-1)).isEqualTo("0Mi");
+        assertThat(MemoryKubernetesSizer.formatMi(0)).isEqualTo("0Mi");
+        assertThat(MemoryKubernetesSizer.formatMi(MB)).isEqualTo("1Mi");
+        assertThat(MemoryKubernetesSizer.formatMi(MB + 1)).isEqualTo("2Mi");
+        assertThat(MemoryKubernetesSizer.formatMi(Long.MAX_VALUE)).isEqualTo("8796093022208Mi");
+    }
+
+    @Test
+    void notesDistinguishRequestedSettingsFromEffectiveHeapAndDeploymentLimits() {
+        MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000);
+        KubernetesMemoryRecommendationDto recommendation = recommend(
+                calculation, 64 * MB, 64 * MB, 0, false, null, null, false, false, HealthProbeManifest.SPRING_ACTUATOR);
+
+        assertThat(recommendation.warnings())
+                .anySatisfy(warning -> assertThat(warning).contains("alignment", "startup"))
+                .anySatisfy(warning -> assertThat(warning).contains("JVM-visible", "-Xmx", "-Xms"))
+                .anySatisfy(warning -> assertThat(warning).contains("total process"));
     }
 
     @Test

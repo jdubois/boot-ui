@@ -9,6 +9,7 @@ import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import java.net.URL;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -44,23 +45,44 @@ class BootUiQuarkusRestApiResourceTest {
         Response scan = probe().post("/bootui/api/rest-api/scan", JSON_HEADERS);
         assertThat(scan.status()).as("POST /bootui/api/rest-api/scan status").isEqualTo(200);
         JsonNode scanned = scan.json();
+        assertThat(scanned.path("scan").path("status").asText()).isEqualTo("SCANNED");
         assertThat(scanned.path("controllersAnalyzed").asInt())
                 .as("the bounded import must model the JAX-RS resource")
                 .isGreaterThan(0);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared REST best-practice ruleset must have run")
-                .isGreaterThan(0);
+                .isEqualTo(56);
 
         boolean stateChangingGetFailed = false;
         for (JsonNode result : scanned.path("results")) {
+            assertThat(result.path("id").asText())
+                    .isNotIn("RAPI-MAP-008", "RAPI-NAME-004", "RAPI-ERR-011", "RAPI-DOC-003");
+            if (Set.of("RAPI-RESP-002", "RAPI-RESP-006", "RAPI-RESP-007", "RAPI-VER-004")
+                    .contains(result.path("id").asText())) {
+                assertThat(result.path("sampleViolations").toString())
+                        .doesNotContain("clearConfiguration", "asyncAccepted", "patchConfiguration");
+            }
             if ("RAPI-MAP-003".equals(result.path("id").asText())
                     && "VIOLATION".equals(result.path("status").asText())
                     && result.path("violationCount").asInt() > 0) {
                 stateChangingGetFailed = true;
+                assertThat(result.path("severity").asText()).isEqualTo("LOW");
             }
         }
         assertThat(stateChangingGetFailed)
                 .as("a create-style JAX-RS handler mapped to GET must fail RAPI-MAP-003")
                 .isTrue();
+    }
+
+    @Test
+    void nativeResponsesConfirmAsyncStatusEmptyPayloadAndNonJsonPatch() {
+        assertThat(probe().get("/widgets/accepted").status()).isEqualTo(202);
+        Response empty = probe().request("DELETE", "/widgets/configuration", Map.of(), null);
+        assertThat(empty.status()).isEqualTo(204);
+        assertThat(empty.body()).isEmpty();
+        Response patch = probe().request(
+                        "PATCH", "/widgets/configuration.txt", Map.of("Content-Type", "text/plain"), "replacement");
+        assertThat(patch.status()).isEqualTo(200);
+        assertThat(patch.body()).isEqualTo("replacement");
     }
 }

@@ -33,12 +33,12 @@ class QuarkusHibernatePropertyLookupTest {
     }
 
     @Test
-    void prefersTheNewSchemaStrategyKeyOverTheDeprecatedGenerationKey() {
+    void deprecatedGenerationWinsAsInQuarkus33331() {
         QuarkusHibernatePropertyLookup lookup = lookup(Map.of(
                 "quarkus.hibernate-orm.schema-management.strategy", "none",
                 "quarkus.hibernate-orm.database.generation", "drop-and-create"));
 
-        assertThat(lookup.apply("spring.jpa.hibernate.ddl-auto")).isEqualTo("none");
+        assertThat(lookup.apply("spring.jpa.hibernate.ddl-auto")).isEqualTo("create-drop");
     }
 
     @Test
@@ -54,7 +54,7 @@ class QuarkusHibernatePropertyLookupTest {
     void passesThroughOtherGenerationValuesUnchanged() {
         assertThat(lookup(Map.of("quarkus.hibernate-orm.schema-management.strategy", "create"))
                         .apply("spring.jpa.hibernate.ddl-auto"))
-                .isEqualTo("create");
+                .isEqualTo("create-only");
         assertThat(lookup(Map.of("quarkus.hibernate-orm.schema-management.strategy", "update"))
                         .apply("spring.jpa.hibernate.ddl-auto"))
                 .isEqualTo("update");

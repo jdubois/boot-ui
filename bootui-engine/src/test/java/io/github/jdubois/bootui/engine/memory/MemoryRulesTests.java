@@ -36,7 +36,7 @@ class MemoryRulesTests {
     // --- MEM-HEAP-001: post-GC dual snapshot -------------------------------------------------
 
     @Test
-    void heapUtilizationStillHighAfterGcIsReportedHigh() {
+    void postHistogramOccupancyDoesNotClaimConfirmedFullGcOrRetention() {
         MemoryData memory = memory(500 * MB, 1 * GB, List.of(), null, List.of("-Xmx1g"));
         MemoryContext context =
                 context(memory, ThreadData.empty(), new PostGcHeapData(true, 980 * MB, false, -1), healthyRuntime());
@@ -44,8 +44,10 @@ class MemoryRulesTests {
         MemoryRuleResultDto result = find(scan(context), "MEM-HEAP-001");
 
         assertThat(result).isNotNull();
-        assertThat(result.severity()).isEqualTo("HIGH");
-        assertThat(result.sampleViolations().get(0)).contains("after a full GC");
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.sampleViolations().get(0))
+                .contains("post-histogram snapshot")
+                .doesNotContain("after a full GC");
     }
 
     @Test
@@ -194,10 +196,10 @@ class MemoryRulesTests {
     }
 
     @Test
-    void stackReservationWithWorstCaseContainerBoundIsHigh() {
+    void stackReservationDoesNotDoubleCountTouchedPagesToEscalateSeverity() {
         // 300 threads * 1 MiB stack = 300 MiB reservation, >=20% of the 1 GiB limit (ratio breach).
-        // 800 MiB already resident + 300 MiB reservation = 1100 MiB >= the 1 GiB limit, so fully
-        // realizing the reservation would breach the container limit as a worst-case bound.
+        // Container usage already includes touched stack pages; adding all reserved pages again
+        // cannot corroborate resident pressure.
         ThreadData threads = threads(300);
         MemoryData memory = memoryWithCurrent(256 * MB, 2 * GB, 1 * GB, 800 * MB);
         MemoryContext context = context(memory, threads, PostGcHeapData.unavailable(), healthyRuntime());
@@ -205,8 +207,8 @@ class MemoryRulesTests {
         MemoryRuleResultDto result = find(scan(context), "MEM-FOOTPRINT-002");
 
         assertThat(result).isNotNull();
-        assertThat(result.severity()).isEqualTo("HIGH");
-        assertThat(result.sampleViolations().get(0)).contains("worst-case").contains("double-counts");
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.sampleViolations().get(0)).contains("not confirmed resident");
     }
 
     @Test
@@ -561,7 +563,7 @@ class MemoryRulesTests {
 
     @Test
     void serialGcOnMultiCoreIsFlagged() {
-        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), null, List.of(), List.of("Copy", "MarkSweepCompact"));
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(), 4 * GB, List.of(), List.of("Copy", "MarkSweepCompact"));
         RuntimeData runtime = runtimeWithCpus(4);
         MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
 
@@ -631,12 +633,10 @@ class MemoryRulesTests {
 
         assertThat(result).isNotNull();
         assertThat(result.sampleViolations().get(0)).contains("2 time(s)");
-        // MEM-GC-005 no longer characterizes the G1 fallback Full GC as single-threaded (parallelized
-        // since JDK 10's JEP 307); it must instead frame the concern around the stop-the-world fallback.
+        // Full-GC activity does not identify allocation failure: explicit GC and diagnostics count too.
         assertThat(result.sampleViolations().get(0)).doesNotContainIgnoringCase("single-threaded");
-        assertThat(result.description()).containsIgnoringCase("not single-threaded");
-        assertThat(result.description()).containsIgnoringCase("stop-the-world");
-        assertThat(result.description()).contains("JEP 307");
+        assertThat(result.severity()).isEqualTo("INFO");
+        assertThat(result.description()).contains("explicit GC", "diagnostic", "does not identify the cause");
     }
 
     @Test
@@ -842,12 +842,12 @@ class MemoryRulesTests {
         MemoryRuleResultDto result = find(scan(context), "MEM-POOL-003");
 
         assertThat(result).isNotNull();
-        assertThat(result.sampleViolations().get(0)).contains("MaxDirectMemorySize");
+        assertThat(result.sampleViolations().get(0)).contains("effective NIO direct-memory cap");
     }
 
     @Test
     void directBufferNearEffectiveHeapCapIsFlagged() {
-        // -XX:MaxDirectMemorySize is unset, so HotSpot's effective default cap equals max heap (-Xmx).
+        // The collector resolved the live HotSpot default to max heap.
         MemoryData memory = new MemoryData(
                 256 * MB,
                 256 * MB,
@@ -859,7 +859,7 @@ class MemoryRulesTests {
                 900 * MB,
                 900 * MB,
                 20,
-                -1,
+                1 * GB,
                 List.of("-Xmx1g"),
                 List.of("G1 Young Generation"),
                 null,
@@ -869,7 +869,7 @@ class MemoryRulesTests {
         MemoryRuleResultDto result = find(scan(context), "MEM-POOL-003");
 
         assertThat(result).isNotNull();
-        assertThat(result.sampleViolations().get(0)).contains("effective default cap");
+        assertThat(result.sampleViolations().get(0)).contains("effective NIO direct-memory cap");
     }
 
     @Test
@@ -1067,13 +1067,15 @@ class MemoryRulesTests {
     }
 
     @Test
-    void highSwapFromOtherProcessesIsNotFlaggedWhenJvmFitsInFreePhysicalMemory() {
+    void highSystemSwapIsInformationalRegardlessOfJvmFreeMemoryComparison() {
         RuntimeData runtime =
                 new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, 100 * MB, 1 * GB, null, -1, -1, null, 4 * GB);
         MemoryContext context =
                 context(healthyMemoryForSwap(), ThreadData.empty(), PostGcHeapData.unavailable(), runtime);
 
-        assertThat(find(scan(context), "MEM-FOOTPRINT-004")).isNull();
+        MemoryRuleResultDto result = find(scan(context), "MEM-FOOTPRINT-004");
+        assertThat(result.severity()).isEqualTo("INFO");
+        assertThat(result.sampleViolations().get(0)).contains("does not establish that this JVM is swapped out");
     }
 
     // --- MEM-CLASS-001: excessive loaded classes (test coverage gap) -------------------------
@@ -1093,12 +1095,10 @@ class MemoryRulesTests {
     }
 
     @Test
-    void manyLoadedClassesWithActiveUnloadingIsNotFlagged() {
-        // 700 unloaded out of 60,000 loaded is >= the 1% (1-in-100) unloading ratio, so this reads as
-        // a legitimately large application rather than a classloader leak.
+    void historicalUnloadingDoesNotSuppressCurrentClassCountContext() {
         MemoryContext context = classLoadingContext(60_000, 60_000, 700);
 
-        assertThat(find(scan(context), "MEM-CLASS-001")).isNull();
+        assertThat(find(scan(context), "MEM-CLASS-001").severity()).isEqualTo("INFO");
     }
 
     @Test
@@ -1166,7 +1166,7 @@ class MemoryRulesTests {
     // --- MEM-POOL-007: buffer pool growth without release (new rule) -------------------------
 
     @Test
-    void directBufferPoolGrowingEveryScanWithoutReleaseIsFlaggedMedium() {
+    void directBufferNetGrowthWithoutPressureIsLow() {
         MemoryScanner scanner = new MemoryScanner(
                 sequence(
                         bufferPoolContext(100 * MB, 10 * MB, 1 * GB),
@@ -1181,12 +1181,13 @@ class MemoryRulesTests {
         MemoryRuleResultDto result = find(scanner.scan(), "MEM-POOL-007");
 
         assertThat(result).isNotNull();
-        assertThat(result.severity()).isEqualTo("MEDIUM");
-        assertThat(result.sampleViolations().get(0)).contains("'direct'").contains("3 consecutive scans");
+        assertThat(result.severity()).isEqualTo("LOW");
+        assertThat(result.sampleViolations().get(0))
+                .contains("'direct'", "3 consecutive scan intervals", "does not prove");
     }
 
     @Test
-    void directBufferPoolGrowingAndCrossingStaticThresholdEscalatesToHigh() {
+    void directBufferNetGrowthNearKnownCapIsMedium() {
         // Same growth streak as above, but the aggregate direct-buffer capacity is also >= 80% of
         // -XX:MaxDirectMemorySize, so MEM-POOL-003's static threshold is independently crossed too.
         MemoryScanner scanner = new MemoryScanner(
@@ -1203,7 +1204,7 @@ class MemoryRulesTests {
         MemoryRuleResultDto result = find(scanner.scan(), "MEM-POOL-007");
 
         assertThat(result).isNotNull();
-        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.severity()).isEqualTo("MEDIUM");
     }
 
     @Test
@@ -1258,8 +1259,8 @@ class MemoryRulesTests {
         MemoryRuleResultDto result = find(scanner.scan(), "MEM-HEAP-008");
 
         assertThat(result).isNotNull();
-        assertThat(result.severity()).isEqualTo("MEDIUM");
-        assertThat(result.sampleViolations().get(0)).contains("3 consecutive scans");
+        assertThat(result.severity()).isEqualTo("LOW");
+        assertThat(result.sampleViolations().get(0)).contains("3 consecutive scan intervals", "does not establish");
     }
 
     @Test

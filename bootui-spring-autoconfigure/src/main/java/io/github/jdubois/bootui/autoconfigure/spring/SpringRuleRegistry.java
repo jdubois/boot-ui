@@ -27,14 +27,12 @@ final class SpringRuleRegistry {
             new ConfigOnNotFoundIgnoreRule(),
             new Jackson2DefaultsCompatibilityRule(),
             // Profiles and environment
-            new NoActiveProfileRule(),
             new DevToolsOnClasspathRule(),
             new ProfileValidationDisabledRule(),
             // Performance and concurrency
             new VirtualThreadsAvailableRule(),
             new VirtualThreadsOverriddenByPoolRule(),
             new AsyncWithoutCustomExecutorRule(),
-            new ConnectionPoolSmallForVirtualThreadsRule(),
             new SchedulerPoolTooSmallRule(),
             new UnboundedAsyncQueueRule(),
             new InMemoryCacheManagerRule(),
@@ -44,7 +42,6 @@ final class SpringRuleRegistry {
             new Http2DisabledRule(),
             new ErrorDetailsExposedRule(),
             new HttpClientTimeoutsUnsetRule(),
-            new ForwardHeadersStrategyUnsetRule(),
             new RedundantTomcatThreadsRule(),
             // Data and persistence
             new OpenSessionInViewEnabledRule(),
@@ -57,7 +54,7 @@ final class SpringRuleRegistry {
             new DangerousActuatorEndpointsAccessibleRule(),
             // Reactive (WebFlux only)
             new ReactiveHandlerWithBlockingDatasourceRule(),
-            new CodecMaxInMemorySizeUnsetRule());
+            new UnlimitedCodecAggregationRule());
 
     private SpringRuleRegistry() {}
 

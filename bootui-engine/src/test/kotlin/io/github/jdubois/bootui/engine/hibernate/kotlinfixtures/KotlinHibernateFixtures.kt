@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.engine.hibernate.kotlinfixtures
 
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
+import jakarta.persistence.ManyToOne
+import jakarta.persistence.Version
 
 /**
  * Kotlin fixtures for the Hibernate advisor. They are only read reflectively, never persisted, and
@@ -43,4 +45,28 @@ class KotlinJvmFieldEntity {
 
     @JvmField
     var code: String = ""
+}
+
+@Entity
+class KotlinNullableVersionEntity {
+    @field:Id var id: Long? = null
+    @field:Version var version: Long? = null
+}
+
+@Entity
+open class KotlinPrimitiveVersionEntity {
+    @get:Id open var id: Long? = null
+    @get:Version open var version: Long = 0
+}
+
+// These are emitted-class fixtures, not a simulation of any version's JPA compiler plugin.
+@Entity
+data class KotlinConstructorAssociationEntity(
+    @field:Id val id: Long? = null,
+    @field:ManyToOne val owner: KotlinNullableVersionEntity? = null,
+)
+
+@Entity
+data class KotlinBodyAssociationEntity(@field:Id val id: Long? = null) {
+    @field:ManyToOne var owner: KotlinNullableVersionEntity? = null
 }
