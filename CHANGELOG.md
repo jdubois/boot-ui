@@ -74,6 +74,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Architecture checks accept supported logger, scheduling and thread-factory patterns, and distinguish failed
+  scans from successful analysis.** Private final instance loggers and Quarkus `@LoggerName` injection are recognized;
+  scheduled signatures include repeatable/composed annotations and precise reactive types without flagging valid
+  suspend results; actual `ThreadFactory.newThread(Runnable)` implementations may allocate threads. Known discovery,
+  import and rule failures use `ERROR`/`PARTIAL` scan status while preserving valid findings
+  ([#957](https://github.com/jdubois/boot-ui/issues/957)).
+
 - **CRaC readiness now distinguishes evidence from verified lifecycle coverage.** Runtime checks remain useful when
   application bytecode is unavailable, managed Spring clients and ambiguous Hikari/resource ownership are assessed
   honestly, and precise file, scheduling, thread and time predicates reduce missed or misleading findings. Runtime

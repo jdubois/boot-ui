@@ -31,17 +31,16 @@ class KotlinArchitectureRulesTests {
     void suspendingScheduledMethodsAreJudgedOnTheirDeclaredSignature() {
         ArchitectureRuleResultDto result = evaluate(new ScheduledMethodsShouldHaveSupportedSignaturesRule());
 
-        // refreshOrders() is a supported suspending scheduled function and must not be reported at all;
-        // countOrders(): Long is reported once, for the result Spring discards -- not for its continuation
-        // parameter, and not again through the synthetic $suspendImpl body Kotlin generates.
+        // Both Unit and value-returning suspend functions are supported; only a real source argument
+        // is invalid. The continuation and generated $suspendImpl copy must not add findings.
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(result.violationCount()).isEqualTo(1);
         assertThat(result.sampleViolations())
                 .singleElement()
                 .asString()
-                .contains("countOrders")
-                .contains("returns java.lang.Long");
-        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("declares parameters"));
+                .contains("reloadOrders")
+                .contains("declares parameters");
+        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("countOrders"));
         assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("suspendImpl"));
     }
 

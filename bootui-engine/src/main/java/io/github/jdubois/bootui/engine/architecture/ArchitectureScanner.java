@@ -12,6 +12,7 @@ import java.time.Clock;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -39,6 +40,7 @@ public final class ArchitectureScanner {
     private final ArchitectureClassImporter importer;
     private final ArchitecturePlatform platform;
     private final Clock clock;
+    private final List<ArchitectureRule> rules;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
 
     ArchitectureScanner(
@@ -46,10 +48,20 @@ public final class ArchitectureScanner {
             ArchitectureClassImporter importer,
             ArchitecturePlatform platform,
             Clock clock) {
+        this(basePackagesSupplier, importer, platform, clock, ArchitectureRuleRegistry.activeRules());
+    }
+
+    ArchitectureScanner(
+            Supplier<List<String>> basePackagesSupplier,
+            ArchitectureClassImporter importer,
+            ArchitecturePlatform platform,
+            Clock clock,
+            List<ArchitectureRule> rules) {
         this.basePackagesSupplier = basePackagesSupplier;
         this.importer = importer;
         this.platform = platform;
         this.clock = clock;
+        this.rules = List.copyOf(rules);
     }
 
     /**
@@ -73,7 +85,12 @@ public final class ArchitectureScanner {
     }
 
     public ArchitectureReport initialReport() {
-        List<String> basePackages = safeBasePackages();
+        List<String> basePackages;
+        try {
+            basePackages = basePackages();
+        } catch (RuntimeException | LinkageError ex) {
+            return failure("Application base packages could not be detected", ex, null, List.of());
+        }
         return report(
                 "NOT_SCANNED",
                 "Architecture rules have not run yet. Click Run architecture checks to analyse the application classes.",
@@ -89,7 +106,12 @@ public final class ArchitectureScanner {
     }
 
     private ArchitectureReport doScan() {
-        List<String> basePackages = safeBasePackages();
+        List<String> basePackages;
+        try {
+            basePackages = basePackages();
+        } catch (RuntimeException | LinkageError ex) {
+            return failure("Application base packages could not be detected", ex, clock.millis(), List.of());
+        }
         if (basePackages.isEmpty()) {
             return report(
                     "SCANNED",
@@ -103,19 +125,12 @@ public final class ArchitectureScanner {
 
         JavaClasses classes;
         try {
-            classes = importer.importPackages(basePackages);
+            classes = Objects.requireNonNull(importer.importPackages(basePackages));
             // Catch LinkageError (e.g. NoClassDefFoundError/ClassFormatError) as well as RuntimeException so a
             // malformed or unresolvable class on the host classpath degrades to a stable report instead of failing.
             // VirtualMachineError (OutOfMemoryError, StackOverflowError) is deliberately not caught here.
         } catch (RuntimeException | LinkageError ex) {
-            return report(
-                    "SCANNED",
-                    "Application classes could not be imported for analysis: " + ex.getMessage(),
-                    clock.millis(),
-                    basePackages,
-                    0,
-                    0,
-                    List.of());
+            return failure("Application classes could not be imported for analysis", ex, clock.millis(), basePackages);
         }
 
         if (classes.isEmpty()) {
@@ -130,28 +145,51 @@ public final class ArchitectureScanner {
         }
 
         ArchitectureContext context = new ArchitectureContext(classes, basePackages, platform);
-        List<ArchitectureRuleResultDto> results = ArchitectureRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(context))
-                .toList();
+        List<ArchitectureRuleResultDto> results =
+                rules.stream().map(rule -> rule.evaluate(context)).toList();
+        long errors = results.stream()
+                .filter(result -> ArchitectureRuleSupport.ERROR.equals(result.status()))
+                .count();
+        boolean hasSuccessfulEvaluation = results.stream()
+                .anyMatch(result -> ArchitectureRuleSupport.PASS.equals(result.status()) || isViolation(result));
+        String status = errors == 0 ? "SCANNED" : hasSuccessfulEvaluation ? "PARTIAL" : "ERROR";
+        String message = errors == 0
+                ? "Architecture rules completed against " + classes.size()
+                        + " application class(es) under the detected base package(s)."
+                : "Architecture analysis is incomplete: " + errors + " rule(s) could not be evaluated against "
+                        + classes.size() + " application class(es).";
 
-        return report(
-                "SCANNED",
-                "Architecture rules completed against " + classes.size()
-                        + " application class(es) under the detected base package(s).",
-                clock.millis(),
-                basePackages,
-                classes.size(),
-                results.size(),
-                results);
+        return report(status, message, clock.millis(), basePackages, classes.size(), results.size(), results);
     }
 
-    private List<String> safeBasePackages() {
-        try {
-            List<String> packages = basePackagesSupplier.get();
-            return packages == null ? List.of() : List.copyOf(packages);
-        } catch (RuntimeException ex) {
-            return List.of();
+    private List<String> basePackages() {
+        List<String> packages = List.copyOf(basePackagesSupplier.get());
+        if (packages.stream().anyMatch(ArchitectureScanner::invalidPackage)) {
+            throw new IllegalArgumentException("Invalid application base package.");
         }
+        return packages;
+    }
+
+    private static boolean invalidPackage(String name) {
+        // JVM package segments need not be Java identifiers (for example, escaped Kotlin names).
+        for (String segment : name.split("\\.", -1)) {
+            if (segment.isBlank()
+                    || segment.chars().anyMatch(c -> "/\\;[*".indexOf(c) >= 0 || Character.isISOControl(c))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ArchitectureReport failure(String message, Throwable error, Long scannedAt, List<String> basePackages) {
+        return report(
+                "ERROR",
+                ArchitectureRuleSupport.detail(message + " (" + error.getClass().getSimpleName() + ")."),
+                scannedAt,
+                basePackages,
+                0,
+                0,
+                List.of());
     }
 
     private ArchitectureReport report(
