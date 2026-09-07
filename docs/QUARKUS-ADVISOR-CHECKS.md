@@ -180,6 +180,8 @@ corresponding standard-transport timer, not necessarily every other deadline.
 In particular, a read timer is not a universal total-operation deadline.
 Review whether that disabled timer is intentional, or configure an appropriate positive
 duration in milliseconds. Arbitrary programmatic/custom client settings are not inferred.
+Quarkus REST Client registrations are supported; an installed Classic REST client
+extension produces incomplete coverage, not a claim that no clients exist.
 
 ### QA-WEB-004 - HTTP request draining not configured
 
@@ -199,7 +201,9 @@ and [zero connect-timer semantics](https://github.com/netty/netty/blob/netty-4.1
 ### QA-PERF-002 - Potential synchronized virtual-thread pinning
 
 **LOW.** On the **running JDK 21-23**, an identified Quarkus REST virtual-thread entry
-method is also declared `synchronized`. Review blocking work performed while holding
+implementation is also declared `synchronized`. The native-resolved implementation,
+not a superclass/interface declaration supplying REST annotations, determines this flag.
+Review blocking work performed while holding
 the monitor; declaration metadata alone does not establish that blocking occurs.
 
 The rule does not treat every helper in an annotated class as a virtual-thread entry

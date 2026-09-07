@@ -37,6 +37,7 @@ import org.jboss.jandex.IndexView;
 import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.Type;
 import org.jboss.resteasy.reactive.common.model.ResourceClass;
+import org.jboss.resteasy.reactive.server.model.ServerResourceMethod;
 
 /** Collects only native, surviving CDI declarations and registered Quarkus REST entry methods. */
 final class QuarkusAppMetadataCollector {
@@ -152,7 +153,8 @@ final class QuarkusAppMetadataCollector {
                     .toList();
             Map<String, BeanInfo> beans = resolvedBeans(application, survivingBeans, state);
             state.beanCount = beans.size();
-            Set<String> resources = registeredEndpoints(application, entries, endpoints, beans.keySet(), state);
+            Set<String> resources =
+                    registeredEndpoints(application, combined, entries, endpoints, beans.keySet(), state);
             for (Map.Entry<String, BeanInfo> entry : beans.entrySet()) {
                 BeanInfo bean = entry.getValue();
                 DotName scope = bean.getScope().getDotName();
@@ -270,6 +272,7 @@ final class QuarkusAppMetadataCollector {
 
     private static Set<String> registeredEndpoints(
             IndexView application,
+            IndexView combined,
             Optional<ResteasyReactiveResourceMethodEntriesBuildItem> entries,
             Optional<SetupEndpointsResultBuildItem> endpoints,
             Set<String> beans,
@@ -331,10 +334,17 @@ final class QuarkusAppMetadataCollector {
             }
             resources.add(owner);
             methodIds.add(new MethodKey(entry.getActualClassInfo().name(), entry.getMethodInfo()));
-            if (entry.getResourceMethod().isRunOnVirtualThread()
-                    && Modifier.isSynchronized(entry.getMethodInfo().flags())) {
+            if (entry.getResourceMethod().isRunOnVirtualThread()) {
                 try {
-                    String methodId = methodId(owner, entry.getMethodInfo());
+                    MethodInfo implementation = endpointImplementation(entry, combined);
+                    if (implementation == null || Modifier.isAbstract(implementation.flags())) {
+                        state.problem(List.of("QA-PERF-002"), QuarkusAppMetadataStore.UNRESOLVED);
+                        continue;
+                    }
+                    if (!Modifier.isSynchronized(implementation.flags())) {
+                        continue;
+                    }
+                    String methodId = methodId(owner, implementation);
                     if (methodId.length() > remainingMethodCharacters) {
                         throw new LimitReached();
                     }
@@ -348,6 +358,20 @@ final class QuarkusAppMetadataCollector {
         }
         state.endpointCount = methodIds.size();
         return resources;
+    }
+
+    private static MethodInfo endpointImplementation(
+            ResteasyReactiveResourceMethodEntriesBuildItem.Entry entry, IndexView index) {
+        if (!(entry.getResourceMethod() instanceof ServerResourceMethod method)
+                || method.getActualDeclaringClassName() == null) {
+            return null;
+        }
+        // Quarkus already resolved the invoked implementation separately from inherited REST annotations.
+        ClassInfo implementation = index.getClassByName(method.getActualDeclaringClassName());
+        return implementation == null
+                ? null
+                : implementation.method(
+                        entry.getMethodInfo().name(), entry.getMethodInfo().parameterTypes());
     }
 
     static void collectFields(
@@ -530,6 +554,9 @@ final class QuarkusAppMetadataCollector {
             hibernateSupported = capabilities.isPresent(Capability.HIBERNATE_ORM);
             jdbcSupported = capabilities.isPresent(Capability.AGROAL);
             restClientSupported = capabilities.isPresent(Capability.REST_CLIENT_REACTIVE);
+            if (capabilities.isPresent(Capability.RESTEASY_CLIENT)) {
+                problem(List.of("QA-WEB-003"), QuarkusAppMetadataStore.UNRESOLVED);
+            }
         }
 
         void problem(List<String> rules, String message) {

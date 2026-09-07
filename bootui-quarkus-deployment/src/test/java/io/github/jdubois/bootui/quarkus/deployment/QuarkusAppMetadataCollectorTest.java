@@ -49,7 +49,8 @@ import org.jboss.jandex.IndexView;
 import org.jboss.jandex.Indexer;
 import org.jboss.jandex.MethodInfo;
 import org.jboss.resteasy.reactive.common.model.ResourceClass;
-import org.jboss.resteasy.reactive.common.model.ResourceMethod;
+import org.jboss.resteasy.reactive.server.model.ServerResourceMethod;
+import org.jboss.resteasy.reactive.server.processor.ServerEndpointIndexer;
 import org.junit.jupiter.api.Test;
 
 class QuarkusAppMetadataCollectorTest {
@@ -166,7 +167,8 @@ class QuarkusAppMetadataCollectorTest {
                 null,
                 method,
                 application.getClassByName(InheritedResource.class.getName()),
-                new ResourceMethod().setHttpMethod("PURGE").setRunOnVirtualThread(true));
+                registeredMethod(combined, method, InheritedResource.class, true)
+                        .setHttpMethod("PURGE"));
 
         QuarkusAppMetadata result =
                 collect(application, combined, context, List.of(entry), List.of(InheritedResource.class), List.of());
@@ -174,6 +176,72 @@ class QuarkusAppMetadataCollectorTest {
         assertThat(result.endpointCount()).isEqualTo(1);
         assertThat(result.synchronizedVirtualThreadMethods())
                 .containsExactly(InheritedResource.class.getName() + "#inheritedCall()");
+    }
+
+    @Test
+    void inheritedRestAnnotationsDoNotDetermineImplementationSynchronization() throws IOException {
+        Index application = index(SynchronizedChild.class, UnsynchronizedChild.class);
+        Index combined = index(
+                SynchronizedChild.class,
+                UnsynchronizedChild.class,
+                SynchronizedParent.class,
+                UnsynchronizedParent.class,
+                Object.class);
+        var context = arc(combined, false);
+        List<ResteasyReactiveResourceMethodEntriesBuildItem.Entry> entries = new ArrayList<>();
+        for (Class<?> child : List.of(SynchronizedChild.class, UnsynchronizedChild.class)) {
+            MethodInfo declaration =
+                    combined.getClassByName(child.getSuperclass().getName()).firstMethod("call");
+            entries.add(new ResteasyReactiveResourceMethodEntriesBuildItem.Entry(
+                    null,
+                    declaration,
+                    application.getClassByName(child.getName()),
+                    registeredMethod(combined, declaration, child, true)));
+        }
+
+        QuarkusAppMetadata result = collect(
+                application,
+                combined,
+                context,
+                entries,
+                List.of(SynchronizedChild.class, UnsynchronizedChild.class),
+                List.of());
+
+        assertThat(result.synchronizedVirtualThreadMethods())
+                .containsExactly(SynchronizedChild.class.getName() + "#call()");
+        assertThat(result.problems()).isEmpty();
+    }
+
+    @Test
+    void missingResolvedImplementationIsUnknownRatherThanUsingTheAnnotationDeclaration() throws IOException {
+        Index application = index(VirtualResource.class);
+        var context = arc(application, false);
+        var entry = endpoint(application, VirtualResource.class, "synchronizedCall", true);
+        ((ServerResourceMethod) entry.getResourceMethod()).setActualDeclaringClassName("missing.Implementation");
+
+        QuarkusAppMetadata result =
+                collect(application, application, context, List.of(entry), List.of(VirtualResource.class), List.of());
+
+        assertThat(result.synchronizedVirtualThreadMethods()).isEmpty();
+        assertThat(result.problems()).extracting("ruleId").containsExactly("QA-PERF-002");
+    }
+
+    @Test
+    void classicClientCapabilityIsUnknownCoverageRatherThanKnownAbsence() throws IOException {
+        Index application = index(OutboundClient.class);
+        var context = arc(application, false);
+        QuarkusAppMetadata result = QuarkusAppMetadataCollector.collect(
+                application,
+                application,
+                context.beans(),
+                context.getInjectionPoints(),
+                Optional.empty(),
+                Optional.empty(),
+                new Capabilities(Set.of(Capability.REST_CLIENT, Capability.RESTEASY_CLIENT)));
+
+        assertThat(result.restClientSupported()).isFalse();
+        assertThat(result.restClients()).isEmpty();
+        assertThat(result.problems()).extracting("ruleId").containsExactly("QA-WEB-003");
     }
 
     @Test
@@ -337,10 +405,18 @@ class QuarkusAppMetadataCollectorTest {
             Index index, Class<?> type, String name, boolean virtual) {
         ClassInfo owner = index.getClassByName(type.getName());
         return new ResteasyReactiveResourceMethodEntriesBuildItem.Entry(
-                null,
-                owner.firstMethod(name),
-                owner,
-                new ResourceMethod().setHttpMethod("GET").setRunOnVirtualThread(virtual));
+                null, owner.firstMethod(name), owner, registeredMethod(index, owner.firstMethod(name), type, virtual));
+    }
+
+    private static ServerResourceMethod registeredMethod(
+            Index index, MethodInfo declaration, Class<?> owner, boolean virtual) {
+        MethodInfo implementation = ServerEndpointIndexer.findEndpointImplementation(
+                declaration, index.getClassByName(owner.getName()), index);
+        ServerResourceMethod method = new ServerResourceMethod();
+        method.setHttpMethod("GET").setRunOnVirtualThread(virtual);
+        method.setActualDeclaringClassName(
+                implementation.declaringClass().name().toString());
+        return method;
     }
 
     private static BeanDeploymentValidator.ValidationContext arc(Index index, boolean removeUnused) throws IOException {
@@ -549,6 +625,36 @@ class QuarkusAppMetadataCollectorTest {
 
     @Singleton
     static class InheritedResource extends ResourceParent {}
+
+    static class SynchronizedParent {
+        @GET
+        public synchronized String call() {
+            return "";
+        }
+    }
+
+    @Singleton
+    static class UnsynchronizedChild extends SynchronizedParent {
+        @Override
+        public String call() {
+            return "";
+        }
+    }
+
+    static class UnsynchronizedParent {
+        @GET
+        public String call() {
+            return "";
+        }
+    }
+
+    @Singleton
+    static class SynchronizedChild extends UnsynchronizedParent {
+        @Override
+        public synchronized String call() {
+            return "";
+        }
+    }
 
     @RegisterRestClient(configKey = "inventory")
     interface OutboundClient {

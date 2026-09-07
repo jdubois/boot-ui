@@ -429,6 +429,16 @@ class QuarkusAppScannerTest {
     }
 
     @Test
+    void unsupportedClientMetadataIsNotCountedAsKnownNonApplicability() {
+        Snap snap = new Snap().metadataProblem("QA-WEB-003");
+        assertThat(snap.metadata.restClientSupported()).isFalse();
+        SpringReport report = scan(snap);
+        assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly("QA-WEB-003");
+        assertThat(report.rulesEvaluated()).isEqualTo(12);
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+    }
+
+    @Test
     void unevaluatedConfigurationWithoutProblemIsNeverSilentlyClean() {
         Snap snap = new Snap();
         snap.evaluated.clear();
