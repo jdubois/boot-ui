@@ -60,6 +60,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Memory advisor findings now preserve measurement uncertainty.** Unknown buffer readings and discontinuous GC
+  counters no longer become healthy zeros, and missing observations break consecutive-growth evidence. Histogram
+  success is no longer treated as proof of a completed full GC, net growth is not called missing releases, and
+  snapshots or system swap do not imply a safe heap reduction or JVM residency. Supplier failures retain unrelated
+  findings through the existing partial-report contract. All 36 rule IDs and dismissal/public DTO contracts remain
+  unchanged; the complete source-backed audit and collector/version caveats are documented in `MEMORY-CHECKS.md`
+  ([#956](https://github.com/jdubois/boot-ui/issues/956)).
+
 - **JVM Tuning no longer approves known-invalid tiny heap requests or wraps large memory observations to zero.**
   The shared calculator checks both fixed and three-decimal percentage requests against HotSpot's generic 2 MiB
   maximum-heap lower bound, without increasing an exhausted budget. Default footprint arithmetic and MiB formatting
