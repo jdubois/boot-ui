@@ -30,7 +30,8 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     }
     expect(report.results.some((result) => result.id.startsWith('HIB-QUERY-'))).toBe(false)
 
-    await expect(page.locator('.advisor-summary__value')).toBeVisible({timeout: 20_000})
+    await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
+    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
     await expect(page.locator('main')).toContainText('Entities analysed')
 
     // Effective batching makes the stronger IDENTITY finding apply, without duplicate generic advice.

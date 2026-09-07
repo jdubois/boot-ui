@@ -74,6 +74,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Advisor browser coverage now distinguishes incomplete reports from numeric scores.** Live Spring and Quarkus
+  scenarios retain findings and dismissal/restore assertions without requiring a score for `PARTIAL` results.
+  Shared complete-report scenarios continue to verify exact dismissal and restore score changes across runtimes
+  and custom mounts. Metrics filter assertions also wait for the filtered response instead of iterating stale
+  row counts ([#983](https://github.com/jdubois/boot-ui/issues/983)).
+
 - **Architecture checks accept supported logger, scheduling and thread-factory patterns, and distinguish failed
   scans from successful analysis.** Private final instance loggers and Quarkus `@LoggerName` injection are recognized;
   scheduled signatures include repeatable/composed annotations and precise reactive types without flagging valid
