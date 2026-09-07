@@ -32,6 +32,14 @@ abstract class AbstractMemoryRule implements MemoryRule {
     @Override
     public final io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluate(MemoryContext context) {
         try {
+            if (definition.category() == MemoryCategory.THREADS
+                    && context.threads().collectionError() != null) {
+                return MemoryRuleSupport.error(definition, context.threads().collectionError());
+            }
+            if (definition.category() == MemoryCategory.HEAP_CONTENT
+                    && context.heapContent().collectionError() != null) {
+                return MemoryRuleSupport.error(definition, context.heapContent().collectionError());
+            }
             return evaluateRule(context);
         } catch (RuntimeException | LinkageError ex) {
             return MemoryRuleSupport.error(definition, "Rule could not be evaluated: " + ex.getMessage());
@@ -76,7 +84,7 @@ final class MemoryFormat {
 
     static String bytes(long value) {
         if (value < 0) {
-            return "unbounded";
+            return "unavailable";
         }
         if (value >= GIGABYTE) {
             return String.format(Locale.ROOT, "%.2f GiB", value / (double) GIGABYTE);
@@ -91,10 +99,35 @@ final class MemoryFormat {
     }
 
     static int percentOf(long part, long whole) {
-        if (whole <= 0) {
+        if (whole <= 0 || part <= 0) {
             return 0;
         }
-        return (int) Math.min(100, part * 100L / whole);
+        if (part >= whole) {
+            return 100;
+        }
+        return java.math.BigInteger.valueOf(part)
+                .multiply(java.math.BigInteger.valueOf(100))
+                .divide(java.math.BigInteger.valueOf(whole))
+                .intValue();
+    }
+
+    /** Unknown or overflowing estimates stay unknown, rather than wrapping into healthy values. */
+    static long sum(long... values) {
+        long total = 0;
+        for (long value : values) {
+            if (value < 0 || value > Long.MAX_VALUE - total) {
+                return -1;
+            }
+            total += value;
+        }
+        return total;
+    }
+
+    static long product(long left, long right) {
+        if (left < 0 || right < 0 || (right > 0 && left > Long.MAX_VALUE / right)) {
+            return -1;
+        }
+        return left * right;
     }
 }
 
@@ -110,11 +143,11 @@ final class HighHeapUtilizationRule extends AbstractMemoryRule {
         super(
                 new MemoryRuleDefinition(
                         "MEM-HEAP-001",
-                        "Heap utilization is critically high",
+                        "Heap occupancy is near its reported maximum",
                         MemoryCategory.HEAP_PRESSURE,
-                        "HIGH",
-                        "Flags when live heap usage is very close to the maximum heap. The scan re-reads the heap after the histogram's full GC so it can tell sustained retained pressure (still high after a GC, reported HIGH) from transient garbage the collection reclaims. A reading that stays this high after a GC risks long GC pauses or OutOfMemoryError; a single pre-GC snapshot is reported at MEDIUM until it is confirmed to persist.",
-                        "Increase -Xmx (or MaxRAMPercentage), reduce retained objects, or profile the heap to find the growth source.",
+                        "MEDIUM",
+                        "Flags a heap-occupancy snapshot at least 95% of the reported maximum. A post-histogram reading is preferred, but histogram success does not verify a completed full GC and allocations can resume before the reading. Occupancy can include reclaimable garbage and is not a retained live set.",
+                        "Confirm pressure under representative load with GC logs or a profiler before reducing retention or raising -Xmx; check total process and container headroom first.",
                         "https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html"));
     }
 
@@ -125,17 +158,19 @@ final class HighHeapUtilizationRule extends AbstractMemoryRule {
             return skipped("Maximum heap size is not reported by this JVM.");
         }
         MemoryContext.PostGcHeapData postGc = context.postGcHeap();
-        if (postGc.heapAvailable()) {
+        if (postGc.heapAvailable() && postGc.heapUsed() >= 0) {
             int postPercent = MemoryFormat.percentOf(postGc.heapUsed(), memory.heapMax());
             if (postPercent >= THRESHOLD_PERCENT) {
                 return violation(
-                        MemoryRuleSupport.HIGH,
-                        "Heap is still " + postPercent + "% full (" + MemoryFormat.bytes(postGc.heapUsed()) + " of "
+                        MemoryRuleSupport.MEDIUM,
+                        "Heap is " + postPercent + "% full (" + MemoryFormat.bytes(postGc.heapUsed()) + " of "
                                 + MemoryFormat.bytes(memory.heapMax())
-                                + ") after a full GC, indicating sustained heap pressure.");
+                                + ") in the post-histogram snapshot; confirm sustained pressure with GC evidence.");
             }
-            // The pre-GC reading may have been high, but a full GC reclaimed it: no retained pressure.
             return pass();
+        }
+        if (memory.heapUsed() < 0) {
+            return skipped("Heap usage is unavailable.");
         }
         int percent = MemoryFormat.percentOf(memory.heapUsed(), memory.heapMax());
         if (percent >= THRESHOLD_PERCENT) {
@@ -159,8 +194,8 @@ final class OldGenerationNearMaxRule extends AbstractMemoryRule {
                 "Old generation is near its maximum",
                 MemoryCategory.HEAP_PRESSURE,
                 "MEDIUM",
-                "Flags when the tenured/old-generation pool is nearly full, a common precursor to full GCs and promotion failures. The scan prefers the pool's post-GC occupancy (after the histogram's full GC) so it reflects long-lived retention rather than reclaimable garbage.",
-                "Investigate long-lived object retention; consider raising the heap size or tuning the generation sizes for the active collector.",
+                "Flags old-generation occupancy at 85% of a reported pool maximum. The post-histogram snapshot is preferred, but does not prove a completed full GC or long-lived retention. Pool boundaries and reclamation differ between collectors.",
+                "Confirm pressure with collector-specific GC logs and representative workload observations before changing heap or generation sizing.",
                 "https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html"));
     }
 
@@ -178,11 +213,14 @@ final class OldGenerationNearMaxRule extends AbstractMemoryRule {
         if (postGc.oldGenAvailable() && postGc.oldGenUsed() >= 0) {
             int postPercent = MemoryFormat.percentOf(postGc.oldGenUsed(), pool.max());
             if (postPercent >= THRESHOLD_PERCENT) {
-                return violation("Old-generation pool '" + pool.name() + "' is still " + postPercent + "% full ("
+                return violation("Old-generation pool '" + pool.name() + "' is " + postPercent + "% full ("
                         + MemoryFormat.bytes(postGc.oldGenUsed()) + " of " + MemoryFormat.bytes(pool.max())
-                        + ") after a full GC.");
+                        + ") in the post-histogram snapshot; this is occupancy, not a retained-size measurement.");
             }
             return pass();
+        }
+        if (pool.used() < 0) {
+            return skipped("Old-generation usage is unavailable.");
         }
         if (pool.usedPercent() >= THRESHOLD_PERCENT) {
             return violation("Old-generation pool '" + pool.name() + "' is " + pool.usedPercent() + "% full ("
@@ -204,8 +242,8 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
                 "Maximum heap is capped well below the container limit",
                 MemoryCategory.HEAP_PRESSURE,
                 "LOW",
-                "Flags when a small max heap is already under pressure while a much larger container memory limit is available to grow into. The check prefers post-GC heap occupancy (consistent with MEM-HEAP-001/002) to avoid false positives from transient garbage.",
-                "Set an explicit -Xmx or -XX:MaxRAMPercentage that lets the heap use a sensible share of the container memory limit instead of staying small while under pressure.",
+                "Flags high heap occupancy with a maximum below 15% of a container limit of at least 1 GiB. A container limit is not available free memory: other processes and native allocations can consume the remaining capacity.",
+                "Confirm sustained heap pressure and actual container/native headroom before raising -Xmx or -XX:MaxRAMPercentage.",
                 "https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html"));
     }
 
@@ -221,21 +259,22 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
         if (containerLimit == null || containerLimit < MIN_CONTAINER_LIMIT) {
             return pass();
         }
-        boolean smallHeap = memory.heapMax() < containerLimit * SMALL_HEAP_PERCENT / 100;
-        // Prefer post-GC used% to distinguish retained pressure from reclaimable garbage,
-        // consistent with MEM-HEAP-001 and MEM-HEAP-002.
+        boolean smallHeap = MemoryFormat.percentOf(memory.heapMax(), containerLimit) < SMALL_HEAP_PERCENT;
+        // Prefer the more recent snapshot without claiming it proves collection or retention.
         int usedPercent;
         MemoryContext.PostGcHeapData postGc = context.postGcHeap();
-        if (postGc.heapAvailable() && memory.heapMax() > 0) {
+        if (postGc.heapAvailable() && postGc.heapUsed() >= 0) {
             usedPercent = MemoryFormat.percentOf(postGc.heapUsed(), memory.heapMax());
-        } else {
+        } else if (memory.heapUsed() >= 0) {
             usedPercent = context.heapUsedPercent();
+        } else {
+            return skipped("Heap occupancy is unavailable.");
         }
         if (smallHeap && usedPercent >= PRESSURE_PERCENT) {
             int percent = MemoryFormat.percentOf(memory.heapMax(), containerLimit);
             return violation("Max heap " + MemoryFormat.bytes(memory.heapMax()) + " is only " + percent
                     + "% of the container memory limit " + MemoryFormat.bytes(containerLimit) + " and is already "
-                    + usedPercent + "% full; raising the heap could use the available container memory.");
+                    + usedPercent + "% full; check total container and native usage before considering a larger heap.");
         }
         return pass();
     }
@@ -270,6 +309,9 @@ final class MetaspaceSaturationRule extends AbstractMemoryRule {
             return skipped("Metaspace has no configured maximum (effectively unbounded).");
         }
         MemoryPoolSnapshot pool = metaspace.get();
+        if (pool.used() < 0) {
+            return skipped("Metaspace usage is unavailable.");
+        }
         if (pool.usedPercent() >= THRESHOLD_PERCENT) {
             return violation("Metaspace is " + pool.usedPercent() + "% full (" + MemoryFormat.bytes(pool.used())
                     + " of " + MemoryFormat.bytes(pool.max()) + ").");
@@ -289,7 +331,7 @@ final class CodeCacheSaturationRule extends AbstractMemoryRule {
                 "Code cache is close to its maximum",
                 MemoryCategory.MEMORY_POOLS,
                 "MEDIUM",
-                "Flags when any JIT code-cache segment is nearly full. With tiered compilation the cache is split into separate segments (non-nmethods, profiled, non-profiled); a single saturated segment can stop the JIT even when the aggregate looks healthy, after which the application falls back to slower interpreted execution.",
+                "Flags a JIT code-cache segment at 90% of its reported maximum. A saturated segment can constrain new compilation even if aggregate capacity looks healthy; existing compiled methods do not all revert to interpretation.",
                 "Increase -XX:ReservedCodeCacheSize, or reduce the amount of compiled code (fewer megamorphic call sites, less code).",
                 "https://docs.oracle.com/en/java/javase/21/vm/codecache.html"));
     }
@@ -299,6 +341,9 @@ final class CodeCacheSaturationRule extends AbstractMemoryRule {
         List<MemoryPoolSnapshot> segments = context.memory().codeCachePools();
         if (segments.isEmpty()) {
             return skipped("No code-cache pool is exposed by this JVM.");
+        }
+        if (segments.stream().noneMatch(pool -> pool.max() > 0 && pool.used() >= 0)) {
+            return skipped("Code-cache usage or maxima are unavailable.");
         }
         List<String> details = new ArrayList<>();
         for (MemoryPoolSnapshot pool : segments) {
@@ -313,9 +358,7 @@ final class CodeCacheSaturationRule extends AbstractMemoryRule {
 
 final class DirectBufferGrowthRule extends AbstractMemoryRule {
 
-    private static final double LIMIT_FRACTION = 0.8;
-    private static final long UNCAPPED_WARN_BYTES = 512L * MemoryFormat.MEGABYTE;
-    private static final int UNCAPPED_CONTAINER_PERCENT = 10;
+    private static final int LIMIT_PERCENT = 80;
 
     DirectBufferGrowthRule() {
         super(new MemoryRuleDefinition(
@@ -323,8 +366,8 @@ final class DirectBufferGrowthRule extends AbstractMemoryRule {
                 "Direct buffer usage is high",
                 MemoryCategory.MEMORY_POOLS,
                 "LOW",
-                "Flags java.nio direct (off-heap) buffer capacity that is near an explicit -XX:MaxDirectMemorySize cap, or that is large relative to the effective HotSpot default cap (which equals max heap when -XX:MaxDirectMemorySize is unset). Direct memory is not bounded by -Xmx and can leak native memory.",
-                "Audit direct ByteBuffer allocations and pooling; set or raise -XX:MaxDirectMemorySize and ensure buffers are released.",
+                "Flags NIO direct-buffer capacity at 80% of a known effective cap. OpenJDK limits capacity, not the buffer pool's estimated used bytes or all native memory. A live HotSpot MaxDirectMemorySize value of zero resolves to max heap; an unavailable option is not evidence of an unlimited cap.",
+                "Review direct-buffer allocation and pooling under representative load; check native/container headroom before changing -XX:MaxDirectMemorySize. Use supported library lifecycle APIs, not manual Cleaner invocation.",
                 "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/ByteBuffer.html"));
     }
 
@@ -333,37 +376,15 @@ final class DirectBufferGrowthRule extends AbstractMemoryRule {
         MemoryData memory = context.memory();
         long capacity = memory.directBufferCapacity();
         long max = memory.maxDirectMemoryBytes();
-        if (max > 0) {
-            if (capacity >= (long) (max * LIMIT_FRACTION)) {
-                int percent = MemoryFormat.percentOf(capacity, max);
-                return violation("Direct buffers reserve " + MemoryFormat.bytes(capacity) + " (" + percent
-                        + "% of -XX:MaxDirectMemorySize " + MemoryFormat.bytes(max) + ") across "
-                        + memory.directBufferCount() + " buffers.");
-            }
-            return pass();
+        if (capacity < 0 || max <= 0) {
+            return skipped(
+                    "Direct-buffer capacity or its effective maximum is unavailable; a missing cap is not an unlimited cap.");
         }
-        // -XX:MaxDirectMemorySize is unset; HotSpot defaults the cap to max heap (-Xmx).
-        // Compare against that effective cap to avoid false positives on large-heap apps.
-        long effectiveCap = memory.heapMax() > 0 ? memory.heapMax() : -1;
-        if (effectiveCap > 0) {
-            if (capacity >= (long) (effectiveCap * LIMIT_FRACTION)) {
-                int percent = MemoryFormat.percentOf(capacity, effectiveCap);
-                return violation("Direct buffers reserve " + MemoryFormat.bytes(capacity) + " (" + percent
-                        + "% of the effective default cap " + MemoryFormat.bytes(effectiveCap)
-                        + ", which equals max heap since -XX:MaxDirectMemorySize is unset) across "
-                        + memory.directBufferCount() + " buffers; monitor for native-memory growth.");
-            }
-            return pass();
-        }
-        // Neither explicit cap nor heap max is known; fall back to heuristic thresholds.
-        long containerThreshold = memory.containerMemoryLimitBytes() == null
-                ? Long.MAX_VALUE
-                : memory.containerMemoryLimitBytes() * UNCAPPED_CONTAINER_PERCENT / 100;
-        if (capacity >= Math.min(UNCAPPED_WARN_BYTES, containerThreshold)) {
-            return violation(
-                    "Direct buffer pool reserves " + MemoryFormat.bytes(capacity)
-                            + " of off-heap memory across " + memory.directBufferCount()
-                            + " buffers; -XX:MaxDirectMemorySize is unset and max heap is unknown, so there is no effective cap.");
+        int percent = MemoryFormat.percentOf(capacity, max);
+        if (percent >= LIMIT_PERCENT) {
+            return violation("Direct-buffer capacity is " + MemoryFormat.bytes(capacity) + " (" + percent
+                    + "% of the effective NIO direct-memory cap " + MemoryFormat.bytes(max)
+                    + "); this does not measure the process's complete native footprint.");
         }
         return pass();
     }
@@ -425,7 +446,7 @@ final class ContainerSupportDisabledRule extends AbstractMemoryRule {
         if (memory.containerMemoryLimitBytes() == null) {
             return skipped("No container memory limit was detected.");
         }
-        if (memory.hasJvmArgument("-XX:-UseContainerSupport")) {
+        if (Boolean.FALSE.equals(memory.booleanJvmArgument("UseContainerSupport"))) {
             return violation("-XX:-UseContainerSupport is set despite a detected cgroup memory limit of "
                     + MemoryFormat.bytes(memory.containerMemoryLimitBytes())
                     + "; JVM ergonomics may size against the host and exceed the container.");
@@ -455,6 +476,9 @@ final class DeadlockDetectedRule extends AbstractMemoryRule {
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         ThreadData threads = context.threads();
+        if (threads.total() <= 0) {
+            return skipped("No thread snapshot is available to assess platform-thread deadlocks.");
+        }
         if (!threads.deadlockDetected()) {
             return pass();
         }
@@ -515,7 +539,7 @@ final class ThreadPoolExhaustionGapRule extends AbstractMemoryRule {
                         "Peak thread count was far above the current count",
                         MemoryCategory.THREADS,
                         "INFO",
-                        "Notes a large gap between the all-time peak platform-thread count and the current live count. The peak is monotonic since JVM start, so this reflects a past burst (pool churn or a transient spike) rather than a current leak; treat it as historical context to correlate with a live thread trend, not as evidence of a present problem.",
+                        "Notes a large gap between the peak platform-thread count since JVM start or the last resetPeakThreadCount call and the current count. This is historical context, not evidence of a current leak or exhausted pool.",
                         "Review thread-pool sizing and lifecycle; bound pool sizes and ensure short-lived threads are not created per request if these bursts recur.",
                         "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html"));
     }
@@ -526,11 +550,12 @@ final class ThreadPoolExhaustionGapRule extends AbstractMemoryRule {
         if (threads.total() <= 0) {
             return skipped("No thread snapshot is available.");
         }
-        int gap = threads.peak() - threads.total();
-        if (threads.peak() >= 2 * threads.total() && gap >= MIN_GAP) {
-            return violation("Peak threads " + threads.peak() + " was well above the current " + threads.total()
-                    + " live threads (gap " + gap
-                    + ") at some point since JVM start; this is historical churn, not necessarily a current leak.");
+        long gap = (long) threads.peak() - threads.total();
+        if (threads.peak() >= 2L * threads.total() && gap >= MIN_GAP) {
+            return violation(
+                    "Peak threads " + threads.peak() + " was well above the current " + threads.total()
+                            + " live threads (gap " + gap
+                            + ") since JVM start or the last peak reset; this is historical context, not necessarily a current leak.");
         }
         return pass();
     }
@@ -585,7 +610,8 @@ final class RunawayCpuThreadRule extends AbstractMemoryRule {
         for (ThreadInfoDto thread : hot.subList(0, Math.min(MAX_REPORTED, hot.size()))) {
             int percent = MemoryFormat.percentOf(thread.cpuTimeMillis(), uptimeMillis);
             details.add("Thread '" + thread.name() + "' (id " + thread.id() + ") has used "
-                    + (thread.cpuTimeMillis() / 1000) + "s of CPU while RUNNABLE (" + percent + "% of JVM uptime).");
+                    + (thread.cpuTimeMillis() / 1000) + "s of accumulated CPU (" + percent
+                    + "% of JVM uptime) and is currently RUNNABLE; the snapshot does not establish its past states.");
         }
         return violation(details);
     }
@@ -694,11 +720,14 @@ final class CollectionBloatRule extends AbstractMemoryRule {
             int sharePercent = MemoryFormat.percentOf(entry.bytes(), totalBytes);
             if (entry.bytes() >= ABSOLUTE_THRESHOLD || sharePercent >= SHARE_PERCENT_THRESHOLD) {
                 candidates.add(entry);
-                candidateBytes += entry.bytes();
+                candidateBytes = MemoryFormat.sum(candidateBytes, entry.bytes());
             }
         }
         if (candidates.isEmpty()) {
             return pass();
+        }
+        if (candidateBytes < 0) {
+            return skipped("Collection histogram bytes exceed the numeric range.");
         }
         candidates.sort((left, right) -> Long.compare(right.bytes(), left.bytes()));
         long largest = candidates.get(0).bytes();
@@ -781,16 +810,15 @@ final class DominantClassRule extends AbstractMemoryRule {
 final class ExcessiveLoadedClassesRule extends AbstractMemoryRule {
 
     private static final int LOADED_THRESHOLD = 50_000;
-    private static final int UNLOAD_RATIO_DIVISOR = 100;
 
     ExcessiveLoadedClassesRule() {
         super(new MemoryRuleDefinition(
                 "MEM-CLASS-001",
-                "Very large number of loaded classes with little unloading",
+                "Very large number of currently loaded classes",
                 MemoryCategory.CLASS_LOADING,
                 "INFO",
-                "Flags a high loaded-class count combined with little or no class unloading, which can indicate a classloader leak or runaway dynamic class generation and pressures Metaspace. A large class count that is matched by active unloading is treated as a legitimately large application instead. Caveat: the threshold is not framework-neutral in practice. Frameworks that generate proxy/lambda/configuration classes at runtime (e.g. Spring Boot's CGLIB/JDK dynamic proxies, autoconfiguration, and lambda forms) structurally load more classes than an equivalent application built with a framework that does most of this at build time (e.g. Quarkus); two applications of the same real size can sit at very different distances from this threshold purely because of framework style, not application growth or a leak.",
-                "If the application does not legitimately use this many classes, look for classloader leaks (redeploys, scripting, proxy generation).",
+                "Reports at least 50,000 currently loaded classes as informational context. Frameworks differ in runtime class generation. Lifetime unloads neither prove this population is healthy nor establish a leak; class unloading is optional when defining loaders become reclaimable.",
+                "Compare class counts and Metaspace over representative workloads; investigate classloader retention only if growth is unexpected.",
                 "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshoot-class-loading.html"));
     }
 
@@ -798,11 +826,11 @@ final class ExcessiveLoadedClassesRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         MemoryContext.ClassLoadingData classLoading = context.classLoading();
         boolean manyLoaded = classLoading.loadedClasses() >= LOADED_THRESHOLD;
-        boolean littleUnloading = classLoading.unloadedClasses() < classLoading.loadedClasses() / UNLOAD_RATIO_DIVISOR;
-        if (manyLoaded && littleUnloading) {
-            return violation(classLoading.loadedClasses() + " classes are currently loaded ("
-                    + classLoading.totalLoadedClasses() + " loaded and " + classLoading.unloadedClasses()
-                    + " unloaded since start); watch for classloader leaks and Metaspace pressure.");
+        if (manyLoaded) {
+            return violation(
+                    classLoading.loadedClasses() + " classes are currently loaded ("
+                            + classLoading.totalLoadedClasses() + " loaded and " + classLoading.unloadedClasses()
+                            + " unloaded since start); compare representative workload trends before inferring classloader retention.");
         }
         return pass();
     }
@@ -821,9 +849,9 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
                 "MEM-FOOTPRINT-001",
                 "Configured JVM memory leaves little container headroom",
                 MemoryCategory.NATIVE_MEMORY,
-                "HIGH",
+                "MEDIUM",
                 "Estimates the JVM's configured memory envelope (maximum heap, currently committed non-heap such as Metaspace and code cache, direct-buffer capacity, and approximate thread-stack reservations) against the detected container limit. Using maximum rather than currently committed heap exposes configurations that leave too little native headroom before the heap grows. The estimate is conservative but incomplete: it excludes GC structures, JIT working memory, native libraries, and non-NIO native allocations.",
-                "Lower -Xmx/-XX:MaxRAMPercentage, reduce thread counts or direct-buffer use, or raise the container memory limit so the total committed footprint keeps headroom.",
+                "Review configured capacity against measured container usage and native headroom before changing limits. This mixed reservation estimate is neither RSS nor total committed memory.",
                 "https://docs.oracle.com/en/java/javase/21/troubleshoot/diagnostic-tools.html"));
     }
 
@@ -834,21 +862,41 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
         if (limit == null || limit <= 0) {
             return skipped("No container memory limit was detected.");
         }
-        long stacks = (long) context.threads().total() * context.runtime().threadStackBytes();
-        long configuredFootprint = Math.max(0, memory.heapMax())
-                + Math.max(0, memory.nonHeapCommitted())
-                + Math.max(0, memory.directBufferCapacity())
-                + Math.max(0, stacks);
+        if (memory.heapMax() <= 0) {
+            return skipped("Maximum heap is unavailable; the configured envelope cannot be assessed.");
+        }
+        if (memory.heapMax() >= limit) {
+            return violation(
+                    MemoryRuleSupport.HIGH,
+                    "Maximum heap " + MemoryFormat.bytes(memory.heapMax())
+                            + " meets or exceeds the container limit " + MemoryFormat.bytes(limit)
+                            + "; the heap configuration alone leaves no native headroom if fully realized. This is not measured residency.");
+        }
+        if (context.threads().collectionError() != null) {
+            return MemoryRuleSupport.error(definition(), context.threads().collectionError());
+        }
+        if (context.threads().total() <= 0 || context.runtime().threadStackBytes() <= 0) {
+            return skipped("Platform-thread stack estimate is unavailable.");
+        }
+        long stacks = MemoryFormat.product(
+                context.threads().total(), context.runtime().threadStackBytes());
+        long configuredFootprint =
+                MemoryFormat.sum(memory.heapMax(), memory.nonHeapCommitted(), memory.directBufferCapacity(), stacks);
+        if (configuredFootprint < 0) {
+            return skipped("Configured memory components are unavailable or exceed the numeric range.");
+        }
         if (MemoryFormat.percentOf(configuredFootprint, limit) >= THRESHOLD_PERCENT) {
             int percent = MemoryFormat.percentOf(configuredFootprint, limit);
-            return violation("Configured JVM memory envelope " + MemoryFormat.bytes(configuredFootprint) + " is "
-                    + percent + "% of the container memory limit " + MemoryFormat.bytes(limit) + " (maximum heap "
-                    + MemoryFormat.bytes(memory.heapMax()) + " + committed non-heap "
-                    + MemoryFormat.bytes(memory.nonHeapCommitted()) + " + direct buffers "
-                    + MemoryFormat.bytes(memory.directBufferCapacity()) + " + ~"
-                    + context.threads().total()
-                    + " thread stacks " + MemoryFormat.bytes(stacks)
-                    + "); too little headroom remains for untracked native memory.");
+            return violation(
+                    "Configured JVM memory envelope " + MemoryFormat.bytes(configuredFootprint) + " is "
+                            + percent + "% of the container memory limit " + MemoryFormat.bytes(limit)
+                            + " (maximum heap "
+                            + MemoryFormat.bytes(memory.heapMax()) + " + committed non-heap "
+                            + MemoryFormat.bytes(memory.nonHeapCommitted()) + " + direct buffers "
+                            + MemoryFormat.bytes(memory.directBufferCapacity()) + " + ~"
+                            + context.threads().total()
+                            + " thread stacks " + MemoryFormat.bytes(stacks)
+                            + "); review native headroom. This incomplete mixed reservation estimate is not committed or resident memory.");
         }
         return pass();
     }
@@ -886,9 +934,13 @@ final class HighGcOverheadRule extends AbstractMemoryRule {
         }
         int percent = MemoryFormat.percentOf(runtime.gcCollectionTimeMillis(), runtime.uptimeMillis());
         if (percent >= THRESHOLD_PERCENT) {
-            return violation("GC has used " + (runtime.gcCollectionTimeMillis() / 1000) + "s across "
-                    + runtime.gcCollectionCount() + " collections, " + percent + "% of the "
-                    + (runtime.uptimeMillis() / 1000) + "s uptime; the heap may be undersized or allocation-heavy.");
+            String count =
+                    runtime.gcCollectionCount() >= 0 ? " across " + runtime.gcCollectionCount() + " collections" : "";
+            return violation(
+                    "Approximate accumulated GC time is " + (runtime.gcCollectionTimeMillis() / 1000) + "s"
+                            + count + ", " + percent + "% of the "
+                            + (runtime.uptimeMillis() / 1000)
+                            + "s uptime. This lifetime ratio includes diagnostic collections and startup; it is not CPU utilization or an exact application-pause percentage.");
         }
         return pass();
     }
@@ -967,11 +1019,14 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
             return skipped("Compressed object pointers are explicitly disabled (-XX:-UseCompressedOops).");
         }
         long alignment = parseObjectAlignmentBytes(memory.inputArguments());
-        long boundary = alignment * COMPRESSED_OOPS_HEAP_PER_ALIGNMENT_BYTE;
+        long boundary = MemoryFormat.product(alignment, COMPRESSED_OOPS_HEAP_PER_ALIGNMENT_BYTE);
+        long upperBound = MemoryFormat.sum(boundary, boundary / 4);
+        if (boundary <= 0 || upperBound < 0) {
+            return skipped("The compressed-oops alignment boundary exceeds the numeric range.");
+        }
         if (useCompressedOops != null && !useCompressedOops && heapMax <= boundary) {
             return skipped("Compressed object pointers are disabled (UseCompressedOops=false).");
         }
-        long upperBound = boundary + boundary / 4;
         if (heapMax > boundary && heapMax <= upperBound) {
             return violation("Max heap " + MemoryFormat.bytes(heapMax) + " is just above the ~"
                     + MemoryFormat.bytes(boundary) + " compressed-oops boundary"
@@ -1036,11 +1091,11 @@ final class UnboundedMetaspaceInContainerRule extends AbstractMemoryRule {
     UnboundedMetaspaceInContainerRule() {
         super(new MemoryRuleDefinition(
                 "MEM-POOL-004",
-                "Metaspace is unbounded inside a memory-limited container",
+                "Metaspace has no reported maximum inside a memory-limited container",
                 MemoryCategory.MEMORY_POOLS,
                 "LOW",
-                "Flags a container memory limit with no -XX:MaxMetaspaceSize while Metaspace is already sizable. Unbounded Metaspace can grow until the container is OOM-killed by the kernel instead of failing with a graceful OutOfMemoryError: Metaspace.",
-                "Set -XX:MaxMetaspaceSize to a sensible ceiling so class-metadata growth fails fast inside the JVM rather than triggering a kernel OOM kill.",
+                "Notes sizable Metaspace with an undefined MXBean maximum inside a detected memory-limited container. An undefined maximum is not proof of unlimited capacity, a missing effective VM option, or an impending OOM kill.",
+                "Review class-metadata growth and total native/container usage. Consider a deliberate MaxMetaspaceSize only with workload evidence; a cap can cause Metaspace OOM and does not guarantee a graceful failure.",
                 "https://docs.oracle.com/en/java/javase/21/vm/class-metadata.html"));
     }
 
@@ -1056,9 +1111,9 @@ final class UnboundedMetaspaceInContainerRule extends AbstractMemoryRule {
         }
         MemoryPoolSnapshot pool = metaspace.get();
         if (pool.max() <= 0 && pool.used() >= MIN_USED) {
-            return violation("Metaspace has no -XX:MaxMetaspaceSize and already uses " + MemoryFormat.bytes(pool.used())
+            return violation("Metaspace has no reported pool maximum and uses " + MemoryFormat.bytes(pool.used())
                     + " inside a container limited to " + MemoryFormat.bytes(memory.containerMemoryLimitBytes())
-                    + "; unbounded growth risks a kernel OOM kill.");
+                    + "; review native headroom without assuming this undefined maximum means unlimited memory.");
         }
         return pass();
     }
@@ -1079,9 +1134,9 @@ final class ClassLoadingChurnRule extends AbstractMemoryRule {
                 "MEM-CLASS-002",
                 "High class-loading churn",
                 MemoryCategory.CLASS_LOADING,
-                "LOW",
-                "Flags heavy class unloading, either a large absolute count or a high sustained unload rate over the JVM's lifetime. Persistent churn points to dynamic proxy/CGLIB generation, scripting, or redeploy-style classloader cycling that strains Metaspace and the GC.",
-                "Identify the source of dynamic class generation (proxies, scripting engines, repeated context refreshes) and cache or bound it.",
+                "INFO",
+                "Reports a large lifetime class-unload count or lifetime-average rate. These counters can reflect a past burst or redeployment and do not establish sustained recent churn.",
+                "Compare recent class-loading observations under representative load before changing dynamic generation, caches, or classloader lifecycles.",
                 "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshoot-class-loading.html"));
     }
 
@@ -1089,15 +1144,17 @@ final class ClassLoadingChurnRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         long unloaded = context.classLoading().unloadedClasses();
         if (unloaded >= UNLOAD_THRESHOLD) {
-            return violation(unloaded + " classes have been unloaded since start, indicating heavy classloader churn.");
+            return violation(
+                    unloaded
+                            + " classes have been unloaded since start; this historical total does not establish current churn.");
         }
         long uptimeMillis = context.runtime().uptimeMillis();
         if (uptimeMillis >= MIN_UPTIME_MILLIS) {
             long minutes = uptimeMillis / 60_000L;
             long ratePerMin = minutes > 0 ? unloaded / minutes : 0;
             if (ratePerMin >= UNLOAD_RATE_PER_MIN) {
-                return violation("Classes are unloading at about " + ratePerMin + "/min (" + unloaded + " over "
-                        + minutes + " min), indicating sustained classloader churn.");
+                return violation("Lifetime-average class unloading is about " + ratePerMin + "/min (" + unloaded
+                        + " over " + minutes + " min); this does not establish a sustained recent rate.");
             }
         }
         return pass();
@@ -1118,8 +1175,8 @@ final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
                 "MEM-FOOTPRINT-002",
                 "Platform thread stacks reserve a large amount of native memory",
                 MemoryCategory.NATIVE_MEMORY,
-                "HIGH",
-                "Estimates the native memory reserved for platform thread stacks (live platform threads times the -Xss/-XX:ThreadStackSize reservation) and flags when stacks alone are a large contributor to the off-heap footprint. Thread stacks are demand-paged virtual address-space reservations, not committed/resident memory: a JVM with many idle or shallow-call-depth threads can reserve a large amount while only a small fraction of it is ever touched (becomes resident), so a large reservation alone does not prove memory pressure. Virtual threads are excluded because their stacks live on the heap. Severity is HIGH only when the reservation is both a large share (>=20%) of a detected container memory limit and a worst-case bound would exceed that limit. Cgroup usage already includes touched stack pages, so this bound can double-count them; it is an escalation signal, not proof that the reservation will become resident.",
+                "MEDIUM",
+                "Estimates platform-thread stack reservations, not committed or resident pages. A large reservation can be mostly untouched. Virtual threads are excluded because their stacks live on the heap. Do not add the full reservation to cgroup usage: touched stack pages are already counted there.",
                 "Reduce the platform thread count (bound pools, prefer virtual threads or async I/O) or lower an oversized -Xss so thread stacks do not dominate native memory.",
                 "https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html"));
     }
@@ -1127,37 +1184,33 @@ final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         int platformThreads = context.threads().total();
+        if (context.threads().collectionError() != null) {
+            return MemoryRuleSupport.error(definition(), context.threads().collectionError());
+        }
         if (platformThreads <= 0) {
             return skipped("No thread snapshot is available.");
         }
         long stackBytes = context.runtime().threadStackBytes();
-        long reserved = (long) platformThreads * stackBytes;
+        long reserved = MemoryFormat.product(platformThreads, stackBytes);
+        if (stackBytes <= 0 || reserved < 0) {
+            return skipped("Platform-thread stack reservation is unavailable or exceeds the numeric range.");
+        }
         Long limit = context.memory().containerMemoryLimitBytes();
-        Long current = context.memory().containerMemoryWorkingSetBytes() != null
-                ? context.memory().containerMemoryWorkingSetBytes()
-                : context.memory().containerMemoryCurrentBytes();
-        boolean relativeBreach = limit != null && limit > 0 && reserved >= limit * CONTAINER_PERCENT_THRESHOLD / 100;
+        boolean relativeBreach =
+                limit != null && limit > 0 && MemoryFormat.percentOf(reserved, limit) >= CONTAINER_PERCENT_THRESHOLD;
         boolean absoluteBreach = reserved >= ABSOLUTE_THRESHOLD;
         if (relativeBreach || absoluteBreach) {
-            // This is a worst-case bound: cgroup usage already includes touched stack pages, but
-            // the JVM does not expose how much of each stack reservation is resident.
-            boolean worstCaseBreach = relativeBreach && current != null && current + reserved >= limit;
-            String severity = worstCaseBreach ? MemoryRuleSupport.HIGH : MemoryRuleSupport.MEDIUM;
             String relativeNote = limit != null && limit > 0
                     ? " (" + MemoryFormat.percentOf(reserved, limit) + "% of the container memory limit "
                             + MemoryFormat.bytes(limit) + ")"
                     : "";
-            String residencyNote = worstCaseBreach
-                    ? " This worst-case bound double-counts touched stack pages already included in the "
-                            + MemoryFormat.bytes(current) + " charged to the container; fully realizing the"
-                            + " reservation would breach the limit."
-                    : " This is a virtual-memory reservation, not confirmed resident usage; only a fraction of it"
-                            + " may ever become resident.";
+            String residencyNote = " This is an approximate virtual-memory reservation, not confirmed resident usage;"
+                    + " touched stack pages are already included in cgroup usage.";
             return violation(
-                    severity,
+                    MemoryRuleSupport.MEDIUM,
                     platformThreads + " platform threads reserve about " + MemoryFormat.bytes(reserved)
                             + " of stack memory at " + MemoryFormat.bytes(stackBytes) + " each" + relativeNote
-                            + "; thread stacks are a large contributor to the native footprint." + residencyNote);
+                            + "." + residencyNote);
         }
         return pass();
     }
@@ -1197,8 +1250,11 @@ final class ArrayDominanceRule extends AbstractMemoryRule {
         for (HeapClassHistogramEntryDto entry : context.heapContent().histogram()) {
             if (entry.className() != null && entry.className().endsWith("[]")) {
                 arrays.add(entry);
-                arrayBytes += entry.bytes();
+                arrayBytes = MemoryFormat.sum(arrayBytes, entry.bytes());
             }
+        }
+        if (arrayBytes < 0) {
+            return skipped("Array histogram bytes exceed the numeric range.");
         }
         int sharePercent = MemoryFormat.percentOf(arrayBytes, totalBytes);
         if (arrays.isEmpty() || sharePercent < SHARE_PERCENT_THRESHOLD) {
@@ -1233,7 +1289,7 @@ final class RecentGcOverheadRule extends AbstractMemoryRule {
                         "Recent GC overhead is high",
                         MemoryCategory.GC_CONFIGURATION,
                         "MEDIUM",
-                        "Compares time spent in garbage collection against wall-clock time over the interval between the last two scans, so it reflects current allocation and heap pressure rather than the lifetime average reported by MEM-GC-002. The scan's own forced histogram GC is excluded from the window. The first scan only establishes a baseline.",
+                        "Compares approximate collection elapsed-time deltas with the interval between valid scans. Known concurrent-cycle timers are excluded to avoid cycle/pause double-counting. Invalid/reset counters or changed collector identities require a new baseline. A collection crossing a sample boundary can distort a short window; this is not CPU utilization or an exact pause percentage. Histogram request intervals are excluded.",
                         "Re-run the scan after a representative workload; if recent GC overhead stays high, increase the heap (-Xmx/-XX:MaxRAMPercentage), reduce the allocation rate, or review the collector choice.",
                         "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/GarbageCollectorMXBean.html"));
     }
@@ -1241,8 +1297,8 @@ final class RecentGcOverheadRule extends AbstractMemoryRule {
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         MemoryContext.GcTrend trend = context.gcTrend();
-        if (!trend.available()) {
-            return skipped("No previous scan to compare; re-run the scan to measure recent GC overhead.");
+        if (!trend.available() || trend.deltaGcTimeMillis() < 0) {
+            return skipped("No comparable GC baseline is available; re-run after a representative workload.");
         }
         if (trend.deltaUptimeMillis() < MIN_WINDOW_MILLIS) {
             return skipped("Too little time has passed since the last scan to measure recent GC overhead.");
@@ -1251,9 +1307,11 @@ final class RecentGcOverheadRule extends AbstractMemoryRule {
         if (percent < THRESHOLD_PERCENT) {
             return pass();
         }
-        String detail = "GC used " + trend.deltaGcTimeMillis() + " ms (" + percent + "%) of the last "
-                + (trend.deltaUptimeMillis() / 1000) + "s across " + trend.deltaGcCount()
-                + " collections since the previous scan; the heap may be undersized or allocation-heavy.";
+        String detail = "Approximate GC elapsed-time delta is " + trend.deltaGcTimeMillis() + " ms (" + percent
+                + "%) over the last "
+                + (trend.deltaUptimeMillis() / 1000) + "s"
+                + (trend.deltaGcCount() >= 0 ? " across " + trend.deltaGcCount() + " collections" : "")
+                + " since the previous scan; corroborate with GC logs because completed events can cross sampling boundaries.";
         String severity = percent >= HIGH_THRESHOLD_PERCENT ? MemoryRuleSupport.HIGH : MemoryRuleSupport.MEDIUM;
         return violation(severity, detail);
     }
@@ -1273,8 +1331,8 @@ final class CompressedClassSpaceRule extends AbstractMemoryRule {
                 "Compressed Class Space is close to its maximum",
                 MemoryCategory.MEMORY_POOLS,
                 "MEDIUM",
-                "Flags when the Compressed Class Space pool reaches 85% of its cap. This space holds class metadata in the compressed-oops range and defaults to 1 GiB; unlike Metaspace it has a hard cap even when -XX:MaxMetaspaceSize is unset. Exhaustion causes OutOfMemoryError: Compressed class space.",
-                "Increase -XX:CompressedClassSpaceSize (or reduce dynamic class generation); also set -XX:MaxMetaspaceSize so the broader Metaspace growth is bounded.",
+                "Flags Compressed Class Space at 85% of its reported maximum. Compressed class pointers are distinct from compressed ordinary object pointers; availability and capacity depend on JVM version and configuration. Exhaustion can cause OutOfMemoryError: Compressed class space.",
+                "Review class generation and the effective class-space and Metaspace limits before changing -XX:CompressedClassSpaceSize; account for the JVM's object-header mode and native headroom.",
                 "https://docs.oracle.com/en/java/javase/21/vm/class-metadata.html"));
     }
 
@@ -1286,7 +1344,7 @@ final class CompressedClassSpaceRule extends AbstractMemoryRule {
                     "No Compressed Class Space pool is exposed by this JVM (ZGC and non-HotSpot JVMs may not use it).");
         }
         MemoryContext.MemoryPoolSnapshot ccs = pool.get();
-        if (ccs.max() <= 0) {
+        if (ccs.max() <= 0 || ccs.used() < 0) {
             return skipped("Compressed Class Space does not report a maximum size on this JVM.");
         }
         if (ccs.usedPercent() >= THRESHOLD_PERCENT) {
@@ -1325,10 +1383,13 @@ final class ContainerMemoryPressureRule extends AbstractMemoryRule {
             return skipped("No container memory limit was detected.");
         }
         Long current = memory.containerMemoryCurrentBytes();
-        if (current == null || current <= 0) {
+        if (current == null || current < 0) {
             return skipped("Current container memory usage is not available (no cgroup files readable).");
         }
         Long workingSet = memory.containerMemoryWorkingSetBytes();
+        if (workingSet != null && (workingSet < 0 || workingSet > current)) {
+            return skipped("Container working-set usage is inconsistent with current usage.");
+        }
         long measuredUsage = workingSet != null ? workingSet : current;
         int percent = MemoryFormat.percentOf(measuredUsage, limit);
         if (percent >= THRESHOLD_PERCENT) {
@@ -1360,8 +1421,8 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
                 "Serial GC selected on a multi-core system",
                 MemoryCategory.GC_CONFIGURATION,
                 "LOW",
-                "Detects the Serial GC collector (bean names 'Copy' and/or 'MarkSweepCompact') running on a JVM with two or more available processors and roughly 2 GiB or more of memory (container limit, else total physical memory). Serial GC is single-threaded and is JVM ergonomics' own correct default below Oracle's historical 'server-class machine' threshold (fewer than 2 CPUs, or less than ~2 GiB of memory) -- so this rule does not fire in that region. Above both thresholds, staying on Serial GC underutilises multi-core hosts and causes long STW pauses at scale.",
-                "Switch to G1 (-XX:+UseG1GC), ZGC (-XX:+UseZGC), or Parallel GC (-XX:+UseParallelGC) to use all available cores, unless binary size or footprint constraints explicitly require Serial.",
+                "Notes Serial GC on a JVM with at least two available processors and roughly 2 GiB of known memory. This historical HotSpot server-class threshold is context, not proof that Serial is wrong: small heaps and particular workloads may benefit from it.",
+                "Compare measured pause, throughput and footprint requirements before choosing a different collector; keep Serial when it suits the workload.",
                 "https://openjdk.org/jeps/248"));
     }
 
@@ -1377,19 +1438,21 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
             return skipped("Serial GC is expected on a single-CPU system.");
         }
         long effectiveMemoryBytes = effectiveMemoryBytes(memory, context.runtime());
+        if (effectiveMemoryBytes < 0) {
+            return skipped("Available physical or container memory is unknown.");
+        }
         if (effectiveMemoryBytes >= 0 && effectiveMemoryBytes < SERVER_CLASS_MEMORY_THRESHOLD_BYTES) {
             return skipped("Serial GC is expected below Oracle's historical 'server-class machine' ergonomics"
                     + " threshold of 2 CPUs and ~2 GiB of memory (available: "
                     + MemoryFormat.bytes(effectiveMemoryBytes) + ").");
         }
         return violation("Serial GC is active ('Copy'/'MarkSweepCompact') on a " + cpus
-                + "-CPU system; Serial GC is single-threaded and will leave cores idle during collection pauses.");
+                + "-CPU system; review collector tradeoffs against measured workload goals, not CPU count alone.");
     }
 
     /**
      * Prefers the container memory limit (what actually bounds this JVM); falls back to total
-     * physical memory when no container limit is detected. Returns -1 when neither is known, in which
-     * case the rule does not skip (preserving the previous CPU-only behavior).
+     * physical memory when no container limit is detected. Returns -1 when neither is known.
      */
     private static long effectiveMemoryBytes(MemoryData memory, MemoryContext.RuntimeData runtime) {
         Long containerLimit = memory.containerMemoryLimitBytes();
@@ -1412,9 +1475,9 @@ final class G1FullGcFrequencyRule extends AbstractMemoryRule {
                 "MEM-GC-005",
                 "G1 Full GC occurred between scans",
                 MemoryCategory.GC_CONFIGURATION,
-                "MEDIUM",
-                "Detects an increase in the 'G1 Old Generation' (Full GC) collection count between two consecutive scans. A G1 Full GC is G1's fallback path, triggered when its normal concurrent-marking/mixed-collection cycle could not keep up with the allocation rate (to-space exhaustion, humongous-allocation failure, or concurrent mark failure). Since JDK 10 (JEP 307, 'Parallel Full GC for G1') this fallback runs on multiple threads, so it is not single-threaded, but it is still a fully stop-the-world pause across the entire heap; even one Full GC per scan window is a sign that G1 failed to reclaim memory through its normal cycle and is a sign of heap or tuning pressure. The first scan only establishes a baseline.",
-                "Increase -Xmx or tune -XX:G1HeapRegionSize to reduce humongous allocations; consider -XX:G1ReservePercent and -XX:InitiatingHeapOccupancyPercent to give G1 more head room for concurrent marking.",
+                "INFO",
+                "Reports a G1 Old Generation collection-count increase between comparable scans, excluding their histogram request intervals. A Full GC can result from allocation pressure, explicit GC or another diagnostic request. The counter alone does not identify the cause or prove G1 failed to keep up.",
+                "Inspect unified GC logs for the collection cause and pause duration before changing heap size or G1 tuning. Do not infer allocation failure from the count alone.",
                 "https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html"));
     }
 
@@ -1424,14 +1487,16 @@ final class G1FullGcFrequencyRule extends AbstractMemoryRule {
         if (!trend.available()) {
             return skipped("No previous scan to compare; re-run the scan to measure G1 Full GC frequency.");
         }
+        if (!trend.perCollectorDeltas().containsKey("G1 Old Generation")) {
+            return skipped("No comparable G1 Old Generation collection count is available.");
+        }
         long fullGcDelta = trend.perCollectorDeltas().getOrDefault("G1 Old Generation", 0L);
         if (fullGcDelta <= 0) {
             return pass();
         }
-        return violation("G1 Full GC occurred " + fullGcDelta + " time(s) since the last scan (G1 Old Generation"
-                + " collection count increased); a Full GC is G1's fully stop-the-world fallback path, triggered"
-                + " when its normal concurrent-marking/mixed-collection cycle could not keep up (to-space"
-                + " exhaustion, humongous-allocation failure, or concurrent mark failure).");
+        return violation(
+                "G1 Full GC occurred " + fullGcDelta + " time(s) since the last scan (G1 Old Generation"
+                        + " collection count increased); the cause is unknown and may include explicit GC or other diagnostics. Check GC logs before tuning.");
     }
 }
 
@@ -1449,11 +1514,11 @@ final class OverProvisionedHeapRule extends AbstractMemoryRule {
         super(
                 new MemoryRuleDefinition(
                         "MEM-HEAP-007",
-                        "Committed heap is far above post-GC live data",
+                        "Committed heap is far above observed heap usage",
                         MemoryCategory.HEAP_PRESSURE,
                         "INFO",
-                        "Notes when the committed heap is at least twice the post-GC live set and the slack is at least 1 GiB, after at least 10 minutes of uptime. This suggests the heap is over-provisioned: the JVM has committed memory to the OS that the application consistently does not use. Reducing -Xmx can free host memory for other processes without harming the application.",
-                        "Consider lowering -Xmx (or -XX:MaxRAMPercentage) closer to the post-GC live set to free host memory; alternatively, confirm the oversized heap is intentional to absorb allocation bursts.",
+                        "Notes at least 1 GiB of slack and committed heap at least twice used heap in one snapshot after 10 minutes of uptime. This does not establish a live set, consistently unused capacity, resident memory, or production sizing needs.",
+                        "Observe representative steady-state and burst workloads, allocation rate and GC behavior before changing heap sizing. Spare committed capacity may be intentional; this snapshot is not a safe downsizing recommendation.",
                         "https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html"));
     }
 
@@ -1462,27 +1527,23 @@ final class OverProvisionedHeapRule extends AbstractMemoryRule {
         if (context.runtime().uptimeMillis() < MIN_UPTIME_MILLIS) {
             return skipped("JVM uptime is too short to assess heap over-provisioning.");
         }
-        long committed = context.memory().heapCommitted();
+        MemoryContext.PostGcHeapData postGc = context.postGcHeap();
+        boolean postAvailable = postGc.heapAvailable() && postGc.heapCommitted() >= 0 && postGc.heapUsed() >= 0;
+        long committed =
+                postAvailable ? postGc.heapCommitted() : context.memory().heapCommitted();
         if (committed <= 0) {
             return skipped("Committed heap size is not available.");
         }
-        // Prefer post-GC used as the live-set estimate; fall back to current used.
-        long liveSet;
-        MemoryContext.PostGcHeapData postGc = context.postGcHeap();
-        if (postGc.heapAvailable() && postGc.heapUsed() > 0) {
-            liveSet = postGc.heapUsed();
-        } else {
-            liveSet = context.memory().heapUsed();
+        long used = postAvailable ? postGc.heapUsed() : context.memory().heapUsed();
+        if (used < 0 || used > committed) {
+            return skipped("Comparable heap usage and committed capacity are unavailable.");
         }
-        if (liveSet <= 0) {
-            return skipped("Heap used is not available.");
-        }
-        long slack = committed - liveSet;
-        if (committed >= COMMITTED_TO_USED_RATIO * liveSet && slack >= MIN_SLACK_BYTES) {
+        long slack = committed - used;
+        if (used <= committed / COMMITTED_TO_USED_RATIO && slack >= MIN_SLACK_BYTES) {
             return violation("Committed heap " + MemoryFormat.bytes(committed)
-                    + " is more than " + COMMITTED_TO_USED_RATIO + "x the post-GC live set "
-                    + MemoryFormat.bytes(liveSet) + " (slack " + MemoryFormat.bytes(slack)
-                    + "); the heap may be over-provisioned relative to the actual working set.");
+                    + " is at least " + COMMITTED_TO_USED_RATIO + "x observed heap usage "
+                    + MemoryFormat.bytes(used) + " (slack " + MemoryFormat.bytes(slack)
+                    + ") in one snapshot; this does not establish spare production capacity or a safe heap reduction.");
         }
         return pass();
     }
@@ -1499,33 +1560,38 @@ final class InterpretedJitModeRule extends AbstractMemoryRule {
                 "MEM-POOL-006",
                 "JIT compiler is disabled or capped below full optimisation",
                 MemoryCategory.MEMORY_POOLS,
-                "LOW",
-                "Detects -Xint (fully interpreted), -XX:-UseCompiler (JIT disabled), or -XX:TieredStopAtLevel<4 (JIT capped below C2 optimisation) in the JVM input arguments. These flags are used for debugging and profiling but left in production significantly reduce throughput and increase CPU usage, which can manifest as elevated heap pressure due to longer-living objects.",
-                "Remove -Xint, -XX:-UseCompiler, or -XX:TieredStopAtLevel<4 from production JVM arguments unless specifically required for a diagnostic session.",
+                "INFO",
+                "Notes input arguments selecting interpreted or reduced-tier compilation. These can be deliberate startup, development or diagnostic choices; the arguments alone do not prove a throughput or memory fault.",
+                "Review effective compiler settings and workload goals before changing deliberate development or startup configuration.",
                 "https://docs.oracle.com/en/java/javase/21/vm/java-virtual-machine-technology-overview.html"));
     }
 
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         MemoryData memory = context.memory();
-        if (memory.hasJvmArgument("-Xint")) {
+        String executionMode = "";
+        String tieredLevel = null;
+        for (String arg : memory.inputArguments()) {
+            if (arg.equals("-Xint") || arg.equals("-Xmixed") || arg.equals("-Xcomp")) executionMode = arg;
+            if (arg.startsWith("-XX:TieredStopAtLevel=")) tieredLevel = arg;
+        }
+        if (executionMode.equals("-Xint")) {
             return violation("JVM is running in fully interpreted mode (-Xint); JIT compilation is disabled.");
         }
-        if (memory.hasJvmArgument("-XX:-UseCompiler")) {
+        if (Boolean.FALSE.equals(memory.booleanJvmArgument("UseCompiler"))) {
             return violation("JIT compiler is explicitly disabled (-XX:-UseCompiler).");
         }
-        for (String arg : memory.inputArguments()) {
-            if (arg != null && arg.startsWith("-XX:TieredStopAtLevel=")) {
-                try {
-                    int level = Integer.parseInt(
-                            arg.substring("-XX:TieredStopAtLevel=".length()).trim());
-                    if (level < 4) {
-                        return violation(arg + " caps JIT at tier " + level
-                                + " (below full C2 optimisation at level 4); throughput will be reduced.");
-                    }
-                } catch (NumberFormatException ignored) {
-                    // unparseable value; skip
+        if (tieredLevel != null && !Boolean.FALSE.equals(memory.booleanJvmArgument("TieredCompilation"))) {
+            String arg = tieredLevel;
+            try {
+                int level = Integer.parseInt(
+                        arg.substring("-XX:TieredStopAtLevel=".length()).trim());
+                if (level < 4) {
+                    return violation(arg + " caps JIT at tier " + level
+                            + " (below tier 4); assess whether this is intentional for startup or diagnostics.");
                 }
+            } catch (NumberFormatException ex) {
+                return skipped("The compilation tier argument could not be interpreted.");
             }
         }
         return pass();
@@ -1543,11 +1609,11 @@ final class HighSwapUtilizationRule extends AbstractMemoryRule {
     HighSwapUtilizationRule() {
         super(new MemoryRuleDefinition(
                 "MEM-FOOTPRINT-004",
-                "High swap utilization while JVM footprint exceeds free physical memory",
+                "High system or environment swap utilization",
                 MemoryCategory.NATIVE_MEMORY,
-                "MEDIUM",
-                "Reads swap space statistics from com.sun.management.OperatingSystemMXBean and flags when used swap is a large fraction of total swap AND the JVM's estimated committed footprint (heap + non-heap + direct buffers + thread-stack reservation) exceeds free physical memory. This combination strongly suggests the JVM is partially swapped out, causing latency spikes on heap access.",
-                "Reduce the JVM's committed footprint (lower -Xmx, reduce thread count, tune direct-buffer use) or add physical memory; avoid large heaps on hosts with active swap.",
+                "INFO",
+                "Reports at least 50% swap usage from the operating-system MXBean. These system/environment statistics do not identify this JVM's swapped pages, active paging, or latency. Comparing JVM reservations with currently free RAM cannot establish residency.",
+                "Inspect OS process residency and paging activity before attributing swap or latency to this JVM. Do not reduce heap based on system swap usage alone.",
                 "https://docs.oracle.com/en/java/javase/21/troubleshoot/diagnostic-tools.html"));
     }
 
@@ -1555,7 +1621,7 @@ final class HighSwapUtilizationRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         long totalSwap = context.runtime().totalSwapSpaceBytes();
         long freeSwap = context.runtime().freeSwapSpaceBytes();
-        if (totalSwap <= 0 || freeSwap < 0) {
+        if (totalSwap < 0 || freeSwap < 0 || freeSwap > totalSwap) {
             return skipped("Swap space statistics are not available on this platform.");
         }
         if (totalSwap == 0) {
@@ -1566,21 +1632,10 @@ final class HighSwapUtilizationRule extends AbstractMemoryRule {
         if (swapPercent < SWAP_USED_PERCENT_THRESHOLD) {
             return pass();
         }
-        // Estimate whether the JVM footprint competes with physical memory.
-        long stacks = (long) context.threads().total() * context.runtime().threadStackBytes();
-        long footprint = Math.max(0, context.memory().heapCommitted())
-                + Math.max(0, context.memory().nonHeapCommitted())
-                + Math.max(0, context.memory().directBufferCapacity())
-                + Math.max(0, stacks);
-        long freePhysical = context.runtime().freePhysicalMemoryBytes();
-        if (freePhysical >= 0 && footprint <= freePhysical) {
-            // JVM likely fits in RAM; high swap may be from other processes.
-            return pass();
-        }
-        return violation(swapPercent + "% of swap is in use (" + MemoryFormat.bytes(usedSwap) + " of "
-                + MemoryFormat.bytes(totalSwap) + ") and the estimated JVM committed footprint "
-                + MemoryFormat.bytes(footprint)
-                + " exceeds free physical memory; the JVM may be partially swapped out.");
+        return violation(
+                swapPercent + "% of swap is in use (" + MemoryFormat.bytes(usedSwap) + " of "
+                        + MemoryFormat.bytes(totalSwap)
+                        + ") in the operating-system MXBean's environment; this does not establish that this JVM is swapped out or that paging is active.");
     }
 }
 
@@ -1640,31 +1695,30 @@ final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
         super(
                 new MemoryRuleDefinition(
                         "MEM-POOL-007",
-                        "Direct buffer usage has grown on every recent scan without release",
+                        "Direct buffer usage has increased across comparable scans",
                         MemoryCategory.MEMORY_POOLS,
-                        "MEDIUM",
-                        "Tracks the java.nio 'direct' BufferPoolMXBean used-byte reading across scans and flags usage"
-                                + " that has strictly increased on every one of"
-                                + " the last " + GROWTH_STREAK_THRESHOLD + " consecutive scans with no decrease in"
-                                + " between -- a native-memory-leak signal for leaked direct ByteBuffers (common with NIO"
-                                + " channel or Netty-style misuse where buffers are allocated but never released). Mapped"
-                                + " buffers are excluded because their usage follows file mappings rather than the direct"
-                                + " memory cap. This can catch a leak while direct memory is still well under MEM-POOL-003's"
-                                + " static high-water threshold, since a monotonic trend is a stronger signal than any"
-                                + " single absolute reading. Escalates to HIGH when the growing pool is the 'direct' pool"
-                                + " and MEM-POOL-003's static threshold has also been crossed. Requires several consecutive"
-                                + " user-triggered scans to build a trend; the first scans only establish the baseline.",
-                        "Audit code paths that allocate direct ByteBuffers (including NIO channels and libraries like"
-                                + " Netty) for missing release/cleaner calls, and confirm the pool eventually plateaus"
-                                + " or shrinks under normal load instead of only ever growing.",
+                        "LOW",
+                        "Reports three increases in estimated direct-buffer used bytes across four comparable snapshots."
+                                + " Missing or unknown readings break the streak. Net growth does not establish that no"
+                                + " releases occurred between samples or that a leak exists; cache warmup and changing load"
+                                + " can produce the same observations. Mapped buffers are excluded. Severity is MEDIUM"
+                                + " only when capacity is also near a known effective direct-memory cap.",
+                        "Compare representative steady-state load and supported buffer-pool lifecycle metrics before"
+                                + " investigating retention. Use library release/close APIs where required, not manual Cleaner calls.",
                         "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/BufferPoolMXBean.html"));
     }
 
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         MemoryContext.BufferPoolTrend trend = context.bufferPoolTrend();
-        if (!trend.available()) {
-            return skipped("No previous scan to compare; re-run the scan several times to measure buffer-pool growth.");
+        Optional<MemoryContext.BufferPoolSnapshot> direct = context.memory().bufferPools().stream()
+                .filter(pool -> "direct".equalsIgnoreCase(pool.name()))
+                .findFirst();
+        if (direct.isEmpty()
+                || direct.get().used() < 0
+                || !trend.available()
+                || !trend.consecutiveIncreaseStreaks().containsKey(direct.get().name())) {
+            return skipped("No comparable direct-buffer usage baseline is available.");
         }
         List<MemoryContext.BufferPoolSnapshot> pools = context.memory().bufferPools();
         List<String> details = new ArrayList<>();
@@ -1682,14 +1736,15 @@ final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
             if (directPoolAtStaticThreshold) {
                 escalateToHigh = true;
             }
-            details.add("'" + pool.name() + "' buffer pool usage grew on " + streak
-                    + " consecutive scans without a decrease (now " + MemoryFormat.bytes(pool.used())
-                    + "); review direct-buffer allocation and release paths for a native-memory leak.");
+            details.add(
+                    "'" + pool.name() + "' buffer pool usage increased on " + streak
+                            + " consecutive scan intervals (now " + MemoryFormat.bytes(pool.used())
+                            + "); net growth does not prove missing releases or a leak. Confirm comparable workload conditions.");
         }
         if (details.isEmpty()) {
             return pass();
         }
-        return violation(escalateToHigh ? MemoryRuleSupport.HIGH : MemoryRuleSupport.MEDIUM, details);
+        return violation(escalateToHigh ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW, details);
     }
 }
 
@@ -1704,20 +1759,14 @@ final class OldGenerationTrendingUpwardRule extends AbstractMemoryRule {
     OldGenerationTrendingUpwardRule() {
         super(new MemoryRuleDefinition(
                 "MEM-HEAP-008",
-                "Post-GC old-generation usage is trending upward across scans",
+                "Old-generation occupancy is increasing across comparable scans",
                 MemoryCategory.HEAP_PRESSURE,
-                "MEDIUM",
-                "Tracks post-GC old-generation usage (the same reading MEM-HEAP-002 compares against a static"
-                        + " percentage) across consecutive user-triggered scans and flags a monotonic increase over"
-                        + " the last " + GROWTH_STREAK_THRESHOLD + " consecutive scans with no decrease in between,"
-                        + " independent of the absolute percentage. This is the standard textbook Java heap-leak"
-                        + " diagnostic -- retained-size growth across successive full GCs -- and can catch a slow"
-                        + " leak (for example, one climbing steadily through 40% old-generation usage) well before"
-                        + " MEM-HEAP-002's static high-water-mark threshold fires. Requires several consecutive"
-                        + " scans to build a trend; the first scans only establish the baseline.",
-                "Take a heap dump and compare successive class histograms (the Heap Dump panel) to find the"
-                        + " retained-object type driving the growth, and confirm with a profiler whether this is a"
-                        + " real leak or a temporarily growing cache/working set.",
+                "LOW",
+                "Reports three increases in old-generation occupancy across four comparable post-histogram snapshots."
+                        + " Missing observations break the streak. A histogram request does not verify full collection;"
+                        + " occupancy is not retained size, and normal warmup or changing load can produce the same trend.",
+                "Compare observations under stable load and confirmed collector-specific reclamation before investigating"
+                        + " a leak. Use an explicitly requested heap/JFR investigation only when evidence warrants its cost.",
                 "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html"));
     }
 
@@ -1731,9 +1780,9 @@ final class OldGenerationTrendingUpwardRule extends AbstractMemoryRule {
         if (trend.consecutiveIncreaseStreak() < GROWTH_STREAK_THRESHOLD) {
             return pass();
         }
-        return violation("Post-GC old-generation usage has increased on " + trend.consecutiveIncreaseStreak()
-                + " consecutive scans without a decrease (now " + MemoryFormat.bytes(trend.lastUsedBytes())
-                + "); this is the classic retained-size-growth signature of a slow heap leak, independent of the"
-                + " current percentage of the old-generation pool's maximum.");
+        return violation(
+                "Post-histogram old-generation occupancy has increased on " + trend.consecutiveIncreaseStreak()
+                        + " consecutive scan intervals (now " + MemoryFormat.bytes(trend.lastUsedBytes())
+                        + "); this does not establish retained-size growth or a leak. Confirm stable workload and collection evidence.");
     }
 }

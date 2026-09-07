@@ -54,6 +54,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Memory advisor findings now preserve measurement uncertainty.** Unknown buffer readings and discontinuous GC
+  counters no longer become healthy zeros, and missing observations break consecutive-growth evidence. Histogram
+  success is no longer treated as proof of a completed full GC, net growth is not called missing releases, and
+  snapshots or system swap do not imply a safe heap reduction or JVM residency. Supplier failures retain unrelated
+  findings through the existing partial-report contract. All 36 rule IDs and dismissal/public DTO contracts remain
+  unchanged; the complete source-backed audit and collector/version caveats are documented in `MEMORY-CHECKS.md`
+  ([#956](https://github.com/jdubois/boot-ui/issues/956)).
+
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
   collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,
