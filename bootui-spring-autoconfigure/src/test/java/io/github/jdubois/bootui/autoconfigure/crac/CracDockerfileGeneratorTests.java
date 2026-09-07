@@ -99,6 +99,15 @@ class CracDockerfileGeneratorTests {
     }
 
     @Test
+    void sampleComposeRequiresExplicitRetryWithPreservedCheckpointVolume() throws Exception {
+        String compose = Files.readString(repositoryFile("docker-compose-crac.yml"));
+
+        assertThat(compose.lines().filter(line -> line.stripLeading().startsWith("restart:")))
+                .containsExactly("    restart: \"no\"");
+        assertThat(compose).contains("- crac-checkpoint:/opt/crac/checkpoint");
+    }
+
+    @Test
     void entrypointDetectsAnIncompleteCheckpointInsteadOfRestoringIt() {
         String entrypoint = generator.generateEntrypoint();
 
@@ -325,14 +334,18 @@ class CracDockerfileGeneratorTests {
     }
 
     private static Path sampleEntrypoint() {
+        return repositoryFile("bootui-spring-sample-app/src/main/script/checkpoint-and-run.sh");
+    }
+
+    private static Path repositoryFile(String relativePath) {
         // Support both reactor-root and module-local Surefire working directories.
         for (Path root = Path.of("").toAbsolutePath(); root != null; root = root.getParent()) {
-            Path script = root.resolve("bootui-spring-sample-app/src/main/script/checkpoint-and-run.sh");
-            if (Files.isRegularFile(script)) {
-                return script;
+            Path file = root.resolve(relativePath);
+            if (Files.isRegularFile(file)) {
+                return file;
             }
         }
-        throw new IllegalStateException("Cannot locate the repository's sample CRaC entrypoint");
+        throw new IllegalStateException("Cannot locate repository file: " + relativePath);
     }
 
     private static ScriptResult runScript(

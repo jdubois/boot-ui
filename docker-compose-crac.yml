@@ -51,7 +51,8 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - crac-checkpoint:/opt/crac/checkpoint
-    restart: unless-stopped
+    # Incomplete checkpoints require inspection and a fresh location, not automatic retries.
+    restart: "no"
 
 volumes:
   crac-checkpoint:

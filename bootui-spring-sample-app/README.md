@@ -352,6 +352,16 @@ a clear nonzero exit: partial images, dump logs, hidden files and user data are
 left untouched. Inspect and preserve that data, then explicitly choose a new empty
 directory or volume for another attempt; the script never cleans it up automatically.
 
+Compose uses `restart: "no"` so a failed attempt stays stopped instead of retrying
+the same preserved incomplete checkpoint. To recover, run
+`docker compose -f docker-compose-crac.yml stop app`, inspect the service logs
+(`docker compose -f docker-compose-crac.yml logs app`) and preserve the checkpoint
+volume and its dump logs. Then explicitly select a fresh volume: for example, change
+the `app` mount source from `crac-checkpoint` to a new name such as
+`crac-checkpoint-retry-1` and declare that name under top-level `volumes` before
+running `up --build` again. Keep the old volume; do not use `down -v` or volume pruning
+as recovery. For a bind mount, select a new empty host directory instead.
+
 `CRAC_CHECKPOINT_DIR` defaults to `/opt/crac/checkpoint` only when unset. If set,
 it must be an absolute path using letters, digits, `.`, `_` or `-`, with no
 dot-only components, repeated/trailing separators or symlink components. Empty,
