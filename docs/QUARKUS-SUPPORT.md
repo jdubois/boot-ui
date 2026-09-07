@@ -192,15 +192,16 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `Traces`                                              | OTLP — a standard; Quarkus/LangChain4j export it                                  |
 | `GitHub`                                              | `HttpClient`                                                                      |
 | `Copilot`, `Claude Code`                              | Read `~/.copilot` / `~/.claude`                                                   |
-| `Pentesting`                                          | Shared 80-check engine (see below)                                                |
+| `Pentesting`                                          | Shared 79-check engine (see below)                                                |
 | `MCP Server`                                          | **Implemented** — full JSON-RPC bridge (see below)                                |
 | `Command Line`                                        | Shared `CliService`; the Quarkus resource only routes                             |
 | `Dev Services`                                        | **Implemented** — Quarkus-native concept (see below)                             |
 
-Pentesting uses the shared 80-check engine and report contract. Its thin Quarkus collector supplies the live port,
-`quarkus.http.root-path`, CORS, OIDC auth-server URL, and direct-listener TLS posture, with TLS property-name discovery
-bounded at 4096 entries. It explicitly marks Spring endpoint/security metadata unavailable; A01 is therefore
-`NOT_APPLICABLE`, while no-finding mixed categories use Quarkus-specific `INFO` wording rather than a false pass. The
+Pentesting uses the shared 79-check engine and report contract. Its thin Quarkus collector supplies the live port,
+`quarkus.http.root-path`, effective CORS, OIDC auth-server URL, and selected/default/direct main HTTP-listener TLS
+configuration, with TLS property-name discovery bounded at 4096 entries. Unrelated client/management TLS keys do not
+prove main-listener TLS, and local HTTP does not assess proxy-edge HTTPS. Spring endpoint/security metadata is explicitly
+unavailable; A01 is therefore `NOT_APPLICABLE`, while no-finding mixed categories use Quarkus-specific `INFO` wording rather than a false pass. The
 explicit scan sends at most one GET and one OPTIONS request directly to `127.0.0.1`, with no redirect, proxy, or external
 host access. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the exact evidence limits and mappings.
 
