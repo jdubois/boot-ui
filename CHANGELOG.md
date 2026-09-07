@@ -54,6 +54,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The Spring application advisor now qualifies optimization advice and distinguishes configuration from runtime
+  evidence on MVC and WebFlux.** The Boot 4.1.1 audit corrects Actuator defaults, bean candidate selection, executor,
+  client, persistence and codec guidance; bounds non-eager collection; and reports missing evidence without raw URLs
+  or exception details. Useful INFO opportunities remain, four unsupported rule IDs are retired without losing
+  dismissals, and a new rule reviews explicitly unlimited codec aggregation. The complete catalogue and primary
+  sources are documented in Spring checks ([#969](https://github.com/jdubois/boot-ui/issues/969)).
+
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
   collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,
