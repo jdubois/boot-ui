@@ -69,6 +69,23 @@ describe('AdvisorSummary', () => {
     expect(wrapper.text()).not.toContain('excluded from this score')
   })
 
+  it('explains an incomplete assessment without implying a dismissed score exists', () => {
+    const wrapper = mount(AdvisorSummary, {
+      props: {
+        ...baseProps,
+        score: null,
+        scoreLabel: 'Incomplete',
+        scoreReason: 'Evidence unavailable.',
+        dismissedCount: 2
+      }
+    })
+    expect(wrapper.text()).toContain('Incomplete')
+    expect(wrapper.text()).toContain('Evidence unavailable.')
+    expect(wrapper.text()).toContain('excluded from active findings')
+    expect(wrapper.text()).not.toContain('this score')
+    expect(wrapper.find('[role="img"]').exists()).toBe(false)
+  })
+
   it('labels the score in sentence case rather than an uppercase tracked eyebrow', () => {
     const wrapper = mount(AdvisorSummary, {props: {...baseProps, score: 90}})
     const label = wrapper.find('.advisor-summary__band-label')

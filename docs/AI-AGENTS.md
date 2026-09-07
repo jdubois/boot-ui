@@ -203,6 +203,16 @@ the classpath) are simply not advertised.
 
 ### Reading a bounded result
 
+Advisor tool success means a report was returned, not that its assessment is complete or healthy. Inspect
+`scan.status` and the retained diagnostics: only `SCANNED` reports are eligible for the UI's numeric score;
+`PARTIAL`, `ERROR`, and `DISABLED` reports remain useful but unscored. Vulnerability scoring also requires
+`coverage.status=COMPLETE` and no active UNKNOWN severity findings. Missing coverage is unknown; NONE (CVSS zero)
+has no penalty, and dismissed findings are excluded from the severity summary.
+
+The aggregate Overview score is calculated in the browser, not by a separate MCP or CLI scorer. `get_overview`
+(`bootui overview`) returns application context, not that aggregate. CLI transport success and unchanged JSON output
+must not be interpreted as a passing assessment.
+
 Every search- or list-style tool returns its rows next to the same `page` envelope, so one reading applies to all of
 them:
 

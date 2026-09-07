@@ -60,6 +60,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Advisor scores now exclude incomplete and failed assessments without hiding their findings.** Panels and Overview
+  share eligibility, including complete inventory coverage and no active UNKNOWN severity for Vulnerabilities.
+  Dismissal/restore refreshes vulnerability eligibility, and Overview's mean and scored count use the same contributors
+  ([#954](https://github.com/jdubois/boot-ui/issues/954)).
+
 - **Memory advisor findings now preserve measurement uncertainty.** Unknown buffer readings and discontinuous GC
   counters no longer become healthy zeros, and missing observations break consecutive-growth evidence. Histogram
   success is no longer treated as proof of a completed full GC, net growth is not called missing releases, and
