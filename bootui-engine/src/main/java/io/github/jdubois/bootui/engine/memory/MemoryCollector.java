@@ -35,8 +35,8 @@ import javax.management.ObjectName;
  * Builds a {@link MemoryContext} from the live JVM, reusing the same management beans that
  * back the Memory and Heap Dump panels and the {@code ThreadDumpReport} produced by the Threads
  * panel. The heap-content histogram is read lazily through a {@link HistogramSource}; the default
- * implementation invokes the HotSpot {@code GC.class_histogram} diagnostic command (which triggers
- * a full GC), exactly like the Heap Dump panel's analyze action.
+ * implementation invokes HotSpot {@code GC.class_histogram}, which requests a collection but does
+ * not guarantee that the collection ran or that returned rows constitute a complete live set.
  */
 final class MemoryCollector {
 
@@ -77,7 +77,7 @@ final class MemoryCollector {
     MemoryContext collect() {
         MemoryData memory = collectMemory();
         ThreadData threads = collectThreads();
-        // Sample GC counters BEFORE the histogram so this scan's own forced full GC is excluded
+        // Sample GC counters BEFORE the histogram so the diagnostic request interval is excluded
         // from the recent-overhead window; the post-histogram runtime reading becomes the baseline
         // for the next scan.
         GcSample preHistogramGc = currentGcSample();
@@ -105,15 +105,14 @@ final class MemoryCollector {
     }
 
     /**
-     * Re-reads heap and old-generation occupancy after the histogram's forced full GC so the
-     * heap-pressure rules can tell sustained retained pressure from transient garbage. Returns
-     * {@link PostGcHeapData#unavailable()} when no histogram (and therefore no full GC) ran.
+     * Re-reads occupancy after the histogram request, without claiming that the requested GC ran
+     * or that subsequent allocations are absent.
      */
     private PostGcHeapData collectPostGcHeap(boolean histogramRan) {
         if (!histogramRan) {
             return PostGcHeapData.unavailable();
         }
-        long heapUsed = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+        MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         boolean oldGenAvailable = false;
         long oldGenUsed = -1;
         for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
@@ -126,35 +125,41 @@ final class MemoryCollector {
                 }
             }
         }
-        return new PostGcHeapData(true, heapUsed, oldGenAvailable, oldGenUsed);
+        return new PostGcHeapData(true, heap.getUsed(), oldGenAvailable, oldGenUsed, heap.getCommitted());
     }
 
     private GcSample currentGcSample() {
-        long uptimeMillis = ManagementFactory.getRuntimeMXBean().getUptime();
+        return gcSample(
+                ManagementFactory.getRuntimeMXBean().getUptime(), ManagementFactory.getGarbageCollectorMXBeans());
+    }
+
+    static GcSample gcSample(long uptimeMillis, List<GarbageCollectorMXBean> collectors) {
         long gcTimeMillis = 0;
         long gcCount = 0;
-        boolean gcTimeKnown = false;
+        boolean gcTimeKnown = true;
+        boolean gcCountKnown = true;
+        boolean included = false;
         Map<String, Long> perCollectorCounts = new HashMap<>();
-        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
+        for (GarbageCollectorMXBean gc : collectors) {
             long count = gc.getCollectionCount();
-            if (count > 0) {
-                perCollectorCounts.put(gc.getName(), count);
-            }
+            perCollectorCounts.put(gc.getName(), count);
             // Exclude concurrent-cycle beans (ZGC/Shenandoah Cycles and legacy ConcurrentMarkSweep)
-            // from the STW-only time/count totals. G1 Concurrent GC is retained because it records
+            // from approximate time/count totals. G1 Concurrent GC is retained because it records
             // remark/cleanup VM operations rather than concurrent phase elapsed time.
             if (!isConcurrentCycleBean(gc.getName())) {
+                included = true;
                 long time = gc.getCollectionTime();
-                if (time >= 0) {
-                    gcTimeMillis += time;
-                    gcTimeKnown = true;
-                }
-                if (count > 0) {
-                    gcCount += count;
-                }
+                gcTimeKnown &= time >= 0 && time <= Long.MAX_VALUE - gcTimeMillis;
+                gcCountKnown &= count >= 0 && count <= Long.MAX_VALUE - gcCount;
+                if (gcTimeKnown) gcTimeMillis += time;
+                if (gcCountKnown) gcCount += count;
             }
         }
-        return new GcSample(uptimeMillis, gcTimeKnown ? gcTimeMillis : -1, gcCount, perCollectorCounts);
+        return new GcSample(
+                uptimeMillis,
+                included && gcTimeKnown ? gcTimeMillis : -1,
+                included && gcCountKnown ? gcCount : -1,
+                perCollectorCounts);
     }
 
     /**
@@ -188,22 +193,11 @@ final class MemoryCollector {
             }
         }
 
-        long directUsed = 0;
-        long directCapacity = 0;
-        long directCount = 0;
         List<BufferPoolSnapshot> bufferPools = new ArrayList<>();
         for (BufferPoolMXBean bufferPool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
-            bufferPools.add(new BufferPoolSnapshot(
-                    bufferPool.getName(),
-                    Math.max(0, bufferPool.getMemoryUsed()),
-                    Math.max(0, bufferPool.getTotalCapacity()),
-                    Math.max(0, bufferPool.getCount())));
-            if ("direct".equalsIgnoreCase(bufferPool.getName())) {
-                directUsed += Math.max(0, bufferPool.getMemoryUsed());
-                directCapacity += Math.max(0, bufferPool.getTotalCapacity());
-                directCount += Math.max(0, bufferPool.getCount());
-            }
+            bufferPools.add(bufferPoolSnapshot(bufferPool));
         }
+        BufferPoolSnapshot direct = directBufferPoolSnapshot(bufferPools);
 
         List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
         List<String> gcNames = new ArrayList<>();
@@ -227,10 +221,10 @@ final class MemoryCollector {
                 nonHeap.getCommitted(),
                 nonHeap.getMax(),
                 pools,
-                directUsed,
-                directCapacity,
-                directCount,
-                parseMaxDirectMemory(inputArgs),
+                direct.used(),
+                direct.capacity(),
+                direct.count(),
+                effectiveMaxDirectMemory(inputArgs, heap.getMax()),
                 inputArgs,
                 gcNames,
                 containerLimit,
@@ -243,11 +237,11 @@ final class MemoryCollector {
         ThreadDumpReport report;
         try {
             report = threadReportSupplier.report();
-        } catch (RuntimeException ex) {
-            return ThreadData.empty();
+        } catch (RuntimeException | LinkageError ex) {
+            return ThreadData.failed("Thread snapshot collection failed.");
         }
         if (report == null || !report.available()) {
-            return ThreadData.empty();
+            return ThreadData.failed("Thread snapshot is unavailable; see the Threads panel for availability details.");
         }
         return new ThreadData(
                 report.totalThreads(),
@@ -265,23 +259,37 @@ final class MemoryCollector {
         String raw;
         try {
             raw = histogramSource.classHistogram();
-        } catch (Exception ex) {
+        } catch (javax.management.InstanceNotFoundException ex) {
             return HeapContentData.unavailable();
+        } catch (javax.management.ReflectionException ex) {
+            return ex.getTargetException() instanceof NoSuchMethodException
+                    ? HeapContentData.unavailable()
+                    : HeapContentData.failed();
+        } catch (Exception | LinkageError ex) {
+            return HeapContentData.failed();
         }
         if (raw == null || raw.isBlank()) {
             return HeapContentData.unavailable();
         }
-        List<HeapClassHistogramEntryDto> entries = parseHistogram(raw);
+        List<HeapClassHistogramEntryDto> entries;
+        try {
+            entries = parseHistogram(raw);
+        } catch (NumberFormatException ex) {
+            return HeapContentData.failed();
+        }
         if (entries.isEmpty()) {
-            return HeapContentData.unavailable();
+            return HeapContentData.failed();
         }
         // Totals cover every histogram row so percentage-of-heap rules are not skewed by the
         // top-N truncation applied to the entries surfaced for display.
         long totalInstances = 0;
         long totalBytes = 0;
         for (HeapClassHistogramEntryDto entry : entries) {
-            totalInstances += entry.instances();
-            totalBytes += entry.bytes();
+            totalInstances = MemoryFormat.sum(totalInstances, entry.instances());
+            totalBytes = MemoryFormat.sum(totalBytes, entry.bytes());
+            if (totalInstances < 0 || totalBytes < 0) {
+                return HeapContentData.failed();
+            }
         }
         return new HeapContentData(true, topEntries(entries), totalInstances, totalBytes);
     }
@@ -309,7 +317,7 @@ final class MemoryCollector {
                 gc.gcTimeMillis(),
                 gc.gcCount(),
                 pendingFinalization,
-                parseInitialHeap(inputArgs),
+                initialHeap(),
                 parseThreadStackBytes(inputArgs),
                 availableProcessors,
                 freeSwap,
@@ -446,30 +454,50 @@ final class MemoryCollector {
         return componentName + "[]".repeat(dimensions);
     }
 
-    private static long parseMaxDirectMemory(List<String> inputArgs) {
+    static BufferPoolSnapshot bufferPoolSnapshot(BufferPoolMXBean pool) {
+        return new BufferPoolSnapshot(pool.getName(), pool.getMemoryUsed(), pool.getTotalCapacity(), pool.getCount());
+    }
+
+    static BufferPoolSnapshot directBufferPoolSnapshot(List<BufferPoolSnapshot> pools) {
+        long used = 0;
+        long capacity = 0;
+        long count = 0;
+        boolean present = false;
+        for (BufferPoolSnapshot pool : pools) {
+            if ("direct".equalsIgnoreCase(pool.name())) {
+                present = true;
+                used = MemoryFormat.sum(used, pool.used());
+                capacity = MemoryFormat.sum(capacity, pool.capacity());
+                count = MemoryFormat.sum(count, pool.count());
+            }
+        }
+        return present
+                ? new BufferPoolSnapshot("direct", used, capacity, count)
+                : new BufferPoolSnapshot("direct", -1, -1, -1);
+    }
+
+    private static long effectiveMaxDirectMemory(List<String> inputArgs, long heapMax) {
+        return effectiveMaxDirectMemory(inputArgs, heapMax, readVmOption("MaxDirectMemorySize"));
+    }
+
+    static long effectiveMaxDirectMemory(List<String> inputArgs, long heapMax, String liveOption) {
+        if (liveOption != null) {
+            long value = parseMemorySize(liveOption);
+            if (value >= 0) {
+                return value == 0 ? heapMax : value;
+            }
+        }
+        long explicit = -1;
         for (String arg : inputArgs) {
             if (arg != null && arg.startsWith("-XX:MaxDirectMemorySize=")) {
                 long parsed = parseMemorySize(arg.substring("-XX:MaxDirectMemorySize=".length()));
-                if (parsed > 0) {
-                    return parsed;
-                }
+                explicit = parsed > 0 ? parsed : -1;
             }
         }
-        return -1;
+        return explicit;
     }
 
-    private static long parseInitialHeap(List<String> inputArgs) {
-        for (String arg : inputArgs) {
-            if (arg != null && arg.startsWith("-Xms")) {
-                long parsed = parseMemorySize(arg.substring("-Xms".length()));
-                if (parsed > 0) {
-                    return parsed;
-                }
-            }
-        }
-        // -Xms is not in the parsed args; fall back to the JVM's own reported initial heap size.
-        // MemoryUsage.getInit() returns the amount of memory in bytes that the JVM initially
-        // requested from the OS, which equals -Xms (or the ergonomic default when unset).
+    private static long initialHeap() {
         long init = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getInit();
         return init > 0 ? init : -1;
     }
@@ -490,7 +518,7 @@ final class MemoryCollector {
                     long kb = Long.parseLong(
                             arg.substring("-XX:ThreadStackSize=".length()).trim());
                     if (kb > 0) {
-                        return kb * 1024L;
+                        return MemoryFormat.product(kb, 1024L);
                     }
                 } catch (NumberFormatException ignored) {
                     // fall through
@@ -504,7 +532,7 @@ final class MemoryCollector {
             try {
                 long kb = Long.parseLong(vmValue.trim());
                 if (kb > 0) {
-                    return kb * 1024L;
+                    return MemoryFormat.product(kb, 1024L);
                 }
             } catch (NumberFormatException ignored) {
                 // fall through to the compile-time default

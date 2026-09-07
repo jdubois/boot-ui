@@ -1,5 +1,8 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {registerAdvisorScoringTests} from '../scenarios/advisor-scoring.js'
+
+registerAdvisorScoringTests(test, expect)
 
 test.describe('Overview view', () => {
   test('renders the panel header and the scanner dashboard', async ({openView}) => {

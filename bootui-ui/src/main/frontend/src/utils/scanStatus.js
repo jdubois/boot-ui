@@ -1,7 +1,7 @@
 const scanStatusLabels = {
   NOT_SCANNED: 'Not scanned yet',
   SCANNED: 'Scan complete',
-  PARTIAL: 'Partial scan',
+  PARTIAL: 'Incomplete',
   ERROR: 'Scan failed',
   DISABLED: 'Scan disabled'
 }
@@ -15,7 +15,12 @@ const scanStatusBadgeClasses = {
 }
 
 export function hasScanResult(status) {
+  // A report can contain useful findings and diagnostics without being eligible for a score.
   return Boolean(status && status !== 'NOT_SCANNED')
+}
+
+export function isCompleteScan(status) {
+  return status === 'SCANNED'
 }
 
 export function scanStatusLabel(status) {

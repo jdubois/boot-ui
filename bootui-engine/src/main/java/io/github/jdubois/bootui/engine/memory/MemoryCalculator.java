@@ -86,6 +86,8 @@ final class MemoryCalculator {
     static final int MAX_HEAD_ROOM_PERCENT = 30;
     static final long MIN_TOTAL_MEMORY_BYTES = 128L * MEBIBYTE;
     static final long MAX_TOTAL_MEMORY_BYTES = 64L * 1024 * MEBIBYTE;
+    static final long MIN_REQUESTED_HEAP_BYTES = 2L * MEBIBYTE;
+    private static final long PERCENTAGE_THOUSANDTHS_PER_WHOLE = 100_000L;
 
     static int defaultThreadCount(int liveThreadCount) {
         return Math.max(liveThreadCount, DEFAULT_THREAD_COUNT_FLOOR);
@@ -117,7 +119,7 @@ final class MemoryCalculator {
      * @param headRoomPercent      percentage of total memory to leave unallocated
      * @param liveThreadCount      current live thread count (reported for UI context)
      * @param liveLoadedClassCount currently loaded classes (reported for UI context)
-     * @return calculation DTO; if inputs leave no room for any heap, the
+     * @return calculation DTO; if either generated heap request falls below HotSpot's generic lower bound, the
      * returned DTO has {@code valid = false} and a non-null
      * {@code error} — no exception is thrown so the panel can keep
      * polling without an HTTP error
@@ -200,13 +202,16 @@ final class MemoryCalculator {
         long stackBytesPerThread = STACK_BYTES_PER_THREAD;
         long stackBytesTotal = stackBytesPerThread * (long) clampedThreads;
         long fixedRegionsBytes = directMemoryBytes + metaspaceBytes + CODE_CACHE_BYTES + stackBytesTotal;
-        long headRoomBytes = (long) ((clampedHeadRoom / 100.0) * clampedTotal);
+        long headRoomBytes = clampedTotal * clampedHeadRoom / 100;
         long heapBytes = clampedTotal - headRoomBytes - fixedRegionsBytes;
 
-        if (heapBytes < MEBIBYTE) {
+        if (bytesToMiBFloor(heapBytes) * MEBIBYTE < MIN_REQUESTED_HEAP_BYTES
+                || heapPercentageThousandths(heapBytes, clampedTotal) * clampedTotal
+                        < MIN_REQUESTED_HEAP_BYTES * PERCENTAGE_THOUSANDTHS_PER_WHOLE) {
             String message = String.format(
-                    "No room for a renderable heap: fixed regions (%d MiB) + headroom (%d MiB) "
-                            + "leave less than 1 MiB from the %d MiB total. "
+                    "Insufficient heap budget: fixed regions (%d MiB) + headroom (%d MiB) "
+                            + "leave too little from the %d MiB total to request at least 2 MiB "
+                            + "in both fixed and three-decimal percentage options. "
                             + "Try a larger total memory, fewer threads, or lower headroom.",
                     bytesToMiBCeil(fixedRegionsBytes), bytesToMiBCeil(headRoomBytes), bytesToMiBCeil(clampedTotal));
             return new MemoryCalculationDto(
@@ -264,22 +269,25 @@ final class MemoryCalculator {
      */
     long defaultTotalMemoryBytes(
             long heapCommittedBytes, long nonHeapCommittedBytes, int threadCount, int loadedClasses) {
+        long min = 384L * MEBIBYTE;
+        long max = 2048L * MEBIBYTE;
         int safeThreads = Math.max(threadCount, DEFAULT_THREAD_COUNT_FLOOR);
         long fixed = DIRECT_MEMORY_BYTES
-                + computeMetaspaceBytes(loadedClasses)
+                + computeMetaspaceBytes(Math.max(loadedClasses, 0))
                 + CODE_CACHE_BYTES
                 + STACK_BYTES_PER_THREAD * (long) safeThreads;
         long floor = fixed + 128L * MEBIBYTE;
 
-        long useful = heapCommittedBytes + Math.max(0, nonHeapCommittedBytes);
+        long useful = clamp(heapCommittedBytes, 0, max) + clamp(nonHeapCommittedBytes, 0, max);
         useful = useful + (useful / 2); // ×1.5 footprint
 
-        long picked = Math.max(floor, useful);
-        picked = roundUpTo(picked, 64L * MEBIBYTE);
+        long picked = clamp(Math.max(floor, useful), min, max);
+        return roundUpTo(picked, 64L * MEBIBYTE);
+    }
 
-        long min = 384L * MEBIBYTE;
-        long max = 2048L * MEBIBYTE;
-        return clamp(picked, min, max);
+    static long heapPercentageThousandths(long heapBytes, long totalMemoryBytes) {
+        // Calculator budgets are capped at 64 GiB, so both this product and the reverse comparison fit in long.
+        return heapBytes * PERCENTAGE_THOUSANDTHS_PER_WHOLE / totalMemoryBytes;
     }
 
     private long computeMetaspaceBytes(int loadedClasses) {

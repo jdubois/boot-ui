@@ -74,8 +74,9 @@ public class MemoryReportProvider {
 
         int liveThreads = threadBean.getThreadCount();
         int liveClasses = classBean.getLoadedClassCount();
-        OptionalLong detectedContainerMemoryLimit = containerMemoryLimitDetector.detectLimit();
-        OptionalLong detectedContainerCurrentUsage = containerMemoryLimitDetector.detectCurrentUsage();
+        ContainerMemoryLimitDetector.CgroupMemorySample containerMemory = containerMemoryLimitDetector.detect();
+        OptionalLong detectedContainerMemoryLimit = containerMemory.limit();
+        OptionalLong detectedContainerCurrentUsage = containerMemory.current();
         long directBufferMemoryUsedBytes = directBufferMemoryUsedBytes();
         boolean resolvedVirtualThreadsEnabled = resolveVirtualThreadsEnabled();
         boolean resolvedKubernetesBurstableEnabled = kubernetesBurstableEnabled != null && kubernetesBurstableEnabled;
@@ -84,8 +85,10 @@ public class MemoryReportProvider {
 
         long resolvedTotalBytes = totalMemoryMb != null
                 ? totalMemoryBytes(totalMemoryMb)
-                : detectedContainerMemoryLimit.orElseGet(() -> calculator.defaultTotalMemoryBytes(
-                        heapUsage.getCommitted(), nonHeapUsage.getCommitted(), defaultThreadCount, liveClasses));
+                : detectedContainerMemoryLimit.isPresent()
+                        ? totalMemoryBytes(detectedContainerMemoryLimit.getAsLong() / MEBIBYTE)
+                        : calculator.defaultTotalMemoryBytes(
+                                heapUsage.getCommitted(), nonHeapUsage.getCommitted(), defaultThreadCount, liveClasses);
         int resolvedThreads = threadCount != null ? threadCount : defaultThreadCount;
         int resolvedHeadRoom =
                 headRoomPercent != null ? headRoomPercent : MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT;

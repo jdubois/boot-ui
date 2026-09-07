@@ -13,7 +13,7 @@ function architectureScore(wrapper) {
 }
 
 function severityReport(severityCounts, status = 'SCANNED') {
-  return {severityCounts, scan: {status}}
+  return {severityCounts, scan: {status}, coverage: {status: 'COMPLETE'}}
 }
 
 function githubReport({connected = true, authenticated = true, alerts = 0} = {}) {
@@ -76,6 +76,27 @@ const allPanels = {
     {id: 'database-advisor', available: true},
     {id: 'github', available: true}
   ]
+}
+
+function onlyPanels(...available) {
+  return {
+    panels: [
+      'architecture',
+      'memory',
+      'rest-api',
+      'spring',
+      'database-advisor',
+      'hibernate',
+      'security',
+      'pentesting',
+      'vulnerabilities',
+      'github'
+    ].map((id) => ({id, available: available.includes(id)}))
+  }
+}
+
+function scannerCard(wrapper, title) {
+  return wrapper.findAllComponents(ScannerScoreCard).find((card) => card.props('title') === title)
 }
 
 describe('Overview', () => {
@@ -484,4 +505,175 @@ describe('Overview', () => {
     expect(architectureScore(wrapper)).toBe('100')
     expect(wrapper.text()).not.toContain('1 high')
   })
+
+  it.each(['PARTIAL', 'ERROR', 'DISABLED', 'NOT_SCANNED', undefined, 'UNRECOGNIZED'])(
+    'replaces a score with an authoritative %s report but retains findings',
+    async (status) => {
+      let body = severityReport([{severity: 'HIGH', count: 1}])
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(JSON.stringify(body))))
+      )
+      const wrapper = mountOverview(onlyPanels('architecture'))
+      await flushPromises()
+      const card = scannerCard(wrapper, 'Architecture')
+      card.vm.$emit('run')
+      await flushPromises()
+      expect(architectureScore(wrapper)).toBe('90')
+      body = {...body, scan: {status}}
+      card.vm.$emit('run')
+      await flushPromises()
+      expect(card.find('.scanner-score').exists()).toBe(false)
+      expect(card.text()).toContain('1 high')
+      expect(wrapper.text()).toContain('0 of 1 scanners scored')
+      expect(wrapper.find('.overall-gauge').exists()).toBe(false)
+      expect(card.text()).not.toContain('No findings')
+      if (status === 'PARTIAL') expect(card.text()).toContain('Incomplete')
+    }
+  )
+
+  it('uses only numeric contributions for the mean, count, and breakdown', async () => {
+    stubFetch({
+      'api/architecture/scan': severityReport([{severity: 'HIGH', count: 1}]),
+      'api/memory/scan': severityReport([{severity: 'HIGH', count: 3}]),
+      'api/security/scan': severityReport([], 'PARTIAL'),
+      'api/vulnerabilities/scan': {...severityReport([]), coverage: null}
+    })
+    const wrapper = mountOverview(onlyPanels('architecture', 'memory', 'security', 'vulnerabilities'))
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Run all scanners'))
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.overall-gauge__value').text()).toBe('80')
+    expect(wrapper.find('.overall-card').text()).toContain('2 of 4 scanners scored')
+    expect(wrapper.find('.overall-card').text()).not.toContain('Security')
+    expect(wrapper.find('.overall-card').text()).not.toContain('Vulnerabilities')
+    expect(wrapper.find('.overall-card').text()).toContain('Mean of scored scanners only')
+  })
+
+  it('refreshes vulnerability eligibility after UNKNOWN dismissal and restoration, without rescanning', async () => {
+    let body = severityReport([
+      {severity: 'UNKNOWN', count: 1},
+      {severity: 'HIGH', count: 1}
+    ])
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(body))))
+    vi.stubGlobal('fetch', fetchMock)
+    const {wrapper, show} = mountKeptAlive(onlyPanels('vulnerabilities'))
+    await flushPromises()
+    expect(fetchMock).not.toHaveBeenCalled()
+    scannerCard(wrapper, 'Vulnerabilities').vm.$emit('run')
+    await flushPromises()
+    expect(wrapper.text()).toContain('0 of 1 scanners scored')
+    for (const [unknown, score] of [
+      [0, '90'],
+      [1, null],
+      [0, '90']
+    ]) {
+      body = severityReport([
+        {severity: 'UNKNOWN', count: unknown},
+        {severity: 'HIGH', count: 1}
+      ])
+      show.value = false
+      await flushPromises()
+      show.value = true
+      await flushPromises()
+      const card = scannerCard(wrapper, 'Vulnerabilities')
+      expect(card.find('.scanner-score').exists()).toBe(score !== null)
+      if (score) expect(card.find('.scanner-score').text()).toBe(score)
+      expect(card.text()).toContain('1 high')
+    }
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([url, init]) => url === 'api/vulnerabilities' && !init?.method)).toHaveLength(3)
+  })
+
+  it('preserves a cached score on transport failure, then accepts an unscanned GET report', async () => {
+    let response = () => Promise.resolve(new Response(JSON.stringify(severityReport([{severity: 'HIGH', count: 1}]))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => response())
+    )
+    const {wrapper, show} = mountKeptAlive(onlyPanels('architecture'))
+    await flushPromises()
+    scannerCard(wrapper, 'Architecture').vm.$emit('run')
+    await flushPromises()
+    response = () => Promise.reject(new TypeError('offline'))
+    scannerCard(wrapper, 'Architecture').vm.$emit('run')
+    await flushPromises()
+    expect(architectureScore(wrapper)).toBe('90')
+    expect(wrapper.text()).toContain('1 of 1 scanners scored')
+    expect(wrapper.text()).toContain('Showing the last report')
+    show.value = false
+    await flushPromises()
+    show.value = true
+    await flushPromises()
+    expect(architectureScore(wrapper)).toBe('90')
+    expect(wrapper.text()).toContain('Unable to refresh Architecture')
+    response = () => Promise.resolve(new Response(JSON.stringify(severityReport([], 'NOT_SCANNED'))))
+    show.value = false
+    await flushPromises()
+    show.value = true
+    await flushPromises()
+    expect(scannerCard(wrapper, 'Architecture').find('.scanner-score').exists()).toBe(false)
+    expect(wrapper.text()).toContain('0 of 1 scanners scored')
+  })
+
+  it('defers cached refresh until an active scan settles instead of invalidating its result', async () => {
+    let finishScan
+    let calls = 0
+    let cachedStatus = 'SCANNED'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url, init) => {
+        if (init?.method === 'POST' && calls++ > 0)
+          return new Promise((resolve) => {
+            finishScan = resolve
+          })
+        return Promise.resolve(new Response(JSON.stringify(severityReport([], cachedStatus))))
+      })
+    )
+    const {wrapper, show} = mountKeptAlive(onlyPanels('architecture'))
+    await flushPromises()
+    scannerCard(wrapper, 'Architecture').vm.$emit('run')
+    await flushPromises()
+    scannerCard(wrapper, 'Architecture').vm.$emit('run')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 of 1 scanners scored')
+    show.value = false
+    await flushPromises()
+    show.value = true
+    await flushPromises()
+    expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(0)
+    expect(wrapper.text()).toContain('Scanning')
+    cachedStatus = 'PARTIAL'
+    finishScan(new Response(JSON.stringify(severityReport([], cachedStatus))))
+    await flushPromises()
+    expect(wrapper.text()).toContain('Incomplete')
+    expect(wrapper.text()).toContain('0 of 1 scanners scored')
+    expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(1)
+  })
+
+  it.each(['PARTIAL', 'ERROR', 'DISABLED'])(
+    'accepts authoritative %s status even if its counts are malformed',
+    async (status) => {
+      let body = severityReport([])
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(JSON.stringify(body))))
+      )
+      const wrapper = mountOverview(onlyPanels('architecture'))
+      await flushPromises()
+      const card = scannerCard(wrapper, 'Architecture')
+      card.vm.$emit('run')
+      await flushPromises()
+      expect(architectureScore(wrapper)).toBe('100')
+      body = severityReport([{count: 1}], status)
+      card.vm.$emit('run')
+      await flushPromises()
+      expect(card.find('.scanner-score').exists()).toBe(false)
+      expect(card.text()).toContain('invalid severity summary')
+      expect(wrapper.text()).toContain('0 of 1 scanners scored')
+    }
+  )
 })
