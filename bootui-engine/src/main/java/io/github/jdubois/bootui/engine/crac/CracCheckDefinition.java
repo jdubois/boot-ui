@@ -12,4 +12,9 @@ record CracCheckDefinition(
         String severity,
         String description,
         String recommendation,
-        String learnMoreUrl) {}
+        String learnMoreUrl) {
+
+    CracCheckDefinition withSeverity(String severity) {
+        return new CracCheckDefinition(id, name, category, severity, description, recommendation, learnMoreUrl);
+    }
+}

@@ -54,6 +54,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **CRaC readiness now distinguishes evidence from verified lifecycle coverage.** Runtime checks remain useful when
+  application bytecode is unavailable, managed Spring clients and ambiguous Hikari/resource ownership are assessed
+  honestly, and precise file, scheduling, thread and time predicates reduce missed or misleading findings. Runtime
+  guidance no longer calls exit-on-refresh a safe cleanup dry run, and generated/sample checkpoint entrypoints preserve
+  incomplete data instead of deleting it automatically. Stable rule IDs and Spring-only availability are unchanged
+  ([#960](https://github.com/jdubois/boot-ui/issues/960)).
+
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
   collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,

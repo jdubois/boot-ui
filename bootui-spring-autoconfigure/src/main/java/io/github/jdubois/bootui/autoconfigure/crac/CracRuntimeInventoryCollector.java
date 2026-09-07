@@ -12,6 +12,8 @@ import java.util.function.Supplier;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.Lifecycle;
 import org.springframework.core.SpringProperties;
 import org.springframework.util.ClassUtils;
 
@@ -42,6 +44,14 @@ public final class CracRuntimeInventoryCollector {
             "org.springframework.cache.concurrent.ConcurrentMapCacheManager",
             "org.springframework.cache.caffeine.CaffeineCacheManager");
 
+    // Exact implementations only: generic interfaces and overriding subclasses do not establish
+    // the documented stop/restart behavior. No optional client API is linked here.
+    private static final Set<String> MANAGED_POOL_TYPE_NAMES = Set.of(
+            "org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory",
+            "org.springframework.amqp.rabbit.connection.CachingConnectionFactory",
+            "org.springframework.kafka.core.DefaultKafkaProducerFactory",
+            "org.springframework.jms.connection.SingleConnectionFactory");
+
     private static final List<String> PARTIAL_TASK_LIFECYCLE_TYPE_NAMES = List.of(
             "org.springframework.core.task.SimpleAsyncTaskExecutor",
             "org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler");
@@ -60,23 +70,51 @@ public final class CracRuntimeInventoryCollector {
 
     static CracRuntimeInventory collect(
             ApplicationContext applicationContext, Supplier<List<String>> jvmArgumentsSupplier) {
+        return collect(
+                applicationContext,
+                jvmArgumentsSupplier,
+                () -> CracRuntimeStatusCollector.restoreTime(applicationContext.getClassLoader()));
+    }
+
+    static CracRuntimeInventory collect(
+            ApplicationContext applicationContext,
+            Supplier<List<String>> jvmArgumentsSupplier,
+            Supplier<Long> restoreTimeSupplier) {
         if (applicationContext == null) {
-            return CracRuntimeInventory.empty();
+            return CracRuntimeInventory.unavailable("Spring application context is unavailable.");
         }
 
+        try {
+            return collectAvailable(applicationContext, jvmArgumentsSupplier, restoreTimeSupplier);
+        } catch (RuntimeException | LinkageError ex) {
+            return CracRuntimeInventory.unavailable(
+                    "Spring runtime inventory could not be inspected; resource readiness is unknown.");
+        }
+    }
+
+    private static CracRuntimeInventory collectAvailable(
+            ApplicationContext applicationContext,
+            Supplier<List<String>> jvmArgumentsSupplier,
+            Supplier<Long> restoreTimeSupplier) {
         ClassLoader applicationClassLoader = applicationContext.getClassLoader();
         ClassLoader classLoader =
                 applicationClassLoader != null ? applicationClassLoader : ClassUtils.getDefaultClassLoader();
 
         List<BeanObservation> poolBeans = detectBeans(applicationContext, POOL_TYPE_NAMES, classLoader);
-        boolean hikariPresent = ClassUtils.isPresent(HIKARI_DATA_SOURCE_TYPE_NAME, classLoader);
+        boolean hikariPresent = isPresent(HIKARI_DATA_SOURCE_TYPE_NAME, classLoader);
         List<BeanObservation> hikariPools = poolBeans.stream()
                 .filter(observation -> isHikariPool(applicationContext, observation, hikariPresent))
                 .toList();
-        List<String> nonHikariPools = poolBeans.stream()
+        List<BeanObservation> nonHikariPools = poolBeans.stream()
                 .filter(observation -> !isHikariPool(applicationContext, observation, hikariPresent))
-                .map(BeanObservation::display)
                 .toList();
+        List<String> managedPools = new ArrayList<>();
+        List<String> unverifiedPools = new ArrayList<>();
+        for (BeanObservation pool : nonHikariPools) {
+            Object singleton = existingSingleton(applicationContext, pool.name());
+            boolean managed = singleton != null && isKnownManagedType(singleton.getClass());
+            (managed ? managedPools : unverifiedPools).add(pool.display());
+        }
 
         List<BeanObservation> hikariLifecycleBeans =
                 detectBeans(applicationContext, List.of(HIKARI_LIFECYCLE_TYPE_NAME), classLoader);
@@ -89,19 +127,42 @@ public final class CracRuntimeInventoryCollector {
                         .map(BeanObservation::display)
                         .toList();
 
-        boolean cracApiPresent = ClassUtils.isPresent(CRAC_CORE_TYPE_NAME, classLoader);
-        boolean checkpointOnRefresh =
-                "onRefresh".equalsIgnoreCase(SpringProperties.getProperty("spring.context.checkpoint"));
-        boolean restoredProcess = safeArguments(jvmArgumentsSupplier).stream()
-                .anyMatch(argument -> argument != null && argument.startsWith(RESTORE_FROM_PREFIX));
+        boolean cracApiPresent = isPresent(CRAC_CORE_TYPE_NAME, classLoader);
+        boolean checkpointOnRefresh = "onRefresh".equals(SpringProperties.getProperty("spring.context.checkpoint"));
+        List<String> warnings = new ArrayList<>();
+        boolean restoredProcess = false;
+        try {
+            Long restoreTime = restoreTimeSupplier.get();
+            restoredProcess = restoreTime != null && restoreTime >= 0;
+        } catch (RuntimeException | LinkageError ex) {
+            warnings.add("Public CRaC restore-time observation failed; restore state is unknown.");
+        }
+        try {
+            List<String> arguments = jvmArgumentsSupplier.get();
+            if (arguments == null) {
+                warnings.add("JVM argument observations are unavailable.");
+            } else if (!restoredProcess
+                    && arguments.stream()
+                            .anyMatch(argument -> argument != null && argument.startsWith(RESTORE_FROM_PREFIX))) {
+                warnings.add("A restore JVM argument is only a launch hint, not evidence of a successful restore.");
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            warnings.add("JVM argument observations are unavailable.");
+        }
+        boolean applicationRunning =
+                applicationContext instanceof ConfigurableApplicationContext configurable && configurable.isRunning();
         return new CracRuntimeInventory(
-                nonHikariPools,
+                unverifiedPools,
                 cacheBeans,
                 hikariPoolIssues,
                 taskBeans,
                 cracApiPresent,
                 checkpointOnRefresh,
-                restoredProcess);
+                restoredProcess,
+                applicationRunning,
+                managedPools,
+                true,
+                warnings);
     }
 
     private static List<String> inspectHikariPools(
@@ -113,46 +174,39 @@ public final class CracRuntimeInventoryCollector {
         }
 
         List<String> issues = new ArrayList<>();
-        // Boot's auto-configuration only wires a HikariCheckpointRestoreLifecycle bean automatically for the
-        // single-candidate DataSource case; a multi-pool application must register the remaining lifecycle
-        // beans itself, typically one per pool. Equal counts are therefore treated as sufficient bean-count
-        // evidence for coverage, not a verified 1:1 pairing (e.g. two lifecycle beans could still wrap the
-        // same pool while another pool goes uncovered). Any other count keeps the conservative "can't verify"
-        // stance rather than guessing which bean covers which pool.
-        boolean poolAndLifecycleCountsMatch = hikariPools.size() == lifecycleBeans.size();
+        // Even a single pool and lifecycle definition do not prove the adapter's actual target.
+        // Inspect no private lifecycle fields and read suspension independently of pairing evidence.
         for (BeanObservation pool : hikariPools) {
-            String issue = null;
             ExistingHikariPool existingPool = existingHikariPool(applicationContext, pool.name());
-            if (lifecycleBeans.isEmpty()) {
-                issue = "Spring Boot HikariCheckpointRestoreLifecycle bean is missing";
-            } else if (!poolAndLifecycleCountsMatch) {
-                issue = "checkpoint lifecycle coverage cannot be matched across " + hikariPools.size()
-                        + " Hikari pool(s) and " + lifecycleBeans.size() + " lifecycle bean(s)";
-            } else {
-                if (existingPool != null && !existingPool.allowsSuspension()) {
-                    issue = "allowPoolSuspension=false";
-                } else if (existingPool == null) {
-                    issue = "allowPoolSuspension could not be verified without initializing the bean";
-                }
+            String issue = lifecycleBeans.isEmpty()
+                    ? "Spring Boot HikariCheckpointRestoreLifecycle bean is missing"
+                    : "checkpoint lifecycle pairing is unverified across " + hikariPools.size()
+                            + " Hikari pool(s) and " + lifecycleBeans.size()
+                            + " lifecycle bean definition(s); counts do not establish target identity";
+            if (existingPool == null) {
+                issue += "; allowPoolSuspension could not be verified without initializing the bean";
+            } else if (!existingPool.allowsSuspension()) {
+                issue += "; allowPoolSuspension=false";
             }
-            if (issue != null) {
-                issues.add((existingPool != null ? existingPool.display() : pool.display()) + " - " + issue);
-            }
+            issues.add((existingPool != null ? existingPool.display() : pool.display()) + " - " + issue);
         }
         return List.copyOf(issues);
     }
 
     private static ExistingHikariPool existingHikariPool(ApplicationContext applicationContext, String beanName) {
+        return HikariSupport.inspect(beanName, existingSingleton(applicationContext, beanName));
+    }
+
+    private static Object existingSingleton(ApplicationContext applicationContext, String beanName) {
         if (!(applicationContext.getAutowireCapableBeanFactory() instanceof ConfigurableListableBeanFactory beanFactory)
                 || !beanFactory.containsSingleton(beanName)) {
             return null;
         }
-        Object singleton = beanFactory.getSingleton(beanName);
-        try {
-            return HikariSupport.inspect(beanName, singleton);
-        } catch (LinkageError ex) {
-            return null;
-        }
+        return beanFactory.getSingleton(beanName);
+    }
+
+    static boolean isKnownManagedType(Class<?> type) {
+        return MANAGED_POOL_TYPE_NAMES.contains(type.getName()) && Lifecycle.class.isAssignableFrom(type);
     }
 
     private static boolean isHikariPool(
@@ -160,12 +214,8 @@ public final class CracRuntimeInventoryCollector {
         if (!hikariPresent) {
             return false;
         }
-        try {
-            return HikariSupport.isHikariType(observation.type())
-                    || existingHikariPool(applicationContext, observation.name()) != null;
-        } catch (LinkageError ex) {
-            return false;
-        }
+        return HikariSupport.isHikariType(observation.type())
+                || existingHikariPool(applicationContext, observation.name()) != null;
     }
 
     private static List<BeanObservation> detectBeans(
@@ -173,13 +223,10 @@ public final class CracRuntimeInventoryCollector {
         List<BeanObservation> observations = new ArrayList<>();
         Set<String> seenBeanNames = new HashSet<>();
         for (String typeName : typeNames) {
-            if (!ClassUtils.isPresent(typeName, classLoader)) {
-                continue;
-            }
             Class<?> type;
             try {
                 type = ClassUtils.forName(typeName, classLoader);
-            } catch (ClassNotFoundException | LinkageError ex) {
+            } catch (ClassNotFoundException ex) {
                 continue;
             }
             for (String beanName : beanFactory.getBeanNamesForType(type, false, false)) {
@@ -195,21 +242,17 @@ public final class CracRuntimeInventoryCollector {
                 .toList();
     }
 
-    private static List<String> safeArguments(Supplier<List<String>> supplier) {
-        try {
-            List<String> arguments = supplier == null ? null : supplier.get();
-            return arguments == null ? List.of() : List.copyOf(arguments);
-        } catch (RuntimeException ex) {
-            return List.of();
-        }
+    private static List<String> jvmArguments() {
+        RuntimeMXBean runtimeMxBean = ManagementFactory.getRuntimeMXBean();
+        return runtimeMxBean == null ? null : runtimeMxBean.getInputArguments();
     }
 
-    private static List<String> jvmArguments() {
+    private static boolean isPresent(String name, ClassLoader classLoader) {
         try {
-            RuntimeMXBean runtimeMxBean = ManagementFactory.getRuntimeMXBean();
-            return runtimeMxBean == null ? List.of() : runtimeMxBean.getInputArguments();
-        } catch (RuntimeException ex) {
-            return List.of();
+            ClassUtils.forName(name, classLoader);
+            return true;
+        } catch (ClassNotFoundException ex) {
+            return false;
         }
     }
 

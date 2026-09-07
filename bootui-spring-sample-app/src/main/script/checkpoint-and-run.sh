@@ -2,46 +2,71 @@
 # CRaC (Coordinated Restore at Checkpoint) entrypoint for the BootUI sample app.
 #
 # On the first start no checkpoint exists yet, so the app is launched with
-# `spring.context.checkpoint=onRefresh`: Spring boots the application context and,
-# as soon as the refresh finishes, the JVM writes a full process image into
-# $CRAC_CHECKPOINT_DIR before CRIU terminates the process. Every subsequent start
-# simply restores that image, which brings the application back in a few tens of
-# milliseconds.
+# `spring.context.checkpoint=onRefresh`: after non-lazy singleton initialization,
+# before lifecycle start and the context-refreshed event. This is not a fully
+# warmed-up application, nor guaranteed cleanup of resources opened during
+# initialization. Hikari's allow-pool-suspension setting alone is not proof of cleanup.
 #
 # The sample app runs with its default "dev" profile (in-memory H2 + in-memory
-# cache), so nothing holds an open network socket at checkpoint time and the
-# checkpoint succeeds out of the box. For the external-services variant
+# cache), reducing external-service dependencies without guaranteeing a successful
+# checkpoint. For the external-services variant
 # (PostgreSQL + Redis) see bootui-spring-sample-app/README.md.
 #
-# Taking and restoring a checkpoint needs Linux kernel 5.9+ and the
+# This CRIU-based recipe uses Linux and the broad
 # CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN/NET_ADMIN capabilities; see the sample README.
 set -eu
 
-CRAC_CHECKPOINT_DIR="${CRAC_CHECKPOINT_DIR:-/opt/crac/checkpoint}"
+CRAC_CHECKPOINT_DIR="${CRAC_CHECKPOINT_DIR-/opt/crac/checkpoint}"
 APP_JAR="${APP_JAR:-/app/app.jar}"
 
 # JVM tuning flags (see Dockerfile-crac). Applied only when the checkpoint is created below; a
-# restore (-XX:CRaCRestoreFrom) replays the checkpointed JVM, so heap/GC flags cannot be re-specified
-# there. Empty by default so the script also works when run outside the image.
+# restore (-XX:CRaCRestoreFrom) does not receive JAVA_OPTS in this recipe.
+# Regenerate the checkpoint when these flags change. Empty by default outside the image.
 JAVA_OPTS="${JAVA_OPTS:-}"
 
 # Run with the "dev" profile *active* so BootUI turns on (its activation condition
 # inspects the active profiles, not spring.profiles.default) and the app uses the
 # in-memory H2 database / cache. CRaC reads this when the checkpoint is taken (the
-# first start) and freezes that value into the image; changing it for a later
-# restore-only start has no effect until the checkpoint is regenerated.
+# first start). Already-created Spring configuration may retain that value on
+# restore; regenerate the checkpoint to apply a changed startup profile reliably.
 SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-dev}"
 export SPRING_PROFILES_ACTIVE
 
+invalid_checkpoint_path() {
+  echo "[crac] Invalid CRAC_CHECKPOINT_DIR: use an absolute path with letters, digits, '.', '_' or '-', no dot-only components, repeated/trailing separators or symlinks." >&2
+  exit 1
+}
+# Validate before creating or inspecting checkpoint contents. Reject ambiguous paths
+# rather than normalizing them into a different destination.
+case "$CRAC_CHECKPOINT_DIR" in
+  ""|/|*[!a-zA-Z0-9_./-]*|*/|*//*) invalid_checkpoint_path ;;
+  /*) ;;
+  *) invalid_checkpoint_path ;;
+esac
+remaining_path="${CRAC_CHECKPOINT_DIR#/}"
+checked_path=""
+while [ -n "$remaining_path" ]; do
+  component="${remaining_path%%/*}"
+  case "$component" in
+    *[!.]*) ;;
+    *) invalid_checkpoint_path ;;
+  esac
+  checked_path="$checked_path/$component"
+  [ ! -L "$checked_path" ] || invalid_checkpoint_path
+  case "$remaining_path" in
+    */*) remaining_path="${remaining_path#*/}" ;;
+    *) remaining_path="" ;;
+  esac
+done
 mkdir -p "$CRAC_CHECKPOINT_DIR"
+if [ ! -r "$CRAC_CHECKPOINT_DIR" ] || [ ! -x "$CRAC_CHECKPOINT_DIR" ]; then
+  echo "[crac] Checkpoint directory must be readable and searchable; leaving it unchanged." >&2
+  exit 1
+fi
 
-# A *complete* checkpoint is what matters, not merely a non-empty directory: a CRIU dump
-# that fails halfway still leaves its dump log and partial images behind. CRIU writes
-# inventory.img as the last step of a successful dump and requires it to restore, so its
-# presence is the signal to use. Testing for a non-empty directory instead would make a
-# failed dump look like a checkpoint - the app would then "restore" from a broken image,
-# and a persistent checkpoint volume would stay poisoned on every later start.
-checkpoint_is_complete() {
+# inventory.img is only a candidate marker, not an integrity or compatibility
+# certificate. A dump can still fail after writing it; a restore attempt can fail.
+checkpoint_candidate_exists() {
   [ -f "$CRAC_CHECKPOINT_DIR/inventory.img" ]
 }
 
@@ -56,23 +81,24 @@ print_criu_dump_log() {
   done
 }
 
-# Restore immediately when a previous, complete checkpoint is present.
-if checkpoint_is_complete; then
-  echo "[crac] Restoring the application from the checkpoint in $CRAC_CHECKPOINT_DIR"
+# Do not hide restore failures or fall back to creating another checkpoint.
+if checkpoint_candidate_exists; then
+  echo "[crac] Attempting restore from checkpoint candidate in $CRAC_CHECKPOINT_DIR"
   exec java -XX:CRaCRestoreFrom="$CRAC_CHECKPOINT_DIR"
 fi
 
-# Discard the remains of an earlier failed dump: CRIU refuses to write into a directory
-# that already holds images, so leaving them would make every retry fail too.
-if [ -n "$(ls -A "$CRAC_CHECKPOINT_DIR" 2>/dev/null)" ]; then
-  echo "[crac] $CRAC_CHECKPOINT_DIR holds an incomplete checkpoint (no inventory.img); discarding it"
-  rm -rf "${CRAC_CHECKPOINT_DIR:?}"/..?* "${CRAC_CHECKPOINT_DIR:?}"/.[!.]* "${CRAC_CHECKPOINT_DIR:?}"/* 2>/dev/null || true
-fi
+# Preserve partial images, logs and user files, including hidden files and symlinks.
+for entry in "$CRAC_CHECKPOINT_DIR"/* "$CRAC_CHECKPOINT_DIR"/.[!.]* "$CRAC_CHECKPOINT_DIR"/..?*; do
+  if [ -e "$entry" ] || [ -L "$entry" ]; then
+    echo "[crac] Incomplete checkpoint directory (no inventory.img): $CRAC_CHECKPOINT_DIR; leaving all contents unchanged. Inspect it and select a new empty directory." >&2
+    exit 1
+  fi
+done
 
 echo "[crac] No checkpoint found; starting the app to create one (spring.context.checkpoint=onRefresh)"
 # CRIU kills the process once the checkpoint is written, so a non-zero exit code
-# here is expected. Check for a complete image rather than the exit code to
-# decide whether the checkpoint succeeded.
+# here can occur even with a usable image. A marker permits only an attempted
+# restore; neither its presence nor the exit code certifies a successful dump.
 set +e
 java $JAVA_OPTS -XX:CRaCCheckpointTo="$CRAC_CHECKPOINT_DIR" \
   -Dspring.context.checkpoint=onRefresh \
@@ -80,17 +106,16 @@ java $JAVA_OPTS -XX:CRaCCheckpointTo="$CRAC_CHECKPOINT_DIR" \
 checkpoint_status=$?
 set -e
 
-if ! checkpoint_is_complete; then
-  echo "[crac] Checkpoint creation failed (exit code $checkpoint_status): CRIU wrote no complete image." >&2
+if ! checkpoint_candidate_exists; then
+  echo "[crac] Checkpoint creation failed (exit code $checkpoint_status): no inventory.img candidate marker; preserving all files." >&2
   print_criu_dump_log
-  echo "[crac] CRIU needs Linux kernel 5.9+ and the CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN/NET_ADMIN capabilities." >&2
-  echo "[crac] If you switched the app to PostgreSQL/Redis, an open connection at checkpoint time" >&2
-  echo "[crac] aborts CRaC; keep the default H2 'dev' profile or see the README's external-services note." >&2
+  echo "[crac] Verify this CRIU recipe's Linux/JDK/CRIU compatibility and CHECKPOINT_RESTORE/SYS_PTRACE/SYS_ADMIN/NET_ADMIN capabilities; these grant broad privileges." >&2
+  echo "[crac] Review early-opened resources and the README's external-services note." >&2
   # Never fall through to a restore: the image is incomplete and restoring it would fail
   # with a far more confusing error than the CRIU log printed above.
   [ "$checkpoint_status" -ne 0 ] || checkpoint_status=1
   exit "$checkpoint_status"
 fi
 
-echo "[crac] Checkpoint created in $CRAC_CHECKPOINT_DIR; restoring the application"
+echo "[crac] Checkpoint candidate found in $CRAC_CHECKPOINT_DIR (creation exit code $checkpoint_status); attempting restore"
 exec java -XX:CRaCRestoreFrom="$CRAC_CHECKPOINT_DIR"

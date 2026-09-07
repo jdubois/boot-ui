@@ -305,22 +305,24 @@ processing for it to appear in their native image.
 
 ## Run it with CRaC (fast restore)
 
-[CRaC](https://crac.org/) (Coordinated Restore at Checkpoint) snapshots a fully
-warmed-up JVM process to disk and restores it in a few tens of milliseconds,
-without the ahead-of-time compilation a native image requires. The BootUI **CRaC**
-panel (Runtime group) inspects this readiness; this section actually runs the
-sample app from a checkpoint.
+[CRaC](https://crac.org/) (Coordinated Restore at Checkpoint) snapshots a JVM process
+to disk for faster subsequent startup, without the ahead-of-time compilation a
+native image requires. This sample takes a startup checkpoint, not a fully
+warmed-up application snapshot. The BootUI **CRaC** panel (Runtime group) provides
+passive readiness guidance; this section actually runs the sample app from a checkpoint.
 
-CRaC's CRIU engine only works on a **Linux 5.9+** host and needs a **CRaC-enabled JDK** (here
-BellSoft Liberica with CRaC) plus the `CHECKPOINT_RESTORE`, `SYS_PTRACE`, `SYS_ADMIN`, and `NET_ADMIN` capabilities, because
-[CRIU](https://criu.org/) — the tool that checkpoints and restores the live
-process — needs them. Ready-to-use Docker assets live at the repository root:
+This **CRIU-based recipe** uses Linux, a **CRaC-enabled JDK 21** (here BellSoft
+Liberica with CRaC), and the `CHECKPOINT_RESTORE`, `SYS_PTRACE`, `SYS_ADMIN`, and
+`NET_ADMIN` capabilities for [CRIU](https://criu.org/). These are broad privileges,
+not universal requirements for every CRaC engine. Use an isolated local development
+machine, not production or a shared host, and verify the exact JDK, bundled CRIU,
+kernel and CPU combination. Docker assets live at the repository root:
 
 - [`Dockerfile-crac`](../Dockerfile-crac) — builds the reactor and produces a
   runtime image on a CRaC-enabled JDK.
 - [`bootui-spring-sample-app/src/main/script/checkpoint-and-run.sh`](src/main/script/checkpoint-and-run.sh) —
-  the container entrypoint: it creates a checkpoint on the first start and
-  restores from it on every start afterwards.
+  the container entrypoint: it attempts creation in an empty directory and attempts
+  restore when an `inventory.img` candidate marker is present.
 - [`docker-compose-crac.yml`](../docker-compose-crac.yml) — runs the CRaC image
   with the simple in-memory profile (no extra services).
 
@@ -328,35 +330,40 @@ process — needs them. Ready-to-use Docker assets live at the repository root:
 
 No local CRaC JDK is required — the toolchain lives in the build image. The image
 runs the app with its `dev` profile **active** (`SPRING_PROFILES_ACTIVE=dev`),
-which uses an **in-memory H2 database** and an in-memory cache, so nothing holds
-an open network socket when the checkpoint is taken and it succeeds out of the
-box. From the repository root, on a Linux host:
+which uses an **in-memory H2 database** and an in-memory cache. This reduces
+external-service dependencies; it does not establish that all resources are
+checkpoint-safe. From the repository root, on a compatible Linux host:
 
 ```bash
 docker compose -f docker-compose-crac.yml up --build
 ```
 
-The **first** start boots the app once to write the checkpoint
-(`spring.context.checkpoint=onRefresh`), so it takes as long as a normal start.
-Watch the logs for the `[crac]` lines: the process is checkpointed and then
-restored. Every later start (`docker compose -f docker-compose-crac.yml up`)
-restores the warmed-up image almost instantly — the log shows a `Restored
-BootUiSampleApplication in 0.1xx seconds` line. The checkpoint is stored in the
-`crac-checkpoint` named volume; delete it to force a fresh checkpoint:
+The **first** start attempts a checkpoint after non-lazy singleton initialization
+but **before lifecycle start and the context-refreshed event**
+(`spring.context.checkpoint=onRefresh`). Watch the `[crac]` logs for creation and
+restore attempts. On successful restore, Spring can log a `Restored
+BootUiSampleApplication in 0.1xx seconds` line; this is not a startup-time guarantee.
+The checkpoint is stored in the `crac-checkpoint` named volume.
 
-```bash
-docker compose -f docker-compose-crac.yml down
-docker volume rm boot-ui_crac-checkpoint
-```
+The entrypoint treats `inventory.img` only as a **candidate marker**, not proof of
+image integrity, completion or compatibility. Restore failures remain failures,
+without falling back to creation. A nonempty directory without that marker causes
+a clear nonzero exit: partial images, dump logs, hidden files and user data are
+left untouched. Inspect and preserve that data, then explicitly choose a new empty
+directory or volume for another attempt; the script never cleans it up automatically.
 
-(Docker Compose prefixes the volume with the project name, which defaults to the
-working directory — `boot-ui` here; run `docker volume ls` if yours differs.)
+`CRAC_CHECKPOINT_DIR` defaults to `/opt/crac/checkpoint` only when unset. If set,
+it must be an absolute path using letters, digits, `.`, `_` or `-`, with no
+dot-only components, repeated/trailing separators or symlink components. Empty,
+relative, root and ambiguous paths are rejected before creating or using the directory.
+Stop the container before changing its volume selection; do not share a checkpoint
+directory between concurrent writers.
 
 Then open <http://localhost:8080/bootui/> or hit
 <http://localhost:8080/actuator/health>. The Compose file binds the app port to
 host loopback (`127.0.0.1`) so BootUI stays local-only while the browser can
 still reach the containerized app. The BootUI **CRaC** panel's runtime status
-will now report a CRaC-capable JVM.
+reports runtime observations, not proof that a checkpoint or restore will succeed.
 
 On this sample app (Spring Boot 4, `dev`/H2 profile) the restore is dramatically
 faster than a cold JVM start:
@@ -368,8 +375,8 @@ faster than a cold JVM start:
 
 That is roughly an **80×** improvement on the Spring-reported figure (and a 7×+
 wall-clock win even including container startup). The checkpoint itself is about
-270 MB of CRIU images in the named volume. Your numbers will vary with hardware,
-but the order of magnitude holds.
+270 MB of CRIU images in the named volume. These sample measurements are illustrative;
+your numbers depend on the application, runtime and hardware.
 
 To build just the image:
 
@@ -379,7 +386,7 @@ docker build -f Dockerfile-crac -t bootui-sample-crac .
 
 ### Without Docker Compose
 
-The `app` service must run with CRIU's narrowly scoped capabilities and a volume for the checkpoint:
+This recipe uses CRIU's broad capabilities and a volume for the checkpoint:
 
 ```bash
 docker build -f Dockerfile-crac -t bootui-sample-crac .
@@ -389,36 +396,36 @@ docker run --rm --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_
   -v bootui-crac:/opt/crac/checkpoint bootui-sample-crac
 ```
 
-The same container takes the checkpoint on its first start and restores it on
-every later start, as long as the `bootui-crac` volume is reused.
+The same container attempts creation in an empty volume and attempts restore from
+a candidate on later starts, as long as the `bootui-crac` volume is reused.
 
 Docker's default `/proc` restrictions prevent CRIU from restoring the checkpointed PID without `SYS_ADMIN`, even when
 `CHECKPOINT_RESTORE` is available, and recreating the container's network interfaces requires `NET_ADMIN`. `SYS_ADMIN`
 grants broad host access, so use this image only for local development on an isolated machine — never production or a
 shared host.
 
-> **Known upstream limitation on AMX-capable Intel CPUs.** If the first start fails with
-> `Checkpoint creation failed` and the CRIU log shows `Can't set FPU registers ...: Bad address`, the host CPU supports
-> Intel AMX (Sapphire Rapids and newer — check with `grep amx_tile /proc/cpuinfo`). The CRaC project's bundled CRIU fork
-> (3.17.1-crac, shipped by every CRaC JDK vendor) passes a fixed-size register buffer that such kernels reject; this is
-> [criu#2835](https://github.com/checkpoint-restore/criu/issues/2835), fixed upstream in CRIU 4.x. Only *taking* a
-> checkpoint is affected, so a checkpoint created elsewhere still restores. Until the CRaC JDKs pick up a newer CRIU, use
-> a machine without AMX (any arm64 host, or an AMD x86_64 host) to create the checkpoint.
+> **Compatibility is deployment-specific.** If creation fails, inspect the preserved
+> CRIU dump log and the exact runtime's release notes. CPU register handling, kernel
+> support and bundled CRIU versions vary. Do not infer support from a vendor name
+> or architecture, or assume that a checkpoint created elsewhere will restore here.
 
 ### How the checkpoint is taken
 
-`spring.context.checkpoint=onRefresh` asks Spring to take the checkpoint as soon
-as the application context finishes refreshing. This requires the
+`spring.context.checkpoint=onRefresh` asks Spring to checkpoint after non-lazy
+singleton initialization, before lifecycle start and the context-refreshed event.
+It does not provide request warmup or guarantee cleanup of resources opened early.
+This requires the
 [`org.crac:crac`](https://crac.org/) adapter on the classpath (the sample app
 declares it; the version is managed by the Spring Boot BOM) in addition to the
-CRaC-enabled JDK. With the default `dev` profile the only resources are in-memory
-(H2 and a simple cache), so no socket or file descriptor is open at checkpoint
-time and CRaC can snapshot the process directly. The CRaC image also enables
+CRaC-enabled JDK. The default `dev` profile uses H2 and a simple in-memory cache
+instead of external PostgreSQL and Redis. The CRaC image also enables
 `spring.datasource.hikari.allow-pool-suspension=true`, allowing Spring Boot's
-`HikariCheckpointRestoreLifecycle` to block new borrows while it drains the pool. The sample app does not
+`HikariCheckpointRestoreLifecycle` to block new borrows while it drains a pool it manages.
+This setting alone proves neither lifecycle ownership nor cleanup at the original
+pre-start checkpoint. The sample app does not
 implement any custom [`org.crac.Resource`](https://crac.org/) callbacks. Run the
 BootUI **CRaC** panel's readiness scan first if you add code that holds OS
-resources directly.
+resources directly, then test the exact deployment separately.
 
 > **BootUI must see an _active_ profile.** BootUI activates when one of its
 > `bootui.enabled-profiles` (`dev,local,docker`) is in
@@ -428,37 +435,35 @@ resources directly.
 > `SPRING_PROFILES_ACTIVE=dev` to turn BootUI on (and select H2). Because CRaC
 > freezes configuration into the checkpoint, this must be set on the first start.
 
-
-> **CRaC freezes the JVM into the checkpoint.** JVM options, environment-derived configuration, system properties, and
-> CPU feature assumptions are established when the checkpoint is created. Heap/GC flags cannot be changed on a
-> restore-only start, and changing application configuration may have no effect when it was already read into the
-> checkpointed heap. Regenerate the checkpoint after changing JVM flags or startup configuration.
+> **This recipe applies `JAVA_OPTS` only during creation.** It does not forward
+> these flags on restore. Regenerate the checkpoint when changing its JVM flags or
+> startup configuration. This is the entrypoint's contract, not a claim about all
+> CRaC runtimes' restore-time options.
 >
-> Environment variables and
-> system properties are read when the checkpoint is taken, not when it is
-> restored. Set anything that influences the running app (such as
-> `BOOTUI_ALLOW_NON_LOCALHOST`) **before the first start**; changing it for a
-> later restore-only start has no effect until you delete the checkpoint and let
-> a new one be taken.
+> A runtime may update some environment variables or system properties during restore,
+> but already-cached application values and Spring bean configuration need not rebind.
+> Set startup configuration (such as `BOOTUI_ALLOW_NON_LOCALHOST`) **before the first
+> start** and use a fresh checkpoint to apply changes reliably.
 
 ### Using external services (PostgreSQL + Redis)
 
 The default H2 profile keeps the demo self-contained. To checkpoint the sample
 app against the real PostgreSQL and Redis services instead (the `docker` profile,
-backed by [`compose.yaml`](./compose.yaml)), two extra constraints apply because
-CRaC snapshots live OS resources:
+backed by [`compose.yaml`](./compose.yaml)), review resource ownership and startup timing:
 
-- **Both services must be reachable when the checkpoint is taken and when it is
-  restored.** Spring Boot provides a `HikariCheckpointRestoreLifecycle` around HikariCP when `org.crac:crac` is present;
-  HikariCP itself does not implement CRaC callbacks. The Lettuce Redis client also needs its own verified lifecycle path.
-  The
-  databases have to be up at both moments.
-- **No pooled connection may be open at checkpoint time.** CRaC aborts the
-  checkpoint with `CheckpointOpenSocketException` if, for example, HikariCP still
-  holds an open PostgreSQL socket when `onRefresh` fires. Set
-  `spring.datasource.hikari.allow-pool-suspension=true`; Spring Boot's lifecycle then suspends new borrows, evicts
-  connections before checkpoint, and resumes the pool after restore. Without pool suspension, background work can borrow
-  a new connection while Boot is draining the pool.
+- **Verify the managed lifecycle path.** Spring Boot provides
+  `HikariCheckpointRestoreLifecycle` for supported Hikari pools; HikariCP itself
+  does not implement CRaC callbacks. Configure
+  `spring.datasource.hikari.allow-pool-suspension=true` before pool initialization.
+  Spring Data Redis's managed `LettuceConnectionFactory` also has lifecycle support;
+  arbitrary raw clients or shared external resources are not covered by that fact.
+- **Review resources opened during initialization.** The original `onRefresh`
+  checkpoint happens before lifecycle start, so it cannot inherit a blanket
+  guarantee from on-demand stop/restart behavior. Open sockets can cause a
+  `CheckpointOpenSocketException`; verify handling for the exact deployment.
+- **Provide connectivity when the application needs it.** Initialization may
+  already contact backing services, and restored work may need to reconnect.
+  Reachability at every checkpoint is not a universal CRaC requirement.
 
 Because of these constraints the external-services path is intentionally left as
 an opt-in exercise rather than the default; start from the H2 setup above, then

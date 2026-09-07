@@ -1,5 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.crac;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -7,6 +13,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.Coordinates;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
@@ -19,8 +27,10 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.context.ApplicationContext;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -50,6 +60,46 @@ class CracControllerTests {
                 .andExpect(jsonPath("$.scan.status").value("NOT_SCANNED"))
                 .andExpect(jsonPath("$.runtime.cracApiPresent").value(false))
                 .andExpect(jsonPath("$.findings.length()").value(0));
+    }
+
+    @Test
+    void passiveGetUsesCachedResourceEvidenceWithoutCollectingAgain() throws Exception {
+        AtomicInteger collections = new AtomicInteger();
+        CracReadinessScanner scanner = CracReadinessScanner.usingClasspath(
+                () -> List.of(FIXTURES),
+                () -> {
+                    collections.incrementAndGet();
+                    return new CracRuntimeInventory(List.of("unverifiedPool : javax.sql.DataSource"));
+                },
+                Clock.systemUTC());
+        ApplicationContext context = mock(ApplicationContext.class);
+        MockMvc mvc = standaloneSetup(new CracController(
+                        scanner, context, new MockEnvironment(), new BootUiExposure(new BootUiProperties())))
+                .build();
+
+        mvc.perform(get("/bootui/api/crac"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.runtime.restoreCaveats",
+                        org.hamcrest.Matchers.hasItem(
+                                org.hamcrest.Matchers.containsString("inventory is unavailable"))));
+        mvc.perform(get("/bootui/api/crac")).andExpect(status().isOk());
+        assertThat(collections).hasValue(0);
+
+        mvc.perform(post("/bootui/api/crac/scan"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.runtime.restoreCaveats",
+                        org.hamcrest.Matchers.hasItem(org.hamcrest.Matchers.containsString("unverifiedPool"))));
+        assertThat(collections).hasValue(1);
+        mvc.perform(get("/bootui/api/crac"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.runtime.restoreCaveats",
+                        org.hamcrest.Matchers.hasItem(org.hamcrest.Matchers.containsString("unverifiedPool"))));
+        mvc.perform(get("/bootui/api/crac")).andExpect(status().isOk());
+        assertThat(collections).hasValue(1);
+        verify(context, never()).getBeanNamesForType(any(Class.class), eq(false), eq(false));
     }
 
     @Test

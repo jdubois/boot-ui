@@ -242,26 +242,27 @@ heuristic review aids that complement, but do not replace, an actual checkpoint/
 ::: details What the runtime-status card reports
 
 The runtime-status card (always read-only) reports several signals. It shows whether the `org.crac` API is on the
-classpath and whether the running JVM is a CRaC-capable JDK, such as Azul Zulu CRaC or BellSoft Liberica, detected via
-the real CRaC implementation rather than the no-op shim. It also shows whether `spring.context.checkpoint=onRefresh` is
-set, and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments (read from the same `RuntimeMXBean` input
-arguments the JVM Tuning panel uses).
+classpath and whether a CRaC implementation is detected, separately from whether the selected engine and host can create
+a real image. Simulation, marker classes and checkpoint arguments are not proof of operational readiness. It also shows
+the exact Spring checkpoint-on-refresh setting and bounded, exposure-aware CRaC JVM arguments. Resource caveats reuse the
+last explicit scan rather than discovering resource beans on page load. A remaining startup property does not mean its
+one-shot checkpoint phase is still pending. `spring.context.exit=onRefresh` halts the JVM before lifecycle start; it is
+not a safe in-process cleanup or restore test.
 
 :::
 
 ::: details What the checks cover
 
-The checks review direct resource acquisition separately from resource liveness, require observable cleanup before
-suppressing resource fields, distinguish Spring Boot's Hikari lifecycle and pool-suspension evidence from other remote
-clients, limit cache findings to known local managers, and flag direct background work plus Spring thread-per-task
-executors with incomplete lifecycle support. They also cover Spring's documented fixed-rate catch-up behavior, retained
-startup time/configuration, provider-specific Random/SecureRandom behavior, bounded secret and TLS-state fields, and a
-missing `org.crac:crac` dependency. Runtime observations never initialize a lazy pool, and inventory failures remain
-visible as scan warnings.
+The checks review direct acquisition separately from resource liveness. Compatible cleanup calls and equal Hikari
+lifecycle counts do not prove field-specific ownership or pool pairing. Known Spring-managed remote factories receive
+credit within their observed lifecycle boundary; caches, background work, fixed-rate scheduling, retained time/configuration,
+provider-specific randomness, secrets and TLS state remain conditional review prompts. Independent runtime checks still
+run when application bytecode is unavailable. Missing observations and failed collection are explicit, never clean
+results, and lazy resources are not initialized for inspection.
 
 :::
 
-The panel also generates ready-to-use container assets for the host application: a multi-stage `Dockerfile-crac` that
+The panel also generates container scaffolds for the host application: a multi-stage `Dockerfile-crac` that
 builds with a plain JDK and runs on a CRaC-enabled BellSoft Liberica JDK, plus the `checkpoint-and-run.sh` entrypoint it
 relies on (it takes a checkpoint on the first start via `spring.context.checkpoint=onRefresh` and restores it on later
 starts). The build command is tailored to the detected build system (Maven or Gradle, with or without the wrapper). Each
@@ -269,17 +270,11 @@ file can be downloaded, and — when the application is running from an exploded
 or an IDE) rather than a packaged jar — written directly into the project root. Writes are fail-closed and never
 overwrite a file BootUI did not generate. This shares the same source-tree writer the GraalVM panel uses for its
 `Dockerfile-native`. The generated local run command includes CRIU's `CHECKPOINT_RESTORE`, `SYS_PTRACE`, `SYS_ADMIN`, and
-`NET_ADMIN` capabilities; the panel does not claim that string generation can replace a real Linux checkpoint/restore
-test.
-builds with a plain JDK and runs on a CRaC-enabled BellSoft Liberica JDK, plus the `checkpoint-and-run.sh` entrypoint it
-relies on (it takes a checkpoint on the first start via `spring.context.checkpoint=onRefresh` and restores it on later
-starts). The build command is tailored to the detected build system (Maven or Gradle, with or without the wrapper). Each
-file can be downloaded, and — when the application is running from an exploded build (for example `mvn spring-boot:run`
-or an IDE) rather than a packaged jar — written directly into the project root. Writes are fail-closed and never
-overwrite a file BootUI did not generate. This shares the same source-tree writer the GraalVM panel uses for its
-`Dockerfile-native`. The generated local run command includes CRIU's `CHECKPOINT_RESTORE`, `SYS_PTRACE`, `SYS_ADMIN`, and
-`NET_ADMIN` capabilities; the panel does not claim that string generation can replace a real Linux checkpoint/restore
-test.
+`NET_ADMIN` capabilities. This is a privileged, local CRIU-oriented recipe, not a universal requirement for every CRaC
+engine. The original on-refresh checkpoint precedes lifecycle startup, not a fully warmed application. Incomplete
+checkpoint directories are preserved and produce a clear failure; `inventory.img` only identifies a candidate restore,
+not a verified image. String generation and deterministic fixtures cannot replace a real checkpoint/restore test on
+the exact deployment environment.
 
 > **Not available in GraalVM native images.** CRaC (Coordinated Restore at Checkpoint) is a JVM-only feature and is
 > mutually exclusive with native executables; the panel is automatically hidden when the application is detected to be

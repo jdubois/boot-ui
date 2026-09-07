@@ -10,9 +10,9 @@ import org.crac.Resource;
 
 /**
  * Implements {@code org.crac.Resource} and re-acquires its socket, file handle, executor pool, and
- * HTTP client inside {@link #afterRestore(Context)}. The acquisition calls and resource fields with
- * matching cleanup are exempt. The HTTP client field deliberately has no observable cleanup and
- * remains visible to CRAC-POOL-002.
+ * HTTP client inside {@link #afterRestore(Context)}. The acquisition calls are exempt; compatible
+ * field cleanup is contextual evidence rather than proof of registration. The HTTP client field
+ * deliberately has no observable cleanup and remains visible to CRAC-POOL-002.
  */
 public class ManagedResourceLifecycle implements Resource {
 
