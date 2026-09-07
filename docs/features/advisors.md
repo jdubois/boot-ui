@@ -506,18 +506,21 @@ It intentionally does not crawl discovered endpoints, send SQL/XSS/destructive p
 include raw response bodies, cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not
 proof of exploitability or a replacement for a full security assessment.
 
-The 80 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation. No-finding
+The 79 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation. No-finding
 category coverage is informational rather than a pass. Failed or bounded-away evidence produces a `PARTIAL` scan, hides
-the advisor score, and marks affected coverage `INDETERMINATE`. See [PENTEST-CHECKS.md](../PENTEST-CHECKS.md) for the
+the advisor score, and marks affected no-finding coverage `INDETERMINATE`; known findings remain `REVIEW` with limits.
+See [PENTEST-CHECKS.md](../PENTEST-CHECKS.md) for the
 full catalogue, limits, mappings, and retired IDs.
 
 ### Per-stack coverage
 
 - **Spring MVC** is the complete reference collector.
 - **Spring WebFlux** still contributes Spring configuration and OAuth metadata, but explicitly reports MVC mapping and
-  servlet-filter evidence unavailable; its reactive Security advisor owns `SecurityWebFilterChain` route policy.
+  servlet-filter evidence unavailable, even on a mixed MVC/WebFlux classpath; runtime classification follows the active
+  application context. Its reactive Security advisor owns `SecurityWebFilterChain` route policy.
 - **Quarkus** runs the same shared scanner/report contract and supplies its live port, root path, CORS, OIDC, and
-  direct-listener TLS configuration while explicitly marking Spring endpoint/security metadata unavailable.
+  selected/default/direct HTTP-listener TLS configuration, not unrelated client TLS keys, while explicitly marking
+  Spring endpoint/security metadata unavailable. Local HTTP does not assess proxy-edge HTTPS.
 
 The coverage matrix uses platform-specific wording, so neither adapter turns unsupported checks into a false clean
 result.

@@ -72,6 +72,33 @@ import org.springframework.mock.env.MockEnvironment;
 class BootUiEngineConfigurationTests {
 
     @Test
+    @SuppressWarnings("unchecked")
+    void pentestingFactoryUsesReactiveRuntimeEvenWithMvcOnClasspath() {
+        try (var context = new org.springframework.boot.web.context.reactive.GenericReactiveWebApplicationContext()) {
+            context.registerBean(
+                    "inactiveMvcMapping",
+                    org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping.class,
+                    () -> {
+                        throw new AssertionError("Reactive factory must not resolve MVC mappings");
+                    },
+                    definition -> definition.setLazyInit(true));
+            context.refresh();
+            MockEnvironment environment = new MockEnvironment()
+                    .withProperty("spring.webflux.base-path", "/reactive")
+                    .withProperty("server.servlet.context-path", "/inactive");
+            var scanner = new BootUiEngineConfiguration()
+                    .bootUiPentestingScanner(context, environment, new BootUiProperties());
+            var supplier =
+                    (java.util.function.Supplier<io.github.jdubois.bootui.engine.pentesting.PentestingObservation>)
+                            org.springframework.test.util.ReflectionTestUtils.getField(scanner, "observationSupplier");
+            var observation = supplier.get();
+            assertThat(observation.endpoints().available()).isFalse();
+            assertThat(observation.contextPath()).isEqualTo("/reactive");
+            assertThat(scanner.initialReport().scan().status()).isEqualTo("NOT_SCANNED");
+        }
+    }
+
+    @Test
     void heapDumpServiceMapsHeapDumpPropertiesWithoutTransposition() {
         BootUiProperties properties = new BootUiProperties();
         BootUiProperties.HeapDump heapDump = properties.getHeapDump();

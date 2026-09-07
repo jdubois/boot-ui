@@ -490,12 +490,15 @@ unconditionally in an `@Lazy` `@Bean` method body. Resolving that class-literal 
 `spring-webmvc` is genuinely absent. Fixed with a `ClassUtils.isPresent(...)` guard before the `.class` literal, passing
 `null` to `SpringPentestingObservationCollector` when absent. The collector records that MVC endpoint metadata is
 **unavailable**, rather than returning an empty inventory that could be mistaken for inspection finding no mappings.
+On a mixed MVC/WebFlux classpath, the active application context determines the runtime; MVC classes alone do not
+enable servlet metadata. The optional-class guard remains before resolving MVC types.
 Pentesting still evaluates bounded Spring configuration/OAuth metadata plus at most one GET and one OPTIONS loopback
 response, but A01 servlet coverage is `NOT_APPLICABLE` and no-finding mixed-category coverage uses WebFlux-specific
 `INFO` wording. The reactive Security advisor owns `SecurityWebFilterChain`, reactive CORS, and route-policy review. The
 collector uses `spring.webflux.base-path` for the validated loopback target instead of the servlet-only
-`server.servlet.context-path`. This is the same defensive pattern the rest of the codebase uses for optional-dependency
-adapters — the reactive starter was simply the first Spring-side consumer where an MVC type can be genuinely absent from
+`server.servlet.context-path`, and inactive servlet session settings do not produce findings. This is the same defensive
+pattern the rest of the codebase uses for optional-dependency adapters — the reactive starter was simply the first
+Spring-side consumer where an MVC type can be genuinely absent from
 the classpath, not just absent as a bean.
 
 :::

@@ -67,6 +67,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The Pentesting advisor now distinguishes observed evidence from unverified exposure.** The exhaustive 80-check
+  audit updates 61 checks, retains 18, and retires the ordinary error-path metadata check `PT-A05-045`, leaving 79 active
+  stable IDs. Corrections cover complete-field handling, document/API applicability, CORS/CSP/cookie/header semantics,
+  Spring runtime/default-user provenance and Boot 4.1 endpoint guidance, and Quarkus effective CORS/main-listener TLS
+  selection. Property-only and missing-framework signals no longer imply active authentication failures or writes;
+  mapped sensitive endpoints retain their impact ratings with explicit authorization limits. The catalog records every
+  disposition and its primary sources. Scans still make at most one local GET and one OPTIONS request, with no new
+  targets, credentials, payloads, or administrative operations ([#961](https://github.com/jdubois/boot-ui/issues/961)).
+
 - **Security advisor findings distinguish observed configuration from unknown application behavior across all three
   stacks.** The MVC, WebFlux and Quarkus catalogs were audited against Boot 4.1.1 / Spring Security 7.1.1 and Quarkus
   3.33.3.1. Collection no longer evaluates application policy merely to infer metadata; framework defaults, ordered
