@@ -11,11 +11,26 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  * @param valid {@code pg_index.indisvalid}
  * @param ready {@code pg_index.indisready}
  * @param live {@code pg_index.indislive}
- * @param unique {@code pg_index.indisunique} — an invalid unique index enforces no uniqueness at all until
- *     it is fixed, which is a more serious consequence than simply being unused by the planner
+ * @param unique {@code pg_index.indisunique}; invalid unique indexes can still reject conflicting writes
  */
 record PostgresInvalidIndex(
-        String schema, String table, String index, boolean valid, boolean ready, boolean live, boolean unique) {
+        String schema, String table, String index, Boolean valid, Boolean ready, Boolean live, Boolean unique) {
+
+    PostgresInvalidIndex(
+            String schema, String table, String index, boolean valid, boolean ready, boolean live, boolean unique) {
+        this(
+                schema,
+                table,
+                index,
+                Boolean.valueOf(valid),
+                Boolean.valueOf(ready),
+                Boolean.valueOf(live),
+                Boolean.valueOf(unique));
+    }
+
+    boolean explicitlyInvalid() {
+        return Boolean.FALSE.equals(valid) || Boolean.FALSE.equals(ready) || Boolean.FALSE.equals(live);
+    }
 
     String qualifiedTable() {
         return schema == null || schema.isBlank() ? table : schema + "." + table;
@@ -23,13 +38,13 @@ record PostgresInvalidIndex(
 
     String describeFlags() {
         StringBuilder flags = new StringBuilder();
-        if (!valid) {
+        if (Boolean.FALSE.equals(valid)) {
             flags.append("indisvalid=false");
         }
-        if (!ready) {
+        if (Boolean.FALSE.equals(ready)) {
             flags.append(flags.isEmpty() ? "" : ", ").append("indisready=false");
         }
-        if (!live) {
+        if (Boolean.FALSE.equals(live)) {
             flags.append(flags.isEmpty() ? "" : ", ").append("indislive=false");
         }
         return flags.toString();

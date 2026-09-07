@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -27,8 +28,8 @@ public final class CracReadinessScanner {
 
     static final String ANALYZER = "BootUI CRaC readiness";
     static final String DISCLAIMER =
-            "Heuristic static checks run against the host application's own classes only. They highlight code that "
-                    + "commonly needs attention before a checkpoint, but they complement, and do not replace, an actual "
+            "Heuristic checks use the host application's own bytecode and observed Spring resource metadata. "
+                    + "They identify manual review needs, not verified active resources, and do not replace an actual "
                     + "checkpoint/restore run on a CRaC-enabled JDK.";
 
     private static final Comparator<CracFindingDto> IMPORTANCE_ORDER = Comparator.comparingInt(
@@ -42,6 +43,8 @@ public final class CracReadinessScanner {
     private final Clock clock;
     private final Supplier<CracRuntimeInventory> inventorySupplier;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private volatile CracRuntimeInventory latestRuntimeInventory =
+            CracRuntimeInventory.unavailable("Run readiness checks to collect resource lifecycle evidence.");
 
     CracReadinessScanner(Supplier<List<String>> basePackagesSupplier, CracClassImporter importer, Clock clock) {
         this(basePackagesSupplier, importer, clock, CracRuntimeInventory::empty);
@@ -89,67 +92,61 @@ public final class CracReadinessScanner {
         return singleFlight.run(ActionOperations.CRAC_SCAN, this::doScan);
     }
 
+    public CracRuntimeInventory latestRuntimeInventory() {
+        return latestRuntimeInventory;
+    }
+
     private CracScanResult doScan() {
         BasePackageDetection basePackages = detectBasePackages();
+        List<String> warnings = new ArrayList<>(basePackages.warnings());
+        JavaClasses classes = null;
+        boolean importFailed = false;
         if (basePackages.packages().isEmpty()) {
-            return new CracScanResult(
-                    "SCANNED",
-                    "No application base package was detected, so there were no classes to analyse.",
-                    clock.millis(),
-                    basePackages.packages(),
-                    0,
-                    0,
-                    List.of(),
-                    basePackages.warnings());
-        }
-
-        JavaClasses classes;
-        try {
-            classes = importer.importPackages(basePackages.packages());
-            // Catch LinkageError (e.g. NoClassDefFoundError/ClassFormatError) as well as RuntimeException so a
-            // malformed or unresolvable class on the host classpath degrades to a stable report instead of failing.
-        } catch (RuntimeException | LinkageError ex) {
-            String warning = "Application classes could not be imported for analysis: "
-                    + CracCheckSupport.detail(ex.getMessage());
-            return new CracScanResult(
-                    "ERROR",
-                    warning,
-                    clock.millis(),
-                    basePackages.packages(),
-                    0,
-                    0,
-                    List.of(),
-                    concat(basePackages.warnings(), warning));
-        }
-
-        if (classes.isEmpty()) {
-            return new CracScanResult(
-                    "SCANNED",
-                    "No application classes were found under the detected base package(s) to analyse.",
-                    clock.millis(),
-                    basePackages.packages(),
-                    0,
-                    0,
-                    List.of(),
-                    basePackages.warnings());
+            warnings.add("No application base package was detected; bytecode-backed checks were skipped.");
+        } else {
+            try {
+                classes = importer.importPackages(basePackages.packages());
+                if (classes == null || classes.isEmpty()) {
+                    warnings.add("No application classes were found; bytecode-backed checks were skipped.");
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                importFailed = true;
+                warnings.add("Application classes could not be imported for analysis ("
+                        + ex.getClass().getSimpleName() + "); bytecode-backed checks were skipped.");
+            }
         }
 
         InventorySnapshot inventory = safeInventory();
+        latestRuntimeInventory = inventory.inventory();
+        warnings.addAll(inventory.warnings());
+        boolean bytecodeAvailable = classes != null && !classes.isEmpty();
         CracContext context = new CracContext(classes, basePackages.packages(), inventory.inventory());
-        List<CracFindingDto> results = CracCheckRegistry.activeChecks().stream()
-                .map(check -> check.evaluate(context))
-                .toList();
+        List<CracFindingDto> results = new ArrayList<>();
+        int checksRun = 0;
+        for (CracCheck check : CracCheckRegistry.activeChecks()) {
+            if (check.evidence() != CracCheck.Evidence.RUNTIME && !bytecodeAvailable) {
+                results.add(CracCheckSupport.skipped(check.definition(), "Application bytecode is unavailable."));
+            } else if (check.evidence() != CracCheck.Evidence.BYTECODE
+                    && !inventory.inventory().available()) {
+                results.add(CracCheckSupport.skipped(check.definition(), "Runtime evidence is unavailable."));
+            } else {
+                results.add(check.evaluate(context));
+                checksRun++;
+            }
+        }
 
         return new CracScanResult(
-                "SCANNED",
-                "Readiness checks completed against " + classes.size()
-                        + " application class(es) under the detected base package(s).",
+                basePackages.failed() || importFailed || !inventory.inventory().available() ? "ERROR" : "SCANNED",
+                "Evaluated " + checksRun + " readiness check(s) against "
+                        + (bytecodeAvailable ? classes.size() : 0)
+                        + " application class(es) and the available runtime evidence. "
+                        + "Skipped observations are not evidence of readiness.",
                 clock.millis(),
                 basePackages.packages(),
-                classes.size(),
-                results.size(),
+                bytecodeAvailable ? classes.size() : 0,
+                checksRun,
                 results,
-                concat(basePackages.warnings(), inventory.warnings()));
+                warnings);
     }
 
     /** Assembles the DTO report served to the panel from a cached scan plus a fresh runtime status. */
@@ -183,39 +180,29 @@ public final class CracReadinessScanner {
         try {
             CracRuntimeInventory inventory = inventorySupplier.get();
             if (inventory == null) {
-                return new InventorySnapshot(
-                        CracRuntimeInventory.empty(),
-                        List.of(
-                                "CRaC runtime inventory collection returned no data; runtime-backed checks may be incomplete."));
+                inventory = CracRuntimeInventory.unavailable(
+                        "CRaC runtime inventory collection returned no data; runtime-backed checks were skipped.");
             }
-            return new InventorySnapshot(inventory, List.of());
+            return new InventorySnapshot(inventory, inventory.warnings());
         } catch (RuntimeException | LinkageError ex) {
-            return new InventorySnapshot(
-                    CracRuntimeInventory.empty(),
-                    List.of("CRaC runtime inventory could not be collected; runtime-backed checks may be incomplete: "
-                            + CracCheckSupport.detail(ex.getMessage())));
+            CracRuntimeInventory inventory =
+                    CracRuntimeInventory.unavailable("CRaC runtime inventory could not be collected ("
+                            + ex.getClass().getSimpleName() + "); runtime-backed checks were skipped.");
+            return new InventorySnapshot(inventory, inventory.warnings());
         }
     }
 
     private BasePackageDetection detectBasePackages() {
         try {
             List<String> packages = basePackagesSupplier.get();
-            return new BasePackageDetection(packages == null ? List.of() : List.copyOf(packages), List.of());
-        } catch (RuntimeException ex) {
+            return new BasePackageDetection(packages == null ? List.of() : List.copyOf(packages), List.of(), false);
+        } catch (RuntimeException | LinkageError ex) {
             return new BasePackageDetection(
                     List.of(),
-                    List.of("Application base packages could not be detected: "
-                            + CracCheckSupport.detail(ex.getMessage())));
+                    List.of("Application base packages could not be detected ("
+                            + ex.getClass().getSimpleName() + ")."),
+                    true);
         }
-    }
-
-    private static List<String> concat(List<String> warnings, String extra) {
-        return java.util.stream.Stream.concat(warnings.stream(), java.util.stream.Stream.of(extra))
-                .toList();
-    }
-
-    private static List<String> concat(List<String> first, List<String> second) {
-        return java.util.stream.Stream.concat(first.stream(), second.stream()).toList();
     }
 
     private List<CracSeverityCountDto> severityCounts(List<CracFindingDto> findings) {
@@ -251,7 +238,7 @@ public final class CracReadinessScanner {
         }
     }
 
-    private record BasePackageDetection(List<String> packages, List<String> warnings) {}
+    private record BasePackageDetection(List<String> packages, List<String> warnings, boolean failed) {}
 
     private record InventorySnapshot(CracRuntimeInventory inventory, List<String> warnings) {}
 }

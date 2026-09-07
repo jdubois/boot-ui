@@ -34,8 +34,12 @@ final class CracCheckSupport {
         return result(definition, SKIPPED, 0, List.of(detail(reason)));
     }
 
-    static CracFindingDto error(CracCheckDefinition definition, String reason) {
-        return result(definition, ERROR, 0, List.of(detail(reason)));
+    static CracFindingDto error(CracCheckDefinition definition, Throwable error) {
+        return result(
+                definition,
+                ERROR,
+                0,
+                List.of("Check could not be evaluated (" + error.getClass().getSimpleName() + ")."));
     }
 
     static CracFindingDto review(CracCheckDefinition definition, int occurrenceCount, List<String> samples) {

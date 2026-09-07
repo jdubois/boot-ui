@@ -69,6 +69,22 @@ class PostgresDatabaseAdvisorLiveTests {
             statement.execute("create table orders (id bigint primary key, customer_id bigint not null)");
             statement.execute("alter table orders add constraint fk_orders_customer "
                     + "foreign key (customer_id) references customers(id) not valid");
+
+            statement.execute("create table insert_only_log (id bigint)");
+            statement.execute("create publication inserts_only for table insert_only_log with (publish = 'insert')");
+            statement.execute("create table published_log (id bigint)");
+            statement.execute("create publication changes for table published_log with (publish = 'update, delete')");
+            statement.execute("create schema published_schema");
+            statement.execute("create table published_schema.schema_log (id bigint)");
+            statement.execute("create publication schema_changes for tables in schema published_schema "
+                    + "with (publish = 'update')");
+            statement.execute("create publication root_changes for table events "
+                    + "with (publish = 'delete', publish_via_partition_root = true)");
+            statement.execute("create publication all_inserts for all tables with (publish = 'insert')");
+
+            statement.execute(
+                    "create sequence descending_seq increment by -1 minvalue -1000 maxvalue -1 start with -1");
+            statement.execute("select setval('descending_seq', -900)");
         }
     }
 
@@ -125,12 +141,31 @@ class PostgresDatabaseAdvisorLiveTests {
     }
 
     @Test
-    void reportsAConstraintThatWasAddedNotValidAndNeverValidated() {
+    void reportsCurrentUnvalidatedConstraintStateWithoutInferringHistory() {
         DatabaseAdvisorReport report = scan();
 
         assertThat(finding(report, "DB-PG-003"))
                 .hasValueSatisfying(result -> assertThat(result.sampleViolations())
                         .anyMatch(detail -> detail.contains("fk_orders_customer") && detail.contains("public.orders")));
+    }
+
+    @Test
+    void publicationActionsExpandedSchemaMembershipAndPartitionRootAreRespected() {
+        assertThat(finding(scan(), "DB-PG-004")).hasValueSatisfying(result -> {
+            assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("public.published_log"));
+            assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("published_schema.schema_log"));
+            assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("public.events "));
+            assertThat(result.sampleViolations()).noneMatch(detail -> detail.contains("insert_only_log"));
+            assertThat(result.sampleViolations()).noneMatch(detail -> detail.contains("events_2024_"));
+        });
+    }
+
+    @Test
+    void descendingSequenceUsesItsMinimumRatherThanPositiveMaximum() {
+        assertThat(finding(scan(), "DB-PG-002"))
+                .hasValueSatisfying(result -> assertThat(result.sampleViolations())
+                        .anyMatch(detail ->
+                                detail.contains("descending_seq") && detail.contains("effective bound -1000")));
     }
 
     @Test

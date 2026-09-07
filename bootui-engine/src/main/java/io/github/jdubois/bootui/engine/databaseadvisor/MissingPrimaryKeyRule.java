@@ -40,26 +40,36 @@ final class MissingPrimaryKeyRule extends AbstractDatabaseAdvisorRule {
                 "Detects application tables reported by DatabaseMetaData.getPrimaryKeys() with no primary key "
                         + "columns, excluding system, temporary, extension-owned and migration bookkeeping tables, "
                         + "and PostgreSQL child partitions.",
-                "Declare a primary key (a natural key or a surrogate id) on every table. Without one, ORMs cannot "
-                        + "establish row identity, logical replication tools cannot target individual rows, and "
-                        + "UPDATE/DELETE statements risk affecting more rows than intended.",
+                "Review whether a declared primary key fits this table's identity and consumers. "
+                        + "No observed primary key does not prove unsafe data or a broken ORM/replication setup; "
+                        + "empty JDBC metadata can also reflect driver or privilege limitations.",
                 "https://en.wikipedia.org/wiki/Primary_key"));
     }
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<String> details = new ArrayList<>();
+        int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
-                if (!table.metadata().primaryKeyRead() || isExcluded(table)) {
+                if (isExcluded(table)) {
                     continue;
                 }
+                if (!table.metadata().primaryKeyRead()
+                        || (table.primaryKeyColumns().isEmpty()
+                                && !table.metadata().columnsRead())) {
+                    unknown(context, table.qualifiedName() + ": primary-key or column metadata is incomplete.");
+                    continue;
+                }
+                eligible++;
                 if (table.primaryKeyColumns().isEmpty()) {
-                    details.add(schema.dataSourceName() + ": table " + table.qualifiedName() + " has no primary key.");
+                    details.add(
+                            schema.dataSourceName() + ": table " + table.qualifiedName()
+                                    + " has no primary key reported by JDBC; verify driver/privilege coverage before a migration.");
                 }
             }
         }
-        return violation(details);
+        return assessed(context, eligible, details);
     }
 
     private boolean isExcluded(TableModel table) {

@@ -199,13 +199,11 @@ assets still target a JVM process and Spring's checkpoint lifecycle; they do not
 
 :::
 
-[^spring-advisor-reactive]: The `SpringController` wiring needed no adapter change, but its ruleset
-    (`SpringScanner`/`SpringRules`) is reactive-aware internally. It detects a WebFlux `ReactiveWebApplicationContext`
-    the same way `PanelsController.isReactive()` does. It checks the active embedded server before evaluating
-    `SPRING-WEB-007` (the Tomcat thread cap, including reactive Tomcat), and matches `WebClient` beans for the
-    HTTP-client-timeout rule (`SPRING-WEB-005`). Four rules' "Learn more" links point at the reactive docs page instead
-    of the servlet one, and two WebFlux-only rules (`SPRING-REACTIVE-001`, `SPRING-REACTIVE-002`) that are otherwise
-    `SKIPPED` are added. See `docs/SPRING-CHECKS.md`.
+[^spring-advisor-reactive]: The Spring advisor uses the running MVC/WebFlux context and bounded non-eager bean
+    metadata. HTTP-client advice distinguishes Boot-managed defaults from unknown per-client settings, and
+    optimization opportunities are qualified to the observed stack. Reactive JDBC co-presence and explicitly
+    unlimited Boot codec aggregation are WebFlux-only checks; unavailable required evidence is reported as
+    unevaluated. See `docs/SPRING-CHECKS.md` for active and retired rules.
 
 ### 6.2 Adapted with a small new binding (3 panels)
 
@@ -432,14 +430,14 @@ Platform-aware fidelity notes:
 
 ### 6.6 Security advisor (`security`) — live on WebFlux
 
-The advisor uses a dedicated 26-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
+The advisor uses a dedicated 25-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
 the application's `SecurityWebFilterChain` configuration. It stays distinct from the raw `spring-security` panel: the
 raw panel explains the configured chains and mappings, while the advisor turns the observed posture into bounded,
 deterministic findings across authorization, CSRF, CORS, headers, Actuator exposure, OAuth2/JWT, configuration, and
 reactive session policy. BootUI's own permit-all chain is excluded from availability and analysis. See
 `docs/SECURITY-CHECKS.md` for the complete reactive catalogue.
 
-The catalogue is aligned with the Java 17 / Spring Boot 4.1.0 / Spring Security 7.1.0 baseline and deliberately
+The catalogue is aligned with the Java 17 / Spring Boot 4.1.1 / Spring Security 7.1.1 baseline and deliberately
 describes only evidence the adapter can observe: installed filter/header-writer types, inspectable CORS maps, and host
 `Environment` properties. An installed `AuthorizationWebFilter` does not reveal whether its manager chose `permitAll`,
 `authenticated`, a role check, or custom logic; a decoder-local JWT validator is not inferred from unrelated validator
@@ -457,13 +455,18 @@ opaque-token introspection detection.
 
 Existing findings were narrowed where needed. Credentialed CORS now targets the legal `allowedOriginPatterns="*"` case;
 CSP absence is a LOW contextual review (and report-only policies are called out as non-enforcing); static JWT keys are
-LOW rotation advice; HTTPS/Actuator findings avoid claiming knowledge of external deployment policy; and the mixed
+INFO rotation advice; HTTPS/Actuator findings avoid claiming knowledge of external deployment policy; and the mixed
 bearer/login rule uses WebFlux's real `NoOpServerSecurityContextRepository` remediation rather than servlet-only
 `SessionCreationPolicy`.
 
 A follow-up parity review brought the catalogue to 26 rules: `SEC-RXF-CSRF-001` and `SEC-RXF-SESSION-001` now also
 recognize `formLogin()` chains, not just OAuth2/OIDC login filters, and the new `SEC-RXF-CORS-003` flags broad
 `allowedOriginPatterns` (e.g. `https://*`) to match the servlet stack's `SEC-CORS-006`.
+
+The cross-stack accuracy audit then retired duplicate missing-authorization rules `SEC-RXF-AUTHZ-002/003` and
+added the INFO structural chain-ordering check `SEC-RXF-AUTHZ-004`, leaving 25 active rules. It also separates
+Basic/browser credentials from header-only bearer APIs, OAuth client grants from login, and effective Actuator
+access from inclusion settings. Unknown observations remain incomplete rather than becoming missing-control findings.
 
 :::
 
@@ -487,12 +490,15 @@ unconditionally in an `@Lazy` `@Bean` method body. Resolving that class-literal 
 `spring-webmvc` is genuinely absent. Fixed with a `ClassUtils.isPresent(...)` guard before the `.class` literal, passing
 `null` to `SpringPentestingObservationCollector` when absent. The collector records that MVC endpoint metadata is
 **unavailable**, rather than returning an empty inventory that could be mistaken for inspection finding no mappings.
+On a mixed MVC/WebFlux classpath, the active application context determines the runtime; MVC classes alone do not
+enable servlet metadata. The optional-class guard remains before resolving MVC types.
 Pentesting still evaluates bounded Spring configuration/OAuth metadata plus at most one GET and one OPTIONS loopback
 response, but A01 servlet coverage is `NOT_APPLICABLE` and no-finding mixed-category coverage uses WebFlux-specific
 `INFO` wording. The reactive Security advisor owns `SecurityWebFilterChain`, reactive CORS, and route-policy review. The
 collector uses `spring.webflux.base-path` for the validated loopback target instead of the servlet-only
-`server.servlet.context-path`. This is the same defensive pattern the rest of the codebase uses for optional-dependency
-adapters — the reactive starter was simply the first Spring-side consumer where an MVC type can be genuinely absent from
+`server.servlet.context-path`, and inactive servlet session settings do not produce findings. This is the same defensive
+pattern the rest of the codebase uses for optional-dependency adapters — the reactive starter was simply the first
+Spring-side consumer where an MVC type can be genuinely absent from
 the classpath, not just absent as a bean.
 
 :::

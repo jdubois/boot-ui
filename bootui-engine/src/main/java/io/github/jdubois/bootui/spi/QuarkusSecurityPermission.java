@@ -13,4 +13,28 @@ package io.github.jdubois.bootui.spi;
  *     {@code quarkus.http.auth.permission.<name>.methods}, or {@code null}/blank when unset — meaning the
  *     policy applies to every method, not just some
  */
-public record QuarkusSecurityPermission(String name, String paths, String policy, String methods) {}
+public record QuarkusSecurityPermission(
+        String name,
+        String paths,
+        String policy,
+        String methods,
+        boolean shared,
+        String appliesTo,
+        boolean knownPolicy) {
+    public QuarkusSecurityPermission {
+        if (appliesTo != null) {
+            appliesTo = appliesTo.trim().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
+    public QuarkusSecurityPermission(String name, String paths, String policy, String methods) {
+        this(
+                name,
+                paths,
+                policy,
+                methods,
+                false,
+                "all",
+                "permit".equals(policy) || "deny".equals(policy) || "authenticated".equals(policy));
+    }
+}

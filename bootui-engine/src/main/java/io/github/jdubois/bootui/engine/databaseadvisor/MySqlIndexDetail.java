@@ -20,4 +20,35 @@ record MySqlIndexDetail(
         String indexType,
         boolean unique,
         Boolean visible,
-        String expression) {}
+        String expression,
+        boolean generatedColumn,
+        boolean definitionComplete) {
+
+    MySqlIndexDetail(
+            String schema,
+            String table,
+            String index,
+            int position,
+            String column,
+            Integer subPart,
+            String collation,
+            String indexType,
+            boolean unique,
+            Boolean visible,
+            String expression) {
+        this(
+                schema,
+                table,
+                index,
+                position,
+                column,
+                subPart,
+                collation,
+                indexType,
+                unique,
+                visible,
+                expression,
+                false,
+                false);
+    }
+}

@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.databaseadvisor;
 
 import io.github.jdubois.bootui.autoconfigure.datasource.DelegatingDataSources;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery.Failure;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceProvider;
 import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.sql.SQLException;
@@ -59,11 +61,17 @@ public final class SpringDatabaseAdvisorDataSourceProvider implements DatabaseAd
 
     @Override
     public List<NamedDataSource> dataSources() {
+        return discover().requireComplete();
+    }
+
+    @Override
+    public DatabaseAdvisorDataSourceDiscovery discover() {
         ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
         if (factory == null) {
-            return List.of();
+            return new DatabaseAdvisorDataSourceDiscovery(List.of(), List.of());
         }
-        List<Candidate> candidates = candidates(factory);
+        List<Failure> failures = new ArrayList<>();
+        List<Candidate> candidates = candidates(factory, failures);
         List<NamedDataSource> dataSources = new ArrayList<>();
         Set<DataSource> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Candidate candidate : candidates) {
@@ -76,19 +84,21 @@ public final class SpringDatabaseAdvisorDataSourceProvider implements DatabaseAd
                 addWrapper(dataSources, seen, candidate.name(), candidate.dataSource());
             }
         }
-        return dataSources;
+        return new DatabaseAdvisorDataSourceDiscovery(dataSources, failures);
     }
 
     /** One {@code DataSource} bean, pre-classified as a Spring wrapper or a plain datasource. */
     private record Candidate(String name, DataSource dataSource, boolean wrapper) {}
 
-    private static List<Candidate> candidates(ListableBeanFactory factory) {
+    private static List<Candidate> candidates(ListableBeanFactory factory, List<Failure> failures) {
         List<Candidate> candidates = new ArrayList<>();
-        for (String beanName : beanNamesForType(factory)) {
-            DataSource dataSource = bean(factory, beanName);
-            if (dataSource != null) {
+        for (String beanName : factory.getBeanNamesForType(DataSource.class)) {
+            try {
+                DataSource dataSource = factory.getBean(beanName, DataSource.class);
                 candidates.add(new Candidate(
                         strip(beanName), dataSource, DelegatingDataSources.isWrapper(dataSource.getClass())));
+            } catch (BeansException | LinkageError ex) {
+                failures.add(new Failure(strip(beanName), "Datasource bean could not be resolved: " + ex.getMessage()));
             }
         }
         return candidates;
@@ -122,23 +132,6 @@ public final class SpringDatabaseAdvisorDataSourceProvider implements DatabaseAd
             List<NamedDataSource> dataSources, Set<DataSource> seen, String name, DataSource dataSource) {
         if (seen.add(physicalDataSource(dataSource))) {
             dataSources.add(new NamedDataSource(name, dataSource));
-        }
-    }
-
-    private static String[] beanNamesForType(ListableBeanFactory factory) {
-        try {
-            String[] beanNames = factory.getBeanNamesForType(DataSource.class);
-            return beanNames == null ? new String[0] : beanNames;
-        } catch (BeansException ex) {
-            return new String[0];
-        }
-    }
-
-    private static DataSource bean(ListableBeanFactory factory, String beanName) {
-        try {
-            return factory.getBean(beanName, DataSource.class);
-        } catch (BeansException ex) {
-            return null;
         }
     }
 

@@ -4,6 +4,8 @@ import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -53,7 +55,12 @@ final class PostgresCatalogReader {
 
     private static final String INDEX_DETAILS_BASE_SQL = """
             select n.nspname as schema_name, t.relname as table_name, c.relname as index_name,
-                   i.indisvalid as is_valid,
+                   i.indisvalid as is_valid, i.indisready as is_ready, i.indislive as is_live,
+                   i.indisunique as is_unique, i.indisprimary as is_primary,
+                   (select min(pc.conname) from pg_constraint pc where pc.conindid = i.indexrelid
+                       and pc.contype in ('p', 'u', 'x')) as constraint_name,
+                   (select min(pc.contype::text) from pg_constraint pc where pc.conindid = i.indexrelid
+                       and pc.contype in ('p', 'u', 'x')) as constraint_type,
                    (i.indpred is not null) as is_partial,
                    pg_get_expr(i.indpred, i.indrelid) as predicate,
                    (i.indexprs is not null) as has_expression,
@@ -99,7 +106,8 @@ final class PostgresCatalogReader {
 
     private static final String UNVALIDATED_CONSTRAINTS_SQL = """
             select n.nspname as schema_name, t.relname as table_name, c.conname as constraint_name,
-                   c.contype as constraint_type, pg_get_constraintdef(c.oid) as definition
+                   c.contype as constraint_type, pg_get_constraintdef(c.oid) as definition,
+                   %s as is_enforced
             from pg_constraint c
             join pg_class t on t.oid = c.conrelid
             join pg_namespace n on n.oid = t.relnamespace
@@ -118,6 +126,7 @@ final class PostgresCatalogReader {
             select s.schemaname as schema_name, s.sequencename as sequence_name,
                    s.last_value as last_value, s.max_value as max_value, s.cycle as is_cycle,
                    s.increment_by as increment_by,
+                   s.min_value as min_value, s.start_value as start_value, s.cache_size as cache_size,
                    owner_ns.nspname as owner_schema, owner_table.relname as owner_table,
                    owner_column.attname as owner_column, owner_type.typname as owner_type
             from pg_sequences s
@@ -130,28 +139,23 @@ final class PostgresCatalogReader {
             left join pg_attribute owner_column on owner_column.attrelid = d.refobjid
                  and owner_column.attnum = d.refobjsubid
             left join pg_type owner_type on owner_type.oid = owner_column.atttypid
-            where s.last_value is not null
-              and seq.relkind = 'S'
+            where seq.relkind = 'S'
             """ + SYSTEM_SCHEMA_FILTER + """
             order by s.schemaname, s.sequencename
             limit ?
             """;
 
-    /**
-     * Tables actually in scope for logical replication: an explicit {@code pg_publication_rel} member, or
-     * every table implicitly, because some publication is declared {@code FOR ALL TABLES}. A table outside
-     * both is never a candidate — flagging every primary-key-less table regardless of whether logical
-     * replication is even configured would be noise on the overwhelming majority of development databases.
-     */
+    /** Expanded membership honors all-table/schema publications and publish_via_partition_root. */
     private static final String REPLICA_IDENTITY_CANDIDATES_SQL = """
-            select n.nspname as schema_name, t.relname as table_name, t.relreplident as replica_identity
-            from pg_class t
-            join pg_namespace n on n.oid = t.relnamespace
-            where t.relkind = 'r'
-              and (
-                    exists (select 1 from pg_publication_rel pr where pr.prrelid = t.oid)
-                    or exists (select 1 from pg_publication p where p.puballtables)
-                  )
+            select distinct n.nspname as schema_name, t.relname as table_name,
+                   t.relreplident as replica_identity,
+                   exists (select 1 from pg_index i where i.indrelid = t.oid
+                           and i.indisreplident and i.indisvalid and i.indisready and i.indislive) as has_identity_index
+            from pg_publication_tables pt
+            join pg_publication p on p.pubname = pt.pubname
+            join pg_namespace n on n.nspname = pt.schemaname
+            join pg_class t on t.relnamespace = n.oid and t.relname = pt.tablename
+            where t.relkind in ('r', 'p') and (p.pubupdate or p.pubdelete)
             """ + SYSTEM_SCHEMA_FILTER + """
             order by n.nspname, t.relname
             limit ?
@@ -190,7 +194,7 @@ final class PostgresCatalogReader {
         findings.add(CatalogQuery.read(
                 connection,
                 VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS,
-                UNVALIDATED_CONSTRAINTS_SQL,
+                unvalidatedConstraintsSql(version),
                 budget,
                 limits,
                 PostgresCatalogReader::readUnvalidatedConstraint));
@@ -222,13 +226,24 @@ final class PostgresCatalogReader {
                     "The pg_sequences view requires PostgreSQL 10 or later (server reports " + version.describe()
                             + ")."));
         }
-        findings.add(CatalogQuery.read(
-                connection,
-                VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
-                REPLICA_IDENTITY_CANDIDATES_SQL,
-                budget,
-                limits,
-                PostgresCatalogReader::readReplicaIdentityCandidate));
+        if (version.atLeast(10, 0)) {
+            findings.add(CatalogQuery.read(
+                    connection,
+                    VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
+                    REPLICA_IDENTITY_CANDIDATES_SQL,
+                    budget,
+                    limits,
+                    PostgresCatalogReader::readReplicaIdentityCandidate));
+        } else {
+            findings.add(VendorAugmentation.notApplicable(
+                    VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
+                    "Publication catalogs require PostgreSQL 10 or later; server version must be known."));
+        }
+    }
+
+    static String unvalidatedConstraintsSql(DatabaseVersion version) {
+        return UNVALIDATED_CONSTRAINTS_SQL.replace(
+                "%s", version.atLeast(18, 0) ? "c.conenforced" : version.known() ? "true" : "null::boolean");
     }
 
     private static String invalidIndexesSql(DialectCapabilities capabilities) {
@@ -244,12 +259,26 @@ final class PostgresCatalogReader {
 
     private static String indexDetailsSql(DialectCapabilities capabilities) {
         StringBuilder sql = new StringBuilder(INDEX_DETAILS_BASE_SQL);
-        if (capabilities.indexIncludeColumns()) {
-            sql.append(",\n                   i.indnkeyatts as key_column_count");
-        }
+        String keyCount = capabilities.indexIncludeColumns() ? "i.indnkeyatts" : "i.indnatts";
+        sql.append(",\n                   ").append(keyCount).append(" as key_column_count");
         if (capabilities.nullsNotDistinct()) {
             sql.append(",\n                   i.indnullsnotdistinct as nulls_not_distinct");
         }
+        sql.append("""
+                ,
+                   array(select a.attname::text from generate_series(1, %s) k(pos)
+                         left join pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[k.pos - 1]
+                         order by k.pos) as key_columns,
+                   array(select case when i.indkey[k.pos - 1] = 0
+                                     then pg_get_indexdef(i.indexrelid, k.pos, false) else null end
+                         from generate_series(1, %s) k(pos) order by k.pos) as key_expressions,
+                   array(select i.indoption[k.pos - 1]::text || ':' || i.indcollation[k.pos - 1]::text
+                                     || ':' || i.indclass[k.pos - 1]::text
+                         from generate_series(1, %s) k(pos) order by k.pos) as key_semantics,
+                   array(select a.attname::text from generate_series(%s + 1, i.indnatts) k(pos)
+                         join pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[k.pos - 1]
+                         order by k.pos) as included_columns
+                """.formatted(keyCount, keyCount, keyCount, keyCount));
         sql.append(INDEX_DETAILS_FROM_WHERE_SQL).append(ORDER_AND_LIMIT_SQL);
         return sql.toString();
     }
@@ -259,25 +288,104 @@ final class PostgresCatalogReader {
                 rs.getString("schema_name"),
                 rs.getString("table_name"),
                 rs.getString("index_name"),
-                rs.getBoolean("is_valid"),
-                rs.getBoolean("is_ready"),
-                rs.getBoolean("is_live"),
-                rs.getBoolean("is_unique"));
+                nullableBoolean(rs, "is_valid"),
+                nullableBoolean(rs, "is_ready"),
+                nullableBoolean(rs, "is_live"),
+                nullableBoolean(rs, "is_unique"));
     }
 
     private static PostgresIndexDetail readIndexDetail(ResultSet rs, DialectCapabilities capabilities)
             throws SQLException {
+        Integer keyCount = nullableInt(rs, "key_column_count");
+        List<String> columns = strings(rs, "key_columns");
+        List<String> expressions = strings(rs, "key_expressions");
+        List<String> semantics = strings(rs, "key_semantics");
+        List<String> included = strings(rs, "included_columns");
+        List<IndexKeyPart> parts = new ArrayList<>();
+        boolean complete = keyCount != null
+                && keyCount > 0
+                && columns != null
+                && expressions != null
+                && semantics != null
+                && included != null
+                && columns.size() == keyCount
+                && expressions.size() == keyCount
+                && semantics.size() == keyCount
+                && !semantics.contains(null)
+                && !included.contains(null);
+        if (complete) {
+            for (int position = 0; position < keyCount; position++) {
+                String column = columns.get(position);
+                String expression = expressions.get(position);
+                if (column == null && expression == null) {
+                    complete = false;
+                }
+                String[] flags = semantics.get(position).split(":");
+                Boolean ascending = flags.length == 3 ? (Integer.parseInt(flags[0]) & 1) == 0 : null;
+                if (ascending == null) {
+                    complete = false;
+                }
+                parts.add(new IndexKeyPart(column, expression, ascending, null, flags.length == 3 ? flags[1] : null));
+            }
+        }
+        Boolean valid = nullableBoolean(rs, "is_valid");
+        Boolean ready = nullableBoolean(rs, "is_ready");
+        Boolean live = nullableBoolean(rs, "is_live");
+        Boolean unique = nullableBoolean(rs, "is_unique");
+        Boolean primary = nullableBoolean(rs, "is_primary");
+        Boolean partial = nullableBoolean(rs, "is_partial");
+        Boolean expression = nullableBoolean(rs, "has_expression");
+        Boolean nullsNotDistinct =
+                capabilities.nullsNotDistinct() ? nullableBoolean(rs, "nulls_not_distinct") : Boolean.FALSE;
+        String method = rs.getString("method");
         return new PostgresIndexDetail(
                 rs.getString("schema_name"),
                 rs.getString("table_name"),
                 rs.getString("index_name"),
-                rs.getBoolean("is_valid"),
-                rs.getBoolean("is_partial"),
+                Boolean.TRUE.equals(valid),
+                Boolean.TRUE.equals(partial),
                 rs.getString("predicate"),
-                rs.getBoolean("has_expression"),
-                rs.getString("method"),
-                capabilities.indexIncludeColumns() ? nullableInt(rs, "key_column_count") : null,
-                capabilities.nullsNotDistinct() && rs.getBoolean("nulls_not_distinct"));
+                Boolean.TRUE.equals(expression),
+                method,
+                keyCount,
+                Boolean.TRUE.equals(nullsNotDistinct),
+                ready,
+                live,
+                unique,
+                primary,
+                rs.getString("constraint_name"),
+                rs.getString("constraint_type"),
+                parts,
+                included == null || included.contains(null) ? List.of() : included,
+                semantics == null || semantics.contains(null) ? List.of() : semantics,
+                complete
+                        && valid != null
+                        && ready != null
+                        && live != null
+                        && unique != null
+                        && primary != null
+                        && partial != null
+                        && expression != null
+                        && nullsNotDistinct != null
+                        && method != null
+                        && !method.isBlank());
+    }
+
+    private static List<String> strings(ResultSet rs, String column) throws SQLException {
+        java.sql.Array array = rs.getArray(column);
+        if (array == null) {
+            return null;
+        }
+        try {
+            Object[] values = (Object[]) array.getArray();
+            List<String> result = new ArrayList<>(values.length);
+            for (Object value : values) {
+                result.add(value == null ? null : value.toString());
+            }
+            return result;
+        } finally {
+            array.free();
+        }
     }
 
     private static Integer nullableInt(ResultSet rs, String column) throws SQLException {
@@ -300,7 +408,10 @@ final class PostgresCatalogReader {
 
     private static PostgresReplicaIdentityCandidate readReplicaIdentityCandidate(ResultSet rs) throws SQLException {
         return new PostgresReplicaIdentityCandidate(
-                rs.getString("schema_name"), rs.getString("table_name"), rs.getString("replica_identity"));
+                rs.getString("schema_name"),
+                rs.getString("table_name"),
+                rs.getString("replica_identity"),
+                nullableBoolean(rs, "has_identity_index"));
     }
 
     private static PostgresUnvalidatedConstraint readUnvalidatedConstraint(ResultSet rs) throws SQLException {
@@ -309,16 +420,12 @@ final class PostgresCatalogReader {
                 rs.getString("table_name"),
                 rs.getString("constraint_name"),
                 rs.getString("constraint_type"),
-                rs.getString("definition"));
+                rs.getString("definition"),
+                nullableBoolean(rs, "is_enforced"));
     }
 
     private static PostgresSequenceUsage readSequence(ResultSet rs) throws SQLException {
         BigInteger lastValue = bigInteger(rs, "last_value");
-        if (lastValue == null) {
-            // pg_sequences hides last_value from roles without SELECT/USAGE on the sequence; a sequence whose
-            // consumption cannot be read is skipped rather than reported as unused.
-            return null;
-        }
         String ownerType = rs.getString("owner_type");
         long incrementBy = rs.getLong("increment_by");
         Long incrementByOrNull = rs.wasNull() ? null : incrementBy;
@@ -333,7 +440,18 @@ final class PostgresCatalogReader {
                 rs.getString("owner_table"),
                 rs.getString("owner_column"),
                 ownerType,
-                incrementByOrNull);
+                incrementByOrNull,
+                bigInteger(rs, "min_value"),
+                bigInteger(rs, "start_value"),
+                capacityOf(ownerType) == null
+                        ? null
+                        : capacityOf(ownerType).negate().subtract(BigInteger.ONE),
+                bigInteger(rs, "cache_size"));
+    }
+
+    private static Boolean nullableBoolean(ResultSet rs, String column) throws SQLException {
+        boolean value = rs.getBoolean(column);
+        return rs.wasNull() ? null : value;
     }
 
     /** The largest value the sequence's owning column type can hold, or {@code null} when not classified. */

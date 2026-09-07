@@ -8,9 +8,11 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedFor
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedSecondaryTableFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedSequenceGeneratorFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedUniqueConstraintFacts;
+import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
 import jakarta.persistence.Convert;
+import jakarta.persistence.Converts;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -18,8 +20,11 @@ import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Inheritance;
+import jakarta.persistence.InheritanceType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.JoinColumns;
+import jakarta.persistence.JoinTable;
 import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.MappedSuperclass;
@@ -83,11 +88,11 @@ class HibernateSchemaBridgeTests {
     }
 
     @Test
-    void tableDeclaredOnAMappedSuperclassIsInherited() {
+    void tableDeclaredOnAMappedSuperclassIsNotAnEntityTableDeclaration() {
         MappedEntityFacts facts = factsFor(InheritsTable.class);
 
-        assertThat(facts.explicitTableName()).isEqualTo("base_table");
-        assertThat(facts.explicitSchema()).isEqualTo("base_schema");
+        assertThat(facts.explicitTableName()).isNull();
+        assertThat(facts.explicitSchema()).isNull();
     }
 
     @Test
@@ -121,7 +126,7 @@ class HibernateSchemaBridgeTests {
 
         assertThat(column(facts, "email").nullable()).isFalse();
         assertThat(column(facts, "email").identifier()).isFalse();
-        assertThat(column(facts, "short_code").nullable()).isTrue();
+        assertThat(column(facts, "short_code").nullable()).isNull();
     }
 
     @Test
@@ -143,6 +148,89 @@ class HibernateSchemaBridgeTests {
         assertThat(column(facts, "status").ambiguousType()).isTrue();
         assertThat(column(facts, "status").lob()).isFalse();
         assertThat(column(facts, "money").ambiguousType()).isTrue();
+    }
+
+    @Test
+    void defaultValuedNullabilityAndNonpositiveLengthsAreUnknownEvenWhenWrittenExplicitly() {
+        MappedEntityFacts facts = factsFor(AnnotationDefaults.class);
+        assertThat(column(facts, "omitted").nullable()).isNull();
+        assertThat(column(facts, "explicit_true").nullable()).isNull();
+        assertThat(column(facts, "required").nullable()).isFalse();
+        assertThat(column(facts, "omitted").declaredLength()).isNull();
+        assertThat(column(facts, "explicit_true").declaredLength()).isNull();
+        assertThat(column(facts, "zero").declaredLength()).isNull();
+        assertThat(column(facts, "negative").declaredLength()).isNull();
+        assertThat(column(facts, "required").declaredLength()).isEqualTo(12);
+    }
+
+    @Test
+    void repeatableClassAndNativeColumnMappingsAreAmbiguousForLengthComparison() {
+        assertThat(column(factsFor(RepeatedConversion.class), "value").ambiguousType())
+                .isTrue();
+        assertThat(column(factsFor(ClassConversion.class), "value").ambiguousType())
+                .isTrue();
+        assertThat(column(factsFor(NativeColumn.class), "value").ambiguousType())
+                .isTrue();
+    }
+
+    @Test
+    void mappedSuperclassAttributesUseTheEntitysOwnTable() {
+        MappedEntityFacts facts = factsFor(OwnTable.class);
+        assertThat(facts.explicitTableName()).isEqualTo("own_table");
+        assertThat(column(facts, "base_value").nullable()).isFalse();
+        assertThat(facts.secondaryTables()).isEmpty();
+    }
+
+    @Test
+    void entityInheritanceAndOverridesDoNotGuessAttributePlacement() {
+        for (Class<?> type : List.of(JoinedRoot.class, JoinedChild.class, PerClassChild.class, Overridden.class)) {
+            MappedEntityFacts facts = factsFor(type);
+            assertThat(facts.explicitTableName()).as(type.getSimpleName()).isNull();
+            assertThat(facts.columns()).isEmpty();
+            assertThat(facts.foreignKeys()).isEmpty();
+            assertThat(facts.secondaryTables()).isEmpty();
+        }
+    }
+
+    @Test
+    void discoveredEntitySubclassMakesEvenAnUnannotatedRootHierarchyUnresolved() {
+        List<MappedEntityFacts> facts = HibernateSchemaBridge.toMappedEntities(List.of(
+                HibernateEntityModel.fromClass(ImplicitRoot.class),
+                HibernateEntityModel.fromClass(ImplicitChild.class)));
+        assertThat(facts).allSatisfy(entity -> {
+            assertThat(entity.explicitTableName()).isNull();
+            assertThat(entity.columns()).isEmpty();
+        });
+    }
+
+    @Test
+    void explicitTargetEntityIsUsedInsteadOfTheAttributesInterfaceType() {
+        MappedForeignKeyFacts association =
+                factsFor(ExplicitTarget.class).foreignKeys().get(0);
+        assertThat(association.targetTableName()).isEqualTo("customer");
+        assertThat(association.targetSchema()).isEqualTo("crm");
+        assertThat(association.referencedColumns()).containsExactly("id");
+    }
+
+    @Test
+    void joinTableAndInconsistentCompositePlacementDoNotInventSourceTableJoins() {
+        assertThat(factsFor(UnsupportedJoins.class).foreignKeys()).isEmpty();
+    }
+
+    @Test
+    void duplicateSecondaryTableDeclarationsDoNotChooseAnArbitraryPlacement() {
+        MappedEntityFacts facts = factsFor(DuplicateSecondaryTables.class);
+        assertThat(facts.explicitTableName()).isNull();
+        assertThat(facts.secondaryTables()).isEmpty();
+        assertThat(facts.columns()).isEmpty();
+    }
+
+    @Test
+    void individualCompositeNoConstraintSuppressesConstraintExpectation() {
+        assertThat(factsFor(IndividualNoConstraint.class).foreignKeys())
+                .singleElement()
+                .satisfies(foreignKey ->
+                        assertThat(foreignKey.constraintExpected()).isFalse());
     }
 
     @Test
@@ -532,5 +620,146 @@ class HibernateSchemaBridgeTests {
         public String convertToEntityAttribute(String dbData) {
             return dbData;
         }
+    }
+
+    @Entity
+    @Table(name = "defaults")
+    static class AnnotationDefaults {
+        @Id
+        Long id;
+
+        @Column(name = "omitted")
+        String omitted;
+
+        @Column(name = "explicit_true", nullable = true, length = 255)
+        String explicitTrue;
+
+        @Column(name = "required", nullable = false, length = 12)
+        String required;
+
+        @Column(name = "zero", length = 0)
+        String zero;
+
+        @Column(name = "negative", length = -1)
+        String negative;
+    }
+
+    @Entity
+    static class RepeatedConversion {
+        @Id
+        Long id;
+
+        @Converts(@Convert(converter = MoneyConverter.class))
+        @Column(name = "value", length = 400)
+        String value;
+    }
+
+    @Entity
+    @Convert(attributeName = "value", converter = MoneyConverter.class)
+    static class ClassConversion {
+        @Id
+        Long id;
+
+        @Column(name = "value", length = 400)
+        String value;
+    }
+
+    @Entity
+    static class NativeColumn {
+        @Id
+        Long id;
+
+        @Column(name = "value", length = 400, columnDefinition = "jsonb")
+        String value;
+    }
+
+    @MappedSuperclass
+    @SecondaryTable(name = "not_inherited")
+    static class InheritedAttributes {
+        @Id
+        Long id;
+
+        @Column(name = "base_value", nullable = false)
+        String value;
+    }
+
+    @Entity
+    @Table(name = "own_table")
+    static class OwnTable extends InheritedAttributes {}
+
+    @Entity
+    @Table(name = "primary")
+    @SecondaryTable(name = "details", schema = "first")
+    @SecondaryTable(name = "details", schema = "second")
+    static class DuplicateSecondaryTables extends InheritedAttributes {}
+
+    @Entity
+    @Table(name = "root")
+    @Inheritance(strategy = InheritanceType.JOINED)
+    static class JoinedRoot extends InheritedAttributes {}
+
+    @Entity
+    @Table(name = "child")
+    static class JoinedChild extends JoinedRoot {}
+
+    @Entity
+    @Table(name = "per_class")
+    @Inheritance(strategy = InheritanceType.TABLE_PER_CLASS)
+    static class PerClassRoot extends InheritedAttributes {}
+
+    @Entity
+    @Table(name = "per_class_child")
+    static class PerClassChild extends PerClassRoot {}
+
+    @Entity
+    @Table(name = "overridden")
+    @AttributeOverride(name = "value", column = @Column(name = "overridden_value"))
+    static class Overridden extends InheritedAttributes {}
+
+    @Entity
+    @Table(name = "implicit_root")
+    static class ImplicitRoot extends InheritedAttributes {}
+
+    @Entity
+    static class ImplicitChild extends ImplicitRoot {}
+
+    @Entity
+    @Table(name = "explicit_target")
+    static class ExplicitTarget {
+        @Id
+        Long id;
+
+        @ManyToOne(targetEntity = Customer.class)
+        @JoinColumn(name = "customer_id", referencedColumnName = "id")
+        Object customer;
+    }
+
+    @Entity
+    @Table(name = "unsupported")
+    static class UnsupportedJoins {
+        @Id
+        Long id;
+
+        @ManyToOne
+        @JoinTable(name = "association")
+        @JoinColumn(name = "customer_id", referencedColumnName = "id")
+        Customer viaJoinTable;
+
+        @ManyToOne
+        @JoinColumns({@JoinColumn(name = "a", table = "first"), @JoinColumn(name = "b", table = "second")})
+        Customer conflictingTables;
+    }
+
+    @Entity
+    static class IndividualNoConstraint {
+        @Id
+        Long id;
+
+        @ManyToOne
+        @JoinColumns({
+            @JoinColumn(name = "a", referencedColumnName = "a"),
+            @JoinColumn(name = "b", referencedColumnName = "b", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+        })
+        Customer customer;
     }
 }

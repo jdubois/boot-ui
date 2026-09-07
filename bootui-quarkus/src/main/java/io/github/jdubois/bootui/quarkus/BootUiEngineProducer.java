@@ -571,9 +571,8 @@ public class BootUiEngineProducer {
     }
 
     /**
-     * The Quarkus-native application advisor scanner over a config-driven {@link QuarkusAppSnapshotProviderImpl}.
-     * Evaluates a Quarkus idiom ruleset (CDI scopes, @ConfigProperty, reactive/blocking, profiles) into the
-     * shared Spring advisor report.
+     * The Quarkus application advisor over resolved build metadata and bounded native configuration.
+     * Unavailable evidence remains explicit in the shared Spring advisor report.
      */
     @Produces
     @Singleton
@@ -762,16 +761,15 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public HibernateScanner hibernateScanner(Instance<EntityDiscoverySource> sources, Config config) {
-        Supplier<EntityDiscovery> discovery;
-        if (sources.isUnsatisfied()) {
-            discovery = () -> EntityDiscovery.empty("Hibernate ORM is not configured on this Quarkus application.");
-        } else {
-            EntityDiscoverySource source = sources.get();
-            discovery = source::discover;
-        }
-        return HibernateScanner.using(
-                discovery, new QuarkusHibernatePropertyLookup(config), () -> activeProfiles(config), Clock.systemUTC());
+    public HibernateScanner hibernateScanner(
+            Instance<io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource> sources,
+            Config config) {
+        return HibernateScanner.observing(
+                sources.isUnsatisfied()
+                        ? () -> new io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation(
+                                List.of(), null, List.of())
+                        : sources.get(),
+                Clock.systemUTC());
     }
 
     /**
@@ -819,8 +817,8 @@ public class BootUiEngineProducer {
         // skip rather than report a clean result they have no basis for.
         Supplier<List<SqlTraceEntryDto>> observedStatements =
                 () -> sqlTraceRecorders.isResolvable() ? sqlTraceRecorders.get().entries(false) : List.of();
-        return DatabaseAdvisorScanner.using(
-                dataSourceProvider::dataSources, discovery, observedStatements, Clock.systemUTC());
+        return DatabaseAdvisorScanner.usingDiscovery(
+                dataSourceProvider::discover, discovery, observedStatements, Clock.systemUTC());
     }
 
     /**

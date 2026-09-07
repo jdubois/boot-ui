@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SecuritySeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.security.CspPolicy;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
@@ -64,23 +65,71 @@ public final class QuarkusSecurityScanner {
         QuarkusSecuritySnapshot snap;
         try {
             snap = snapshotSupplier.get();
+            if (snap == null) {
+                throw new IllegalStateException();
+            }
         } catch (RuntimeException | LinkageError ex) {
             return report(
-                    "ERROR", "Could not read Quarkus security configuration.", clock.millis(), List.of(), List.of());
+                    "ERROR",
+                    "Could not read Quarkus security configuration.",
+                    clock.millis(),
+                    List.of(),
+                    List.of(),
+                    List.of(error("Quarkus security configuration could not be read.")));
         }
         List<SecurityRuleResultDto> violations = QuarkusSecurityChecks.evaluate(snap);
         List<String> policyLabels = snap.permissions().stream()
                 .map(QuarkusSecurityScanner::policyLabel)
                 .toList();
-        return report("SCANNED", "Quarkus security configuration analysed.", clock.millis(), policyLabels, violations);
+        List<SecurityRuleResultDto> errors = snap.evidence().failures().stream()
+                .map(QuarkusSecurityScanner::error)
+                .toList();
+        boolean partial = !snap.evidence().incomplete().isEmpty()
+                || !snap.evidence().unknownRules().isEmpty()
+                || !errors.isEmpty()
+                || (snap.cspHeader()
+                        && !CspPolicy.analyze(snap.cspHeaderValue()).complete());
+        return report(
+                partial ? "PARTIAL" : "SCANNED",
+                partial
+                        ? "Known Quarkus security declarations analysed; unsupported or unreadable observations remain incomplete."
+                        : "Quarkus security configuration analysed.",
+                clock.millis(),
+                policyLabels,
+                violations,
+                errors);
     }
 
     private static String policyLabel(QuarkusSecurityPermission p) {
-        return p.name() + " → " + p.policy() + " (" + p.paths() + ")";
+        return "HTTP permission declaration → " + (p.knownPolicy() ? "supported policy" : "custom policy");
     }
 
     private SecurityReport report(
             String status, String message, Long scannedAt, List<String> policyLabels, List<SecurityRuleResultDto> raw) {
+        return report(status, message, scannedAt, policyLabels, raw, List.of());
+    }
+
+    private static SecurityRuleResultDto error(String message) {
+        return new SecurityRuleResultDto(
+                "QS-ANALYSIS",
+                "Quarkus security observation failed",
+                "Analysis",
+                "INFO",
+                message,
+                "ERROR",
+                0,
+                List.of(),
+                "Review local configuration and retry the explicit scan.",
+                "");
+    }
+
+    private SecurityReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            List<String> policyLabels,
+            List<SecurityRuleResultDto> raw,
+            List<SecurityRuleResultDto> errors) {
         List<SecurityRuleResultDto> violations = raw.stream().sorted(IMPORTANCE).toList();
         SecurityScanStatusDto scan = new SecurityScanStatusDto(
                 ANALYZER,
@@ -100,7 +149,7 @@ public final class QuarkusSecurityScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                List.of());
+                errors);
     }
 
     public SecurityReport applyDismissals(SecurityReport report, Set<String> dismissedIds) {

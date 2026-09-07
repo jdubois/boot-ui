@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
+import java.util.List;
+
 /**
  * The {@code pg_index}/{@code pg_am} facts JDBC's {@code getIndexInfo} cannot report on PostgreSQL: whether
  * the index is valid, whether it is partial ({@code indpred}), whether it has expression key parts
@@ -25,4 +27,55 @@ record PostgresIndexDetail(
         boolean expression,
         String method,
         Integer keyColumnCount,
-        boolean nullsNotDistinct) {}
+        boolean nullsNotDistinct,
+        Boolean ready,
+        Boolean live,
+        Boolean unique,
+        Boolean primary,
+        String constraintName,
+        String constraintType,
+        List<IndexKeyPart> keyParts,
+        List<String> includedColumns,
+        List<String> comparisonSemantics,
+        boolean definitionComplete) {
+
+    PostgresIndexDetail {
+        keyParts = List.copyOf(keyParts);
+        includedColumns = List.copyOf(includedColumns);
+        comparisonSemantics = List.copyOf(comparisonSemantics);
+    }
+
+    PostgresIndexDetail(
+            String schema,
+            String table,
+            String index,
+            boolean valid,
+            boolean partial,
+            String predicate,
+            boolean expression,
+            String method,
+            Integer keyColumnCount,
+            boolean nullsNotDistinct) {
+        this(
+                schema,
+                table,
+                index,
+                valid,
+                partial,
+                predicate,
+                expression,
+                method,
+                keyColumnCount,
+                nullsNotDistinct,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                false);
+    }
+}

@@ -24,6 +24,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Database advisor findings now distinguish incomplete evidence from absence.** Qualified JDBC metadata,
+  index/constraint semantics, vendor generator bounds and database-side mapping comparisons are reviewed more
+  conservatively. Four unsupported rules are retired without reusing their IDs, and SQL text variation is a
+  descriptive review rather than an injection or concatenation claim. Discovery failures remain visible alongside
+  readable datasources. The dedicated catalog documents evidence, version gates and limitations
+  ([#977](https://github.com/jdubois/boot-ui/issues/977)).
+
+- **Quarkus application checks now distinguish evidence from assumptions.** Retired six unsupported
+  absence/correlation findings and corrected the remaining 13 rules, including create-only schema semantics,
+  legacy-property precedence, resolved CDI scopes/injection, runtime virtual-thread evidence, in-memory storage,
+  per-client timeout resolution and shutdown advice. Bounded scans preserve findings with explicit incomplete
+  coverage rather than guessing unknown values are clean. Retained rule IDs, dismissals and the shared `/spring`
+  report contract remain unchanged ([#959](https://github.com/jdubois/boot-ui/issues/959)).
+
+- **GraalVM readiness findings now distinguish classpath discovery from scanner configuration and cached results,
+  recognize quoted SpEL bean names and factory references, and give more accurate Spring AOT and native-image
+  remediation.** Nested dependency inspection stops before opening libraries beyond its 500-JAR budget, and generated
+  metadata/Docker scaffolds explain first-use hint conditions and remaining native-library requirements
+  ([#958](https://github.com/jdubois/boot-ui/issues/958)).
+
 - **The documentation now says how to keep console state across container image rebuilds.** An application rebuilt from
   source many times a day lost its dismissed advisor findings on every rebuild, because `.bootui/` lives in the image's
   working directory. The answer already existed — `bootui.overrides-file` locates the runtime overrides file *and* the
@@ -60,6 +80,83 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   suspend results; actual `ThreadFactory.newThread(Runnable)` implementations may allocate threads. Known discovery,
   import and rule failures use `ERROR`/`PARTIAL` scan status while preserving valid findings
   ([#957](https://github.com/jdubois/boot-ui/issues/957)).
+
+- **CRaC readiness now distinguishes evidence from verified lifecycle coverage.** Runtime checks remain useful when
+  application bytecode is unavailable, managed Spring clients and ambiguous Hikari/resource ownership are assessed
+  honestly, and precise file, scheduling, thread and time predicates reduce missed or misleading findings. Runtime
+  guidance no longer calls exit-on-refresh a safe cleanup dry run, and generated/sample checkpoint entrypoints preserve
+  incomplete data instead of deleting it automatically. The CRaC Compose sample disables automatic retries against
+  preserved failed checkpoints and documents explicit recovery. Stable rule IDs and Spring-only availability are unchanged
+  ([#960](https://github.com/jdubois/boot-ui/issues/960)).
+
+- **Vulnerabilities interprets OSV evidence for the installed Maven version rather than unrelated affected branches.**
+  Applicable severity and verified newer fix candidates share a neutral interpreter, CVSS v3 vectors receive strict
+  Base-only validation, and later OSV pagination failures retain earlier results with accurate completed-query counts.
+  Optional EPSS enrichment preserves partial data and selects the highest available per-CVE signal without changing
+  OSV status. The new [checks catalogue](docs/VULNERABILITIES-CHECKS.md) records sources and every audit disposition;
+  inventory repairs and CVSS v4 remain deferred, and scoring/Overview changes belong to the independent central
+  scoring workstream ([#978](https://github.com/jdubois/boot-ui/issues/978)).
+
+- **The Pentesting advisor now distinguishes observed evidence from unverified exposure.** The exhaustive 80-check
+  audit updates 61 checks, retains 18, and retires the ordinary error-path metadata check `PT-A05-045`, leaving 79 active
+  stable IDs. Corrections cover complete-field handling, document/API applicability, CORS/CSP/cookie/header semantics,
+  Spring runtime/default-user provenance and Boot 4.1 endpoint guidance, and Quarkus effective CORS/main-listener TLS
+  selection. Property-only and missing-framework signals no longer imply active authentication failures or writes;
+  mapped sensitive endpoints retain their impact ratings with explicit authorization limits. The catalog records every
+  disposition and its primary sources. Scans still make at most one local GET and one OPTIONS request, with no new
+  targets, credentials, payloads, or administrative operations ([#961](https://github.com/jdubois/boot-ui/issues/961)).
+
+- **Security advisor findings distinguish observed configuration from unknown application behavior across all three
+  stacks.** The MVC, WebFlux and Quarkus catalogs were audited against Boot 4.1.1 / Spring Security 7.1.1 and Quarkus
+  3.33.3.1. Collection no longer evaluates application policy merely to infer metadata; framework defaults, ordered
+  authorization scope, browser credentials, Actuator access, CORS and OAuth/OIDC settings receive more precise
+  interpretation. Sixteen duplicate or low-signal rules are retired, one INFO reactive chain-ordering rule is added,
+  and static verification-key advice is consistently informational. Unknown evidence remains incomplete rather than
+  creating false missing-control findings. Existing active rule IDs and dismissal keys are preserved
+  ([#965](https://github.com/jdubois/boot-ui/issues/965)).
+
+- **The Hibernate advisor now distinguishes evidence gaps from clean scans and reviews each persistence unit's own
+  settings.** Verified JPA repository metadata, effective factory observations and explicit incomplete-scan handling
+  replace cross-unit/default guesses. The complete 75-rule audit retires five unsupported or duplicated checks and
+  corrects batching, pagination, identifiers, mapping, caching and platform-specific advice without changing surviving
+  IDs or the JSON report shape. The catalog records remaining mapping/query evidence limits and version-specific primary
+  research ([#964](https://github.com/jdubois/boot-ui/issues/964)).
+
+- **The Spring application advisor now qualifies optimization advice and distinguishes configuration from runtime
+  evidence on MVC and WebFlux.** The Boot 4.1.1 audit corrects Actuator defaults, bean candidate selection, executor,
+  client, persistence and codec guidance; bounds non-eager collection; and reports missing evidence without raw URLs
+  or exception details. Useful INFO opportunities remain, four unsupported rule IDs are retired without losing
+  dismissals, and a new rule reviews explicitly unlimited codec aggregation. The complete catalogue and primary
+  sources are documented in Spring checks ([#969](https://github.com/jdubois/boot-ui/issues/969)).
+
+- **The REST API advisor now distinguishes declaration evidence from runtime behavior.** Corrected response wrappers,
+  path bindings, exception declarations, and versioning hints reduce false positives across MVC, WebFlux, and Quarkus.
+  Four unsupported heuristics now return `SKIPPED` without changing their rule or dismissal IDs; all 56 definitions
+  remain, with 52 potentially emitting rules and calibrated severities. Observed analysis failures report `PARTIAL`
+  while retaining reliable findings. The REST checks reference includes the complete audit dispositions and limits
+  ([#962](https://github.com/jdubois/boot-ui/issues/962)).
+
+- **Advisor scores now exclude incomplete and failed assessments without hiding their findings.** Panels and Overview
+  share eligibility, including complete inventory coverage and no active UNKNOWN severity for Vulnerabilities.
+  Dismissal/restore refreshes vulnerability eligibility, and Overview's mean and scored count use the same contributors
+  ([#954](https://github.com/jdubois/boot-ui/issues/954)).
+
+- **Memory advisor findings now preserve measurement uncertainty.** Unknown buffer readings and discontinuous GC
+  counters no longer become healthy zeros, and missing observations break consecutive-growth evidence. Histogram
+  success is no longer treated as proof of a completed full GC, net growth is not called missing releases, and
+  snapshots or system swap do not imply a safe heap reduction or JVM residency. Supplier failures retain unrelated
+  findings through the existing partial-report contract. All 36 rule IDs and dismissal/public DTO contracts remain
+  unchanged; the complete source-backed audit and collector/version caveats are documented in `MEMORY-CHECKS.md`
+  ([#956](https://github.com/jdubois/boot-ui/issues/956)).
+
+- **JVM Tuning no longer approves known-invalid tiny heap requests or wraps large memory observations to zero.**
+  The shared calculator checks both fixed and three-decimal percentage requests against HotSpot's generic 2 MiB
+  maximum-heap lower bound, without increasing an exhausted budget. Default footprint arithmetic and MiB formatting
+  avoid overflow, detected budgets round down to whole MiB consistently with generated Kubernetes limits, and limit
+  and usage reuse one cgroup sample. Sizing notes distinguish requested settings from effective heap alignment and
+  JVM-visible percentage denominators; model validity is not a startup or production-sizing guarantee. The full
+  source-backed audit records retained policies and deferred metaspace/probe work
+  ([#955](https://github.com/jdubois/boot-ui/issues/955)).
 
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application

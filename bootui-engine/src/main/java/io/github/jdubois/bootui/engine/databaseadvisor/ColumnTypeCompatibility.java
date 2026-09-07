@@ -29,6 +29,27 @@ final class ColumnTypeCompatibility {
 
     private ColumnTypeCompatibility() {}
 
+    static boolean comparable(ColumnModel child, ColumnModel parent) {
+        if (child == null || parent == null || JdbcTypeFamily.of(child) != JdbcTypeFamily.of(parent)) {
+            return false;
+        }
+        return switch (JdbcTypeFamily.of(child)) {
+            case NUMERIC ->
+                (integerRank(child) != null && integerRank(parent) != null)
+                        || (isDecimal(child)
+                                && isDecimal(parent)
+                                && child.size() != null
+                                && parent.size() != null
+                                && child.size() > 0
+                                && parent.size() > 0
+                                && child.decimalDigits() != null
+                                && parent.decimalDigits() != null);
+            case STRING, BINARY ->
+                child.size() != null && parent.size() != null && child.size() > 0 && parent.size() > 0;
+            default -> false;
+        };
+    }
+
     /**
      * Describes how {@code child} disagrees with {@code parent}, or {@code null} when they are compatible or
      * cannot be compared confidently.
@@ -43,8 +64,7 @@ final class ColumnTypeCompatibility {
             return null;
         }
         if (childFamily != parentFamily) {
-            return "a type-family mismatch (" + childFamily.name().toLowerCase(Locale.ROOT) + " vs "
-                    + parentFamily.name().toLowerCase(Locale.ROOT) + ")";
+            return null;
         }
         return switch (childFamily) {
             case NUMERIC -> numericMismatch(child, parent);
@@ -60,7 +80,8 @@ final class ColumnTypeCompatibility {
             if (childRank < parentRank) {
                 return "a narrower integer type that cannot hold every referenced value";
             }
-            if (child.unsigned() != parent.unsigned()) {
+            if ((child.unsigned() && !parent.unsigned())
+                    || (!child.unsigned() && parent.unsigned() && childRank.equals(parentRank))) {
                 return "a signedness mismatch (" + (child.unsigned() ? "unsigned" : "signed") + " vs "
                         + (parent.unsigned() ? "unsigned" : "signed") + ")";
             }
@@ -73,16 +94,22 @@ final class ColumnTypeCompatibility {
     }
 
     private static String decimalMismatch(ColumnModel child, ColumnModel parent) {
-        if (child.size() == null || parent.size() == null) {
+        if (child.size() == null
+                || parent.size() == null
+                || child.decimalDigits() == null
+                || parent.decimalDigits() == null
+                || child.size() <= 0
+                || parent.size() <= 0) {
             return null;
         }
-        int childScale = child.decimalDigits() == null ? 0 : child.decimalDigits();
-        int parentScale = parent.decimalDigits() == null ? 0 : parent.decimalDigits();
-        if (childScale != parentScale) {
-            return "a different numeric scale (" + childScale + " vs " + parentScale + ")";
+        int childScale = child.decimalDigits();
+        int parentScale = parent.decimalDigits();
+        if (childScale < parentScale) {
+            return "less fractional capacity (" + childScale + " vs " + parentScale + ")";
         }
-        if (child.size() < parent.size()) {
-            return "a smaller numeric precision (" + child.size() + " vs " + parent.size() + ")";
+        if ((long) child.size() - childScale < (long) parent.size() - parentScale) {
+            return "less integer-digit capacity (" + ((long) child.size() - childScale) + " vs "
+                    + ((long) parent.size() - parentScale) + ")";
         }
         return null;
     }
@@ -113,7 +140,7 @@ final class ColumnTypeCompatibility {
         normalized =
                 normalized.replace(" unsigned", "").replace(" zerofill", "").trim();
         Integer rank = INTEGER_RANKS.get(normalized);
-        return rank != null ? rank : rankFromJdbcType(column.jdbcType());
+        return rank;
     }
 
     private static Integer rankFromJdbcType(int jdbcType) {

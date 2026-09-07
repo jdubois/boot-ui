@@ -3,18 +3,20 @@ package io.github.jdubois.bootui.engine.hibernate;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Framework-neutral bridge from the Hibernate metamodel ({@link HibernateEntityModel}) to the small, public,
  * JPA-annotation-free facts the Database Advisor cross-reference rules need.
  *
- * <p>Everything it reports is <em>explicit</em>: the declared {@code @Table} catalog/schema/name, the declared
+ * <p>Names are annotation declarations, not effective Hibernate physical names: the declared {@code @Table} catalog/schema/name, the declared
  * {@code @JoinColumn}/{@code @JoinColumns} sets, the declared {@code @Column} name, and — as tri-state values
  * — the declared nullability and length. An entity relying on the default naming strategy is deliberately
- * reported without a table name, and an attribute with no explicit {@code length}/{@code nullable} is reported
- * as "not declared" rather than as the JPA default, because a rule that compares a default it invented against
- * the database produces findings the user cannot act on.</p>
+ * reported without a table name. Default-valued {@code length}/{@code nullable} members are unknown: reflection
+ * cannot distinguish omitted defaults from explicitly written defaults. Only positive nondefault length and
+ * {@code nullable=false} are declaration evidence.</p>
  *
  * <p>Attributes whose persisted shape is decided by a converter, an {@code @Enumerated} mapping or an
  * {@code @Lob} are flagged, so the type/length rules can skip exactly the cases where the Java type says
@@ -35,14 +37,28 @@ public final class HibernateSchemaBridge {
     private HibernateSchemaBridge() {}
 
     public static List<MappedEntityFacts> toMappedEntities(List<HibernateEntityModel> entities) {
+        Set<Class<?>> unresolvedTypes = new HashSet<>();
+        for (HibernateEntityModel entity : entities) {
+            if (unresolvedPlacement(entity.javaType())
+                    || entities.stream()
+                            .anyMatch(other -> other.javaType() != entity.javaType()
+                                    && entity.javaType() != null
+                                    && other.javaType() != null
+                                    && entity.javaType().isAssignableFrom(other.javaType()))) {
+                unresolvedTypes.add(entity.javaType());
+            }
+        }
         List<MappedEntityFacts> mapped = new ArrayList<>();
         for (HibernateEntityModel entity : entities) {
-            mapped.add(toMappedEntity(entity));
+            mapped.add(toMappedEntity(entity, unresolvedTypes));
         }
         return mapped;
     }
 
-    private static MappedEntityFacts toMappedEntity(HibernateEntityModel entity) {
+    private static MappedEntityFacts toMappedEntity(HibernateEntityModel entity, Set<Class<?>> unresolvedTypes) {
+        if (unresolvedTypes.contains(entity.javaType())) {
+            return new MappedEntityFacts(entity.name(), null, List.of(), List.of());
+        }
         Annotation table = tableAnnotation(entity.javaType());
         String tableName = annotationString(table, "name");
         String schema = annotationString(table, "schema");
@@ -52,20 +68,27 @@ public final class HibernateSchemaBridge {
         List<MappedUniqueConstraintFacts> uniqueConstraints =
                 new ArrayList<>(tableUniqueConstraints(table, entity.name()));
         List<MappedSecondaryTableFacts> secondaryTables = secondaryTables(entity.javaType());
+        if (secondaryTables.stream()
+                        .map(MappedSecondaryTableFacts::name)
+                        .distinct()
+                        .count()
+                != secondaryTables.size()) {
+            return new MappedEntityFacts(entity.name(), null, List.of(), List.of());
+        }
         uniqueConstraints.addAll(secondaryTableUniqueConstraints(entity.javaType(), entity.name()));
         List<MappedSequenceGeneratorFacts> sequenceGenerators = new ArrayList<>();
         for (HibernateAttributeModel attribute : entity.attributes()) {
-            if (attribute.isTransient()) {
+            if (attribute.isTransient() || unsupportedPlacement(attribute)) {
                 continue;
             }
             if (isOwningToOne(attribute)) {
-                addForeignKey(attribute, foreignKeys);
+                addForeignKey(attribute, foreignKeys, unresolvedTypes);
                 continue;
             }
             if (attribute.isAssociation()) {
                 continue;
             }
-            addColumn(attribute, columns, uniqueConstraints);
+            addColumn(attribute, entity.javaType(), columns, uniqueConstraints);
             addSequenceGenerator(attribute, sequenceGenerators);
         }
         return new MappedEntityFacts(
@@ -118,15 +141,15 @@ public final class HibernateSchemaBridge {
 
     /**
      * Reads every {@code @SecondaryTable} declared on the entity (directly or via a plural
-     * {@code @SecondaryTables}), across the mapped superclass hierarchy the same way {@link #tableAnnotation}
-     * walks it. An entity that splits its columns across more than one physical table needs each of them known
+     * {@code @SecondaryTables}), only on the entity itself. An entity that splits its columns across
+     * more than one table needs each declaration known
      * so a mapped item explicitly pinned to one (via {@code @Column(table=...)}/{@code @JoinColumn(table=...)})
      * can be checked against the table it actually lives in, instead of the primary table.
      */
     private static List<MappedSecondaryTableFacts> secondaryTables(Class<?> javaType) {
         List<MappedSecondaryTableFacts> tables = new ArrayList<>();
         Class<?> current = javaType;
-        while (current != null && current != Object.class) {
+        if (current != null) {
             for (Annotation annotation : current.getDeclaredAnnotations()) {
                 String typeName = annotation.annotationType().getName();
                 if (SECONDARY_TABLE_ANNOTATION.equals(typeName)) {
@@ -142,7 +165,6 @@ public final class HibernateSchemaBridge {
                     }
                 }
             }
-            current = current.getSuperclass();
         }
         return tables;
     }
@@ -161,7 +183,7 @@ public final class HibernateSchemaBridge {
             Class<?> javaType, String entityName) {
         List<MappedUniqueConstraintFacts> facts = new ArrayList<>();
         Class<?> current = javaType;
-        while (current != null && current != Object.class) {
+        if (current != null) {
             for (Annotation annotation : current.getDeclaredAnnotations()) {
                 String typeName = annotation.annotationType().getName();
                 if (SECONDARY_TABLE_ANNOTATION.equals(typeName)) {
@@ -177,7 +199,6 @@ public final class HibernateSchemaBridge {
                     }
                 }
             }
-            current = current.getSuperclass();
         }
         return facts;
     }
@@ -207,6 +228,7 @@ public final class HibernateSchemaBridge {
 
     private static void addColumn(
             HibernateAttributeModel attribute,
+            Class<?> entityType,
             List<MappedColumnFacts> columns,
             List<MappedUniqueConstraintFacts> uniqueConstraints) {
         Annotation column = attribute.columnAnnotation();
@@ -216,9 +238,12 @@ public final class HibernateSchemaBridge {
             // deliberately does not guess.
             return;
         }
-        Boolean nullable = attribute.annotationBooleanValue(column, "nullable");
+        Boolean nullable = Boolean.FALSE.equals(attribute.annotationBooleanValue(column, "nullable")) ? false : null;
         Integer declaredLength = declaredLength(attribute, column);
         boolean ambiguousType = attribute.hasConvertAnnotation()
+                || attribute.annotations().stream().anyMatch(HibernateSchemaBridge::changesColumnRepresentation)
+                || hasClassConversion(entityType)
+                || annotationString(column, "columnDefinition") != null
                 || attribute.isEnumAttribute()
                 || attribute.enumeratedAnnotation() != null
                 || attribute.isLob();
@@ -252,15 +277,21 @@ public final class HibernateSchemaBridge {
      */
     private static Integer declaredLength(HibernateAttributeModel attribute, Annotation column) {
         Integer length = attribute.annotationIntValue(column, "length");
-        if (length == null || length == 255) {
+        if (length == null || length <= 0 || length == 255) {
             return null;
         }
         return length;
     }
 
-    private static void addForeignKey(HibernateAttributeModel attribute, List<MappedForeignKeyFacts> foreignKeys) {
+    private static void addForeignKey(
+            HibernateAttributeModel attribute, List<MappedForeignKeyFacts> foreignKeys, Set<Class<?>> unresolvedTypes) {
         List<JoinColumnFact> joinColumns = foreignKeyColumns(attribute);
         if (joinColumns.isEmpty()) {
+            return;
+        }
+        String placement = blankToNull(joinColumns.get(0).table());
+        if (joinColumns.stream()
+                .anyMatch(column -> !java.util.Objects.equals(placement, blankToNull(column.table())))) {
             return;
         }
         List<String> columns = joinColumns.stream().map(JoinColumnFact::name).toList();
@@ -272,7 +303,7 @@ public final class HibernateSchemaBridge {
                 .findFirst()
                 .orElse(null);
         boolean constraintExpected = joinColumns.stream().noneMatch(JoinColumnFact::noConstraint);
-        TargetTable target = targetTable(attribute);
+        TargetTable target = targetTable(attribute, unresolvedTypes);
         foreignKeys.add(new MappedForeignKeyFacts(
                 attribute.description(),
                 columns,
@@ -297,18 +328,25 @@ public final class HibernateSchemaBridge {
     }
 
     /**
-     * The association's target entity's declared physical table, resolved the same conservative way as the
+     * The association's target entity's table declaration, resolved the same conservative way as the
      * owning entity's own table: only when the target class carries an explicit {@code @Table(name=...)}
-     * (directly or on a mapped superclass). {@code @ManyToOne}/{@code @OneToOne} always resolves to a
-     * non-collection attribute type, so the raw Java type of the attribute already is the target entity class.
+     * directly on the target. An explicit {@code targetEntity} takes precedence over the raw attribute type.
+     * Entity inheritance and overrides are unresolved rather than assigned guessed placement.
      *
      * <p>Used only to double-check that a physical foreign key candidate actually references the table this
      * association points at — never to guess a target for an entity with no explicit table name, which stays
      * {@code null} here exactly like an unmapped owning entity.</p>
      */
-    private static TargetTable targetTable(HibernateAttributeModel attribute) {
+    private static TargetTable targetTable(HibernateAttributeModel attribute, Set<Class<?>> unresolvedTypes) {
         Class<?> rawType = attribute.rawType();
-        if (rawType == null) {
+        Annotation association = attribute.manyToOneAnnotation() != null
+                ? attribute.manyToOneAnnotation()
+                : attribute.oneToOneAnnotation();
+        Object targetEntity = annotationValue(association, "targetEntity");
+        if (targetEntity instanceof Class<?> target && target != void.class) {
+            rawType = target;
+        }
+        if (rawType == null || unresolvedTypes.contains(rawType) || unresolvedPlacement(rawType)) {
             return TargetTable.UNRESOLVED;
         }
         Annotation table = tableAnnotation(rawType);
@@ -391,7 +429,7 @@ public final class HibernateSchemaBridge {
 
     /**
      * Reads {@code @Table(uniqueConstraints = @UniqueConstraint(columnNames = {...}))} multi-column unique
-     * constraints declared on the entity or one of its mapped superclasses.
+     * constraints declared directly on the entity.
      */
     private static List<MappedUniqueConstraintFacts> tableUniqueConstraints(Annotation table, String entityName) {
         if (table == null) {
@@ -413,16 +451,79 @@ public final class HibernateSchemaBridge {
     }
 
     private static Annotation tableAnnotation(Class<?> javaType) {
-        Class<?> current = javaType;
-        while (current != null && current != Object.class) {
-            for (Annotation annotation : current.getDeclaredAnnotations()) {
+        if (javaType != null) {
+            for (Annotation annotation : javaType.getDeclaredAnnotations()) {
                 if (TABLE_ANNOTATION.equals(annotation.annotationType().getName())) {
                     return annotation;
                 }
             }
-            current = current.getSuperclass();
         }
         return null;
+    }
+
+    private static boolean unresolvedPlacement(Class<?> javaType) {
+        if (javaType == null) {
+            return true;
+        }
+        for (Class<?> current = javaType;
+                current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            for (Annotation annotation : current.getDeclaredAnnotations()) {
+                String name = annotation.annotationType().getName();
+                if ((current != javaType && name.equals("jakarta.persistence.Entity"))
+                        || name.equals("jakarta.persistence.Inheritance")
+                        || name.equals("jakarta.persistence.AttributeOverride")
+                        || name.equals("jakarta.persistence.AttributeOverrides")
+                        || name.equals("jakarta.persistence.AssociationOverride")
+                        || name.equals("jakarta.persistence.AssociationOverrides")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean unsupportedPlacement(HibernateAttributeModel attribute) {
+        return attribute.isElementCollection()
+                || attribute.annotations().stream().anyMatch(annotation -> {
+                    String name = annotation.annotationType().getName();
+                    return name.equals("jakarta.persistence.JoinTable")
+                            || name.equals("jakarta.persistence.Embedded")
+                            || name.equals("jakarta.persistence.EmbeddedId")
+                            || name.equals("jakarta.persistence.AttributeOverride")
+                            || name.equals("jakarta.persistence.AttributeOverrides")
+                            || name.equals("jakarta.persistence.AssociationOverride")
+                            || name.equals("jakarta.persistence.AssociationOverrides")
+                            || name.equals("org.hibernate.annotations.Formula")
+                            || name.equals("org.hibernate.annotations.JoinFormula")
+                            || name.equals("org.hibernate.annotations.JoinColumnOrFormula")
+                            || name.equals("org.hibernate.annotations.JoinColumnsOrFormulas");
+                });
+    }
+
+    private static boolean changesColumnRepresentation(Annotation annotation) {
+        String name = annotation.annotationType().getName();
+        return name.equals("jakarta.persistence.Convert")
+                || name.equals("jakarta.persistence.Converts")
+                || name.equals("org.hibernate.annotations.Type")
+                || name.equals("org.hibernate.annotations.JdbcType")
+                || name.equals("org.hibernate.annotations.JdbcTypeCode")
+                || name.equals("org.hibernate.annotations.JavaType")
+                || name.equals("org.hibernate.annotations.ColumnTransformer")
+                || name.equals("org.hibernate.annotations.ColumnTransformers");
+    }
+
+    private static boolean hasClassConversion(Class<?> entityType) {
+        for (Class<?> current = entityType;
+                current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            for (Annotation annotation : current.getDeclaredAnnotations()) {
+                if (changesColumnRepresentation(annotation)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static String annotationString(Annotation annotation, String attributeName) {
@@ -577,8 +678,7 @@ public final class HibernateSchemaBridge {
 
     /**
      * A {@code @GeneratedValue(strategy = GenerationType.SEQUENCE)} attribute's co-located, explicitly-named
-     * {@code @SequenceGenerator}: the physical sequence it points at and the block size Hibernate assumes it
-     * advances by on every {@code nextval} call.
+     * {@code @SequenceGenerator}: its sequence-name and allocation-size declarations, not effective optimizer evidence.
      *
      * @param attributeDescription a human-readable "Entity.attribute" description for finding details
      * @param sequenceName the explicit {@code @SequenceGenerator(sequenceName = ...)} value
@@ -636,14 +736,14 @@ public final class HibernateSchemaBridge {
                     null);
         }
 
-        /** {@code true} when the target entity's physical table is known, for matching against a physical FK. */
+        /** {@code true} when the target entity declares a table name; physical naming may still transform it. */
         public boolean targetTableResolved() {
             return targetTableName != null && !targetTableName.isBlank();
         }
     }
 
     /**
-     * @param nullable the declared {@code @Column(nullable=...)}, or {@code null} when not declared
+     * @param nullable {@code false} for nondefault {@code @Column(nullable=false)}, otherwise {@code null}
      * @param javaTypeSimpleName the attribute's raw Java type simple name (e.g. {@code String})
      * @param declaredLength the declared {@code @Column(length=...)}, or {@code null} when not declared or
      *     left at the JPA default

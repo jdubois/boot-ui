@@ -27,21 +27,14 @@ import java.util.Map;
  * <p>Only the mandatory Base metric group is scored (Attack Vector, Attack Complexity, Privileges
  * Required, User Interaction, Scope, and Confidentiality/Integrity/Availability impact) &mdash; this is the
  * figure OSV.dev/NVD publish and label as "the" CVSS v3 score. Any Temporal or Environmental metrics
- * present in the vector string are parsed (so they don't break Base metric extraction) but not scored.
+ * present in the vector string are validated but not scored.
  *
  * <p><strong>CVSS v4.0 is deliberately out of scope.</strong> Unlike v3.x, v4.0 has no closed-form Base
- * Score equation: scores are derived from a roughly 270-entry "MacroVector" lookup table (six equivalence
- * classes, each assigned by boolean conditions on the supplied metrics) with interpolation against
- * "highest/lowest severity vector" reference data from FIRST's non-public expert-elicitation study.
- * Reproducing that faithfully from the written specification alone risks a silently-wrong score for a
- * security-sensitive feature, so v4.0 vectors are not scored here. Should a future contributor want to add
- * v4.0 support, FIRST now publishes a reference implementation and test vectors in its
- * <a href="https://github.com/FIRSTdotorg/cvss-resources">cvss-resources</a> repository, and independent
- * community ports such as <a
- * href="https://github.com/org-metaeffekt/metaeffekt-universal-cvss-calculator">org-metaeffekt/metaeffekt-universal-cvss-calculator</a>
- * and <a href="https://github.com/pandatix/js-cvss">pandatix/js-cvss</a> exist to cross-check a from-scratch
- * Java port against &mdash; but validating a new implementation against those is future work, not something
- * this codebase does today. {@link DependencyReports#parseScore(String)} explicitly returns {@code null} for
+ * Score equation: it uses MacroVector lookup and interpolation rather than the v3 equations. FIRST
+ * publishes the required reference implementation in its
+ * <a href="https://github.com/FIRSTdotorg/cvss-v4-calculator">cvss-v4-calculator</a> repository.
+ * Implementing and validating a separate v4 calculator is future work.
+ * {@link DependencyReports#parseScore(String)} explicitly returns {@code null} for
  * {@code CVSS:4.x} vectors, and callers fall back to the {@code database_specific.severity} label for those
  * advisories.
  *
@@ -57,6 +50,29 @@ final class CvssV3BaseScore {
     private static final Map<String, Double> PRIVILEGES_REQUIRED_CHANGED = Map.of("N", 0.85, "L", 0.68, "H", 0.5);
     private static final Map<String, Double> USER_INTERACTION = Map.of("N", 0.85, "R", 0.62);
     private static final Map<String, Double> IMPACT = Map.of("H", 0.56, "L", 0.22, "N", 0.0);
+    private static final Map<String, String> VALID_METRICS = Map.ofEntries(
+            Map.entry("AV", "NALP"),
+            Map.entry("AC", "LH"),
+            Map.entry("PR", "NLH"),
+            Map.entry("UI", "NR"),
+            Map.entry("S", "UC"),
+            Map.entry("C", "HLN"),
+            Map.entry("I", "HLN"),
+            Map.entry("A", "HLN"),
+            Map.entry("E", "XUPFH"),
+            Map.entry("RL", "XOTWU"),
+            Map.entry("RC", "XURC"),
+            Map.entry("CR", "XHML"),
+            Map.entry("IR", "XHML"),
+            Map.entry("AR", "XHML"),
+            Map.entry("MAV", "XNALP"),
+            Map.entry("MAC", "XLH"),
+            Map.entry("MPR", "XNLH"),
+            Map.entry("MUI", "XNR"),
+            Map.entry("MS", "XUC"),
+            Map.entry("MC", "XHLN"),
+            Map.entry("MI", "XHLN"),
+            Map.entry("MA", "XHLN"));
 
     private CvssV3BaseScore() {}
 
@@ -113,8 +129,8 @@ final class CvssV3BaseScore {
     /**
      * Parses the {@code Metric:Value} segments of a vector string into a map, requiring the
      * {@code CVSS:3.0/} or {@code CVSS:3.1/} prefix. Returns {@code null} for any structurally invalid
-     * vector: missing/wrong prefix, a segment without exactly one non-edge {@code :}, or a duplicate metric
-     * key (which the CVSS v3.1 specification forbids).
+     * vector: missing/wrong prefix, empty segment, a segment without exactly one non-edge {@code :},
+     * unknown metric or value, or a duplicate metric key (which the CVSS v3.1 specification forbids).
      */
     private static Map<String, String> parseMetrics(String vector) {
         if (vector == null) {
@@ -129,16 +145,18 @@ final class CvssV3BaseScore {
             return null;
         }
         Map<String, String> metrics = new HashMap<>();
-        for (String segment : vector.substring(prefix.length()).split("/")) {
-            if (segment.isEmpty()) {
-                continue;
-            }
+        for (String segment : vector.substring(prefix.length()).split("/", -1)) {
             int separator = segment.indexOf(':');
             if (separator <= 0 || separator == segment.length() - 1 || segment.indexOf(':', separator + 1) >= 0) {
                 return null;
             }
             String metric = segment.substring(0, separator);
-            if (metrics.putIfAbsent(metric, segment.substring(separator + 1)) != null) {
+            String value = segment.substring(separator + 1);
+            String allowed = VALID_METRICS.get(metric);
+            if (allowed == null
+                    || value.length() != 1
+                    || allowed.indexOf(value.charAt(0)) < 0
+                    || metrics.putIfAbsent(metric, value) != null) {
                 return null;
             }
         }

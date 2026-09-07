@@ -175,11 +175,13 @@ describe('DatabaseAdvisor', () => {
       })
     )
 
-    expect(wrapper.text()).toContain('Partial scan')
+    expect(wrapper.text()).toContain('Incomplete')
+    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
     expect(wrapper.text()).toContain('Incomplete scan.')
     expect(wrapper.text()).toContain('1 datasource could not be read')
     expect(wrapper.text()).toContain('Unreadable')
-    expect(wrapper.text()).toContain('No Database findings')
+    expect(wrapper.text()).toContain('No findings in the available results')
+    expect(wrapper.text()).not.toContain('No Database findings')
   })
 
   it('surfaces truncation and skipped/errored rules as diagnostics on demand', async () => {

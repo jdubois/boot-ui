@@ -1,22 +1,24 @@
 # Runs the BootUI sample app with CRaC (Coordinated Restore at Checkpoint) using
-# the simple in-memory profile, so it works out of the box:
+# the simple in-memory profile:
 #
 #   docker compose -f docker-compose-crac.yml up --build
 #
 # The app starts with its default "dev" profile (in-memory H2 database and an
-# in-memory cache), so no PostgreSQL or Redis is required and nothing holds an
-# open network socket when the checkpoint is taken. On the very first start the
-# app boots once to write a CRaC checkpoint (spring.context.checkpoint=onRefresh);
-# every start after that restores the warmed-up JVM image in a few tens of
-# milliseconds. The checkpoint is kept in the `crac-checkpoint` named volume so it
-# survives `down`/`up` cycles (delete the volume to force a fresh checkpoint).
+# in-memory cache), so no PostgreSQL or Redis is required. The startup checkpoint
+# (spring.context.checkpoint=onRefresh) occurs after non-lazy singleton initialization
+# but before lifecycle start; early-opened resources still need review.
+# Later starts attempt restore when inventory.img exists; it is not a validity
+# certificate. Incomplete directories are preserved and refused, never auto-cleaned.
+# The `crac-checkpoint` named volume survives `down`/`up` cycles; inspect and preserve
+# its data before explicitly choosing a fresh volume.
 #
-# The CRIU engine needs Linux kernel 5.9+ and the capabilities listed below.
+# This CRIU recipe uses Linux and the broad capabilities listed below. Use only
+# on an isolated local development machine. Verify the exact JDK/CRIU/kernel/CPU combination.
 #
 # Running the sample app against a real PostgreSQL + Redis under CRaC is possible
-# but needs extra care (those services must be up both when the checkpoint is
-# taken and when it is restored, and an open pooled connection at checkpoint time
-# aborts CRaC). See the "Run it with CRaC" section of bootui-spring-sample-app/README.md.
+# but needs ownership-aware lifecycle handling and review of early initialization,
+# plus service connectivity whenever the application needs it. See the "Run it with CRaC"
+# section of bootui-spring-sample-app/README.md.
 
 services:
   app:
@@ -49,7 +51,8 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - crac-checkpoint:/opt/crac/checkpoint
-    restart: unless-stopped
+    # Incomplete checkpoints require inspection and a fresh location, not automatic retries.
+    restart: "no"
 
 volumes:
   crac-checkpoint:

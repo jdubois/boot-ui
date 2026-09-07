@@ -24,7 +24,8 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
         RESOLVED,
         NOT_MAPPED,
         NOT_FOUND,
-        AMBIGUOUS
+        AMBIGUOUS,
+        UNKNOWN
     }
 
     boolean resolved() {
@@ -40,6 +41,11 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
                 entity.explicitTableName());
     }
 
+    static MappedTableResolution resolveDeclared(
+            DatabaseAdvisorContext context, String catalog, String schema, String tableName) {
+        return resolveNamed(context, tableName, catalog, schema, tableName);
+    }
+
     /**
      * Resolves an explicitly named {@code @SecondaryTable}, or {@code null}/blank {@code tableName} for the
      * entity's own primary table. A {@code tableName} that does not match any {@code @SecondaryTable} the
@@ -50,11 +56,17 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
         if (tableName == null || tableName.isBlank()) {
             return resolve(context, entity);
         }
-        MappedSecondaryTableFacts secondaryTable = entity.secondaryTables().stream()
-                .filter(candidate -> tableName.equalsIgnoreCase(candidate.name()))
-                .findFirst()
-                .orElse(null);
-        if (secondaryTable == null) {
+        List<MappedSecondaryTableFacts> secondaryTables = entity.secondaryTables().stream()
+                .filter(candidate -> tableName.equals(candidate.name()))
+                .toList();
+        if (secondaryTables.size() > 1) {
+            return new MappedTableResolution(
+                    Status.AMBIGUOUS,
+                    null,
+                    null,
+                    "More than one secondary-table declaration uses \"" + tableName + "\".");
+        }
+        if (secondaryTables.isEmpty()) {
             return new MappedTableResolution(
                     Status.NOT_MAPPED,
                     null,
@@ -62,6 +74,7 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
                     "References secondary table \"" + tableName + "\", which " + entity.entityName()
                             + " does not declare via @SecondaryTable.");
         }
+        MappedSecondaryTableFacts secondaryTable = secondaryTables.get(0);
         return resolveNamed(
                 context,
                 secondaryTable.name(),
@@ -79,15 +92,22 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
         TableModel matchedTable = null;
         int matches = 0;
         for (SchemaSnapshot candidateSchema : context.availableSchemas()) {
-            List<TableModel> candidates = candidateSchema.tablesNamed(catalog, schema, tableName);
+            List<TableModel> candidates = candidateSchema.declaredTablesNamed(catalog, schema, tableName);
             matches += candidates.size();
             if (!candidates.isEmpty() && matchedTable == null) {
                 matchedSchema = candidateSchema;
                 matchedTable = candidates.get(0);
             }
         }
-        if (matches == 0) {
-            return new MappedTableResolution(Status.NOT_FOUND, null, null, null);
+        if (context.schemas().stream()
+                .anyMatch(candidate -> !candidate.available()
+                        || !candidate.relationInventoryComplete()
+                        || !candidate.declarationCaseKnown(catalog, schema, tableName))) {
+            return new MappedTableResolution(
+                    Status.UNKNOWN,
+                    null,
+                    null,
+                    "An unread/incomplete relation inventory or unknown identifier folding may hide another matching declared table.");
         }
         if (matches > 1) {
             return new MappedTableResolution(
@@ -96,6 +116,17 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
                     null,
                     matches + " physical tables named " + qualify(schema, qualifiedName) + " were found across "
                             + "the readable datasources, so this cannot be attributed to one of them.");
+        }
+        if (context.schemas().size() > 1) {
+            return new MappedTableResolution(
+                    Status.UNKNOWN,
+                    null,
+                    null,
+                    "Several datasources are configured without persistence-unit attribution; a unique observed name "
+                            + "does not establish the mapping's intended datasource.");
+        }
+        if (matches == 0) {
+            return new MappedTableResolution(Status.NOT_FOUND, null, null, null);
         }
         return new MappedTableResolution(Status.RESOLVED, matchedSchema, matchedTable, null);
     }
