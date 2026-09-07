@@ -5,7 +5,7 @@ import java.util.Locale;
 
 /**
  * Framework-neutral, read-only observation of one reactive CORS configuration entry (from a
- * {@code CorsConfigurationSource} bean), collected by the Spring adapter.
+ * source attached to an installed {@code CorsWebFilter}), collected by the Spring adapter.
  */
 public record CorsConfigObservation(
         String pattern,
@@ -31,8 +31,8 @@ public record CorsConfigObservation(
     }
 
     /**
-     * The configured {@code allowedOriginPatterns} that are dangerously broad (wildcard scheme,
-     * wildcard host, or a too-permissive suffix such as {@code *.com}), excluding the exact
+     * The configured {@code allowedOriginPatterns} with a broad wildcard host or single-label suffix,
+     * excluding the exact
      * {@code "*"} pattern already covered by SEC-RXF-CORS-001/002. Scoped subdomain wildcards such
      * as {@code https://*.example.com} are intentionally not flagged.
      */
@@ -50,8 +50,8 @@ public record CorsConfigObservation(
         if (value.isEmpty() || !value.contains("*") || value.equals("*")) {
             return false; // exact "*" is handled by SEC-RXF-CORS-001/002
         }
-        if (value.equals("**") || value.contains("*://")) {
-            return true; // wildcard everything or wildcard scheme
+        if (value.equals("**")) {
+            return true;
         }
         String host = value;
         int scheme = host.indexOf("://");

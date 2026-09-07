@@ -42,14 +42,15 @@ class BootUiQuarkusSecurityResourceTest {
         Response scan = probe().post("/bootui/api/security/scan", JSON_HEADERS);
         assertThat(scan.status()).isEqualTo(200);
         JsonNode scanned = scan.json();
-        assertThat(scanned.path("scan").path("status").asText()).isEqualTo("SCANNED");
-        assertThat(scanned.path("rulesEvaluated").asInt()).isGreaterThan(0);
+        assertThat(scanned.path("scan").path("status").asText()).isEqualTo("PARTIAL");
+        assertThat(scanned.path("rulesEvaluated").asInt()).isEqualTo(42);
+        assertThat(scanned.path("analysisErrors")).isEmpty();
         assertThat(ruleIds(scanned))
                 .as("a no-auth Quarkus app must flag QS-AUTH-001")
                 .contains("QS-AUTH-001");
 
         Response cached = probe().get("/bootui/api/security");
-        assertThat(cached.json().path("scan").path("status").asText()).isEqualTo("SCANNED");
+        assertThat(cached.json().path("scan").path("status").asText()).isEqualTo("PARTIAL");
     }
 
     private static List<String> ruleIds(JsonNode report) {

@@ -2,9 +2,23 @@
 
 BootUI's advisors run explicit, on-demand, rule-based scans and surface severity-ranked findings that feed the weighted
 score on the Overview dashboard. Each advisor is read-only and inspects a different facet of the application — compiled
-architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. Once an advisor has run,
-its panel shows the same 0–100 score the Overview computes for it (100 minus the weighted finding penalty), so panel and
-dashboard always agree.
+architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. A complete advisor
+assessment shows the same 0–100 score in its panel and Overview (100 minus the weighted finding penalty).
+
+### Score eligibility
+
+A diagnostic report is not necessarily eligible for a score. Only `SCANNED` reports with a valid severity summary
+score. `PARTIAL` reports show **Incomplete**, without a numeric score; failed, disabled, and unscanned reports also
+remain unscored. Findings, severity counts, and diagnostics remain available even when the assessment is incomplete.
+Intentionally skipped, inapplicable rules do not by themselves make a scan incomplete.
+
+Vulnerabilities also requires `coverage.status=COMPLETE` and no active `UNKNOWN` severity findings. Missing or
+unavailable coverage is unknown, not complete. `NONE` (CVSS zero) is scoreable with no penalty. Dismissing an UNKNOWN
+finding can restore eligibility; restoring it removes the score again. Coverage is only as reliable as the
+inventory provider's report: this presentation policy cannot detect an inventory that incorrectly claims completeness.
+
+During a new request, or if transport fails, the last accepted report remains visible. A newly received incomplete,
+failed, or disabled report replaces the previous assessment and immediately removes its score from Overview.
 
 ### Single-flight scans
 
@@ -18,7 +32,8 @@ visible and shows the conflict as a warning. Different scanners remain independe
 Every advisor finding can be **dismissed** when it does not apply to your project. Each rule result carries a _Dismiss_
 button; dismissing moves the rule into a collapsed "Dismissed rules" list and excludes it from the panel's finding
 count, severity bars, advisor score, and the weighted Overview score. The panel's score recomputes immediately, and the
-Overview dashboard re-reads the advisor's score when you return to it, so a dismissal or restore shows in both places.
+Overview dashboard re-reads previously observed reports when you return to it, without rescanning, so a dismissal or
+restore updates both the score and eligibility in both places.
 Rules can be restored at any time from that list.
 
 ::: details Where dismissals are stored
@@ -187,10 +202,15 @@ On the Quarkus adapter the framework-application advisor above is relabelled **Q
 ruleset in place of the Spring rules. It takes the same explicit, read-only approach against the running application and
 its MicroProfile `Config`, but the rules target Quarkus idioms:
 
-- CDI/Arc scopes and shared mutable state on `@ApplicationScoped`/`@Singleton` beans.
-- Build-time type-safe configuration (`@ConfigProperty` vs `@ConfigMapping`).
-- Reactive-versus-blocking endpoints and `@Scheduled` clustering.
-- Production-profile hygiene (destructive Hibernate schema strategies, SQL logging).
+- Resolved CDI/Arc scopes and publicly exposed state on shared beans and REST resources.
+- Production configuration evidence, including schema actions, SQL logging and explicit in-memory storage.
+- Effective managed REST-client timers, HTTP compression and request-draining configuration.
+- Conditional synchronized virtual-thread pinning on the running JDK 21-23.
+
+Missing configuration annotations, production overrides, pool-size overrides, or clustered scheduling are not
+defects by themselves. Neither does a JDBC dependency alongside reactive endpoints prove event-loop blocking.
+The advisor keeps useful declarations as inspection information, and reports incomplete evidence explicitly
+instead of treating unreadable metadata or unseen production configuration as clean.
 
 It is the **same panel and menu slot** as the Spring advisor — the same `/spring` route, `/bootui/api/spring` endpoint,
 and report contract — so the shared UI simply renders the "Quarkus" label and copy. The report is a heuristic review
@@ -353,25 +373,32 @@ safe in an application with no JDBC datasource extension; a bean with no such qu
 ![BootUI Hibernate panel](../images/bootui-hibernate.webp)
 
 The Hibernate panel runs an explicit, read-only scan against the JPA `EntityManagerFactory` metamodel when Hibernate ORM
-is present. It reviews mapped entities, selected persistence configuration, and Spring Data repository metadata for
+is present. It reviews mapped entities, attributed persistence-unit observations, and verified Spring Data JPA repository metadata for
 common Hibernate/JPA performance and mapping risks such as eager fetching, problematic identifier generators, collection
 fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. The report is a review prompt,
 not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies mappings. See
 [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md) for the full catalogue and remediation links.
 
+The catalog has 70 active rules; five declaration-only or structurally duplicated checks are retired without reusing
+their identifiers. Unavailable required observations and rule failures yield `PARTIAL` while retaining valid findings.
+The scan message distinguishes attempted-rule coverage from successful evaluation; an empty findings list is not proof
+that every mapping or query was verified. XML overrides, auto-apply converters, custom generators and runtime query
+plans are not fully reconstructed.
+
 ::: details On Quarkus
 
-The panel runs the same 72-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
+The panel runs the same 70-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
 discovered from the live JPA `EntityManagerFactory` metamodel (across all persistence units, de-duplicated by identity),
 and most mapping/identifier/fetch rules apply unchanged. Spring Data query rules skip when repository metadata is
 unavailable instead of reporting a clean result. Four platform differences are worth noting:
 
-- **Configuration keys are translated.** A key-mapping layer (`QuarkusHibernatePropertyLookup`) maps the
-  Spring/native-Hibernate property names the rules expect onto their Quarkus equivalents (see below).
-- **Open-Session-in-View is inert.** Quarkus has no OSIV concept, so the effective state is always disabled and the rule
-  never fires (on Spring a missing `spring.jpa.open-in-view` defaults to the web-on behaviour).
+- **Effective factory settings are unit-scoped.** Live native options include integration defaults and programmatic
+  settings; named units do not inherit the first factory's values. Native property translation supplements appropriate
+  declaration/application facts but is not proof of effective factory state.
+- **Spring Open-Session-in-View is inapplicable.** The Spring-specific rule does not fire on Quarkus. Spring requires
+  actual activation evidence rather than inferring activation solely from a missing property.
 - **Bytecode enhancement is always enabled.** Quarkus enhances every entity unconditionally at build time with no
-  opt-out, so the two lazy-`@OneToOne` findings that depend on enhancement being disabled never fire.
+  opt-out, so known-absent-enhancement findings do not fire with the verified adapter capability.
 - **Panache active-record entities are handled specially** (see below).
 
 **The Quarkus property-key mapping**
@@ -389,25 +416,26 @@ unavailable instead of reporting a clean result. Four platform differences are w
 | `query.fail_on_pagination_over_collection_fetch`  | `quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch` |
 | `cache.use_query_cache` / `cache.use_second_level_cache` | `quarkus.hibernate-orm.second-level-caching-enabled` (single unified toggle) |
 
-(*) or the deprecated `quarkus.hibernate-orm.database.generation`, including the `drop-and-create` ↔ `create-drop` value
-alias.
+(*) In Quarkus 3.33.3.1, explicitly configured deprecated `quarkus.hibernate-orm.database.generation` takes precedence.
+Quarkus/Jakarta `create` is create-only; Hibernate `hbm2ddl.auto=create` is destructive. The advisor preserves that
+difference rather than treating the keys as interchangeable raw strings.
 
 A native `quarkus.hibernate-orm.log.bind-parameters` flag is also read as the neutral bind-parameter-logging signal. For
 any other `hibernate.*` key with no first-class Quarkus option (for example `hibernate.order_inserts` /
 `hibernate.order_updates`), the lookup falls back to Quarkus' generic `quarkus.hibernate-orm.unsupported-properties."..."`
-escape hatch, which a live-boot test confirmed reaches Hibernate's own bootstrapped settings. Only a handful of genuinely
-Hikari/Spring-specific signals stay unmapped (Hikari's auto-commit setting, which Agroal has no equivalent for) and their
-INFO advisories may still cite the Spring-flavored property name.
+escape hatch. The advisor uses the bootstrapped factory options for supported facts rather than assuming that the
+presence or absence of a property proves a value. Unsupported Spring/Hikari-specific evidence is not guessed from an
+unrelated property, and no connection is acquired to inspect it.
 
 **Panache active-record entities**
 
-Once a Panache extension (`quarkus-hibernate-orm-panache` or `quarkus-hibernate-reactive-panache`) is on the classpath,
-its build-time bytecode rewrite makes public-field access on any Hibernate-managed class behave like a getter/setter
-call app-wide, so the public-persistent-field finding does not fire. The `@GeneratedValue`-without-strategy finding
+With verified Panache transformation capability, build-time bytecode rewriting makes public-field access on
+Hibernate-managed classes behave like getter/setter calls, so the public-persistent-field finding does not fire.
+Mere classpath presence is not proof that transformation ran. The `@GeneratedValue`-without-strategy finding
 ignores the `id` field Panache's own base entity declares (an application-declared identifier is still checked normally).
 Spring Data repository hints (missing-strategy-aware `isNew()` detection for assigned identifiers) are specific to Spring
-Data JPA's `save()` semantics: without Spring Data Commons on the classpath — the normal case for a Panache app, whose
-`persist()` has no such ambiguity — that whole check is skipped rather than reported.
+Data JPA's `save()` semantics: without verified, attributable JPA repository metadata, that check is inapplicable.
+Panache query methods are not inferred from names or generated bytecode.
 
 :::
 
@@ -437,14 +465,15 @@ report contract.
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)
 
-On Spring Boot it analyses Spring Security when it is on the classpath: it introspects the registered
-`SecurityFilterChain` beans, simulates an anonymous authorization decision, and inspects security-relevant beans
-(`PasswordEncoder`, `CorsConfigurationSource`, `JwtDecoder`) and `Environment` properties. See
+On Spring Boot it analyses Spring Security when it is on the classpath: it inspects already-created
+`SecurityFilterChain` configuration and supported security metadata without executing application authorization
+managers, custom matchers or credential providers. Unsupported evidence remains incomplete rather than becoming a
+security verdict. See
 [SECURITY-CHECKS.md](../SECURITY-CHECKS.md) for the full catalogue and remediation links.
 
 ### Spring WebFlux
 
-On Spring Boot WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
+On Spring Boot WebFlux it evaluates a dedicated 25-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
 application's `SecurityWebFilterChain` beans, reactive CORS/OAuth2 beans, and security-relevant configuration. The Spring
 adapter owns collection and excludes BootUI's own permit-all chain; the shared engine owns deterministic rule evaluation
 and never receives Spring types or secret values.
@@ -477,18 +506,21 @@ It intentionally does not crawl discovered endpoints, send SQL/XSS/destructive p
 include raw response bodies, cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not
 proof of exploitability or a replacement for a full security assessment.
 
-The 80 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation. No-finding
+The 79 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation. No-finding
 category coverage is informational rather than a pass. Failed or bounded-away evidence produces a `PARTIAL` scan, hides
-the advisor score, and marks affected coverage `INDETERMINATE`. See [PENTEST-CHECKS.md](../PENTEST-CHECKS.md) for the
+the advisor score, and marks affected no-finding coverage `INDETERMINATE`; known findings remain `REVIEW` with limits.
+See [PENTEST-CHECKS.md](../PENTEST-CHECKS.md) for the
 full catalogue, limits, mappings, and retired IDs.
 
 ### Per-stack coverage
 
 - **Spring MVC** is the complete reference collector.
 - **Spring WebFlux** still contributes Spring configuration and OAuth metadata, but explicitly reports MVC mapping and
-  servlet-filter evidence unavailable; its reactive Security advisor owns `SecurityWebFilterChain` route policy.
+  servlet-filter evidence unavailable, even on a mixed MVC/WebFlux classpath; runtime classification follows the active
+  application context. Its reactive Security advisor owns `SecurityWebFilterChain` route policy.
 - **Quarkus** runs the same shared scanner/report contract and supplies its live port, root path, CORS, OIDC, and
-  direct-listener TLS configuration while explicitly marking Spring endpoint/security metadata unavailable.
+  selected/default/direct HTTP-listener TLS configuration, not unrelated client TLS keys, while explicitly marking
+  Spring endpoint/security metadata unavailable. Local HTTP does not assess proxy-edge HTTPS.
 
 The coverage matrix uses platform-specific wording, so neither adapter turns unsupported checks into a false clean
 result.

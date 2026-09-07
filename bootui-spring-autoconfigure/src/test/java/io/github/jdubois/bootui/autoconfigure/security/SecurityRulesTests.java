@@ -7,8 +7,11 @@ import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChain
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.env.OriginTrackedMapPropertySource;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.PropertiesPropertySource;
 import org.springframework.core.env.StandardEnvironment;
@@ -49,7 +52,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new HeaderWritersDisabledRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.severity()).isEqualTo("LOW");
     }
 
     @Test
@@ -68,7 +71,7 @@ class SecurityRulesTests {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
-                List.of("HeaderWriterFilter"),
+                List.of("HeaderWriterFilter", "UsernamePasswordAuthenticationFilter"),
                 null,
                 null,
                 List.of("ContentSecurityPolicyHeaderWriter"),
@@ -116,7 +119,7 @@ class SecurityRulesTests {
     }
 
     @Test
-    void redirectOnFormLoginChainPasses() {
+    void redirectPresenceAloneDoesNotProveUnconditionalRedirect() {
         FilterChainModel formChain = chain(
                 "PathPattern [/**]",
                 List.of("HttpsRedirectFilter", "UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
@@ -125,33 +128,35 @@ class SecurityRulesTests {
 
         SecurityRuleResultDto result = new FormLoginWithoutTlsRule().evaluate(context(List.of(formChain), environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
     }
 
     // --- SEC-ACT-007: show-values=always ----------------------------------------------------
 
     @Test
     void actuatorShowValuesFiresForEnvAlone() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("management.endpoint.env.show-values", "always");
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("management.endpoint.env.show-values", "always")
+                .withProperty("management.endpoints.web.exposure.include", "env");
 
         SecurityRuleResultDto result = new ActuatorShowValuesRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("env.show-values"));
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("env endpoint"));
     }
 
     @Test
     void actuatorShowValuesChecksConfigpropsIndependently() {
         MockEnvironment environment = new MockEnvironment()
+                .withProperty("management.endpoints.web.exposure.include", "env,configprops")
                 .withProperty("management.endpoint.env.show-values", "never")
                 .withProperty("management.endpoint.configprops.show-values", "always");
 
         SecurityRuleResultDto result = new ActuatorShowValuesRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("configprops.show-values"));
-        assertThat(result.sampleViolations()).noneMatch(detail -> detail.contains("env.show-values"));
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("configprops endpoint"));
+        assertThat(result.sampleViolations()).noneMatch(detail -> detail.contains("env endpoint"));
     }
 
     @Test
@@ -195,7 +200,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new ActuatorWildcardExposureRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("exclude=env"));
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("sensitive Actuator"));
     }
 
     @Test
@@ -224,14 +229,14 @@ class SecurityRulesTests {
     }
 
     @Test
-    void actuatorUnprotectedFiresWhenNoChainMatchesActuatorPath() {
+    void actuatorAuthorizationWithoutStructuralFactsRemainsUnknown() {
         MockEnvironment environment =
                 new MockEnvironment().withProperty("management.endpoints.web.exposure.include", "env");
         FilterChainModel chain = chain("any request", List.of("AuthorizationFilter"));
 
         SecurityRuleResultDto result = new ActuatorUnprotectedRule().evaluate(context(List.of(chain), environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     /**
@@ -239,14 +244,14 @@ class SecurityRulesTests {
      * existed are): the rule must then fall back to the purely textual matcher check.
      */
     @Test
-    void actuatorUnprotectedPassesWhenAChainMatchesTheActuatorBasePath() {
+    void actuatorMatcherDescriptionCannotEstablishProtection() {
         MockEnvironment environment =
                 new MockEnvironment().withProperty("management.endpoints.web.exposure.include", "env");
         FilterChainModel chain = chain("Ant [pattern='/actuator/**']", List.of("AuthorizationFilter"));
 
         SecurityRuleResultDto result = new ActuatorUnprotectedRule().evaluate(context(List.of(chain), environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     @Test
@@ -288,8 +293,7 @@ class SecurityRulesTests {
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
         assertThat(result.sampleViolations())
-                .containsExactly("Actuator endpoints are exposed at /actuator but Chain #0 (any request) "
-                        + "permits anonymous access to that path.");
+                .anyMatch(detail -> detail.contains("'env'") && detail.contains("unconditional grant"));
     }
 
     @Test
@@ -332,7 +336,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result =
                 new ActuatorUnprotectedRule().evaluate(context(List.of(scoped, catchAll), environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     @Test
@@ -356,7 +360,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new ActuatorUnprotectedRule().evaluate(context(List.of(chain), environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("exposed at /manage"));
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("'env'"));
     }
 
     /** A chain carrying the actuator-coverage verdicts the scanner probes for. */
@@ -377,7 +381,18 @@ class SecurityRulesTests {
                 null,
                 null,
                 matchesActuatorPath,
-                actuatorAnonymousAllowed);
+                actuatorAnonymousAllowed,
+                new SecurityModel.ChainDetails(
+                        true,
+                        true,
+                        Boolean.TRUE.equals(matchesActuatorPath),
+                        new SecurityModel.MatcherFacts(
+                                Boolean.TRUE.equals(matchesActuatorPath) ? "any" : "unknown", null, null, List.of()),
+                        List.of(new SecurityModel.AuthorizationMapping(
+                                new SecurityModel.MatcherFacts("any", null, null, List.of()),
+                                actuatorAnonymousAllowed)),
+                        null,
+                        false));
     }
 
     @Test
@@ -486,7 +501,7 @@ class SecurityRulesTests {
     }
 
     @Test
-    void resourceServerValidationFiresWhenBearerChainHasNoJwtOrOpaqueTokenConfig() {
+    void resourceServerValidationRemainsUnknownWithoutAttachedMetadata() {
         FilterChainModel chain = chain(
                 "any request",
                 List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
@@ -494,12 +509,12 @@ class SecurityRulesTests {
         SecurityRuleResultDto result =
                 new ResourceServerValidationRule().evaluate(context(List.of(chain), new MockEnvironment()));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
         assertThat(result.severity()).isEqualTo("HIGH");
     }
 
     @Test
-    void resourceServerValidationPassesWithJwtIssuerUriConfigured() {
+    void resourceServerValidationDoesNotTrustUnattachedIssuerProperty() {
         FilterChainModel chain = chain(
                 "any request",
                 List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
@@ -509,11 +524,11 @@ class SecurityRulesTests {
         SecurityRuleResultDto result =
                 new ResourceServerValidationRule().evaluate(context(List.of(chain), environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     @Test
-    void resourceServerValidationPassesWithOpaqueTokenIntrospectionUriConfigured() {
+    void resourceServerValidationDoesNotTrustUnattachedIntrospectionProperty() {
         // Verified false-positive fix: BearerTokenAuthenticationFilter is installed identically for
         // .oauth2ResourceServer(oauth2 -> oauth2.jwt(...)) and .opaqueToken(...), so an opaque-token
         // resource server configured only via the introspection-uri property must also pass.
@@ -528,7 +543,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result =
                 new ResourceServerValidationRule().evaluate(context(List.of(chain), environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     @Test
@@ -547,18 +562,18 @@ class SecurityRulesTests {
     // --- SEC-OAUTH-002: custom decoder is advisory ------------------------------------------
 
     @Test
-    void jwtAudienceViolationIsMediumWithoutCustomDecoder() {
+    void issuerPropertyWithoutActiveBearerChainIsNotAudienceEvidence() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com");
 
         SecurityRuleResultDto result = new JwtAudienceValidationRule().evaluate(context(environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.severity()).isEqualTo("INFO");
     }
 
     @Test
-    void jwtAudienceWithCustomDecoderIsInfoAdvisory() {
+    void unusedCustomDecoderDoesNotCreateAnAudienceFinding() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com");
         SecurityContext context =
@@ -566,25 +581,25 @@ class SecurityRulesTests {
 
         SecurityRuleResultDto result = new JwtAudienceValidationRule().evaluate(context);
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
         assertThat(result.severity()).isEqualTo("INFO");
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("CustomJwtDecoder"));
+        assertThat(result.sampleViolations()).isEmpty();
     }
 
     @Test
-    void jwtAudienceDoesNotTrustRemovedAudiencesProperty() {
+    void boot4AudiencesPropertyWithoutAnActiveBearerChainIsNotAFinding() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
 
         SecurityRuleResultDto result = new JwtAudienceValidationRule().evaluate(context(environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.severity()).isEqualTo("INFO");
     }
 
     @Test
-    void jwtAudienceWithCustomTokenValidatorIsInfoAdvisory() {
+    void unrelatedValidatorDoesNotCreateAnAudienceFinding() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com");
         SecurityContext context = context(
@@ -597,10 +612,9 @@ class SecurityRulesTests {
 
         SecurityRuleResultDto result = new JwtAudienceValidationRule().evaluate(context);
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
         assertThat(result.severity()).isEqualTo("INFO");
-        assertThat(result.sampleViolations())
-                .anyMatch(detail -> detail.contains("AudienceValidatingOAuth2TokenValidator"));
+        assertThat(result.sampleViolations()).isEmpty();
     }
 
     // --- SEC-CONFIG-003 / SEC-CONFIG-004 removed --------------------------------------------
@@ -622,14 +636,14 @@ class SecurityRulesTests {
     // --- SEC-CORS-006: broad origin patterns ------------------------------------------------
 
     @Test
-    void broadCorsOriginPatternFiresMediumWithoutCredentials() {
+    void broadCorsOriginPatternIsLowContextualReviewWithoutCredentials() {
         CorsConfigModel cors =
                 new CorsConfigModel("/**", List.of(), List.of("https://*"), List.of("GET"), List.of(), Boolean.FALSE);
 
         SecurityRuleResultDto result = new BroadCorsOriginPatternRule().evaluate(cors(cors));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.severity()).isEqualTo("LOW");
     }
 
     @Test
@@ -749,7 +763,7 @@ class SecurityRulesTests {
     }
 
     @Test
-    void permitAllCatchAllIgnoresScopedChainAndAnonymousOnlyChain() {
+    void blanketGrantReviewIncludesScopedAuthenticationChainButNotAnonymousOnlyChain() {
         FilterChainModel scoped = new FilterChainModel(
                 0,
                 "Ant [pattern='/public/**']",
@@ -768,7 +782,8 @@ class SecurityRulesTests {
         SecurityRuleResultDto result =
                 new PermitAllCatchAllRule().evaluate(context(List.of(scoped, anonymousOnly), new MockEnvironment()));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
     }
 
     @Test
@@ -821,7 +836,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new AuthorizationRuleShadowedRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.severity()).isEqualTo("INFO");
     }
 
     @Test
@@ -867,7 +882,7 @@ class SecurityRulesTests {
     }
 
     @Test
-    void csrfDisabledIgnoresStatelessBearerLoginChain() {
+    void csrfDisabledStillReviewsMixedBearerAndFormLoginChain() {
         FilterChainModel tokenLogin = chain(
                 "any request",
                 List.of(
@@ -878,7 +893,7 @@ class SecurityRulesTests {
 
         SecurityRuleResultDto result = new CsrfDisabledStatefulRule().evaluate(singleChain(tokenLogin));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
     }
 
     // --- SEC-CSRF-001 / SEC-SESSION-006: sessionCreationPolicy(STATELESS) -------------------
@@ -892,18 +907,18 @@ class SecurityRulesTests {
     }
 
     @Test
-    void csrfDisabledFiresForABearerChainWhoseSecurityContextIsSessionBacked() {
+    void holderSessionRepositoryAloneDoesNotProveBrowserCredentials() {
         SecurityRuleResultDto result =
                 new CsrfDisabledStatefulRule().evaluate(singleChain(statelessBearerChain(Boolean.FALSE)));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
     @Test
-    void csrfDisabledFallsBackToTheFilterHeuristicWhenTheRepositoryCouldNotBeIntrospected() {
+    void unknownHolderRepositoryDoesNotProveBrowserCredentials() {
         SecurityRuleResultDto result = new CsrfDisabledStatefulRule().evaluate(singleChain(statelessBearerChain(null)));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
     @Test
@@ -919,19 +934,19 @@ class SecurityRulesTests {
     }
 
     @Test
-    void bearerTokenStatefulIgnoresStatelessChainThatStillInstallsSessionManagementFilter() {
+    void bearerSaveRepositoryCannotBeInferredFromStatelessHolder() {
         SecurityRuleResultDto result =
                 new BearerTokenStatefulRule().evaluate(singleChain(statelessBearerChain(Boolean.TRUE)));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     @Test
-    void bearerTokenStatefulFiresWhenTheSecurityContextIsSessionBacked() {
+    void bearerSaveRepositoryCannotBeInferredFromSessionBackedHolder() {
         SecurityRuleResultDto result =
                 new BearerTokenStatefulRule().evaluate(singleChain(statelessBearerChain(Boolean.FALSE)));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     @Test
@@ -1250,16 +1265,26 @@ class SecurityRulesTests {
     }
 
     @Test
-    void generatedUserInProductionPassesWhenSpringSecurityUserPropertiesAreExplicitlyConfigured() {
-        // SEC-AUTH-004 (DefaultInMemoryUserRule) already covers an explicitly-configured static user;
-        // this rule only targets the fully-default, no-configuration-at-all case.
+    void generatedUserInProductionStillAppliesToUsernameOnlyConfiguration() {
         MockEnvironment environment = new MockEnvironment().withProperty("spring.security.user.name", "admin");
         environment.setActiveProfiles("prod");
         SecurityContext context = context(environment, List.of(), false, false, List.of(), true);
 
         SecurityRuleResultDto result = new GeneratedUserInProductionRule().evaluate(context);
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void explicitBootUserPasswordIsReviewedOnlyByStaticAccountRule() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("spring.security.user.password", "fixture-only");
+        environment.setActiveProfiles("prod");
+        SecurityContext context = context(environment, List.of(), false, false, List.of(), true);
+
+        assertThat(new GeneratedUserInProductionRule().evaluate(context).status())
+                .isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new DefaultInMemoryUserRule().evaluate(context).status()).isEqualTo(SecurityRuleSupport.VIOLATION);
     }
 
     // --- SEC-CONFIG-008: StrictHttpFirewall weakening ---------------------------------------
@@ -1313,7 +1338,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new SecurityDebugLoggingProductionRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("DEBUG"));
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("org.springframework.security"));
     }
 
     @Test
@@ -1325,7 +1350,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new SecurityDebugLoggingProductionRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("TRACE"));
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("org.springframework.security"));
     }
 
     @Test
@@ -1356,7 +1381,7 @@ class SecurityRulesTests {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
-                List.of("HeaderWriterFilter"),
+                List.of("HeaderWriterFilter", "UsernamePasswordAuthenticationFilter"),
                 null,
                 null,
                 List.of("ContentSecurityPolicyHeaderWriter"),
@@ -1374,7 +1399,7 @@ class SecurityRulesTests {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
-                List.of("HeaderWriterFilter"),
+                List.of("HeaderWriterFilter", "UsernamePasswordAuthenticationFilter"),
                 null,
                 null,
                 List.of("ContentSecurityPolicyHeaderWriter"),
@@ -1434,7 +1459,7 @@ class SecurityRulesTests {
     }
 
     @Test
-    void hstsWithoutIncludeSubdomainsFiresViolation() {
+    void hstsDoesNotRequireOptionalIncludeSubdomains() {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
@@ -1448,7 +1473,7 @@ class SecurityRulesTests {
 
         SecurityRuleResultDto result = new WeakHstsPolicyRule().evaluate(singleChain(chain));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
     @Test
@@ -1554,7 +1579,7 @@ class SecurityRulesTests {
     }
 
     @Test
-    void weakCspFiresWhenBaseUriAndFrameAncestorsAreOmitted() {
+    void cspScriptRuleDoesNotDuplicateMissingFrameAncestors() {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
@@ -1568,11 +1593,11 @@ class SecurityRulesTests {
 
         SecurityRuleResultDto result = new WeakContentSecurityPolicyRule().evaluate(singleChain(chain));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
     @Test
-    void weakCspFiresWhenObjectSrcAndDefaultSrcAreBothOmitted() {
+    void cspScriptRuleUsesExplicitScriptDirective() {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
@@ -1586,7 +1611,7 @@ class SecurityRulesTests {
 
         SecurityRuleResultDto result = new WeakContentSecurityPolicyRule().evaluate(singleChain(chain));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
     @Test
@@ -1614,7 +1639,7 @@ class SecurityRulesTests {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
-                List.of("HeaderWriterFilter"),
+                List.of("HeaderWriterFilter", "UsernamePasswordAuthenticationFilter"),
                 null,
                 null,
                 List.of("XContentTypeOptionsHeaderWriter"));
@@ -1626,18 +1651,18 @@ class SecurityRulesTests {
     }
 
     @Test
-    void crossOriginIsolationHeadersPassesWhenCoopIsEmitted() {
+    void crossOriginIsolationRequiresBothCoopAndCoep() {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
-                List.of("HeaderWriterFilter"),
+                List.of("HeaderWriterFilter", "UsernamePasswordAuthenticationFilter"),
                 null,
                 null,
                 List.of("CrossOriginOpenerPolicyHeaderWriter"));
 
         SecurityRuleResultDto result = new CrossOriginIsolationHeadersRule().evaluate(singleChain(chain));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
     }
 
     @Test
@@ -1653,8 +1678,7 @@ class SecurityRulesTests {
 
     @Test
     void hardcodedSecretPropertyFiresHighViolationWithoutLeakingTheValue() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("spring.datasource.password", "supersecret123");
+        MockEnvironment environment = packagedProperties(Map.of("spring.datasource.password", "supersecret123"));
 
         SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
 
@@ -1678,8 +1702,7 @@ class SecurityRulesTests {
 
     @Test
     void hardcodedSecretPropertyStillFiresForARealLookingApiKey() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("my.api.secret-key", "sk_live_abc123def456ghi789");
+        MockEnvironment environment = packagedProperties(Map.of("my.api.secret-key", "sk_live_abc123def456ghi789"));
 
         SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
 
@@ -1750,26 +1773,31 @@ class SecurityRulesTests {
 
     @Test
     void matchesAnyRequestRecognizesExplicitRootDoubleStarButNotScopedPatterns() {
-        assertThat(chain("Ant [pattern='/**']", List.of()).matchesAnyRequest()).isTrue();
+        assertThat(chain("Ant [pattern='/**']", List.of()).matchesAnyRequest()).isFalse();
         assertThat(chain("any request", List.of()).matchesAnyRequest()).isTrue();
         assertThat(chain("Ant [pattern='/api/**']", List.of()).matchesAnyRequest())
                 .isFalse();
     }
 
     @Test
-    void matchesAnyRequestRecognizesSpringSecurity7sPathPatternRequestMatcherFormat() {
-        // Spring Security 7 replaced AntPathRequestMatcher's default matcher with
-        // PathPatternRequestMatcher, whose toString() is "PathPattern [/**]" or, when scoped to an
-        // HTTP method, "PathPattern [GET /**]" -- both must still be recognized as a catch-all, while
-        // a scoped pattern such as "PathPattern [/api/**]" must not be.
-        assertThat(chain("PathPattern [/**]", List.of()).matchesAnyRequest()).isTrue();
+    void matcherDescriptionsNeverEstablishUnconditionalScope() {
+        assertThat(chain("PathPattern [/**]", List.of()).matchesAnyRequest()).isFalse();
         assertThat(chain("PathPattern [GET /**]", List.of()).matchesAnyRequest())
-                .isTrue();
+                .isFalse();
         assertThat(chain("PathPattern [/api/**]", List.of()).matchesAnyRequest())
                 .isFalse();
     }
 
     // --- helpers ----------------------------------------------------------------------------
+
+    private static MockEnvironment packagedProperties(Map<String, Object> properties) {
+        MockEnvironment environment = new MockEnvironment();
+        environment
+                .getPropertySources()
+                .addFirst(new OriginTrackedMapPropertySource(
+                        "Config resource 'class path resource [application.properties]'", properties));
+        return environment;
+    }
 
     private static FilterChainModel chain(String matcher, List<String> filters) {
         return new FilterChainModel(0, matcher, filters, null, null, List.of());
@@ -1853,7 +1881,31 @@ class SecurityRulesTests {
                 false,
                 List.of(),
                 false,
-                environment);
+                false,
+                environment,
+                new SecurityContext.Evidence(
+                        List.of(
+                                        "health",
+                                        "info",
+                                        "env",
+                                        "beans",
+                                        "configprops",
+                                        "heapdump",
+                                        "threaddump",
+                                        "shutdown",
+                                        "loggers",
+                                        "mappings")
+                                .stream()
+                                .map(id -> new SecurityContext.Operation(
+                                        id,
+                                        id.equals("shutdown") ? "POST" : "GET",
+                                        SecurityContext.actuatorBasePath(environment) + "/" + id))
+                                .toList(),
+                        true,
+                        false,
+                        Set.of(),
+                        Set.of(),
+                        true));
     }
 
     /**

@@ -9,9 +9,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * RAPI-ERR-009 — an endpoint declares an application exception in its {@code throws} clause that no
- * declared handler maps, so the failure falls through to the framework default instead of the
- * application's own error contract.
+ * RAPI-ERR-009 — an endpoint declares an application exception for which no handler declaration was
+ * found in the imported model. This is not scope- or precedence-aware runtime exception resolution.
  *
  * <p>The finding is evidence-backed on both sides: the exception type comes from a declared {@code throws}
  * clause, and coverage is decided against the declared {@code @ExceptionHandler}/{@code ExceptionMapper}
@@ -28,11 +27,11 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
                 "Declared exceptions have a declared handler",
                 RestApiCategory.ERROR_HANDLING,
                 "MEDIUM",
-                "An endpoint declares an application exception that no @ExceptionHandler, exception mapper, or"
-                        + " @ResponseStatus maps, so it falls through to the framework's default error response"
-                        + " instead of the application's error contract.",
-                "Map the exception with an @ExceptionHandler/exception mapper, or annotate it with"
-                        + " @ResponseStatus, so its HTTP status and body are part of the declared contract.",
+                "An endpoint declares an application exception with no corresponding handler declaration found in"
+                        + " the imported model. The global union does not establish native scope, precedence or actual"
+                        + " runtime coverage, and framework defaults may be intentional. Unresolved mapper exception"
+                        + " types make absence conclusions inapplicable.",
+                "Review native handler/mapper coverage and the chosen error policy; add a declaration only if needed.",
                 RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
     }
 
@@ -40,6 +39,13 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         if (context.exceptionHandlers().isEmpty() || context.thrownExceptions().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
+        }
+        if (context.exceptionHandlers().stream()
+                .anyMatch(handler -> handler.handledExceptionTypes().isEmpty())) {
+            return RestApiRuleSupport.skipped(
+                    definition(),
+                    "A handler or mapper has unresolved handled-exception types; the imported inventory cannot"
+                            + " establish that a declaration is missing.");
         }
         Set<String> mapped = new LinkedHashSet<>(context.responseStatusExceptionClasses());
         for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
@@ -52,7 +58,8 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
                 continue;
             }
             String violation = thrown.controllerSimpleName() + "#" + thrown.methodName() + " declares "
-                    + thrown.exceptionSimpleName() + ", which no declared handler maps";
+                    + thrown.exceptionSimpleName()
+                    + ", for which no handler declaration was found in the imported model";
             if (reported.add(violation)) {
                 violations.add(violation);
             }

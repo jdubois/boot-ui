@@ -107,8 +107,8 @@ record MemoryContext(
     }
 
     /**
-     * Convenience constructor used by tests and any caller that does not provide post-GC or
-     * cross-scan data. The post-GC heap reading defaults to unavailable, the pre-histogram GC
+     * Convenience constructor used by tests and any caller that does not provide post-histogram or
+     * cross-scan data. The post-histogram heap reading defaults to unavailable, the pre-histogram GC
      * sample mirrors the (single) runtime reading, and every cross-scan trend is unavailable.
      */
     MemoryContext(
@@ -194,11 +194,7 @@ record MemoryContext(
 
     int heapUsedPercent() {
         long max = memory.heapMax();
-        if (max > 0) {
-            return (int) Math.min(100, memory.heapUsed() * 100L / max);
-        }
-        long committed = memory.heapCommitted();
-        return committed > 0 ? (int) Math.min(100, memory.heapUsed() * 100L / committed) : 0;
+        return MemoryFormat.percentOf(memory.heapUsed(), max);
     }
 
     int blockedThreadCount() {
@@ -214,10 +210,7 @@ record MemoryContext(
     record MemoryPoolSnapshot(String name, long used, long committed, long max) {
 
         int usedPercent() {
-            if (max > 0) {
-                return (int) Math.min(100, used * 100L / max);
-            }
-            return committed > 0 ? (int) Math.min(100, used * 100L / committed) : 0;
+            return MemoryFormat.percentOf(used, max);
         }
     }
 
@@ -359,7 +352,7 @@ record MemoryContext(
             return pools.stream()
                     .filter(pool -> {
                         String name = lower(pool.name());
-                        return name.contains("code cache") || name.contains("codeheap");
+                        return name.contains("code cache") || name.contains("codecache") || name.contains("codeheap");
                     })
                     .toList();
         }
@@ -399,6 +392,15 @@ record MemoryContext(
             return false;
         }
 
+        Boolean booleanJvmArgument(String option) {
+            Boolean value = null;
+            for (String arg : inputArguments) {
+                if (("-XX:+" + option).equals(arg)) value = true;
+                if (("-XX:-" + option).equals(arg)) value = false;
+            }
+            return value;
+        }
+
         private static String lower(String value) {
             return value == null ? "" : value.toLowerCase(Locale.ROOT);
         }
@@ -413,12 +415,36 @@ record MemoryContext(
             List<Long> deadlockedThreadIds,
             List<ThreadStateCountDto> stateCounts,
             List<ThreadInfoDto> threads,
-            boolean detailsTruncated) {
+            boolean detailsTruncated,
+            String collectionError) {
 
         ThreadData {
             deadlockedThreadIds = deadlockedThreadIds == null ? List.of() : List.copyOf(deadlockedThreadIds);
             stateCounts = stateCounts == null ? List.of() : List.copyOf(stateCounts);
             threads = threads == null ? List.of() : List.copyOf(threads);
+        }
+
+        ThreadData(
+                int total,
+                int peak,
+                int daemon,
+                boolean cpuTimeSupported,
+                boolean deadlockDetected,
+                List<Long> deadlockedThreadIds,
+                List<ThreadStateCountDto> stateCounts,
+                List<ThreadInfoDto> threads,
+                boolean detailsTruncated) {
+            this(
+                    total,
+                    peak,
+                    daemon,
+                    cpuTimeSupported,
+                    deadlockDetected,
+                    deadlockedThreadIds,
+                    stateCounts,
+                    threads,
+                    detailsTruncated,
+                    null);
         }
 
         ThreadData(
@@ -442,13 +468,26 @@ record MemoryContext(
                     false);
         }
 
+        static ThreadData failed(String reason) {
+            return new ThreadData(0, 0, 0, false, false, List.of(), List.of(), List.of(), false, reason);
+        }
+
         static ThreadData empty() {
             return new ThreadData(0, 0, 0, false, false, List.of(), List.of(), List.of());
         }
     }
 
     record HeapContentData(
-            boolean available, List<HeapClassHistogramEntryDto> histogram, long totalInstances, long totalBytes) {
+            boolean available,
+            List<HeapClassHistogramEntryDto> histogram,
+            long totalInstances,
+            long totalBytes,
+            String collectionError) {
+
+        HeapContentData(
+                boolean available, List<HeapClassHistogramEntryDto> histogram, long totalInstances, long totalBytes) {
+            this(available, histogram, totalInstances, totalBytes, null);
+        }
 
         HeapContentData {
             histogram = histogram == null ? List.of() : List.copyOf(histogram);
@@ -456,6 +495,10 @@ record MemoryContext(
 
         static HeapContentData unavailable() {
             return new HeapContentData(false, List.of(), 0, 0);
+        }
+
+        static HeapContentData failed() {
+            return new HeapContentData(false, List.of(), 0, 0, "Class histogram collection failed.");
         }
     }
 
@@ -568,13 +611,16 @@ record MemoryContext(
     }
 
     /**
-     * Heap occupancy re-read immediately after the {@code GC.class_histogram} diagnostic command,
-     * which forces a full GC. Comparing this post-GC reading with the pre-GC {@link MemoryData}
-     * lets the heap-pressure rules distinguish sustained retained pressure (still high after a GC)
-     * from transient garbage that the collection reclaims. Heap and old-generation availability are
-     * tracked separately because a collector may expose live heap usage without an old-gen pool.
+     * Heap occupancy re-read after the histogram request. The historical type name does not imply
+     * a verified full GC: the JVM can skip the requested collection, and allocations can resume
+     * before these readings. Neither heap nor old-generation occupancy is a retained-size measurement.
      */
-    record PostGcHeapData(boolean heapAvailable, long heapUsed, boolean oldGenAvailable, long oldGenUsed) {
+    record PostGcHeapData(
+            boolean heapAvailable, long heapUsed, boolean oldGenAvailable, long oldGenUsed, long heapCommitted) {
+
+        PostGcHeapData(boolean heapAvailable, long heapUsed, boolean oldGenAvailable, long oldGenUsed) {
+            this(heapAvailable, heapUsed, oldGenAvailable, oldGenUsed, -1);
+        }
 
         static PostGcHeapData unavailable() {
             return new PostGcHeapData(false, -1, false, -1);
@@ -632,7 +678,7 @@ record MemoryContext(
     /**
      * GC activity between the previous scan and this one. The window deliberately spans the previous
      * scan's post-histogram sample to this scan's pre-histogram sample so that neither scan's own
-     * forced full GC is counted as application GC overhead. Per-collector deltas allow rules to
+     * diagnostic request interval contributes to the delta. Per-collector deltas allow rules to
      * track specific collectors (e.g. G1 Full GC frequency).
      */
     record GcTrend(
@@ -652,30 +698,41 @@ record MemoryContext(
 
         static GcTrend between(GcSample previous, GcSample current) {
             long deltaUptime = current.uptimeMillis() - previous.uptimeMillis();
-            if (deltaUptime <= 0 || previous.gcTimeMillis() < 0 || current.gcTimeMillis() < 0) {
+            if (previous.uptimeMillis() < 0
+                    || current.uptimeMillis() <= previous.uptimeMillis()
+                    || (previous.gcTimeMillis() >= 0
+                            && current.gcTimeMillis() >= 0
+                            && current.gcTimeMillis() < previous.gcTimeMillis())
+                    || (previous.gcCount() >= 0 && current.gcCount() >= 0 && current.gcCount() < previous.gcCount())
+                    || !previous.perCollectorCounts()
+                            .keySet()
+                            .equals(current.perCollectorCounts().keySet())) {
                 return unavailable();
             }
-            long deltaGcTime = Math.max(0, current.gcTimeMillis() - previous.gcTimeMillis());
-            long deltaGcCount = Math.max(0, current.gcCount() - previous.gcCount());
+            long deltaGcTime = previous.gcTimeMillis() < 0 || current.gcTimeMillis() < 0
+                    ? -1
+                    : current.gcTimeMillis() - previous.gcTimeMillis();
+            long deltaGcCount =
+                    previous.gcCount() < 0 || current.gcCount() < 0 ? -1 : current.gcCount() - previous.gcCount();
             Map<String, Long> deltas = new HashMap<>();
             for (Map.Entry<String, Long> entry : current.perCollectorCounts().entrySet()) {
-                long prev = previous.perCollectorCounts().getOrDefault(entry.getKey(), 0L);
-                long delta = Math.max(0L, entry.getValue() - prev);
-                if (delta > 0) {
-                    deltas.put(entry.getKey(), delta);
+                long prev = previous.perCollectorCounts().get(entry.getKey());
+                if (prev >= 0 && entry.getValue() >= 0 && entry.getValue() < prev) {
+                    return unavailable();
                 }
+                if (prev < 0 || entry.getValue() < 0) {
+                    continue;
+                }
+                long delta = entry.getValue() - prev;
+                deltas.put(entry.getKey(), delta);
             }
             return new GcTrend(true, deltaGcTime, deltaUptime, deltaGcCount, deltas);
         }
     }
 
     /**
-     * Consecutive-scan growth tracking for {@code java.nio} buffer pools, used by MEM-POOL-007 to
-     * catch a direct-memory leak before the pool's absolute usage crosses
-     * MEM-POOL-003's static high-water threshold. A pool's streak counts how many scans in a row
-     * (including this one) its used-byte reading has strictly increased over the previous scan with
-     * no decrease in between; any decrease, a plateau, or a pool not seen in the previous scan resets
-     * that pool's streak to zero.
+     * Sampled net-growth tracking for buffer pools. Missing/unknown observations break consecutive
+     * evidence. Increasing endpoints do not prove no releases occurred between observations.
      */
     record BufferPoolTrend(boolean available, Map<String, Integer> consecutiveIncreaseStreaks) {
 
@@ -694,11 +751,8 @@ record MemoryContext(
     }
 
     /**
-     * Consecutive-scan trend for post-GC old-generation usage, used by MEM-HEAP-008 to catch a slow
-     * heap leak well before MEM-HEAP-002's static high-water-mark percentage fires. The streak counts
-     * how many user-triggered scans in a row (each of which forces a full GC before re-reading old-gen
-     * usage, like {@link PostGcHeapData}) have shown a strict increase in post-GC old-generation usage
-     * over the previous scan, independent of the absolute percentage.
+     * Consecutive increases in post-histogram old-generation occupancy, not retained-size or
+     * verified post-full-GC growth. Missing/invalid readings require a new baseline.
      */
     record OldGenTrend(boolean available, int consecutiveIncreaseStreak, long lastUsedBytes) {
 

@@ -3,7 +3,7 @@ import {computed, onMounted, reactive, ref} from 'vue'
 import {formatClockTime} from './format.js'
 import {describeLoadError} from './loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from './scanStatus.js'
-import {scoreBandLabel, scoreBandTone, scoreFromSeverityCounts} from './scannerScore.js'
+import {advisorAssessment, scoreBandLabel, scoreBandTone} from './scannerScore.js'
 import {usePanelState} from './panelState.js'
 import {useDismissedRules} from './useDismissedRules.js'
 
@@ -64,7 +64,8 @@ export function useAdvisorPanel(props, options) {
   // 0-100 advisor score derived from the same weighted-penalty model the Overview
   // dashboard uses. The server recomputes severityCounts with dismissed rules excluded,
   // so dismissing or restoring a rule (which reloads the report) updates this score too.
-  const score = computed(() => (hasScanData.value ? scoreFromSeverityCounts(report.value?.severityCounts) : null))
+  const assessment = computed(() => advisorAssessment(report.value))
+  const score = computed(() => assessment.value.score)
 
   const maxSeverityCount = computed(() => {
     if (!report.value?.severityCounts?.length) return 1
@@ -73,6 +74,7 @@ export function useAdvisorPanel(props, options) {
 
   const emptyRuleResultsTitle = computed(() => {
     if (!hasScanData.value) return options.emptyScanPrompt
+    if (score.value === null) return 'No findings in the available results'
     if (!report.value?.rulesEvaluated) return 'No rules were evaluated'
     return options.emptyNoFindings
   })
@@ -197,6 +199,7 @@ export function useAdvisorPanel(props, options) {
     restore,
     hasScanData,
     score,
+    assessment,
     scoreBandLabel,
     scoreBandTone,
     visibleResults,

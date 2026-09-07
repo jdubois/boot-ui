@@ -1,5 +1,8 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {registerAdvisorScoringTests} from '../../../bootui-spring-sample-app/e2e/scenarios/advisor-scoring.js'
+
+registerAdvisorScoringTests(test, expect)
 
 test.describe('Overview view (Quarkus)', () => {
   test('renders the panel header and the scanner dashboard', async ({openView}) => {

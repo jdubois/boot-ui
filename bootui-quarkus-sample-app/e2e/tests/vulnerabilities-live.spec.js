@@ -11,7 +11,9 @@ test('live OSV protocol smoke completes from the user-initiated Quarkus scan', a
 
   await page.getByRole('button', {name: 'Scan with OSV.dev'}).click()
 
-  await expect(page.locator('.badge', {hasText: /^(Scan complete|Partial scan)$/})).toBeVisible({
+  await expect(
+    page.locator('.advisor-summary__metric--status .badge', {hasText: /^(Scan complete|Incomplete)$/})
+  ).toBeVisible({
     timeout: 45_000
   })
   await expect(page.locator('.advisor-summary__metric', {hasText: 'Scanner'}).locator('dd')).toHaveText('OSV.dev')

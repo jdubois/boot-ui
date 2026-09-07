@@ -3,21 +3,17 @@ package io.github.jdubois.bootui.engine.restapi;
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorBodyCategory;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 /**
- * RAPI-ERR-010 — the declared exception handlers disagree on the shape of an error response, so a client
- * has to handle several error formats from one API.
+ * RAPI-ERR-010 — review different error-body declaration categories without inferring wire schemas.
  *
  * <p>Both signals are read from declarations only: the response-body category derived from each handler's
  * declared return type, and the error media types each handler declares. The rule stays silent unless at
- * least two body-rendering handlers exist and they genuinely disagree, and it never reports the content of
- * a response.</p>
+ * least two informative body-rendering declarations differ for compatible media types. Their actual
+ * serialized schemas and response content are not observed.</p>
  */
 final class ConsistentErrorContractRule extends AbstractRestApiRule {
 
@@ -27,10 +23,10 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
                 "Error responses share one contract",
                 RestApiCategory.ERROR_HANDLING,
                 "LOW",
-                "Declared exception handlers return different error body shapes or media types, so clients must"
-                        + " parse several error formats from the same API.",
-                "Return one error representation — ideally an RFC 9457 problem-details document — from every"
-                        + " exception handler, and declare the same error media type.",
+                "Informative exception-handler body declarations differ for compatible media types."
+                        + " Dynamic/unknown shapes are not contradictions, and distinct negotiated formats can be intentional.",
+                "Review whether the declared error representations should align for the same media contract."
+                        + " RFC 9457 adoption is optional.",
                 RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
     }
 
@@ -39,38 +35,55 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
         List<ExceptionHandlerModel> rendering = context.exceptionHandlers().stream()
                 .filter(ExceptionHandlerModel::rendersBody)
                 .filter(handler -> !handler.returnsVoid())
+                .filter(handler -> !handler.hasResponseParam())
+                .filter(handler -> !RestApiRuleHelp.hasUnknownBody(handler))
                 .toList();
         if (rendering.size() < 2) {
             return RestApiRuleSupport.pass(definition());
         }
 
-        List<String> violations = new ArrayList<>();
-        Map<String, Set<String>> byCategory = new LinkedHashMap<>();
+        Map<String, ExceptionHandlerModel> firstByMedia = new LinkedHashMap<>();
+        ExceptionHandlerModel first = rendering.get(0);
+        ExceptionHandlerModel different = null;
+        ExceptionHandlerModel unspecified = null;
         for (ExceptionHandlerModel handler : rendering) {
-            byCategory
-                    .computeIfAbsent(bodyCategory(handler), ignored -> new TreeSet<>())
-                    .add(simpleName(handler.declaringClassName()) + "#" + handler.methodName());
-        }
-        if (byCategory.size() > 1) {
-            List<String> parts = new ArrayList<>();
-            byCategory.forEach((category, handlers) -> parts.add(category + " (" + String.join(", ", handlers) + ")"));
-            violations.add("Exception handlers return " + byCategory.size() + " different error body shapes: "
-                    + String.join("; ", parts));
-        }
-
-        // Compare each handler's declared set, not the union: two handlers that both declare
-        // {application/json, application/xml} agree on one contract.
-        Set<String> declaredSets = new TreeSet<>();
-        for (ExceptionHandlerModel handler : rendering) {
-            if (!handler.produces().isEmpty()) {
-                declaredSets.add(String.join(", ", new TreeSet<>(handler.produces())));
+            if (different == null && !bodyCategory(first).equals(bodyCategory(handler))) {
+                different = handler;
+            }
+            if (handler.produces().isEmpty()) {
+                if (!bodyCategory(first).equals(bodyCategory(handler))) {
+                    return disagreement(first, handler);
+                }
+                if (different != null) {
+                    return disagreement(different, handler);
+                }
+                unspecified = handler;
+            } else {
+                if (unspecified != null && !bodyCategory(unspecified).equals(bodyCategory(handler))) {
+                    return disagreement(unspecified, handler);
+                }
+                for (String value : handler.produces()) {
+                    String media = RestApiRuleHelp.normalizeMediaType(value);
+                    if (media.startsWith("!") || media.contains("*")) {
+                        continue;
+                    }
+                    ExceptionHandlerModel other = firstByMedia.putIfAbsent(media, handler);
+                    if (other != null && !bodyCategory(other).equals(bodyCategory(handler))) {
+                        return disagreement(other, handler);
+                    }
+                }
             }
         }
-        if (declaredSets.size() > 1) {
-            violations.add("Exception handlers declare " + declaredSets.size() + " different error media types: "
-                    + String.join("; ", declaredSets));
-        }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.pass(definition());
+    }
+
+    private RestApiRuleResultDto disagreement(ExceptionHandlerModel first, ExceptionHandlerModel second) {
+        return RestApiRuleSupport.fromViolations(
+                definition(),
+                List.of("Exception handlers have different error body declaration categories: "
+                        + bodyCategory(first) + " (" + simpleName(first.declaringClassName()) + "#" + first.methodName()
+                        + "); " + bodyCategory(second) + " (" + simpleName(second.declaringClassName()) + "#"
+                        + second.methodName() + ")"));
     }
 
     /**
@@ -89,7 +102,7 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
             case ErrorBodyCategory.STRING -> "raw string";
             case ErrorBodyCategory.DYNAMIC -> "untyped map/object";
             case ErrorBodyCategory.EMPTY -> "no body";
-            case ErrorBodyCategory.CUSTOM_OBJECT -> "custom object (" + simpleName(handler.bodyTypeName()) + ")";
+            case ErrorBodyCategory.CUSTOM_OBJECT -> "custom object";
             default -> "unresolved";
         };
     }

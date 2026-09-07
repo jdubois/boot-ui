@@ -1,8 +1,11 @@
 // @ts-check
 import {expect, test} from '@playwright/test'
+import {registerAdvisorScoringTests} from '../scenarios/advisor-scoring.js'
 
 const UI_PATH = '/host/dev-console'
 const API_PATH = '/host/internal/bootui-api'
+
+registerAdvisorScoringTests(test, expect, {uiPath: UI_PATH, apiPath: API_PATH})
 
 test('loads the SPA and assets only from the configured path', async ({page, request}) => {
   const response = await page.goto(`${UI_PATH}/`)

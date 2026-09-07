@@ -113,6 +113,51 @@ describe('Vulnerabilities', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(['INCOMPLETE', 'UNAVAILABLE', undefined])('withholds scores for %s inventory coverage', async (status) => {
+    const {wrapper} = await mountWithReports([report([], 0, 'SCANNED', {coverage: status ? coverage({status}) : null})])
+    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
+    expect(wrapper.find('.advisor-score-card').text()).toContain('Incomplete')
+    expect(wrapper.find('.advisor-score-card').text()).toContain('coverage')
+  })
+
+  it('recomputes the score after dismissing and restoring an UNKNOWN finding', async () => {
+    const unknown = vulnerability('GHSA-unknown', 'UNKNOWN')
+    const active = report([dependency('org.example:sample', '1.0', [unknown], 'UNKNOWN')], 1, 'SCANNED', {
+      severityCounts: [
+        {severity: 'UNKNOWN', count: 1},
+        {severity: 'NONE', count: 1}
+      ]
+    })
+    const dismissed = report(
+      [dependency('org.example:sample', '1.0', [{...unknown, dismissed: true}], 'NONE')],
+      0,
+      'SCANNED',
+      {
+        severityCounts: [
+          {severity: 'UNKNOWN', count: 0},
+          {severity: 'NONE', count: 1}
+        ]
+      }
+    )
+    const {wrapper, fetchMock} = await mountWithReports([active, dismissed, active])
+    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Active findings have unknown severity')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'Dismiss')
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.advisor-summary__value').text()).toBe('100')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'Restore')
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
+    expect(wrapper.text()).toContain('GHSA-unknown')
+    expect(fetchMock.mock.calls.some(([url]) => url.includes('/scan'))).toBe(false)
+  })
+
   it('retains dependency results and shows a warning when an OSV scan is already active', async () => {
     const existing = report([dependency('org.example:sample', '1.0.0', [], 'NONE')])
     const busy = {
