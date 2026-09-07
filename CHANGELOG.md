@@ -74,6 +74,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Overview now discovers cached advisor reports from panel and agent scans.** Initial and return navigation read
+  supported, enabled advisors without starting scans or external queries. Incomplete findings remain visible without
+  invented scores, explicit `NOT_SCANNED` responses clear old scan display after a restart, and dismissal/restore
+  refreshes retain the existing in-flight scan protections ([#986](https://github.com/jdubois/boot-ui/issues/986)).
+
 - **Panel navigation now recovers from stale UI assets after a backend rebuild.** Missing lazy-loaded JavaScript or
   stylesheets show an explicit **Reload BootUI** action instead of silently leaving navigation stuck or blank.
   Recovery preserves the intended route and custom mount, warns before discarding unsaved input, and never refreshes
