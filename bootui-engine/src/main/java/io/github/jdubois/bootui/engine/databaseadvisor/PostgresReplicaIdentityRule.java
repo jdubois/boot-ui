@@ -4,23 +4,7 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * PostgreSQL-specific: a table actually in scope for logical replication — an explicit
- * {@code pg_publication_rel} member, or implicitly included because some publication is declared
- * {@code FOR ALL TABLES} — with no usable replica identity. {@code UPDATE}/{@code DELETE} against such a
- * table fails outright once a subscriber attaches: {@code "cannot update/delete from table ... because it
- * does not have a replica identity and publishes updates or deletes"}.
- *
- * <p>Applicability is deliberately narrow: a table is only a candidate here when it is genuinely reachable
- * through a publication. Flagging every primary-key-less table for a replication feature the database may not
- * even have configured would be noise on the overwhelming majority of development databases, which use no
- * logical replication at all — that is why this is a dedicated rule rather than a variant of {@code
- * DB-SCHEMA-001}.</p>
- *
- * <p>{@code pg_class.relreplident} is only unusable in two shapes: {@code n} (explicitly {@code NOTHING}), or
- * the default ({@code d}) on a table with no primary key, which silently degrades to the same thing. {@code f}
- * (full row) and {@code i} (a specific unique index) are always usable and never flagged.</p>
- */
+/** Expanded publication membership determines which relation's replica identity is required. */
 final class PostgresReplicaIdentityRule extends AbstractDatabaseAdvisorRule {
 
     PostgresReplicaIdentityRule() {
@@ -29,59 +13,66 @@ final class PostgresReplicaIdentityRule extends AbstractDatabaseAdvisorRule {
                 "PostgreSQL table lacking usable replica identity",
                 DatabaseAdvisorCategory.SCHEMA,
                 DatabaseAdvisorRuleSupport.MEDIUM,
-                "Detects a table reachable through a publication (pg_publication_rel, or any FOR ALL TABLES "
-                        + "publication) whose pg_class.relreplident is NOTHING, or DEFAULT with no primary key — "
-                        + "both of which resolve to no usable replica identity.",
-                "Add a primary key (restores the DEFAULT replica identity), or set one explicitly with ALTER "
-                        + "TABLE ... REPLICA IDENTITY FULL/USING INDEX .... Without a usable replica identity, "
-                        + "UPDATE/DELETE against this table fails outright once a logical replication subscriber "
-                        + "attaches.",
-                "https://www.postgresql.org/docs/current/sql-altertable.html#SQL-ALTERTABLE-REPLICA-IDENTITY"));
+                "Detects missing replica identity for expanded explicit/all-table/schema publication membership "
+                        + "that publishes UPDATE or DELETE, respecting partition-root publication behavior.",
+                "Review the publication's UPDATE/DELETE requirements and choose a suitable primary key, eligible "
+                        + "replica identity index, or FULL identity after considering its replication cost. "
+                        + "Published UPDATE/DELETE operations can fail without identity even with no subscriber attached.",
+                "https://www.postgresql.org/docs/current/logical-replication-publication.html"));
     }
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.schemasOf(Dialect.POSTGRESQL);
-        String skipReason = VendorRuleSupport.skipReason(
+        String reason = VendorRuleSupport.skipReason(
                 schemas,
                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
                 "No PostgreSQL datasource was detected.");
-        if (skipReason != null) {
-            return skipped(skipReason);
+        if (reason != null) {
+            return skipped(reason);
         }
         List<String> details = new ArrayList<>();
+        int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
-            if (!VendorRuleSupport.available(schema, VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES)) {
-                continue;
-            }
+            VendorRuleSupport.coverage(
+                    context, definition().id(), schema, VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES);
             for (PostgresReplicaIdentityCandidate candidate :
                     schema.vendorFindings().findings(VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES)) {
-                checkCandidate(schema, candidate, details);
+                if (candidate.replicaIdentity() == null
+                        || !List.of("d", "n", "f", "i").contains(candidate.replicaIdentity())) {
+                    unknown(context, candidate.qualifiedTable() + ": replica identity is unknown.");
+                    continue;
+                }
+                boolean missing = candidate.nothing();
+                if (candidate.usesDefault()) {
+                    TableModel table = schema.table(null, candidate.schema(), candidate.table());
+                    if (table == null || !table.metadata().primaryKeyRead()) {
+                        unknown(
+                                context,
+                                candidate.qualifiedTable() + ": DEFAULT identity needs complete primary-key metadata.");
+                        continue;
+                    }
+                    missing = table.primaryKeyColumns().isEmpty();
+                } else if ("i".equals(candidate.replicaIdentity())) {
+                    if (candidate.hasIdentityIndex() == null) {
+                        unknown(context, candidate.qualifiedTable() + ": selected identity index state is unknown.");
+                        continue;
+                    }
+                    missing = !candidate.hasIdentityIndex();
+                }
+                eligible++;
+                if (missing) {
+                    details.add(schema.dataSourceName() + ": " + candidate.qualifiedTable()
+                            + " publishes UPDATE/DELETE but has no usable replica identity ("
+                            + (candidate.nothing()
+                                    ? "NOTHING"
+                                    : candidate.usesDefault()
+                                            ? "DEFAULT with no primary key"
+                                            : "selected index not usable")
+                            + "). Subscriber attachment is not required for affected writes to fail.");
+                }
             }
         }
-        return violation(details);
-    }
-
-    private void checkCandidate(
-            SchemaSnapshot schema, PostgresReplicaIdentityCandidate candidate, List<String> details) {
-        TableModel table = schema.table(null, candidate.schema(), candidate.table());
-        if (table == null
-                || table.extensionOwned()
-                || table.partitionChild()
-                || !table.metadata().primaryKeyRead()) {
-            // Not one of our own analyzable tables (unreadable, extension-owned, or a partition child whose
-            // structure is analyzed through its parent), or the candidate resolved to no known table at all.
-            return;
-        }
-        boolean usable = !candidate.nothing()
-                && (!candidate.usesDefault() || !table.primaryKeyColumns().isEmpty());
-        if (usable) {
-            return;
-        }
-        String reason = candidate.nothing()
-                ? "REPLICA IDENTITY is explicitly NOTHING"
-                : "REPLICA IDENTITY is DEFAULT but the table has no primary key";
-        details.add(schema.dataSourceName() + ": " + candidate.qualifiedTable() + " is published for logical "
-                + "replication, but " + reason + ", so it has no usable replica identity.");
+        return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 }

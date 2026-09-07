@@ -8,8 +8,9 @@ import java.util.List;
  * {@code QuarkusSecurityScanner} to evaluate the Quarkus-native ruleset (see {@code docs/QUARKUS-CHECKS.md}).
  *
  * <p>This carries only neutral values (booleans, strings, counts, and {@link QuarkusSecurityPermission}
- * records) so it never leaks an {@code io.quarkus.*} or framework type into the engine. All fields fail
- * safe: an unknown value is rendered as absent rather than throwing.</p>
+ * records) so it never leaks an {@code io.quarkus.*} or framework type into the engine. The internal
+ * {@code evidence} carrier distinguishes unsupported and failed observations; primitive fallback values
+ * must never be interpreted without their rule completeness.</p>
  *
  * @param oidcConfigured whether {@code quarkus-oidc} is configured with an auth-server URL, public key, or
  *     certificate chain
@@ -65,7 +66,7 @@ import java.util.List;
  * @param jdbcClearPasswordMapperEnabled whether a JDBC principal-query uses the clear-password mapper
  * @param embeddedUsersEnabled whether {@code quarkus.security.users.embedded.enabled=true}
  * @param jwtAudiencesConfigured whether {@code mp.jwt.verify.audiences} is configured
- * @param jwtInlinePublicKey whether {@code mp.jwt.verify.publickey} holds a static inline key (never rotates)
+ * @param jwtInlinePublicKey whether {@code mp.jwt.verify.publickey} selects a static trust anchor that may rotate out of band
  * @param referrerPolicyHeader whether a Referrer-Policy response header is configured
  * @param permissionsPolicyHeader whether a Permissions-Policy response header is configured
  * @param nonApplicationRootPath the effective {@code quarkus.http.non-application-root-path} (health/metrics/
@@ -83,10 +84,8 @@ import java.util.List;
  * @param formCookieHttpOnly whether the form-auth cookie has {@code http-only-cookie} set (Quarkus defaults
  *     this to {@code false}, unlike most frameworks)
  * @param formCookieSameSiteNone whether the form-auth cookie's {@code cookie-same-site} was weakened to {@code none}
- * @param formSessionTimeoutExcessive whether the form-auth session {@code timeout} exceeds a sane bound (8h)
- * @param oidcHasClientSecret whether an OIDC client secret is configured ({@code quarkus.oidc.credentials.secret}
- *     or {@code quarkus.oidc.credentials.client-secret.value}), i.e. this is a confidential rather than a
- *     public client
+ * @param formSessionTimeoutExcessive whether the form-auth idle {@code timeout} reaches the eight-hour review threshold
+ * @param oidcHasClientSecret whether supported client-credential, provider or JWT client-auth metadata is declared
  * @param oidcPkceRequired whether {@code quarkus.oidc.authentication.pkce-required=true}
  * @param healthUiAlwaysInclude whether {@code quarkus.smallrye-health.ui.always-include=true}
  * @param insecureIdentityProviderUrl whether a configured OIDC auth-server or remote JWT key URL uses plain HTTP
@@ -98,6 +97,7 @@ import java.util.List;
  * @param quarkusAuthorizationAnnotationCount number of {@code @PermissionsAllowed}/{@code @AuthorizationPolicy}
  *     sites in application classes
  * @param defaultRolesAllowed whether a default role requirement protects otherwise-unannotated JAX-RS endpoints
+ * @param evidence internal completeness and direct endpoint declarations, not part of the public report DTO
  */
 public record QuarkusSecuritySnapshot(
         boolean oidcConfigured,
@@ -167,9 +167,11 @@ public record QuarkusSecuritySnapshot(
         List<String> tlsHostnameVerificationDisabled,
         boolean nonApplicationRootPathMerged,
         int quarkusAuthorizationAnnotationCount,
-        boolean defaultRolesAllowed) {
+        boolean defaultRolesAllowed,
+        QuarkusSecurityEvidence evidence) {
 
     public QuarkusSecuritySnapshot {
+        evidence = evidence == null ? QuarkusSecurityEvidence.LEGACY : evidence;
         permissions = permissions == null ? List.of() : List.copyOf(permissions);
         suspectedSecretKeys = suspectedSecretKeys == null ? List.of() : List.copyOf(suspectedSecretKeys);
         oidcApplicationType = oidcApplicationType == null ? "" : oidcApplicationType;
@@ -179,6 +181,147 @@ public record QuarkusSecuritySnapshot(
                 insecureMessagingChannels == null ? List.of() : List.copyOf(insecureMessagingChannels);
         tlsHostnameVerificationDisabled =
                 tlsHostnameVerificationDisabled == null ? List.of() : List.copyOf(tlsHostnameVerificationDisabled);
+    }
+
+    public QuarkusSecuritySnapshot(
+            boolean oidcConfigured,
+            boolean jwtConfigured,
+            boolean basicAuth,
+            boolean formAuth,
+            boolean mtls,
+            String insecureRequests,
+            boolean sslConfigured,
+            boolean corsEnabled,
+            String corsOrigins,
+            boolean corsCredentials,
+            boolean hstsHeader,
+            boolean cspHeader,
+            boolean oidcTlsVerificationNone,
+            boolean swaggerUiAlwaysInclude,
+            boolean openApiAlwaysInclude,
+            boolean csrfPresent,
+            List<QuarkusSecurityPermission> permissions,
+            int rolesAllowedCount,
+            int permitAllCount,
+            int denyAllCount,
+            int authenticatedCount,
+            int endpointCount,
+            int securedEndpointCount,
+            List<String> suspectedSecretKeys,
+            boolean behindProxy,
+            boolean jwtIssuerConfigured,
+            boolean proactiveAuthDisabled,
+            boolean oidcAudienceConfigured,
+            String oidcApplicationType,
+            boolean oidcCookieForceSecure,
+            boolean tlsTrustAll,
+            String corsMethods,
+            String corsHeaders,
+            String hstsHeaderValue,
+            String cspHeaderValue,
+            boolean xFrameOptionsHeader,
+            boolean xContentTypeOptionsHeader,
+            boolean denyUnannotatedEndpoints,
+            boolean managementEnabled,
+            boolean managementHostNonLoopback,
+            boolean managementHostUnpinnedForProd,
+            boolean jwtAlgorithmUnpinnedForRemoteJwks,
+            boolean jdbcClearPasswordMapperEnabled,
+            boolean embeddedUsersEnabled,
+            boolean jwtAudiencesConfigured,
+            boolean jwtInlinePublicKey,
+            boolean referrerPolicyHeader,
+            boolean permissionsPolicyHeader,
+            String nonApplicationRootPath,
+            boolean grpcReflectionEnabledInProd,
+            boolean graphqlPresent,
+            boolean graphqlIntrospectionEnabled,
+            boolean graphqlUiAlwaysInclude,
+            List<String> insecureMessagingChannels,
+            boolean formCookieHttpOnly,
+            boolean formCookieSameSiteNone,
+            boolean formSessionTimeoutExcessive,
+            boolean oidcHasClientSecret,
+            boolean oidcPkceRequired,
+            boolean healthUiAlwaysInclude,
+            boolean insecureIdentityProviderUrl,
+            boolean oidcIssuerAny,
+            boolean oidcServiceTokenConsumer,
+            boolean embeddedUsersPlainText,
+            List<String> tlsHostnameVerificationDisabled,
+            boolean nonApplicationRootPathMerged,
+            int quarkusAuthorizationAnnotationCount,
+            boolean defaultRolesAllowed) {
+        this(
+                oidcConfigured,
+                jwtConfigured,
+                basicAuth,
+                formAuth,
+                mtls,
+                insecureRequests,
+                sslConfigured,
+                corsEnabled,
+                corsOrigins,
+                corsCredentials,
+                hstsHeader,
+                cspHeader,
+                oidcTlsVerificationNone,
+                swaggerUiAlwaysInclude,
+                openApiAlwaysInclude,
+                csrfPresent,
+                permissions,
+                rolesAllowedCount,
+                permitAllCount,
+                denyAllCount,
+                authenticatedCount,
+                endpointCount,
+                securedEndpointCount,
+                suspectedSecretKeys,
+                behindProxy,
+                jwtIssuerConfigured,
+                proactiveAuthDisabled,
+                oidcAudienceConfigured,
+                oidcApplicationType,
+                oidcCookieForceSecure,
+                tlsTrustAll,
+                corsMethods,
+                corsHeaders,
+                hstsHeaderValue,
+                cspHeaderValue,
+                xFrameOptionsHeader,
+                xContentTypeOptionsHeader,
+                denyUnannotatedEndpoints,
+                managementEnabled,
+                managementHostNonLoopback,
+                managementHostUnpinnedForProd,
+                jwtAlgorithmUnpinnedForRemoteJwks,
+                jdbcClearPasswordMapperEnabled,
+                embeddedUsersEnabled,
+                jwtAudiencesConfigured,
+                jwtInlinePublicKey,
+                referrerPolicyHeader,
+                permissionsPolicyHeader,
+                nonApplicationRootPath,
+                grpcReflectionEnabledInProd,
+                graphqlPresent,
+                graphqlIntrospectionEnabled,
+                graphqlUiAlwaysInclude,
+                insecureMessagingChannels,
+                formCookieHttpOnly,
+                formCookieSameSiteNone,
+                formSessionTimeoutExcessive,
+                oidcHasClientSecret,
+                oidcPkceRequired,
+                healthUiAlwaysInclude,
+                insecureIdentityProviderUrl,
+                oidcIssuerAny,
+                oidcServiceTokenConsumer,
+                embeddedUsersPlainText,
+                tlsHostnameVerificationDisabled,
+                nonApplicationRootPathMerged,
+                quarkusAuthorizationAnnotationCount,
+                defaultRolesAllowed,
+                QuarkusSecurityEvidence.LEGACY);
     }
 
     public QuarkusSecuritySnapshot(

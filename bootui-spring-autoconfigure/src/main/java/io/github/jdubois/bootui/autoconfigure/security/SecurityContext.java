@@ -10,7 +10,6 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
-import org.springframework.boot.env.ConfigTreePropertySource;
 import org.springframework.boot.env.DefaultPropertiesPropertySource;
 import org.springframework.boot.env.RandomValuePropertySource;
 import org.springframework.core.env.ConfigurableEnvironment;
@@ -39,8 +38,77 @@ record SecurityContext(
         List<String> opaqueTokenIntrospectorTypes,
         boolean generatedUserDetailsManagerPresent,
         boolean securityDebugFilterPresent,
-        Environment environment) {
+        Environment environment,
+        Evidence evidence) {
+    record Operation(String endpoint, String method, String path, String defaultAccess) {
+        Operation(String endpoint, String method, String path) {
+            this(
+                    endpoint,
+                    method,
+                    path,
+                    endpoint.equals("shutdown") || endpoint.equals("heapdump") ? "none" : "unrestricted");
+        }
+    }
+
+    record Evidence(
+            List<Operation> operations,
+            boolean operationsKnown,
+            boolean bootManagedJwt,
+            Set<String> enabledMethodFamilies,
+            Set<String> usedMethodFamilies,
+            boolean methodFamiliesKnown) {
+        Evidence {
+            operations = List.copyOf(operations);
+            enabledMethodFamilies = Set.copyOf(enabledMethodFamilies);
+            usedMethodFamilies = Set.copyOf(usedMethodFamilies);
+        }
+    }
+
+    SecurityContext(
+            List<FilterChainModel> chains,
+            List<PasswordEncoderModel> passwordEncoders,
+            List<CorsConfigModel> corsConfigs,
+            boolean corsSourcePresent,
+            List<String> jwtDecoderTypes,
+            boolean methodSecurityEnabled,
+            boolean globalMethodSecurityLegacyPresent,
+            boolean methodSecurityAnnotationsPresent,
+            boolean customCorsSourcePresent,
+            List<String> oauth2TokenValidatorTypes,
+            boolean strictHttpFirewallWeakened,
+            boolean hideUserNotFoundExceptionsDisabled,
+            List<String> opaqueTokenIntrospectorTypes,
+            boolean generatedUserDetailsManagerPresent,
+            boolean securityDebugFilterPresent,
+            Environment environment) {
+        this(
+                chains,
+                passwordEncoders,
+                corsConfigs,
+                corsSourcePresent,
+                jwtDecoderTypes,
+                methodSecurityEnabled,
+                globalMethodSecurityLegacyPresent,
+                methodSecurityAnnotationsPresent,
+                customCorsSourcePresent,
+                oauth2TokenValidatorTypes,
+                strictHttpFirewallWeakened,
+                hideUserNotFoundExceptionsDisabled,
+                opaqueTokenIntrospectorTypes,
+                generatedUserDetailsManagerPresent,
+                securityDebugFilterPresent,
+                environment,
+                new Evidence(
+                        List.of(),
+                        false,
+                        false,
+                        methodSecurityEnabled ? Set.of("pre-post", "secured", "jsr250") : Set.of(),
+                        methodSecurityAnnotationsPresent ? Set.of("pre-post") : Set.of(),
+                        true));
+    }
+
     SecurityContext {
+        environment = SecurityEnvironmentSnapshot.capture(environment);
         chains = List.copyOf(chains);
         passwordEncoders = List.copyOf(passwordEncoders);
         corsConfigs = List.copyOf(corsConfigs);
@@ -98,15 +166,10 @@ record SecurityContext(
     }
 
     /**
-     * {@code true} when the application configures (or is expected to run behind) TLS: server-side
-     * SSL is configured, a forwarded-headers strategy indicates TLS is terminated upstream, or a
-     * chain installs an HTTPS-redirect filter.
+     * Local TLS configuration or supported chain-local redirect intent, not proof of deployed transport.
      */
     boolean isTlsConfigured() {
-        if (isGlobalTlsConfigured()) {
-            return true;
-        }
-        return chains.stream().anyMatch(SecurityContext::hasHttpsRedirect);
+        return isGlobalTlsConfigured() || !chains.isEmpty() && chains.stream().allMatch(this::hasHttpsRedirect);
     }
 
     boolean isTlsConfiguredFor(FilterChainModel chain) {
@@ -114,21 +177,19 @@ record SecurityContext(
     }
 
     private boolean isGlobalTlsConfigured() {
+        if (isPropertyFalse("server.ssl.enabled")) return false;
         if (isPropertyTrue("server.ssl.enabled")
                 || firstProperty("server.ssl.key-store") != null
                 || firstProperty("server.ssl.bundle") != null
                 || firstProperty("server.ssl.certificate") != null) {
             return true;
         }
-        String forwarded = firstProperty("server.forward-headers-strategy");
-        if (forwarded != null && ("framework".equalsIgnoreCase(forwarded) || "native".equalsIgnoreCase(forwarded))) {
-            return true;
-        }
         return false;
     }
 
-    private static boolean hasHttpsRedirect(FilterChainModel chain) {
-        return chain.hasFilter("ChannelProcessingFilter") || chain.hasFilter("HttpsRedirectFilter");
+    private boolean hasHttpsRedirect(FilterChainModel chain) {
+        String port = firstProperty("server.port");
+        return chain.details().httpsRedirect() && (port == null || port.equals("80") || port.equals("8080"));
     }
 
     /**
@@ -161,25 +222,12 @@ record SecurityContext(
      * {@code SEC-ACT-001} already raises for that exact (unhardened) case.
      */
     Set<String> effectiveSensitiveActuatorExposure() {
-        String include = firstHostProperty("management.endpoints.web.exposure.include");
-        if (include == null) {
-            return Set.of();
-        }
-        String normalized = include.trim();
-        Set<String> excluded = tokenize(firstHostProperty("management.endpoints.web.exposure.exclude"));
-        boolean wildcardInclude = normalized.equals("*");
-        if (wildcardInclude && excluded.isEmpty()) {
-            return Set.of();
-        }
-        Set<String> included = wildcardInclude ? Set.of() : tokenize(normalized);
-        Set<String> exposed = new LinkedHashSet<>();
-        for (String sensitive : SENSITIVE_ACTUATOR_ENDPOINTS) {
-            boolean isIncluded = wildcardInclude || included.contains(sensitive);
-            if (isIncluded && !excluded.contains(sensitive)) {
-                exposed.add(sensitive);
-            }
-        }
-        return exposed;
+        Set<String> selected = actuator().sensitiveEndpoints();
+        if (!evidence.operationsKnown()) return selected;
+        return evidence.operations().stream()
+                .map(Operation::endpoint)
+                .filter(selected::contains)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     /**
@@ -188,38 +236,38 @@ record SecurityContext(
      * basics are reachable" regardless of which specific sensitive endpoint is involved.
      */
     boolean exposesBeyondHealthAndInfo() {
-        String include = firstHostProperty("management.endpoints.web.exposure.include");
-        if (include == null) {
-            return false;
+        Set<String> selected = actuator().exposedEndpoints();
+        if (evidence.operationsKnown()) {
+            return evidence.operations().stream()
+                    .anyMatch(operation -> !operation.endpoint().equals("health")
+                            && !operation.endpoint().equals("info")
+                            && selectedOperation(operation));
         }
-        String normalized = include.toLowerCase(Locale.ROOT).trim();
-        Set<String> excluded = tokenize(firstHostProperty("management.endpoints.web.exposure.exclude"));
-        if (normalized.equals("*")) {
-            if (excluded.isEmpty()) {
-                return true;
-            }
-            return !excluded.containsAll(SENSITIVE_ACTUATOR_ENDPOINTS);
-        }
-        for (String token : normalized.split(",")) {
-            String trimmed = token.trim();
-            if (trimmed.isEmpty() || trimmed.equals("health") || trimmed.equals("info")) {
-                continue;
-            }
-            if (!excluded.contains(trimmed)) {
-                return true;
-            }
-        }
-        return false;
+        return selected.stream().anyMatch(id -> !id.equals("health") && !id.equals("info"));
+    }
+
+    SecurityActuatorObservation.Snapshot actuator() {
+        return SecurityActuatorObservation.observe(environment);
+    }
+
+    boolean observedEndpoint(String id) {
+        return evidence.operations().stream()
+                .anyMatch(operation -> operation.endpoint().equals(id));
+    }
+
+    boolean selectedOperation(Operation operation) {
+        return SecurityActuatorObservation.permitsOperation(
+                environment, operation.endpoint(), operation.method(), operation.defaultAccess());
     }
 
     /**
      * The configured actuator base path ({@code management.endpoints.web.base-path}), falling back to
      * Spring Boot's own {@code /actuator} default. Resolved from the {@link Environment} so the
-     * scanner (which probes the path while building chain models) and the rules that report on it
-     * always agree.
+     * rules can describe host configuration consistently with the native operation inventory.
      */
     static String actuatorBasePath(Environment environment) {
-        String base = environment == null ? null : environment.getProperty("management.endpoints.web.base-path");
+        String base =
+                SecurityEnvironmentSnapshot.capture(environment).getProperty("management.endpoints.web.base-path");
         return (base == null || base.isBlank()) ? "/actuator" : base.trim();
     }
 
@@ -248,12 +296,15 @@ record SecurityContext(
     }
 
     String firstHostProperty(String... keys) {
-        return BootUiContributedProperties.firstHostProperty(environment, keys);
+        return SecurityEnvironmentSnapshot.supportedText(
+                BootUiContributedProperties.firstHostProperty(environment, keys));
     }
 
     String[] activeProfiles() {
         try {
             return environment.getActiveProfiles();
+        } catch (SecurityActuatorObservation.ObservationLimitException ex) {
+            throw ex;
         } catch (RuntimeException ex) {
             return new String[0];
         }
@@ -278,7 +329,8 @@ record SecurityContext(
     }
 
     private static final Pattern SUSPECTED_SECRET_KEY = Pattern.compile(
-            ".*(password|passwd|secret|token|api-?key|client-secret|private-key).*", Pattern.CASE_INSENSITIVE);
+            ".*(?:^|[.-])(password|passwd|secret|token|api-?key|secret-key|client-secret|private-key)$",
+            Pattern.CASE_INSENSITIVE);
 
     /**
      * Key suffixes that indicate a property configures the <em>lifetime</em> or <em>shape</em> of a
@@ -305,14 +357,41 @@ record SecurityContext(
             return Set.of();
         }
         Set<String> found = new LinkedHashSet<>();
+        Set<String> shadowed = new LinkedHashSet<>();
+        int sourceCount = 0;
+        boolean opaqueHigherSource = false;
         for (PropertySource<?> propertySource : configurableEnvironment.getPropertySources()) {
+            if (++sourceCount > 128) throw new SecurityRuleSupport.IncompleteObservationException();
+            if (ConfigurationPropertySources.isAttachedConfigurationPropertySource(propertySource)) continue;
             if (!isScannableConfigSource(propertySource)) {
+                String type = propertySource.getClass().getName();
+                if (Set.of(
+                                        "org.springframework.core.env.MapPropertySource",
+                                        "org.springframework.core.env.PropertiesPropertySource",
+                                        "org.springframework.core.env.SystemEnvironmentPropertySource",
+                                        "org.springframework.mock.env.MockPropertySource",
+                                        "org.springframework.boot.env.OriginTrackedMapPropertySource")
+                                .contains(type)
+                        && propertySource.getSource() instanceof java.util.Map<?, ?> values) {
+                    if (values.size() > 5000) throw new SecurityRuleSupport.IncompleteObservationException();
+                    for (Object key : values.keySet()) {
+                        if (key instanceof String name) {
+                            shadowed.add(name);
+                            shadowed.add(name.toLowerCase(Locale.ROOT).replace('_', '.'));
+                        }
+                    }
+                } else if (!(propertySource instanceof RandomValuePropertySource)
+                        && !(propertySource instanceof PropertySource.StubPropertySource)) {
+                    opaqueHigherSource = true;
+                }
                 continue;
             }
             if (!(propertySource instanceof EnumerablePropertySource<?> enumerable)) {
                 continue;
             }
-            for (String name : enumerable.getPropertyNames()) {
+            String[] names = enumerable.getPropertyNames();
+            if (names.length > 5000) throw new SecurityRuleSupport.IncompleteObservationException();
+            for (String name : names) {
                 if (name == null
                         || name.isBlank()
                         || name.toLowerCase(Locale.ROOT).startsWith("bootui.")) {
@@ -322,6 +401,8 @@ record SecurityContext(
                         || NON_SECRET_VALUE_KEY_SUFFIX.matcher(name).matches()) {
                     continue;
                 }
+                if (!shadowed.add(name)) continue;
+                if (opaqueHigherSource) continue;
                 Object rawValue = propertySource.getProperty(name);
                 if (!(rawValue instanceof String text) || text.isBlank() || text.contains("${")) {
                     continue;
@@ -343,6 +424,56 @@ record SecurityContext(
                 || DefaultPropertiesPropertySource.NAME.equals(name)) {
             return false;
         }
-        return !(propertySource instanceof ConfigTreePropertySource);
+        return propertySource.getClass() == org.springframework.boot.env.OriginTrackedMapPropertySource.class
+                && name.startsWith("Config resource 'class path resource");
+    }
+
+    boolean secretObservationComplete() {
+        if (!(environment instanceof ConfigurableEnvironment configurable)) return false;
+        int count = 0;
+        for (PropertySource<?> source : configurable.getPropertySources()) {
+            if (++count > 128) return false;
+            if (ConfigurationPropertySources.isAttachedConfigurationPropertySource(source)) continue;
+            if (source instanceof PropertySource.StubPropertySource || source instanceof RandomValuePropertySource)
+                continue;
+            if (!Set.of(
+                            "org.springframework.core.env.MapPropertySource",
+                            "org.springframework.core.env.PropertiesPropertySource",
+                            "org.springframework.core.env.SystemEnvironmentPropertySource",
+                            "org.springframework.mock.env.MockPropertySource",
+                            "org.springframework.boot.env.OriginTrackedMapPropertySource")
+                    .contains(source.getClass().getName())) return false;
+        }
+        return true;
+    }
+
+    Set<String> securityLoggerNames() {
+        Set<String> names = new LinkedHashSet<>(List.of(
+                "org.springframework.security",
+                "org.springframework.security.web",
+                "org.springframework.security.authentication",
+                "org.springframework.security.authorization",
+                "org.springframework.security.oauth2"));
+        if (!(environment instanceof ConfigurableEnvironment configurable)) return names;
+        int sources = 0;
+        for (PropertySource<?> source : configurable.getPropertySources()) {
+            if (++sources > 128) throw new SecurityRuleSupport.IncompleteObservationException();
+            String type = source.getClass().getName();
+            if (!Set.of(
+                                    "org.springframework.core.env.MapPropertySource",
+                                    "org.springframework.core.env.PropertiesPropertySource",
+                                    "org.springframework.boot.env.OriginTrackedMapPropertySource",
+                                    "org.springframework.mock.env.MockPropertySource")
+                            .contains(type)
+                    || !(source.getSource() instanceof java.util.Map<?, ?> map)) continue;
+            if (map.size() > 5000) throw new SecurityRuleSupport.IncompleteObservationException();
+            for (Object key : map.keySet()) {
+                if (key instanceof String name
+                        && name.startsWith("logging.level.org.springframework.security.")
+                        && name.length() <= 300) names.add(name.substring("logging.level.".length()));
+                if (names.size() > 256) throw new SecurityRuleSupport.IncompleteObservationException();
+            }
+        }
+        return Set.copyOf(names);
     }
 }

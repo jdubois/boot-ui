@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.engine.vulnerabilities;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -10,6 +12,8 @@ import org.junit.jupiter.api.Test;
  * specifications' worked/edge cases -- not just internally-consistent arithmetic.
  */
 class CvssV3BaseScoreTests {
+
+    private static final String BASE_METRICS = "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H";
 
     @Test
     void matchesNvdPublishedScoreForCve202011619ScopeUnchanged() {
@@ -118,6 +122,73 @@ class CvssV3BaseScoreTests {
     @Test
     void returnsNullWhenASegmentContainsMoreThanOneColon() {
         assertThat(CvssV3BaseScore.baseScore("CVSS:3.1/AV:N:EXTRA/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))
+                .isNull();
+    }
+
+    @Test
+    void validatesEveryOptionalMetricValueWithoutChangingTheBaseScore() {
+        Map<String, String> optional = Map.ofEntries(
+                Map.entry("E", "XUPFH"),
+                Map.entry("RL", "XOTWU"),
+                Map.entry("RC", "XURC"),
+                Map.entry("CR", "XHML"),
+                Map.entry("IR", "XHML"),
+                Map.entry("AR", "XHML"),
+                Map.entry("MAV", "XNALP"),
+                Map.entry("MAC", "XLH"),
+                Map.entry("MPR", "XNLH"),
+                Map.entry("MUI", "XNR"),
+                Map.entry("MS", "XUC"),
+                Map.entry("MC", "XHLN"),
+                Map.entry("MI", "XHLN"),
+                Map.entry("MA", "XHLN"));
+
+        for (String prefix : List.of("CVSS:3.0/", "CVSS:3.1/")) {
+            for (Map.Entry<String, String> metric : optional.entrySet()) {
+                for (char value : metric.getValue().toCharArray()) {
+                    String vector = prefix + metric.getKey() + ":" + value + "/" + BASE_METRICS;
+                    assertThat(CvssV3BaseScore.baseScore(vector)).as(vector).isEqualTo(9.8d);
+                }
+                String invalid = prefix + BASE_METRICS + "/" + metric.getKey() + ":Z";
+                assertThat(CvssV3BaseScore.baseScore(invalid)).as(invalid).isNull();
+            }
+        }
+    }
+
+    @Test
+    void acceptsACompleteEnvironmentalVectorButStillComputesOnlyBaseMetrics() {
+        String optional = "/E:U/RL:O/RC:U/CR:L/IR:L/AR:L/MAV:P/MAC:H/MPR:H/MUI:R/MS:C/MC:N/MI:N/MA:N";
+
+        assertThat(CvssV3BaseScore.baseScore("CVSS:3.1/" + BASE_METRICS + optional))
+                .isEqualTo(9.8d);
+        assertThat(CvssV3BaseScore.baseScore("CVSS:3.0/" + BASE_METRICS + optional))
+                .isEqualTo(9.8d);
+    }
+
+    @Test
+    void rejectsEmptySegmentsUnknownMetricsMalformedOptionalValuesAndDuplicates() {
+        for (String vector : List.of(
+                "CVSS:3.1/" + BASE_METRICS + "/",
+                "CVSS:3.1//" + BASE_METRICS,
+                "CVSS:3.1/" + BASE_METRICS.replace("/AC:", "//AC:"),
+                "CVSS:3.1/" + BASE_METRICS + "/UNKNOWN:N",
+                "CVSS:3.1/" + BASE_METRICS + "/E:",
+                "CVSS:3.1/" + BASE_METRICS + "/E:UP",
+                "CVSS:3.1/" + BASE_METRICS + "/E:p",
+                "CVSS:3.1/" + BASE_METRICS + "/E:P/E:H",
+                "CVSS:3.1/" + BASE_METRICS + "/E:P:extra",
+                "CVSS:3.1/" + BASE_METRICS + "/MS:H",
+                "CVSS:3.1/" + BASE_METRICS + "/RL:O ",
+                "CVSS:3.1/")) {
+            assertThat(CvssV3BaseScore.baseScore(vector)).as(vector).isNull();
+        }
+    }
+
+    @Test
+    void optionalMetricsCannotSubstituteForMissingBaseMetrics() {
+        assertThat(CvssV3BaseScore.baseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/MA:H"))
+                .isNull();
+        assertThat(CvssV3BaseScore.baseScore("CVSS:3.1/" + BASE_METRICS.replace("AV:N", "AV:X")))
                 .isNull();
     }
 }

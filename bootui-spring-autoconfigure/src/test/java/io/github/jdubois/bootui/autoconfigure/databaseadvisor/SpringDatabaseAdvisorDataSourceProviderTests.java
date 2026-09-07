@@ -1,9 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.databaseadvisor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.io.PrintWriter;
 import java.sql.Connection;
@@ -14,6 +18,8 @@ import java.util.Map;
 import java.util.logging.Logger;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.BeanCreationException;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.jdbc.datasource.DelegatingDataSource;
@@ -150,6 +156,54 @@ class SpringDatabaseAdvisorDataSourceProviderTests {
         assertThat(providerFor(factory).dataSources())
                 .extracting(NamedDataSource::name)
                 .containsExactly("dataSource");
+    }
+
+    @Test
+    void retainsReadableCandidatesWhenAnotherBeanFails() {
+        ListableBeanFactory factory = mock();
+        ObjectProvider<ListableBeanFactory> factories = mock();
+        when(factories.getIfAvailable()).thenReturn(factory);
+        when(factory.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"broken", "healthy"});
+        when(factory.getBean("broken", DataSource.class)).thenThrow(new BeanCreationException("broken"));
+        DataSource healthy = new StubDataSource();
+        when(factory.getBean("healthy", DataSource.class)).thenReturn(healthy);
+        SpringDatabaseAdvisorDataSourceProvider provider = new SpringDatabaseAdvisorDataSourceProvider(factories);
+
+        DatabaseAdvisorDataSourceDiscovery discovery = provider.discover();
+
+        assertThat(discovery.dataSources()).containsExactly(new NamedDataSource("healthy", healthy));
+        assertThat(discovery.failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.name()).isEqualTo("broken");
+            assertThat(failure.message()).contains("could not be resolved");
+        });
+        assertThatThrownBy(provider::dataSources).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void beanEnumerationFailureIsNotAnEmptyInventory() {
+        ListableBeanFactory factory = mock();
+        ObjectProvider<ListableBeanFactory> factories = mock();
+        when(factories.getIfAvailable()).thenReturn(factory);
+        when(factory.getBeanNamesForType(DataSource.class)).thenThrow(new BeanCreationException("enumeration"));
+
+        assertThatThrownBy(new SpringDatabaseAdvisorDataSourceProvider(factories)::discover)
+                .isInstanceOf(BeanCreationException.class);
+    }
+
+    @Test
+    void includesASeparateRoutingDefaultWithoutOpeningConnections() {
+        DataSource primary = new StubDataSource();
+        DataSource replica = new StubDataSource();
+        DataSource fallback = new StubDataSource();
+        AbstractRoutingDataSource routing = routing(primary, replica);
+        routing.setDefaultTargetDataSource(fallback);
+        routing.afterPropertiesSet();
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("routing", routing);
+
+        assertThat(providerFor(factory).discover().dataSources())
+                .extracting(NamedDataSource::dataSource)
+                .containsExactly(primary, replica, fallback);
     }
 
     private static SqlTraceRecorder recorder() {

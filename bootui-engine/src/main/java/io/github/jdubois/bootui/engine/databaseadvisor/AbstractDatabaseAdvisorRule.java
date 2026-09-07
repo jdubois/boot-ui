@@ -39,4 +39,14 @@ abstract class AbstractDatabaseAdvisorRule implements DatabaseAdvisorRule {
     DatabaseAdvisorRuleResultDto violation(List<String> details) {
         return details.isEmpty() ? pass() : DatabaseAdvisorRuleSupport.violation(definition, details);
     }
+
+    void unknown(DatabaseAdvisorContext context, String reason) {
+        context.unknown(definition.id(), reason);
+    }
+
+    DatabaseAdvisorRuleResultDto assessed(DatabaseAdvisorContext context, int eligible, List<String> details) {
+        return eligible == 0 && details.isEmpty()
+                ? skipped("No applicable targets were available for this check.")
+                : violation(details);
+    }
 }

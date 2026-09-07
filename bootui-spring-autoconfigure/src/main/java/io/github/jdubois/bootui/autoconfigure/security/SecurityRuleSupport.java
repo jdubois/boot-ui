@@ -24,6 +24,12 @@ final class SecurityRuleSupport {
 
     private SecurityRuleSupport() {}
 
+    static final class IncompleteObservationException extends RuntimeException {
+        IncompleteObservationException() {
+            super("Unsupported or bounded configuration metadata.");
+        }
+    }
+
     static SecurityRuleResultDto pass(SecurityRuleDefinition definition) {
         return result(definition, PASS, 0, List.of());
     }

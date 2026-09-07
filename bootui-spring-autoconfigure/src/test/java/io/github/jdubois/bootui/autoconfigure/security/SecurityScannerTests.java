@@ -33,6 +33,7 @@ import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.authorization.ObservationAuthorizationManager;
+import org.springframework.security.authorization.SingleResultAuthorizationManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
@@ -55,7 +56,7 @@ import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 61;
+    private static final int RULE_COUNT = 54;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -97,27 +98,14 @@ class SecurityScannerTests {
 
         SecurityReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
         assertThat(report.rulesEvaluated()).isEqualTo(RULE_COUNT);
         assertThat(report.violationsFound()).isPositive();
         assertThat(report.violationsFound()).isEqualTo(report.results().size());
         assertThat(report.results())
                 .extracting(SecurityRuleResultDto::id)
-                .contains(
-                        "SEC-AUTH-003",
-                        "SEC-AUTH-004",
-                        "SEC-AUTHZ-002",
-                        "SEC-CSRF-001",
-                        "SEC-SESSION-001",
-                        "SEC-HEAD-002",
-                        "SEC-HEAD-005",
-                        "SEC-HEAD-006",
-                        "SEC-CORS-002",
-                        "SEC-CORS-003",
-                        "SEC-ACT-001",
-                        "SEC-CONFIG-001",
-                        "SEC-CONFIG-007");
+                .contains("SEC-AUTHZ-002", "SEC-CSRF-002", "SEC-SESSION-001", "SEC-CORS-002", "SEC-CONFIG-001");
         // Results are ordered by severity; the first finding must be HIGH (spring.security.user.password is a
         // literal, matching SEC-CONFIG-007 -- HardcodedSecretPropertyRule's severity, since NoOpPasswordEncoderRule
         // is the only remaining CRITICAL rule and no NoOp encoder is configured here).
@@ -173,7 +161,7 @@ class SecurityScannerTests {
 
         SecurityReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.violationsFound()).isZero();
         assertThat(report.results()).isEmpty();
     }
@@ -224,13 +212,13 @@ class SecurityScannerTests {
 
         SecurityReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.violationsFound()).isZero();
         assertThat(report.results()).isEmpty();
     }
 
     @Test
-    void scanReportsExplicitHostActuatorSettingsWhenBootUiDefaultsArePresent() {
+    void scanDoesNotInventActualOperationsFromHostSelectionProperties() {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
@@ -277,14 +265,14 @@ class SecurityScannerTests {
 
         SecurityReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.results())
                 .extracting(SecurityRuleResultDto::id)
-                .contains("SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-004", "SEC-ACT-006");
+                .doesNotContain("SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-004", "SEC-ACT-006");
     }
 
     @Test
-    void scanReportsHostDefaultPropertiesActuatorExposure() {
+    void scanKeepsUnknownActualInventoryWithHostDefaultPropertiesExposure() {
         MockEnvironment environment = resourceServerEnvironment();
         environment
                 .getPropertySources()
@@ -296,7 +284,7 @@ class SecurityScannerTests {
 
         assertThat(report.results())
                 .extracting(SecurityRuleResultDto::id)
-                .contains("SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-006");
+                .doesNotContain("SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-006");
     }
 
     @Test
@@ -394,11 +382,10 @@ class SecurityScannerTests {
                 return true;
             }
         });
-        AuthorizationManager<RequestAuthorizationContext> permitAll =
-                (authentication, context) -> new AuthorizationDecision(true);
+        AuthorizationManager<RequestAuthorizationContext> permitAll = SingleResultAuthorizationManager.permitAll();
         RequestMatcherDelegatingAuthorizationManager delegate = RequestMatcherDelegatingAuthorizationManager.builder()
-                .add(new DescribedRequestMatcher("PathPattern [/**]", true), permitAll)
-                .add(new DescribedRequestMatcher("PathPattern [/admin/**]", false), permitAll)
+                .add(PathPatternRequestMatcher.pathPattern("/**"), permitAll)
+                .add(PathPatternRequestMatcher.pathPattern("/admin/**"), permitAll)
                 .build();
         AuthorizationManager<HttpServletRequest> observed =
                 new ObservationAuthorizationManager<>(observationRegistry, delegate);
@@ -420,7 +407,7 @@ class SecurityScannerTests {
 
         SecurityReport report = scannerFor(null, beanFactory).scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-CONFIG-001");
     }
@@ -463,7 +450,7 @@ class SecurityScannerTests {
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-SESSION-005");
     }
 
-    /** The same chain with a session-backed policy is still treated as stateful. */
+    /** An explicitly selected session policy does not revive the retired timeout-default rule. */
     @Test
     void sessionBackedPolicyChainIsTreatedAsSessionBased() throws Exception {
         SecurityFilterChain chain = securityFilterChain(http ->
@@ -472,13 +459,12 @@ class SecurityScannerTests {
         SecurityReport report = scannerFor(new FilterChainProxy(chain), new DefaultListableBeanFactory())
                 .scan();
 
-        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-SESSION-005");
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-SESSION-005");
     }
 
     /**
-     * Builds a real filter chain through the {@code HttpSecurity} DSL -- HTTP Basic, every request
-     * authenticated, defaults otherwise -- with {@code customizer} applying the session policy under
-     * test.
+     * Builds only the requested DSL fragments, not Boot's normal defaults. Native default coverage
+     * lives in SecurityAuditAccuracyTests.
      */
     private static SecurityFilterChain securityFilterChain(Customizer<HttpSecurity> customizer) throws Exception {
         GenericApplicationContext applicationContext = new GenericApplicationContext();
@@ -523,13 +509,13 @@ class SecurityScannerTests {
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-ACT-003");
         assertThat(report.results())
                 .extracting(SecurityRuleResultDto::id)
-                .as("the exposure rules still analyze the same configuration")
-                .contains("SEC-ACT-006");
+                .as("configuration selection without actual operation inventory remains unknown")
+                .doesNotContain("SEC-ACT-006");
     }
 
-    /** The same single-chain shape without an actuator rule stays a SEC-ACT-003 violation. */
+    /** Endpoint selection is not actual operation metadata. */
     @Test
-    void actuatorLeftOpenByTheAnyRequestChainIsReported() throws Exception {
+    void actuatorPermitAllWithoutActualOperationsRemainsUnknown() throws Exception {
         SecurityFilterChain chain =
                 actuatorSecurityFilterChain(authorize -> authorize.anyRequest().permitAll());
 
@@ -539,10 +525,7 @@ class SecurityScannerTests {
 
         assertThat(report.results())
                 .filteredOn(result -> result.id().equals("SEC-ACT-003"))
-                .singleElement()
-                .satisfies(result -> assertThat(result.sampleViolations())
-                        .containsExactly("Actuator endpoints are exposed at /actuator but Chain #0 (any request) "
-                                + "permits anonymous access to that path."));
+                .isEmpty();
     }
 
     /** A dedicated actuator chain that requires a role is protection, and stays silent. */
@@ -605,7 +588,7 @@ class SecurityScannerTests {
     }
 
     @Test
-    void applicationCorsConfigurationStillRequiresSecurityChainIntegration() {
+    void unusedApplicationCorsBeanDoesNotProveMissingIntegration() {
         AuthorizationManager<HttpServletRequest> denyAll =
                 (authentication, request) -> new AuthorizationDecision(false);
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
@@ -615,7 +598,7 @@ class SecurityScannerTests {
         SecurityReport report =
                 scannerFor(filterChainProxy(denyAll), beanFactory).scan();
 
-        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-CORS-003");
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-CORS-003");
     }
 
     @Test
@@ -728,7 +711,7 @@ class SecurityScannerTests {
     }
 
     @Test
-    void doesNotFlagHttpsEnforcementWhenForwardedHeadersAreConfigured() {
+    void forwardedHeadersDoNotProveHttpsEnforcement() {
         MockEnvironment environment = resourceServerEnvironment();
         environment.setActiveProfiles("prod");
         environment.withProperty("server.forward-headers-strategy", "framework");
@@ -736,7 +719,7 @@ class SecurityScannerTests {
 
         SecurityReport report = new SecurityScanner(context, CLOCK).scan();
 
-        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-CONFIG-006");
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-CONFIG-006");
     }
 
     private static final String BCRYPT = "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder";
@@ -782,6 +765,12 @@ class SecurityScannerTests {
 
     private static SecurityScanner scannerFor(
             FilterChainProxy proxy, ListableBeanFactory beanFactory, MockEnvironment environment) {
+        if (beanFactory == null) beanFactory = new DefaultListableBeanFactory();
+        if (proxy != null
+                && beanFactory instanceof DefaultListableBeanFactory configurable
+                && !configurable.containsSingleton("springSecurityFilterChain")) {
+            configurable.registerSingleton("springSecurityFilterChain", proxy);
+        }
         ObjectProvider<FilterChainProxy> filterChains = mock(ObjectProvider.class);
         ObjectProvider<ListableBeanFactory> beanFactories = mock(ObjectProvider.class);
         when(filterChains.getIfAvailable()).thenReturn(proxy);
@@ -836,7 +825,7 @@ class SecurityScannerTests {
         assertThat(result.sampleViolations()).hasSize(1);
         assertThat(result.sampleViolations().get(0))
                 .contains("Rule could not be evaluated:")
-                .contains("boom");
+                .doesNotContain("boom");
     }
 
     @Test
@@ -845,7 +834,7 @@ class SecurityScannerTests {
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.ERROR);
         assertThat(result.violationCount()).isZero();
-        assertThat(result.sampleViolations().get(0)).contains("missing");
+        assertThat(result.sampleViolations().get(0)).doesNotContain("missing");
     }
 
     @Test

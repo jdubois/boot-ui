@@ -306,16 +306,14 @@ public final class DependencyReports {
      * lightweight {@link MavenVersionComparator} (BootUI takes no dependency on Maven's own
      * {@code ComparableVersion}). Backs {@link DependencyVulnerabilityDto#fixAvailable()}, which lets the UI
      * distinguish a newer reported fixed-version upgrade target from an advisory without one. A false
-     * result means only that OSV reported no fixed event newer than the current version; it does not prove
+     * result means only that no supplied candidate is provably newer than the current version; it does not prove
      * that the current dependency is unaffected, because OSV already matched it as vulnerable and ranges may
      * be reintroduced or branch-specific.
      *
-     * <p>An inconclusive per-version comparison (blank/unparseable input) is treated as "a fix is
-     * available": OSV positively reported a {@code fixed} event for this advisory, so failing to parse the
-     * version string is not grounds to hide that signal.
+     * <p>An inconclusive comparison cannot establish an upgrade target. Callers must first interpret
+     * the affected ranges; this comparison alone does not validate a candidate's applicability.
      *
-     * @return {@code false} when {@code fixedVersions} is {@code null}/empty; otherwise {@code true} unless
-     *     every entry can be positively confirmed to be no newer than {@code currentVersion}
+     * @return {@code true} only when a supplied candidate is positively comparable and newer
      */
     public static boolean fixAvailable(String currentVersion, List<String> fixedVersions) {
         if (fixedVersions == null || fixedVersions.isEmpty()) {
@@ -324,7 +322,7 @@ public final class DependencyReports {
 
         for (String fixedVersion : fixedVersions) {
             Integer compared = MavenVersionComparator.compare(currentVersion, fixedVersion);
-            if (compared == null || compared < 0) {
+            if (compared != null && compared < 0) {
                 return true;
             }
         }
@@ -439,10 +437,12 @@ public final class DependencyReports {
 
     /**
      * Returns a copy of {@code dependencies} with each vulnerability's {@code epssScore}/{@code
-     * epssPercentile} set from the first of its {@code aliases} found in {@code epssByCve} &mdash; the
+     * epssPercentile} set from the highest available valid probability among its own CVE id and aliases,
+     * with the percentile from that same record and a lexically smallest CVE id tie-break &mdash; the
      * counterpart to {@link #cveAliases} on the write side of the same adapter-fetched EPSS lookup. A
      * vulnerability whose alias(es) have no entry in {@code epssByCve} (lookup disabled, failed, or the CVE
-     * has no published EPSS score) is returned unchanged, i.e. with {@code null} EPSS fields.
+     * has no published EPSS score) is returned unchanged. This is a prioritization heuristic, not the
+     * combined exploit likelihood of the advisory's CVEs.
      *
      * @return {@code dependencies} unchanged if {@code epssByCve} is {@code null}/empty
      */
@@ -473,13 +473,25 @@ public final class DependencyReports {
 
     private static DependencyVulnerabilityDto applyEpssScore(
             DependencyVulnerabilityDto vulnerability, Map<String, EpssScore> epssByCve) {
+        EpssScore selected = null;
+        String selectedId = null;
         for (String cveId : cveIds(vulnerability)) {
             EpssScore epssScore = epssByCve.get(cveId);
-            if (epssScore != null) {
-                return vulnerability.withEpss(epssScore.probability(), epssScore.percentile());
+            if (epssScore != null
+                    && validEpssValue(epssScore.probability())
+                    && validEpssValue(epssScore.percentile())
+                    && (selected == null
+                            || epssScore.probability() > selected.probability()
+                            || epssScore.probability() == selected.probability() && cveId.compareTo(selectedId) < 0)) {
+                selected = epssScore;
+                selectedId = cveId;
             }
         }
-        return vulnerability;
+        return selected == null ? vulnerability : vulnerability.withEpss(selected.probability(), selected.percentile());
+    }
+
+    private static boolean validEpssValue(double value) {
+        return Double.isFinite(value) && value >= 0.0d && value <= 1.0d;
     }
 
     private static List<String> cveIds(DependencyVulnerabilityDto vulnerability) {

@@ -14,15 +14,23 @@ qualitative band (Good at 80+, Needs attention at 50+, At risk below 50) and a b
 **Run all scanners** triggers every available scanner, or run each card individually. After a run-all, a dismissible tip
 points to the MCP Server panel, since enabling it lets an AI agent read these same results and fix the findings for you.
 
-Each scanner card shows its own 0–100 score, status, and severity counts. The severity-based scanners are Architecture,
+Each scanner card shows its status and retained severity counts, with a 0–100 score only for an eligible assessment.
+The severity-based scanners are Architecture,
 Memory, REST API, Spring, Database, Hibernate, Security, Pentesting, and Vulnerabilities. Each starts at 100 and
-subtracts a fixed weighted penalty per finding — critical 25, high 10, medium 3, low 1 — so a clean scan stays at 100.
+subtracts a fixed weighted penalty per finding — critical 25, high 10, medium 3, low 1 — so a complete clean scan stays
+at 100. `PARTIAL` shows **Incomplete**, never a number; `ERROR`, `DISABLED`, and `NOT_SCANNED` do not score.
+Vulnerabilities additionally requires complete dependency inventory coverage and no active UNKNOWN severity;
+NONE has no penalty. Missing coverage is unknown. See [Score eligibility](advisors.md#score-eligibility).
 
 GitHub is not a severity scanner. It connects to the local repository and contributes a score derived from open security
 alerts, but only when the credential is connected and authenticated.
 
-The overall score is the mean of the scanners that actually scored, and only scanners whose panels are available for
-this application are shown, so the dashboard degrades gracefully when optional infrastructure is missing.
+The overall score, scored count, and contribution breakdown include only scanners that actually scored. The available
+scanner total does not shrink when a report is incomplete: "2 of 4 scanners scored" means the mean covers two
+assessments, not that all four passed. Only scanners whose panels are available for this application are shown.
+Returning from a panel refreshes previously observed reports with GET requests, including Vulnerabilities after
+dismissal or restoration. A busy or failed request retains the last accepted report with a warning or error; an
+authoritative new incomplete/failed report replaces its old score.
 
 The panel is fully available on every adapter. The scoring dashboard is rendered entirely in the browser: the shell
 aggregates each advisor's own scan endpoints and computes the same combined score, so no backend dashboard service is

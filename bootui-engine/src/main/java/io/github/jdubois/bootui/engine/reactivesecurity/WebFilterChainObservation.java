@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.engine.reactivesecurity;
 
+import io.github.jdubois.bootui.engine.security.CspPolicy;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Framework-neutral, read-only observation of one {@code SecurityWebFilterChain} bean, collected by
@@ -44,7 +44,90 @@ public record WebFilterChainObservation(
         String cspPolicyDirectives,
         Boolean cspReportOnly,
         boolean headerWritersObserved,
-        boolean formLoginAuthentication) {
+        boolean formLoginAuthentication,
+        boolean basicAuthentication,
+        boolean authenticationObserved,
+        Boolean unconditionalMatcher,
+        List<CspObservation> cspPolicies,
+        boolean unconditionalHttpsRedirect,
+        String analysisFailure) {
+
+    public WebFilterChainObservation(
+            int index,
+            String matcher,
+            List<String> webFilterNames,
+            Boolean permitsAllAnonymous,
+            boolean bearerTokenAuthentication,
+            List<String> headerWriterNames,
+            Long hstsMaxAgeSeconds,
+            Boolean hstsIncludeSubdomains,
+            String cspPolicyDirectives,
+            Boolean cspReportOnly,
+            boolean headerWritersObserved,
+            boolean formLoginAuthentication,
+            boolean basicAuthentication,
+            boolean authenticationObserved,
+            Boolean unconditionalMatcher,
+            List<CspObservation> cspPolicies,
+            boolean unconditionalHttpsRedirect) {
+        this(
+                index,
+                matcher,
+                webFilterNames,
+                permitsAllAnonymous,
+                bearerTokenAuthentication,
+                headerWriterNames,
+                hstsMaxAgeSeconds,
+                hstsIncludeSubdomains,
+                cspPolicyDirectives,
+                cspReportOnly,
+                headerWritersObserved,
+                formLoginAuthentication,
+                basicAuthentication,
+                authenticationObserved,
+                unconditionalMatcher,
+                cspPolicies,
+                unconditionalHttpsRedirect,
+                null);
+    }
+
+    public record CspObservation(String policy, Boolean reportOnly) {}
+
+    /** Compatibility constructor; display text does not establish matcher semantics. */
+    public WebFilterChainObservation(
+            int index,
+            String matcher,
+            List<String> webFilterNames,
+            Boolean permitsAllAnonymous,
+            boolean bearerTokenAuthentication,
+            List<String> headerWriterNames,
+            Long hstsMaxAgeSeconds,
+            Boolean hstsIncludeSubdomains,
+            String cspPolicyDirectives,
+            Boolean cspReportOnly,
+            boolean headerWritersObserved,
+            boolean formLoginAuthentication) {
+        this(
+                index,
+                matcher,
+                webFilterNames,
+                permitsAllAnonymous,
+                bearerTokenAuthentication,
+                headerWriterNames,
+                hstsMaxAgeSeconds,
+                hstsIncludeSubdomains,
+                cspPolicyDirectives,
+                cspReportOnly,
+                headerWritersObserved,
+                formLoginAuthentication,
+                false,
+                true,
+                null,
+                cspPolicyDirectives == null
+                        ? List.of()
+                        : List.of(new CspObservation(cspPolicyDirectives, cspReportOnly)),
+                false);
+    }
 
     /** Compatibility constructor for observations created before formLogin() detection was added. */
     public WebFilterChainObservation(
@@ -79,6 +162,7 @@ public record WebFilterChainObservation(
     public WebFilterChainObservation {
         webFilterNames = List.copyOf(webFilterNames);
         headerWriterNames = headerWriterNames == null ? List.of() : List.copyOf(headerWriterNames);
+        cspPolicies = cspPolicies == null ? List.of() : List.copyOf(cspPolicies);
     }
 
     /** Compatibility constructor for observations created before header extraction became tri-state. */
@@ -173,45 +257,59 @@ public record WebFilterChainObservation(
     }
 
     boolean hasHttpsRedirectFilter() {
-        return hasWebFilter("HttpsRedirectWebFilter");
+        return unconditionalHttpsRedirect;
     }
 
     boolean hasHstsWriter() {
-        return headerWriterNames.stream()
-                .anyMatch(name -> name.contains("Hsts") || name.contains("StrictTransportSecurity"));
+        return headerWriterNames.contains("StrictTransportSecurityServerHttpHeadersWriter");
     }
 
     boolean hasFrameOptionsWriter() {
-        return headerWriterNames.stream().anyMatch(name -> name.contains("FrameOptions") || name.contains("XFrame"));
+        return headerWriterNames.contains("XFrameOptionsServerHttpHeadersWriter");
     }
 
     boolean hasCspWriter() {
-        return cspPolicyDirectives != null && !cspPolicyDirectives.isBlank();
+        return cspPolicies.stream()
+                .anyMatch(policy -> policy.policy() != null && !policy.policy().isBlank());
     }
 
     boolean hasEnforcingFrameAncestorsPolicy() {
-        if (!hasCspWriter() || Boolean.TRUE.equals(cspReportOnly)) {
-            return false;
-        }
-        for (String directive : cspPolicyDirectives.split(";")) {
-            String[] parts = directive.trim().toLowerCase(Locale.ROOT).split("\\s+", 2);
-            if (parts.length > 0 && "frame-ancestors".equals(parts[0])) {
-                if (parts.length < 2 || parts[1].isBlank()) {
-                    return false;
-                }
-                for (String source : parts[1].split("\\s+")) {
-                    if (source.contains("*") || source.matches("[a-z][a-z0-9+.-]*:")) {
-                        return false;
-                    }
-                }
-                return true;
-            }
-        }
-        return false;
+        List<CspObservation> enforcing = cspPolicies.stream()
+                .filter(policy -> Boolean.FALSE.equals(policy.reportOnly()))
+                .toList();
+        return enforcing.size() == 1
+                && CspPolicy.analyze(enforcing.get(0).policy()).complete()
+                && CspPolicy.analyze(enforcing.get(0).policy()).restrictiveFrameAncestors();
+    }
+
+    boolean hasEnforcingFrameAncestorsDirective() {
+        return cspPolicies.stream()
+                .filter(policy -> Boolean.FALSE.equals(policy.reportOnly()))
+                .anyMatch(policy -> CspPolicy.analyze(policy.policy()).frameAncestorsPresent());
+    }
+
+    boolean cspObserved() {
+        return cspPolicies.stream()
+                        .allMatch(policy -> policy.reportOnly() != null
+                                && CspPolicy.analyze(policy.policy()).complete())
+                && cspPolicies.stream()
+                                .filter(policy -> Boolean.FALSE.equals(policy.reportOnly()))
+                                .count()
+                        <= 1
+                && cspPolicies.stream()
+                                .filter(policy -> Boolean.TRUE.equals(policy.reportOnly()))
+                                .count()
+                        <= 1;
+    }
+
+    boolean onlyReportOnlyCsp() {
+        return hasCspWriter()
+                && cspObserved()
+                && cspPolicies.stream().allMatch(policy -> Boolean.TRUE.equals(policy.reportOnly()));
     }
 
     boolean hasContentTypeOptionsWriter() {
-        return headerWriterNames.stream().anyMatch(name -> name.contains("ContentTypeOptions"));
+        return headerWriterNames.contains("ContentTypeOptionsServerHttpHeadersWriter");
     }
 
     boolean hasWeakHsts() {
@@ -219,18 +317,11 @@ public record WebFilterChainObservation(
     }
 
     boolean matchesAnyRequest() {
-        if (matcher == null) {
-            return false;
-        }
-        String normalized = matcher.toLowerCase(Locale.ROOT).trim();
-        return normalized.equals("any request") || normalized.contains("anyrequest") || normalized.contains("[/**]");
+        return Boolean.TRUE.equals(unconditionalMatcher);
     }
 
     boolean hasAuthenticationFilter() {
-        return webFilterNames.stream()
-                .anyMatch(name -> (name.contains("Authentication") && name.contains("WebFilter"))
-                        || name.contains("OAuth2Login")
-                        || name.contains("OidcLogin"));
+        return hasWebFilter("AuthenticationWebFilter") || hasObservedInteractiveLoginFilter();
     }
 
     String describe() {
@@ -240,7 +331,6 @@ public record WebFilterChainObservation(
     boolean hasObservedInteractiveLoginFilter() {
         return hasWebFilter("OAuth2LoginAuthenticationWebFilter")
                 || hasWebFilter("OidcSessionRegistryAuthenticationWebFilter")
-                || hasWebFilter("OAuth2AuthorizationCodeGrantWebFilter")
                 || formLoginAuthentication;
     }
 }

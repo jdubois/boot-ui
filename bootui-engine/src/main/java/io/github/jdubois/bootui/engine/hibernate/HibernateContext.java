@@ -12,7 +12,85 @@ record HibernateContext(
         List<HibernateRepositoryModel> repositories,
         Function<String, String> propertyLookup,
         List<String> activeProfiles,
-        HibernateRuntimeVersion hibernateVersion) {
+        HibernateRuntimeVersion hibernateVersion,
+        HibernateFactorySettings factorySettings,
+        HibernateApplicationFacts applicationFacts,
+        Boolean enhancementVerified,
+        HibernateEvaluationEvidence evidence) {
+
+    HibernateContext(
+            List<HibernateEntityModel> entities,
+            List<HibernateRepositoryModel> repositories,
+            Function<String, String> propertyLookup,
+            List<String> activeProfiles,
+            HibernateRuntimeVersion hibernateVersion) {
+        this(
+                entities,
+                repositories,
+                propertyLookup,
+                activeProfiles,
+                hibernateVersion,
+                null,
+                null,
+                null,
+                new HibernateEvaluationEvidence());
+    }
+
+    static HibernateContext observed(HibernatePersistenceUnitObservation unit, HibernateApplicationFacts application) {
+        return new HibernateContext(
+                unit.entities(),
+                unit.repositories(),
+                key -> null,
+                application.activeProfiles(),
+                HibernateRuntimeVersion.parse(unit.hibernateVersion()),
+                unit.settings(),
+                application,
+                unit.enhancementVerified(),
+                new HibernateEvaluationEvidence());
+    }
+
+    boolean observed() {
+        return factorySettings != null;
+    }
+
+    <T> T required(T value) {
+        if (value == null) {
+            evidence.requiredUnknown = true;
+            throw new HibernateRequiredObservationException();
+        }
+        return value;
+    }
+
+    void missingEvidence() {
+        evidence.requiredUnknown = true;
+    }
+
+    private String property(String key) {
+        if (!observed()) return propertyLookup.apply(key);
+        String nativeKey =
+                key.startsWith("spring.jpa.properties.") ? key.substring("spring.jpa.properties.".length()) : key;
+        if ("spring.jpa.show-sql".equals(nativeKey)) nativeKey = "hibernate.show_sql";
+        if (nativeKey.startsWith("hibernate.")) return required(factorySettings.property(nativeKey));
+        return switch (key) {
+            case "spring.jpa.open-in-view" ->
+                switch (applicationFacts.openInView()) {
+                    case ENABLED -> "true";
+                    case DISABLED, NOT_APPLICABLE -> "false";
+                    case UNKNOWN -> required(null);
+                };
+            case HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY ->
+                Boolean.toString(applicationFacts.openInView() != HibernateApplicationFacts.OpenInView.NOT_APPLICABLE);
+            case HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY ->
+                Boolean.toString(Boolean.TRUE.equals(enhancementVerified));
+            case "spring.jpa.defer-datasource-initialization" ->
+                required(applicationFacts.deferredDatasourceInitialization()).toString();
+            case "logging.level.org.hibernate.SQL" -> required(applicationFacts.sqlLoggerEnabled()) ? "debug" : "off";
+            case "logging.level.org.hibernate.orm.jdbc.bind",
+                    "logging.level.org.hibernate.type.descriptor.sql.BasicBinder" ->
+                required(applicationFacts.bindLoggerEnabled()) ? "trace" : "off";
+            default -> required(null);
+        };
+    }
 
     HibernateContext(
             List<HibernateEntityModel> entities,
@@ -58,7 +136,7 @@ record HibernateContext(
 
     String firstProperty(String... keys) {
         for (String key : keys) {
-            String value = propertyLookup.apply(key);
+            String value = property(key);
             if (value != null && !value.isBlank()) {
                 return value.trim();
             }
@@ -87,7 +165,7 @@ record HibernateContext(
     }
 
     private Integer integerProperty(String key) {
-        String value = propertyLookup.apply(key);
+        String value = property(key);
         if (value == null || value.isBlank()) {
             return null;
         }
@@ -99,7 +177,7 @@ record HibernateContext(
     }
 
     Boolean booleanProperty(String key) {
-        String value = propertyLookup.apply(key);
+        String value = property(key);
         if (value == null) {
             return null;
         }
@@ -143,6 +221,20 @@ record HibernateContext(
     }
 
     boolean isHibernateEnhancementEnabled(HibernateEntityModel entity) {
+        if (observed()) {
+            if (Boolean.TRUE.equals(enhancementVerified) || entity.isBytecodeEnhanced()) return true;
+            if (Boolean.FALSE.equals(enhancementVerified)) return false;
+            if (entity.javaType() == null) return required(null);
+            try {
+                Class.forName(
+                        "org.hibernate.engine.spi.PersistentAttributeInterceptable",
+                        false,
+                        entity.javaType().getClassLoader());
+                return false;
+            } catch (ClassNotFoundException | LinkageError ex) {
+                return required(null);
+            }
+        }
         return isPropertyTrue(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY) || entity.isBytecodeEnhanced();
     }
 
@@ -183,6 +275,16 @@ record HibernateContext(
         return false;
     }
 
+    boolean isStatementLoggingEnabled() {
+        if (observed()) {
+            if (Boolean.TRUE.equals(applicationFacts.sqlLoggerEnabled())) return true;
+            return required(factorySettings.showSql());
+        }
+        return isPropertyTrue("spring.jpa.show-sql", "hibernate.show_sql")
+                || "debug".equalsIgnoreCase(firstProperty("logging.level.org.hibernate.SQL"))
+                || "trace".equalsIgnoreCase(firstProperty("logging.level.org.hibernate.SQL"));
+    }
+
     /**
      * True when Hibernate's bind-parameter binder logger is at TRACE, the only level at which
      * {@code org.hibernate.engine.jdbc.internal.JdbcBindingLogging} actually logs bound parameter values
@@ -204,6 +306,16 @@ record HibernateContext(
         return false;
     }
 }
+
+final class HibernateEvaluationEvidence {
+    boolean requiredUnknown;
+
+    void reset() {
+        requiredUnknown = false;
+    }
+}
+
+final class HibernateRequiredObservationException extends RuntimeException {}
 
 record HibernateRuntimeVersion(String display, Integer major, Integer minor) {
 

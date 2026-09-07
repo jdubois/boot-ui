@@ -15,10 +15,41 @@ public record HibernateRepositoryMethodModel(
         boolean modifying,
         boolean modifyingClearsAutomatically,
         boolean modifyingFlushesAutomatically,
-        List<Class<?>> parameterTypes) {
+        List<Class<?>> parameterTypes,
+        HibernateQueryEvidence evidence) {
+
+    public HibernateRepositoryMethodModel(
+            String repositoryInterface,
+            String methodName,
+            Class<?> domainType,
+            Class<?> returnType,
+            String query,
+            boolean nativeQuery,
+            String countQuery,
+            boolean hasPageableParameter,
+            boolean modifying,
+            boolean modifyingClearsAutomatically,
+            boolean modifyingFlushesAutomatically,
+            List<Class<?>> parameterTypes) {
+        this(
+                repositoryInterface,
+                methodName,
+                domainType,
+                returnType,
+                query,
+                nativeQuery,
+                countQuery,
+                hasPageableParameter,
+                modifying,
+                modifyingClearsAutomatically,
+                modifyingFlushesAutomatically,
+                parameterTypes,
+                HibernateQueryEvidence.unknown());
+    }
 
     public HibernateRepositoryMethodModel {
         parameterTypes = List.copyOf(parameterTypes);
+        evidence = evidence == null ? HibernateQueryEvidence.unknown() : evidence;
     }
 
     boolean hasCollectionParameter() {

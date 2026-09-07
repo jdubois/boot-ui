@@ -27,8 +27,8 @@ BootUI currently targets:
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
-`docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel and the WebFlux-native 26-rule Security advisor; the
-raw Spring Security panel, the WebFlux-native 26-rule Security advisor, and REST Client capture over instrumented
+`docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel and the WebFlux-native 25-rule Security advisor; the
+raw Spring Security panel, the WebFlux-native 25-rule Security advisor, and REST Client capture over instrumented
 `WebClient` instances; HTTP Sessions is not applicable to a reactive,
 container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
 is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
@@ -728,7 +728,12 @@ Acceptance criteria:
 
 ### 5.11 Vulnerabilities Panel
 
-Purpose: answer "Which runtime JAR dependencies are present, and do any have known vulnerabilities?"
+Purpose: answer "Which Maven dependencies can the local provider identify, and do any have known vulnerabilities?"
+
+The [Vulnerabilities checks catalogue](VULNERABILITIES-CHECKS.md) defines the supported evidence interpretation,
+official sources/version caveats, full audit disposition, and deferred limitations. Advisor scoring, Overview/gauges,
+score eligibility, and dismissal refresh are handed off to the independent central scoring workstream; they are not
+implemented by this interpretation/reporting change.
 
 Data sources:
 
@@ -736,31 +741,52 @@ Data sources:
   files Spring Boot's `/actuator/sbom` serves), whose `purl` values carry the `groupId`.
 - Maven metadata (`META-INF/maven/*/*/pom.properties`) discovered from the running application's classpath.
 - The `java.class.path` entries, read through the Maven repository directory layout or an adjacent `.pom`.
-- Quarkus instead uses its build-time resolved application model, which already carries every coordinate.
+- Quarkus instead reads coordinates captured from its build-time resolved application model, subject to the missing
+  and malformed model coverage limitation below.
 - OSV.dev Maven vulnerability data for explicit on-demand scans.
 
 Features:
 
-- List runtime Maven dependencies by group, artifact, and version.
+- List locally discovered Maven dependencies by group, artifact, and version, without claiming a verified runtime graph.
 - Keep the initial inventory local-only; no external vulnerability lookup runs on page load.
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
-- Derive severity only from OSV entries explicitly typed `CVSS_V3` and carrying a valid CVSS v3.0/v3.1 vector (per the
-  FIRST.org specification), choosing the highest valid v3 Base Score when multiple entries exist. Prefer a
-  package-level `affected[].severity` entry matching the scanned dependency over the advisory's top-level
-  `severity[]` (the OSV schema states the two are mutually exclusive), falling back to the advisory's
-  `database_specific` severity label when no supported vector is present; render CVSS `0.0` as `NONE` and `UNKNOWN`
-  only when no supported score/label is available. Never reinterpret bare numbers, CVSS v2/v4, or provider-specific
-  scales as CVSS v3, and never silently drop the finding.
+- Calculate the same numeric score in the panel and Overview only for `SCANNED` reports with a valid severity
+  summary, `coverage.status=COMPLETE`, and no active UNKNOWN severity. NONE (CVSS zero) has no penalty; dismissed
+  UNKNOWN findings do not block scoring, but restoring them does. Missing coverage is unknown, not complete.
+  As with every scored advisor, PARTIAL displays Incomplete without a number, and ERROR/DISABLED/NOT_SCANNED never
+  score. Retain findings and diagnostic reports independently of eligibility. Overall averages and counts only
+  eligible scores, without changing the available-scanner total; report refresh after dismissal is GET-only.
+  Preserve the last accepted report on busy or transport failure, but replace its score when a new authoritative
+  incomplete or failed report arrives. Intentional rule inapplicability is not missing required evidence.
+- Interpret affected entries in the JSON-free shared engine with exact `Maven` ecosystem and package matching, allowing
+  only the literal `*` package wildcard, not arbitrary globs or other Maven repository ecosystems. Explicit versions
+  and supported Maven `ECOSYSTEM` ranges form a union across matching entries. Applicability is matched, not matched,
+  or unresolved; unsupported `SEMVER`/`GIT`, malformed, or contradictory detail evidence never silently removes a
+  query-derived finding. Retain it with `PARTIAL` and an explanation, omitting unsupported package-specific claims.
+- Evaluate unsorted/reintroduced events with Maven ordering: introduced inclusive (zero precedes every version), fixed
+  exclusive, last_affected inclusive, limit exclusive (wildcard unbounded); limits are scope bounds, not fixes, and
+  multiple limits expand scope. Require one supported event type per event, an introduction per range, and no
+  coexistence of fixed and last_affected in an event array.
+- Derive severity only from typed `CVSS_V3` vectors with valid v3.0/v3.1 syntax. Validate the full vector, including
+  optional Temporal/Environmental metrics, rejecting empty/trailing segments, unknown metrics, duplicates, malformed
+  segments, and invalid values. Accept valid metric orders, require all eight Base metrics, and calculate **Base only**
+  with FIRST's scope equations and Roundup. Select the highest valid v3 assessment across applicable matching package
+  entries. If none supplies package severity, use the highest valid global assessment. Invalid/unsupported applicable
+  package severity must not borrow a conflicting top-level score from a schema-invalid dual-level record. Retain the
+  recognized top-level `database_specific.severity` label fallback, otherwise `UNKNOWN`; this is provider compatibility,
+  not a universal OSV scale. Normalize MODERATE to MEDIUM and valid zero to NONE. Never reinterpret bare numbers or
+  CVSS v2/v4 as v3, and never drop unsupported findings.
 - Exclude advisories marked `withdrawn` by OSV from results and counts.
 - Follow OSV `/v1/querybatch` pagination (`next_page_token`) until every query is exhausted or a bounded page-count
-  safety limit is hit, and partition the outgoing package list into batches of at most 1,000 queries (the OSV server
-  implementation's hard limit), merging every page/batch back into one result set. Validate that every response
+  safety limit of 20 page rounds per chunk is hit, and partition the outgoing package list into batches of at most
+  1,000 queries (the OSV server implementation's hard limit), merging every page/batch back into one result set. Validate that every response
   contains exactly one structurally valid result per submitted query; never reinterpret a missing/short/malformed
   response as an empty result. Require every returned vulnerability reference to be an object with a non-blank id.
-  Preserve completed chunks as `PARTIAL` if a later chunk fails and report only completed package queries in
-  `packagesScanned`.
+  Preserve validated earlier pages, including completed queries in the same chunk, as `PARTIAL` if a later page or chunk
+  fails. `packagesScanned` counts only queries exhausted without a continuation token, including at the cap; an empty
+  token-bearing page is not complete. Explain unfinished/failed queries in the message, not `packagesSkipped`.
 - Fetch distinct advisory details (`GET /v1/vulns/{id}`) with a small bounded concurrency (up to 10 at a time) instead of
   one at a time, so scans against a dependency tree with many distinct advisories stay responsive. De-duplicate repeated
   ids per dependency and require each detail response id to match the requested id; mismatch/missing-id responses count
@@ -768,23 +794,28 @@ Features:
   `GET /v1/vulns/{id}` can return them.
 - Enrich each advisory linked to a canonical CVE through either its own id or an alias with FIRST.org
   [EPSS](https://www.first.org/epss/) exploit-probability data (probability + percentile) in one or more batched requests
-  per scan, each respecting FIRST's 2,000-character maximum for the comma-separated `cve` parameter, alongside the OSV calls; EPSS is a likelihood-of-
-  exploitation signal that deliberately complements, rather than replaces, the CVSS severity-if-exploited score. EPSS
+  per scan, each respecting FIRST's 2,000-character maximum for the comma-separated `cve` parameter, alongside the OSV
+  calls; EPSS is a likelihood-of-exploitation signal that complements, rather than replaces, the CVSS severity-if-exploited score. EPSS
   responses may enrich only CVEs requested in that chunk and must contain finite probability/percentile values from
-  0 to 1. Lookups can be disabled independently of OSV scanning, and a failed/unreachable EPSS request never fails the
-  scan or discards the underlying OSV results — it just omits the EPSS figures.
-- Derive an explicit `fixAvailable` signal per advisory by comparing the dependency's currently-resolved version
-  against the advisory's non-`GIT` `fixedVersions` using Maven `ComparableVersion` qualifier semantics; de-duplicate and
-  order candidates using those same semantics. A false signal means only that OSV reported no candidate newer than the
-  installed version, not that the installed dependency is unaffected. An empty list means only
-  that OSV reported no `fixed` event: a range may instead end with `last_affected`, which names the final vulnerable
-  version but does not identify the first non-vulnerable upgrade target. The UI must not conflate that state with proof
-  that no fix exists.
-- Report scan coverage: enumerate the application's real JAR archives (the `BOOT-INF/lib/`/`WEB-INF/lib/` entries of a
-  repackaged archive, the classpath JARs otherwise), attribute each to a resolved coordinate, and report the remainder
-  as `coverage.status=INCOMPLETE` with the unidentified archive names (bounded for transport, with exact counts). Report
-  `COMPLETE` only when every enumerated archive resolved, and `UNAVAILABLE` when the census itself could not run
-  (a blank or synthetic classpath, for example under a native image) rather than assuming full coverage.
+  0 to 1. Validate an object root, array data, and supplied numeric total/offset/limit metadata. Follow smaller service
+  pages with progress validation, bounded to min(20, requested CVE count) pages per chunk. Retain successful earlier
+  pages/chunks on failure, appending requested/available/no-data counts or a failure explanation to `scan.message`
+  without changing OSV status. A successful exhausted no-row result is no data, not zero; malformed/empty envelopes
+  are failures. Select maximum AVAILABLE probability across own/retained CVE aliases, with the same record's percentile
+  and a stable CVE tie-break. Valid zero is available, not unknown. This is a prioritization heuristic, not combined
+  exploit likelihood. Lookups can be disabled independently, and disabled/no-CVE enrichment makes no FIRST call.
+- Keep `fixedVersions` and `fixAvailable` with evidence-backed candidate semantics: only a fixed event closing a
+  supported affected interval containing the installed version can supply a target. Require a positively newer Maven
+  comparison and recheck against **all matching entries**, including explicit versions and overlapping/reintroduced
+  intervals; affected or unresolved targets are not verified upgrades. Filter before de-duplication, Maven ordering,
+  and the ten-candidate limit. Neither last_affected nor limit, Git hashes, or unsupported range domains supplies a
+  target. False/empty means no candidate was established, not that the dependency is unaffected or no upstream fix
+  exists. Candidates do not guarantee compatibility, artifact publication, or reachability remediation.
+- Report provider coverage separately from scan completion. Spring enumerates conventional/manifest-selected nested
+  libraries or classpath JARs and attributes names to coordinates. Report unidentified names as `INCOMPLETE` with exact
+  reported counts and at most 200 names plus truncation, and unavailable census as `UNAVAILABLE`. `COMPLETE` describes
+  the provider's reported identification, not independently verified runtime completeness: filename attribution and
+  Quarkus missing/malformed model overclaims remain deferred below.
 - Report packages dropped by the `bootui.vulnerabilities.max-packages` bound as `scan.packagesSkipped` rather than
   letting `packagesScanned` present a truncated scan as a complete one.
 - Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
@@ -792,6 +823,9 @@ Features:
   vulnerable count and severity rollups until restored, consistent with the dismiss/restore workflow shared by every
   other advisor. Recompute dependency ordering from active severity after every dismissal change, and disable the
   Vulnerabilities panel's dismissal controls under panel read-only policy.
+- Preserve DTO fields and `advisoryId::packageName` dismissal keys, independent of installed version. Count advisory
+  occurrences per dependency, not unique CVEs; alias-cluster merging is deferred. REST, MCP, and CLI use the same
+  interpretation and unchanged names/arguments. Shared local-only/Host/cross-site-write/read-only policy is unchanged.
 
 Acceptance criteria:
 
@@ -801,27 +835,43 @@ Acceptance criteria:
   inventory; a failure fetching one advisory's details does not discard advisories that were already fetched
   successfully, degrading the scan to a partial-success status instead of an outright error.
 - Scan size is bounded by configuration so large classpaths remain responsive.
+- Existing per-request byte limits remain 5 MiB for querybatch and 1 MiB for details/EPSS. Per-request timeouts,
+  no automatic redirect following, configured service bases, and interrupt restoration remain unchanged; a total scan
+  deadline and retry/backoff policy are deferred.
 - Initial/error/partial UI states must not label an empty advisory list as a clean "None found" result, and a report
   with unidentified archives or skipped packages must never render as full coverage.
 - An unreadable Spring `pom.properties` resource, a malformed or unreadable SBOM, and an unreadable classpath archive
   are each logged and skipped without discarding entries that did resolve; Quarkus continues to use its build-time
   resolved runtime dependency model and fails soft on malformed entries.
 
-Known limitation: the dependency inventory is coordinate-based (one resolved JAR = one artifact coordinate), and no JAR
+Known limitations: inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
+case-insensitive attribution without group identity can overstate coverage for same-basename archives or ambiguous
+classifiers. PURL literal-plus decoding/namespace rewriting, SBOM runtime scope, and unreadable container/archive
+diagnostics need separate fixes. The SBOM traversal limit counts resolved distinct coordinates, not inspected nodes,
+and the whole JSON is parsed first. Quarkus missing/blank model keys and skipped malformed entries can still report
+`COMPLETE`. Neither this change nor a consumer trusting that flag independently verifies a complete runtime inventory.
+
+The dependency inventory is coordinate-based (one resolved JAR = one artifact coordinate), and no JAR
 manifest header carries a `groupId` — `Implementation-Title` is a display name as often as an artifact id, and
 `Implementation-Vendor-Id` is not a group id. An application built without a CycloneDX SBOM therefore cannot resolve
 coordinates for the many artifacts published with no Maven descriptor (Spring Framework, Spring Boot, Spring Security,
 `tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the PostgreSQL driver, and the `opentelemetry-*` and
-`micrometer-*` families among them), and inside a repackaged fat JAR the `java.class.path` fallback is dead too. Those
-archives are reported through `coverage` as explicitly unscanned rather than dropped, and the panel points at the SBOM
-plugin as the fix. Resolving the remaining coordinates by SHA-1 lookup against Maven Central would work but adds a new
-outbound service and configuration surface, so it is deliberately not done. Separately, a vulnerable library
+`micrometer-*` families among them), and inside a repackaged fat JAR the `java.class.path` fallback is dead too. Archives
+detected as unidentified by the census are reported through `coverage`, subject to the attribution limitations above;
+the panel suggests an SBOM to improve identification, not to certify completeness. External hash-based coordinate
+lookup would add another service and configuration surface, so it is deliberately not done. Separately, a vulnerable library
 relocated/repackaged inside a shaded or uber JAR has no coordinate of its own, so it is invisible to the inventory and
 cannot be flagged — the same reduced-fidelity honesty precedent already documented for other panels (for example Cache,
 Beans). Direct-vs-transitive dependency provenance
 ("introduced through") is not yet tracked on either adapter; Quarkus could source it from its build-time application
 dependency graph, but Spring's classpath-based inventory has no equivalent graph today, so this is deferred rather than
 shipped asymmetrically.
+
+CVSS v2/v4 calculation, full assessment/vector provenance, selected EPSS CVE/date/model fields, cross-request date
+pinning, and a total scan deadline remain deferred. FIRST's public CVSS v4 reference calculator exists but cannot be
+replaced by v3 equations. Enrichment uses the own CVE ID and at most 20 retained aliases, not every upstream alias.
+The browser's same-package lexical version sorting remains a separate presentation limitation. Completed OSV queries
+do not prove exploitability, reachability, absence of unknown advisories, or application safety.
 
 ### 5.12 Scheduled Tasks Inspector
 
@@ -1749,14 +1799,14 @@ Data sources:
   `SYS_CONTEXT('USERENV', ...)`, scoped to the connected session's `CURRENT_SCHEMA`, with no elevated privilege, no
   application-row query, no database link, and no production `ojdbc` dependency.
 - The Hibernate/JPA metamodel, when available, for cross-referencing explicitly named entity tables (including
-  `@SecondaryTable`), columns, foreign keys, unique constraints, and sequence generators with the physical schema.
+  `@SecondaryTable`), columns, foreign keys and unique constraints with observed schema metadata.
 
 Features:
 
 - Run an explicit, read-only scan over a fixed generic ruleset covering missing primary keys, foreign-key columns
-  without supporting indexes, duplicate or overlapping indexes, foreign-key/primary-key type mismatches, redundant
-  unique indexes, duplicate foreign key constraints, narrow auto-generated primary keys, and composite foreign keys or
-  unique indexes with partially nullable columns.
+  without known supporting access paths, exact index-definition overlap, foreign-key/referenced-column domain
+  discrepancies, redundant unique indexes, duplicate foreign key constraints and narrow auto-generated primary keys.
+  These are contextual structural reviews, not workload or business-intent verdicts.
 - Augment the generic scan for PostgreSQL with invalid-index (excluding an index still building `CONCURRENTLY`),
   sequence-exhaustion, `NOT VALID` constraint, and missing-replica-identity checks; for MySQL/MariaDB with
   non-InnoDB-engine, non-`utf8mb4`, and `AUTO_INCREMENT`-exhaustion checks; and for Oracle with unusable-index,
@@ -1765,7 +1815,8 @@ Features:
   databases report the same product name; Tibero, OceanBase, EDB Postgres Advanced Server, and H2's Oracle
   compatibility mode are never classified as Oracle. Catalog-query failures do not fail the generic scan.
 - When a Hibernate metamodel is available, compare only entities with explicit `@Table(name = ...)` (and
-  `@SecondaryTable`) mappings against the physical schema instead of guessing naming-strategy output. Composite
+  `@SecondaryTable`) declarations against observed metadata. Even explicit logical names may be transformed by a
+  physical naming strategy; discrepancies do not establish broken effective runtime mappings. Composite
   foreign key matching tolerates the physical constraint's own column order but requires the same child-to-parent
   pairing, and an association explicitly declaring `@ForeignKey(ConstraintMode.NO_CONSTRAINT)` is excluded from the
   missing-constraint check.
@@ -1783,9 +1834,9 @@ Availability:
 
 - The generic rules run for every JDBC-reachable database vendor; databases without vendor-specific augmentation are
   not treated as unsupported.
-- When no application `DataSource` is present or no datasource can be read, the panel returns a stable unavailable or
-  empty report with an explanatory status. When only some datasources fail, readable datasources are still evaluated
-  and the report status is `PARTIAL`.
+- Successful discovery of no application `DataSource` returns `DISABLED`; discovery failure, or a scan where no
+  discovered schema could be read, returns `ERROR`. Individual failures retain other readable schemas with `PARTIAL`.
+  Truncated or otherwise incomplete evidence cannot prove an object absent.
 - Hibernate cross-reference checks are skipped with an explicit reason when either the physical schema or Hibernate
   metamodel is unavailable; their absence does not prevent the generic JDBC rules from running.
 - Spring MVC, Spring WebFlux, and Quarkus use the same shared rule engine and report contract. Quarkus discovers
@@ -1796,7 +1847,7 @@ Out of scope for the current release surface:
 
 - Executing DDL, querying application data, changing schema objects, or changing Hibernate mappings.
 - Workload or query-plan analysis, partition management, and index suggestions derived from observed query usage.
-- Guessing physical names for entities that rely on an implicit Hibernate naming strategy.
+- Guessing effective physical names or sequence optimizer contracts from annotations alone.
 - Oracle orphaned-entry, chained-row, unused-index, fragmentation, and sequence-gap warnings, and any AWR/ASH-derived
   finding, none of which can be evaluated from `ALL_*` views alone without an elevated role or workload assumptions
   this advisor does not make.
@@ -2521,10 +2572,18 @@ Design rules:
   envelope whose `total` counts every item before the query and filters are applied and whose `matched` counts what they
   kept, so a non-zero `total` beside `matched: 0` is an empty query result rather than absent data; tool guidance states
   that distinction where a narrow query would otherwise be read as a missing value.
-- **Prompt surface.** `prompts/list` advertises two argument-free workflows: `diagnose_runtime_issue` for evidence-led
-  runtime diagnosis and `review_application` for a focused advisor review. `prompts/get` returns the selected workflow as
-  a user message. Both prompts require agents to distinguish evidence from hypotheses, avoid blind fixes, minimize active
-  scans, and include verification steps.
+- **Prompt surface.** `prompts/list` advertises three argument-free workflows: `diagnose_runtime_issue` for evidence-led
+  runtime diagnosis, `review_application` for a focused advisor review, and `assess_application` for a capability-aware
+  application assessment and prioritized action plan. `prompts/get` returns the selected workflow as a user message,
+  without executing scans or changes. All prompts distinguish evidence from hypotheses and avoid blind fixes.
+  The assessment starts with existing evidence, declares collection budgets, asks for an explicit fresh-scan scope
+  (separate approval for GC, loopback probes, external vulnerability queries, and database metadata inspection), and
+  reports unavailable, skipped, failed, stale, partial, or insufficient evidence honestly. Its versioned plan records
+  context, coverage, stable action IDs with evidence/risks/acceptance criteria, and an explicit approval stop.
+  Execution belongs to the external coding agent under its host's permissions: only approved actions may proceed,
+  changed context requires renewed approval, and a retained sanitized baseline supports reassessment after restart.
+  This adds no assessment tool, scheduler, browser approval interface, or code-execution endpoint. The BootUI skill
+  teaches the same workflow through existing MCP/CLI tools; see [AI agents](AI-AGENTS.md#assess-an-application-and-approve-an-action-plan).
 - **Same safety model as the panels.** The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host`
   allow-list, cross-site write protection). The dispatcher enforces per-panel access: read tools require the backing
   panel to be enabled, action tools are additionally refused when the panel is read-only or `bootui.read-only=true`.

@@ -24,6 +24,22 @@ class McpToolDescriptionsTests {
         assertDescriptions(McpToolCatalog.namesFor(McpToolCatalog.Stack.QUARKUS), McpToolDescriptions::quarkus);
     }
 
+    @Test
+    void vulnerabilityGuidanceExplainsOutboundDataAndEvidenceLimitsOnBothAdapters() {
+        assertThat(List.of(
+                        McpToolDescriptions.spring("vulnerabilities_scan"),
+                        McpToolDescriptions.quarkus("vulnerabilities_scan")))
+                .allSatisfy(description -> assertThat(description)
+                        .contains("package names/versions", "FIRST", "only with approval")
+                        .contains("`scan.status`", "`scan.message`", "`coverage`", "`scan.packagesSkipped`")
+                        .contains("not verified installable upgrades", "not a combined"));
+        assertThat(List.of(
+                        McpToolDescriptions.spring("get_vulnerabilities_report"),
+                        McpToolDescriptions.quarkus("get_vulnerabilities_report")))
+                .allSatisfy(description ->
+                        assertThat(description).contains("without contacting", "UNKNOWN severity is not zero risk"));
+    }
+
     private static void assertDescriptions(Set<String> names, Function<String, String> descriptionProvider) {
         assertThat(names).isNotEmpty();
         assertThat(names)

@@ -286,6 +286,17 @@
              application archives. QuarkusHealthProviderTest also needs SmallRye's jakarta.json API + the
              Parsson implementation, both already supplied on the test classpath by smallrye-health above. -->
         <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-oidc</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Native OIDC preset fixtures generate SmallRye config mappings outside Quarkus augmentation. -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>

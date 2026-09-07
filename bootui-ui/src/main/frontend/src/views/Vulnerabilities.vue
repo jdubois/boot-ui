@@ -5,6 +5,7 @@ import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
+import {advisorAssessment} from '../utils/scannerScore.js'
 import {useDismissedRules} from '../utils/useDismissedRules.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -121,6 +122,7 @@ const maxSeverityCount = computed(() => {
 })
 
 const hasScanData = computed(() => hasScanResult(data.value?.scan?.status))
+const assessment = computed(() => advisorAssessment(data.value, {vulnerabilities: true}))
 
 // Coverage answers "how much of the application did we actually look at?". Without it a green
 // "0 vulnerable" summary reads as full coverage even when the inventory missed most of the
@@ -209,15 +211,16 @@ function epssBadgeText(vulnerability) {
 }
 
 // FIRST.org EPSS (https://www.first.org/epss/) estimates likelihood-of-exploitation in the next 30
-// days, complementing CVSS's severity-if-exploited score. Only set for CVE-aliased advisories.
+// days, complementing CVSS's severity-if-exploited score. The backend selects one available CVE.
 function epssTooltip(vulnerability) {
   const percent = formatEpssPercent(vulnerability.epssScore)
   if (!percent) return ''
+  const signal = `Highest available CVE EPSS: ${percent} likelihood of exploitation in the next 30 days`
   if (vulnerability.epssPercentile == null) {
-    return `${percent} likelihood of exploitation in the next 30 days (EPSS)`
+    return `${signal}. A prioritization signal, not a combined probability for this advisory.`
   }
   const percentile = ordinal(Math.round(vulnerability.epssPercentile * 100))
-  return `${percent} likelihood of exploitation in the next 30 days, ${percentile} percentile (EPSS)`
+  return `${signal}, ${percentile} percentile for that CVE. A prioritization signal, not a combined probability for this advisory.`
 }
 
 const aliasLinkBuilders = [
@@ -324,7 +327,9 @@ onMounted(loadDependencies)
       </div>
 
       <AdvisorSummary
-        :score="null"
+        :score="assessment.score"
+        :score-label="assessment.label"
+        :score-reason="assessment.reason"
         :scan-status-label="scanStatusLabel(data.scan.status)"
         :scan-status-class="scanStatusBadgeClass(data.scan.status)"
         :scan-time="scanTime()"

@@ -9,12 +9,15 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 /**
  * Bounded, on-demand REST API Advisor scanner.
@@ -22,12 +25,14 @@ import java.util.function.Supplier;
  * <p>The scanner imports only the host application's own classes (bounded to the detected
  * {@code @SpringBootApplication} base packages), derives a read-only handler model once, and runs a
  * fixed registry of curated, project-agnostic REST best-practice rules. Results are heuristic review
- * prompts, not verdicts. Import or model-building failures degrade to a stable "scanned, nothing to
- * analyse" report instead of throwing.</p>
+ * prompts, not verdicts. Import, extraction, and evaluation failures produce an incomplete report
+ * retaining reliable findings instead of claiming a clean scan.</p>
  */
 public final class RestApiScanner {
 
     private static final String ANALYZER = "BootUI REST API Advisor";
+    private static final Pattern PACKAGE_NAME = Pattern.compile(
+            "\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*(?:\\.\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*)*");
     private static final String DISCLAIMER =
             "Heuristic, project-agnostic REST API design rules run against the host application's own controllers "
                     + "only. These checks complement, but do not replace, an API design review or contract testing. "
@@ -36,6 +41,8 @@ public final class RestApiScanner {
     private static final Set<String> SPRING_PROBLEM_DETAIL_RULE_IDS = Set.of("RAPI-ERR-003", "RAPI-ERR-006");
 
     private static final Set<String> SPRING_DATA_PAGINATION_RULE_IDS = Set.of("RAPI-PAGE-002");
+    private static final Set<String> SPRING_PATH_BINDING_RULE_IDS = Set.of("RAPI-MAP-006", "RAPI-MAP-009");
+    private static final Set<String> COMPLETE_EXCEPTION_MODEL_RULE_IDS = Set.of("RAPI-ERR-001", "RAPI-ERR-009");
 
     private static final Comparator<RestApiRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (RestApiRuleResultDto result) -> SeverityOrder.rank(result.severity()))
@@ -48,6 +55,7 @@ public final class RestApiScanner {
     private final BooleanSupplier openApiAnnotationsPresent;
     private final BooleanSupplier globalVersioningConfigured;
     private final Clock clock;
+    private final List<RestApiRule> rules;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
 
     RestApiScanner(
@@ -56,11 +64,28 @@ public final class RestApiScanner {
             BooleanSupplier openApiAnnotationsPresent,
             BooleanSupplier globalVersioningConfigured,
             Clock clock) {
+        this(
+                basePackagesSupplier,
+                importer,
+                openApiAnnotationsPresent,
+                globalVersioningConfigured,
+                clock,
+                RestApiRuleRegistry.activeRules());
+    }
+
+    RestApiScanner(
+            Supplier<List<String>> basePackagesSupplier,
+            RestApiClassImporter importer,
+            BooleanSupplier openApiAnnotationsPresent,
+            BooleanSupplier globalVersioningConfigured,
+            Clock clock,
+            List<RestApiRule> rules) {
         this.basePackagesSupplier = basePackagesSupplier;
         this.importer = importer;
         this.openApiAnnotationsPresent = openApiAnnotationsPresent;
         this.globalVersioningConfigured = globalVersioningConfigured;
         this.clock = clock;
+        this.rules = List.copyOf(rules);
     }
 
     /**
@@ -95,10 +120,13 @@ public final class RestApiScanner {
     }
 
     public RestApiReport initialReport() {
-        List<String> basePackages = safeBasePackages();
+        Set<String> failures = new LinkedHashSet<>();
+        List<String> basePackages = basePackages(failures);
         return report(
                 "NOT_SCANNED",
-                "REST API rules have not run yet. Click Run REST API checks to analyse the application controllers.",
+                failures.isEmpty()
+                        ? "REST API rules have not run yet. Click Run REST API checks to analyse the application controllers."
+                        : "REST API rules have not run yet. Application base packages could not be read; retry the scan.",
                 null,
                 basePackages,
                 0,
@@ -112,11 +140,14 @@ public final class RestApiScanner {
     }
 
     private RestApiReport doScan() {
-        List<String> basePackages = safeBasePackages();
+        Set<String> failures = new LinkedHashSet<>();
+        List<String> basePackages = basePackages(failures);
         if (basePackages.isEmpty()) {
             return report(
-                    "SCANNED",
-                    "No application base package was detected, so there were no controllers to analyse.",
+                    "PARTIAL",
+                    failures.isEmpty()
+                            ? "No application base package was detected. REST API analysis could not run."
+                            : incompleteMessage(failures),
                     clock.millis(),
                     basePackages,
                     0,
@@ -133,8 +164,8 @@ public final class RestApiScanner {
             // VirtualMachineError (OutOfMemoryError, StackOverflowError) is deliberately not caught here.
         } catch (RuntimeException | LinkageError ex) {
             return report(
-                    "SCANNED",
-                    "Application classes could not be imported for analysis: " + ex.getMessage(),
+                    "PARTIAL",
+                    "Application classes could not be imported. REST API analysis is incomplete.",
                     clock.millis(),
                     basePackages,
                     0,
@@ -148,8 +179,8 @@ public final class RestApiScanner {
             model = RestApiHandlerModelBuilder.build(classes);
         } catch (RuntimeException | LinkageError ex) {
             return report(
-                    "SCANNED",
-                    "Application controllers could not be analysed: " + ex.getMessage(),
+                    "PARTIAL",
+                    "Application controllers could not be analysed. REST API analysis is incomplete.",
                     clock.millis(),
                     basePackages,
                     0,
@@ -158,10 +189,15 @@ public final class RestApiScanner {
                     List.of());
         }
 
+        if (model.incomplete()) {
+            failures.add("controller metadata extraction");
+        }
         if (model.controllers().isEmpty()) {
             return report(
-                    "SCANNED",
-                    "No @Controller/@RestController classes were found under the detected base package(s) to analyse.",
+                    failures.isEmpty() ? "SCANNED" : "PARTIAL",
+                    failures.isEmpty()
+                            ? "No supported controller or JAX-RS resource declarations were found under the detected base package(s)."
+                            : incompleteMessage(failures),
                     clock.millis(),
                     basePackages,
                     0,
@@ -170,26 +206,52 @@ public final class RestApiScanner {
                     List.of());
         }
 
+        Boolean openApi = readEvidence(
+                openApiAnnotationsPresent::getAsBoolean, null, failures, "OpenAPI annotation availability");
+        Boolean versioning = readEvidence(
+                globalVersioningConfigured::getAsBoolean, null, failures, "global API versioning configuration");
         RestApiContext context = new RestApiContext(
                 basePackages,
                 model.controllers(),
                 model.handlers(),
                 model.exceptionHandlers(),
-                safeOpenApiAnnotationsPresent(),
-                safeGlobalVersioningConfigured(),
+                Boolean.TRUE.equals(openApi),
+                Boolean.TRUE.equals(versioning),
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.thrownExceptions(),
                 model.framework());
 
-        List<RestApiRuleResultDto> results = RestApiRuleRegistry.activeRules().stream()
-                .map(rule -> evaluate(rule, context))
-                .toList();
+        List<RestApiRuleResultDto> results = new ArrayList<>();
+        for (RestApiRule rule : rules) {
+            String id = rule.definition().id();
+            if (model.incomplete() && COMPLETE_EXCEPTION_MODEL_RULE_IDS.contains(id)) {
+                results.add(
+                        RestApiRuleSupport.skipped(
+                                rule.definition(),
+                                "Controller and exception metadata is incomplete; missing handler declarations cannot be inferred."));
+                continue;
+            }
+            if ((openApi == null && id.startsWith("RAPI-DOC-"))
+                    || (versioning == null && id.equals("RAPI-VER-001") && !context.jaxRs())) {
+                results.add(RestApiRuleSupport.skipped(
+                        rule.definition(), "Required framework evidence could not be read."));
+                continue;
+            }
+            RestApiRuleResultDto result = evaluate(rule, context);
+            if (RestApiRuleSupport.ERROR.equals(result.status())) {
+                failures.add("rule evaluation");
+            }
+            results.add(result);
+        }
 
         return report(
-                "SCANNED",
-                "REST API rules completed against " + model.controllers().size() + " controller(s) and "
-                        + model.handlers().size() + " handler method(s) under the detected base package(s).",
+                failures.isEmpty() ? "SCANNED" : "PARTIAL",
+                failures.isEmpty()
+                        ? "REST API rules completed against "
+                                + model.controllers().size() + " controller(s) and "
+                                + model.handlers().size() + " handler method(s) under the detected base package(s)."
+                        : incompleteMessage(failures),
                 clock.millis(),
                 basePackages,
                 model.controllers().size(),
@@ -213,31 +275,48 @@ public final class RestApiScanner {
                     "Not applicable on JAX-RS: this rule specifically compares Spring Data Pageable inputs with"
                             + " Page/Slice outputs.");
         }
-        return rule.evaluate(context);
-    }
-
-    private List<String> safeBasePackages() {
+        if (context.jaxRs() && SPRING_PATH_BINDING_RULE_IDS.contains(definition.id())) {
+            return RestApiRuleSupport.skipped(
+                    definition,
+                    "Not applicable on JAX-RS: this rule checks Spring @PathVariable bindings or unique path-template"
+                            + " token names. Jakarta REST uses different parameter binding and token scoping semantics.");
+        }
         try {
-            List<String> packages = basePackagesSupplier.get();
-            return packages == null ? List.of() : List.copyOf(packages);
-        } catch (RuntimeException ex) {
-            return List.of();
+            RestApiRuleResultDto result = rule.evaluate(context);
+            return result == null || RestApiRuleSupport.ERROR.equals(result.status())
+                    ? RestApiRuleSupport.error(definition, "Rule evaluation failed; no conclusion was reached.")
+                    : result;
+        } catch (RuntimeException | LinkageError ex) {
+            return RestApiRuleSupport.error(definition, "Rule evaluation failed; no conclusion was reached.");
         }
     }
 
-    private boolean safeOpenApiAnnotationsPresent() {
-        try {
-            return openApiAnnotationsPresent.getAsBoolean();
-        } catch (RuntimeException | LinkageError ex) {
-            return false;
-        }
+    private List<String> basePackages(Set<String> failures) {
+        return readEvidence(
+                () -> {
+                    List<String> packages = List.copyOf(basePackagesSupplier.get());
+                    if (packages.stream()
+                            .anyMatch(name -> !PACKAGE_NAME.matcher(name).matches())) {
+                        throw new IllegalArgumentException("Invalid REST analysis package scope");
+                    }
+                    return packages;
+                },
+                List.of(),
+                failures,
+                "application base package discovery");
     }
 
-    private boolean safeGlobalVersioningConfigured() {
+    private static String incompleteMessage(Set<String> failures) {
+        return "REST API analysis is incomplete: " + String.join(", ", failures)
+                + " failed. Reliable findings are retained; missing findings do not establish a clean API.";
+    }
+
+    private static <T> T readEvidence(Supplier<T> supplier, T fallback, Set<String> failures, String failureCategory) {
         try {
-            return globalVersioningConfigured.getAsBoolean();
+            return supplier.get();
         } catch (RuntimeException | LinkageError ex) {
-            return false;
+            failures.add(failureCategory);
+            return fallback;
         }
     }
 

@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import java.util.List;
-import java.util.Locale;
+import java.util.Objects;
 
 /**
  * One physical table read from {@code DatabaseMetaData}, carrying its qualified identity (catalog, schema,
@@ -94,6 +94,40 @@ record TableModel(
                 metadata);
     }
 
+    TableModel withMetadata(TableMetadata replacement) {
+        return new TableModel(
+                catalog,
+                schema,
+                name,
+                type,
+                columns,
+                primaryKeyName,
+                primaryKeyColumns,
+                foreignKeys,
+                indexes,
+                partitionParent,
+                partitionChild,
+                extensionOwned,
+                replacement);
+    }
+
+    TableModel withForeignKeys(List<ForeignKeyModel> replacement) {
+        return new TableModel(
+                catalog,
+                schema,
+                name,
+                type,
+                columns,
+                primaryKeyName,
+                primaryKeyColumns,
+                replacement,
+                indexes,
+                partitionParent,
+                partitionChild,
+                extensionOwned,
+                metadata);
+    }
+
     /**
      * {@code schema.table} for a driver that reports a schema, falling back to {@code catalog.table} — MySQL
      * and MariaDB report the database in {@code TABLE_CAT} and leave {@code TABLE_SCHEM} null, so without the
@@ -107,7 +141,7 @@ record TableModel(
     }
 
     boolean matchesName(String candidate) {
-        return candidate != null && name != null && name.equalsIgnoreCase(candidate);
+        return candidate != null && name != null && name.equals(candidate);
     }
 
     /** True when this table matches an optionally qualified {@code catalog}/{@code schema}/{@code name}. */
@@ -127,7 +161,7 @@ record TableModel(
             return null;
         }
         return columns.stream()
-                .filter(column -> column.name() != null && column.name().equalsIgnoreCase(columnName))
+                .filter(column -> column.name() != null && column.name().equals(columnName))
                 .findFirst()
                 .orElse(null);
     }
@@ -148,40 +182,53 @@ record TableModel(
 
     /** True when at least one usable unique index genuinely enforces uniqueness over {@code columns}. */
     boolean hasEnforcedUniqueness(List<String> uniqueColumns) {
-        return indexes.stream().anyMatch(index -> index.enforcesUniquenessOver(uniqueColumns));
+        return uniquenessCoverage(uniqueColumns) == IndexModel.UniquenessCoverage.ENFORCED;
+    }
+
+    IndexModel.UniquenessCoverage uniquenessCoverage(List<String> uniqueColumns) {
+        if (uniqueColumns.isEmpty() || uniqueColumns.stream().anyMatch(Objects::isNull)) {
+            return IndexModel.UniquenessCoverage.UNKNOWN;
+        }
+        boolean unknown = !metadata.primaryKeyRead() || !metadata.indexesRead();
+        if (!primaryKeyColumns.isEmpty() && uniqueColumns.containsAll(primaryKeyColumns)) {
+            if (metadata.primaryKeyRead() && Boolean.TRUE.equals(metadata.primaryKeyEnforced())) {
+                return IndexModel.UniquenessCoverage.ENFORCED;
+            }
+            unknown |= metadata.primaryKeyEnforced() == null;
+        }
+        for (IndexModel index : indexes) {
+            boolean subsetColumnsNotNull = !index.keyParts().isEmpty()
+                    && index.columnNames().stream().allMatch(name -> {
+                        ColumnModel column = column(name);
+                        return column != null && column.notNull();
+                    });
+            IndexModel.UniquenessCoverage coverage = index.uniquenessCoverage(uniqueColumns, subsetColumnsNotNull);
+            if (coverage == IndexModel.UniquenessCoverage.ENFORCED) {
+                return coverage;
+            }
+            unknown |= coverage == IndexModel.UniquenessCoverage.UNKNOWN;
+        }
+        return unknown ? IndexModel.UniquenessCoverage.UNKNOWN : IndexModel.UniquenessCoverage.NOT_ENFORCED;
     }
 
     /**
-     * The index actually backing the primary key: the one named after the primary key constraint when the
-     * driver reports a name, otherwise the first usable unique index covering exactly the primary key columns
-     * in order. Returns {@code null} when no index can be attributed to the primary key.
+     * The unique index identity linked to the primary-key constraint by actual catalog evidence.
+     * Neither a matching name nor matching columns alone prove backing ownership.
      */
     IndexModel primaryKeyBackingIndex() {
         if (primaryKeyColumns.isEmpty()) {
             return null;
         }
-        if (primaryKeyName != null && !primaryKeyName.isBlank()) {
-            IndexModel byName = indexes.stream()
-                    .filter(index -> index.name() != null && index.name().equalsIgnoreCase(primaryKeyName))
-                    .findFirst()
-                    .orElse(null);
-            if (byName != null) {
-                return byName;
-            }
-        }
-        return indexes.stream()
-                .filter(index -> index.unique()
-                        && !index.partial()
-                        && !index.hasExpressionKeyPart()
-                        && index.coversExactlyInOrder(primaryKeyColumns))
-                .findFirst()
-                .orElse(null);
+        List<IndexModel> candidates = indexes.stream()
+                .filter(index -> primaryKeyName != null && primaryKeyName.equals(index.backingConstraint()))
+                .toList();
+        return candidates.size() == 1 ? candidates.get(0) : null;
     }
 
     private static boolean matchesQualifier(String actual, String candidate) {
-        if (candidate == null || candidate.isBlank()) {
+        if (candidate == null) {
             return true;
         }
-        return actual != null && actual.toLowerCase(Locale.ROOT).equals(candidate.toLowerCase(Locale.ROOT));
+        return Objects.equals(actual, candidate);
     }
 }

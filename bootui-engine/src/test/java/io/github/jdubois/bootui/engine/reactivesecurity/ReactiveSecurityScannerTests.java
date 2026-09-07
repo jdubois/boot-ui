@@ -8,12 +8,14 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 /**
  * Pure unit tests for the framework-neutral reactive Spring Security advisor: {@link
- * ReactiveSecurityScanner}, {@link ReactiveSecurityRuleRegistry}, and the 26 {@code SEC-RXF-*} rules.
+ * ReactiveSecurityScanner}, {@link ReactiveSecurityRuleRegistry}, and the 25 {@code SEC-RXF-*} rules.
  * Everything here builds a plain {@link ReactiveSecurityObservation} — no Spring, no reflection, no
  * {@code MockEnvironment} — mirroring how {@code SpringReactiveSecurityObservationCollector} feeds the
  * scanner in production.
@@ -73,6 +75,280 @@ class ReactiveSecurityScannerTests {
     }
 
     @Test
+    void failedEmptyAndNullSubsequentScansNeverRetainOldChainDescriptions() {
+        for (int outcome = 0; outcome < 3; outcome++) {
+            int next = outcome;
+            AtomicInteger calls = new AtomicInteger();
+            ReactiveSecurityScanner scanner = ReactiveSecurityScanner.using(
+                    () -> {
+                        if (calls.getAndIncrement() == 0) {
+                            return minimalObservation();
+                        }
+                        if (next == 0) {
+                            throw new IllegalStateException("do-not-leak");
+                        }
+                        return next == 1 ? ReactiveSecurityObservation.empty() : null;
+                    },
+                    CLOCK);
+            assertThat(scanner.scan().filterChains()).isNotEmpty();
+            SecurityReport after = scanner.scan();
+            assertThat(after.scan().status()).isEqualTo("DISABLED");
+            assertThat(after.filterChains()).isEmpty();
+            assertThat(after.toString()).doesNotContain("do-not-leak");
+        }
+    }
+
+    @Test
+    void skippedEvidenceMakesPartialWithoutAnalysisErrorsAndKnownFindingSurvives() {
+        WebFilterChainObservation unknown =
+                new WebFilterChainObservation(0, "unknown", List.of(), null, List.of(), null, null, null, null);
+        WebFilterChainObservation missing =
+                new WebFilterChainObservation(1, "known", List.of(), true, List.of(), null, null, null, null);
+        ReactiveSecurityObservation observation = new ReactiveSecurityObservation(
+                List.of(unknown, missing),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of());
+        SecurityReport report =
+                ReactiveSecurityScanner.using(() -> observation, CLOCK).scan();
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.scan().message()).contains("incomplete");
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-RXF-AUTHZ-001");
+    }
+
+    @Test
+    void actualConfigurationFailureIsErrorAndNeverLeaksApplicationExceptionDetails() {
+        ReactiveSecurityEnvironmentSnapshot failed = new ReactiveSecurityEnvironmentSnapshot(
+                false,
+                null,
+                null,
+                false,
+                List.of(),
+                false,
+                false,
+                false,
+                false,
+                null,
+                Set.of(),
+                false,
+                false,
+                false,
+                false,
+                false,
+                Set.of(),
+                true,
+                Map.of("SEC-RXF-CONFIG-004", "java.lang.IllegalArgumentException"),
+                Set.of());
+        SecurityReport report = scan(minimalObservation().chains().get(0), failed);
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.analysisErrors()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("SEC-RXF-CONFIG-004");
+            assertThat(result.status()).isEqualTo("ERROR");
+        });
+    }
+
+    @Test
+    void oauthClientGrantsAreNotBrowserLoginOrSessionPersistence() {
+        WebFilterChainObservation client = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthenticationWebFilter", "OAuth2AuthorizationCodeGrantWebFilter"),
+                true,
+                true,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                true,
+                false);
+        assertThat(scan(client, List.of(), false).results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-CSRF-001", "SEC-RXF-CSRF-002", "SEC-RXF-SESSION-001");
+    }
+
+    @Test
+    void wildcardSchemeWithExactTrustedHostIsNotArbitraryHostTrust() {
+        SecurityReport report = scan(
+                minimalObservation().chains().get(0),
+                List.of(new CorsConfigObservation(
+                        "/**", List.of(), List.of("*://app.example.com"), List.of(), List.of(), true)),
+                true);
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-CORS-003");
+    }
+
+    @Test
+    void rejectedLiteralWildcardPrecedesPatternsAndWildcardPatternsDoNotDuplicateBroadReview() {
+        SecurityReport invalid = scan(
+                minimalObservation().chains().get(0),
+                List.of(new CorsConfigObservation(
+                        "/**", List.of("*"), List.of("*", "https://*"), List.of(), List.of(), true)),
+                true);
+        assertThat(invalid.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-CORS-001")
+                .doesNotContain("SEC-RXF-CORS-002", "SEC-RXF-CORS-003");
+        SecurityReport broad = scan(
+                minimalObservation().chains().get(0),
+                List.of(new CorsConfigObservation(
+                        "/**", List.of(), List.of("*", "https://*"), List.of(), List.of(), true)),
+                true);
+        assertThat(broad.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-CORS-002")
+                .doesNotContain("SEC-RXF-CORS-001", "SEC-RXF-CORS-003");
+    }
+
+    @Test
+    void anonymousOnlyDoesNotCountAsCredentialAuthenticationForDisabledHeaders() {
+        WebFilterChainObservation anonymous = new WebFilterChainObservation(
+                0, "any request", List.of("AnonymousAuthenticationWebFilter"), true, List.of(), null, null, null, null);
+        assertThat(scan(anonymous, List.of(), false).results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-AUTHZ-001")
+                .doesNotContain("SEC-RXF-HEAD-005");
+    }
+
+    @Test
+    void unknownCspDispositionCannotEstablishEnforcementOrMissingFraming() {
+        WebFilterChainObservation unknown = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("HttpHeaderWriterWebFilter"),
+                true,
+                false,
+                List.of(),
+                null,
+                null,
+                "frame-ancestors 'none'",
+                null,
+                true,
+                false);
+        SecurityReport report = scan(unknown, List.of(), false);
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-HEAD-002", "SEC-RXF-HEAD-004");
+    }
+
+    @Test
+    void enforcingFrameAncestorsOverridesFrameOptionsButReportOnlyDoesNot() {
+        for (String policy :
+                List.of("frame-ancestors *", "frame-ancestors 'none'", "frame-ancestors", "default-src 'self'")) {
+            WebFilterChainObservation chain = new WebFilterChainObservation(
+                    0,
+                    "any request",
+                    List.of("HttpHeaderWriterWebFilter"),
+                    true,
+                    List.of("XFrameOptionsServerHttpHeadersWriter"),
+                    null,
+                    null,
+                    policy,
+                    false);
+            assertThat(scan(chain, List.of(), false).results().stream()
+                            .anyMatch(result -> result.id().equals("SEC-RXF-HEAD-002")))
+                    .as(policy)
+                    .isEqualTo(policy.equals("frame-ancestors *"));
+        }
+        WebFilterChainObservation reporting = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("HttpHeaderWriterWebFilter"),
+                true,
+                List.of("XFrameOptionsServerHttpHeadersWriter"),
+                null,
+                null,
+                "frame-ancestors *",
+                true);
+        assertThat(scan(reporting, List.of(), false).results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-HEAD-002");
+        WebFilterChainObservation unknown = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("HttpHeaderWriterWebFilter"),
+                true,
+                List.of("XFrameOptionsServerHttpHeadersWriter"),
+                null,
+                null,
+                "frame-ancestors 'none'",
+                null);
+        ReactiveSecurityObservation observation = new ReactiveSecurityObservation(
+                List.of(unknown),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of());
+        assertThat(new ReactiveFrameOptionsRule()
+                        .evaluate(ReactiveSecurityContext.from(observation))
+                        .status())
+                .isEqualTo("SKIPPED");
+        WebFilterChainObservation unsupported = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("HttpHeaderWriterWebFilter"),
+                true,
+                List.of("XFrameOptionsServerHttpHeadersWriter"),
+                null,
+                null,
+                "default-src 'self', frame-ancestors *",
+                false);
+        ReactiveSecurityObservation unsupportedObservation = new ReactiveSecurityObservation(
+                List.of(unsupported),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of());
+        assertThat(new ReactiveFrameOptionsRule()
+                        .evaluate(ReactiveSecurityContext.from(unsupportedObservation))
+                        .status())
+                .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void zeroAgeHstsIsDeletionAndUnreadableAgeIsUnknown() {
+        WebFilterChainObservation zero = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("HttpHeaderWriterWebFilter"),
+                true,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                0L,
+                true,
+                null,
+                null);
+        assertThat(scan(zero, List.of(), false).results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-HEAD-006"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.sampleViolations())
+                        .singleElement()
+                        .asString()
+                        .contains("removes"));
+        WebFilterChainObservation unknown = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("HttpHeaderWriterWebFilter"),
+                true,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                null,
+                true,
+                null,
+                null);
+        assertThat(scan(unknown, List.of(), false).scan().status()).isEqualTo("PARTIAL");
+    }
+
+    @Test
     void scanReportsRuleFindingsAcrossCategories() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0,
@@ -112,7 +388,8 @@ class ReactiveSecurityScannerTests {
         assertThat(report.violationsFound()).isPositive();
         assertThat(report.results())
                 .extracting(SecurityRuleResultDto::id)
-                .contains("SEC-RXF-CORS-001", "SEC-RXF-CORS-002", "SEC-RXF-ACT-001");
+                .contains("SEC-RXF-CORS-002", "SEC-RXF-ACT-001")
+                .doesNotContain("SEC-RXF-CORS-001");
         // Severity histogram always lists all five severities
         assertThat(report.severityCounts())
                 .extracting("severity")
@@ -222,8 +499,7 @@ class ReactiveSecurityScannerTests {
 
         assertThat(new ReactiveAuthorizationFilterRule().evaluate(context).status())
                 .isEqualTo(ReactiveSecuritySupport.SKIPPED);
-        assertThat(new ReactiveCsrfGloballyDisabledRule().evaluate(context).status())
-                .isEqualTo(ReactiveSecuritySupport.SKIPPED);
+        assertThat(new ReactiveBasicCsrfRule().evaluate(context).status()).isEqualTo(ReactiveSecuritySupport.SKIPPED);
     }
 
     @Test
@@ -258,13 +534,16 @@ class ReactiveSecurityScannerTests {
     }
 
     @Test
-    void catchAllAuthenticationWithoutAuthorizationTriggersDedicatedReview() {
+    void missingAuthorizationDoesNotDuplicateRetiredRules() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0, "any request", List.of("AuthenticationWebFilter"), Boolean.TRUE, List.of(), null, null, null, null);
 
         SecurityReport report = scan(chain, List.of(), false);
 
-        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-RXF-AUTHZ-002");
+        assertThat(report.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-AUTHZ-001")
+                .doesNotContain("SEC-RXF-AUTHZ-002", "SEC-RXF-AUTHZ-003");
     }
 
     @Test
@@ -286,14 +565,14 @@ class ReactiveSecurityScannerTests {
     }
 
     @Test
-    void scanDetectsCsrfWebFilterAbsenceForOidcSessionRegistryLogin() {
+    void scanDetectsCsrfWebFilterAbsenceForOauthLogin() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0,
                 "any request",
                 List.of(
                         "SecurityContextServerWebExchangeWebFilter",
                         "AuthorizationWebFilter",
-                        "OidcSessionRegistryAuthenticationWebFilter"),
+                        "OAuth2LoginAuthenticationWebFilter"),
                 Boolean.FALSE,
                 List.of("StrictTransportSecurityServerHttpHeadersWriter"),
                 31536000L,
@@ -450,7 +729,7 @@ class ReactiveSecurityScannerTests {
     }
 
     @Test
-    void broadWildcardSchemeOriginPatternTriggersMediumSeverityRule() {
+    void broadHostOriginPatternTriggersLowSeverityReview() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0,
                 "any request",
@@ -471,11 +750,11 @@ class ReactiveSecurityScannerTests {
                 .filteredOn(result -> result.id().equals("SEC-RXF-CORS-003"))
                 .singleElement()
                 .extracting(SecurityRuleResultDto::severity)
-                .isEqualTo("MEDIUM");
+                .isEqualTo("LOW");
     }
 
     @Test
-    void broadTopLevelDomainSuffixOriginPatternTriggersMediumSeverityRule() {
+    void broadTopLevelDomainSuffixOriginPatternTriggersLowSeverityReview() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0,
                 "any request",
@@ -496,7 +775,7 @@ class ReactiveSecurityScannerTests {
                 .filteredOn(result -> result.id().equals("SEC-RXF-CORS-003"))
                 .singleElement()
                 .extracting(SecurityRuleResultDto::severity)
-                .isEqualTo("MEDIUM");
+                .isEqualTo("LOW");
     }
 
     @Test
@@ -891,10 +1170,11 @@ class ReactiveSecurityScannerTests {
                 .findFirst()
                 .orElseThrow();
         assertThat(result.status()).isEqualTo(ReactiveSecuritySupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("LOW");
+        assertThat(result.severity()).isEqualTo("INFO");
         assertThat(result.sampleViolations())
-                .containsExactly(
-                        "spring.security.oauth2.resourceserver.jwt.public-key-location configures a static verification key; prefer issuer-uri or jwk-set-uri for key rotation.");
+                .singleElement()
+                .asString()
+                .contains("supported static verification key", "out-of-band rotation");
     }
 
     @Test
@@ -1026,7 +1306,7 @@ class ReactiveSecurityScannerTests {
     @Test
     void ruleCountMatchesRegistry() {
         assertThat(ReactiveSecurityRuleRegistry.activeRules()).hasSize(RULE_COUNT);
-        assertThat(RULE_COUNT).isEqualTo(26);
+        assertThat(RULE_COUNT).isEqualTo(25);
     }
 
     @Test
@@ -1042,10 +1322,10 @@ class ReactiveSecurityScannerTests {
                 .map(r -> r.definition().id())
                 .toList();
         assertThat(ids).doesNotHaveDuplicates();
-        assertThat(ids).hasSize(26);
+        assertThat(ids).hasSize(25);
         assertThat(ids)
-                .contains("SEC-RXF-ACT-005", "SEC-RXF-OAUTH2-004", "SEC-RXF-CORS-003")
-                .doesNotContain("SEC-RXF-CONFIG-001", "SEC-RXF-OAUTH2-001");
+                .contains("SEC-RXF-ACT-005", "SEC-RXF-OAUTH2-004", "SEC-RXF-CORS-003", "SEC-RXF-AUTHZ-004")
+                .doesNotContain("SEC-RXF-CONFIG-001", "SEC-RXF-OAUTH2-001", "SEC-RXF-AUTHZ-002", "SEC-RXF-AUTHZ-003");
         List<String> sorted = ids.stream().sorted().toList();
         // Registry order need not be alphabetical, but must be stable/deterministic across calls.
         List<String> idsAgain = ReactiveSecurityRuleRegistry.activeRules().stream()

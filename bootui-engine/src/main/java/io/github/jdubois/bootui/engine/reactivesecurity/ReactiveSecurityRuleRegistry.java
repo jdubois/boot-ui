@@ -4,16 +4,16 @@ import java.util.List;
 
 final class ReactiveSecurityRuleRegistry {
 
-    static final int RULE_COUNT = 26;
+    static final int RULE_COUNT = 25;
 
     private static final List<ReactiveSecurityRule> ACTIVE_RULES = List.of(
             // Authorization
             new ReactiveAuthorizationFilterRule(),
-            new ReactiveCatchAllWithoutAuthorizationRule(),
-            new ReactiveEffectivelyDisabledSecurityRule(),
+            // AUTHZ-002 and AUTHZ-003 remain reserved: duplicate missing-filter evidence.
+            new ReactiveCatchAllOrderRule(),
             // CSRF
             new ReactiveCsrfDisabledLoginRule(),
-            new ReactiveCsrfGloballyDisabledRule(),
+            new ReactiveBasicCsrfRule(),
             // CORS
             new ReactiveCorsWildcardOriginRule(),
             new ReactiveCorsWildcardWithCredentialsRule(),

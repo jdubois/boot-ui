@@ -83,7 +83,12 @@ class MariaDbDatabaseAdvisorLiveTests {
     void detectsMariaDbAsItsOwnDialectAndReadsItsCatalogWithoutErrors() {
         DatabaseAdvisorReport report = scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("DB-SCHEMA-005");
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+            assertThat(diagnostic.message()).contains("index semantics are unknown");
+        });
         assertThat(report.rulesErrored()).isZero();
         assertThat(report.dataSources()).singleElement().satisfies(status -> {
             assertThat(status.status()).isEqualTo("AVAILABLE");

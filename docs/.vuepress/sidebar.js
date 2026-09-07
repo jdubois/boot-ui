@@ -70,6 +70,7 @@ const groups = [
       'HIBERNATE-CHECKS.md',
       'DATABASE-ADVISOR-CHECKS.md',
       'SECURITY-CHECKS.md',
+      'VULNERABILITIES-CHECKS.md',
       'MEMORY-CHECKS.md',
       'PENTEST-CHECKS.md',
       'GRAALVM-READINESS-CHECKS.md',

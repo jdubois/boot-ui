@@ -8,12 +8,121 @@ import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class DependencyReportsTests {
+
+    @Test
+    void fixAvailabilityRequiresAPositivelyComparableNewerCandidate() {
+        assertThat(DependencyReports.fixAvailable(null, List.of("2"))).isFalse();
+        assertThat(DependencyReports.fixAvailable(" ", List.of("2"))).isFalse();
+        assertThat(DependencyReports.fixAvailable("1", Arrays.asList(null, ""))).isFalse();
+        assertThat(DependencyReports.fixAvailable("1", null)).isFalse();
+        assertThat(DependencyReports.fixAvailable("1", List.of())).isFalse();
+        assertThat(DependencyReports.fixAvailable("1.0", List.of("0.9", "1.0-final")))
+                .isFalse();
+        assertThat(DependencyReports.fixAvailable("1.0-rc1", List.of("1.0"))).isTrue();
+        assertThat(DependencyReports.fixAvailable("1", Arrays.asList(null, "2")))
+                .isTrue();
+    }
+
+    @Test
+    void epssUsesMaximumAvailableProbabilityAndKeepsItsPairedPercentileRegardlessOfAliasOrder() {
+        Map<String, EpssScore> scores = Map.of(
+                "CVE-2024-1000", new EpssScore(0.1, 0.99),
+                "CVE-2024-2000", new EpssScore(0.8, 0.9),
+                "CVE-2024-3000", new EpssScore(0.5, 0.95));
+        for (List<String> aliases : List.of(
+                List.of("CVE-2024-1000", "CVE-2024-2000", "CVE-2024-3000"),
+                List.of("CVE-2024-3000", "CVE-2024-2000", "CVE-2024-1000"))) {
+            DependencyVulnerabilityDto result = epssFinding("GHSA-example", aliases, scores);
+
+            assertThat(result.epssScore()).isEqualTo(0.8);
+            assertThat(result.epssPercentile()).isEqualTo(0.9);
+            assertThat(result.severity()).isEqualTo("HIGH");
+            assertThat(result.score()).isEqualTo(7.5);
+            assertThat(result.dismissed()).isTrue();
+        }
+    }
+
+    @Test
+    void epssIncludesTheAdvisoryOwnCveAndDoesNotStopAtAMissingAlias() {
+        Map<String, EpssScore> scores = Map.of(
+                "CVE-2024-1000", new EpssScore(0.8, 0.9),
+                "CVE-2024-3000", new EpssScore(0.2, 0.5));
+        DependencyVulnerabilityDto own =
+                epssFinding("CVE-2024-1000", List.of("CVE-2024-2000", "CVE-2024-3000"), scores);
+        DependencyVulnerabilityDto later =
+                epssFinding("GHSA-example", List.of("CVE-2024-2000", "CVE-2024-3000"), scores);
+
+        assertThat(own.epssScore()).isEqualTo(0.8);
+        assertThat(own.epssPercentile()).isEqualTo(0.9);
+        assertThat(later.epssScore()).isEqualTo(0.2);
+        assertThat(later.epssPercentile()).isEqualTo(0.5);
+    }
+
+    @Test
+    void epssProbabilityTiesUseTheLexicallySmallestCveAndItsPercentile() {
+        Map<String, EpssScore> scores = Map.of(
+                "CVE-2024-1000", new EpssScore(0.5, 0.7),
+                "CVE-2024-2000", new EpssScore(0.5, 0.8));
+        for (String own : List.of("CVE-2024-1000", "CVE-2024-2000")) {
+            DependencyVulnerabilityDto result = epssFinding(own, List.of("CVE-2024-2000", "CVE-2024-1000"), scores);
+
+            assertThat(result.epssScore()).isEqualTo(0.5);
+            assertThat(result.epssPercentile()).isEqualTo(0.7);
+        }
+    }
+
+    @Test
+    void epssRejectsInvalidProbabilityAndPercentileDefensivelyButKeepsOtherValidScores() {
+        for (double invalid :
+                new double[] {Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, -0.01, 1.01}) {
+            for (EpssScore invalidScore : List.of(new EpssScore(invalid, 0.9), new EpssScore(1, invalid))) {
+                Map<String, EpssScore> scores =
+                        Map.of("CVE-2024-1000", invalidScore, "CVE-2024-2000", new EpssScore(0.2, 0.5));
+                DependencyVulnerabilityDto result = epssFinding("CVE-2024-1000", List.of("CVE-2024-2000"), scores);
+
+                assertThat(result.epssScore()).isEqualTo(0.2);
+                assertThat(result.epssPercentile()).isEqualTo(0.5);
+                assertThat(epssFinding("CVE-2024-1000", List.of(), scores).epssScore())
+                        .isNull();
+            }
+        }
+    }
+
+    @Test
+    void epssMissingDataIsNotZeroAndUnrelatedRecordsCannotEnrichAFinding() {
+        Map<String, EpssScore> scores = Map.of(
+                "CVE-2024-1000", new EpssScore(0, 0),
+                "CVE-2024-2000", new EpssScore(1, 1));
+
+        assertThat(epssFinding("CVE-2024-1000", List.of(), scores).epssScore()).isZero();
+        assertThat(epssFinding("CVE-2024-1000", List.of(), scores).epssPercentile())
+                .isZero();
+        assertThat(epssFinding("CVE-2024-2000", List.of(), scores).epssScore()).isEqualTo(1);
+        assertThat(epssFinding("CVE-2024-3000", List.of(), scores).epssScore()).isNull();
+        assertThat(epssFinding("GHSA-example", List.of(), scores).epssScore()).isNull();
+        assertThat(epssFinding("CVE-2024-1000", List.of(), Map.of()).epssScore())
+                .isNull();
+    }
+
+    private static DependencyVulnerabilityDto epssFinding(
+            String id, List<String> aliases, Map<String, EpssScore> scores) {
+        DependencyVulnerabilityDto vulnerability = new DependencyVulnerabilityDto(
+                id, "summary", "details", "HIGH", 7.5, aliases, List.of(), List.of(), false, null, null, true);
+        DependencyDto dependency = new DependencyDto(
+                "org.example", "library", "1", "org.example:library", "test", 0, "NONE", List.of(vulnerability));
+        List<DependencyDto> result = DependencyReports.applyEpssScores(List.of(dependency), scores);
+        assertThat(result.get(0).vulnerabilityCount()).isZero();
+        assertThat(result.get(0).highestSeverity()).isEqualTo("NONE");
+        assertThat(vulnerability.epssScore()).isNull();
+        return result.get(0).vulnerabilities().get(0);
+    }
 
     private static DependencyDto dependency(String groupId, String artifactId, String version) {
         String packageName = groupId + ":" + artifactId;

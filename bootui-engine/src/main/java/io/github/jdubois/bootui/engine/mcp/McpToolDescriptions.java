@@ -93,11 +93,13 @@ public final class McpToolDescriptions {
             Map.entry(
                     "vulnerabilities_scan",
                     "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return "
-                            + "severity-ranked findings. This makes outbound network calls to a public advisory database; "
-                            + "run only when needed and verify a finding's affected version range before changing a "
-                            + "dependency. Check `coverage` and `scan.packagesSkipped` before treating a clean result as "
-                            + "proof: JARs published without Maven coordinates cannot be scanned and are reported there "
-                            + "instead of being silently dropped."),
+                            + "severity-ranked findings. This sends package names/versions to OSV and, when enabled, CVE "
+                            + "ids to FIRST for optional EPSS enrichment; run only with approval. Check `scan.status`, "
+                            + "`scan.message`, `coverage` and `scan.packagesSkipped`: partial or unknown evidence is "
+                            + "not a clean result, and inventory coverage does not prove reachability. Fixed versions are "
+                            + "supported affected-interval candidates, not verified installable upgrades. Verify compatibility "
+                            + "before changing a dependency. EPSS is the highest available per-CVE probability, not a combined "
+                            + "probability or severity; optional enrichment failure retains OSV findings."),
             Map.entry(
                     "get_loggers",
                     "Search configured loggers by case-insensitive name and return their configured and effective "
@@ -147,9 +149,10 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_vulnerabilities_report",
                     "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
-                            + "without contacting OSV.dev or any other network service. `coverage` states how many of "
-                            + "the application's JARs the inventory actually accounts for, so a clean report is not "
-                            + "mistaken for full coverage."),
+                            + "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
+                            + "`coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results "
+                            + "retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the "
+                            + "inventory provider's accounting, not shaded-library discovery or exploitability."),
             Map.entry(
                     "get_metrics",
                     "Search the current application metrics inventory and return a bounded page of local meter values. "

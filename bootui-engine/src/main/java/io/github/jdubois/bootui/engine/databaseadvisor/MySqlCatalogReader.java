@@ -5,6 +5,11 @@ import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * The MySQL/MariaDB-only, read-only {@code information_schema} augmentation the generic JDBC metadata API
@@ -76,20 +81,65 @@ final class MySqlCatalogReader {
                 budget,
                 limits,
                 MySqlCatalogReader::readAutoIncrementColumn));
-        findings.add(CatalogQuery.read(
+        findings.add(consistentIndexRows(CatalogQuery.read(
                 connection,
                 VendorFindingKinds.MYSQL_INDEX_DETAILS,
                 indexDetailsSql(dialect, capabilities),
                 budget,
                 limits,
-                resultSet -> readIndexDetail(resultSet, dialect, capabilities)));
+                resultSet -> readIndexDetail(resultSet, dialect, capabilities))));
+    }
+
+    private static VendorAugmentation<MySqlIndexDetail> consistentIndexRows(
+            VendorAugmentation<MySqlIndexDetail> augmentation) {
+        if (!augmentation.available()) {
+            return augmentation;
+        }
+        record Identity(String schema, String table, String index) {}
+        Map<Identity, List<MySqlIndexDetail>> groups = new LinkedHashMap<>();
+        for (MySqlIndexDetail row : augmentation.findings()) {
+            groups.computeIfAbsent(new Identity(row.schema(), row.table(), row.index()), ignored -> new ArrayList<>())
+                    .add(row);
+        }
+        List<MySqlIndexDetail> rows = new ArrayList<>();
+        int groupNumber = 0;
+        for (List<MySqlIndexDetail> group : groups.values()) {
+            MySqlIndexDetail first = group.get(0);
+            groupNumber++;
+            boolean complete = !(augmentation.truncated() && groupNumber == groups.size());
+            int expected = 1;
+            for (MySqlIndexDetail row : group) {
+                complete &= row.definitionComplete()
+                        && row.position() == expected++
+                        && row.unique() == first.unique()
+                        && Objects.equals(row.visible(), first.visible())
+                        && Objects.equals(row.indexType(), first.indexType());
+            }
+            for (MySqlIndexDetail row : group) {
+                rows.add(new MySqlIndexDetail(
+                        row.schema(),
+                        row.table(),
+                        row.index(),
+                        row.position(),
+                        row.column(),
+                        row.subPart(),
+                        row.collation(),
+                        row.indexType(),
+                        row.unique(),
+                        row.visible(),
+                        row.expression(),
+                        row.generatedColumn(),
+                        complete));
+            }
+        }
+        return VendorAugmentation.available(VendorFindingKinds.MYSQL_INDEX_DETAILS, rows, augmentation.truncated());
     }
 
     /** Selects only the catalog columns this server version actually has. */
     private static String indexDetailsSql(Dialect dialect, DialectCapabilities capabilities) {
         StringBuilder sql = new StringBuilder("""
                 select s.table_schema, s.table_name, s.index_name, s.seq_in_index, s.column_name,
-                       s.sub_part, s.collation, s.index_type, s.non_unique""");
+                       s.sub_part, s.collation, s.index_type, s.non_unique, c.extra as column_extra""");
         if (capabilities.indexVisibility()) {
             sql.append(dialect == Dialect.MARIADB ? ", s.ignored as index_ignored" : ", s.is_visible as is_visible");
         }
@@ -99,6 +149,8 @@ final class MySqlCatalogReader {
         sql.append("""
 
                 from information_schema.statistics s
+                left join information_schema.columns c on c.table_schema = s.table_schema
+                     and c.table_name = s.table_name and c.column_name = s.column_name
                 where s.table_schema = database()
                 order by s.table_name, s.index_name, s.seq_in_index
                 limit ?
@@ -140,28 +192,41 @@ final class MySqlCatalogReader {
         if (capabilities.indexVisibility()) {
             if (dialect == Dialect.MARIADB) {
                 String ignored = rs.getString("index_ignored");
-                visible = ignored == null ? null : !"YES".equalsIgnoreCase(ignored);
+                visible = "YES".equalsIgnoreCase(ignored)
+                        ? Boolean.FALSE
+                        : "NO".equalsIgnoreCase(ignored) ? Boolean.TRUE : null;
             } else {
                 String isVisible = rs.getString("is_visible");
-                visible = isVisible == null ? null : "YES".equalsIgnoreCase(isVisible);
+                visible = "YES".equalsIgnoreCase(isVisible)
+                        ? Boolean.TRUE
+                        : "NO".equalsIgnoreCase(isVisible) ? Boolean.FALSE : null;
             }
         }
         Integer subPart = rs.getInt("sub_part");
         if (rs.wasNull()) {
             subPart = null;
         }
+        int position = rs.getInt("seq_in_index");
+        boolean knownPosition = !rs.wasNull() && position > 0;
+        int nonUnique = rs.getInt("non_unique");
+        boolean knownUniqueness = !rs.wasNull() && (nonUnique == 0 || nonUnique == 1);
+        String columnExtra = rs.getString("column_extra");
+        boolean generated = columnExtra != null
+                && columnExtra.toUpperCase(java.util.Locale.ROOT).contains("GENERATED");
         return new MySqlIndexDetail(
                 rs.getString("table_schema"),
                 rs.getString("table_name"),
                 rs.getString("index_name"),
-                rs.getInt("seq_in_index"),
+                position,
                 rs.getString("column_name"),
                 subPart,
                 rs.getString("collation"),
                 rs.getString("index_type"),
-                rs.getInt("non_unique") == 0,
+                knownUniqueness && nonUnique == 0,
                 visible,
-                capabilities.indexExpression() ? rs.getString("key_expression") : null);
+                capabilities.indexExpression() ? rs.getString("key_expression") : null,
+                generated,
+                knownPosition && knownUniqueness);
     }
 
     /** The {@code AUTO_INCREMENT} counter for one table, or {@code null} when the server did not report it. */
@@ -175,6 +240,6 @@ final class MySqlCatalogReader {
     }
 
     private static boolean matches(String left, String right) {
-        return left != null && right != null && left.equalsIgnoreCase(right);
+        return java.util.Objects.equals(left, right);
     }
 }

@@ -95,11 +95,24 @@ public final class ReactiveSecurityScanner {
                 .map(rule -> rule.evaluate(context))
                 .toList();
         int chains = context.chains().size();
-        String status = observation.errors().isEmpty() ? "SCANNED" : "PARTIAL";
+        long inconclusive = results.stream()
+                .filter(result -> "SKIPPED".equals(result.status()))
+                .count();
+        String status = observation.errors().isEmpty()
+                        && inconclusive == 0
+                        && analysisErrors(results).isEmpty()
+                ? "SCANNED"
+                : "PARTIAL";
         String message = "Security Advisor completed against " + chains + " security web filter chain"
                 + (chains == 1 ? "." : "s.");
         if (!observation.errors().isEmpty()) {
             message += " Some configuration could not be read: " + String.join("; ", observation.errors());
+        }
+        if (inconclusive > 0) {
+            message += " " + inconclusive + " checks have incomplete or unsupported evidence.";
+        }
+        if (!analysisErrors(results).isEmpty()) {
+            message += " Some checks failed; see analysis errors.";
         }
         return report(status, message, clock.millis(), chains, results.size(), results);
     }
@@ -140,6 +153,7 @@ public final class ReactiveSecurityScanner {
     // ── Internal helpers ──────────────────────────────────────────────────────────
 
     private ReactiveSecurityObservation safeObservation() {
+        lastContext = null;
         try {
             ReactiveSecurityObservation observation = observationSupplier.get();
             if (observation == null) {

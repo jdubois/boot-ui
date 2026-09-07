@@ -7,25 +7,7 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * MySQL/MariaDB-specific: an {@code AUTO_INCREMENT} counter approaching the maximum value its column type can
- * hold. When it arrives, every insert fails with "Duplicate entry ... for key PRIMARY" — the MySQL equivalent
- * of PostgreSQL sequence exhaustion, and just as common a cause of a sudden production outage.
- *
- * <p>The capacity is signedness-aware ({@code int} stops at 2,147,483,647 but {@code int unsigned} reaches
- * 4,294,967,295) and computed in arbitrary precision, because {@code bigint unsigned} exceeds
- * {@code Long.MAX_VALUE} and would overflow every {@code long}-based percentage. When the server does not
- * report a table's {@code AUTO_INCREMENT} value at all — which InnoDB may decline when statistics are stale
- * or disabled — the table is skipped rather than reported as empty.</p>
- *
- * <p><strong>Known limitation:</strong> {@code information_schema.tables.AUTO_INCREMENT} is itself only an
- * estimate on InnoDB, not a transactionally exact reading. Before MySQL 8.0 (and still on MariaDB), the
- * counter is kept purely in memory and is re-derived from {@code MAX(id) + 1} the first time the table is
- * touched after a server restart — a scan that runs in that narrow window can under-report consumption. MySQL
- * 8.0's persistent {@code AUTO_INCREMENT} counters (redo-logged on every change) close most of that gap, but
- * this rule can still occasionally under-report a table's true usage; it is not known to over-report one, so
- * every finding it does produce reflects real, already-consumed capacity.</p>
- */
+/** Signedness-aware next-value snapshot, not committed row counts or a transactional capacity guarantee. */
 final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule {
 
     static final int WARNING_PERCENT_USED = 80;
@@ -36,12 +18,13 @@ final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule
                 "MySQL/MariaDB AUTO_INCREMENT nearing exhaustion",
                 DatabaseAdvisorCategory.SCHEMA,
                 DatabaseAdvisorRuleSupport.HIGH,
-                "Detects tables whose information_schema.tables.AUTO_INCREMENT has consumed at least "
+                "Detects a reported information_schema.tables.AUTO_INCREMENT next/reserved counter at least "
                         + WARNING_PERCENT_USED + "% of the signed/unsigned capacity of its AUTO_INCREMENT column's "
-                        + "integer type.",
-                "Widen the AUTO_INCREMENT column (ALTER TABLE ... MODIFY ... BIGINT, or BIGINT UNSIGNED), and "
-                        + "widen every foreign key column referencing it in the same migration. When the counter "
-                        + "reaches the column's maximum, every subsequent insert fails with a duplicate-key error.",
+                        + "integer type, without equating reservation with committed identifiers.",
+                "Review the observed counter and generator configuration, then plan a compatible widening migration "
+                        + "for the generated column and referencing columns if required. Catalog values may be stale "
+                        + "or reserved rather than committed IDs; this threshold does not predict time remaining. "
+                        + "Do not reset the counter based on this snapshot.",
                 "https://dev.mysql.com/doc/refman/8.0/en/example-auto-increment.html"));
     }
 
@@ -56,17 +39,32 @@ final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule
             return skipped(skipReason);
         }
         List<String> details = new ArrayList<>();
+        int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
+            VendorRuleSupport.coverage(
+                    context,
+                    definition().id(),
+                    schema,
+                    VendorFindingKinds.MYSQL_AUTO_INCREMENT_COLUMNS,
+                    VendorFindingKinds.MYSQL_TABLES);
             if (!VendorRuleSupport.available(schema, VendorFindingKinds.MYSQL_AUTO_INCREMENT_COLUMNS)
                     || !VendorRuleSupport.available(schema, VendorFindingKinds.MYSQL_TABLES)) {
                 continue;
             }
             for (MySqlAutoIncrementColumn column :
                     schema.vendorFindings().findings(VendorFindingKinds.MYSQL_AUTO_INCREMENT_COLUMNS)) {
+                BigInteger counter = MySqlCatalogReader.nextAutoIncrement(schema, column.schema(), column.table());
+                if (column.capacity() == null || counter == null || counter.signum() < 0) {
+                    unknown(
+                            context,
+                            column.qualifiedTable() + ": AUTO_INCREMENT counter or column capacity is unknown.");
+                    continue;
+                }
+                eligible++;
                 checkColumn(schema, column, details);
             }
         }
-        return violation(details);
+        return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 
     private void checkColumn(SchemaSnapshot schema, MySqlAutoIncrementColumn column, List<String> details) {
@@ -87,6 +85,20 @@ final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule
         }
         details.add(schema.dataSourceName() + ": " + column.qualifiedTable() + "." + column.column() + " ("
                 + column.columnType() + ") is at " + percentUsed + "% of its AUTO_INCREMENT capacity (next value "
-                + nextValue + " of " + capacity + ").");
+                + nextValue + " of " + capacity
+                + "). This is a possibly cached/stale/reserved counter, not committed rows. "
+                + persistenceNote(schema.dialect(), schema.version()));
+    }
+
+    static String persistenceNote(Dialect dialect, DatabaseVersion version) {
+        if (dialect == Dialect.MARIADB) {
+            if (!version.known() || (version.major() == 10 && version.minor() == 2 && version.patch() < 0)) {
+                return "MariaDB InnoDB counter persistence depends on version (persistent from 10.2.4).";
+            }
+            return version.atLeast(10, 2, 4)
+                    ? "MariaDB InnoDB counters are persistent from 10.2.4, but allocation is not transactional."
+                    : "Before MariaDB 10.2.4, InnoDB counters can be reconstructed after restart.";
+        }
+        return "MySQL InnoDB counters are persistent from 8.0; persistence is not a committed-row count.";
     }
 }

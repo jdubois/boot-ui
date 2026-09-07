@@ -107,6 +107,8 @@ function diagnosticClass(level) {
     <template v-if="panel.report">
       <AdvisorSummary
         :score="panel.score"
+        :score-label="panel.assessment.label"
+        :score-reason="panel.assessment.reason"
         :dismissed-count="panel.dismissedResults.length"
         :scan-status-label="panel.scanStatusLabel(panel.report.scan.status)"
         :scan-status-class="panel.scanStatusBadgeClass(panel.report.scan.status)"
@@ -233,7 +235,7 @@ function diagnosticClass(level) {
             </div>
           </div>
           <span
-            v-if="panel.hasScanData && panel.visibleResults.length === 0 && panel.dismissedResults.length === 0"
+            v-if="panel.score !== null && panel.visibleResults.length === 0 && panel.dismissedResults.length === 0"
             class="badge text-bg-success"
             >No findings</span
           >
