@@ -67,6 +67,9 @@ class OracleDatabaseAdvisorLiveTests {
             // A non-cycling sequence well past 80% of its own MAXVALUE.
             statement.execute("create sequence tickets_seq start with 990 maxvalue 1000 nocache nocycle");
             statement.execute("select tickets_seq.nextval from dual");
+            statement.execute("create table narrow_identity (id number(5,0) generated always as identity "
+                    + "(start with 90000 nocache) primary key, label varchar2(10))");
+            statement.execute("insert into narrow_identity(label) values ('fixture')");
 
             // A composite foreign key supported by an index whose leading columns are in the opposite order
             // from the constraint's own declaration - Oracle's own documented guidance still counts this as
@@ -118,7 +121,7 @@ class OracleDatabaseAdvisorLiveTests {
     void reportsADisabledForeignKeyConstraint() {
         assertThat(finding(scan(), "DB-ORACLE-002"))
                 .hasValueSatisfying(result -> assertThat(result.sampleViolations())
-                        .anyMatch(detail -> detail.contains("FK_ORDERS_CUSTOMER") && detail.contains("disabled")));
+                        .anyMatch(detail -> detail.contains("FK_ORDERS_CUSTOMER") && detail.contains("DISABLED")));
     }
 
     @Test
@@ -126,6 +129,14 @@ class OracleDatabaseAdvisorLiveTests {
         assertThat(finding(scan(), "DB-ORACLE-003"))
                 .hasValueSatisfying(result ->
                         assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("TICKETS_SEQ")));
+    }
+
+    @Test
+    void identityHeadroomUsesPhysicalNumberPrecisionRatherThanSequenceMaximum() {
+        assertThat(finding(scan(), "DB-ORACLE-003"))
+                .hasValueSatisfying(result -> assertThat(result.sampleViolations())
+                        .anyMatch(detail ->
+                                detail.contains("NARROW_IDENTITY.ID") && detail.contains("effective bound 99999")));
     }
 
     @Test

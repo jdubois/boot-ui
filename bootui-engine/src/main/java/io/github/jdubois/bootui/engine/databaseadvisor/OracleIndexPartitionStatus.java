@@ -7,10 +7,21 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  * maintenance operation (a split, exchange, or truncate) that did not rebuild every index partition.
  */
 record OracleIndexPartitionStatus(
-        String schema, String table, String index, String partitionName, boolean subpartition, String status) {
+        String schema,
+        String table,
+        String index,
+        String partitionName,
+        boolean subpartition,
+        String status,
+        String tableOwner) {
+
+    OracleIndexPartitionStatus(
+            String schema, String table, String index, String partitionName, boolean subpartition, String status) {
+        this(schema, table, index, partitionName, subpartition, status, schema);
+    }
 
     String qualifiedTable() {
-        return schema == null || schema.isBlank() ? table : schema + "." + table;
+        return tableOwner == null || tableOwner.isBlank() ? table : tableOwner + "." + table;
     }
 
     boolean unusable() {

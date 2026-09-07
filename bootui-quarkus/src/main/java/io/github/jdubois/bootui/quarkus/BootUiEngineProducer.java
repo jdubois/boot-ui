@@ -819,8 +819,8 @@ public class BootUiEngineProducer {
         // skip rather than report a clean result they have no basis for.
         Supplier<List<SqlTraceEntryDto>> observedStatements =
                 () -> sqlTraceRecorders.isResolvable() ? sqlTraceRecorders.get().entries(false) : List.of();
-        return DatabaseAdvisorScanner.using(
-                dataSourceProvider::dataSources, discovery, observedStatements, Clock.systemUTC());
+        return DatabaseAdvisorScanner.usingDiscovery(
+                dataSourceProvider::discover, discovery, observedStatements, Clock.systemUTC());
     }
 
     /**

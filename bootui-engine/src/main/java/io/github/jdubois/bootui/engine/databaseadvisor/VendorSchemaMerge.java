@@ -38,50 +38,95 @@ final class VendorSchemaMerge {
     }
 
     private static List<TableModel> mergePostgres(List<TableModel> tables, VendorFindings findings) {
-        Map<String, PostgresIndexDetail> indexDetails = new HashMap<>();
+        Map<ObjectKey, PostgresIndexDetail> indexDetails = new HashMap<>();
         for (PostgresIndexDetail detail : findings.findings(VendorFindingKinds.POSTGRES_INDEX_DETAILS)) {
             indexDetails.put(key(detail.schema(), detail.table(), detail.index()), detail);
         }
-        Map<String, PostgresPartitionInfo> partitions = new HashMap<>();
+        Map<ObjectKey, PostgresPartitionInfo> partitions = new HashMap<>();
         for (PostgresPartitionInfo partition : findings.findings(VendorFindingKinds.POSTGRES_PARTITIONS)) {
             partitions.put(key(partition.schema(), partition.table()), partition);
         }
-        Set<String> extensionTables = new HashSet<>();
+        Set<ObjectKey> extensionTables = new HashSet<>();
         for (PostgresExtensionTable table : findings.findings(VendorFindingKinds.POSTGRES_EXTENSION_TABLES)) {
             extensionTables.add(key(table.schema(), table.table()));
         }
 
         List<TableModel> merged = new ArrayList<>();
         for (TableModel table : tables) {
+            PostgresPartitionInfo partition = partitions.get(key(table.schema(), table.name()));
+            boolean parent = table.partitionParent() || (partition != null && partition.partitionedParent());
+            boolean placementComplete = findings.available(VendorFindingKinds.POSTGRES_PARTITIONS)
+                    && findings.truncations().stream()
+                            .noneMatch(
+                                    augmentation -> augmentation.kind().equals(VendorFindingKinds.POSTGRES_PARTITIONS));
             List<IndexModel> indexes = new ArrayList<>();
             for (IndexModel index : table.indexes()) {
                 PostgresIndexDetail detail = indexDetails.get(key(table.schema(), table.name(), index.name()));
-                indexes.add(detail == null ? index : enrich(index, detail));
+                indexes.add(detail == null ? index : enrich(index, detail, placementComplete && !parent));
             }
-            PostgresPartitionInfo partition = partitions.get(key(table.schema(), table.name()));
-            boolean parent = table.partitionParent() || (partition != null && partition.partitionedParent());
             boolean child = partition != null && partition.partitionChild();
-            merged.add(table.withIndexes(indexes)
-                    .withPlacement(parent, child, extensionTables.contains(key(table.schema(), table.name()))));
+            TableModel enriched = table.withIndexes(indexes)
+                    .withPlacement(parent, child, extensionTables.contains(key(table.schema(), table.name())));
+            IndexModel backing = enriched.primaryKeyBackingIndex();
+            if (backing != null && backing.unique() && backing.validity() == IndexModel.Validity.VALID) {
+                enriched = enriched.withMetadata(enriched.metadata().withPrimaryKeyEnforced(true));
+            }
+            merged.add(enrichForeignKeys(enriched, Dialect.POSTGRESQL, findings));
         }
         return List.copyOf(merged);
     }
 
-    private static IndexModel enrich(IndexModel index, PostgresIndexDetail detail) {
+    private static IndexModel enrich(IndexModel index, PostgresIndexDetail detail, boolean ordinaryPlacementKnown) {
+        if (detail.definitionComplete()) {
+            boolean valid = detail.valid() && Boolean.TRUE.equals(detail.ready()) && Boolean.TRUE.equals(detail.live());
+            IndexModel.Validity validity = detail.ready() == null || detail.live() == null
+                    ? IndexModel.Validity.UNKNOWN
+                    : valid ? IndexModel.Validity.VALID : IndexModel.Validity.INVALID;
+            boolean linkageKnown = detail.primary() != null
+                    && (detail.constraintName() == null) == (detail.constraintType() == null)
+                    && Boolean.TRUE.equals(detail.primary()) == "p".equals(detail.constraintType());
+            return new IndexModel(
+                    index.name(),
+                    detail.keyParts(),
+                    Boolean.TRUE.equals(detail.unique()),
+                    detail.method(),
+                    detail.predicate(),
+                    IndexModel.Visibility.VISIBLE,
+                    validity,
+                    detail.nullsNotDistinct(),
+                    false,
+                    false,
+                    false,
+                    detail.includedColumns(),
+                    ordinaryPlacementKnown
+                            && detail.unique() != null
+                            && detail.ready() != null
+                            && detail.live() != null
+                            && linkageKnown,
+                    detail.unique() != null,
+                    linkageKnown ? detail.constraintName() : null,
+                    detail.comparisonSemantics());
+        }
         List<IndexKeyPart> keyParts = index.keyParts();
+        List<String> included = index.includedColumns();
         Integer keyColumnCount = detail.keyColumnCount();
         if (keyColumnCount != null && keyColumnCount > 0 && keyColumnCount < keyParts.size()) {
             // pgjdbc's getIndexInfo() reports a covering index's INCLUDE (non-key) columns as if they were
             // ordinary trailing key parts (confirmed pgjdbc issue #3430) — pg_index.indnkeyatts is the only
             // reliable signal for how many leading key parts are genuine keys, so anything past it is trimmed
             // before it can inflate a composite key or defeat a uniqueness/leading-equality check.
+            included = keyParts.subList(keyColumnCount, keyParts.size()).stream()
+                    .map(IndexKeyPart::columnName)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
             keyParts = keyParts.subList(0, keyColumnCount);
         }
         if (detail.expression() && keyParts.stream().noneMatch(IndexKeyPart::isExpression)) {
             // pgjdbc reports the expression's rendered text in COLUMN_NAME, which is indistinguishable from a
             // real column name; pg_index.indexprs is the only reliable signal that a key part is an
             // expression, and an expression index cannot answer a plain column lookup.
-            keyParts = List.of(IndexKeyPart.expression(null));
+            keyParts =
+                    keyParts.stream().map(part -> IndexKeyPart.expression(null)).toList();
         }
         return new IndexModel(
                 index.name(),
@@ -96,18 +141,25 @@ final class VendorSchemaMerge {
                 detail.nullsNotDistinct(),
                 false,
                 false,
-                false);
+                false,
+                included,
+                false,
+                index.uniquenessKnown(),
+                index.backingConstraint());
     }
 
     private static List<TableModel> mergeOracle(List<TableModel> tables, VendorFindings findings) {
-        Map<String, OracleIndexDetail> indexDetails = new HashMap<>();
+        Map<ObjectKey, OracleIndexDetail> indexDetails = new HashMap<>();
         for (OracleIndexDetail detail : findings.findings(VendorFindingKinds.ORACLE_INDEX_DETAILS)) {
             indexDetails.put(exactKey(detail.schema(), detail.table(), detail.index()), detail);
         }
-        Set<String> unusablePartitionedIndexes = new HashSet<>();
+        Set<ObjectKey> unusablePartitionedIndexes = new HashSet<>();
+        Set<ObjectKey> unresolvedPartitionOwners = new HashSet<>();
         for (OracleIndexPartitionStatus partition :
                 findings.findings(VendorFindingKinds.ORACLE_INDEX_PARTITION_STATUS)) {
-            if (partition.unusable()) {
+            if (!java.util.Objects.equals(partition.schema(), partition.tableOwner())) {
+                unresolvedPartitionOwners.add(exactKey(partition.schema(), partition.table(), partition.index()));
+            } else if (partition.unusable()) {
                 unusablePartitionedIndexes.add(exactKey(partition.schema(), partition.table(), partition.index()));
             }
         }
@@ -115,14 +167,59 @@ final class VendorSchemaMerge {
         for (TableModel table : tables) {
             List<IndexModel> indexes = new ArrayList<>();
             for (IndexModel index : table.indexes()) {
-                String indexKey = exactKey(table.schema(), table.name(), index.name());
+                ObjectKey indexKey = exactKey(table.schema(), table.name(), index.name());
                 OracleIndexDetail detail = indexDetails.get(indexKey);
+                if (detail != null && !java.util.Objects.equals(table.schema(), detail.tableOwner())) {
+                    detail = null;
+                }
+                List<String> linkedConstraints = findings.findings(VendorFindingKinds.ORACLE_CONSTRAINTS).stream()
+                        .filter(constraint -> java.util.Objects.equals(table.schema(), constraint.schema())
+                                && java.util.Objects.equals(table.name(), constraint.table())
+                                && java.util.Objects.equals(table.schema(), constraint.indexOwner())
+                                && java.util.Objects.equals(index.name(), constraint.indexName())
+                                && ("P".equals(constraint.constraintType()) || "U".equals(constraint.constraintType()))
+                                && constraint.constraintName() != null)
+                        .map(OracleConstraintDetail::constraintName)
+                        .distinct()
+                        .sorted()
+                        .toList();
+                String backingConstraint =
+                        table.primaryKeyName() != null && linkedConstraints.contains(table.primaryKeyName())
+                                ? table.primaryKeyName()
+                                : linkedConstraints.isEmpty() ? null : linkedConstraints.get(0);
                 indexes.add(
                         detail == null
                                 ? index
-                                : enrichOracle(index, detail, unusablePartitionedIndexes.contains(indexKey)));
+                                : enrichOracle(
+                                                index,
+                                                detail,
+                                                unusablePartitionedIndexes.contains(indexKey),
+                                                findings.available(VendorFindingKinds.ORACLE_INDEX_PARTITION_STATUS)
+                                                        && !unresolvedPartitionOwners.contains(indexKey)
+                                                        && findings.truncations().stream()
+                                                                .noneMatch(
+                                                                        augmentation -> augmentation
+                                                                                .kind()
+                                                                                .equals(
+                                                                                        VendorFindingKinds
+                                                                                                .ORACLE_INDEX_PARTITION_STATUS)))
+                                        .withBackingConstraint(backingConstraint));
             }
-            merged.add(table.withIndexes(indexes));
+            TableModel enriched = table.withIndexes(indexes);
+            List<OracleConstraintDetail> primaryKeys = findings.findings(VendorFindingKinds.ORACLE_CONSTRAINTS).stream()
+                    .filter(constraint -> java.util.Objects.equals(table.schema(), constraint.schema())
+                            && java.util.Objects.equals(table.name(), constraint.table())
+                            && java.util.Objects.equals(table.primaryKeyName(), constraint.constraintName())
+                            && "P".equals(constraint.constraintType()))
+                    .toList();
+            if (primaryKeys.size() == 1) {
+                OracleConstraintDetail constraint = primaryKeys.get(0);
+                Boolean enforced = "DISABLED".equals(constraint.status())
+                        ? Boolean.FALSE
+                        : constraint.enabled() && constraint.validatedAgainstExistingRows() ? Boolean.TRUE : null;
+                enriched = enriched.withMetadata(enriched.metadata().withPrimaryKeyEnforced(enforced));
+            }
+            merged.add(enrichForeignKeys(enriched, Dialect.ORACLE, findings));
         }
         return List.copyOf(merged);
     }
@@ -133,31 +230,83 @@ final class VendorSchemaMerge {
      * {@code all_ind_partitions}/{@code all_ind_subpartitions}) decides validity for those, and the plain
      * {@code status} column decides it for every other index.
      */
-    private static IndexModel enrichOracle(IndexModel index, OracleIndexDetail detail, boolean hasUnusablePartition) {
+    private static IndexModel enrichOracle(
+            IndexModel index, OracleIndexDetail detail, boolean hasUnusablePartition, boolean partitionsComplete) {
         IndexModel.Validity validity = detail.partitioned()
-                ? (hasUnusablePartition ? IndexModel.Validity.INVALID : IndexModel.Validity.VALID)
-                : (detail.usable() ? IndexModel.Validity.VALID : IndexModel.Validity.INVALID);
-        IndexModel.Visibility visibility =
-                detail.invisible() ? IndexModel.Visibility.INVISIBLE : IndexModel.Visibility.VISIBLE;
+                ? (hasUnusablePartition
+                        ? IndexModel.Validity.INVALID
+                        : partitionsComplete ? IndexModel.Validity.VALID : IndexModel.Validity.UNKNOWN)
+                : (detail.usable()
+                        ? IndexModel.Validity.VALID
+                        : detail.unusable() ? IndexModel.Validity.INVALID : IndexModel.Validity.UNKNOWN);
+        IndexModel.Visibility visibility = detail.invisible()
+                ? IndexModel.Visibility.INVISIBLE
+                : "VISIBLE".equalsIgnoreCase(detail.visibility())
+                        ? IndexModel.Visibility.VISIBLE
+                        : IndexModel.Visibility.UNKNOWN;
+        boolean uniquenessKnown = detail.uniquenessKnown()
+                && (!Boolean.TRUE.equals(index.uniquenessKnown()) || index.unique() == detail.unique());
         return new IndexModel(
                 index.name(),
                 index.keyParts(),
-                index.unique(),
+                uniquenessKnown ? detail.unique() : index.unique(),
                 detail.indexType() == null ? index.method() : detail.indexType().toLowerCase(Locale.ROOT),
                 index.filterCondition(),
                 visibility,
                 validity,
                 false,
-                detail.automatic(),
+                false,
                 detail.partitioned(),
-                !detail.normal());
+                !detail.normal(),
+                index.includedColumns(),
+                false,
+                uniquenessKnown,
+                index.backingConstraint());
+    }
+
+    private static TableModel enrichForeignKeys(TableModel table, Dialect dialect, VendorFindings findings) {
+        List<ForeignKeyModel> foreignKeys = new ArrayList<>();
+        for (ForeignKeyModel foreignKey : table.foreignKeys()) {
+            ForeignKeyModel enriched = foreignKey;
+            if (dialect == Dialect.POSTGRESQL) {
+                List<PostgresUnvalidatedConstraint> matches =
+                        findings.findings(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS).stream()
+                                .filter(constraint -> java.util.Objects.equals(table.schema(), constraint.schema())
+                                        && java.util.Objects.equals(table.name(), constraint.table())
+                                        && java.util.Objects.equals(foreignKey.name(), constraint.constraint())
+                                        && "f".equals(constraint.type()))
+                                .toList();
+                if (matches.size() == 1) {
+                    enriched = foreignKey.withEnforcement(matches.get(0).enforced(), false, foreignKey.matchType());
+                }
+            } else if (dialect == Dialect.ORACLE) {
+                List<OracleConstraintDetail> matches = findings.findings(VendorFindingKinds.ORACLE_CONSTRAINTS).stream()
+                        .filter(constraint -> java.util.Objects.equals(table.schema(), constraint.schema())
+                                && java.util.Objects.equals(table.name(), constraint.table())
+                                && java.util.Objects.equals(foreignKey.name(), constraint.constraintName())
+                                && constraint.isForeignKey())
+                        .toList();
+                if (matches.size() == 1) {
+                    OracleConstraintDetail constraint = matches.get(0);
+                    Boolean enforced = "ENABLED".equals(constraint.status())
+                            ? Boolean.TRUE
+                            : "DISABLED".equals(constraint.status()) ? Boolean.FALSE : null;
+                    Boolean validated = "VALIDATED".equals(constraint.validated())
+                            ? Boolean.TRUE
+                            : "NOT VALIDATED".equals(constraint.validated()) ? Boolean.FALSE : null;
+                    enriched = foreignKey.withEnforcement(enforced, validated, foreignKey.matchType());
+                }
+            }
+            foreignKeys.add(enriched);
+        }
+        return table.withForeignKeys(foreignKeys);
     }
 
     private static List<TableModel> mergeMySql(List<TableModel> tables, VendorFindings findings) {
         if (!findings.available(VendorFindingKinds.MYSQL_INDEX_DETAILS)) {
             return tables;
         }
-        Map<String, List<MySqlIndexDetail>> detailsByIndex = new HashMap<>();
+        Map<ObjectKey, List<MySqlIndexDetail>> detailsByIndex = new HashMap<>();
         for (MySqlIndexDetail detail : findings.findings(VendorFindingKinds.MYSQL_INDEX_DETAILS)) {
             detailsByIndex
                     .computeIfAbsent(key(detail.schema(), detail.table(), detail.index()), ignored -> new ArrayList<>())
@@ -168,7 +317,12 @@ final class VendorSchemaMerge {
             List<IndexModel> indexes = new ArrayList<>();
             for (IndexModel index : table.indexes()) {
                 List<MySqlIndexDetail> details = detailsByIndex.get(indexKey(table, index));
-                indexes.add(details == null || details.isEmpty() ? index : enrich(index, details));
+                indexes.add(
+                        details == null
+                                        || details.isEmpty()
+                                        || details.size() != index.keyParts().size()
+                                ? index
+                                : enrich(index, details));
             }
             merged.add(table.withIndexes(indexes));
         }
@@ -176,7 +330,7 @@ final class VendorSchemaMerge {
     }
 
     /** MySQL reports the schema in {@code TABLE_CAT}; the JDBC {@code TABLE_SCHEM} is null there. */
-    private static String indexKey(TableModel table, IndexModel index) {
+    private static ObjectKey indexKey(TableModel table, IndexModel index) {
         String schema = table.schema() == null || table.schema().isBlank() ? table.catalog() : table.schema();
         return key(schema, table.name(), index.name());
     }
@@ -187,7 +341,11 @@ final class VendorSchemaMerge {
         List<IndexKeyPart> keyParts = new ArrayList<>();
         Boolean visible = null;
         String indexType = null;
+        int expected = 1;
         for (MySqlIndexDetail detail : ordered) {
+            if (detail.position() != expected++) {
+                return index;
+            }
             if (visible == null) {
                 visible = detail.visible();
             }
@@ -198,48 +356,56 @@ final class VendorSchemaMerge {
                 keyParts.add(IndexKeyPart.expression(detail.expression()));
                 continue;
             }
-            Boolean ascending = detail.collation() == null ? null : "A".equalsIgnoreCase(detail.collation());
+            Boolean ascending = "A".equalsIgnoreCase(detail.collation())
+                    ? Boolean.TRUE
+                    : "D".equalsIgnoreCase(detail.collation()) ? Boolean.FALSE : null;
             keyParts.add(new IndexKeyPart(detail.column(), null, ascending, detail.subPart(), null));
         }
         if (keyParts.isEmpty()) {
             keyParts = index.keyParts();
         }
+        MySqlIndexDetail first = ordered.get(0);
+        boolean uniquenessKnown = ordered.stream().allMatch(MySqlIndexDetail::definitionComplete)
+                && ordered.stream().allMatch(detail -> detail.unique() == first.unique())
+                && (!Boolean.TRUE.equals(index.uniquenessKnown()) || index.unique() == first.unique());
+        if (ordered.stream().anyMatch(detail -> !java.util.Objects.equals(detail.visible(), first.visible()))) {
+            visible = null;
+        }
+        boolean consistentMethod =
+                ordered.stream().allMatch(detail -> java.util.Objects.equals(detail.indexType(), first.indexType()));
         IndexModel.Visibility visibility = visible == null
                 ? IndexModel.Visibility.UNKNOWN
                 : (visible ? IndexModel.Visibility.VISIBLE : IndexModel.Visibility.INVISIBLE);
         return new IndexModel(
                 index.name(),
                 keyParts,
-                index.unique(),
-                indexType == null ? index.method() : indexType.toLowerCase(Locale.ROOT),
+                uniquenessKnown ? first.unique() : index.unique(),
+                !consistentMethod ? null : indexType == null ? index.method() : indexType.toLowerCase(Locale.ROOT),
                 index.filterCondition(),
                 visibility,
-                index.validity());
+                index.validity(),
+                index.nullsNotDistinct(),
+                index.automatic(),
+                index.partitioned(),
+                index.specialized() || ordered.stream().anyMatch(MySqlIndexDetail::generatedColumn),
+                index.includedColumns(),
+                false,
+                uniquenessKnown,
+                index.backingConstraint());
     }
 
-    private static String key(String schema, String table) {
-        return normalize(schema) + "." + normalize(table);
+    private record ObjectKey(String schema, String table, String index) {}
+
+    private static ObjectKey key(String schema, String table) {
+        return new ObjectKey(schema, table, null);
     }
 
-    private static String key(String schema, String table, String index) {
-        return key(schema, table) + "." + normalize(index);
+    private static ObjectKey key(String schema, String table, String index) {
+        return new ObjectKey(schema, table, index);
     }
 
-    private static String normalize(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT);
-    }
-
-    /**
-     * Unlike PostgreSQL/MySQL (which fold unquoted identifiers to lowercase, so case-insensitive matching is
-     * safe and correct), Oracle folds unquoted identifiers to <em>uppercase</em> and allows genuinely distinct
-     * case-sensitive quoted identifiers — so the Oracle merge key must not normalize case at all, or two
-     * distinctly-quoted indexes could collide, or a real match could be silently missed.
-     */
-    private static String exactKey(String schema, String table, String index) {
-        return exact(schema) + "." + exact(table) + "." + exact(index);
-    }
-
-    private static String exact(String value) {
-        return value == null ? "" : value;
+    /** Resolved catalog identifiers preserve case and component boundaries on every dialect. */
+    private static ObjectKey exactKey(String schema, String table, String index) {
+        return key(schema, table, index);
     }
 }

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -21,17 +22,50 @@ record DatabaseAdvisorContext(
         List<SchemaSnapshot> schemas,
         boolean hibernateAvailable,
         List<MappedEntityFacts> hibernateEntities,
-        List<SqlTraceEntryDto> observedStatements) {
+        List<SqlTraceEntryDto> observedStatements,
+        List<SchemaDiagnostic> evaluationDiagnostics) {
+
+    private static final int MAX_EVALUATION_DIAGNOSTICS = 100;
 
     DatabaseAdvisorContext {
         schemas = List.copyOf(schemas);
         hibernateEntities = List.copyOf(hibernateEntities);
         observedStatements = observedStatements == null ? List.of() : List.copyOf(observedStatements);
+        evaluationDiagnostics = new ArrayList<>(evaluationDiagnostics);
+    }
+
+    DatabaseAdvisorContext(
+            List<SchemaSnapshot> schemas,
+            boolean hibernateAvailable,
+            List<MappedEntityFacts> hibernateEntities,
+            List<SqlTraceEntryDto> observedStatements) {
+        this(schemas, hibernateAvailable, hibernateEntities, observedStatements, List.of());
     }
 
     DatabaseAdvisorContext(
             List<SchemaSnapshot> schemas, boolean hibernateAvailable, List<MappedEntityFacts> hibernateEntities) {
         this(schemas, hibernateAvailable, hibernateEntities, List.of());
+    }
+
+    @Override
+    public List<SchemaDiagnostic> evaluationDiagnostics() {
+        return List.copyOf(evaluationDiagnostics);
+    }
+
+    /** Retains gaps in rule coverage separately from the confirmed findings. */
+    void unknown(String ruleId, String reason) {
+        SchemaDiagnostic diagnostic = SchemaDiagnostic.warning(ruleId, reason);
+        if (evaluationDiagnostics.contains(diagnostic)) {
+            return;
+        }
+        if (evaluationDiagnostics.size() < MAX_EVALUATION_DIAGNOSTICS) {
+            evaluationDiagnostics.add(diagnostic);
+        } else if (evaluationDiagnostics.size() == MAX_EVALUATION_DIAGNOSTICS) {
+            evaluationDiagnostics.add(SchemaDiagnostic.warning(
+                    "Database advisor",
+                    "Additional rule-coverage diagnostics omitted after the first " + MAX_EVALUATION_DIAGNOSTICS
+                            + " distinct messages."));
+        }
     }
 
     List<SchemaSnapshot> availableSchemas() {
@@ -54,16 +88,26 @@ record DatabaseAdvisorContext(
 
     int tableCount() {
         return availableSchemas().stream()
-                .mapToInt(schema -> schema.tables().size())
+                .mapToInt(schema -> physicalTables(schema).size())
                 .sum();
     }
 
     /**
      * The tables a schema-hygiene rule should evaluate: PostgreSQL child partitions are excluded because they
      * inherit their structure from the partitioned parent, which is analyzed in their place — otherwise one
-     * missing index on a monthly-partitioned table would be reported once per month.
+     * missing index on a monthly-partitioned table would be reported once per month. Views are inventoried
+     * for declared-name resolution, not base-table hygiene.
      */
     static List<TableModel> analyzableTables(SchemaSnapshot schema) {
-        return schema.tables().stream().filter(table -> !table.partitionChild()).toList();
+        return physicalTables(schema).stream()
+                .filter(table -> !table.partitionChild())
+                .toList();
+    }
+
+    static List<TableModel> physicalTables(SchemaSnapshot schema) {
+        return schema.tables().stream()
+                .filter(table ->
+                        !"VIEW".equalsIgnoreCase(table.type()) && !"MATERIALIZED VIEW".equalsIgnoreCase(table.type()))
+                .toList();
     }
 }

@@ -2,26 +2,10 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 
-/**
- * Oracle-specific: a non-cycling sequence — including the internal sequence backing a
- * {@code GENERATED ... AS IDENTITY} column — that has consumed most of the range it can actually reach.
- * When it arrives, every insert relying on the sequence fails outright, the same class of outage
- * {@code DB-PG-002} and {@code DB-MYSQL-003} catch for PostgreSQL and MySQL/MariaDB.
- *
- * <p>Unlike PostgreSQL, there is no separate owning-column capacity to cross-reference: Oracle's single
- * generic {@code NUMBER} identifier type means the sequence's own {@code max_value} is always the real
- * ceiling. {@code all_sequences.last_number} already reflects the cache's reserved high-water mark, not
- * merely committed consumption, which makes this measurement conservative (it can flag a sequence slightly
- * before it is truly that close, never after).</p>
- *
- * <p>Session, scalable, and sharded sequences are excluded: each has range or reset semantics ({@code
- * SESSION_FLAG}, {@code SCALE_FLAG}, {@code SHARDED_FLAG}) a plain percent-of-{@code max_value} reading would
- * misrepresent, so this only reports the ordinary case that reading is actually valid for.</p>
- */
+/** Reserved sequence frontier with direction-aware bounds and explicitly linked NUMBER(p,0) identities. */
 final class OracleSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
 
     static final int WARNING_PERCENT_USED = 80;
@@ -32,68 +16,73 @@ final class OracleSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
                 "Oracle sequence or identity generator nearing exhaustion",
                 DatabaseAdvisorCategory.SCHEMA,
                 DatabaseAdvisorRuleSupport.HIGH,
-                "Detects non-cycling Oracle sequences (all_sequences.cycle_flag = 'N') — including one "
-                        + "backing a GENERATED ... AS IDENTITY column — whose last_number has consumed at "
-                        + "least " + WARNING_PERCENT_USED + "% of the range between min_value and max_value. "
-                        + "Session, scalable and sharded sequences are excluded.",
-                "Widen the sequence's MAXVALUE (ALTER SEQUENCE ... MAXVALUE ...), or the owning IDENTITY "
-                        + "column's precision if the sequence backs one, or restart the sequence after archiving "
-                        + "old rows. A non-cycling sequence that reaches its maximum causes every subsequent "
-                        + "insert relying on it to fail.",
-                "https://docs.oracle.com/en/database/oracle/oracle-database/19/sqlrf/ALTER-SEQUENCE.html"));
+                "Detects a reserved LAST_NUMBER frontier at least " + WARNING_PERCENT_USED
+                        + "% through the direction-aware configured range, bounded by a known NUMBER(p,0) identity. "
+                        + "Session, scalable and sharded sequences are excluded. This is not consumed rows or time remaining.",
+                "Review cache reservation and actual use before widening generator bounds or dependent columns. "
+                        + "For an identity, use supported ALTER TABLE identity/column changes, not direct ALTER SEQUENCE "
+                        + "against its system-generated sequence. For an ordinary sequence, review ALTER SEQUENCE limits "
+                        + "and consumers. Do not restart/reset based on archiving: stored or reserved identifiers may collide.",
+                "https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_SEQUENCES.html"));
     }
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.schemasOf(Dialect.ORACLE);
-        String skipReason = VendorRuleSupport.skipReason(
+        String reason = VendorRuleSupport.skipReason(
                 schemas, VendorFindingKinds.ORACLE_SEQUENCES, "No Oracle datasource was detected.");
-        if (skipReason != null) {
-            return skipped(skipReason);
+        if (reason != null) {
+            return skipped(reason);
         }
         List<String> details = new ArrayList<>();
+        int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
-            if (!VendorRuleSupport.available(schema, VendorFindingKinds.ORACLE_SEQUENCES)) {
-                continue;
-            }
-            Map<String, OracleIdentityColumn> identityBySequence = identityColumnsBySequence(schema);
+            VendorRuleSupport.coverage(
+                    context,
+                    definition().id(),
+                    schema,
+                    VendorFindingKinds.ORACLE_SEQUENCES,
+                    VendorFindingKinds.ORACLE_IDENTITY_COLUMNS);
             for (OracleSequenceUsage sequence : schema.vendorFindings().findings(VendorFindingKinds.ORACLE_SEQUENCES)) {
-                checkSequence(schema, sequence, identityBySequence, details);
+                if (sequence.excluded()) {
+                    continue;
+                }
+                List<OracleIdentityColumn> owners =
+                        schema.vendorFindings().findings(VendorFindingKinds.ORACLE_IDENTITY_COLUMNS).stream()
+                                .filter(column -> Objects.equals(column.schema(), sequence.schema())
+                                        && Objects.equals(column.sequenceName(), sequence.sequence()))
+                                .toList();
+                OracleIdentityColumn identity = owners.size() == 1 ? owners.get(0) : null;
+                boolean identityKnown = owners.size() <= 1
+                        && VendorRuleSupport.complete(schema, VendorFindingKinds.ORACLE_IDENTITY_COLUMNS);
+                if (!identityKnown || (identity != null && identity.capacity() == null)) {
+                    unknown(
+                            context,
+                            sequence.qualifiedName()
+                                    + ": identity linkage or numeric precision/scale is unknown; only sequence bounds were assessed.");
+                }
+                int percent = sequence.percentUsed(identity);
+                if (percent < 0) {
+                    unknown(context, sequence.qualifiedName() + ": counter, increment or range is unknown.");
+                    continue;
+                }
+                if (identityKnown && (identity == null || identity.capacity() != null)) {
+                    eligible++;
+                }
+                if ((sequence.cycle() && !sequence.limitedByColumn(identity)) || percent < WARNING_PERCENT_USED) {
+                    continue;
+                }
+                details.add(
+                        schema.dataSourceName() + ": sequence " + sequence.qualifiedName()
+                                + (identity == null ? "" : " backing IDENTITY column " + identity.qualifiedColumn())
+                                + " is at " + percent + "% toward effective bound " + sequence.effectiveBound(identity)
+                                + " (reserved last_number " + sequence.lastNumber() + ", increment "
+                                + sequence.incrementBy()
+                                + ", cache " + sequence.cacheSize()
+                                + "). Cache reservation can report an early warning "
+                                + "without proving identifiers have been used; the configured range does not reveal original START WITH.");
             }
         }
-        return violation(details);
-    }
-
-    private Map<String, OracleIdentityColumn> identityColumnsBySequence(SchemaSnapshot schema) {
-        Map<String, OracleIdentityColumn> bySequence = new HashMap<>();
-        if (!VendorRuleSupport.available(schema, VendorFindingKinds.ORACLE_IDENTITY_COLUMNS)) {
-            return bySequence;
-        }
-        for (OracleIdentityColumn identityColumn :
-                schema.vendorFindings().findings(VendorFindingKinds.ORACLE_IDENTITY_COLUMNS)) {
-            if (identityColumn.sequenceName() != null) {
-                bySequence.put(identityColumn.sequenceName(), identityColumn);
-            }
-        }
-        return bySequence;
-    }
-
-    private void checkSequence(
-            SchemaSnapshot schema,
-            OracleSequenceUsage sequence,
-            Map<String, OracleIdentityColumn> identityBySequence,
-            List<String> details) {
-        if (sequence.cycle() || sequence.excluded()) {
-            return;
-        }
-        int percentUsed = sequence.percentUsed();
-        if (percentUsed < WARNING_PERCENT_USED) {
-            return;
-        }
-        OracleIdentityColumn identityColumn = identityBySequence.get(sequence.sequence());
-        String owner = identityColumn == null ? "" : " backing IDENTITY column " + identityColumn.qualifiedColumn();
-        details.add(schema.dataSourceName() + ": sequence " + sequence.qualifiedName() + owner + " is at "
-                + percentUsed + "% of its range (last_number " + sequence.lastNumber() + " of max_value "
-                + sequence.maxValue() + ").");
+        return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 }

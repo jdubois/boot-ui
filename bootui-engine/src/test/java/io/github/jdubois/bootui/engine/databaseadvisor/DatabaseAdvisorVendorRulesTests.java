@@ -83,7 +83,11 @@ class DatabaseAdvisorVendorRulesTests {
                 "orders",
                 "id",
                 "int4",
-                null);
+                1L,
+                BigInteger.ONE,
+                BigInteger.ONE,
+                BigInteger.valueOf(Integer.MIN_VALUE),
+                BigInteger.ONE);
         SchemaSnapshot postgres = vendorSchema(
                 "ds",
                 Dialect.POSTGRESQL,
@@ -109,7 +113,11 @@ class DatabaseAdvisorVendorRulesTests {
                 null,
                 null,
                 null,
-                null);
+                1L,
+                BigInteger.ONE,
+                BigInteger.ONE,
+                null,
+                BigInteger.ONE);
         SchemaSnapshot postgres = vendorSchema(
                 "ds",
                 Dialect.POSTGRESQL,
@@ -133,7 +141,11 @@ class DatabaseAdvisorVendorRulesTests {
                 "events",
                 "id",
                 "int8",
-                null);
+                1L,
+                BigInteger.ONE,
+                BigInteger.ONE,
+                BigInteger.valueOf(Long.MIN_VALUE),
+                BigInteger.ONE);
         // A long-based (lastValue * 100) computation would overflow here and produce a negative percentage.
         assertThat(usage.percentUsed()).isEqualTo(99);
         SchemaSnapshot postgres = vendorSchema(
@@ -322,7 +334,7 @@ class DatabaseAdvisorVendorRulesTests {
         assertThat(new MySqlAutoIncrementExhaustionRule()
                         .evaluate(context(schema("ds", Dialect.MYSQL, List.of(), findings)))
                         .status())
-                .isEqualTo(PASS);
+                .isEqualTo(SKIPPED);
     }
 
     @Test
@@ -351,7 +363,7 @@ class DatabaseAdvisorVendorRulesTests {
     // --- DB-PG-001 uniqueness-impact note ---
 
     @Test
-    void postgresInvalidIndexRuleCallsOutLostUniquenessEnforcement() {
+    void postgresInvalidIndexRuleDoesNotInferLostUniquenessEnforcement() {
         SchemaSnapshot postgres = vendorSchema(
                 "ds",
                 Dialect.POSTGRESQL,
@@ -361,7 +373,7 @@ class DatabaseAdvisorVendorRulesTests {
                         false));
         DatabaseAdvisorRuleResultDto result = new PostgresInvalidIndexRule().evaluate(context(postgres));
         assertThat(result.status()).isEqualTo(VIOLATION);
-        assertThat(result.sampleViolations().get(0)).contains("UNIQUE").contains("not currently enforced");
+        assertThat(result.sampleViolations().get(0)).contains("UNIQUE").contains("may still reject");
     }
 
     @Test
@@ -389,7 +401,7 @@ class DatabaseAdvisorVendorRulesTests {
                 VendorFindings.builder()
                         .add(VendorAugmentation.available(
                                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
-                                List.of(new PostgresReplicaIdentityCandidate("public", "audit_log", "d")),
+                                List.of(new PostgresReplicaIdentityCandidate("public", "audit_log", "d", true, false)),
                                 false))
                         .build());
         DatabaseAdvisorRuleResultDto result = new PostgresReplicaIdentityRule().evaluate(context(postgres));
@@ -409,7 +421,7 @@ class DatabaseAdvisorVendorRulesTests {
                 VendorFindings.builder()
                         .add(VendorAugmentation.available(
                                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
-                                List.of(new PostgresReplicaIdentityCandidate("public", "orders", "n")),
+                                List.of(new PostgresReplicaIdentityCandidate("public", "orders", "n", true, false)),
                                 false))
                         .build());
         DatabaseAdvisorRuleResultDto result = new PostgresReplicaIdentityRule().evaluate(context(postgres));
@@ -427,7 +439,7 @@ class DatabaseAdvisorVendorRulesTests {
                 VendorFindings.builder()
                         .add(VendorAugmentation.available(
                                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
-                                List.of(new PostgresReplicaIdentityCandidate("public", "orders", "d")),
+                                List.of(new PostgresReplicaIdentityCandidate("public", "orders", "d", true, false)),
                                 false))
                         .build());
         assertThat(new PostgresReplicaIdentityRule().evaluate(context(postgres)).status())
@@ -457,23 +469,23 @@ class DatabaseAdvisorVendorRulesTests {
                 VendorFindings.builder()
                         .add(VendorAugmentation.available(
                                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
-                                List.of(new PostgresReplicaIdentityCandidate("public", "audit_log", "d")),
+                                List.of(new PostgresReplicaIdentityCandidate("public", "audit_log", "d", true, false)),
                                 false))
                         .build());
 
         assertThat(new PostgresReplicaIdentityRule().evaluate(context(postgres)).status())
-                .isEqualTo(PASS);
+                .isEqualTo(SKIPPED);
     }
 
     @Test
-    void postgresReplicaIdentityRulePassesWhenNoTableIsInScopeOfAnyPublication() {
+    void postgresReplicaIdentityRuleSkipsWhenNoTableIsInScopeOfAnyPublication() {
         SchemaSnapshot postgres = vendorSchema(
                 "ds",
                 Dialect.POSTGRESQL,
                 VendorAugmentation.available(
                         VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES, List.of(), false));
         assertThat(new PostgresReplicaIdentityRule().evaluate(context(postgres)).status())
-                .isEqualTo(PASS);
+                .isEqualTo(SKIPPED);
     }
 
     @Test
@@ -512,7 +524,7 @@ class DatabaseAdvisorVendorRulesTests {
                                 "APP", "DOCS", "IX_TEXT", "DOMAIN", false, "UNUSABLE", "VISIBLE", false, false)),
                         false));
         assertThat(new OracleUnusableIndexRule().evaluate(context(oracle)).status())
-                .isEqualTo(PASS);
+                .isEqualTo(SKIPPED);
     }
 
     @Test
@@ -566,7 +578,7 @@ class DatabaseAdvisorVendorRulesTests {
         assertThat(result.status()).isEqualTo(VIOLATION);
         assertThat(result.sampleViolations().get(0))
                 .contains("FK_ORDERS_CUSTOMER")
-                .contains("disabled and not validated");
+                .contains("DISABLED / NOT VALIDATED");
     }
 
     @Test
@@ -581,11 +593,13 @@ class DatabaseAdvisorVendorRulesTests {
                         false));
         DatabaseAdvisorRuleResultDto result = new OracleInvalidConstraintRule().evaluate(context(oracle));
         assertThat(result.status()).isEqualTo(VIOLATION);
-        assertThat(result.sampleViolations().get(0)).contains("enabled but not validated");
+        assertThat(result.sampleViolations().get(0))
+                .contains("ENABLED / NOT VALIDATED")
+                .contains("New writes are checked");
     }
 
     @Test
-    void oracleInvalidConstraintRuleExcludesTheSystemGeneratedNotNullCheckConstraint() {
+    void oracleInvalidConstraintRuleIncludesDisabledSystemGeneratedNotNullCheckConstraint() {
         SchemaSnapshot oracle = vendorSchema(
                 "ds",
                 Dialect.ORACLE,
@@ -602,7 +616,7 @@ class DatabaseAdvisorVendorRulesTests {
                                 "\"CUSTOMER_ID\" IS NOT NULL")),
                         false));
         assertThat(new OracleInvalidConstraintRule().evaluate(context(oracle)).status())
-                .isEqualTo(PASS);
+                .isEqualTo(VIOLATION);
     }
 
     @Test
@@ -705,7 +719,7 @@ class DatabaseAdvisorVendorRulesTests {
                 Dialect.ORACLE,
                 VendorAugmentation.available(VendorFindingKinds.ORACLE_SEQUENCES, List.of(sequence), false));
         assertThat(new OracleSequenceExhaustionRule().evaluate(context(oracle)).status())
-                .isEqualTo(PASS);
+                .isEqualTo(SKIPPED);
     }
 
     @Test
@@ -724,6 +738,492 @@ class DatabaseAdvisorVendorRulesTests {
                 Dialect.ORACLE,
                 VendorAugmentation.available(VendorFindingKinds.ORACLE_SEQUENCES, List.of(sequence), false));
         assertThat(new OracleSequenceExhaustionRule().evaluate(context(oracle)).status())
+                .isEqualTo(SKIPPED);
+    }
+
+    @Test
+    void postgresInvalidFlagsMustBeExplicitAndUnknownDoesNotMeanInvalid() {
+        SchemaSnapshot postgres = vendorSchema(
+                "ds",
+                Dialect.POSTGRESQL,
+                VendorAugmentation.available(
+                        VendorFindingKinds.POSTGRES_INVALID_INDEXES,
+                        List.of(new PostgresInvalidIndex("public", "t", "idx", (Boolean) null, null, null, null)),
+                        false));
+        assertThat(new PostgresInvalidIndexRule().evaluate(context(postgres)).status())
+                .isEqualTo(SKIPPED);
+    }
+
+    @Test
+    void postgresSequenceProgressUsesStartDirectionIncrementAndExactThreshold() {
+        assertThat(pgSequence(679, 600, 0, 700, 1, null, null, false).percentUsed())
+                .isEqualTo(79);
+        assertThat(pgSequence(680, 600, 0, 700, 1, null, null, false).percentUsed())
+                .isEqualTo(80);
+        assertThat(pgSequence(-680, -600, -700, 0, -1, null, null, false).percentUsed())
+                .isEqualTo(80);
+        assertThat(pgSequence(670, 600, 0, 700, 10, null, null, false).percentUsed())
+                .isEqualTo(70);
+        assertThat(pgSequence(-10, -10, -100, -1, -1, null, null, false).percentUsed())
+                .isZero();
+        assertThat(pgSequence(700, 600, 0, 700, 0, null, null, false).percentUsed())
+                .isEqualTo(-1);
+        assertThat(pgSequence(600, 600, 0, 700, 1, BigInteger.valueOf(100), null, false)
+                        .percentUsed())
+                .isEqualTo(100);
+    }
+
+    @Test
+    void postgresCyclingSequenceCanReachNarrowerOwningColumnBeforeWrap() {
+        PostgresSequenceUsage sequence =
+                pgSequence(80, 0, -1000, 1000, 1, BigInteger.valueOf(100), BigInteger.valueOf(-101), true);
+        assertThat(new PostgresSequenceExhaustionRule()
+                        .evaluate(context(vendorSchema(
+                                "ds",
+                                Dialect.POSTGRESQL,
+                                VendorAugmentation.available(
+                                        VendorFindingKinds.POSTGRES_SEQUENCES, List.of(sequence), false)))))
+                .extracting(DatabaseAdvisorRuleResultDto::status)
+                .isEqualTo(VIOLATION);
+        assertThat(pgSequence(-81, 0, -1000, 1000, -1, BigInteger.valueOf(100), BigInteger.valueOf(-100), true)
+                        .percentUsed())
+                .isEqualTo(81);
+    }
+
+    @Test
+    void postgresHiddenCounterRetainsDefinitionButSkipsHeadroom() {
+        PostgresSequenceUsage sequence = new PostgresSequenceUsage(
+                "public",
+                "hidden",
+                null,
+                BigInteger.valueOf(1000),
+                null,
+                false,
+                null,
+                null,
+                null,
+                null,
+                1L,
+                BigInteger.ONE,
+                BigInteger.ONE,
+                null,
+                BigInteger.valueOf(100));
+        assertThat(sequence.incrementBy()).isEqualTo(1L);
+        assertThat(sequence.percentUsed()).isEqualTo(-1);
+        assertThat(new PostgresSequenceExhaustionRule()
+                        .evaluate(context(vendorSchema(
+                                "ds",
+                                Dialect.POSTGRESQL,
+                                VendorAugmentation.available(
+                                        VendorFindingKinds.POSTGRES_SEQUENCES, List.of(sequence), false))))
+                        .status())
+                .isEqualTo(SKIPPED);
+    }
+
+    @Test
+    void postgresNotEnforcedConstraintDoesNotClaimNewWritesAreChecked() {
+        SchemaSnapshot postgres = vendorSchema(
+                "ds",
+                Dialect.POSTGRESQL,
+                VendorAugmentation.available(
+                        VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS,
+                        List.of(new PostgresUnvalidatedConstraint("public", "t", "check_it", "c", "CHECK", false)),
+                        false));
+        DatabaseAdvisorRuleResultDto result = new PostgresUnvalidatedConstraintRule().evaluate(context(postgres));
+        assertThat(result.severity()).isEqualTo(DatabaseAdvisorRuleSupport.MEDIUM);
+        assertThat(result.sampleViolations().get(0))
+                .contains("NOT ENFORCED")
+                .doesNotContain("never been", "New writes are checked");
+        assertThat(PostgresCatalogReader.unvalidatedConstraintsSql(new DatabaseVersion(17, 0, 0, "17")))
+                .contains("true as is_enforced")
+                .doesNotContain("c.conenforced");
+        assertThat(PostgresCatalogReader.unvalidatedConstraintsSql(new DatabaseVersion(18, 0, 0, "18")))
+                .contains("c.conenforced as is_enforced");
+        assertThat(PostgresCatalogReader.unvalidatedConstraintsSql(DatabaseVersion.UNKNOWN))
+                .contains("null::boolean as is_enforced");
+    }
+
+    @Test
+    void publicationInsertOnlyAndFullIdentityAreNotFindingsButUnknownIdentityIsSkipped() {
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "n", false, false))
+                        .status())
                 .isEqualTo(PASS);
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "f", true, false))
+                        .status())
+                .isEqualTo(PASS);
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", null, true, null))
+                        .status())
+                .isEqualTo(SKIPPED);
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "i", true, null))
+                        .status())
+                .isEqualTo(SKIPPED);
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "i", true, false))
+                        .status())
+                .isEqualTo(VIOLATION);
+        assertThat(replicaResult(new PostgresReplicaIdentityCandidate("public", "t", "i", true, true))
+                        .status())
+                .isEqualTo(PASS);
+    }
+
+    @Test
+    void missingMysqlCounterFamilyCannotPassAndCounterIdentityIsExact() {
+        SchemaSnapshot missing = vendorSchema(
+                "ds",
+                Dialect.MYSQL,
+                VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_AUTO_INCREMENT_COLUMNS,
+                        List.of(new MySqlAutoIncrementColumn("app", "Orders", "id", "int", "int")),
+                        false));
+        assertThat(new MySqlAutoIncrementExhaustionRule()
+                        .evaluate(context(missing))
+                        .status())
+                .isEqualTo(SKIPPED);
+        SchemaSnapshot collision = schema(
+                "ds",
+                Dialect.MYSQL,
+                List.of(),
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.MYSQL_TABLES,
+                                List.of(new MySqlTableInfo("app", "orders", "InnoDB", null, BigInteger.TEN)),
+                                false))
+                        .build());
+        assertThat(MySqlCatalogReader.nextAutoIncrement(collision, "app", "Orders"))
+                .isNull();
+    }
+
+    @Test
+    void mysqlCounterThresholdIsExactlyEightyPercent() {
+        for (int counter : new int[] {101, 102}) {
+            SchemaSnapshot mysql = schema(
+                    "ds",
+                    Dialect.MYSQL,
+                    List.of(),
+                    VendorFindings.builder()
+                            .add(VendorAugmentation.available(
+                                    VendorFindingKinds.MYSQL_TABLES,
+                                    List.of(new MySqlTableInfo(
+                                            "app", "t", "InnoDB", null, BigInteger.valueOf(counter))),
+                                    false))
+                            .add(VendorAugmentation.available(
+                                    VendorFindingKinds.MYSQL_AUTO_INCREMENT_COLUMNS,
+                                    List.of(new MySqlAutoIncrementColumn("app", "t", "id", "tinyint", "tinyint")),
+                                    false))
+                            .build());
+            assertThat(new MySqlAutoIncrementExhaustionRule()
+                            .evaluate(context(mysql))
+                            .status())
+                    .isEqualTo(counter == 101 ? PASS : VIOLATION);
+        }
+    }
+
+    @Test
+    void charsetTableEvidenceSurvivesMissingColumnFamily() {
+        SchemaSnapshot tableOnly = vendorSchema(
+                "ds",
+                Dialect.MARIADB,
+                VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_TABLES,
+                        List.of(new MySqlTableInfo("app", "t", "InnoDB", "utf8mb3_general_ci", null)),
+                        false));
+        DatabaseAdvisorContext context = context(tableOnly);
+        DatabaseAdvisorRuleResultDto result = new MySqlNonUtf8mb4CharsetRule().evaluate(context);
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.sampleViolations().get(0))
+                .contains("11.4.5", "aliases", "comparison semantics")
+                .doesNotContain("does not exist on MariaDB");
+        assertThat(context.evaluationDiagnostics()).isNotEmpty();
+    }
+
+    @Test
+    void mariaDbCounterPersistenceBoundaryAndAriaCrashSafetyAreAccurate() {
+        assertThat(MySqlAutoIncrementExhaustionRule.persistenceNote(
+                        Dialect.MARIADB, new DatabaseVersion(10, 2, 3, "10.2.3")))
+                .contains("reconstructed after restart");
+        assertThat(MySqlAutoIncrementExhaustionRule.persistenceNote(
+                        Dialect.MARIADB, new DatabaseVersion(10, 2, 4, "10.2.4")))
+                .contains("persistent", "not transactional");
+        assertThat(MySqlAutoIncrementExhaustionRule.persistenceNote(
+                        Dialect.MARIADB, new DatabaseVersion(10, 2, -1, "10.2")))
+                .contains("depends on version");
+        SchemaSnapshot aria = vendorSchema(
+                "ds",
+                Dialect.MARIADB,
+                VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_TABLES,
+                        List.of(new MySqlTableInfo("app", "t", "Aria", null, null)),
+                        false));
+        assertThat(new MySqlNonInnodbEngineRule()
+                        .evaluate(context(aria))
+                        .sampleViolations()
+                        .get(0))
+                .contains("can provide crash safety")
+                .doesNotContain("not transactional or crash-safe");
+    }
+
+    @Test
+    void oracleUnknownAndNAIndexStatesAreNotUnusable() {
+        for (String status : new String[] {null, "N/A", "OTHER"}) {
+            SchemaSnapshot oracle = vendorSchema(
+                    "ds",
+                    Dialect.ORACLE,
+                    VendorAugmentation.available(
+                            VendorFindingKinds.ORACLE_INDEX_DETAILS,
+                            List.of(new OracleIndexDetail(
+                                    "APP", "T", "IDX", "NORMAL", false, status, "VISIBLE", false, false)),
+                            false));
+            assertThat(new OracleUnusableIndexRule().evaluate(context(oracle)).status())
+                    .isEqualTo(SKIPPED);
+        }
+    }
+
+    @Test
+    void oracleMissingPartitionCatalogDoesNotConfirmUsability() {
+        SchemaSnapshot oracle = vendorSchema(
+                "ds",
+                Dialect.ORACLE,
+                VendorAugmentation.available(
+                        VendorFindingKinds.ORACLE_INDEX_DETAILS,
+                        List.of(new OracleIndexDetail(
+                                "APP", "T", "IDX", "NORMAL", false, "N/A", "VISIBLE", false, true)),
+                        false));
+        DatabaseAdvisorContext context = context(oracle);
+        assertThat(new OracleUnusableIndexRule().evaluate(context).status()).isEqualTo(SKIPPED);
+        assertThat(context.evaluationDiagnostics()).isNotEmpty();
+    }
+
+    @Test
+    void oracleUnknownConstraintStatesSkipAndDisableValidateDoesNotClaimUnrestrictedDml() {
+        SchemaSnapshot unknown = vendorSchema(
+                "ds",
+                Dialect.ORACLE,
+                VendorAugmentation.available(
+                        VendorFindingKinds.ORACLE_CONSTRAINTS,
+                        List.of(new OracleConstraintDetail("APP", "T", "C", "U", null, "OTHER", false, null)),
+                        false));
+        assertThat(new OracleInvalidConstraintRule().evaluate(context(unknown)).status())
+                .isEqualTo(SKIPPED);
+        SchemaSnapshot validated = vendorSchema(
+                "ds",
+                Dialect.ORACLE,
+                VendorAugmentation.available(
+                        VendorFindingKinds.ORACLE_CONSTRAINTS,
+                        List.of(new OracleConstraintDetail("APP", "T", "C", "U", "DISABLED", "VALIDATED", false, null)),
+                        false));
+        assertThat(new OracleInvalidConstraintRule()
+                        .evaluate(context(validated))
+                        .sampleViolations()
+                        .get(0))
+                .contains("can restrict DML")
+                .doesNotContain("enforces nothing");
+    }
+
+    @Test
+    void oracleSequenceHandlesDescendingThresholdAndNumberIdentityLimits() {
+        OracleSequenceUsage descending = new OracleSequenceUsage(
+                "APP",
+                "S",
+                BigInteger.valueOf(-800),
+                BigInteger.ZERO,
+                BigInteger.valueOf(-1000),
+                BigInteger.valueOf(-1),
+                false,
+                false);
+        assertThat(descending.percentUsed()).isEqualTo(80);
+        assertThat(new OracleSequenceUsage(
+                                "APP",
+                                "S",
+                                BigInteger.valueOf(-790),
+                                BigInteger.ZERO,
+                                BigInteger.valueOf(-1000),
+                                BigInteger.valueOf(-1),
+                                false,
+                                false)
+                        .percentUsed())
+                .isEqualTo(79);
+        BigInteger huge = BigInteger.TEN.pow(28).subtract(BigInteger.ONE);
+        assertThat(new OracleSequenceUsage(
+                                "APP",
+                                "S",
+                                huge.subtract(BigInteger.ONE),
+                                huge,
+                                BigInteger.ONE,
+                                BigInteger.ONE,
+                                false,
+                                false)
+                        .percentUsed())
+                .isEqualTo(99);
+        OracleIdentityColumn identity = new OracleIdentityColumn("APP", "T", "ID", "S", "NUMBER", 5, 0);
+        assertThat(identity.capacity()).isEqualTo(BigInteger.valueOf(99999));
+        assertThat(new OracleIdentityColumn("APP", "T", "ID", "S", "NUMBER", null, null).capacity())
+                .isNull();
+        assertThat(new OracleIdentityColumn("APP", "T", "ID", "S", "NUMBER", 5, null).capacity())
+                .isNull();
+        OracleSequenceUsage sequence = new OracleSequenceUsage(
+                "APP",
+                "S",
+                BigInteger.valueOf(80000),
+                BigInteger.TEN.pow(28).subtract(BigInteger.ONE),
+                BigInteger.ONE,
+                BigInteger.ONE,
+                true,
+                false);
+        assertThat(sequence.percentUsed(identity)).isEqualTo(80);
+        SchemaSnapshot oracle = schema(
+                "ds",
+                Dialect.ORACLE,
+                List.of(),
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.ORACLE_SEQUENCES, List.of(sequence), false))
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.ORACLE_IDENTITY_COLUMNS, List.of(identity), false))
+                        .build());
+        DatabaseAdvisorRuleResultDto result = new OracleSequenceExhaustionRule().evaluate(context(oracle));
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.sampleViolations().get(0)).contains("APP.T.ID", "99999", "Cache reservation");
+        assertThat(new OracleSequenceExhaustionRule().definition().recommendation())
+                .contains("ALTER TABLE")
+                .doesNotContain("restart the sequence after archiving");
+    }
+
+    @Test
+    void oracleHiddenSequenceCounterIsUnknownAndOwnersAreSchemaQualified() {
+        OracleSequenceUsage sequence = new OracleSequenceUsage(
+                "APP", "S", null, BigInteger.valueOf(1000), BigInteger.ZERO, BigInteger.ONE, false, false);
+        assertThat(sequence.percentUsed()).isEqualTo(-1);
+        assertThat(new OracleSequenceExhaustionRule()
+                        .evaluate(context(vendorSchema(
+                                "ds",
+                                Dialect.ORACLE,
+                                VendorAugmentation.available(
+                                        VendorFindingKinds.ORACLE_SEQUENCES, List.of(sequence), false))))
+                        .status())
+                .isEqualTo(SKIPPED);
+    }
+
+    @Test
+    void oracleIdentityLinkDoesNotMatchAnotherSchemasSequenceWithTheSameName() {
+        OracleSequenceUsage sequence = new OracleSequenceUsage(
+                "APP",
+                "S",
+                BigInteger.valueOf(80000),
+                BigInteger.TEN.pow(28),
+                BigInteger.ONE,
+                BigInteger.ONE,
+                false,
+                false);
+        OracleIdentityColumn unrelated = new OracleIdentityColumn("OTHER", "T", "ID", "S", "NUMBER", 5, 0);
+        SchemaSnapshot oracle = schema(
+                "ds",
+                Dialect.ORACLE,
+                List.of(),
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.ORACLE_SEQUENCES, List.of(sequence), false))
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.ORACLE_IDENTITY_COLUMNS, List.of(unrelated), false))
+                        .build());
+        assertThat(new OracleSequenceExhaustionRule().evaluate(context(oracle)).status())
+                .isEqualTo(PASS);
+    }
+
+    @Test
+    void oracleIdentityRangeClampsBothEndpointsForAscendingAndDescendingSequences() {
+        BigInteger broadBound = BigInteger.TEN.pow(27);
+        OracleIdentityColumn identity = new OracleIdentityColumn("APP", "T", "ID", "S", "NUMBER", 5, 0);
+        for (int direction : new int[] {1, -1}) {
+            OracleSequenceUsage midpoint = new OracleSequenceUsage(
+                    "APP",
+                    "S",
+                    BigInteger.ZERO,
+                    broadBound,
+                    broadBound.negate(),
+                    BigInteger.valueOf(direction),
+                    false,
+                    false);
+            OracleSequenceUsage belowThreshold = new OracleSequenceUsage(
+                    "APP",
+                    "S",
+                    BigInteger.valueOf(59999L * direction),
+                    broadBound,
+                    broadBound.negate(),
+                    BigInteger.valueOf(direction),
+                    false,
+                    false);
+            OracleSequenceUsage atThreshold = new OracleSequenceUsage(
+                    "APP",
+                    "S",
+                    BigInteger.valueOf(60000L * direction),
+                    broadBound,
+                    broadBound.negate(),
+                    BigInteger.valueOf(direction),
+                    false,
+                    false);
+            assertThat(midpoint.percentUsed(identity)).isEqualTo(50);
+            assertThat(belowThreshold.percentUsed(identity)).isEqualTo(79);
+            assertThat(atThreshold.percentUsed(identity)).isEqualTo(80);
+        }
+    }
+
+    @Test
+    void oracleIdentityRangeClampingDoesNotInventUnknownCounterOrPrecision() {
+        BigInteger broadBound = BigInteger.TEN.pow(27);
+        OracleSequenceUsage hidden = new OracleSequenceUsage(
+                "APP", "S", null, broadBound, broadBound.negate(), BigInteger.ONE, false, false);
+        OracleIdentityColumn known = new OracleIdentityColumn("APP", "T", "ID", "S", "NUMBER", 5, 0);
+        assertThat(hidden.percentUsed(known)).isEqualTo(-1);
+        OracleIdentityColumn unknown = new OracleIdentityColumn("APP", "T", "ID", "S", "NUMBER", 5, null);
+        OracleSequenceUsage sequence = new OracleSequenceUsage(
+                "APP", "S", BigInteger.ZERO, broadBound, broadBound.negate(), BigInteger.ONE, false, false);
+        assertThat(sequence.percentUsed(unknown)).isEqualTo(sequence.percentUsed());
+        SchemaSnapshot oracle = schema(
+                "ds",
+                Dialect.ORACLE,
+                List.of(),
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.ORACLE_SEQUENCES, List.of(sequence), false))
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.ORACLE_IDENTITY_COLUMNS, List.of(unknown), false))
+                        .build());
+        assertThat(new OracleSequenceExhaustionRule().evaluate(context(oracle)).status())
+                .isEqualTo(SKIPPED);
+    }
+
+    private static PostgresSequenceUsage pgSequence(
+            long frontier,
+            long start,
+            long min,
+            long max,
+            long increment,
+            BigInteger columnMax,
+            BigInteger columnMin,
+            boolean cycle) {
+        return new PostgresSequenceUsage(
+                "public",
+                "s",
+                BigInteger.valueOf(frontier),
+                BigInteger.valueOf(max),
+                columnMax,
+                cycle,
+                "public",
+                "t",
+                "id",
+                "int4",
+                increment,
+                BigInteger.valueOf(min),
+                BigInteger.valueOf(start),
+                columnMin,
+                BigInteger.valueOf(100));
+    }
+
+    private static DatabaseAdvisorRuleResultDto replicaResult(PostgresReplicaIdentityCandidate candidate) {
+        return new PostgresReplicaIdentityRule()
+                .evaluate(context(vendorSchema(
+                        "ds",
+                        Dialect.POSTGRESQL,
+                        VendorAugmentation.available(
+                                VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES, List.of(candidate), false))));
     }
 }

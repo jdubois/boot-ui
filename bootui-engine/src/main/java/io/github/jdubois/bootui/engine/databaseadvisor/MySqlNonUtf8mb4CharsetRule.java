@@ -17,9 +17,7 @@ import java.util.Set;
  * noise on any legacy schema. {@code utf8mb3} is different: it is the trap MySQL created by naming a
  * three-byte encoding "utf8", so a developer who asked for Unicode did not get it.</p>
  *
- * <p>The suggested {@code utf8mb4} collation is dialect-specific and appended per finding rather than baked
- * into the shared recommendation text: MySQL 8.0's default, {@code utf8mb4_0900_ai_ci}, does not exist on
- * MariaDB at all, which never shipped the Unicode 9.0 collations it is built on.</p>
+ * <p>Collation names alone do not establish equivalent comparison semantics across vendors.</p>
  */
 final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
 
@@ -34,12 +32,10 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
                 "Detects MySQL/MariaDB table defaults (information_schema.tables.TABLE_COLLATION) and columns "
                         + "(information_schema.columns.CHARACTER_SET_NAME) using utf8/utf8mb3. Other legacy "
                         + "character sets such as latin1 or ascii are treated as deliberate and are not reported.",
-                "Convert the column and the table default to utf8mb4 (ALTER TABLE ... CONVERT TO CHARACTER SET "
-                        + "utf8mb4 COLLATE <dialect-appropriate collation, named in each finding>). MySQL's legacy "
-                        + "utf8 alias is a three-byte encoding that cannot store the full Unicode range, which "
-                        + "surfaces as silent truncation or an insert failure. Convert during a maintenance window "
-                        + "and re-check index key lengths first: utf8mb4 needs 4 bytes per character, so an "
-                        + "existing index on a long VARCHAR can exceed the maximum key length.",
+                "If supplementary Unicode characters are required, plan a tested utf8mb4 conversion with a "
+                        + "server-supported collation preserving required comparison and uniqueness semantics. "
+                        + "Changing only the table default does not convert existing columns. Review key lengths, "
+                        + "foreign-key compatibility, possible duplicate comparisons, rewrite cost and locks.",
                 "https://dev.mysql.com/doc/refman/8.0/en/charset-unicode-utf8mb4.html"));
     }
 
@@ -48,15 +44,39 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
         List<SchemaSnapshot> schemas = context.mySqlFamilySchemas();
         String skipReason = VendorRuleSupport.skipReason(
                 schemas, VendorFindingKinds.MYSQL_COLUMN_CHARSETS, "No MySQL or MariaDB datasource was detected.");
-        if (skipReason != null) {
+        if (skipReason != null
+                && schemas.stream()
+                        .noneMatch(schema -> VendorRuleSupport.available(schema, VendorFindingKinds.MYSQL_TABLES))) {
             return skipped(skipReason);
         }
         List<String> details = new ArrayList<>();
+        int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
+            VendorRuleSupport.coverage(
+                    context,
+                    definition().id(),
+                    schema,
+                    VendorFindingKinds.MYSQL_TABLES,
+                    VendorFindingKinds.MYSQL_COLUMN_CHARSETS);
+            for (MySqlTableInfo table : schema.vendorFindings().findings(VendorFindingKinds.MYSQL_TABLES)) {
+                if (table.characterSet() == null) {
+                    unknown(context, table.qualifiedName() + ": table default character set is unknown.");
+                } else {
+                    eligible++;
+                }
+            }
+            for (MySqlColumnCharset column :
+                    schema.vendorFindings().findings(VendorFindingKinds.MYSQL_COLUMN_CHARSETS)) {
+                if (column.characterSet() == null) {
+                    unknown(context, column.qualifiedColumn() + ": character set is unknown.");
+                } else {
+                    eligible++;
+                }
+            }
             collectTableDefaults(schema, details);
             collectColumns(schema, details);
         }
-        return violation(details);
+        return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 
     private void collectTableDefaults(SchemaSnapshot schema, List<String> details) {
@@ -67,7 +87,7 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
             if (isLegacyUtf8(table.characterSet())) {
                 details.add(schema.dataSourceName() + ": table " + table.qualifiedName()
                         + " defaults to character set " + table.characterSet() + " (collation "
-                        + table.collation() + ") instead of utf8mb4. " + recommendedCollation(schema.dialect()));
+                        + table.collation() + ") instead of utf8mb4. " + recommendedCollation(schema));
             }
         }
     }
@@ -81,7 +101,7 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
                 details.add(schema.dataSourceName() + ": column " + column.qualifiedColumn()
                         + " uses character set " + column.characterSet()
                         + ", a three-byte encoding that cannot store the full Unicode range. "
-                        + recommendedCollation(schema.dialect()));
+                        + recommendedCollation(schema));
             }
         }
     }
@@ -90,15 +110,11 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
         return characterSet != null && LEGACY_UTF8_CHARSETS.contains(characterSet.toLowerCase(Locale.ROOT));
     }
 
-    /**
-     * MySQL 8.0's {@code utf8mb4_0900_ai_ci} default does not exist on MariaDB, which never adopted MySQL's
-     * Unicode 9.0 collations; recommending it there would be advice the developer cannot even apply.
-     */
-    private String recommendedCollation(Dialect dialect) {
-        if (dialect == Dialect.MARIADB) {
-            return "On MariaDB, prefer utf8mb4_uca1400_ai_ci (10.10+) or utf8mb4_general_ci (older MariaDB) — "
-                    + "MySQL's utf8mb4_0900_ai_ci collation does not exist on MariaDB.";
+    private String recommendedCollation(SchemaSnapshot schema) {
+        if (schema.dialect() == Dialect.MARIADB) {
+            return "Review MariaDB comparison semantics: utf8mb4_uca1400_ai_ci (10.10+); 0900 aliases (11.4.5+). "
+                    + "Verify server support.";
         }
-        return "On MySQL 8.0+, utf8mb4_0900_ai_ci is the server default; use utf8mb4_general_ci for older MySQL.";
+        return "MySQL 8.0+ supports utf8mb4_0900_ai_ci; choose a supported collation matching required comparison semantics.";
     }
 }

@@ -11,7 +11,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import javax.sql.DataSource;
 
 /**
@@ -92,23 +94,54 @@ final class SchemaIntrospector {
     private static SchemaSnapshot introspect(
             String dataSourceName, Connection connection, ScanBudget budget, DatabaseAdvisorLimits limits)
             throws SQLException {
-        Boolean originalReadOnly = currentReadOnly(connection);
-        boolean readOnlyApplied = trySetReadOnly(connection);
-        try {
-            return read(dataSourceName, connection, budget, limits);
-        } finally {
-            restoreReadOnly(connection, originalReadOnly, readOnlyApplied);
+        if (budget.exhausted()) {
+            return SchemaSnapshot.failed(
+                    dataSourceName, "The scan budget ran out during connection acquisition; no metadata was read.");
         }
+        Boolean originalReadOnly = currentReadOnly(connection);
+        boolean readOnlyApplied = Boolean.FALSE.equals(originalReadOnly) && trySetReadOnly(connection);
+        SchemaSnapshot snapshot;
+        String restorationFailure = null;
+        try {
+            snapshot = read(dataSourceName, connection, budget, limits);
+        } catch (SQLException | RuntimeException ex) {
+            snapshot = SchemaSnapshot.failed(dataSourceName, describe(ex));
+        } finally {
+            restorationFailure = restoreReadOnly(connection, originalReadOnly, readOnlyApplied);
+        }
+        List<SchemaDiagnostic> diagnostics = new ArrayList<>(snapshot.diagnostics());
+        if (originalReadOnly == null) {
+            diagnostics.add(
+                    SchemaDiagnostic.info(
+                            dataSourceName,
+                            "The original read-only state is unknown; it was not changed. Only read-only metadata queries were issued."));
+        }
+        if (restorationFailure != null) {
+            diagnostics.add(SchemaDiagnostic.warning(dataSourceName, restorationFailure));
+        }
+        return new SchemaSnapshot(
+                snapshot.dataSourceName(),
+                snapshot.dialect(),
+                snapshot.databaseProductName(),
+                snapshot.version(),
+                snapshot.identifierCase(),
+                snapshot.tables(),
+                snapshot.vendorFindings(),
+                diagnostics,
+                snapshot.truncated(),
+                snapshot.error(),
+                snapshot.relationInventoryComplete());
     }
 
     private static SchemaSnapshot read(
             String dataSourceName, Connection connection, ScanBudget budget, DatabaseAdvisorLimits limits)
             throws SQLException {
         List<SchemaDiagnostic> diagnostics = new ArrayList<>();
+        requireBudget(budget);
         DatabaseMetaData metaData = connection.getMetaData();
-        String productName = safeString(metaData::getDatabaseProductName);
-        String productVersion = safeString(metaData::getDatabaseProductVersion);
-        String url = safeString(metaData::getURL);
+        String productName = safeString(metaData::getDatabaseProductName, budget);
+        String productVersion = safeString(metaData::getDatabaseProductVersion, budget);
+        String url = safeString(metaData::getURL, budget);
         Dialect dialect = resolveOracle(
                 connection,
                 Dialect.detect(productName, productVersion, url),
@@ -116,12 +149,16 @@ final class SchemaIntrospector {
                 diagnostics,
                 budget,
                 limits);
-        DatabaseVersion version = readVersion(metaData, productVersion);
+        DatabaseVersion version = readVersion(metaData, productVersion, budget);
         DialectCapabilities capabilities = DialectCapabilities.of(dialect, version);
 
         String oracleSchema = dialect == Dialect.ORACLE
                 ? oracleCurrentSchema(connection, dataSourceName, diagnostics, budget, limits)
                 : null;
+        if (dialect == Dialect.ORACLE && oracleSchema == null) {
+            return SchemaSnapshot.failed(
+                    dataSourceName, "Oracle CURRENT_SCHEMA could not be established; the scoped scan was not widened.");
+        }
 
         TableReadResult tableResult =
                 readTables(dataSourceName, connection, metaData, oracleSchema, budget, limits, diagnostics);
@@ -151,12 +188,13 @@ final class SchemaIntrospector {
                 dialect,
                 productName,
                 version,
-                readIdentifierCase(metaData),
+                readIdentifierCase(metaData, budget),
                 tables,
                 findings,
                 diagnostics,
-                tableResult.truncated(),
-                null);
+                tableResult.truncated() || !findings.truncations().isEmpty(),
+                null,
+                tableResult.inventoryComplete());
     }
 
     /**
@@ -218,8 +256,13 @@ final class SchemaIntrospector {
         }
         try (Statement statement = connection.createStatement()) {
             statement.setQueryTimeout(budget.remainingSecondsAtMost(limits.statementTimeoutSeconds()));
+            statement.setMaxRows(limits.maxVendorFindings() + 1);
             try (ResultSet rs = statement.executeQuery(sql)) {
+                int rows = 0;
                 while (rs.next()) {
+                    if (++rows > limits.maxVendorFindings() || budget.exhausted()) {
+                        return false;
+                    }
                     String banner = normalize(rs.getString(1));
                     int oracleIndex = banner.indexOf("oracle");
                     int databaseIndex = banner.indexOf("database");
@@ -273,7 +316,36 @@ final class SchemaIntrospector {
         }
     }
 
-    private record TableReadResult(List<TableModel> tables, boolean truncated) {}
+    private record TableReadResult(List<TableModel> tables, boolean truncated, boolean inventoryComplete) {}
+
+    private record RelationTypes(String[] types, boolean complete) {}
+
+    private static RelationTypes relationTypes(DatabaseMetaData metadata, ScanBudget budget) {
+        List<String> types = new ArrayList<>(List.of(TABLE_TYPES));
+        boolean view = false;
+        boolean table = false;
+        try {
+            requireBudget(budget);
+            try (ResultSet rows = metadata.getTableTypes()) {
+                int examined = 0;
+                while (rows.next()) {
+                    requireBudget(budget);
+                    if (++examined > 128) {
+                        return new RelationTypes(types.toArray(String[]::new), false);
+                    }
+                    String type = rows.getString("TABLE_TYPE");
+                    table |= "TABLE".equalsIgnoreCase(type);
+                    if ("VIEW".equalsIgnoreCase(type) || "MATERIALIZED VIEW".equalsIgnoreCase(type)) {
+                        types.add(type);
+                        view |= "VIEW".equalsIgnoreCase(type);
+                    }
+                }
+            }
+        } catch (SQLException | RuntimeException ex) {
+            return new RelationTypes(types.toArray(String[]::new), false);
+        }
+        return new RelationTypes(types.toArray(String[]::new), view && table);
+    }
 
     private static TableReadResult readTables(
             String dataSourceName,
@@ -284,49 +356,60 @@ final class SchemaIntrospector {
             DatabaseAdvisorLimits limits,
             List<SchemaDiagnostic> diagnostics)
             throws SQLException {
-        String catalog = safeString(connection::getCatalog);
-        List<TableRef> refs = readTableRefs(dataSourceName, metaData, catalog, schemaPattern, limits, diagnostics);
-        boolean truncated = refs.size() > limits.maxTables();
+        String catalog = safeString(connection::getCatalog, budget);
+        RelationTypes types = relationTypes(metaData, budget);
+        RefReadResult result =
+                readTableRefs(dataSourceName, metaData, catalog, schemaPattern, limits, diagnostics, budget, types);
+        List<TableRef> refs = result.refs();
+        boolean truncated = result.truncated();
+        boolean inventoryTruncated = result.truncated();
         if (truncated) {
-            refs = refs.subList(0, limits.maxTables());
+            refs = refs.subList(0, Math.min(refs.size(), limits.maxTables()));
             diagnostics.add(SchemaDiagnostic.warning(
                     dataSourceName,
-                    "Only the first " + limits.maxTables()
-                            + " tables were analyzed; this schema has more, so some findings may be missing."));
+                    "The table metadata row bound or cooperative deadline was reached; only " + refs.size()
+                            + " scoped relations were retained and coverage is incomplete."));
         }
-        String escape = searchStringEscape(metaData);
+        String escape = searchStringEscape(metaData, budget);
         List<TableModel> tables = new ArrayList<>();
         for (TableRef ref : refs) {
             if (budget.exhausted()) {
                 truncated = true;
+                inventoryTruncated = true;
                 diagnostics.add(SchemaDiagnostic.warning(
                         dataSourceName,
                         "The scan budget ran out after " + tables.size()
                                 + " tables; the remaining tables were not analyzed."));
                 break;
             }
-            TableModel table = readTable(metaData, ref, escape, limits);
+            TableModel table = readTable(metaData, ref, escape, limits, budget);
             tables.add(table);
+            truncated |= table.metadata().truncated();
             for (String issue : table.metadata().issues()) {
                 diagnostics.add(SchemaDiagnostic.warning(dataSourceName + "/" + table.qualifiedName(), issue));
             }
         }
-        return new TableReadResult(tables, truncated);
+        return new TableReadResult(
+                tables, truncated, types.complete() && result.complete() && !inventoryTruncated && !tables.isEmpty());
     }
 
     private record TableRef(String catalog, String schema, String name, String type) {}
 
-    private static List<TableRef> readTableRefs(
+    private record RefReadResult(List<TableRef> refs, boolean truncated, boolean complete) {}
+
+    private static RefReadResult readTableRefs(
             String dataSourceName,
             DatabaseMetaData metaData,
             String catalog,
             String schemaPattern,
             DatabaseAdvisorLimits limits,
-            List<SchemaDiagnostic> diagnostics)
+            List<SchemaDiagnostic> diagnostics,
+            ScanBudget budget,
+            RelationTypes types)
             throws SQLException {
-        String escapedSchemaPattern = escapePattern(schemaPattern, searchStringEscape(metaData));
+        String escapedSchemaPattern = escapePattern(schemaPattern, searchStringEscape(metaData, budget));
         try {
-            return readTableRefs(metaData, catalog, escapedSchemaPattern, schemaPattern, TABLE_TYPES, limits);
+            return readTableRefs(metaData, catalog, escapedSchemaPattern, schemaPattern, types.types(), limits, budget);
         } catch (SQLException ex) {
             // Not every driver accepts a table type it does not know; retry with the universal "TABLE" type
             // rather than losing the whole datasource over PostgreSQL's partitioned-table type.
@@ -334,52 +417,69 @@ final class SchemaIntrospector {
                     dataSourceName,
                     "The driver rejected the PARTITIONED TABLE type filter; retried with TABLE only (" + describe(ex)
                             + ")."));
-            return readTableRefs(metaData, catalog, escapedSchemaPattern, schemaPattern, FALLBACK_TABLE_TYPES, limits);
+            RefReadResult fallback = readTableRefs(
+                    metaData, catalog, escapedSchemaPattern, schemaPattern, FALLBACK_TABLE_TYPES, limits, budget);
+            return new RefReadResult(fallback.refs(), fallback.truncated(), false);
         }
     }
 
-    private static List<TableRef> readTableRefs(
+    private static RefReadResult readTableRefs(
             DatabaseMetaData metaData,
             String catalog,
             String schemaPattern,
             String exactSchema,
             String[] types,
-            DatabaseAdvisorLimits limits)
+            DatabaseAdvisorLimits limits,
+            ScanBudget budget)
             throws SQLException {
         List<TableRef> refs = new ArrayList<>();
+        boolean truncated = false;
+        requireBudget(budget);
         try (ResultSet rs = metaData.getTables(catalog, schemaPattern, "%", types)) {
             // One row past the bound: seeing max + 1 candidates is what makes truncation observable.
-            while (rs.next() && refs.size() <= limits.maxTables()) {
+            int examined = 0;
+            while (rs.next()) {
+                if (++examined > limits.maxTables() || budget.exhausted()) {
+                    truncated = true;
+                    break;
+                }
                 String tableSchema = rs.getString("TABLE_SCHEM");
                 String tableName = rs.getString("TABLE_NAME");
                 if (tableName == null
                         || isSystemSchema(tableSchema)
+                        || (catalog != null && !Objects.equals(catalog, rs.getString("TABLE_CAT")))
                         || (exactSchema != null && !exactSchema.equals(tableSchema))) {
                     continue;
                 }
                 refs.add(new TableRef(rs.getString("TABLE_CAT"), tableSchema, tableName, rs.getString("TABLE_TYPE")));
             }
         }
-        return refs;
+        return new RefReadResult(refs, truncated, true);
     }
 
     private static TableModel readTable(
-            DatabaseMetaData metaData, TableRef ref, String escape, DatabaseAdvisorLimits limits) {
+            DatabaseMetaData metaData, TableRef ref, String escape, DatabaseAdvisorLimits limits, ScanBudget budget) {
         List<String> issues = new ArrayList<>();
         boolean truncated = false;
 
         List<ColumnModel> columns = List.of();
         boolean columnsRead = true;
         try {
-            ColumnReadResult result = readColumns(metaData, ref, escape, limits);
+            ColumnReadResult result = readColumns(metaData, ref, escape, limits, budget);
             columns = result.columns();
+            columnsRead = !result.truncated() && !columns.isEmpty();
+            if (columns.isEmpty()) {
+                issues.add("No scoped column metadata was reported for " + qualified(ref)
+                        + "; driver/privilege coverage is unknown.");
+            }
             truncated |= result.truncated();
             if (result.truncated()) {
-                issues.add("Only the first " + limits.maxColumnsPerTable() + " columns of " + qualified(ref)
-                        + " were read.");
+                issues.add("Column metadata for " + qualified(ref) + " reached its raw-row bound or deadline; "
+                        + columns.size() + " scoped columns were retained.");
             }
-        } catch (SQLException ex) {
+        } catch (SQLException | RuntimeException ex) {
             columnsRead = false;
+            truncated |= ex instanceof MetadataBoundException;
             issues.add("Columns of " + qualified(ref) + " could not be read: " + describe(ex));
         }
 
@@ -387,35 +487,42 @@ final class SchemaIntrospector {
         List<String> primaryKeyColumns = List.of();
         boolean primaryKeyRead = true;
         try {
-            PrimaryKey primaryKey = readPrimaryKey(metaData, ref);
+            PrimaryKey primaryKey = readPrimaryKey(metaData, ref, budget, limits);
             primaryKeyName = primaryKey.name();
             primaryKeyColumns = primaryKey.columns();
-        } catch (SQLException ex) {
+        } catch (SQLException | RuntimeException ex) {
             primaryKeyRead = false;
+            truncated |= ex instanceof MetadataBoundException;
             issues.add("The primary key of " + qualified(ref) + " could not be read: " + describe(ex));
         }
 
         List<ForeignKeyModel> foreignKeys = List.of();
         boolean foreignKeysRead = true;
         try {
-            foreignKeys = readForeignKeys(metaData, ref.catalog(), ref.schema(), ref.name());
-        } catch (SQLException ex) {
+            foreignKeys = readForeignKeys(metaData, ref.catalog(), ref.schema(), ref.name(), budget, limits);
+        } catch (SQLException | RuntimeException ex) {
             foreignKeysRead = false;
+            truncated |= ex instanceof MetadataBoundException;
+            if (ex instanceof ForeignKeyMetadataException partial) {
+                foreignKeys = partial.readableKeys;
+            }
             issues.add("Foreign keys of " + qualified(ref) + " could not be read: " + describe(ex));
         }
 
         List<IndexModel> indexes = List.of();
         boolean indexesRead = true;
         try {
-            IndexReadResult result = readIndexes(metaData, ref, limits);
+            IndexReadResult result = readIndexes(metaData, ref, limits, budget);
             indexes = result.indexes();
+            indexesRead = !result.truncated();
             truncated |= result.truncated();
             if (result.truncated()) {
-                issues.add("Only the first " + limits.maxIndexesPerTable() + " indexes of " + qualified(ref)
-                        + " were read.");
+                issues.add("Index metadata for " + qualified(ref) + " reached its row/index bound or deadline; "
+                        + indexes.size() + " complete indexes were retained.");
             }
-        } catch (SQLException ex) {
+        } catch (SQLException | RuntimeException ex) {
             indexesRead = false;
+            truncated |= ex instanceof MetadataBoundException;
             issues.add("Indexes of " + qualified(ref) + " could not be read: " + describe(ex));
         }
 
@@ -440,14 +547,23 @@ final class SchemaIntrospector {
     private record ColumnReadResult(List<ColumnModel> columns, boolean truncated) {}
 
     private static ColumnReadResult readColumns(
-            DatabaseMetaData metaData, TableRef ref, String escape, DatabaseAdvisorLimits limits) throws SQLException {
+            DatabaseMetaData metaData, TableRef ref, String escape, DatabaseAdvisorLimits limits, ScanBudget budget)
+            throws SQLException {
         List<ColumnModel> columns = new ArrayList<>();
         boolean truncated = false;
+        requireBudget(budget);
         try (ResultSet rs = metaData.getColumns(
                 ref.catalog(), escapePattern(ref.schema(), escape), escapePattern(ref.name(), escape), "%")) {
+            int rows = 0;
             while (rs.next()) {
+                if (++rows > limits.maxColumnsPerTable() || budget.exhausted()) {
+                    truncated = true;
+                    break;
+                }
                 String tableName = rs.getString("TABLE_NAME");
-                if (tableName != null && !tableName.equalsIgnoreCase(ref.name())) {
+                if (!Objects.equals(tableName, ref.name())
+                        || !Objects.equals(rs.getString("TABLE_CAT"), ref.catalog())
+                        || !Objects.equals(rs.getString("TABLE_SCHEM"), ref.schema())) {
                     // getColumns takes patterns, so an escaped-but-still-matching sibling table can appear.
                     continue;
                 }
@@ -467,8 +583,8 @@ final class SchemaIntrospector {
         return new ColumnModel(
                 rs.getString("COLUMN_NAME"),
                 rs.getString("TYPE_NAME"),
-                rs.getInt("DATA_TYPE"),
-                nullability(rs.getInt("NULLABLE")),
+                java.util.Objects.requireNonNullElse(nullableInt(rs, "DATA_TYPE"), java.sql.Types.OTHER),
+                nullability(nullableInt(rs, "NULLABLE")),
                 size,
                 decimalDigits,
                 "YES".equalsIgnoreCase(safeColumn(rs, "IS_AUTOINCREMENT")));
@@ -476,17 +592,31 @@ final class SchemaIntrospector {
 
     private record PrimaryKey(String name, List<String> columns) {}
 
-    private static PrimaryKey readPrimaryKey(DatabaseMetaData metaData, TableRef ref) throws SQLException {
-        Map<Short, String> byPosition = new LinkedHashMap<>();
+    private static PrimaryKey readPrimaryKey(
+            DatabaseMetaData metaData, TableRef ref, ScanBudget budget, DatabaseAdvisorLimits limits)
+            throws SQLException {
+        Map<Integer, String> byPosition = new TreeMap<>();
         String name = null;
+        requireBudget(budget);
         try (ResultSet rs = metaData.getPrimaryKeys(ref.catalog(), ref.schema(), ref.name())) {
+            int rows = 0;
             while (rs.next()) {
-                byPosition.put(rs.getShort("KEY_SEQ"), rs.getString("COLUMN_NAME"));
+                checkRows(++rows, limits.maxColumnsPerTable(), budget);
+                requireScope(rs, "", ref.catalog(), ref.schema(), ref.name());
+                Integer position = nullableInt(rs, "KEY_SEQ");
+                String column = rs.getString("COLUMN_NAME");
+                if (position == null || position <= 0 || column == null || byPosition.put(position, column) != null) {
+                    throw new SQLException("Primary-key positions are missing or ambiguous.");
+                }
+                if (name != null && !Objects.equals(name, rs.getString("PK_NAME"))) {
+                    throw new SQLException("Primary-key rows disagree on the constraint identity.");
+                }
                 if (name == null) {
                     name = rs.getString("PK_NAME");
                 }
             }
         }
+        requireConsecutive(byPosition);
         List<String> columns = byPosition.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(Map.Entry::getValue)
@@ -496,112 +626,232 @@ final class SchemaIntrospector {
 
     static List<ForeignKeyModel> readForeignKeys(DatabaseMetaData metaData, String catalog, String schema, String table)
             throws SQLException {
-        Map<String, List<String>> columnsByFkName = new LinkedHashMap<>();
-        Map<String, List<String>> referencedColumnsByFkName = new LinkedHashMap<>();
-        Map<String, TableRef> referencedTableByFkName = new LinkedHashMap<>();
-        // JDBC guarantees getImportedKeys() rows are ordered by FKTABLE_CAT/SCHEM/NAME, KEY_SEQ, so all
-        // columns belonging to the same constraint are contiguous with an increasing KEY_SEQ starting at
-        // 1. Unnamed constraints (FK_NAME null) therefore only need a new synthetic key when KEY_SEQ
-        // restarts at 1 — otherwise a composite unnamed foreign key would be split into one fake
-        // single-column constraint per row.
-        String currentUnnamedKey = null;
-        int unnamedCount = 0;
+        return readForeignKeys(
+                metaData,
+                catalog,
+                schema,
+                table,
+                ScanBudget.of(DatabaseAdvisorLimits.DEFAULTS.scanBudget()),
+                DatabaseAdvisorLimits.DEFAULTS);
+    }
+
+    private record ForeignKeyIdentity(String name, String catalog, String schema, String table) {}
+
+    private record ForeignKeyRow(String child, String parent, Integer update, Integer delete, Integer deferrability) {}
+
+    private static final class ForeignKeyMetadataException extends SQLException {
+        private final List<ForeignKeyModel> readableKeys;
+
+        ForeignKeyMetadataException(List<ForeignKeyModel> readableKeys) {
+            super(
+                    "Some foreign-key grouping is ambiguous, positions are not consecutive, or relationship semantics disagree.");
+            this.readableKeys = List.copyOf(readableKeys);
+        }
+    }
+
+    private static List<ForeignKeyModel> readForeignKeys(
+            DatabaseMetaData metaData,
+            String catalog,
+            String schema,
+            String table,
+            ScanBudget budget,
+            DatabaseAdvisorLimits limits)
+            throws SQLException {
+        Map<ForeignKeyIdentity, Map<Integer, ForeignKeyRow>> grouped = new LinkedHashMap<>();
+        Set<ForeignKeyIdentity> invalid = new java.util.HashSet<>();
+        requireBudget(budget);
         try (ResultSet rs = metaData.getImportedKeys(catalog, schema, table)) {
+            int rows = 0;
             while (rs.next()) {
+                checkRows(++rows, rawKeyLimit(limits), budget);
+                requireScope(rs, "FK", catalog, schema, table);
                 String fkName = rs.getString("FK_NAME");
-                short keySeq = rs.getShort("KEY_SEQ");
-                String key;
-                if (fkName != null) {
-                    key = fkName;
-                } else {
-                    if (currentUnnamedKey == null || keySeq <= 1) {
-                        key = "fk#" + unnamedCount++;
-                        currentUnnamedKey = key;
-                    } else {
-                        key = currentUnnamedKey;
-                    }
+                Integer keySeq = nullableInt(rs, "KEY_SEQ");
+                ForeignKeyIdentity identity = new ForeignKeyIdentity(
+                        fkName,
+                        rs.getString("PKTABLE_CAT"),
+                        rs.getString("PKTABLE_SCHEM"),
+                        rs.getString("PKTABLE_NAME"));
+                ForeignKeyRow row = new ForeignKeyRow(
+                        rs.getString("FKCOLUMN_NAME"),
+                        rs.getString("PKCOLUMN_NAME"),
+                        action(nullableInt(rs, "UPDATE_RULE")),
+                        action(nullableInt(rs, "DELETE_RULE")),
+                        deferrability(nullableInt(rs, "DEFERRABILITY")));
+                if (keySeq == null
+                        || keySeq <= 0
+                        || identity.table() == null
+                        || row.child() == null
+                        || row.parent() == null) {
+                    invalid.add(identity);
+                    continue;
                 }
-                columnsByFkName
-                        .computeIfAbsent(key, ignored -> new ArrayList<>())
-                        .add(rs.getString("FKCOLUMN_NAME"));
-                referencedColumnsByFkName
-                        .computeIfAbsent(key, ignored -> new ArrayList<>())
-                        .add(rs.getString("PKCOLUMN_NAME"));
-                referencedTableByFkName.putIfAbsent(
-                        key,
-                        new TableRef(
-                                rs.getString("PKTABLE_CAT"),
-                                rs.getString("PKTABLE_SCHEM"),
-                                rs.getString("PKTABLE_NAME"),
-                                "TABLE"));
+                if (grouped.computeIfAbsent(identity, ignored -> new TreeMap<>())
+                                .put(keySeq, row)
+                        != null) {
+                    invalid.add(identity);
+                }
             }
         }
         List<ForeignKeyModel> foreignKeys = new ArrayList<>();
-        for (Map.Entry<String, List<String>> entry : columnsByFkName.entrySet()) {
-            TableRef referenced = referencedTableByFkName.get(entry.getKey());
-            foreignKeys.add(new ForeignKeyModel(
-                    entry.getKey(),
-                    entry.getValue(),
-                    referenced == null ? null : referenced.catalog(),
-                    referenced == null ? null : referenced.schema(),
-                    referenced == null ? null : referenced.name(),
-                    referencedColumnsByFkName.getOrDefault(entry.getKey(), List.of())));
+        int unnamed = 0;
+        Map<String, Integer> named = new LinkedHashMap<>();
+        for (ForeignKeyIdentity identity : grouped.keySet()) {
+            if (identity.name() != null) {
+                named.merge(identity.name(), 1, Integer::sum);
+            }
+        }
+        for (var entry : grouped.entrySet()) {
+            ForeignKeyIdentity identity = entry.getKey();
+            if (invalid.contains(identity)) {
+                continue;
+            }
+            try {
+                requireConsecutive(entry.getValue());
+            } catch (SQLException ex) {
+                invalid.add(identity);
+                continue;
+            }
+            if (identity.name() != null && named.get(identity.name()) > 1) {
+                invalid.add(identity);
+                continue;
+            }
+            ForeignKeyRow first = entry.getValue().get(1);
+            if (entry.getValue().values().stream()
+                    .anyMatch(row -> !Objects.equals(row.update(), first.update())
+                            || !Objects.equals(row.delete(), first.delete())
+                            || !Objects.equals(row.deferrability(), first.deferrability()))) {
+                invalid.add(identity);
+                continue;
+            }
+            ForeignKeyModel foreignKey = new ForeignKeyModel(
+                    identity.name() == null ? "fk#" + unnamed++ : identity.name(),
+                    entry.getValue().values().stream().map(ForeignKeyRow::child).toList(),
+                    identity.catalog(),
+                    identity.schema(),
+                    identity.table(),
+                    entry.getValue().values().stream()
+                            .map(ForeignKeyRow::parent)
+                            .toList(),
+                    first.update(),
+                    first.delete(),
+                    first.deferrability());
+            if (foreignKey.consistent()) {
+                foreignKeys.add(foreignKey);
+            } else {
+                invalid.add(identity);
+            }
+        }
+        if (!invalid.isEmpty()) {
+            throw new ForeignKeyMetadataException(foreignKeys);
         }
         return foreignKeys;
     }
 
     private record IndexReadResult(List<IndexModel> indexes, boolean truncated) {}
 
-    private static IndexReadResult readIndexes(DatabaseMetaData metaData, TableRef ref, DatabaseAdvisorLimits limits)
+    private static IndexReadResult readIndexes(
+            DatabaseMetaData metaData, TableRef ref, DatabaseAdvisorLimits limits, ScanBudget budget)
             throws SQLException {
-        Map<String, List<IndexKeyPart>> partsByIndex = new LinkedHashMap<>();
+        Map<String, Map<Integer, IndexKeyPart>> partsByIndex = new LinkedHashMap<>();
         Map<String, Boolean> uniqueByIndex = new LinkedHashMap<>();
         Map<String, String> filterByIndex = new LinkedHashMap<>();
         Map<String, String> methodByIndex = new LinkedHashMap<>();
+        Map<String, String> qualifierByIndex = new LinkedHashMap<>();
+        Set<String> completed = new java.util.HashSet<>();
+        String currentIndex = null;
         boolean truncated = false;
         // approximate = true keeps this off the table-statistics path some drivers take otherwise; the index
         // definitions themselves are exact either way.
+        requireBudget(budget);
         try (ResultSet rs = metaData.getIndexInfo(ref.catalog(), ref.schema(), ref.name(), false, true)) {
+            int rows = 0;
             while (rs.next()) {
-                short type = rs.getShort("TYPE");
-                if (type == DatabaseMetaData.tableIndexStatistic) {
+                if (++rows > rawKeyLimit(limits) || budget.exhausted()) {
+                    truncated = true;
+                    break;
+                }
+                requireScope(rs, "", ref.catalog(), ref.schema(), ref.name());
+                Integer type = nullableInt(rs, "TYPE");
+                if (type != null && type == DatabaseMetaData.tableIndexStatistic) {
                     continue;
                 }
                 String indexName = rs.getString("INDEX_NAME");
                 if (indexName == null) {
                     continue;
                 }
+                String qualifier = rs.getString("INDEX_QUALIFIER");
+                if (qualifierByIndex.containsKey(indexName)
+                        && !Objects.equals(qualifierByIndex.get(indexName), qualifier)) {
+                    throw new SQLException("Same-named indexes have ambiguous qualified identities.");
+                }
+                qualifierByIndex.put(indexName, qualifier);
+                if (currentIndex != null && !currentIndex.equals(indexName)) {
+                    completed.add(currentIndex);
+                    if (completed.contains(indexName)) {
+                        throw new SQLException("Index groups are interleaved contrary to JDBC ordering.");
+                    }
+                }
+                currentIndex = indexName;
                 if (!partsByIndex.containsKey(indexName) && partsByIndex.size() >= limits.maxIndexesPerTable()) {
                     truncated = true;
                     break;
                 }
                 String columnName = rs.getString("COLUMN_NAME");
                 String ascOrDesc = rs.getString("ASC_OR_DESC");
-                Boolean ascending = ascOrDesc == null ? null : "A".equalsIgnoreCase(ascOrDesc);
-                partsByIndex
-                        .computeIfAbsent(indexName, ignored -> new ArrayList<>())
-                        .add(
-                                columnName == null
-                                        ? IndexKeyPart.expression(null)
-                                        : IndexKeyPart.column(columnName, ascending));
-                uniqueByIndex.putIfAbsent(indexName, !rs.getBoolean("NON_UNIQUE"));
+                Boolean ascending = "A".equalsIgnoreCase(ascOrDesc)
+                        ? Boolean.TRUE
+                        : "D".equalsIgnoreCase(ascOrDesc) ? Boolean.FALSE : null;
+                Integer position = nullableInt(rs, "ORDINAL_POSITION");
+                if (position == null || position <= 0) {
+                    throw new SQLException("Index positions are missing or invalid.");
+                }
+                if (partsByIndex
+                                .computeIfAbsent(indexName, ignored -> new TreeMap<>())
+                                .put(
+                                        position,
+                                        columnName == null
+                                                ? IndexKeyPart.expression(null)
+                                                : IndexKeyPart.column(columnName, ascending))
+                        != null) {
+                    throw new SQLException("Index positions are ambiguous.");
+                }
+                boolean nonUnique = rs.getBoolean("NON_UNIQUE");
+                Boolean unique = rs.wasNull() ? null : !nonUnique;
+                if (uniqueByIndex.containsKey(indexName) && !Objects.equals(uniqueByIndex.get(indexName), unique)) {
+                    throw new SQLException("Index rows disagree on uniqueness.");
+                }
+                uniqueByIndex.put(indexName, unique);
                 String filterCondition = rs.getString("FILTER_CONDITION");
                 if (filterCondition != null && !filterCondition.isBlank()) {
                     filterByIndex.putIfAbsent(indexName, filterCondition);
                 }
-                methodByIndex.putIfAbsent(indexName, indexMethod(type));
+                methodByIndex.putIfAbsent(indexName, type == null ? null : indexMethod(type.shortValue()));
             }
         }
         List<IndexModel> indexes = new ArrayList<>();
-        for (Map.Entry<String, List<IndexKeyPart>> entry : partsByIndex.entrySet()) {
+        for (var entry : partsByIndex.entrySet()) {
+            if (truncated && !completed.contains(entry.getKey())) {
+                // JDBC orders rows by index identity and position; only earlier closed groups are complete.
+                continue;
+            }
+            requireConsecutive(entry.getValue());
             indexes.add(new IndexModel(
                     entry.getKey(),
-                    entry.getValue(),
-                    uniqueByIndex.getOrDefault(entry.getKey(), false),
+                    List.copyOf(entry.getValue().values()),
+                    Boolean.TRUE.equals(uniqueByIndex.get(entry.getKey())),
                     methodByIndex.get(entry.getKey()),
                     filterByIndex.get(entry.getKey()),
                     IndexModel.Visibility.UNKNOWN,
-                    IndexModel.Validity.UNKNOWN));
+                    IndexModel.Validity.UNKNOWN,
+                    false,
+                    false,
+                    false,
+                    false,
+                    List.of(),
+                    false,
+                    uniqueByIndex.get(entry.getKey()) != null,
+                    null));
         }
         return new IndexReadResult(indexes, truncated);
     }
@@ -615,7 +865,10 @@ final class SchemaIntrospector {
         };
     }
 
-    private static ColumnModel.Nullability nullability(int reported) {
+    private static ColumnModel.Nullability nullability(Integer reported) {
+        if (reported == null) {
+            return ColumnModel.Nullability.UNKNOWN;
+        }
         return switch (reported) {
             case DatabaseMetaData.columnNullable -> ColumnModel.Nullability.NULLABLE;
             case DatabaseMetaData.columnNoNulls -> ColumnModel.Nullability.NOT_NULL;
@@ -623,25 +876,35 @@ final class SchemaIntrospector {
         };
     }
 
-    private static DatabaseVersion readVersion(DatabaseMetaData metaData, String productVersion) {
+    private static DatabaseVersion readVersion(DatabaseMetaData metaData, String productVersion, ScanBudget budget) {
         try {
-            return DatabaseVersion.of(
-                    metaData.getDatabaseMajorVersion(), metaData.getDatabaseMinorVersion(), productVersion);
+            requireBudget(budget);
+            int major = metaData.getDatabaseMajorVersion();
+            requireBudget(budget);
+            int minor = metaData.getDatabaseMinorVersion();
+            return DatabaseVersion.of(major, minor, productVersion);
         } catch (SQLException | RuntimeException ex) {
             return DatabaseVersion.UNKNOWN;
         }
     }
 
-    private static String readIdentifierCase(DatabaseMetaData metaData) {
+    private static String readIdentifierCase(DatabaseMetaData metaData, ScanBudget budget) {
         try {
+            requireBudget(budget);
             if (metaData.storesUpperCaseIdentifiers()) {
                 return "UPPER";
             }
+            requireBudget(budget);
             if (metaData.storesLowerCaseIdentifiers()) {
                 return "LOWER";
             }
-            if (metaData.supportsMixedCaseIdentifiers() || metaData.storesMixedCaseIdentifiers()) {
+            requireBudget(budget);
+            if (metaData.supportsMixedCaseIdentifiers()) {
                 return "MIXED";
+            }
+            requireBudget(budget);
+            if (metaData.storesMixedCaseIdentifiers()) {
+                return "INSENSITIVE";
             }
         } catch (SQLException | RuntimeException ex) {
             return null;
@@ -649,8 +912,9 @@ final class SchemaIntrospector {
         return null;
     }
 
-    private static String searchStringEscape(DatabaseMetaData metaData) {
+    private static String searchStringEscape(DatabaseMetaData metaData, ScanBudget budget) {
         try {
+            requireBudget(budget);
             return metaData.getSearchStringEscape();
         } catch (SQLException | RuntimeException ex) {
             return null;
@@ -664,10 +928,13 @@ final class SchemaIntrospector {
         }
         StringBuilder escaped = new StringBuilder(value.length());
         for (int i = 0; i < value.length(); i++) {
+            if (value.startsWith(escape, i)) {
+                escaped.append(escape).append(escape);
+                i += escape.length() - 1;
+                continue;
+            }
             char character = value.charAt(i);
-            if (character == '_'
-                    || character == '%'
-                    || String.valueOf(character).equals(escape)) {
+            if (character == '_' || character == '%') {
                 escaped.append(escape);
             }
             escaped.append(character);
@@ -688,7 +955,7 @@ final class SchemaIntrospector {
     private static Boolean currentReadOnly(Connection connection) {
         try {
             return connection.isReadOnly();
-        } catch (SQLException ex) {
+        } catch (SQLException | RuntimeException ex) {
             return null;
         }
     }
@@ -697,7 +964,7 @@ final class SchemaIntrospector {
         try {
             connection.setReadOnly(true);
             return true;
-        } catch (SQLException ex) {
+        } catch (SQLException | RuntimeException ex) {
             // Not every driver supports read-only mode; the scanner never issues a write regardless.
             return false;
         }
@@ -707,16 +974,73 @@ final class SchemaIntrospector {
      * Puts the connection back exactly as it was found. Pooled connections are reused by the application, so
      * leaving one flipped to read-only would break the next writer that borrows it.
      */
-    private static void restoreReadOnly(Connection connection, Boolean originalReadOnly, boolean applied) {
+    private static String restoreReadOnly(Connection connection, Boolean originalReadOnly, boolean applied) {
         if (!applied || originalReadOnly == null || originalReadOnly) {
-            return;
+            return null;
         }
         try {
             connection.setReadOnly(false);
-        } catch (SQLException ex) {
-            // The connection is about to be closed/returned; a driver that refuses the restore is not
-            // actionable here and must not mask the schema results.
+        } catch (SQLException | RuntimeException ex) {
+            return "The connection's original read-only state could not be restored: " + describe(ex);
         }
+        return null;
+    }
+
+    private static final class MetadataBoundException extends SQLException {
+        MetadataBoundException(String message) {
+            super(message);
+        }
+    }
+
+    private static void requireBudget(ScanBudget budget) throws SQLException {
+        if (budget.exhausted()) {
+            throw new MetadataBoundException("The cooperative metadata scan budget ran out.");
+        }
+    }
+
+    private static void checkRows(int rows, int maximum, ScanBudget budget) throws SQLException {
+        requireBudget(budget);
+        if (rows > maximum) {
+            throw new MetadataBoundException("Metadata exceeded its raw-row bound of " + maximum + ".");
+        }
+    }
+
+    private static int rawKeyLimit(DatabaseAdvisorLimits limits) {
+        return (int) Math.min(Integer.MAX_VALUE - 1L, (long) limits.maxIndexesPerTable() * limits.maxColumnsPerTable());
+    }
+
+    private static void requireConsecutive(Map<Integer, ?> positions) throws SQLException {
+        int expected = 1;
+        for (Integer position : positions.keySet()) {
+            if (position != expected++) {
+                throw new SQLException("Metadata key positions are not consecutive from one.");
+            }
+        }
+    }
+
+    private static void requireScope(ResultSet rows, String prefix, String catalog, String schema, String table)
+            throws SQLException {
+        if (!Objects.equals(catalog, rows.getString(prefix + "TABLE_CAT"))
+                || !Objects.equals(schema, rows.getString(prefix + "TABLE_SCHEM"))
+                || !Objects.equals(table, rows.getString(prefix + "TABLE_NAME"))) {
+            throw new SQLException("Metadata rows do not establish the requested exact qualified table scope.");
+        }
+    }
+
+    private static Integer action(Integer value) {
+        return value != null
+                        && value >= DatabaseMetaData.importedKeyCascade
+                        && value <= DatabaseMetaData.importedKeySetDefault
+                ? value
+                : null;
+    }
+
+    private static Integer deferrability(Integer value) {
+        return value != null
+                        && value >= DatabaseMetaData.importedKeyInitiallyDeferred
+                        && value <= DatabaseMetaData.importedKeyNotDeferrable
+                ? value
+                : null;
     }
 
     private static Integer nullableInt(ResultSet rs, String column) throws SQLException {
@@ -737,8 +1061,9 @@ final class SchemaIntrospector {
         String get() throws SQLException;
     }
 
-    private static String safeString(MetaDataString supplier) {
+    private static String safeString(MetaDataString supplier, ScanBudget budget) {
         try {
+            requireBudget(budget);
             return supplier.get();
         } catch (SQLException | RuntimeException ex) {
             return null;

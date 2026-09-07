@@ -1749,14 +1749,14 @@ Data sources:
   `SYS_CONTEXT('USERENV', ...)`, scoped to the connected session's `CURRENT_SCHEMA`, with no elevated privilege, no
   application-row query, no database link, and no production `ojdbc` dependency.
 - The Hibernate/JPA metamodel, when available, for cross-referencing explicitly named entity tables (including
-  `@SecondaryTable`), columns, foreign keys, unique constraints, and sequence generators with the physical schema.
+  `@SecondaryTable`), columns, foreign keys and unique constraints with observed schema metadata.
 
 Features:
 
 - Run an explicit, read-only scan over a fixed generic ruleset covering missing primary keys, foreign-key columns
-  without supporting indexes, duplicate or overlapping indexes, foreign-key/primary-key type mismatches, redundant
-  unique indexes, duplicate foreign key constraints, narrow auto-generated primary keys, and composite foreign keys or
-  unique indexes with partially nullable columns.
+  without known supporting access paths, exact index-definition overlap, foreign-key/referenced-column domain
+  discrepancies, redundant unique indexes, duplicate foreign key constraints and narrow auto-generated primary keys.
+  These are contextual structural reviews, not workload or business-intent verdicts.
 - Augment the generic scan for PostgreSQL with invalid-index (excluding an index still building `CONCURRENTLY`),
   sequence-exhaustion, `NOT VALID` constraint, and missing-replica-identity checks; for MySQL/MariaDB with
   non-InnoDB-engine, non-`utf8mb4`, and `AUTO_INCREMENT`-exhaustion checks; and for Oracle with unusable-index,
@@ -1765,7 +1765,8 @@ Features:
   databases report the same product name; Tibero, OceanBase, EDB Postgres Advanced Server, and H2's Oracle
   compatibility mode are never classified as Oracle. Catalog-query failures do not fail the generic scan.
 - When a Hibernate metamodel is available, compare only entities with explicit `@Table(name = ...)` (and
-  `@SecondaryTable`) mappings against the physical schema instead of guessing naming-strategy output. Composite
+  `@SecondaryTable`) declarations against observed metadata. Even explicit logical names may be transformed by a
+  physical naming strategy; discrepancies do not establish broken effective runtime mappings. Composite
   foreign key matching tolerates the physical constraint's own column order but requires the same child-to-parent
   pairing, and an association explicitly declaring `@ForeignKey(ConstraintMode.NO_CONSTRAINT)` is excluded from the
   missing-constraint check.
@@ -1783,9 +1784,9 @@ Availability:
 
 - The generic rules run for every JDBC-reachable database vendor; databases without vendor-specific augmentation are
   not treated as unsupported.
-- When no application `DataSource` is present or no datasource can be read, the panel returns a stable unavailable or
-  empty report with an explanatory status. When only some datasources fail, readable datasources are still evaluated
-  and the report status is `PARTIAL`.
+- Successful discovery of no application `DataSource` returns `DISABLED`; discovery failure, or a scan where no
+  discovered schema could be read, returns `ERROR`. Individual failures retain other readable schemas with `PARTIAL`.
+  Truncated or otherwise incomplete evidence cannot prove an object absent.
 - Hibernate cross-reference checks are skipped with an explicit reason when either the physical schema or Hibernate
   metamodel is unavailable; their absence does not prevent the generic JDBC rules from running.
 - Spring MVC, Spring WebFlux, and Quarkus use the same shared rule engine and report contract. Quarkus discovers
@@ -1796,7 +1797,7 @@ Out of scope for the current release surface:
 
 - Executing DDL, querying application data, changing schema objects, or changing Hibernate mappings.
 - Workload or query-plan analysis, partition management, and index suggestions derived from observed query usage.
-- Guessing physical names for entities that rely on an implicit Hibernate naming strategy.
+- Guessing effective physical names or sequence optimizer contracts from annotations alone.
 - Oracle orphaned-entry, chained-row, unused-index, fragmentation, and sequence-gap warnings, and any AWR/ASH-derived
   finding, none of which can be evaluated from `ALL_*` views alone without an elevated role or workload assumptions
   this advisor does not make.

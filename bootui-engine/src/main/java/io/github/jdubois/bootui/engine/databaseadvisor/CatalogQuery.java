@@ -69,9 +69,14 @@ final class CatalogQuery {
                 statement.setObject(parameterIndex++, parameter);
             }
             statement.setInt(parameterIndex, limit + 1);
+            if (budget.exhausted()) {
+                return VendorAugmentation.failed(
+                        kind, "The scan budget ran out before " + kind.label() + " could be read.");
+            }
             try (ResultSet resultSet = statement.executeQuery()) {
+                int rows = 0;
                 while (resultSet.next()) {
-                    if (findings.size() >= limit) {
+                    if (++rows > limit || budget.exhausted()) {
                         truncated = true;
                         break;
                     }
@@ -81,14 +86,15 @@ final class CatalogQuery {
                     }
                 }
             }
-        } catch (SQLException ex) {
+        } catch (SQLException | RuntimeException ex) {
             return VendorAugmentation.failed(kind, describe(kind, ex));
         }
         return VendorAugmentation.available(kind, findings, truncated);
     }
 
-    private static String describe(VendorFindingKind<?> kind, SQLException ex) {
+    private static String describe(VendorFindingKind<?> kind, Exception ex) {
         String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
-        return kind.label() + " could not be read: " + message;
+        return kind.label() + " could not be read: "
+                + io.github.jdubois.bootui.engine.support.CredentialRedaction.redact(message);
     }
 }

@@ -24,30 +24,52 @@ final class ForeignKeyTypeMismatchRule extends AbstractDatabaseAdvisorRule {
                         "DB-SCHEMA-004",
                         "Foreign key column type mismatch with the referenced column",
                         DatabaseAdvisorCategory.SCHEMA,
-                        DatabaseAdvisorRuleSupport.HIGH,
+                        DatabaseAdvisorRuleSupport.MEDIUM,
                         "Compares each foreign key column against the column it actually references "
                                 + "(getImportedKeys().PKCOLUMN_NAME, which may be an alternate unique key), including type "
                                 + "family, integer width and signedness, numeric precision/scale, and declared length.",
-                        "Align the foreign key column's type with the referenced column's type (e.g. both BIGINT). A "
-                                + "narrower or differently-typed child column can silently truncate values, defeat query "
-                                + "planner join optimizations, or fail outright once the parent's values outgrow it.",
+                        "Review whether the narrower child domain is intentional. It cannot represent every value "
+                                + "the referenced declaration permits, but this does not prove invalid existing rows, "
+                                + "a broken foreign key, or incompatible vendor coercions.",
                         "https://vladmihalcea.com/how-to-fix-wrong-column-type-encountered-schema-validation-errors-with-jpa-and-hibernate/"));
     }
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<String> details = new ArrayList<>();
+        int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
                 if (!table.metadata().foreignKeysRead() || !table.metadata().columnsRead()) {
-                    continue;
+                    unknown(context, table.qualifiedName() + ": foreign-key or column metadata is incomplete.");
                 }
                 for (ForeignKeyModel foreignKey : table.foreignKeys()) {
+                    TableModel parent = schema.exactTable(
+                            foreignKey.referencedCatalog(),
+                            foreignKey.referencedSchema(),
+                            foreignKey.referencedTable());
+                    if (!foreignKey.consistent() || parent == null) {
+                        unknown(context, table.qualifiedName() + ": referenced column domain cannot be resolved.");
+                        continue;
+                    }
+                    boolean comparable = true;
+                    for (int i = 0; i < foreignKey.columns().size(); i++) {
+                        comparable &= ColumnTypeCompatibility.comparable(
+                                table.column(foreignKey.columns().get(i)),
+                                parent.column(foreignKey.referencedColumns().get(i)));
+                    }
+                    if (!comparable) {
+                        unknown(
+                                context,
+                                table.qualifiedName() + ": at least one referenced domain comparison is unknown.");
+                    } else {
+                        eligible++;
+                    }
                     checkForeignKey(schema, table, foreignKey, details);
                 }
             }
         }
-        return violation(details);
+        return assessed(context, eligible, details);
     }
 
     private void checkForeignKey(
@@ -55,9 +77,9 @@ final class ForeignKeyTypeMismatchRule extends AbstractDatabaseAdvisorRule {
         if (!foreignKey.consistent()) {
             return;
         }
-        TableModel referenced = schema.table(
+        TableModel referenced = schema.exactTable(
                 foreignKey.referencedCatalog(), foreignKey.referencedSchema(), foreignKey.referencedTable());
-        if (referenced == null || !referenced.metadata().columnsRead()) {
+        if (referenced == null) {
             return;
         }
         for (int i = 0; i < foreignKey.columns().size(); i++) {

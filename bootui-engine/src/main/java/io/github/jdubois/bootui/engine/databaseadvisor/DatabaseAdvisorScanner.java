@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -48,7 +49,7 @@ public final class DatabaseAdvisorScanner {
                     .reversed())
             .thenComparing(DatabaseAdvisorRuleResultDto::id);
 
-    private final Supplier<List<NamedDataSource>> dataSourceSupplier;
+    private final Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier;
     private final Supplier<EntityDiscovery> entityDiscoverySupplier;
     private final Supplier<List<SqlTraceEntryDto>> observedStatementSupplier;
     private final Clock clock;
@@ -73,6 +74,20 @@ public final class DatabaseAdvisorScanner {
             Supplier<List<SqlTraceEntryDto>> observedStatementSupplier,
             Clock clock) {
         return new DatabaseAdvisorScanner(
+                discoveryFrom(dataSourceSupplier),
+                entityDiscoverySupplier,
+                observedStatementSupplier,
+                clock,
+                DatabaseAdvisorLimits.DEFAULTS);
+    }
+
+    /** Preserves readable candidates and individual bean-discovery failures from native adapters. */
+    public static DatabaseAdvisorScanner usingDiscovery(
+            Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier,
+            Supplier<EntityDiscovery> entityDiscoverySupplier,
+            Supplier<List<SqlTraceEntryDto>> observedStatementSupplier,
+            Clock clock) {
+        return new DatabaseAdvisorScanner(
                 dataSourceSupplier,
                 entityDiscoverySupplier,
                 observedStatementSupplier,
@@ -80,8 +95,13 @@ public final class DatabaseAdvisorScanner {
                 DatabaseAdvisorLimits.DEFAULTS);
     }
 
+    private static Supplier<DatabaseAdvisorDataSourceDiscovery> discoveryFrom(
+            Supplier<List<NamedDataSource>> supplier) {
+        return () -> new DatabaseAdvisorDataSourceDiscovery(supplier.get(), List.of());
+    }
+
     private DatabaseAdvisorScanner(
-            Supplier<List<NamedDataSource>> dataSourceSupplier,
+            Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier,
             Supplier<EntityDiscovery> entityDiscoverySupplier,
             Supplier<List<SqlTraceEntryDto>> observedStatementSupplier,
             Clock clock,
@@ -99,7 +119,8 @@ public final class DatabaseAdvisorScanner {
             Supplier<EntityDiscovery> entityDiscoverySupplier,
             Clock clock,
             DatabaseAdvisorLimits limits) {
-        return new DatabaseAdvisorScanner(dataSourceSupplier, entityDiscoverySupplier, List::of, clock, limits);
+        return new DatabaseAdvisorScanner(
+                discoveryFrom(dataSourceSupplier), entityDiscoverySupplier, List::of, clock, limits);
     }
 
     /** Test seam: explicit bounds plus runtime statement evidence. */
@@ -110,7 +131,7 @@ public final class DatabaseAdvisorScanner {
             Clock clock,
             DatabaseAdvisorLimits limits) {
         return new DatabaseAdvisorScanner(
-                dataSourceSupplier, entityDiscoverySupplier, observedStatementSupplier, clock, limits);
+                discoveryFrom(dataSourceSupplier), entityDiscoverySupplier, observedStatementSupplier, clock, limits);
     }
 
     public DatabaseAdvisorReport initialReport() {
@@ -125,8 +146,9 @@ public final class DatabaseAdvisorScanner {
     }
 
     private DatabaseAdvisorReport doScan() {
-        List<NamedDataSource> dataSources = safeDataSources();
-        if (dataSources.isEmpty()) {
+        DatabaseAdvisorDataSourceDiscovery discovery = discoverDataSources();
+        List<NamedDataSource> dataSources = discovery.dataSources();
+        if (dataSources.isEmpty() && discovery.failures().isEmpty()) {
             return new ReportBuilder()
                     .status("DISABLED")
                     .message("No DataSource beans were found to inspect.")
@@ -135,9 +157,15 @@ public final class DatabaseAdvisorScanner {
         }
 
         ScanBudget budget = ScanBudget.of(limits.scanBudget());
-        List<SchemaSnapshot> schemas = dataSources.stream()
+        List<SchemaSnapshot> schemas = new ArrayList<>(dataSources.stream()
                 .map(dataSource ->
                         SchemaIntrospector.introspect(dataSource.name(), dataSource.dataSource(), budget, limits))
+                .toList());
+        discovery.failures().forEach(failure -> schemas.add(SchemaSnapshot.failed(failure.name(), failure.message())));
+        List<String> sourceNames = schemas.stream()
+                .map(SchemaSnapshot::dataSourceName)
+                .distinct()
+                .sorted()
                 .toList();
         List<SchemaSnapshot> available =
                 schemas.stream().filter(SchemaSnapshot::available).toList();
@@ -149,32 +177,40 @@ public final class DatabaseAdvisorScanner {
         if (available.isEmpty()) {
             return new ReportBuilder()
                     .status("ERROR")
-                    .message("The physical schema could not be read for any of the " + schemas.size()
-                            + " discovered datasources.")
+                    .message(
+                            "No physical schema could be read. See diagnostics for datasource discovery and read failures.")
                     .scannedAt(clock.millis())
-                    .dataSourceNames(dataSourceNames(dataSources))
+                    .dataSourceNames(sourceNames)
                     .dataSources(dataSourceStatuses)
                     .diagnostics(diagnostics)
+                    .truncated(truncated)
                     .build();
         }
 
-        EntityDiscovery entityDiscovery = safeEntityDiscovery();
+        EntityDiscovery entityDiscovery = safeEntityDiscovery(diagnostics);
         boolean hibernateAvailable = !entityDiscovery.entities().isEmpty();
-        List<MappedEntityFacts> mappedEntities = HibernateSchemaBridge.toMappedEntities(entityDiscovery.entities());
+        List<MappedEntityFacts> mappedEntities = mappedEntities(entityDiscovery, diagnostics);
 
-        DatabaseAdvisorContext context =
-                new DatabaseAdvisorContext(schemas, hibernateAvailable, mappedEntities, safeObservedStatements());
+        DatabaseAdvisorContext context = new DatabaseAdvisorContext(
+                schemas, hibernateAvailable, mappedEntities, safeObservedStatements(diagnostics));
         List<DatabaseAdvisorRuleResultDto> results = DatabaseAdvisorRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(context))
                 .toList();
         diagnostics.addAll(ruleDiagnostics(results));
+        for (SchemaDiagnostic diagnostic : context.evaluationDiagnostics()) {
+            diagnostics.add(
+                    new DatabaseAdvisorDiagnosticDto(diagnostic.source(), diagnostic.level(), diagnostic.message()));
+        }
 
         int tablesAnalyzed = context.tableCount();
         int rulesSkipped = countStatus(results, DatabaseAdvisorRuleSupport.SKIPPED);
         int rulesErrored = countStatus(results, DatabaseAdvisorRuleSupport.ERROR);
         boolean allAvailable = available.size() == schemas.size();
         boolean allComplete = available.stream().allMatch(SchemaSnapshot::complete);
-        boolean complete = allAvailable && allComplete && !truncated && rulesErrored == 0;
+        boolean evidenceFailed = diagnostics.stream()
+                .anyMatch(diagnostic -> SchemaDiagnostic.WARNING.equals(diagnostic.level())
+                        || SchemaDiagnostic.ERROR.equals(diagnostic.level()));
+        boolean complete = allAvailable && allComplete && !truncated && rulesErrored == 0 && !evidenceFailed;
 
         StringBuilder message = new StringBuilder("Database Advisor completed against ")
                 .append(tablesAnalyzed)
@@ -194,12 +230,15 @@ public final class DatabaseAdvisorScanner {
         if (rulesErrored > 0) {
             message.append(" ").append(rulesErrored).append(" rule(s) failed to evaluate.");
         }
+        if (evidenceFailed && allAvailable && allComplete && rulesErrored == 0) {
+            message.append(" Some advisor evidence could not be read; see the diagnostics.");
+        }
 
         return new ReportBuilder()
                 .status(complete ? "SCANNED" : "PARTIAL")
                 .message(message.toString())
                 .scannedAt(clock.millis())
-                .dataSourceNames(dataSourceNames(dataSources))
+                .dataSourceNames(sourceNames)
                 .dataSources(dataSourceStatuses)
                 .tablesAnalyzed(tablesAnalyzed)
                 .results(results)
@@ -297,7 +336,7 @@ public final class DatabaseAdvisorScanner {
                     schema.identifierCase(),
                     status,
                     message,
-                    schema.tables().size(),
+                    DatabaseAdvisorContext.physicalTables(schema).size(),
                     schema.truncated()));
         }
         return statuses;
@@ -311,23 +350,56 @@ public final class DatabaseAdvisorScanner {
                 .orElse(null);
     }
 
-    private List<NamedDataSource> safeDataSources() {
+    private DatabaseAdvisorDataSourceDiscovery discoverDataSources() {
         try {
-            List<NamedDataSource> dataSources = dataSourceSupplier.get();
-            return dataSources == null ? List.of() : dataSources;
+            DatabaseAdvisorDataSourceDiscovery discovery = dataSourceSupplier.get();
+            if (discovery == null) {
+                throw new IllegalStateException("Datasource discovery returned no outcome.");
+            }
+            return discovery;
         } catch (RuntimeException | LinkageError ex) {
-            return List.of();
+            return new DatabaseAdvisorDataSourceDiscovery(
+                    List.of(),
+                    List.of(new DatabaseAdvisorDataSourceDiscovery.Failure(
+                            "datasource discovery", "Datasource discovery failed: " + ex.getMessage())));
         }
     }
 
-    private EntityDiscovery safeEntityDiscovery() {
+    private EntityDiscovery safeEntityDiscovery(List<DatabaseAdvisorDiagnosticDto> diagnostics) {
         try {
             EntityDiscovery discovery = entityDiscoverySupplier.get();
-            return discovery == null
-                    ? EntityDiscovery.empty("No EntityManagerFactory beans are available.")
-                    : discovery;
+            if (discovery == null) {
+                throw new IllegalStateException("Entity discovery returned no outcome.");
+            }
+            for (String error : discovery.errors()) {
+                evidenceDiagnostic(
+                        diagnostics,
+                        "Hibernate metadata",
+                        discovery.entities().isEmpty() ? SchemaDiagnostic.INFO : SchemaDiagnostic.WARNING,
+                        error);
+            }
+            return discovery;
         } catch (RuntimeException | LinkageError ex) {
-            return EntityDiscovery.empty(ex.getMessage());
+            evidenceDiagnostic(
+                    diagnostics,
+                    "Hibernate metadata",
+                    SchemaDiagnostic.WARNING,
+                    "Entity discovery failed: " + ex.getMessage());
+            return EntityDiscovery.empty("Entity discovery failed.");
+        }
+    }
+
+    private List<MappedEntityFacts> mappedEntities(
+            EntityDiscovery discovery, List<DatabaseAdvisorDiagnosticDto> diagnostics) {
+        try {
+            return HibernateSchemaBridge.toMappedEntities(discovery.entities());
+        } catch (RuntimeException | LinkageError ex) {
+            evidenceDiagnostic(
+                    diagnostics,
+                    "Hibernate metadata",
+                    SchemaDiagnostic.WARNING,
+                    "Mapping declarations could not be read: " + ex.getMessage());
+            return List.of();
         }
     }
 
@@ -335,13 +407,30 @@ public final class DatabaseAdvisorScanner {
      * Runtime statement evidence, fully guarded: SQL Trace being absent, disabled or failing must degrade the
      * runtime-SQL rules to {@code SKIPPED}, never abort a schema scan that is otherwise perfectly readable.
      */
-    private List<SqlTraceEntryDto> safeObservedStatements() {
+    private List<SqlTraceEntryDto> safeObservedStatements(List<DatabaseAdvisorDiagnosticDto> diagnostics) {
         try {
             List<SqlTraceEntryDto> statements = observedStatementSupplier.get();
-            return statements == null ? List.of() : statements;
+            if (statements == null) {
+                throw new IllegalStateException("SQL Trace returned no evidence collection.");
+            }
+            return List.copyOf(statements);
         } catch (RuntimeException | LinkageError ex) {
+            evidenceDiagnostic(
+                    diagnostics,
+                    "SQL Trace",
+                    SchemaDiagnostic.WARNING,
+                    "Retained SQL evidence could not be read: " + ex.getMessage());
             return List.of();
         }
+    }
+
+    private static void evidenceDiagnostic(
+            List<DatabaseAdvisorDiagnosticDto> diagnostics, String source, String level, String message) {
+        SchemaDiagnostic diagnostic = SchemaDiagnostic.WARNING.equals(level)
+                ? SchemaDiagnostic.warning(source, message)
+                : SchemaDiagnostic.info(source, message);
+        diagnostics.add(
+                new DatabaseAdvisorDiagnosticDto(diagnostic.source(), diagnostic.level(), diagnostic.message()));
     }
 
     private static List<DatabaseAdvisorSeverityCountDto> severityCounts(List<DatabaseAdvisorRuleResultDto> results) {
@@ -366,14 +455,6 @@ public final class DatabaseAdvisorScanner {
         return (int) results.stream()
                 .filter(result -> status.equals(result.status()))
                 .count();
-    }
-
-    private static List<String> dataSourceNames(List<NamedDataSource> dataSources) {
-        return dataSources.stream()
-                .map(NamedDataSource::name)
-                .distinct()
-                .sorted()
-                .toList();
     }
 
     private static boolean isViolation(DatabaseAdvisorRuleResultDto result) {

@@ -206,8 +206,8 @@ public class BootUiEngineConfiguration {
         // the nested HibernateAdvisorConfiguration below is active, via the EntityDiscoverySource seam.
         SpringDatabaseAdvisorDataSourceProvider dataSourceProvider =
                 new SpringDatabaseAdvisorDataSourceProvider(beanFactoryProvider);
-        return DatabaseAdvisorScanner.using(
-                dataSourceProvider::dataSources,
+        return DatabaseAdvisorScanner.usingDiscovery(
+                dataSourceProvider::discover,
                 () -> {
                     EntityDiscoverySource source = entityDiscoverySource.getIfAvailable();
                     return source == null

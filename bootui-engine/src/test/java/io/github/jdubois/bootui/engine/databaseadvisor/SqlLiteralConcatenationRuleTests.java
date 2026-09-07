@@ -62,7 +62,8 @@ class SqlLiteralConcatenationRuleTests {
 
         assertThat(result.status()).isEqualTo(DatabaseAdvisorRuleSupport.VIOLATION);
         assertThat(result.sampleViolations()).hasSize(1);
-        assertThat(result.sampleViolations().get(0)).contains("select * from orders where customer_id = ?");
+        assertThat(result.sampleViolations().get(0)).startsWith("Shape ").doesNotContain("select", "orders");
+        assertThat(result.severity()).isEqualTo(DatabaseAdvisorRuleSupport.LOW);
         assertThat(result.sampleViolations().get(0)).contains("3 distinct texts");
     }
 
@@ -79,7 +80,7 @@ class SqlLiteralConcatenationRuleTests {
     }
 
     @Test
-    void callsTwoVariantsSuggestiveAndThreeStrong() {
+    void neverAssignsConfidenceFromTheNumberOfVariants() {
         String twoVariants = evaluate(
                         List.of(statement("select * from a where id = 1"), statement("select * from a where id = 2")))
                 .sampleViolations()
@@ -91,8 +92,8 @@ class SqlLiteralConcatenationRuleTests {
                 .sampleViolations()
                 .get(0);
 
-        assertThat(twoVariants).contains("confidence: medium");
-        assertThat(threeVariants).contains("confidence: high");
+        assertThat(twoVariants).contains("2 distinct texts").doesNotContain("confidence");
+        assertThat(threeVariants).contains("3 distinct texts").doesNotContain("confidence");
     }
 
     @Test
@@ -157,12 +158,14 @@ class SqlLiteralConcatenationRuleTests {
     }
 
     @Test
-    void singlesOutExecutionsThatUsedAPlainStatement() {
+    void doesNotInferHowTextWasConstructedFromTheStatementType() {
         DatabaseAdvisorRuleResultDto result = evaluate(List.of(
                 statement("select * from orders where customer_id = 17", "STATEMENT"),
                 statement("select * from orders where customer_id = 42", "STATEMENT")));
 
-        assertThat(result.sampleViolations().get(0)).contains("2 via a plain Statement");
+        assertThat(result.sampleViolations().get(0))
+                .contains("2 distinct texts")
+                .doesNotContain("plain Statement");
     }
 
     @Test
@@ -178,8 +181,8 @@ class SqlLiteralConcatenationRuleTests {
         DatabaseAdvisorRuleResultDto result = evaluate(statements);
 
         assertThat(result.sampleViolations()).hasSize(2);
-        assertThat(result.sampleViolations().get(0)).contains("from b");
-        assertThat(result.sampleViolations().get(1)).contains("from a");
+        assertThat(result.sampleViolations().get(0)).contains("5 distinct texts");
+        assertThat(result.sampleViolations().get(1)).contains("2 distinct texts");
     }
 
     @Test
@@ -215,8 +218,8 @@ class SqlLiteralConcatenationRuleTests {
         String longSql = "select " + "a, ".repeat(200) + "b from orders where customer_id = ";
         DatabaseAdvisorRuleResultDto result = evaluate(List.of(statement(longSql + "1"), statement(longSql + "2")));
 
-        assertThat(result.sampleViolations().get(0)).contains("…");
-        assertThat(result.sampleViolations().get(0)).endsWith("confidence: medium).");
+        assertThat(result.sampleViolations().get(0)).doesNotContain("select", "orders", "customer_id");
+        assertThat(result.sampleViolations().get(0)).contains("Retained window: 2 statements");
         assertThat(result.sampleViolations().get(0).length()).isLessThanOrEqualTo(DetailText.DEFAULT_MAX_CHARS);
     }
 
@@ -224,6 +227,30 @@ class SqlLiteralConcatenationRuleTests {
     void ignoresBlankStatementTextInsteadOfFailing() {
         DatabaseAdvisorRuleResultDto result = evaluate(List.of(statement("  "), statement(null)));
 
-        assertThat(result.status()).isEqualTo(DatabaseAdvisorRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(DatabaseAdvisorRuleSupport.SKIPPED);
+    }
+
+    @Test
+    void constantPredicateWithProjectionCommentAndWhitespaceVariationsIsOnlyATextObservation() {
+        DatabaseAdvisorRuleResultDto result = evaluate(List.of(
+                statement("select 1 from orders where deleted = 0"),
+                statement("select 2 from orders where deleted = 0"),
+                statement("select 1 from orders /* note */ where deleted = 0"),
+                statement("select  1  from orders where deleted = 0")));
+
+        assertThat(result.status()).isEqualTo(DatabaseAdvisorRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations().toString())
+                .contains("distinct texts", "predicate literals")
+                .doesNotContain("changing", "concatenat", "injection", "plan", "confidence", "deleted", "note");
+    }
+
+    @Test
+    void neverDisplaysDialectSpecificTextThatTheNormalizerMayNotRecognize() {
+        DatabaseAdvisorRuleResultDto result = evaluate(List.of(
+                statement("select $$private-payload$$ from sensitive_table where id = 1"),
+                statement("select $$private-payload$$ from sensitive_table where id = 2")));
+
+        assertThat(result.status()).isEqualTo(DatabaseAdvisorRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations().toString()).doesNotContain("private", "payload", "sensitive", "$$");
     }
 }
