@@ -101,7 +101,7 @@ class MemoryCalculatorTests {
             {1024 * MB, 250, 5_000, 0, 1, 5_000},
             {2048 * MB, 250, 5_000, 10, 40, 5_000},
             {64L * 1024 * MB, 10_000, 200_000, 30, 5_000, 200_000},
-            {518 * MB, 250, 0, 0, 10, 0}, // boundary: smallest total that still renders a 1 MiB heap
+            {520 * MB, 250, 0, 0, 10, 0},
         };
 
         for (long[] input : representativeInputs) {
@@ -196,20 +196,57 @@ class MemoryCalculatorTests {
     }
 
     @Test
-    void rejectsAPlanThatCannotRenderAtLeastOneMebibyteOfHeap() {
+    void rejectsKnownInvalidHeapRequestsIncludingPercentageTruncation() {
         MemoryCalculationDto invalid = calculator.calculate(517 * MB, 250, 0, 0, 10, 0);
-        MemoryCalculationDto boundary = calculator.calculate(518 * MB, 250, 0, 0, 10, 0);
+        MemoryCalculationDto oneMebibyte = calculator.calculate(518 * MB, 250, 0, 0, 10, 0);
+        MemoryCalculationDto truncatedPercentage = calculator.calculate(519 * MB, 250, 0, 0, 10, 0);
+        MemoryCalculationDto boundary = calculator.calculate(520 * MB, 250, 0, 0, 10, 0);
 
         assertThat(invalid.valid()).isFalse();
-        assertThat(invalid.error()).contains("less than 1 MiB");
+        assertThat(invalid.error()).contains("2 MiB", "percentage");
         assertThat(invalid.heapBytes()).isZero();
         assertThat(invalid.jvmOptions()).isEmpty();
+        assertThat(oneMebibyte.valid()).isFalse();
+        // A fixed 2 MiB request reaches HotSpot's generic bound, but 0.385% of 519 MiB does not.
+        assertThat(truncatedPercentage.valid()).isFalse();
+        assertThat(truncatedPercentage.jvmOptions()).isEmpty();
+        assertThat(calculator.buildKubernetesJvmOptions(truncatedPercentage, 0.385, 0.385))
+                .isEmpty();
 
         assertThat(boundary.valid()).isTrue();
-        assertThat(boundary.heapBytes()).isEqualTo(MB);
-        // Exact token equality (not mere substring containment) so a missing separator between
-        // "-Xms1m" and "-Xmx1m" (e.g. a concatenated "-Xms1m-Xmx1m") fails this assertion.
-        assertThat(List.of(boundary.jvmOptions().split(" "))).contains("-Xms1m", "-Xmx1m");
+        assertThat(boundary.heapBytes()).isEqualTo(3 * MB);
+        assertThat(List.of(boundary.jvmOptions().split(" "))).contains("-Xms3m", "-Xmx3m");
+    }
+
+    @Test
+    void acceptsExactGenericBoundWhenBothRepresentationsReachItWithoutInflation() {
+        MemoryCalculationDto result = calculator.calculate(400 * MB, 131, 0, 0, 10, 0);
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.heapBytes()).isEqualTo(2 * MB);
+        assertThat(List.of(result.jvmOptions().split(" "))).contains("-Xms2m", "-Xmx2m");
+        assertThat(MemoryKubernetesSizer.heapPercentage(result)).isEqualTo(0.5);
+    }
+
+    @Test
+    void extremeClassAndDirectObservationsLeaveAnInvalidRatherThanOverflowingBudget() {
+        MemoryCalculationDto result = calculator.calculate(
+                Long.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, 30, 10, 0, false, null, Long.MAX_VALUE);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.fixedRegionsBytes()).isPositive();
+        assertThat(result.heapBytes()).isZero();
+        assertThat(result.jvmOptions()).isEmpty();
+    }
+
+    @Test
+    void defaultTotalMemoryDoesNotWrapExtremeOrUnknownObservations() {
+        assertThat(calculator.defaultTotalMemoryBytes(Long.MAX_VALUE, Long.MAX_VALUE, 250, 0))
+                .isEqualTo(2048 * MB);
+        assertThat(calculator.defaultTotalMemoryBytes(Long.MIN_VALUE, Long.MIN_VALUE, 250, 0))
+                .isEqualTo(calculator.defaultTotalMemoryBytes(0, 0, 250, 0));
+        assertThat(calculator.defaultTotalMemoryBytes(0, 0, Integer.MAX_VALUE, Integer.MAX_VALUE))
+                .isEqualTo(2048 * MB);
     }
 
     @Test
