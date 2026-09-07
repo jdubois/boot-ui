@@ -565,46 +565,64 @@ class BootUiQuarkusProcessor {
     void registerSecurityAnnotations(
             LaunchModeBuildItem launchMode,
             ApplicationIndexBuildItem applicationIndex,
+            CombinedIndexBuildItem combinedIndex,
+            io.quarkus.arc.deployment.ValidationPhaseBuildItem validation,
+            List<io.quarkus.security.spi.AdditionalSecuredMethodsBuildItem> additionalSecurity,
+            BuildProducer<io.quarkus.arc.deployment.ValidationPhaseBuildItem.ValidationErrorBuildItem> validationErrors,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
             return;
         }
         IndexView index = applicationIndex.getIndex();
-        int roles = index.getAnnotations(DotName.createSimple("jakarta.annotation.security.RolesAllowed"))
-                .size();
-        int permit = index.getAnnotations(DotName.createSimple("jakarta.annotation.security.PermitAll"))
-                .size();
-        int deny = index.getAnnotations(DotName.createSimple("jakarta.annotation.security.DenyAll"))
-                .size();
-        int authenticated = index.getAnnotations(DotName.createSimple("io.quarkus.security.Authenticated"))
-                .size();
-        int quarkusAuthorization = quarkusAuthorizationAnnotationCount(index);
-        int endpoints = 0;
-        int secured = 0;
-        for (String http : List.of(
-                "jakarta.ws.rs.GET",
-                "jakarta.ws.rs.POST",
-                "jakarta.ws.rs.PUT",
-                "jakarta.ws.rs.DELETE",
-                "jakarta.ws.rs.PATCH",
-                "jakarta.ws.rs.HEAD",
-                "jakarta.ws.rs.OPTIONS")) {
-            for (AnnotationInstance ann : index.getAnnotations(DotName.createSimple(http))) {
-                if (ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.METHOD) {
-                    endpoints++;
-                    if (isSecuredEndpoint(ann.target().asMethod())) {
-                        secured++;
-                    }
-                }
-            }
-        }
-        emit(runtimeDefaults, "bootui.internal.sec.roles-allowed", roles);
+        // The validation-error producer keeps this observation ordered before Arc finishes validation.
+        // Read only bindings already materialized by initialization, never the lazy annotation store.
+        var capture = SecurityDeclarationCapture.capture(
+                index,
+                combinedIndex.getIndex(),
+                SecurityDeclarationCapture.materializedMetadata(
+                        index, validation.getContext().beans(), additionalSecurity));
+        int secured = (int) capture.endpoints().stream()
+                .filter(endpoint ->
+                        endpoint.access() == io.github.jdubois.bootui.spi.QuarkusSecurityEndpoint.Access.RESTRICTED)
+                .count();
+        int permit = (int) capture.endpoints().stream()
+                .filter(endpoint ->
+                        endpoint.access() == io.github.jdubois.bootui.spi.QuarkusSecurityEndpoint.Access.PERMIT)
+                .count();
+        emit(runtimeDefaults, "bootui.internal.sec.roles-allowed", secured);
         emit(runtimeDefaults, "bootui.internal.sec.permit-all", permit);
-        emit(runtimeDefaults, "bootui.internal.sec.deny-all", deny);
-        emit(runtimeDefaults, "bootui.internal.sec.authenticated", authenticated);
-        emit(runtimeDefaults, "bootui.internal.sec.quarkus-authz", quarkusAuthorization);
-        emit(runtimeDefaults, "bootui.internal.sec.endpoints", endpoints);
+        emit(runtimeDefaults, "bootui.internal.sec.deny-all", 0);
+        emit(runtimeDefaults, "bootui.internal.sec.authenticated", 0);
+        emit(runtimeDefaults, "bootui.internal.sec.quarkus-authz", 0);
+        emit(
+                runtimeDefaults,
+                "bootui.internal.sec.endpoints",
+                capture.endpoints().size());
         emit(runtimeDefaults, "bootui.internal.sec.secured-endpoints", secured);
+        runtimeDefaults.produce(
+                new RunTimeConfigurationDefaultBuildItem("bootui.internal.sec.endpoint-metadata", "true"));
+        runtimeDefaults.produce(
+                new RunTimeConfigurationDefaultBuildItem("bootui.internal.sec.incomplete", "" + capture.incomplete()));
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.sec.custom-authorization", "" + capture.customAuthorization()));
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.sec.custom-identity", "" + capture.customIdentity()));
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.sec.grpc-services", "" + capture.grpcServices()));
+        runtimeDefaults.produce(
+                new RunTimeConfigurationDefaultBuildItem("bootui.internal.sec.custom-tls", "" + capture.customTls()));
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.sec.custom-headers", "" + capture.customHeaders()));
+        for (int i = 0; i < capture.endpoints().size(); i++) {
+            var endpoint = capture.endpoints().get(i);
+            String prefix = "bootui.internal.sec.endpoint." + i;
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(prefix + ".path", endpoint.path()));
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(prefix + ".method", endpoint.method()));
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    prefix + ".access", endpoint.access().name()));
+            runtimeDefaults.produce(
+                    new RunTimeConfigurationDefaultBuildItem(prefix + ".document", "" + endpoint.document()));
+        }
     }
 
     /**
@@ -638,6 +656,7 @@ class BootUiQuarkusProcessor {
     void registerQuarkusSpecificCapabilityFlags(
             LaunchModeBuildItem launchMode,
             Capabilities capabilities,
+            List<FeatureBuildItem> features,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
             return;
@@ -646,6 +665,30 @@ class BootUiQuarkusProcessor {
                 "bootui.internal.sec.grpc-present", "" + capabilities.isPresent(Capability.GRPC)));
         runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
                 "bootui.internal.sec.graphql-present", "" + capabilities.isPresent(Capability.SMALLRYE_GRAPHQL)));
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.sec.security-present", "" + capabilities.isPresent(Capability.SECURITY)));
+        Map<String, String> securityFeatures = Map.of(
+                "oidc",
+                "oidc",
+                "jwt",
+                "smallrye-jwt",
+                "jdbc",
+                "security-jdbc",
+                "properties",
+                "security-properties-file",
+                "kafka",
+                "messaging-kafka",
+                "openapi",
+                "swagger-ui",
+                "health",
+                "smallrye-health");
+        securityFeatures.forEach((flag, feature) -> runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.sec." + flag + "-present",
+                ""
+                        + features.stream()
+                                .anyMatch(item -> feature.equals(item.getName())
+                                        || ("messaging-kafka".equals(feature)
+                                                && "smallrye-reactive-messaging-kafka".equals(item.getName()))))));
     }
 
     private static final List<String> QUARKUS_AUTHORIZATION_ANNOTATIONS =

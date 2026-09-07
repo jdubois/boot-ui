@@ -432,14 +432,14 @@ Platform-aware fidelity notes:
 
 ### 6.6 Security advisor (`security`) — live on WebFlux
 
-The advisor uses a dedicated 26-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
+The advisor uses a dedicated 25-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
 the application's `SecurityWebFilterChain` configuration. It stays distinct from the raw `spring-security` panel: the
 raw panel explains the configured chains and mappings, while the advisor turns the observed posture into bounded,
 deterministic findings across authorization, CSRF, CORS, headers, Actuator exposure, OAuth2/JWT, configuration, and
 reactive session policy. BootUI's own permit-all chain is excluded from availability and analysis. See
 `docs/SECURITY-CHECKS.md` for the complete reactive catalogue.
 
-The catalogue is aligned with the Java 17 / Spring Boot 4.1.0 / Spring Security 7.1.0 baseline and deliberately
+The catalogue is aligned with the Java 17 / Spring Boot 4.1.1 / Spring Security 7.1.1 baseline and deliberately
 describes only evidence the adapter can observe: installed filter/header-writer types, inspectable CORS maps, and host
 `Environment` properties. An installed `AuthorizationWebFilter` does not reveal whether its manager chose `permitAll`,
 `authenticated`, a role check, or custom logic; a decoder-local JWT validator is not inferred from unrelated validator
@@ -457,13 +457,18 @@ opaque-token introspection detection.
 
 Existing findings were narrowed where needed. Credentialed CORS now targets the legal `allowedOriginPatterns="*"` case;
 CSP absence is a LOW contextual review (and report-only policies are called out as non-enforcing); static JWT keys are
-LOW rotation advice; HTTPS/Actuator findings avoid claiming knowledge of external deployment policy; and the mixed
+INFO rotation advice; HTTPS/Actuator findings avoid claiming knowledge of external deployment policy; and the mixed
 bearer/login rule uses WebFlux's real `NoOpServerSecurityContextRepository` remediation rather than servlet-only
 `SessionCreationPolicy`.
 
 A follow-up parity review brought the catalogue to 26 rules: `SEC-RXF-CSRF-001` and `SEC-RXF-SESSION-001` now also
 recognize `formLogin()` chains, not just OAuth2/OIDC login filters, and the new `SEC-RXF-CORS-003` flags broad
 `allowedOriginPatterns` (e.g. `https://*`) to match the servlet stack's `SEC-CORS-006`.
+
+The cross-stack accuracy audit then retired duplicate missing-authorization rules `SEC-RXF-AUTHZ-002/003` and
+added the INFO structural chain-ordering check `SEC-RXF-AUTHZ-004`, leaving 25 active rules. It also separates
+Basic/browser credentials from header-only bearer APIs, OAuth client grants from login, and effective Actuator
+access from inclusion settings. Unknown observations remain incomplete rather than becoming missing-control findings.
 
 :::
 
