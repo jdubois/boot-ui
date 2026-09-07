@@ -54,6 +54,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **JVM Tuning no longer approves known-invalid tiny heap requests or wraps large memory observations to zero.**
+  The shared calculator checks both fixed and three-decimal percentage requests against HotSpot's generic 2 MiB
+  maximum-heap lower bound, without increasing an exhausted budget. Default footprint arithmetic and MiB formatting
+  avoid overflow, detected budgets round down to whole MiB consistently with generated Kubernetes limits, and limit
+  and usage reuse one cgroup sample. Sizing notes distinguish requested settings from effective heap alignment and
+  JVM-visible percentage denominators; model validity is not a startup or production-sizing guarantee. The full
+  source-backed audit records retained policies and deferred metaspace/probe work
+  ([#955](https://github.com/jdubois/boot-ui/issues/955)).
+
 - **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
   `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
   collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,
