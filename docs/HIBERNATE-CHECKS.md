@@ -474,8 +474,9 @@ duplicate that work by assuming absent `@Index` means absent database index.
   migrated before or during an ORM 7 upgrade.
 - **Recommendation**: use `@SQLRestriction` / `@SQLJoinTableRestriction`, or Hibernate's `@SoftDelete` for supported
   soft-delete mappings.
-- **Runtime scope**: this check is most useful while scanning an ORM 6.x application before migration. On ORM 7 the
-  removed annotation types prevent a compatible mapping from starting, rather than yielding a live advisory finding.
+- **Runtime scope**: this check is most useful while scanning an ORM 6.x application before migration. Removed
+  annotation types cannot be inspected reliably through reflection on ORM 7. Their absence from a live scan is not
+  evidence that the old restrictions were migrated or remain effective.
 
 ### HIB-MAP-022 - Explicit ordinal enum mappings should be reviewed
 
