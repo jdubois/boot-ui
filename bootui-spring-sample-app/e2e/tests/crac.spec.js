@@ -5,16 +5,18 @@ test.describe('CRaC view', () => {
   test('shows runtime status and runs the readiness scan', async ({openView, page}) => {
     // The readiness scan surveys the host application's classes and can be slow on CI hardware.
     test.setTimeout(120_000)
+    let scanRequests = 0
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().endsWith('/api/crac/scan')) scanRequests++
+    })
 
     await openView('crac', 'CRaC')
 
     // The runtime-status card renders without a scan (always read-only).
     await expect(page.locator('main')).toContainText('org.crac API')
 
-    // The sample app auto-configures a JDBC DataSource, so the runtime status surfaces the
-    // connection-pool checkpoint/restore caveat (CRAC-POOL-001) without needing a scan.
-    await expect(page.locator('main')).toContainText('Checkpoint & restore caveats')
-    await expect(page.locator('main')).toContainText('CRAC-POOL-001')
+    // Resource evidence is collected explicitly, never merely because the view rendered.
+    expect(scanRequests).toBe(0)
 
     // The heuristic disclaimer is always present.
     await expect(page.locator('main')).toContainText('Heuristic readiness checks.')
@@ -23,6 +25,7 @@ test.describe('CRaC view', () => {
 
     // The pre-scan empty state clears once the scan completes.
     await expect(page.getByText('No readiness data yet')).toHaveCount(0, {timeout: 45_000})
+    expect(scanRequests).toBe(1)
 
     const checksRun = page.locator('.card', {hasText: 'Checks run'}).locator('.display-6')
     await expect

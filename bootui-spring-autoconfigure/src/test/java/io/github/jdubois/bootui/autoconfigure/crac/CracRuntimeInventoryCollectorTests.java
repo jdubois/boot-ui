@@ -2,14 +2,20 @@ package io.github.jdubois.bootui.autoconfigure.crac;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.engine.crac.CracRuntimeInventory;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.aop.TargetSource;
 import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.beans.factory.FactoryBean;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.jdbc.HikariCheckpointRestoreLifecycle;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
@@ -22,6 +28,8 @@ import org.springframework.core.SpringProperties;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.jms.connection.SingleConnectionFactory;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
@@ -32,13 +40,15 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 class CracRuntimeInventoryCollectorTests {
 
     @Test
-    void returnsEmptyInventoryWhenApplicationContextIsNull() {
+    void reportsUnavailableInventoryWhenApplicationContextIsNull() {
         CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(null);
 
         assertThat(inventory.connectionPoolBeans()).isEmpty();
         assertThat(inventory.cacheManagerBeans()).isEmpty();
         assertThat(inventory.hikariPoolIssues()).isEmpty();
         assertThat(inventory.unmanagedTaskBeans()).isEmpty();
+        assertThat(inventory.available()).isFalse();
+        assertThat(inventory.warnings()).isNotEmpty();
     }
 
     @Test
@@ -65,6 +75,34 @@ class CracRuntimeInventoryCollectorTests {
     }
 
     @Test
+    void remainsClassloadingSafeWhenManagedClientDependenciesAreHidden() {
+        ClassLoader noClients = new ClassLoader(getClass().getClassLoader()) {
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (name.startsWith("org.springframework.data.redis.")
+                        || name.startsWith("org.springframework.amqp.")
+                        || name.startsWith("org.springframework.kafka.")
+                        || name.startsWith("org.springframework.jms.")
+                        || name.startsWith("jakarta.jms.")) {
+                    throw new ClassNotFoundException(name);
+                }
+                return super.loadClass(name, resolve);
+            }
+        };
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.setClassLoader(noClients);
+            context.register(EmptyConfig.class);
+            context.refresh();
+
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.available()).isTrue();
+            assertThat(inventory.managedConnectionPoolBeans()).isEmpty();
+            assertThat(inventory.connectionPoolBeans()).isEmpty();
+        }
+    }
+
+    @Test
     void collectsNonHikariPoolBeans() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(PoolConfig.class)) {
             CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
@@ -79,12 +117,16 @@ class CracRuntimeInventoryCollectorTests {
     }
 
     @Test
-    void acceptsHikariPoolWithLifecycleAndSuspensionEnabled() {
+    void leavesSingleHikariLifecyclePairUnverifiedEvenWithSuspensionEnabled() {
         try (AnnotationConfigApplicationContext context = hikariContext(true, true)) {
             CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
 
             assertThat(inventory.connectionPoolBeans()).isEmpty();
-            assertThat(inventory.hikariPoolIssues()).isEmpty();
+            assertThat(inventory.hikariPoolIssues())
+                    .singleElement()
+                    .asString()
+                    .contains("pairing is unverified", "counts do not establish target identity")
+                    .doesNotContain("allowPoolSuspension=false");
         }
     }
 
@@ -110,27 +152,25 @@ class CracRuntimeInventoryCollectorTests {
     }
 
     @Test
-    void treatsMatchingMultiPoolAndLifecycleCountsAsUnambiguous() {
+    void leavesMatchingMultiPoolAndLifecycleCountsUnverified() {
         try (AnnotationConfigApplicationContext context = multiHikariContext(true, true, true, true)) {
             CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
 
-            // Two pools and two lifecycle beans is Spring Boot's normal multi-datasource wiring
-            // (one HikariCheckpointRestoreLifecycle per pool); equal counts must not be reported as
-            // an unmatched/ambiguous pairing when every pool itself allows suspension.
-            assertThat(inventory.hikariPoolIssues()).isEmpty();
+            assertThat(inventory.hikariPoolIssues())
+                    .hasSize(2)
+                    .allSatisfy(issue -> assertThat(issue).contains("pairing is unverified"));
         }
     }
 
     @Test
-    void reportsOnlyTheMisconfiguredPoolWhenMultiPoolCountsMatch() {
+    void reportsSuspensionIndependentlyOfUnverifiedPairing() {
         try (AnnotationConfigApplicationContext context = multiHikariContext(true, true, false, true)) {
             CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
 
             assertThat(inventory.hikariPoolIssues())
-                    .singleElement()
-                    .asString()
-                    .contains("second")
-                    .contains("allowPoolSuspension=false");
+                    .hasSize(2)
+                    .anySatisfy(issue -> assertThat(issue).contains("second", "allowPoolSuspension=false"))
+                    .allSatisfy(issue -> assertThat(issue).contains("pairing is unverified"));
         }
     }
 
@@ -146,7 +186,7 @@ class CracRuntimeInventoryCollectorTests {
                     .allSatisfy(
                             issue -> assertThat(issue)
                                     .contains(
-                                            "checkpoint lifecycle coverage cannot be matched across 2 Hikari pool(s) and 1 lifecycle bean(s)"));
+                                            "checkpoint lifecycle pairing is unverified across 2 Hikari pool(s) and 1 lifecycle bean definition(s)"));
         }
     }
 
@@ -279,8 +319,9 @@ class CracRuntimeInventoryCollectorTests {
 
     @Test
     void reportsCheckpointOnRefreshFromTheSpringFrameworkProperty() {
-        SpringProperties.setProperty("spring.context.checkpoint", "onRefresh");
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            // Change only the observation after refresh; never request a real startup checkpoint.
+            SpringProperties.setProperty("spring.context.checkpoint", "onRefresh");
             assertThat(CracRuntimeInventoryCollector.collect(context).checkpointOnRefresh())
                     .isTrue();
         } finally {
@@ -289,12 +330,225 @@ class CracRuntimeInventoryCollectorTests {
     }
 
     @Test
-    void detectsRestoredProcessFromJvmArguments() {
+    void treatsRestoreArgumentAsHintNotProof() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
             CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(
                     context, () -> java.util.List.of("-XX:CRaCRestoreFrom=/opt/crac/checkpoint"));
 
-            assertThat(inventory.restoredProcess()).isTrue();
+            assertThat(inventory.restoredProcess()).isFalse();
+            assertThat(inventory.warnings()).anyMatch(warning -> warning.contains("launch hint"));
+        }
+    }
+
+    @Test
+    void detectsRestoreOnlyFromPublicRuntimeObservation() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            assertThat(CracRuntimeInventoryCollector.collect(context, List::of, () -> 123L)
+                            .restoredProcess())
+                    .isTrue();
+            assertThat(CracRuntimeInventoryCollector.collect(context, List::of, () -> -1L)
+                            .restoredProcess())
+                    .isFalse();
+            assertThat(CracRuntimeInventoryCollector.collect(context, List::of, () -> null)
+                            .restoredProcess())
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void failedRestoreAndArgumentObservationsRemainVisibleWithoutExceptionText() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(
+                    context,
+                    () -> {
+                        throw new IllegalStateException("password=argument-secret");
+                    },
+                    () -> {
+                        throw new IllegalStateException("password=restore-secret");
+                    });
+
+            assertThat(inventory.available()).isTrue();
+            assertThat(inventory.restoredProcess()).isFalse();
+            assertThat(inventory.warnings()).hasSize(2);
+            assertThat(inventory.warnings().toString()).doesNotContain("argument-secret", "restore-secret");
+        }
+    }
+
+    @Test
+    void readsActualRunningStateAndExactSpringProperty() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            assertThat(CracRuntimeInventoryCollector.collect(context).applicationRunning())
+                    .isTrue();
+            context.stop();
+            assertThat(CracRuntimeInventoryCollector.collect(context).applicationRunning())
+                    .isFalse();
+            for (String value : List.of("onrefresh", "ONREFRESH", " onRefresh", "onRefresh ")) {
+                SpringProperties.setProperty("spring.context.checkpoint", value);
+                assertThat(CracRuntimeInventoryCollector.collect(context).checkpointOnRefresh())
+                        .isFalse();
+            }
+        } finally {
+            SpringProperties.setProperty("spring.context.checkpoint", null);
+        }
+    }
+
+    @Test
+    void failedBeanMetadataDoesNotBecomeSuccessfulEmptyInventory() {
+        org.springframework.context.ApplicationContext context =
+                mock(org.springframework.context.ApplicationContext.class);
+        when(context.getClassLoader()).thenThrow(new IllegalStateException("password=hidden"));
+
+        CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+        assertThat(inventory.available()).isFalse();
+        assertThat(inventory.warnings())
+                .singleElement()
+                .asString()
+                .contains("could not be inspected")
+                .doesNotContain("hidden");
+    }
+
+    @Test
+    void duplicateLifecyclesTargetingOnePoolCannotCoverAnotherPool() {
+        try (AnnotationConfigApplicationContext context = multiHikariContext(true, true, true, false)) {
+            context.getBeanFactory()
+                    .registerSingleton(
+                            "duplicate",
+                            new HikariCheckpointRestoreLifecycle(context.getBean("first", DataSource.class), context));
+            assertThat(CracRuntimeInventoryCollector.collect(context).hikariPoolIssues())
+                    .hasSize(2)
+                    .allSatisfy(issue -> assertThat(issue).contains("pairing is unverified"));
+        }
+    }
+
+    @Test
+    void missingLifecycleDoesNotHideDisabledSuspension() {
+        try (AnnotationConfigApplicationContext context = hikariContext(false, false)) {
+            assertThat(CracRuntimeInventoryCollector.collect(context).hikariPoolIssues())
+                    .singleElement()
+                    .asString()
+                    .contains("bean is missing", "allowPoolSuspension=false");
+        }
+    }
+
+    @Test
+    void failedPublicSuspensionGetterIsNotAHealthyEmptyInventory() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            HikariDataSource pool = mock(HikariDataSource.class);
+            when(pool.isAllowPoolSuspension()).thenThrow(new IllegalStateException("password=hidden"));
+            context.getBeanFactory().registerSingleton("brokenPool", pool);
+
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.available()).isFalse();
+            assertThat(inventory.warnings())
+                    .singleElement()
+                    .asString()
+                    .contains("could not be inspected")
+                    .doesNotContain("hidden");
+        }
+    }
+
+    @Test
+    void creditsOnlyExistingConcreteManagedFactoriesWithoutInvokingTheirLifecycle() {
+        AtomicBoolean stopped = new AtomicBoolean();
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            // Register after refresh so even the test does not start clients or acquire connections.
+            context.getBeanFactory().registerSingleton("jms", new SingleConnectionFactory());
+            context.getBeanFactory().registerSingleton("rabbit", new CachingConnectionFactory());
+            context.getBeanFactory().registerSingleton("kafka", new DefaultKafkaProducerFactory<>(Map.of()));
+            context.getBeanFactory().registerSingleton("genericRedis", mock(RedisConnectionFactory.class));
+            context.getBeanFactory().registerSingleton("customJms", new SingleConnectionFactory() {
+                @Override
+                public void stop() {
+                    stopped.set(true);
+                }
+            });
+
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.available()).isTrue();
+            assertThat(inventory.managedConnectionPoolBeans())
+                    .hasSize(3)
+                    .anyMatch(value -> value.startsWith("jms :"))
+                    .anyMatch(value -> value.startsWith("rabbit :"))
+                    .anyMatch(value -> value.startsWith("kafka :"));
+            assertThat(inventory.connectionPoolBeans())
+                    .hasSize(2)
+                    .anyMatch(value -> value.startsWith("genericRedis :"))
+                    .anyMatch(value -> value.startsWith("customJms :"));
+            assertThat(stopped).isFalse();
+        }
+    }
+
+    @Test
+    void exactManagedTypeMetadataIncludesLettuceWithoutConstructingAClient() throws ClassNotFoundException {
+        // Avoid compile-time resolution of Lettuce's optional driver signatures on newer javac versions.
+        Class<?> lettuceFactory = Class.forName(
+                "org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory",
+                false,
+                getClass().getClassLoader());
+        assertThat(CracRuntimeInventoryCollector.isKnownManagedType(lettuceFactory))
+                .isTrue();
+        assertThat(CracRuntimeInventoryCollector.isKnownManagedType(CachingConnectionFactory.class))
+                .isTrue();
+        assertThat(CracRuntimeInventoryCollector.isKnownManagedType(DefaultKafkaProducerFactory.class))
+                .isTrue();
+        assertThat(CracRuntimeInventoryCollector.isKnownManagedType(SingleConnectionFactory.class))
+                .isTrue();
+        assertThat(CracRuntimeInventoryCollector.isKnownManagedType(RedisConnectionFactory.class))
+                .isFalse();
+        assertThat(CracRuntimeInventoryCollector.isKnownManagedType(CustomManagedFactory.class))
+                .isFalse();
+    }
+
+    static class CustomManagedFactory extends SingleConnectionFactory {}
+
+    @Test
+    void lazyManagedFactoryAndFactoryBeanProductsRemainUninitializedAndUnverified() {
+        AtomicBoolean created = new AtomicBoolean();
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(
+                    "lazyJms",
+                    SingleConnectionFactory.class,
+                    () -> {
+                        created.set(true);
+                        return new SingleConnectionFactory();
+                    },
+                    definition -> definition.setLazyInit(true));
+            RootBeanDefinition factory = new RootBeanDefinition(UncreatedHikariFactory.class);
+            factory.setLazyInit(true);
+            factory.setAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE, HikariDataSource.class);
+            context.registerBeanDefinition("factoryPool", factory);
+            context.refresh();
+
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.available()).isTrue();
+            assertThat(created).isFalse();
+            assertThat(context.getBeanFactory().containsSingleton("factoryPool"))
+                    .isFalse();
+            assertThat(inventory.managedConnectionPoolBeans()).isEmpty();
+            assertThat(inventory.connectionPoolBeans()).anyMatch(value -> value.startsWith("lazyJms :"));
+            // Spring's non-eager, singleton-only lookup omits an uninitialized FactoryBean product:
+            // even its singleton status is unverified. Do not initialize it just to add an observation.
+            assertThat(inventory.hikariPoolIssues()).isEmpty();
+        }
+    }
+
+    static class UncreatedHikariFactory implements FactoryBean<HikariDataSource> {
+        UncreatedHikariFactory() {
+            throw new AssertionError("Collector must not initialize FactoryBeans");
+        }
+
+        @Override
+        public HikariDataSource getObject() {
+            throw new AssertionError("Collector must not request FactoryBean products");
+        }
+
+        @Override
+        public Class<?> getObjectType() {
+            return HikariDataSource.class;
         }
     }
 

@@ -19,19 +19,23 @@ import java.util.List;
  * @param cacheManagerBeans human-readable {@code beanName : TypeName} entries for known local, in-heap
  *     cache manager implementations, empty when none are present
  * @param hikariPoolIssues bounded observations for Hikari pools whose Spring Boot checkpoint lifecycle
- *     or pool-suspension state is absent or cannot be verified, empty when every detected Hikari pool
- *     has positive lifecycle evidence
+ *     or pool-suspension state is absent or cannot be verified
  * @param unmanagedTaskBeans human-readable {@code beanName : TypeName} entries for Spring
  *     thread-per-task executors or schedulers that do not fully participate in context lifecycle
  *     management, empty when none are present
  * @param cracApiPresent whether the application-facing {@code org.crac:crac} compatibility API is
- *     present on the application's classpath; defaults to {@code true} in every convenience
- *     constructor and in {@link #empty()} so that a collection failure or an unavailable runtime never
- *     spuriously reports the dependency as missing
- * @param checkpointOnRefresh whether Spring Framework will take an automatic checkpoint immediately
- *     after context refresh; used to suppress checks that apply only to on-demand checkpoints
- * @param restoredProcess whether the current JVM was started from {@code -XX:CRaCRestoreFrom}; a
- *     restored process has already consumed the original checkpoint-on-refresh phase
+ *     present on the application's classpath; convenience constructors default to {@code true}
+ *     for existing fixture callers. Collection failures must use {@link #unavailable(String)}.
+ * @param checkpointOnRefresh whether Spring's exact checkpoint-on-refresh setting is observed;
+ *     the original property may remain after its pre-lifecycle-start phase was consumed
+ * @param restoredProcess whether the collector observed restore evidence; it does not certify
+ *     post-restore application readiness
+ * @param applicationRunning whether the Spring lifecycle is already running, so a remaining
+ *     onRefresh setting does not describe an upcoming pre-start checkpoint
+ * @param managedConnectionPoolBeans existing concrete factories with documented Spring lifecycle
+ *     handling, not a guarantee for external shared resources or early initialization
+ * @param available whether runtime observations were successfully collected
+ * @param warnings bounded explanations of unavailable or partial observations
  */
 public record CracRuntimeInventory(
         List<String> connectionPoolBeans,
@@ -40,13 +44,42 @@ public record CracRuntimeInventory(
         List<String> unmanagedTaskBeans,
         boolean cracApiPresent,
         boolean checkpointOnRefresh,
-        boolean restoredProcess) {
+        boolean restoredProcess,
+        boolean applicationRunning,
+        List<String> managedConnectionPoolBeans,
+        boolean available,
+        List<String> warnings) {
 
     public CracRuntimeInventory {
         connectionPoolBeans = connectionPoolBeans == null ? List.of() : List.copyOf(connectionPoolBeans);
         cacheManagerBeans = cacheManagerBeans == null ? List.of() : List.copyOf(cacheManagerBeans);
         hikariPoolIssues = hikariPoolIssues == null ? List.of() : List.copyOf(hikariPoolIssues);
         unmanagedTaskBeans = unmanagedTaskBeans == null ? List.of() : List.copyOf(unmanagedTaskBeans);
+        managedConnectionPoolBeans =
+                managedConnectionPoolBeans == null ? List.of() : List.copyOf(managedConnectionPoolBeans);
+        warnings = warnings == null ? List.of() : List.copyOf(warnings);
+    }
+
+    public CracRuntimeInventory(
+            List<String> connectionPoolBeans,
+            List<String> cacheManagerBeans,
+            List<String> hikariPoolIssues,
+            List<String> unmanagedTaskBeans,
+            boolean cracApiPresent,
+            boolean checkpointOnRefresh,
+            boolean restoredProcess) {
+        this(
+                connectionPoolBeans,
+                cacheManagerBeans,
+                hikariPoolIssues,
+                unmanagedTaskBeans,
+                cracApiPresent,
+                checkpointOnRefresh,
+                restoredProcess,
+                false,
+                List.of(),
+                true,
+                List.of());
     }
 
     public CracRuntimeInventory(List<String> connectionPoolBeans, List<String> cacheManagerBeans) {
@@ -72,5 +105,20 @@ public record CracRuntimeInventory(
 
     public static CracRuntimeInventory empty() {
         return new CracRuntimeInventory(List.of(), List.of(), List.of(), List.of(), true, false, false);
+    }
+
+    public static CracRuntimeInventory unavailable(String reason) {
+        return new CracRuntimeInventory(
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                false,
+                List.of(reason));
     }
 }

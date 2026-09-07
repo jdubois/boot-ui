@@ -1,30 +1,47 @@
 package io.github.jdubois.bootui.autoconfigure.crac;
 
+import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
 import io.github.jdubois.bootui.engine.crac.CracRuntimeInventory;
-import java.lang.management.RuntimeMXBean;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 import org.springframework.core.SpringProperties;
 import org.springframework.core.env.Environment;
+import org.springframework.util.ClassUtils;
 
 /**
- * Collects the live CRaC runtime status for the host process: whether the {@code org.crac} API is on
- * the classpath, whether the JVM provides a real CRaC implementation (a CRaC-enabled JDK) rather than
- * the no-op shim, whether an automatic checkpoint-on-refresh is configured, and the CRaC-related JVM
- * input arguments. The collector reads only local, in-process state and never triggers a checkpoint.
+ * Passive runtime observations, not an operational checkpoint probe. API and implementation markers
+ * are evidence only: no checkpoint, resource callback, lifecycle operation or mutation is invoked.
+ * Resource caveats use the last explicit scan's inventory, never fresh bean discovery on GET.
  */
 final class CracRuntimeStatusCollector {
 
     private static final String CRAC_API_MARKER = "org.crac.Core";
-    // The real CRaC implementation classes that org.crac delegates to on a CRaC-enabled JDK. When
-    // none of these are present, org.crac falls back to a no-op shim and a checkpoint is not possible.
     private static final List<String> CRAC_IMPL_MARKERS = List.of("jdk.crac.Core", "javax.crac.Core");
-
+    private static final String CHECKPOINT_PROPERTY = "spring.context.checkpoint";
+    private static final String EXIT_PROPERTY = "spring.context.exit";
     private static final String CHECKPOINT_TO_PREFIX = "-XX:CRaCCheckpointTo=";
     private static final String RESTORE_FROM_PREFIX = "-XX:CRaCRestoreFrom=";
-    private static final String EXIT_PROPERTY = "spring.context.exit";
+    private static final String ENGINE_PREFIX = "-XX:CRaCEngine=";
+    private static final List<String> ARGUMENT_PREFIXES =
+            List.of(CHECKPOINT_TO_PREFIX, RESTORE_FROM_PREFIX, ENGINE_PREFIX);
+    private static final int MAX_PREVIEW = 5;
+    private static final int MAX_TEXT = 300;
+    private static final ExposurePolicy DEFAULT_EXPOSURE = new ExposurePolicy() {
+        @Override
+        public ValueExposure valueExposure() {
+            return ValueExposure.MASKED;
+        }
+
+        @Override
+        public boolean maskSecrets() {
+            return true;
+        }
+    };
 
     private final Environment environment;
     private final Supplier<List<String>> jvmArgumentsSupplier;
@@ -32,20 +49,39 @@ final class CracRuntimeStatusCollector {
     private final Supplier<CracRuntimeInventory> inventorySupplier;
     private final Supplier<String> actualCheckpointPropertySupplier;
     private final Supplier<String> actualExitPropertySupplier;
+    private final Supplier<Long> restoreTimeSupplier;
+    private final ExposurePolicy exposure;
+    private final SecretMasker masker = new SecretMasker();
 
     CracRuntimeStatusCollector(Environment environment) {
-        this(environment, CracRuntimeInventory::empty);
+        this(environment, CracRuntimeStatusCollector::unavailableInventory);
     }
 
     CracRuntimeStatusCollector(Environment environment, Supplier<CracRuntimeInventory> inventorySupplier) {
-        this(environment, defaultJvmArguments(), CracRuntimeStatusCollector::isClassPresent, inventorySupplier);
+        this(environment, inventorySupplier, DEFAULT_EXPOSURE, ClassUtils.getDefaultClassLoader());
+    }
+
+    CracRuntimeStatusCollector(
+            Environment environment,
+            Supplier<CracRuntimeInventory> inventorySupplier,
+            ExposurePolicy exposure,
+            ClassLoader classLoader) {
+        this(
+                environment,
+                () -> ManagementFactory.getRuntimeMXBean().getInputArguments(),
+                name -> isClassPresent(name, classLoader),
+                inventorySupplier,
+                () -> SpringProperties.getProperty(CHECKPOINT_PROPERTY),
+                () -> SpringProperties.getProperty(EXIT_PROPERTY),
+                () -> restoreTime(classLoader),
+                exposure);
     }
 
     CracRuntimeStatusCollector(
             Environment environment,
             Supplier<List<String>> jvmArgumentsSupplier,
             ClassPresenceCheck classPresenceCheck) {
-        this(environment, jvmArgumentsSupplier, classPresenceCheck, CracRuntimeInventory::empty);
+        this(environment, jvmArgumentsSupplier, classPresenceCheck, CracRuntimeStatusCollector::unavailableInventory);
     }
 
     CracRuntimeStatusCollector(
@@ -58,15 +94,9 @@ final class CracRuntimeStatusCollector {
                 jvmArgumentsSupplier,
                 classPresenceCheck,
                 inventorySupplier,
-                defaultSpringPropertySupplier("spring.context.checkpoint"),
-                defaultSpringPropertySupplier(EXIT_PROPERTY));
+                () -> SpringProperties.getProperty(CHECKPOINT_PROPERTY));
     }
 
-    /**
-     * Fullest constructor. {@code actualCheckpointPropertySupplier} reads the property that actually
-     * controls Spring Framework's automatic checkpoint-on-refresh — see {@link #checkpointOnRefresh()}
-     * for why this is deliberately not the Spring Boot {@link Environment}.
-     */
     CracRuntimeStatusCollector(
             Environment environment,
             Supplier<List<String>> jvmArgumentsSupplier,
@@ -79,7 +109,7 @@ final class CracRuntimeStatusCollector {
                 classPresenceCheck,
                 inventorySupplier,
                 actualCheckpointPropertySupplier,
-                defaultSpringPropertySupplier(EXIT_PROPERTY));
+                () -> SpringProperties.getProperty(EXIT_PROPERTY));
     }
 
     CracRuntimeStatusCollector(
@@ -89,228 +119,297 @@ final class CracRuntimeStatusCollector {
             Supplier<CracRuntimeInventory> inventorySupplier,
             Supplier<String> actualCheckpointPropertySupplier,
             Supplier<String> actualExitPropertySupplier) {
+        this(
+                environment,
+                jvmArgumentsSupplier,
+                classPresenceCheck,
+                inventorySupplier,
+                actualCheckpointPropertySupplier,
+                actualExitPropertySupplier,
+                () -> null,
+                DEFAULT_EXPOSURE);
+    }
+
+    CracRuntimeStatusCollector(
+            Environment environment,
+            Supplier<List<String>> jvmArgumentsSupplier,
+            ClassPresenceCheck classPresenceCheck,
+            Supplier<CracRuntimeInventory> inventorySupplier,
+            Supplier<String> actualCheckpointPropertySupplier,
+            Supplier<String> actualExitPropertySupplier,
+            Supplier<Long> restoreTimeSupplier,
+            ExposurePolicy exposure) {
         this.environment = environment;
         this.jvmArgumentsSupplier = jvmArgumentsSupplier;
         this.classPresenceCheck = classPresenceCheck;
         this.inventorySupplier = inventorySupplier;
         this.actualCheckpointPropertySupplier = actualCheckpointPropertySupplier;
         this.actualExitPropertySupplier = actualExitPropertySupplier;
+        this.restoreTimeSupplier = restoreTimeSupplier;
+        this.exposure = exposure;
     }
 
     CracRuntimeStatusDto collect() {
-        boolean cracApiPresent = classPresenceCheck.isPresent(CRAC_API_MARKER);
-        boolean cracCapableJvm = CRAC_IMPL_MARKERS.stream().anyMatch(classPresenceCheck::isPresent);
-        String jvmName = jvmName();
-        boolean checkpointOnRefresh = checkpointOnRefresh();
-        boolean exitOnRefresh = isOnRefresh(safeProperty(actualExitPropertySupplier));
-
-        List<String> jvmArguments = safeJvmArguments();
-        String checkpointTo = argumentValue(jvmArguments, CHECKPOINT_TO_PREFIX);
-        String restoreFrom = argumentValue(jvmArguments, RESTORE_FROM_PREFIX);
-        List<String> cracJvmArgs = cracArguments(jvmArguments);
-
-        String summary = summary(cracApiPresent, cracCapableJvm, checkpointOnRefresh, exitOnRefresh, checkpointTo);
-        List<String> restoreCaveats = restoreCaveats(checkpointOnRefresh, exitOnRefresh);
-        return new CracRuntimeStatusDto(
-                cracApiPresent,
-                cracCapableJvm,
-                jvmName,
-                checkpointOnRefresh,
-                checkpointTo,
-                restoreFrom,
-                cracJvmArgs,
-                summary,
-                restoreCaveats);
-    }
-
-    /**
-     * Builds the human-readable caveats shown alongside the runtime status. CRaC reads configuration
-     * (environment variables, system properties, the active profile) when the checkpoint is taken and
-     * freezes it into the image, and any connection pool must be reachable both when the checkpoint is
-     * taken and when it is restored. These are review prompts, not detected failures.
-     */
-    private List<String> restoreCaveats(boolean checkpointOnRefresh, boolean exitOnRefresh) {
         List<String> caveats = new ArrayList<>();
-        if (exitOnRefresh) {
-            caveats.add("spring.context.exit=onRefresh is active. Spring will run the same lifecycle stop phase used "
-                    + "before a checkpoint and then exit without creating a CRaC image. Use this dry-run mode on a "
-                    + "regular JDK to find shutdown/lifecycle issues before attempting a real checkpoint.");
+        String jvmName = observe(() -> System.getProperty("java.vm.name"), "Unknown JVM", "JVM name", caveats);
+        if (jvmName == null || jvmName.isBlank()) {
+            jvmName = "Unknown JVM";
         }
-        if (checkpointOnRefresh) {
-            caveats.add("Configuration is frozen into the checkpoint. Environment variables, system properties, and "
-                    + "the active Spring profile are read when the checkpoint is taken, not when it is restored; "
-                    + "changing them for a restore-only start has no effect until a new checkpoint is taken.");
-        } else if (environmentClaimsCheckpointOnRefresh()) {
-            caveats.add("spring.context.checkpoint=onRefresh is set in the Spring Environment (for example "
-                    + "application.yml, application.properties, or an OS environment variable), but Spring "
-                    + "Framework's DefaultLifecycleProcessor only honors this property through "
-                    + "org.springframework.core.SpringProperties: a JVM system property "
-                    + "(-Dspring.context.checkpoint=onRefresh) or a classpath spring.properties file, never the "
-                    + "Spring Boot Environment. No automatic checkpoint will actually be taken on context refresh; "
-                    + "set the property as a JVM system property or in a classpath spring.properties file instead.");
+        Boolean apiObservation =
+                observe(() -> classPresenceCheck.isPresent(CRAC_API_MARKER), null, "CRaC API", caveats);
+        boolean api = Boolean.TRUE.equals(apiObservation);
+        boolean implementation = false;
+        boolean implementationUnknown = false;
+        for (String marker : CRAC_IMPL_MARKERS) {
+            Boolean markerObservation =
+                    observe(() -> classPresenceCheck.isPresent(marker), null, "CRaC implementation marker", caveats);
+            implementation |= Boolean.TRUE.equals(markerObservation);
+            implementationUnknown |= markerObservation == null;
         }
-        CracRuntimeInventory inventory = safeInventory();
-        List<String> poolBeans = java.util.stream.Stream.concat(
-                        inventory.connectionPoolBeans().stream(), inventory.hikariPoolIssues().stream())
+        boolean checkpoint =
+                isOnRefresh(observe(actualCheckpointPropertySupplier, null, "Spring checkpoint property", caveats));
+        boolean exit = isOnRefresh(observe(actualExitPropertySupplier, null, "Spring exit property", caveats));
+        List<String> arguments = observe(jvmArgumentsSupplier, null, "JVM arguments", caveats);
+        if (arguments == null) {
+            caveats.add("JVM argument observations are unavailable.");
+            arguments = List.of();
+        }
+        CracRuntimeInventory inventory = observe(inventorySupplier, null, "Cached runtime inventory", caveats);
+        if (inventory == null) {
+            inventory = unavailableInventory();
+        }
+        if (!inventory.available()) {
+            caveats.add("Resource inventory is unavailable. Run readiness checks to collect resource evidence.");
+        }
+        inventory.warnings().stream()
+                .limit(MAX_PREVIEW)
+                .map(value -> display("crac.inventory.warning", value))
+                .forEach(caveats::add);
+
+        Long restoreTime = observe(restoreTimeSupplier, null, "Public CRaC restore-time", caveats);
+        if (restoreTime != null && restoreTime >= 0) {
+            caveats.add("The public CRaC MXBean reports a restore time. This does not verify application readiness.");
+        } else if (argumentValue(arguments, RESTORE_FROM_PREFIX) != null) {
+            caveats.add("CRaCRestoreFrom is a launch hint, not proof that this application restored successfully.");
+        }
+        if (implementation) {
+            caveats.add("Implementation marker classes do not verify real image support, engine availability, "
+                    + "OS compatibility or successful checkpoint/restore. No active probe was run.");
+        }
+        String engine = argumentValue(arguments, ENGINE_PREFIX);
+        boolean simulated = engine != null
+                && (engine.equals("simengine")
+                        || engine.startsWith("simengine,")
+                        || engine.equals("pauseengine")
+                        || engine.startsWith("pauseengine,"));
+        caveats.add(
+                simulated
+                        ? "simengine/pauseengine exercises limited CRaC behavior but does not create a real checkpoint image."
+                        : "The effective checkpoint engine and its operational support are unverified. Check the exact "
+                                + "JDK, OS and engine; CRIU prerequisites and privileges do not universally apply to Warp.");
+        if (checkpoint) {
+            caveats.add("spring.context.checkpoint=onRefresh is configured through SpringProperties. It is a "
+                    + "one-shot initialization boundary before normal lifecycle startup; a running console cannot "
+                    + "establish whether that request was consumed or that another automatic checkpoint will occur.");
+            caveats.add(
+                    "Already-cached configuration and bean bindings may retain checkpoint-era values even "
+                            + "when a runtime updates environment or system properties at restore. No automatic rebind is implied.");
+        } else if (isOnRefresh(observe(
+                () -> environment == null ? null : environment.getProperty(CHECKPOINT_PROPERTY),
+                null,
+                "Spring Environment checkpoint property",
+                caveats))) {
+            caveats.add("spring.context.checkpoint=onRefresh appears only in the Spring Environment. "
+                    + "DefaultLifecycleProcessor reads SpringProperties (a JVM system property or classpath "
+                    + "spring.properties), not application.yml/application.properties. This Environment value "
+                    + "does not request an automatic checkpoint.");
+        }
+        if (exit) {
+            caveats.add("spring.context.exit=onRefresh calls Runtime.halt before normal lifecycle startup. "
+                    + "It does not exercise checkpoint cleanup or resource callbacks and is not a cleanup dry run. "
+                    + "Use only in a separate process for startup-boundary testing."
+                    + (checkpoint ? " With both flags configured, checkpoint is attempted first, before exit." : ""));
+        } else if (isOnRefresh(observe(
+                () -> environment == null ? null : environment.getProperty(EXIT_PROPERTY),
+                null,
+                "Spring Environment exit property",
+                caveats))) {
+            caveats.add(
+                    "spring.context.exit=onRefresh appears only in the Spring Environment. "
+                            + "DefaultLifecycleProcessor reads this option through SpringProperties, not the Boot Environment.");
+        }
+        addResourceCaveats(inventory, caveats);
+        String summary = apiObservation == null || (!implementation && implementationUnknown)
+                ? "CRaC API/implementation observations are incomplete. Failed marker lookup does not establish "
+                        + "a missing dependency or an unsupported JVM; review the evidence caveats."
+                : summary(api, implementation, checkpoint, exit, simulated);
+        if (caveats.stream().anyMatch(caveat -> caveat.contains("observation failed"))) {
+            summary += " Some passive observations failed; review the caveats.";
+        }
+        List<String> displayedArguments = arguments.stream()
+                .filter(argument ->
+                        argument != null && ARGUMENT_PREFIXES.stream().anyMatch(argument::startsWith))
+                .limit(MAX_PREVIEW)
+                .map(this::displayArgument)
                 .toList();
-        if (!poolBeans.isEmpty()) {
-            caveats.add("Detected " + poolBeans.size() + " connection pool bean(s) (" + String.join(", ", poolBeans)
-                    + "). The backing service must be reachable both when the checkpoint is taken and when it is "
-                    + "restored, and no pooled connection may be open at checkpoint time (see checks CRAC-POOL-001 "
-                    + "and CRAC-POOL-004).");
+        return new CracRuntimeStatusDto(
+                api,
+                implementation,
+                display("java.vm.name", jvmName),
+                checkpoint,
+                display("CRaCCheckpointTo", argumentValue(arguments, CHECKPOINT_TO_PREFIX)),
+                display("CRaCRestoreFrom", argumentValue(arguments, RESTORE_FROM_PREFIX)),
+                displayedArguments,
+                summary,
+                caveats);
+    }
+
+    private void addResourceCaveats(CracRuntimeInventory inventory, List<String> caveats) {
+        if (!inventory.connectionPoolBeans().isEmpty()) {
+            caveats.add(
+                    "Cached connection pool/type observations requiring ownership review (CRAC-POOL-001): "
+                            + preview(inventory.connectionPoolBeans())
+                            + ". Definitions can be lazy or wrapped; these are not live connection counts. "
+                            + "Review public lifecycle ownership and restore reconnection, not universal backend reachability.");
         }
-        return List.copyOf(caveats);
-    }
-
-    private CracRuntimeInventory safeInventory() {
-        try {
-            CracRuntimeInventory inventory = inventorySupplier.get();
-            return inventory == null ? CracRuntimeInventory.empty() : inventory;
-        } catch (RuntimeException ex) {
-            return CracRuntimeInventory.empty();
+        if (!inventory.managedConnectionPoolBeans().isEmpty()) {
+            caveats.add("Cached existing singleton factories with documented lifecycle support (CRAC-POOL-001): "
+                    + preview(inventory.managedConnectionPoolBeans())
+                    + ". Credit is limited to owned resources in a running CRaC-enabled context; original "
+                    + "on-refresh initialization and externally shared resources still require review.");
+        }
+        if (!inventory.hikariPoolIssues().isEmpty()) {
+            caveats.add("Cached Hikari review observations (CRAC-POOL-004): "
+                    + preview(inventory.hikariPoolIssues())
+                    + ". These are issue observations, not a complete live pool count or verified target pairing.");
         }
     }
 
-    /**
-     * Whether an automatic checkpoint is actually taken on context refresh. Spring Framework's {@code
-     * DefaultLifecycleProcessor} reads {@code spring.context.checkpoint} only through {@code
-     * org.springframework.core.SpringProperties} — a JVM system property or a classpath {@code
-     * spring.properties} file — and never through the Spring Boot {@link Environment}. Setting the
-     * property in {@code application.yml}/{@code application.properties} (or as a plain OS environment
-     * variable picked up by the Environment) has no effect on this behavior, so this method
-     * deliberately reads the same source Spring Framework itself reads, rather than the Environment,
-     * to avoid reporting an automatic checkpoint that will not actually happen. See {@link
-     * #environmentClaimsCheckpointOnRefresh()} for the check that detects that specific mismatch.
-     */
-    private boolean checkpointOnRefresh() {
-        return isOnRefresh(safeProperty(actualCheckpointPropertySupplier));
+    private String preview(List<String> values) {
+        String sample = String.join(
+                ", ",
+                values.stream()
+                        .limit(MAX_PREVIEW)
+                        .map(value -> display("crac.resource", value))
+                        .toList());
+        return sample + (values.size() > MAX_PREVIEW ? " (additional observations omitted)" : "");
     }
 
-    /**
-     * Whether the Spring Boot {@link Environment} reports {@code spring.context.checkpoint=onRefresh}
-     * (for example from {@code application.yml} or an OS environment variable). This does NOT mean an
-     * automatic checkpoint will actually be taken — see {@link #checkpointOnRefresh()} — it exists only
-     * to detect and warn about that common mismatch in {@link #restoreCaveats(boolean, boolean)}.
-     */
-    private boolean environmentClaimsCheckpointOnRefresh() {
-        return environment != null && isOnRefresh(environment.getProperty("spring.context.checkpoint"));
+    private String displayArgument(String argument) {
+        int separator = argument.indexOf('=');
+        String key = argument.substring(0, separator);
+        return key + "=" + display(key, argument.substring(separator + 1));
     }
 
-    private static String safeProperty(Supplier<String> supplier) {
-        try {
-            return supplier == null ? null : supplier.get();
-        } catch (RuntimeException ex) {
+    private String display(String key, String value) {
+        if (value == null) {
             return null;
         }
+        String result;
+        if (exposure.valueExposure() == ValueExposure.METADATA_ONLY) {
+            result = SecretMasker.MASKED_VALUE;
+        } else if (exposure.valueExposure() == ValueExposure.FULL || !exposure.maskSecrets()) {
+            result = value;
+        } else {
+            result = String.valueOf(masker.mask(key, value));
+        }
+        return result.length() > MAX_TEXT ? result.substring(0, MAX_TEXT) + "…" : result;
     }
 
     private static boolean isOnRefresh(String value) {
-        return value != null && "onRefresh".equalsIgnoreCase(value.trim());
+        return "onRefresh".equals(value);
     }
 
-    private List<String> safeJvmArguments() {
-        try {
-            List<String> arguments = jvmArgumentsSupplier.get();
-            return arguments == null ? List.of() : arguments;
-        } catch (RuntimeException ex) {
-            return List.of();
-        }
-    }
-
-    private static List<String> cracArguments(List<String> jvmArguments) {
-        List<String> matches = new ArrayList<>();
-        for (String argument : jvmArguments) {
-            if (argument != null && argument.contains("CRaC")) {
-                matches.add(argument);
-            }
-        }
-        return List.copyOf(matches);
-    }
-
-    private static String argumentValue(List<String> jvmArguments, String prefix) {
-        for (String argument : jvmArguments) {
+    private static String argumentValue(List<String> arguments, String prefix) {
+        String value = null;
+        for (String argument : arguments) {
             if (argument != null && argument.startsWith(prefix)) {
-                String value = argument.substring(prefix.length()).trim();
-                return value.isEmpty() ? null : value;
+                value = argument.substring(prefix.length());
             }
         }
-        return null;
-    }
-
-    private static String jvmName() {
-        String name = System.getProperty("java.vm.name");
-        return name == null || name.isBlank() ? "Unknown JVM" : name;
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static String summary(
-            boolean cracApiPresent,
-            boolean cracCapableJvm,
-            boolean checkpointOnRefresh,
-            boolean exitOnRefresh,
-            String checkpointTo) {
-        if (exitOnRefresh) {
-            return "spring.context.exit=onRefresh is active: Spring will exercise the checkpoint lifecycle stop phase "
-                    + "and exit without writing a checkpoint image. This is a safe dry run that works on a regular JDK.";
+            boolean api, boolean implementation, boolean checkpoint, boolean exit, boolean simulated) {
+        String result;
+        if (!api) {
+            result = "The org.crac API is not on the classpath; the org.crac:crac dependency version is "
+                    + "managed by the Spring Boot BOM. Runtime checkpoint support has not been verified.";
+        } else if (!implementation) {
+            result = "The org.crac API is present, but no CRaC implementation marker was observed. With the "
+                    + "unsupported org.crac 1.5 provider, checkpoint requests throw UnsupportedOperationException "
+                    + "without resource notifications; checkpointing is not a harmless no-op.";
+        } else {
+            result = "CRaC API and implementation markers were observed; operational checkpoint support is unverified.";
         }
-        if (!cracApiPresent) {
-            return "The org.crac API is not on the classpath; add the org.crac:crac dependency (its version is "
-                    + "managed by the Spring Boot BOM) to use Coordinated Restore at Checkpoint.";
+        if (simulated) {
+            result += " A simulation/pause engine option does not establish real checkpoint images.";
         }
-        if (!cracCapableJvm) {
-            return "The org.crac API is present but this JVM has no CRaC implementation, so checkpointing is a no-op. "
-                    + "Run on a CRaC-enabled JDK (for example Azul Zulu CRaC or BellSoft Liberica) to take checkpoints.";
+        if (checkpoint) {
+            result += " Checkpoint-on-refresh is configured (spring.context.checkpoint=onRefresh), "
+                    + "not proof of a pending or successful checkpoint.";
         }
-        if (checkpointOnRefresh) {
-            return "This JVM is CRaC-capable and spring.context.checkpoint=onRefresh is set, so an automatic "
-                    + "checkpoint is taken once the application context refreshes"
-                    + (checkpointTo == null ? "." : " into " + checkpointTo + ".");
+        if (exit) {
+            result += " Exit-on-refresh halts the JVM before lifecycle startup, not a cleanup dry run."
+                    + (checkpoint ? " Checkpoint is attempted first when both flags are configured." : "");
         }
-        return "This JVM is CRaC-capable. Trigger a checkpoint with jcmd <pid> JDK.checkpoint, or take one "
-                + "automatically on context refresh by setting spring.context.checkpoint=onRefresh as a JVM "
-                + "system property (-Dspring.context.checkpoint=onRefresh) or in a classpath spring.properties "
-                + "file. Setting it in application.yml/application.properties alone has no effect, since Spring "
-                + "Framework's checkpoint-on-refresh support reads this property through "
-                + "org.springframework.core.SpringProperties, not the Spring Boot Environment. Run the readiness "
-                + "checks below first.";
+        return result;
     }
 
-    private static Supplier<List<String>> defaultJvmArguments() {
-        return () -> {
-            try {
-                RuntimeMXBean runtimeMxBean = java.lang.management.ManagementFactory.getRuntimeMXBean();
-                return runtimeMxBean == null ? List.of() : runtimeMxBean.getInputArguments();
-            } catch (RuntimeException ex) {
-                return List.of();
-            }
-        };
-    }
-
-    /**
-     * Reads {@code spring.context.checkpoint} the same way Spring Framework's {@code
-     * DefaultLifecycleProcessor} does: through {@code org.springframework.core.SpringProperties}, which
-     * consults a JVM system property or a classpath {@code spring.properties} file, never the Spring
-     * Boot {@link Environment}.
-     */
-    private static Supplier<String> defaultSpringPropertySupplier(String name) {
-        return () -> {
-            try {
-                return SpringProperties.getProperty(name);
-            } catch (RuntimeException | LinkageError ex) {
-                return null;
-            }
-        };
-    }
-
-    private static boolean isClassPresent(String className) {
+    private static <T> T observe(Supplier<T> supplier, T fallback, String label, List<String> caveats) {
         try {
-            Class.forName(className, false, CracRuntimeStatusCollector.class.getClassLoader());
+            return supplier.get();
+        } catch (RuntimeException | LinkageError ex) {
+            caveats.add(label + " observation failed; this evidence is unknown.");
+            return fallback;
+        }
+    }
+
+    private static CracRuntimeInventory unavailableInventory() {
+        return CracRuntimeInventory.unavailable("Run readiness checks to collect resource evidence.");
+    }
+
+    private static boolean isClassPresent(String name, ClassLoader classLoader) {
+        try {
+            Class.forName(name, false, effectiveClassLoader(classLoader));
             return true;
-        } catch (Throwable ex) {
+        } catch (ClassNotFoundException ex) {
             return false;
         }
     }
 
-    /** Abstraction over classpath presence so the collector can be exercised deterministically in tests. */
+    /**
+     * Optional org.crac 1.5 public management API. No direct optional linkage, private reflection or
+     * newer Context.isImplemented call. A negative time means not restored; absence means unknown.
+     */
+    static Long restoreTime(ClassLoader classLoader) {
+        Class<?> type;
+        try {
+            type = Class.forName("org.crac.management.CRaCMXBean", false, effectiveClassLoader(classLoader));
+        } catch (ClassNotFoundException ex) {
+            return null;
+        }
+        return readRestoreTime(type);
+    }
+
+    static Long readRestoreTime(Class<?> type) {
+        try {
+            Object bean = type.getMethod("getCRaCMXBean").invoke(null);
+            Object result = type.getMethod("getRestoreTime").invoke(bean);
+            if (result instanceof Long time) {
+                return time;
+            }
+            throw new IllegalStateException("Public CRaC restore-time observation is unavailable.");
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException("Public CRaC restore-time observation failed.");
+        }
+    }
+
+    private static ClassLoader effectiveClassLoader(ClassLoader classLoader) {
+        return classLoader != null ? classLoader : ClassUtils.getDefaultClassLoader();
+    }
+
     interface ClassPresenceCheck {
         boolean isPresent(String className);
     }

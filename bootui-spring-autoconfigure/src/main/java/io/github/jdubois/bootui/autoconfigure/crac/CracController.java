@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.core.dto.CracReadinessReport;
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner.CracScanResult;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,11 +57,14 @@ public class CracController {
 
     @Autowired
     public CracController(
-            CracReadinessScanner scanner, ApplicationContext applicationContext, Environment environment) {
+            CracReadinessScanner scanner,
+            ApplicationContext applicationContext,
+            Environment environment,
+            ExposurePolicy exposure) {
         this(
                 scanner,
                 new CracRuntimeStatusCollector(
-                        environment, () -> CracRuntimeInventoryCollector.collect(applicationContext)),
+                        environment, scanner::latestRuntimeInventory, exposure, applicationContext.getClassLoader()),
                 ProjectSourceTree.forApplication(applicationContext));
     }
 

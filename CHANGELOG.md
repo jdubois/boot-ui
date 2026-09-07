@@ -74,6 +74,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **CRaC readiness now distinguishes evidence from verified lifecycle coverage.** Runtime checks remain useful when
+  application bytecode is unavailable, managed Spring clients and ambiguous Hikari/resource ownership are assessed
+  honestly, and precise file, scheduling, thread and time predicates reduce missed or misleading findings. Runtime
+  guidance no longer calls exit-on-refresh a safe cleanup dry run, and generated/sample checkpoint entrypoints preserve
+  incomplete data instead of deleting it automatically. The CRaC Compose sample disables automatic retries against
+  preserved failed checkpoints and documents explicit recovery. Stable rule IDs and Spring-only availability are unchanged
+  ([#960](https://github.com/jdubois/boot-ui/issues/960)).
+
 - **Vulnerabilities interprets OSV evidence for the installed Maven version rather than unrelated affected branches.**
   Applicable severity and verified newer fix candidates share a neutral interpreter, CVSS v3 vectors receive strict
   Base-only validation, and later OSV pagination failures retain earlier results with accurate completed-query counts.

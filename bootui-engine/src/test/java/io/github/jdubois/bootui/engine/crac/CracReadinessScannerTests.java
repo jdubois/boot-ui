@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.crac;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.CracFindingDto;
 import io.github.jdubois.bootui.core.dto.CracReadinessReport;
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
@@ -27,6 +28,23 @@ class CracReadinessScannerTests {
 
     private CracReadinessScanner scanner(List<String> basePackages, CracRuntimeInventory inventory) {
         return new CracReadinessScanner(() -> basePackages, new ClassFileCracImporter(), CLOCK, () -> inventory);
+    }
+
+    private CracReadinessScanner scannerFor(String fixtureName) {
+        return new CracReadinessScanner(
+                () -> List.of(FIXTURES),
+                packages -> {
+                    try {
+                        return new ClassFileImporter()
+                                .importClasses(Class.forName(
+                                        FIXTURES + "." + fixtureName,
+                                        false,
+                                        getClass().getClassLoader()));
+                    } catch (ClassNotFoundException ex) {
+                        throw new AssertionError("Missing test fixture", ex);
+                    }
+                },
+                CLOCK);
     }
 
     @Test
@@ -108,10 +126,10 @@ class CracReadinessScannerTests {
 
     @Test
     void managedLifecycleExemptsOnlyRestoreAcquisitionAndMatchingCleanup() {
-        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessScanner scanner = scannerFor("ManagedResourceLifecycle");
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
-        // Restore-time acquisition is exempt, while field checks still require compatible cleanup.
+        // Restore acquisition is exempt; compatible cleanup alone cannot prove field ownership/registration.
         assertThat(findingSamples(report, "CRAC-NET-001"))
                 .noneMatch(sample -> sample.contains("ManagedResourceLifecycle"));
         assertThat(findingSamples(report, "CRAC-FILE-001"))
@@ -119,14 +137,15 @@ class CracReadinessScannerTests {
         assertThat(findingSamples(report, "CRAC-THREAD-001"))
                 .noneMatch(sample -> sample.contains("ManagedResourceLifecycle"));
         assertThat(findingSamples(report, "CRAC-RES-001"))
-                .noneMatch(sample -> sample.contains("ManagedResourceLifecycle"));
+                .allMatch(sample -> sample.contains("compatible cleanup observed"))
+                .hasSize(2);
         assertThat(findingSamples(report, "CRAC-POOL-002"))
                 .anyMatch(sample -> sample.contains("ManagedResourceLifecycle"));
     }
 
     @Test
     void unmanagedLeakInAManagedClassIsStillFlagged() {
-        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessScanner scanner = scannerFor("ManagedClassWithUnrelatedLeak");
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
         // An overload named afterRestore is not the Resource callback and must not receive its exemption.
@@ -136,7 +155,7 @@ class CracReadinessScannerTests {
 
     @Test
     void acquisitionDuringBeforeCheckpointIsNotExempt() {
-        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessScanner scanner = scannerFor("ManagedBeforeCheckpointAcquisition");
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
         assertThat(findingSamples(report, "CRAC-NET-001"))
@@ -151,7 +170,7 @@ class CracReadinessScannerTests {
 
     @Test
     void overloadedCallbackDoesNotProvideCleanupEvidenceForResourceField() {
-        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessScanner scanner = scannerFor("ManagedClassWithoutCleanup");
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
         assertThat(findingSamples(report, "CRAC-RES-001"))
@@ -160,20 +179,20 @@ class CracReadinessScannerTests {
 
     @Test
     void cleanupDelegatedToAPrivateHelperMethodIsRecognizedAsEvidence() {
-        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
-        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
-
-        // A single hop (beforeCheckpoint -> helper -> close()) and a transitive chain
-        // (beforeCheckpoint -> helperA -> helperB -> close()) must both count as cleanup evidence.
-        assertThat(findingSamples(report, "CRAC-RES-001"))
-                .noneMatch(sample -> sample.contains("ManagedHelperDelegatedCleanup"));
-        assertThat(findingSamples(report, "CRAC-RES-001"))
-                .noneMatch(sample -> sample.contains("ManagedTransitiveHelperCleanup"));
+        for (String fixture : List.of("ManagedHelperDelegatedCleanup", "ManagedTransitiveHelperCleanup")) {
+            CracReadinessScanner scanner = scannerFor(fixture);
+            CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+            assertThat(findingSamples(report, "CRAC-RES-001"))
+                    .singleElement()
+                    .asString()
+                    .contains("compatible cleanup observed")
+                    .contains("registration unverified");
+        }
     }
 
     @Test
     void cyclicHelperDelegationWithoutCleanupIsStillFlaggedAndDoesNotHang() {
-        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessScanner scanner = scannerFor("ManagedCyclicHelperWithoutCleanup");
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
         // helperA()/helperB() call each other but never close the field; the visited-call guard
@@ -184,7 +203,7 @@ class CracReadinessScannerTests {
 
     @Test
     void delegationToANonPrivateSameClassHelperIsNotRecognizedAsEvidence() {
-        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessScanner scanner = scannerFor("ManagedPublicHelperNotRecognized");
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
         // Traversal is scoped to private helpers only; a public method could be called from
@@ -195,7 +214,7 @@ class CracReadinessScannerTests {
 
     @Test
     void delegationToADifferentClassIsNotRecognizedAsEvidence() {
-        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessScanner scanner = scannerFor("ManagedCrossClassHelperDelegation");
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
         // Only calls resolving to the same declaring class are followed; a collaborator class
@@ -325,7 +344,7 @@ class CracReadinessScannerTests {
     }
 
     @Test
-    void basePackageDetectionFailureDegradesToWarning() {
+    void basePackageDetectionFailurePreservesErrorAndWarning() {
         CracReadinessScanner scanner = new CracReadinessScanner(
                 () -> {
                     throw new IllegalStateException("boom");
@@ -335,7 +354,7 @@ class CracReadinessScannerTests {
 
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("ERROR");
         assertThat(report.warnings()).anyMatch(warning -> warning.contains("base packages could not be detected"));
     }
 
@@ -348,10 +367,10 @@ class CracReadinessScannerTests {
 
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("ERROR");
         assertThat(report.warnings())
-                .anyMatch(warning -> warning.contains("runtime inventory could not be collected")
-                        && warning.contains("inventory boom"));
+                .anyMatch(warning -> warning.contains("runtime inventory could not be collected"))
+                .noneMatch(warning -> warning.contains("inventory boom"));
     }
 
     @Test

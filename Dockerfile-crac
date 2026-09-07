@@ -3,23 +3,21 @@
 # Multi-stage Dockerfile for a CRaC (Coordinated Restore at Checkpoint) image of
 # the BootUI sample app.
 #
-# CRaC snapshots a fully warmed-up JVM process to disk and restores it in tens of
-# milliseconds. Its CRIU engine needs Linux kernel 5.9+ plus CHECKPOINT_RESTORE,
-# SYS_PTRACE, SYS_ADMIN (for Docker's default /proc restrictions), and NET_ADMIN
-# (to recreate network interfaces) to take and restore the checkpoint - see
-# docker-compose-crac.yml and bootui-spring-sample-app/README.md.
+# This JDK 21 recipe attempts a startup checkpoint after non-lazy singleton
+# initialization, before lifecycle start; it is not a fully warmed-up application.
+# Its CRIU-based setup uses Linux plus CHECKPOINT_RESTORE, SYS_PTRACE, SYS_ADMIN
+# (for Docker's default /proc restrictions), and NET_ADMIN (to recreate network
+# interfaces). These grant broad host access: use only for local development on
+# an isolated machine, never production or a shared host. See docker-compose-crac.yml
+# and bootui-spring-sample-app/README.md.
 #
-# Known upstream limitation: every CRaC JDK currently bundles the CRaC project's
-# CRIU fork, 3.17.1-crac, which cannot checkpoint a JVM on an AMX-capable Intel
-# CPU (Sapphire Rapids and newer). The dump aborts with "Can't set FPU registers
-# ...: Bad address"; this is checkpoint-restore/criu#2835, fixed upstream in CRIU
-# 4.x and not something this image can work around. Restoring an *existing*
-# checkpoint is unaffected - only taking one fails - and other CPUs (including
-# every arm64 host and AMD x86_64) are unaffected.
+# Checkpoint and restore compatibility depends on the exact JDK, bundled CRIU,
+# kernel and CPU features. Verify that combination rather than assuming that a
+# vendor name, architecture or inventory.img marker proves compatibility.
 #
 # The sample app runs with its default "dev" profile, which uses an in-memory H2
-# database (and an in-memory cache) instead of PostgreSQL/Redis, so the checkpoint
-# is taken with no open network sockets and restores cleanly out of the box. See
+# database (and an in-memory cache) instead of PostgreSQL/Redis, reducing external
+# dependencies without proving cleanup of resources opened during initialization. See
 # the README for the (more involved) external-services variant. For a faster
 # startup the sample database migrations are disabled by default (see below).
 #
@@ -32,7 +30,7 @@
 # between restarts, and -p publishes the port so the app is reachable from the host):
 #
 #   docker build -f Dockerfile-crac -t bootui-sample-app-crac .
-#   docker run --rm -p 8080:8080 \
+#   docker run --rm -p 127.0.0.1:8080:8080 \
 #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN --cap-add=NET_ADMIN \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -v bootui-sample-app-crac:/opt/crac/checkpoint bootui-sample-app-crac
@@ -45,7 +43,7 @@
 # so those panels have data to show. They are off by default for a faster boot; turn them back on
 # with Spring Boot's environment variables on the run that takes the checkpoint (they are frozen
 # into it):
-#   docker run --rm -p 8080:8080 \
+#   docker run --rm -p 127.0.0.1:8080:8080 \
 #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN --cap-add=NET_ADMIN \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
@@ -90,6 +88,7 @@ WORKDIR /app
 ENV CRAC_CHECKPOINT_DIR=/opt/crac/checkpoint
 ENV APP_JAR=/app/app.jar
 # Spring Boot's Hikari checkpoint lifecycle suspends new borrows before draining the pool.
+# This setting alone does not prove pool ownership or cleanup of early-opened resources.
 ENV SPRING_DATASOURCE_HIKARI_ALLOWPOOLSUSPENSION=true
 
 # Run the sample app with its "dev" profile *active* (not merely the default).
@@ -107,12 +106,10 @@ ENV SPRING_PROFILES_ACTIVE=dev
 ENV SPRING_FLYWAY_ENABLED=false
 ENV SPRING_LIQUIBASE_ENABLED=false
 
-# JVM tuning flags, applied by checkpoint-and-run.sh when the checkpoint is created (the first start)
-# and frozen into the CRaC image - a restore replays that JVM, so heap/GC flags cannot be changed on
-# a restore-only start. Mirrors the JVM image (Dockerfile) minus -XX:+UseCompactObjectHeaders, which
-# was introduced in JDK 24 and is unsupported here: BellSoft ships CRaC-enabled Liberica only for the
-# LTS releases (17 and 21), so this image stays on JDK 21. Override (and regenerate the checkpoint)
-# with -e JAVA_OPTS="...".
+# JVM tuning flags, applied by checkpoint-and-run.sh only when this recipe creates the checkpoint.
+# This entrypoint does not forward JAVA_OPTS during restore; regenerate the checkpoint after
+# changing them. Mirrors the JVM image (Dockerfile) minus -XX:+UseCompactObjectHeaders, which
+# was introduced in JDK 24 and is unsupported by this JDK 21 image. Override with -e JAVA_OPTS="...".
 ENV JAVA_OPTS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
 
 # Copy the repackaged, runnable Spring Boot jar (the glob skips the thin

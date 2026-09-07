@@ -11,4 +11,14 @@ interface CracCheck {
     CracCheckDefinition definition();
 
     CracFindingDto evaluate(CracContext context);
+
+    default Evidence evidence() {
+        return Evidence.BYTECODE;
+    }
+
+    enum Evidence {
+        BYTECODE,
+        RUNTIME,
+        BOTH
+    }
 }
