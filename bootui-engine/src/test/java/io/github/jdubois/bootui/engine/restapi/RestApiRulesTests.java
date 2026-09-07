@@ -205,13 +205,7 @@ class RestApiRulesTests {
         assertThat(status(new MutatingEndpointsDeclareMediaTypesRule(), context))
                 .isEqualTo("VIOLATION");
         RestApiRuleResultDto patchResult = new PatchUsesPatchMediaTypeRule().evaluate(context);
-        assertThat(patchResult.status()).isEqualTo("VIOLATION");
-        // RAPI-VER-004: the non-JSON (application/xml) PATCH handler is still flagged...
-        assertThat(patchResult.sampleViolations()).anyMatch(v -> v.contains("patchWidget "));
-        // ...but the plain application/json PATCH handler is a legitimate partial-update pattern
-        // (RFC 5789 §2 does not mandate merge-patch+json/json-patch+json) and must now PASS, so it
-        // must not appear among the sample violations.
-        assertThat(patchResult.sampleViolations()).noneMatch(v -> v.contains("patchWidgetJson"));
+        assertThat(patchResult.status()).isEqualTo("PASS");
     }
 
     @Test
@@ -225,7 +219,7 @@ class RestApiRulesTests {
     void phase2RulesFlagBadPhase2Controller() {
         RestApiContext context = context(false, PHASE2_BAD);
 
-        assertThat(status(new MutatingItemMethodsTargetResourceRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new MutatingItemMethodsTargetResourceRule(), context)).isEqualTo("SKIPPED");
         assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("VIOLATION");
         assertThat(status(new ResponseProducingEndpointsDeclareProducesRule(), context))
                 .isEqualTo("VIOLATION");
@@ -235,7 +229,7 @@ class RestApiRulesTests {
     void phase2RulesPassCleanPhase2Controller() {
         RestApiContext context = context(false, PHASE2_GOOD);
 
-        assertThat(status(new MutatingItemMethodsTargetResourceRule(), context)).isEqualTo("PASS");
+        assertThat(status(new MutatingItemMethodsTargetResourceRule(), context)).isEqualTo("SKIPPED");
         assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("PASS");
         assertThat(status(new ResponseProducingEndpointsDeclareProducesRule(), context))
                 .isEqualTo("PASS");
@@ -270,6 +264,7 @@ class RestApiRulesTests {
         RestApiRuleResultDto result = throwingRule.evaluate(context(false, FIXTURES));
         assertThat(result.status()).isEqualTo("ERROR");
         assertThat(result.sampleViolations()).isNotEmpty();
+        assertThat(result.sampleViolations()).noneMatch(detail -> detail.contains("boom"));
     }
 
     @Test
@@ -279,7 +274,7 @@ class RestApiRulesTests {
         assertThat(status(new DuplicatePathVariableTokenRule(), context)).isEqualTo("VIOLATION");
         assertThat(status(new CatchAllPatternRule(), context)).isEqualTo("VIOLATION");
         assertThat(status(new DeepResourceNestingRule(), context)).isEqualTo("VIOLATION");
-        assertThat(status(new FormatSuffixInPathRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new FormatSuffixInPathRule(), context)).isEqualTo("SKIPPED");
         assertThat(status(new UnboundedMapRequestParamRule(), context)).isEqualTo("VIOLATION");
         assertThat(status(new LegacyDateInDtoRule(), context)).isEqualTo("VIOLATION");
     }
@@ -291,7 +286,7 @@ class RestApiRulesTests {
         assertThat(status(new DuplicatePathVariableTokenRule(), context)).isEqualTo("PASS");
         assertThat(status(new CatchAllPatternRule(), context)).isEqualTo("PASS");
         assertThat(status(new DeepResourceNestingRule(), context)).isEqualTo("PASS");
-        assertThat(status(new FormatSuffixInPathRule(), context)).isEqualTo("PASS");
+        assertThat(status(new FormatSuffixInPathRule(), context)).isEqualTo("SKIPPED");
         assertThat(status(new UnboundedMapRequestParamRule(), context)).isEqualTo("PASS");
     }
 
@@ -299,11 +294,11 @@ class RestApiRulesTests {
     void phase3ErrorHandlingRulesFlagAndPass() {
         RestApiContext badContext = context(false, PHASE3_BAD);
 
-        // ERR-005: broad @ExceptionHandler(Exception.class) with fixed status.
-        assertThat(status(new BroadExceptionHandlerRule(), badContext)).isEqualTo("VIOLATION");
+        // A sole 500 fallback does not prove inappropriate status collapsing.
+        assertThat(status(new BroadExceptionHandlerRule(), badContext)).isEqualTo("PASS");
 
-        // ERR-006: @ResponseStatus exception (BizException) + ProblemDetail handler present.
-        assertThat(status(new ResponseStatusOnExceptionRule(), badContext)).isEqualTo("VIOLATION");
+        // The broad advice may handle the annotated exception; coexistence is not a contradiction.
+        assertThat(status(new ResponseStatusOnExceptionRule(), badContext)).isEqualTo("PASS");
 
         // Good fixtures: no broad catch-all advice.
         RestApiContext goodContext = context(false, PHASE3_GOOD);
@@ -313,10 +308,7 @@ class RestApiRulesTests {
 
     @Test
     void broadExceptionHandlerRuleAllowsA500FallbackButFlagsANon5xxCollapse() {
-        // Fix #4: a broad Exception/Throwable handler that coexists with a specific handler in the same
-        // advice, mapped to a 5xx status, is the CORRECT last-resort-fallback pattern (RFC 9110 §15.6.1)
-        // and must no longer be flagged — only a sole broad handler, or one mapped to a non-5xx status,
-        // is a real anti-pattern.
+        // Only a fixed non-5xx declaration is a review signal; 5xx and dynamic statuses are excluded.
         RestApiContext context = context(false, PHASE3_FIXES + ".broadexception");
         RestApiRuleResultDto result = new BroadExceptionHandlerRule().evaluate(context);
 
@@ -378,10 +370,7 @@ class RestApiRulesTests {
 
     @Test
     void idempotencyKeyRuleFlagsCreationEndpointWithoutHeaderAndPassesWithIt() {
-        // Part 2 #1: a POST creation endpoint with no Idempotency-Key header cannot be safely retried
-        // by a client after a network failure. The package also contains a Spring fixture WITH the
-        // header and a JAX-RS fixture WITH the header (via @HeaderParam) to prove both frameworks are
-        // recognised — neither should be reported as a violation.
+        // Absence of a header parameter is a policy review signal, not proof that retries are unsafe.
         RestApiContext context = context(false, NEWRULES_IDEMPOTENCY);
         RestApiRuleResultDto result = new IdempotencyKeyOnCreationEndpointsRule().evaluate(context);
 
@@ -394,17 +383,14 @@ class RestApiRulesTests {
     }
 
     @Test
-    void deprecatedEndpointRuleIsSkippedWithoutOpenApiAndFlagsMissingOperationDeprecatedFlag() {
-        // Part 2 #2: @Deprecated alone only reaches compile-time Java consumers; HTTP clients need the
-        // OpenAPI-visible deprecated flag. Gated on OpenAPI annotations being present, like RAPI-DOC-001/002.
+    void deprecatedEndpointRuleIsRetiredRegardlessOfOpenApiPresence() {
         RestApiRule rule = new DeprecatedEndpointsSignalDeprecationRule();
 
         assertThat(status(rule, context(false, NEWRULES_DEPRECATION))).isEqualTo("SKIPPED");
 
         RestApiRuleResultDto result = rule.evaluate(context(true, NEWRULES_DEPRECATION));
-        assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("DeprecatedWidgetController"));
-        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("DeprecatedWidgetResource"));
+        assertThat(result.status()).isEqualTo("SKIPPED");
+        assertThat(result.violationCount()).isZero();
     }
 
     @Test

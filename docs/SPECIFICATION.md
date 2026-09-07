@@ -746,6 +746,14 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
+- Calculate the same numeric score in the panel and Overview only for `SCANNED` reports with a valid severity
+  summary, `coverage.status=COMPLETE`, and no active UNKNOWN severity. NONE (CVSS zero) has no penalty; dismissed
+  UNKNOWN findings do not block scoring, but restoring them does. Missing coverage is unknown, not complete.
+  As with every scored advisor, PARTIAL displays Incomplete without a number, and ERROR/DISABLED/NOT_SCANNED never
+  score. Retain findings and diagnostic reports independently of eligibility. Overall averages and counts only
+  eligible scores, without changing the available-scanner total; report refresh after dismissal is GET-only.
+  Preserve the last accepted report on busy or transport failure, but replace its score when a new authoritative
+  incomplete or failed report arrives. Intentional rule inapplicability is not missing required evidence.
 - Derive severity only from OSV entries explicitly typed `CVSS_V3` and carrying a valid CVSS v3.0/v3.1 vector (per the
   FIRST.org specification), choosing the highest valid v3 Base Score when multiple entries exist. Prefer a
   package-level `affected[].severity` entry matching the scanned dependency over the advisory's top-level
@@ -2521,10 +2529,18 @@ Design rules:
   envelope whose `total` counts every item before the query and filters are applied and whose `matched` counts what they
   kept, so a non-zero `total` beside `matched: 0` is an empty query result rather than absent data; tool guidance states
   that distinction where a narrow query would otherwise be read as a missing value.
-- **Prompt surface.** `prompts/list` advertises two argument-free workflows: `diagnose_runtime_issue` for evidence-led
-  runtime diagnosis and `review_application` for a focused advisor review. `prompts/get` returns the selected workflow as
-  a user message. Both prompts require agents to distinguish evidence from hypotheses, avoid blind fixes, minimize active
-  scans, and include verification steps.
+- **Prompt surface.** `prompts/list` advertises three argument-free workflows: `diagnose_runtime_issue` for evidence-led
+  runtime diagnosis, `review_application` for a focused advisor review, and `assess_application` for a capability-aware
+  application assessment and prioritized action plan. `prompts/get` returns the selected workflow as a user message,
+  without executing scans or changes. All prompts distinguish evidence from hypotheses and avoid blind fixes.
+  The assessment starts with existing evidence, declares collection budgets, asks for an explicit fresh-scan scope
+  (separate approval for GC, loopback probes, external vulnerability queries, and database metadata inspection), and
+  reports unavailable, skipped, failed, stale, partial, or insufficient evidence honestly. Its versioned plan records
+  context, coverage, stable action IDs with evidence/risks/acceptance criteria, and an explicit approval stop.
+  Execution belongs to the external coding agent under its host's permissions: only approved actions may proceed,
+  changed context requires renewed approval, and a retained sanitized baseline supports reassessment after restart.
+  This adds no assessment tool, scheduler, browser approval interface, or code-execution endpoint. The BootUI skill
+  teaches the same workflow through existing MCP/CLI tools; see [AI agents](AI-AGENTS.md#assess-an-application-and-approve-an-action-plan).
 - **Same safety model as the panels.** The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host`
   allow-list, cross-site write protection). The dispatcher enforces per-panel access: read tools require the backing
   panel to be enabled, action tools are additionally refused when the panel is read-only or `bootui.read-only=true`.

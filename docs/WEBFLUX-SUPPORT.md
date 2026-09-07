@@ -199,13 +199,11 @@ assets still target a JVM process and Spring's checkpoint lifecycle; they do not
 
 :::
 
-[^spring-advisor-reactive]: The `SpringController` wiring needed no adapter change, but its ruleset
-    (`SpringScanner`/`SpringRules`) is reactive-aware internally. It detects a WebFlux `ReactiveWebApplicationContext`
-    the same way `PanelsController.isReactive()` does. It checks the active embedded server before evaluating
-    `SPRING-WEB-007` (the Tomcat thread cap, including reactive Tomcat), and matches `WebClient` beans for the
-    HTTP-client-timeout rule (`SPRING-WEB-005`). Four rules' "Learn more" links point at the reactive docs page instead
-    of the servlet one, and two WebFlux-only rules (`SPRING-REACTIVE-001`, `SPRING-REACTIVE-002`) that are otherwise
-    `SKIPPED` are added. See `docs/SPRING-CHECKS.md`.
+[^spring-advisor-reactive]: The Spring advisor uses the running MVC/WebFlux context and bounded non-eager bean
+    metadata. HTTP-client advice distinguishes Boot-managed defaults from unknown per-client settings, and
+    optimization opportunities are qualified to the observed stack. Reactive JDBC co-presence and explicitly
+    unlimited Boot codec aggregation are WebFlux-only checks; unavailable required evidence is reported as
+    unevaluated. See `docs/SPRING-CHECKS.md` for active and retired rules.
 
 ### 6.2 Adapted with a small new binding (3 panels)
 

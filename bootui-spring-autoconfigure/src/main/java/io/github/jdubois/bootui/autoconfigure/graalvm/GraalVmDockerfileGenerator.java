@@ -96,12 +96,12 @@ final class GraalVmDockerfileGenerator {
 
                 %3$s
 
-                # Build a "mostly static" native image: statically link everything (including zlib)
-                # except glibc, so the runtime image only needs a glibc base and no extra shared
-                # libraries. The native-image tool honors this via the NATIVE_IMAGE_OPTIONS environment
-                # variable, so it needs no build-file changes and leaves a local, host native build
-                # untouched.
-                ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC"
+                # Request a "mostly static" executable using the documented public option.
+                # Depending on the application, libstdc++/libgcc or dynamically loaded native
+                # libraries may still be needed. Inspect the executable's dependencies with ldd
+                # and exercise it in the final image before relying on this scaffold.
+                # NATIVE_IMAGE_OPTIONS affects this container build, not local host builds.
+                ENV NATIVE_IMAGE_OPTIONS="--static-nolibc"
 
                 # Build the native executable. This runs Spring Boot's AOT processing, downloads the
                 # GraalVM reachability metadata and then compiles the native image.
@@ -117,10 +117,10 @@ final class GraalVmDockerfileGenerator {
                     fi
 
                 # Runtime stage: Google "distroless" base. It ships glibc (and the dynamic loader) but
-                # no shell, package manager, curl, perl or tar - which removes the bulk of the
-                # OS-package CVEs a full Debian base otherwise carries. The binary above is built
-                # "mostly static", so glibc is the only shared library it needs and this base provides
-                # it. The :nonroot tag runs as an unprivileged user (uid 65532).
+                # no shell or package manager. It is a starting point, not a guarantee that all
+                # application-specific native libraries are present. If the executable needs
+                # libstdc++/libgcc, consider distroless/cc-debian12:nonroot or another compatible
+                # runtime. The :nonroot tag runs as an unprivileged user (uid 65532).
                 FROM gcr.io/distroless/base-debian12:nonroot
 
                 WORKDIR /app

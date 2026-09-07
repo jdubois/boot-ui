@@ -81,14 +81,16 @@ final class SpringRuleSupport {
         if (value == null) {
             return "No additional detail.";
         }
-        String sanitized = value.replaceAll("[\\r\\n\\t]+", " ").trim();
+        // Bound intermediate work too, not merely the eventual DTO sample.
+        String bounded = value.length() > MAX_DETAIL_CHARS ? value.substring(0, MAX_DETAIL_CHARS) : value;
+        String sanitized = bounded.replaceAll("[\\r\\n\\t]+", " ").trim();
         if (sanitized.isBlank()) {
             return "No additional detail.";
         }
-        if (sanitized.length() <= MAX_DETAIL_CHARS) {
+        if (value.length() <= MAX_DETAIL_CHARS) {
             return sanitized;
         }
-        return sanitized.substring(0, MAX_DETAIL_CHARS - 3) + "...";
+        return sanitized.substring(0, Math.min(sanitized.length(), MAX_DETAIL_CHARS - 3)) + "...";
     }
 
     private static List<String> samples(List<String> details) {

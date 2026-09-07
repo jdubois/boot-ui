@@ -46,6 +46,7 @@ import io.github.jdubois.bootui.quarkus.mcp.BootUiMcpProducer;
 import io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpEnvelope;
 import io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpFailureReporter;
 import io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpTools;
+import io.github.jdubois.bootui.quarkus.quarkusapp.QuarkusAppMetadataStore;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
 import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
@@ -96,6 +97,8 @@ import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageProxyDefinitionBuildItem;
 import io.quarkus.deployment.pkg.builditem.CurateOutcomeBuildItem;
 import io.quarkus.maven.dependency.ResolvedDependency;
+import io.quarkus.resteasy.reactive.server.deployment.ResteasyReactiveResourceMethodEntriesBuildItem;
+import io.quarkus.resteasy.reactive.server.deployment.SetupEndpointsResultBuildItem;
 import io.quarkus.resteasy.reactive.server.spi.PreExceptionMapperHandlerBuildItem;
 import io.quarkus.runtime.LaunchMode;
 import jakarta.inject.Singleton;
@@ -109,6 +112,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -117,7 +121,6 @@ import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.AnnotationValue;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
-import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.ParameterizedType;
@@ -728,33 +731,9 @@ class BootUiQuarkusProcessor {
         return capabilities.isPresent(Capability.AGROAL);
     }
 
-    private static final DotName APPLICATION_SCOPED =
-            DotName.createSimple("jakarta.enterprise.context.ApplicationScoped");
-    private static final DotName SINGLETON = DotName.createSimple("jakarta.inject.Singleton");
-    private static final DotName REQUEST_SCOPED = DotName.createSimple("jakarta.enterprise.context.RequestScoped");
-    private static final DotName DEPENDENT = DotName.createSimple("jakarta.enterprise.context.Dependent");
-    private static final DotName CONFIG_PROPERTY =
-            DotName.createSimple("org.eclipse.microprofile.config.inject.ConfigProperty");
     private static final DotName PATH = DotName.createSimple("jakarta.ws.rs.Path");
-    private static final DotName BLOCKING = DotName.createSimple("io.smallrye.common.annotation.Blocking");
-    private static final DotName CONFIG_MAPPING = DotName.createSimple("io.smallrye.config.ConfigMapping");
-    private static final DotName INJECT = DotName.createSimple("jakarta.inject.Inject");
-    private static final DotName REST_CLIENT =
-            DotName.createSimple("org.eclipse.microprofile.rest.client.inject.RestClient");
     private static final DotName REGISTER_REST_CLIENT =
             DotName.createSimple("org.eclipse.microprofile.rest.client.inject.RegisterRestClient");
-    private static final DotName RUN_ON_VIRTUAL_THREAD =
-            DotName.createSimple("io.smallrye.common.annotation.RunOnVirtualThread");
-
-    /**
-     * Quarkus REST (RESTEasy Reactive) dispatches a {@code @Transactional} method to a worker thread just
-     * like {@code @Blocking} does (see the Quarkus REST execution-model docs), so QA-RX-001 treats it as an
-     * equivalent guard against blocking the event loop.
-     */
-    private static final DotName TRANSACTIONAL = DotName.createSimple("jakarta.transaction.Transactional");
-
-    /** Bytecode access-flag bit for the {@code synchronized} method modifier ({@code ACC_SYNCHRONIZED}). */
-    private static final int ACC_SYNCHRONIZED = 0x0020;
 
     /** The seven JAX-RS HTTP-method annotations ({@code @GET}, {@code @POST}, …) by fully-qualified name. */
     private static final List<String> JAXRS_HTTP_METHODS = List.of(
@@ -765,26 +744,6 @@ class BootUiQuarkusProcessor {
             "jakarta.ws.rs.PATCH",
             "jakarta.ws.rs.HEAD",
             "jakarta.ws.rs.OPTIONS");
-
-    /**
-     * Quarkus REST automatically makes a resource request scoped when it uses one of these parameter field
-     * annotations, including annotations on a superclass. This mirrors Quarkus 3.33's
-     * {@code ANNOTATIONS_REQUIRING_FIELD_INJECTION} set.
-     */
-    private static final Set<DotName> REQUEST_SCOPE_FIELD_INJECTION_ANNOTATIONS = Set.of(
-            DotName.createSimple("jakarta.ws.rs.PathParam"),
-            DotName.createSimple("jakarta.ws.rs.QueryParam"),
-            DotName.createSimple("jakarta.ws.rs.HeaderParam"),
-            DotName.createSimple("jakarta.ws.rs.FormParam"),
-            DotName.createSimple("jakarta.ws.rs.MatrixParam"),
-            DotName.createSimple("jakarta.ws.rs.CookieParam"),
-            DotName.createSimple("org.jboss.resteasy.reactive.RestPath"),
-            DotName.createSimple("org.jboss.resteasy.reactive.RestQuery"),
-            DotName.createSimple("org.jboss.resteasy.reactive.RestHeader"),
-            DotName.createSimple("org.jboss.resteasy.reactive.RestForm"),
-            DotName.createSimple("org.jboss.resteasy.reactive.RestMatrix"),
-            DotName.createSimple("org.jboss.resteasy.reactive.RestCookie"),
-            DotName.createSimple("jakarta.ws.rs.BeanParam"));
 
     private static final DotName PRODUCES = DotName.createSimple("jakarta.ws.rs.Produces");
 
@@ -818,271 +777,30 @@ class BootUiQuarkusProcessor {
 
     private static final DotName CONSUMES = DotName.createSimple("jakarta.ws.rs.Consumes");
 
-    /**
-     * Captures build-time idiom counts for the Quarkus-native application advisor: CDI scope annotation counts,
-     * {@code @ConfigProperty} sites, {@code @ConfigMapping} interfaces, JAX-RS resources without an explicit scope,
-     * reactive ({@code Uni}/{@code Multi}/{@code RestMulti}/{@code CompletionStage}/{@code CompletableFuture}/
-     * {@code Flow.Publisher}/{@code Publisher}) endpoints without a {@code @Blocking} or {@code @Transactional}
-     * guard (Quarkus REST dispatches either annotation to a worker thread, so both count as a guard for QA-RX-001),
-     * shared mutable fields on {@code @ApplicationScoped} beans (QA-CDI-001) and on {@code @Singleton} beans
-     * (QA-CDI-003, excluding injected fields in both cases), public mutable fields on JAX-RS resources excluding
-     * those explicitly or automatically {@code @RequestScoped} (QA-CDI-002 — a fresh instance per request has no
-     * shared-state risk),
-     * {@code @RegisterRestClient} interfaces (QA-WEB-003), {@code @Scheduled} method count (QA-SCH-001, reusing
-     * {@link #scanScheduledTasks(IndexView)}), the Agroal capability (QA-RX-001/QA-DB-001), and JEP-491
-     * virtual-thread-pinning correlation (QA-PERF-002): {@code @RunOnVirtualThread} sites that are also declared
-     * {@code synchronized}, plus the build JDK's major version. The {@code synchronized}-count only sees the
-     * method-level modifier — Jandex does not index {@code synchronized(lock) { … }} blocks inside a method body,
-     * so this is a real but incomplete signal. Emitted as runtime config defaults the advisor reads. Dev/test
-     * only — skipped in {@link LaunchMode#NORMAL}.
-     */
+    /** Captures resolved, surviving Arc beans and registered REST methods without a late synthetic-bean cycle. */
     @BuildStep
     void registerAppIdioms(
             LaunchModeBuildItem launchMode,
             BeanArchiveIndexBuildItem beanArchiveIndex,
             ApplicationIndexBuildItem applicationIndex,
+            ValidationPhaseBuildItem validationPhase,
+            Optional<ResteasyReactiveResourceMethodEntriesBuildItem> resourceMethods,
+            Optional<SetupEndpointsResultBuildItem> endpoints,
             Capabilities capabilities,
-            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+            BuildProducer<GeneratedResourceBuildItem> generatedResources) {
         if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
             return;
         }
-        IndexView app = applicationIndex.getIndex();
-        IndexView beans = beanArchiveIndex.getIndex();
-        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                "bootui.internal.app.jdbc-datasource", Boolean.toString(hasJdbcDatasource(capabilities))));
-        emit(runtimeDefaults, "bootui.internal.app.application-scoped", classAnnotations(app, APPLICATION_SCOPED));
-        emit(runtimeDefaults, "bootui.internal.app.singleton", classAnnotations(app, SINGLETON));
-        emit(runtimeDefaults, "bootui.internal.app.request-scoped", classAnnotations(app, REQUEST_SCOPED));
-        emit(runtimeDefaults, "bootui.internal.app.dependent", classAnnotations(app, DEPENDENT));
-        emit(
-                runtimeDefaults,
-                "bootui.internal.app.config-property",
-                beans.getAnnotations(CONFIG_PROPERTY).size());
-        emit(runtimeDefaults, "bootui.internal.app.config-mapping", classAnnotations(app, CONFIG_MAPPING));
-        emit(
-                runtimeDefaults,
-                "bootui.internal.app.blocking",
-                app.getAnnotations(BLOCKING).size());
-
-        int endpoints = 0;
-        int reactive = 0;
-        int reactiveWithoutBlocking = 0;
-        for (String http : JAXRS_HTTP_METHODS) {
-            for (AnnotationInstance ann : app.getAnnotations(DotName.createSimple(http))) {
-                if (ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.METHOD) {
-                    endpoints++;
-                    MethodInfo method = ann.target().asMethod();
-                    if (isReactive(method.returnType())) {
-                        reactive++;
-                        // Quarkus REST dispatches a @Transactional method to a worker thread just like
-                        // @Blocking, so either annotation (method or class level) guards the event loop
-                        // (QA-RX-001).
-                        boolean guarded = method.hasAnnotation(BLOCKING)
-                                || method.declaringClass().hasAnnotation(BLOCKING)
-                                || method.hasAnnotation(TRANSACTIONAL)
-                                || method.declaringClass().hasAnnotation(TRANSACTIONAL);
-                        if (!guarded) {
-                            reactiveWithoutBlocking++;
-                        }
-                    }
-                }
-            }
-        }
-        emit(runtimeDefaults, "bootui.internal.app.endpoints", endpoints);
-        emit(runtimeDefaults, "bootui.internal.app.reactive-endpoints", reactive);
-        emit(runtimeDefaults, "bootui.internal.app.reactive-endpoints-without-blocking", reactiveWithoutBlocking);
-
-        int defaultScopeResources = 0;
-        for (AnnotationInstance ann : app.getAnnotations(PATH)) {
-            if (ann.target() == null || ann.target().kind() != AnnotationTarget.Kind.CLASS) {
-                continue;
-            }
-            ClassInfo cls = ann.target().asClass();
-            if (cls.declaredAnnotation(APPLICATION_SCOPED) == null
-                    && cls.declaredAnnotation(REQUEST_SCOPED) == null
-                    && cls.declaredAnnotation(SINGLETON) == null
-                    && cls.declaredAnnotation(DEPENDENT) == null) {
-                defaultScopeResources++;
-            }
-        }
-        List<String> publicResourceFields = publicResourceFieldsOf(app);
-        List<String> mutableFields = mutableFieldsOf(app, APPLICATION_SCOPED);
-        List<String> mutableSingletonFields = mutableFieldsOf(app, SINGLETON);
-        emit(runtimeDefaults, "bootui.internal.app.default-scope-resources", defaultScopeResources);
-        if (!mutableFields.isEmpty()) {
-            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                    "bootui.internal.app.mutable-fields", String.join(",", mutableFields)));
-        }
-        if (!mutableSingletonFields.isEmpty()) {
-            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                    "bootui.internal.app.mutable-singleton-fields", String.join(",", mutableSingletonFields)));
-        }
-        if (!publicResourceFields.isEmpty()) {
-            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                    "bootui.internal.app.public-resource-fields", String.join(",", publicResourceFields)));
-        }
-
-        emit(runtimeDefaults, "bootui.internal.app.rest-clients", classAnnotations(app, REGISTER_REST_CLIENT));
-        emit(
-                runtimeDefaults,
-                "bootui.internal.app.scheduled",
-                scanScheduledTasks(beans).size());
-
-        int virtualThreadSynchronized = virtualThreadSynchronizedSitesOf(app);
-        emit(runtimeDefaults, "bootui.internal.app.virtual-thread-synchronized", virtualThreadSynchronized);
-        emit(
-                runtimeDefaults,
-                "bootui.internal.app.jdk-major-version",
-                Runtime.version().feature());
-    }
-
-    /**
-     * Number of synchronized methods that run on a virtual thread due to a method- or class-level
-     * {@code @RunOnVirtualThread} annotation. A class-level annotation scans every method it covers.
-     */
-    static int virtualThreadSynchronizedSitesOf(IndexView app) {
-        int synchronizedSites = 0;
-        for (AnnotationInstance ann : app.getAnnotations(RUN_ON_VIRTUAL_THREAD)) {
-            if (ann.target() == null) {
-                continue;
-            }
-            if (ann.target().kind() == AnnotationTarget.Kind.METHOD) {
-                MethodInfo method = ann.target().asMethod();
-                if ((method.flags() & ACC_SYNCHRONIZED) != 0) {
-                    synchronizedSites++;
-                }
-            } else if (ann.target().kind() == AnnotationTarget.Kind.CLASS) {
-                for (MethodInfo method : ann.target().asClass().methods()) {
-                    if ((method.flags() & ACC_SYNCHRONIZED) != 0) {
-                        synchronizedSites++;
-                    }
-                }
-            }
-        }
-        return synchronizedSites;
-    }
-
-    static List<String> publicResourceFieldsOf(IndexView app) {
-        List<String> publicResourceFields = new ArrayList<>();
-        for (AnnotationInstance ann : app.getAnnotations(PATH)) {
-            if (ann.target() == null || ann.target().kind() != AnnotationTarget.Kind.CLASS) {
-                continue;
-            }
-            ClassInfo resource = ann.target().asClass();
-            if (isRequestScopedRestResource(resource, app)) {
-                continue;
-            }
-            for (FieldInfo field : resource.fields()) {
-                boolean isPublic = (field.flags() & 0x0001) != 0;
-                boolean isFinal = (field.flags() & 0x0010) != 0;
-                boolean isStatic = (field.flags() & 0x0008) != 0;
-                if (isPublic && !isStatic && !isFinal) {
-                    publicResourceFields.add(resource.simpleName() + "." + field.name());
-                }
-            }
-        }
-        return publicResourceFields;
-    }
-
-    private static boolean isRequestScopedRestResource(ClassInfo resource, IndexView app) {
-        if (resource.declaredAnnotation(REQUEST_SCOPED) != null) {
-            return true;
-        }
-        ClassInfo current = resource;
-        while (current != null) {
-            for (FieldInfo field : current.fields()) {
-                for (DotName annotation : REQUEST_SCOPE_FIELD_INJECTION_ANNOTATIONS) {
-                    if (field.hasAnnotation(annotation)) {
-                        return true;
-                    }
-                }
-            }
-            DotName parent = current.superName();
-            if (parent == null || parent.toString().equals("java.lang.Object")) {
-                return false;
-            }
-            current = app.getClassByName(parent);
-        }
-        return false;
-    }
-
-    /**
-     * Mutable, non-static, non-injected fields on every class annotated {@code scopeAnnotation}.
-     * Shared by QA-CDI-001 ({@code @ApplicationScoped}) and QA-CDI-003 ({@code @Singleton}) — both scopes are
-     * a single instance shared across threads, so a mutable field on either is unsynchronised shared state.
-     */
-    static List<String> mutableFieldsOf(IndexView app, DotName scopeAnnotation) {
-        List<String> result = new ArrayList<>();
-        for (AnnotationInstance ann : app.getAnnotations(scopeAnnotation)) {
-            if (ann.target() == null || ann.target().kind() != AnnotationTarget.Kind.CLASS) {
-                continue;
-            }
-            ClassInfo cls = ann.target().asClass();
-            for (FieldInfo f : cls.fields()) {
-                boolean isPublic = (f.flags() & 0x0001) != 0;
-                boolean isFinal = (f.flags() & 0x0010) != 0;
-                boolean isStatic = (f.flags() & 0x0008) != 0;
-                boolean injected =
-                        f.hasAnnotation(INJECT) || f.hasAnnotation(CONFIG_PROPERTY) || f.hasAnnotation(REST_CLIENT);
-                boolean mutableReference = !isKnownImmutableValueType(f.type(), app);
-                if (!isStatic && !injected && (!isFinal || (isPublic && mutableReference))) {
-                    result.add(cls.simpleName() + "." + f.name());
-                }
-            }
-        }
-        return result;
-    }
-
-    private static boolean isKnownImmutableValueType(Type type, IndexView index) {
-        if (type.kind() == Type.Kind.PRIMITIVE) {
-            return true;
-        }
-        DotName name = type.name();
-        if (name == null) {
-            return false;
-        }
-        String value = name.toString();
-        if (value.equals("java.lang.String")
-                || value.equals("java.lang.Boolean")
-                || value.equals("java.lang.Byte")
-                || value.equals("java.lang.Character")
-                || value.equals("java.lang.Double")
-                || value.equals("java.lang.Float")
-                || value.equals("java.lang.Integer")
-                || value.equals("java.lang.Long")
-                || value.equals("java.lang.Short")
-                || value.equals("java.math.BigDecimal")
-                || value.equals("java.math.BigInteger")
-                || value.equals("java.util.UUID")
-                || value.startsWith("java.time.")) {
-            return true;
-        }
-        ClassInfo classInfo = index.getClassByName(name);
-        return classInfo != null && classInfo.isEnum();
-    }
-
-    static int classAnnotations(IndexView index, DotName annotation) {
-        int n = 0;
-        for (AnnotationInstance ann : index.getAnnotations(annotation)) {
-            if (ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.CLASS) {
-                n++;
-            }
-        }
-        return n;
-    }
-
-    static boolean isReactive(Type returnType) {
-        if (returnType == null) {
-            return false;
-        }
-        String name = returnType.name().toString();
-        return name.equals("io.smallrye.mutiny.Uni")
-                || name.equals("io.smallrye.mutiny.Multi")
-                || name.equals("org.jboss.resteasy.reactive.RestMulti")
-                || name.equals("java.util.concurrent.CompletionStage")
-                || name.equals("java.util.concurrent.CompletableFuture")
-                || name.equals("java.util.concurrent.Flow$Publisher")
-                || name.equals("org.reactivestreams.Publisher");
+        var metadata = QuarkusAppMetadataCollector.collect(
+                applicationIndex.getIndex(),
+                beanArchiveIndex.getIndex(),
+                validationPhase.getContext().beans(),
+                validationPhase.getContext().getInjectionPoints(),
+                resourceMethods,
+                endpoints,
+                capabilities);
+        generatedResources.produce(new GeneratedResourceBuildItem(
+                QuarkusAppMetadataStore.RESOURCE_NAME, QuarkusAppMetadataStore.encode(metadata)));
     }
 
     /**
@@ -1322,6 +1040,32 @@ class BootUiQuarkusProcessor {
                 runtimeDefaults,
                 QuarkusPanelAvailability.HIBERNATE_PRESENT_KEY,
                 HIBERNATE_PRODUCER_CLASS);
+    }
+
+    @BuildStep
+    void registerHibernatePanacheFacts(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            CurateOutcomeBuildItem curateOutcome,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL || !capabilities.isPresent(Capability.HIBERNATE_ORM))
+            return;
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.hibernate-panache-enhancement",
+                Boolean.toString(
+                        hasPanacheExtension(curateOutcome.getApplicationModel().getRuntimeDependencies()))));
+    }
+
+    static boolean hasPanacheExtension(Iterable<ResolvedDependency> dependencies) {
+        for (ResolvedDependency dependency : dependencies) {
+            // Only a resolved Quarkus extension proves the platform transformation is installed.
+            // A matching API class on the runtime classpath does not.
+            if (dependency.isRuntimeExtensionArtifact()
+                    && "io.quarkus".equals(dependency.getGroupId())
+                    && Set.of("quarkus-hibernate-orm-panache", "quarkus-hibernate-orm-panache-kotlin")
+                            .contains(dependency.getArtifactId())) return true;
+        }
+        return false;
     }
 
     /**

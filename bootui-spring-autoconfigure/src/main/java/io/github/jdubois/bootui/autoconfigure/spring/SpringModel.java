@@ -12,7 +12,22 @@ final class SpringModel {
 
     /** A managed bean of interest and candidate metadata available in the read-only snapshot. */
     record BeanRef(
-            String name, boolean primary, boolean autowireCandidate, boolean fallback, boolean defaultCandidate) {
+            String name,
+            boolean primary,
+            boolean autowireCandidate,
+            boolean fallback,
+            boolean defaultCandidate,
+            boolean metadataKnown,
+            List<String> aliases,
+            String group) {
+
+        BeanRef {
+            aliases = List.copyOf(aliases);
+        }
+
+        BeanRef(String name, boolean primary, boolean autowireCandidate, boolean fallback, boolean defaultCandidate) {
+            this(name, primary, autowireCandidate, fallback, defaultCandidate, true, List.of(), "");
+        }
 
         BeanRef(String name, boolean primary) {
             this(name, primary, true, false, true);
@@ -29,8 +44,12 @@ final class SpringModel {
 
     /** Whether the primary, fallback, and default-candidate metadata resolves a single bean. */
     static boolean hasResolvedCandidateMetadata(List<BeanRef> refs) {
-        List<BeanRef> candidates =
-                refs.stream().filter(BeanRef::autowireCandidate).toList();
+        if (refs.stream().anyMatch(ref -> !ref.metadataKnown())) {
+            return false;
+        }
+        List<BeanRef> candidates = refs.stream()
+                .filter(ref -> ref.autowireCandidate() && ref.defaultCandidate())
+                .toList();
         if (candidates.size() < 2) {
             return true;
         }
@@ -53,7 +72,7 @@ final class SpringModel {
     static boolean hasName(List<BeanRef> refs, String... names) {
         for (BeanRef ref : refs) {
             for (String name : names) {
-                if (name.equals(ref.name())) {
+                if (name.equals(ref.name()) || ref.aliases().contains(name)) {
                     return true;
                 }
             }
