@@ -40,6 +40,8 @@ final class RestApiModel {
         static final String REST_CONTROLLER_ADVICE = "org.springframework.web.bind.annotation.RestControllerAdvice";
         static final String RESPONSE_ENTITY_EXCEPTION_HANDLER =
                 "org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler";
+        static final String REACTIVE_RESPONSE_ENTITY_EXCEPTION_HANDLER =
+                "org.springframework.web.reactive.result.method.annotation.ResponseEntityExceptionHandler";
         static final String HTTP_SERVLET_RESPONSE = "jakarta.servlet.http.HttpServletResponse";
         static final String REACTIVE_SERVER_HTTP_RESPONSE =
                 "org.springframework.http.server.reactive.ServerHttpResponse";
@@ -139,10 +141,15 @@ final class RestApiModel {
             boolean hasTag,
             boolean hidden,
             boolean declaredOnInterface,
-            int handlerCount) {
+            int handlerCount,
+            Framework framework) {
 
         ControllerModel {
             typeLevelPaths = List.copyOf(typeLevelPaths);
+        }
+
+        boolean jaxRs() {
+            return framework == Framework.JAX_RS;
         }
     }
 
@@ -201,7 +208,11 @@ final class RestApiModel {
             String paginationParamFamily,
             boolean hasIdempotencyKeyHeader,
             boolean isDeprecated,
-            boolean operationMarkedDeprecated) {
+            boolean operationMarkedDeprecated,
+            Framework framework,
+            List<String> versionBindings,
+            boolean returnsBodyEnvelope,
+            boolean returnsStream) {
 
         HandlerMethodModel {
             httpMethods = List.copyOf(httpMethods);
@@ -214,6 +225,11 @@ final class RestApiModel {
             params = List.copyOf(params);
             headers = List.copyOf(headers);
             pathVariableNames = List.copyOf(pathVariableNames);
+            versionBindings = List.copyOf(versionBindings);
+        }
+
+        boolean jaxRs() {
+            return framework == Framework.JAX_RS;
         }
 
         String describe() {
@@ -242,12 +258,15 @@ final class RestApiModel {
             boolean rendersBody,
             List<String> handledExceptionTypes,
             List<String> produces,
-            boolean readsStackTrace,
-            boolean printsStackTrace) {
+            Framework framework) {
 
         ExceptionHandlerModel {
             handledExceptionTypes = List.copyOf(handledExceptionTypes);
             produces = List.copyOf(produces);
+        }
+
+        boolean jaxRs() {
+            return framework == Framework.JAX_RS;
         }
     }
 

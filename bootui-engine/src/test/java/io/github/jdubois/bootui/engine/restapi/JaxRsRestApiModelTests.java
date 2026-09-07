@@ -242,14 +242,16 @@ class JaxRsRestApiModelTests {
                 .filter(h -> h.methodName().equals("getByHeader"))
                 .findFirst()
                 .orElseThrow();
-        assertThat(headerHandler.headers()).contains("Api-Version");
+        assertThat(headerHandler.headers()).isEmpty();
+        assertThat(headerHandler.versionBindings()).contains("header:Api-Version");
         assertThat(RestApiRuleHelp.hasVersionSignal(headerHandler)).isTrue();
 
         HandlerMethodModel queryHandler = model.handlers().stream()
                 .filter(h -> h.methodName().equals("getByQuery"))
                 .findFirst()
                 .orElseThrow();
-        assertThat(queryHandler.params()).contains("version");
+        assertThat(queryHandler.params()).isEmpty();
+        assertThat(queryHandler.versionBindings()).contains("query:version");
         assertThat(RestApiRuleHelp.hasVersionSignal(queryHandler)).isTrue();
     }
 

@@ -13,4 +13,12 @@ public class ClassGraph {
     public Object scan() {
         return new Object();
     }
+
+    public Object scanAsync(java.util.concurrent.ExecutorService executor, int workers) {
+        return new Object();
+    }
+
+    public String getClasspath() {
+        return "";
+    }
 }

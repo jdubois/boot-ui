@@ -19,7 +19,7 @@ The advisor is explicitly **not applicable on Quarkus**. Quarkus performs native
 build-time augmentation, so BootUI keeps the panel unavailable with a platform-specific explanation instead of exposing
 this Spring-oriented scan or its generated files.
 
-## 2026 readiness audit
+## Earlier 2026 readiness audit
 
 The catalogue was audited check by check against current GraalVM Native Image documentation and source, Spring
 Framework 7 / Spring Boot 4.1 AOT documentation, the GraalVM tracing agent and reachability-metadata repository, and the
@@ -74,6 +74,82 @@ The removed initialization checks remain useful review topics when a build expli
 cannot recover string argument values or data flow, proxy interface arrays, Unsafe target classes, JNI calls made inside
 native code, FFM memory layouts, native-image build flags, or the exact profiles/properties used during Spring AOT.
 
+## Follow-up precision audit
+
+The follow-up audit in [#958](https://github.com/jdubois/boot-ui/issues/958) reviewed **all 27 active checks**, the
+three retired IDs, and the collection/report/metadata/Docker/install paths. It uses the project's **Spring Boot 4.1.1**
+baseline, Spring Framework 7.0.9, Spring Security 7.1.1, and release-pinned GraalVM 25.0.0 sources. Boot 4.0.8 was
+consulted only as historical comparison. Java 17 application bytecode remains supported; Boot 4 native compilation
+requires GraalVM 25+, independently of the JVM on which BootUI runs.
+
+| Active ID | Disposition | Evidence and boundary |
+| --- | --- | --- |
+| `GRAAL-REFLECT-001` | Update guidance | Constant analysis and framework hints can cover calls; a Spring-managed bean is not a guarantee that every custom reflective member access is covered. |
+| `GRAAL-REFLECT-002` | Update guidance | Name lookup within the image differs from loading genuinely new bytecode; experimental support is distribution/release-specific. |
+| `GRAAL-REFLECT-003` | Retain | Deep access remains review evidence; metadata and module opens solve different problems. |
+| `GRAAL-REFLECT-004` | Retain | Member-annotation queries remain a low-severity prompt, not complete AnnotatedElement coverage. |
+| `GRAAL-REFLECT-005` | Retain | Actual Unsafe allocation needs target-specific review; no target is invented. |
+| `GRAAL-PROXY-001` | Retain | Preserve constant-array and Spring AOT caveats; metadata needs the actual ordered interface combination. |
+| `GRAAL-RES-001` | Retain | Constant resources may be registered automatically; computed names and final embedding remain unknown. |
+| `GRAAL-RES-002` | Retain | The modern bundle entry is valid; required locales must be verified separately. |
+| `GRAAL-SER-001` | Retain INFO | Serializable is an inventory marker, not proof that an object is serialized or missing hints. |
+| `GRAAL-SER-002` | Retain | Actual object-stream operations need review; Java serialization is distinct from JSON binding. |
+| `GRAAL-NATIVE-001` | Retain | Library loading is supported; packaging, symbols and callbacks need workload-specific validation. |
+| `GRAAL-NATIVE-002` | Retain | Native declarations do not identify native-to-Java callbacks; no inferred JNI registrations. |
+| `GRAAL-CLASSGEN-001` | Update guidance | GraalVM 25.0.0 runtime loading only supports trivial classes without fields or methods; master documentation is not a general workaround. |
+| `GRAAL-JDK-001` | Retain | Runtime javac lookup is not supplied by an ordinary closed-world executable. |
+| `GRAAL-JDK-002` | Retain | A documented engine-specific native integration may work; service discovery alone is not the problem. |
+| `GRAAL-SCAN-001` | Update detection | Match actual ClassGraph/Reflections scan/discovery operations, not configuration or existing-result consumption. Execution phase remains unknown. |
+| `SPRING-AOT-001` | Retain | Singleton objects cannot contribute generated bean construction; supported bean-definition registration remains the remedy. |
+| `SPRING-AOT-002` | Update guidance | Hints alone cannot repair opaque-supplier code-generation rejection; use supported definitions or an AOT contribution. |
+| `SPRING-AOT-003` | Retain | Conditions changing bean presence freeze at AOT time; improved explicit bean-reference classification stays separate in 005. |
+| `SPRING-AOT-005` | Update detection | Recognize quoted names and factory dereferences after `@`/`&`, while ignoring quoted text and `&&`. |
+| `SPRING-AOT-004` | Retain | Secondary contexts need review; build-time AOT harnesses are not proven runtime failures. |
+| `GRAAL-SPEL-001` | Update guidance | Annotation-driven SpEL can also require application-specific hints; neither parsing style establishes native compatibility. |
+| `GRAAL-MH-001` | Retain | Explicit lookups remain useful signals subject to constant analysis. |
+| `GRAAL-SEC-001` | Retain | Actual provider registration is stronger evidence than an unused subclass; migration flags remain version-dependent. |
+| `GRAAL-JMX-001` | Retain | Monitoring and standard-interface metadata remain explicit, experimental configuration. |
+| `GRAAL-JMX-002` | Retain | Dynamic/model MBeans remain unsupported; preserve the supported StandardMBean exclusion. |
+| `GRAAL-FFM-001` | Retain | Actual call-handle creation matters, not passive FFM types; descriptors and native-access permission are separate. |
+
+`GRAAL-SERVICE-001`, `GRAAL-INIT-001`, and `GRAAL-INIT-002` **remain retired** for the reasons in the earlier audit.
+No speculative additions are made: absent handwritten JSON, a metadata-free JAR, an interface-returning bean method,
+or the current JVM version does not alone establish a native-readiness defect.
+
+### Output and collection dispositions
+
+| Surface | Disposition |
+| --- | --- |
+| Base-package collection, lazy factory and shared ArchUnit import | Retained, on demand and application-package-scoped; this is not a native reachability graph or a hard class-count/time ceiling. |
+| Registry, error findings, sorting, sample masking, DTOs and dismissals | Retained with 27 stable IDs; report wording explicitly distinguishes observations from execution and hint coverage. |
+| Passive record/JPA/Serializable candidates and broad member entries | Retained as optional scaffolding, not evidence of need or completeness. Existing AOT/binding hints can overlap. |
+| JSON generation, proxy/Unsafe/FFM completion guidance and inferred JNI | Retained modern shapes, escaping and deterministic entries; no fabricated interface arrays, descriptors or callback targets. |
+| Self-`typeReached` guards | Retained with an explicit first-use limitation below. Blindly removing guards could retain unused or optional types; a semantic redesign needs isolated native fixtures. |
+| Resource defaults | Retained conventional globs, not discovered resource accesses or verified locale coverage. |
+| Bundled metadata and repository lookup | Retained bounded, opt-out transport and exact/tested/default-for matching. File presence or repository selection is not proof of validity, build inclusion or compatibility. |
+| Nested dependency inspection | Corrected to apply the remaining 500-library budget before opening nested streams; exactly full inputs do not falsely claim omitted entries. |
+| Metadata/Docker/combined writes | Retained explicit actions, non-clashing additional-hints path, packaged-run exclusion, confinement and user-file preservation. |
+| Docker generation | Retained build variants/images; uses the documented public option spelling and qualifies remaining shared-library requirements. |
+| MVC/WebFlux, MCP/CLI, Vue and availability | Retained shared report/actions and command names; MCP scan excludes dependency lookup. Quarkus and already-native remain not applicable. |
+| BootUI's own runtime hints | Retained separately; they are not a complete host-application hint inventory. |
+
+Remaining unknowns include dead/unreachable code, actual arguments and execution phases, custom/composed property-driven
+SpEL, effective AOT configuration, external metadata activation, native initialization policy, and native-library
+deployment. Repository coverage also relies on heuristic coordinates for ambiguous shaded archives and a conventional
+metadata-file link. These are not silently promoted to compatibility verdicts.
+
+Version-pinned evidence for the corrections:
+
+- [Spring AOT and hint boundaries](https://github.com/spring-projects/spring-framework/blob/v7.0.9/framework-docs/modules/ROOT/pages/core/aot.adoc)
+  and [opaque supplier rejection](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-beans/src/main/java/org/springframework/beans/factory/aot/DefaultBeanRegistrationCodeFragments.java).
+- [SpEL bean references](https://github.com/spring-projects/spring-framework/blob/v7.0.9/framework-docs/modules/ROOT/pages/core/expressions/language-ref/bean-references.adoc)
+  and [Spring Security annotation-driven native hints](https://github.com/spring-projects/spring-security/blob/7.1.1/docs/modules/ROOT/pages/native-image/method-security.adoc).
+- [ClassGraph operations](https://github.com/classgraph/classgraph/blob/classgraph-4.8.184/src/main/java/io/github/classgraph/ClassGraph.java)
+  and [Reflections scanning versus stored metadata](https://github.com/ronmamo/reflections/blob/0.10.2/src/main/java/org/reflections/Reflections.java).
+- [GraalVM 25.0.0 reachability semantics](https://github.com/oracle/graal/blob/vm-25.0.0/docs/reference-manual/native-image/ReachabilityMetadata.md),
+  [runtime-loading limitations](https://github.com/oracle/graal/blob/vm-25.0.0/substratevm/docs/runtime-class-loading.md),
+  and [mostly-static executable guidance](https://github.com/oracle/graal/blob/vm-25.0.0/docs/reference-manual/native-image/guides/build-static-and-mostly-static-executable.md).
+
 ## What BootUI does
 
 The scanner detects the host application's base package(s) from the `@SpringBootApplication` configuration via
@@ -90,7 +166,7 @@ In addition to the checks, the scan does two things:
   `resource-config.json`, `proxy-config.json`, `serialization-config.json`, `jni-config.json`, and
   `predefined-classes-config.json`); arbitrary JSON does not count. A JAR that only has `native-image.properties` is
   reported as bundling native-image build arguments, not reachability metadata. The survey opens only classpath JARs,
-  stops after 500 JARs,
+  stops before opening nested libraries beyond its remaining 500-JAR budget,
   and adds a warning when that cap is hit; libraries without bundled metadata may need your own configuration, repository
   metadata, or the tracing agent. A single classpath entry can expand into several reported dependencies: when the
   application runs as a Spring Boot fat/uber jar, `java.class.path` only ever contains the outer launcher jar (Spring
@@ -119,8 +195,10 @@ In addition to the checks, the scan does two things:
   command (`./mvnw`/`mvn -Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`), then packages the
   resulting executable (named after the resolved `artifactId`) into a minimal, distroless runtime image
   (`gcr.io/distroless/base-debian12:nonroot`). That base runs as a non-root user and ships glibc but no shell, package
-  manager, curl, perl or tar, so the runtime's OS-package CVE surface stays near zero; the native image is built *mostly
-  static* (only glibc is linked dynamically) so it needs no extra libraries. Because distroless has no shell or curl
+  manager, curl, perl or tar. The native image requests *mostly static* linking with `--static-nolibc`, but some
+  applications still need `libstdc++`, `libgcc`, or dynamically loaded native libraries. Inspect the executable's
+  dependencies and exercise it in the exact runtime image; use a compatible runtime with the needed libraries.
+  Because distroless has no shell or curl
   there is no Docker `HEALTHCHECK` - probe `/actuator/health` (or the web root) from your orchestrator instead. When
   the project carries no wrapper, the build stage installs a known, pinned
   Maven/Gradle release (declared as a constant in the generator and exposed as a Docker `ARG`) so the image is
@@ -152,8 +230,10 @@ native-image configuration.
 - It does not analyze third-party dependency bytecode for readiness; for dependencies it only reports whether classpath
   JARs ship bundled reachability metadata JSON or native-image build arguments.
 - It does not modify, compile, or instrument application code; it reads already-compiled bytecode.
-- Spring-managed beans are already covered by Spring AOT, so findings that overlap with Spring's own AOT processing may
-  be safe to ignore.
+- Spring AOT covers supported framework contracts, not every reflective operation in a Spring-managed bean. Compare
+  findings with the actual generated/custom/dependency hints before deciding that they are already covered.
+- Imported call sites may be dead code or run only during build-time AOT processing. BootUI does not establish their
+  native-image reachability or execution phase.
 
 ## Detecting missing metadata at development time
 
@@ -184,8 +264,9 @@ practice to pair with the panel's static checks, not as another unconditional ch
 
 ## The generated `reachability-metadata.json`
 
-The scaffold follows the GraalVM 25 unified
-[reachability metadata schema](https://github.com/oracle/graal/blob/master/docs/reference-manual/native-image/assets/reachability-metadata-schema-v1.2.0.json).
+The scaffold uses the common subset of the
+[GraalVM 25.0.0 schema 1.1.0](https://github.com/oracle/graal/blob/vm-25.0.0/docs/reference-manual/native-image/assets/reachability-metadata-schema-v1.1.0.json)
+and the [current schema 1.2.0](https://www.graalvm.org/docs/reference-manual/native-image/assets/reachability-metadata-schema-v1.2.0.json).
 Serialization is represented by `serializable: true` on a reflection registration (not a top-level `serialization`
 array). BootUI does **not** mark Java `native` declarations `jniAccessible`: those declarations receive their
 Java-to-native wrappers automatically, while the native-to-Java callbacks that do need JNI metadata are not observable
@@ -193,6 +274,13 @@ in Java bytecode. Each named type carries a `condition.typeReached` guard. Refle
 and `Serializable` types plus JPA entities and mapped superclasses, including abstract persistence base types. Resource
 globs cover
 `application*.properties` / `application*.yml` / `application*.yaml`, `logback-spring.xml`, and `log4j2-spring.xml`.
+
+**Review first-use conditions.** A class literal does not satisfy `typeReached`. Reflective name lookup or serialization
+descriptor lookup can need metadata before the target class is initialized, so a self-guarded entry may be inactive
+when first needed. Use an owning feature reached before that access, or a narrowly justified unconditional entry.
+Do not remove every guard blindly: these broad, passive candidates can include unused or optional types. Existing
+framework hints or build-time initialization can mask this ordering problem; an isolated native first-use test is
+needed before relying on a changed guard policy.
 
 Static bytecode analysis cannot reliably recover runtime-computed proxy interface arrays, the `Class` argument passed to
 `Unsafe.allocateInstance`, or FFM `FunctionDescriptor` layouts. When those checks fire, the generated file therefore
@@ -243,15 +331,16 @@ a handful of sample detail lines.
 - **Fires when**: an application class uses those reflection APIs; constant targets may be resolved by native-image, but
   runtime-computed reflective targets need explicit metadata.
 - **Recommendation**: register the reflectively accessed types in `reachability-metadata.json`, or for application code
-  register them with Spring's RuntimeHints (e.g. via `@ImportRuntimeHints` / `RuntimeHintsRegistrar`). Spring AOT already
-  covers Spring-managed beans.
+  register them with Spring's RuntimeHints (e.g. via `@ImportRuntimeHints` / `RuntimeHintsRegistrar`), after reviewing
+  existing hints. Spring AOT covers known framework contracts, not all custom reflective accesses in managed beans.
 
 ### GRAAL-REFLECT-002 - Dynamic class loading may need reflection metadata
 
 - **Severity**: MEDIUM
 - **Inspects**: calls to `ClassLoader.loadClass`.
 - **Fires when**: an application class loads a class by name at run time. Native Image can resolve some constant calls;
-  runtime-computed names need metadata or experimental run-time class loading.
+  runtime-computed lookups within the image may need metadata. Loading new bytecode is a separate, release-dependent
+  experimental capability, not a general metadata remedy.
 - **Recommendation**: register the dynamically loaded types under `reflection` in `reachability-metadata.json`, or
   replace `ClassLoader.loadClass` with direct class literals where possible.
 
@@ -323,7 +412,7 @@ a handful of sample detail lines.
 - **Fires when**: a class loads a localized resource bundle whose `.properties` files must be embedded in the native
   image.
 - **Recommendation**: add each bundle base name as a `resources` entry with a `bundle` field in
-  `reachability-metadata.json` so native-image includes every locale variant.
+  `reachability-metadata.json`, and verify the locales required in deployment separately.
 
 ## Serialization
 
@@ -394,16 +483,17 @@ a handful of sample detail lines.
 - **Inspects**: runtime bytecode/class generation (`ClassLoader.defineClass`, `MethodHandles.Lookup.defineClass` /
   `defineHiddenClass` / `defineHiddenClassWithClassData`, Unsafe `defineClass` / `defineAnonymousClass`, CGLIB `Enhancer`,
   ByteBuddy, Javassist).
-- **Fires when**: a class generates or defines classes at run time. Current GraalVM source includes experimental
-  `-H:+RuntimeClassLoading` support (with optional JIT and reachability-preservation configuration). The native-image agent's
+- **Fires when**: a class contains generation/definition calls. GraalVM 25.0.0 documents experimental runtime loading
+  for trivial classes without fields or methods; current development-source capabilities must not be assumed for
+  every GraalVM 25 distribution. The native-image agent's
   experimental ["Predefined Classes"](https://www.graalvm.org/latest/reference-manual/native-image/metadata/ExperimentalAgentOptions/)
   mode (`experimental-class-define-support`) can trace and replay a bounded set of previously-seen classes, but it is
   best-effort: it replays only the exact bytecode traced ahead of time, allows only one class definition per class
   loader per execution, has no build-time-initialization support, and cannot help when classes are generated with
   varying names or bytecode (e.g. driven by counters or timestamps) — so it is a narrow escape hatch, not a general fix.
 - **Recommendation**: generate classes at build time (e.g. with Spring AOT) or replace them with statically compiled
-  equivalents. If generation cannot be avoided, validate the exact workload against `-H:+RuntimeClassLoading` and its
-  `-H:Preserve` requirements, or evaluate Predefined Classes for bytecode that is stable across runs.
+  equivalents. If generation cannot be avoided, validate the exact workload and experimental options against the
+  shipped GraalVM distribution, or evaluate Predefined Classes for bytecode that is stable across runs.
 
 ### GRAAL-JDK-001 - The system Java compiler is unavailable in native images
 
@@ -427,13 +517,15 @@ a handful of sample detail lines.
 
 ## Classpath scanning
 
-### GRAAL-SCAN-001 - Runtime classpath scanning does not work in native images
+### GRAAL-SCAN-001 - Classpath discovery calls require runtime versus build-time review
 
 - **Severity**: HIGH
 - **Inspects**: runtime classpath/component scanning (`ClassPathScanningCandidateComponentProvider.findCandidateComponents`,
-  the Reflections library, or ClassGraph).
-- **Fires when**: a class scans the classpath at run time; the closed-world native image has no scannable classpath at
-  run time.
+  Reflections scanning constructors/scan/static collect, or ClassGraph scan/scanAsync and classpath/module discovery).
+- **Fires when**: a class contains a scan/discovery operation. The closed-world native image has no ordinary
+  runtime classpath, but this scan cannot establish whether the call executes at runtime, during AOT, or not at all.
+- **Exclusion**: ClassGraph configuration and existing-result readers; Reflections Store/no-arg construction, queries,
+  and collection from a supplied file/stream. Exclusion here does not prove those operations native-compatible.
 - **Recommendation**: resolve the scanning at build time. For Spring components rely on Spring AOT/component indexing
   rather than runtime scanning; replace library-based scanning with an explicit, statically known set of types.
 
@@ -463,7 +555,8 @@ definitions, but the annotation alone is not a high-confidence readiness problem
   trace through that supplier at build time, so the bean's type and dependencies may be missing from the native image.
 - **Recommendation**: prefer declarative bean definitions (`@Bean` methods / component scanning) whose types Spring AOT
   can resolve, or use Spring Framework 7's `BeanRegistrar` / `BeanRegistrarDsl` for AOT-friendly programmatic
-  registration; alternatively provide a `RuntimeHintsRegistrar` that registers the supplied type for reflection.
+  registration. Infrastructure can provide a custom AOT code-generation contribution. `RuntimeHintsRegistrar` alone
+  cannot generate missing bean-instantiation code; add hints separately for remaining dynamic access.
 - **Exclusion**: Spring AOT-generated `*__BeanDefinitions` classes and classes annotated
   `org.springframework.aot.generate.Generated` intentionally use suppliers while replaying generated bean definitions.
   Spring 7 `BeanRegistrar` uses a `Consumer<BeanRegistry.Spec<?>>` whose nested supplier is explicitly AOT-supported and
@@ -489,7 +582,8 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 
 - **Severity**: HIGH
 - **Inspects**: Spring components and `@Bean` methods whose `@ConditionalOnExpression` value contains an explicit SpEL
-  bean reference (`@beanName`) outside quoted string literals.
+  bean reference (`@beanName`, `@'bean.name'`, `&factoryBean`, or a quoted factory name). Token whitespace is allowed;
+  unrelated quoted text and the `&&` operator are ignored. Property-resolved or composed expressions remain unknown.
 - **Fires when**: evaluating the condition can initialize a referenced bean before normal post-processing such as
   configuration-properties binding. This has a distinct stable ID rather than changing the name and severity of
   `SPRING-AOT-003`.
@@ -507,7 +601,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 - **Recommendation**: consolidate configuration into the main AOT-processed context or use `@Import` /
   `@ImportResource`. If this is build tooling, call `refreshForAotProcessing` and keep it out of runtime paths.
 
-### GRAAL-SPEL-001 - Programmatic SpEL expression parsing relies on reflection with no AOT visibility
+### GRAAL-SPEL-001 - Programmatic SpEL expressions may require application-specific reflection hints
 
 - **Severity**: MEDIUM
 - **Category**: this check moved from `Reflection` to `Spring AOT` — SpEL reachability is a Spring-library-specific
@@ -515,11 +609,11 @@ definitions, but the annotation alone is not a high-confidence readiness problem
   general-purpose reflection construct. The check ID is unchanged (`GRAAL-SPEL-001`, not renumbered into the
   `SPRING-AOT-*` sequence) because check IDs are stable identifiers persisted in user dismissals.
 - **Inspects**: calls to `ExpressionParser.parseExpression` and `parseRaw` (the SpEL programmatic parsing API).
-- **Fires when**: a class parses a SpEL expression at run time; the parsed expression uses reflection to access object
-  properties that is not visible to native-image, and the SpEL bytecode compiler is unsupported in native images.
-- **Recommendation**: replace programmatic SpEL with direct Java code or annotation-driven evaluation (`@PreAuthorize`,
-  `@Value`, `@Cacheable`) that Spring AOT processes statically. If programmatic SpEL is required, register all
-  reflectively accessed types under `reflection` in `reachability-metadata.json`.
+- **Fires when**: a class parses a SpEL expression; property/member access may require reflection hints. Not every
+  expression needs reflection, and the SpEL bytecode compiler is unsupported in native images.
+- **Recommendation**: prefer direct Java where practical. Otherwise review actual target members and existing hints,
+  register missing access, and exercise expressions in the native executable. Annotation-driven `@PreAuthorize`,
+  `@Value`, and `@Cacheable` expressions can also require application-specific hints.
 
 ## Method handles
 

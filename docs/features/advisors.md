@@ -2,9 +2,23 @@
 
 BootUI's advisors run explicit, on-demand, rule-based scans and surface severity-ranked findings that feed the weighted
 score on the Overview dashboard. Each advisor is read-only and inspects a different facet of the application — compiled
-architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. Once an advisor has run,
-its panel shows the same 0–100 score the Overview computes for it (100 minus the weighted finding penalty), so panel and
-dashboard always agree.
+architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. A complete advisor
+assessment shows the same 0–100 score in its panel and Overview (100 minus the weighted finding penalty).
+
+### Score eligibility
+
+A diagnostic report is not necessarily eligible for a score. Only `SCANNED` reports with a valid severity summary
+score. `PARTIAL` reports show **Incomplete**, without a numeric score; failed, disabled, and unscanned reports also
+remain unscored. Findings, severity counts, and diagnostics remain available even when the assessment is incomplete.
+Intentionally skipped, inapplicable rules do not by themselves make a scan incomplete.
+
+Vulnerabilities also requires `coverage.status=COMPLETE` and no active `UNKNOWN` severity findings. Missing or
+unavailable coverage is unknown, not complete. `NONE` (CVSS zero) is scoreable with no penalty. Dismissing an UNKNOWN
+finding can restore eligibility; restoring it removes the score again. Coverage is only as reliable as the
+inventory provider's report: this presentation policy cannot detect an inventory that incorrectly claims completeness.
+
+During a new request, or if transport fails, the last accepted report remains visible. A newly received incomplete,
+failed, or disabled report replaces the previous assessment and immediately removes its score from Overview.
 
 ### Single-flight scans
 
@@ -18,7 +32,8 @@ visible and shows the conflict as a warning. Different scanners remain independe
 Every advisor finding can be **dismissed** when it does not apply to your project. Each rule result carries a _Dismiss_
 button; dismissing moves the rule into a collapsed "Dismissed rules" list and excludes it from the panel's finding
 count, severity bars, advisor score, and the weighted Overview score. The panel's score recomputes immediately, and the
-Overview dashboard re-reads the advisor's score when you return to it, so a dismissal or restore shows in both places.
+Overview dashboard re-reads previously observed reports when you return to it, without rescanning, so a dismissal or
+restore updates both the score and eligibility in both places.
 Rules can be restored at any time from that list.
 
 ::: details Where dismissals are stored

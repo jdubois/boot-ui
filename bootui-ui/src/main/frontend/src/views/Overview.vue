@@ -3,9 +3,10 @@ import {actionBusyMessage, apiFetch, getJson, isActionBusyError} from '../api.js
 import {getBootUiApplicationPath} from '../utils/bootUiPath.js'
 import {computed, inject, onActivated, onMounted, reactive, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
-import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
+import {scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {
-  isKnownSeverity,
+  advisorAssessment,
+  isValidSeveritySummary,
   overallScore,
   scoreBandLabel,
   scoreBandTone,
@@ -124,7 +125,7 @@ const scannerDefs = [
     tone: 'danger',
     to: '/vulnerabilities',
     endpoint: 'api/vulnerabilities/scan',
-    additionalSeverities: ['UNKNOWN', 'NONE']
+    reportEndpoint: 'api/vulnerabilities'
   }
 ]
 
@@ -132,6 +133,9 @@ function newScannerState() {
   return {
     state: 'idle',
     score: null,
+    hasReport: false,
+    scoreLabel: '',
+    scoreReason: '',
     severityCounts: [],
     statusLabel: null,
     statusTone: 'secondary',
@@ -147,44 +151,28 @@ const scanners = reactive(Object.fromEntries(scannerDefs.map((def) => [def.id, n
 // refresh that runs when the kept-alive dashboard is re-activated). Plain object, not
 // reactive: it is bookkeeping, not rendered state.
 const requestTokens = {}
+const pendingRefreshes = new Set()
 
 function nextToken(id) {
   requestTokens[id] = (requestTokens[id] || 0) + 1
   return requestTokens[id]
 }
 
-function isAllowedSeverity(def, severity) {
-  return (
-    isKnownSeverity(severity) ||
-    (typeof severity === 'string' && def.additionalSeverities?.includes(severity.toUpperCase()))
-  )
-}
-
 function applyReport(def, state, report) {
-  const severityCounts = report?.severityCounts
-  if (
-    !Array.isArray(severityCounts) ||
-    severityCounts.some(
-      (entry) =>
-        !entry ||
-        typeof entry !== 'object' ||
-        Array.isArray(entry) ||
-        !isAllowedSeverity(def, entry.severity) ||
-        typeof entry.count !== 'number' ||
-        !Number.isFinite(entry.count) ||
-        entry.count < 0
-    )
-  ) {
-    throw new Error('Scanner returned an invalid severity summary')
-  }
-  state.severityCounts = severityCounts
-  state.score = scoreFromSeverityCounts(state.severityCounts)
-  const status = report.scan?.status
+  const assessment = advisorAssessment(report, {vulnerabilities: def.id === 'vulnerabilities'})
+  if (assessment.invalid) throw new Error(assessment.reason)
+  const validSummary = isValidSeveritySummary(report?.severityCounts, {vulnerabilities: def.id === 'vulnerabilities'})
+  state.hasReport = true
+  state.severityCounts = validSummary ? report.severityCounts : []
+  state.score = assessment.score
+  state.scoreLabel = assessment.label
+  state.scoreReason = assessment.reason
+  const status = report?.scan?.status
   state.statusLabel = scanStatusLabel(status)
   state.statusTone = scanStatusBadgeClass(status)
   state.state = 'done'
   state.error = null
-  state.warning = null
+  state.warning = validSummary ? null : 'The report has an invalid severity summary. Its counts cannot be displayed.'
 }
 
 const visibleScanners = computed(() => scannerDefs.filter((def) => panelAvailable(def.id)))
@@ -209,27 +197,32 @@ async function runScanner(def) {
       state.state = 'error'
       state.error = describeLoadError(e, `Unable to run ${displayTitle(def)}`).message
     }
+  } finally {
+    if (token === requestTokens[def.id] && pendingRefreshes.delete(def.id)) await refreshScanner(def)
   }
 }
 
 // The dashboard is kept alive (App.vue wraps it in <keep-alive include="Overview">), so its
 // scores survive navigation. Dismissing/restoring an advisor rule in a panel changes that
 // advisor's server-side score, which would otherwise leave the dashboard showing a stale value.
-// On re-activation we re-fetch the report (GET, never a re-scan) for advisors that have already
-// been scored here, so the score and severity counts reflect the current dismissals.
+// Refresh observed reports even when unscoreable: dismissing UNKNOWN can restore eligibility.
 async function refreshScanner(def) {
   const state = scanners[def.id]
-  if (!def.reportEndpoint || state.state !== 'done') return
+  if (!def.reportEndpoint || !state.hasReport) return
+  // A cached GET during a scan still contains the previous report, not a newer assessment.
+  if (state.state === 'running') {
+    pendingRefreshes.add(def.id)
+    return
+  }
   const token = nextToken(def.id)
   try {
-    const res = await apiFetch(def.reportEndpoint)
-    if (!res.ok) return
-    const report = await res.json()
+    const report = await getJson(def.reportEndpoint)
     if (token !== requestTokens[def.id]) return
-    if (!hasScanResult(report.scan?.status)) return
     applyReport(def, state, report)
-  } catch {
-    // Best-effort refresh: keep the previously computed score if the report cannot be reloaded.
+  } catch (e) {
+    if (token !== requestTokens[def.id]) return
+    state.state = 'error'
+    state.error = describeLoadError(e, `Unable to refresh ${displayTitle(def)}; showing the last report`).message
   }
 }
 
@@ -290,20 +283,16 @@ const githubScored = computed(
   () => github.state === 'done' && github.connected && github.authenticated && Number.isFinite(github.score)
 )
 
-const overall = computed(() => {
-  const scores = visibleScanners.value
-    .map((def) => scanners[def.id])
-    .filter((state) => state.state === 'done' && Number.isFinite(state.score))
-    .map((state) => state.score)
-  if (githubVisible.value && githubScored.value) scores.push(github.score)
-  return overallScore(scores)
+const contributors = computed(() => {
+  const items = visibleScanners.value
+    .map((def) => ({title: displayTitle(def), score: scanners[def.id].score}))
+    .filter((item) => Number.isFinite(item.score))
+  if (githubVisible.value && githubScored.value) items.push({title: 'GitHub', score: github.score})
+  return items
 })
 
-const scoredCount = computed(() => {
-  let count = visibleScanners.value.filter((def) => scanners[def.id].state === 'done').length
-  if (githubVisible.value && githubScored.value) count += 1
-  return count
-})
+const overall = computed(() => overallScore(contributors.value.map((item) => item.score)))
+const scoredCount = computed(() => contributors.value.length)
 
 const totalCount = computed(() => visibleScanners.value.length + (githubVisible.value ? 1 : 0))
 
@@ -314,15 +303,11 @@ const anyRunning = computed(
 const overallBandLabel = computed(() => (Number.isFinite(overall.value) ? scoreBandLabel(overall.value) : 'Not scored'))
 const overallBandTone = computed(() => (Number.isFinite(overall.value) ? scoreBandTone(overall.value) : 'secondary'))
 
-const overallContributions = computed(() => {
-  const items = visibleScanners.value
-    .map((def) => ({title: displayTitle(def), score: scanners[def.id].score, state: scanners[def.id].state}))
-    .filter((item) => item.state === 'done' && Number.isFinite(item.score))
-  if (githubVisible.value && githubScored.value) items.push({title: 'GitHub', score: github.score, state: 'done'})
-  return items
+const overallContributions = computed(() =>
+  contributors.value
     .map((item) => ({title: item.title, deduction: item.score - 100}))
     .sort((a, b) => a.deduction - b.deduction)
-})
+)
 
 // A run-all-scanners nudge toward the MCP Server panel: with the MCP server enabled,
 // an AI agent can read these same scan results and act on them. Only surfaced when the
@@ -411,6 +396,7 @@ onActivated(refreshScores)
                   <div class="text-muted small mt-2 text-truncate">
                     {{ scoredCount }} of {{ totalCount }} scanners scored
                   </div>
+                  <div class="text-muted small">Mean of scored scanners only.</div>
                 </div>
               </div>
             </div>
@@ -441,8 +427,8 @@ onActivated(refreshScores)
               <div v-else>
                 <h3 class="fs-6 text-muted fw-semibold mb-0">Overall score</h3>
                 <p class="text-muted small mb-0 mt-1">
-                  {{ scoredCount }} of {{ totalCount }} scanners scored — run the advisors to compute a combined
-                  security &amp; health score.
+                  {{ scoredCount }} of {{ totalCount }} scanners scored — run the advisors to compute a combined score
+                  from complete assessments.
                 </p>
               </div>
             </div>
@@ -546,6 +532,9 @@ onActivated(refreshScores)
           :to="def.to"
           :state="scanners[def.id].state"
           :score="scanners[def.id].score"
+          :has-report="scanners[def.id].hasReport"
+          :score-label="scanners[def.id].scoreLabel"
+          :score-reason="scanners[def.id].scoreReason"
           :severity-counts="scanners[def.id].severityCounts"
           :status-label="scanners[def.id].statusLabel"
           :status-tone="scanners[def.id].statusTone"

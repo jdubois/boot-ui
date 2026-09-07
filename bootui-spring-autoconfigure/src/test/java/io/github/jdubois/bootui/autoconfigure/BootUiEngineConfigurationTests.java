@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
@@ -24,6 +25,7 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
@@ -37,16 +39,24 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.web.context.reactive.GenericReactiveWebApplicationContext;
+import org.springframework.boot.webflux.autoconfigure.WebFluxProperties;
+import org.springframework.boot.webmvc.autoconfigure.WebMvcProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.env.Environment;
+import org.springframework.http.MediaType;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
@@ -105,24 +115,103 @@ class BootUiEngineConfigurationTests {
         assertThat(initial.basePackages()).containsExactly("com.example.wiring");
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void springApiVersioningPropertyDetectionUsesOnlyTheActiveStack(boolean reactive) {
+        try (GenericApplicationContext context =
+                reactive ? new GenericReactiveWebApplicationContext() : new GenericApplicationContext()) {
+            String active = reactive ? "spring.webflux.apiversion." : "spring.mvc.apiversion.";
+            String inactive = reactive ? "spring.mvc.apiversion." : "spring.webflux.apiversion.";
+            assertThat(isSpringApiVersioningConfigured(new MockEnvironment(), context))
+                    .isFalse();
+            for (Map.Entry<String, String> property : Map.of(
+                            "supported", "1,2",
+                            "supported[0]", "1",
+                            "default", "1",
+                            "use.header", "X-Api-Version",
+                            "use.path-segment", "0",
+                            "use.query-parameter", "api-version",
+                            "use.media-type-parameter[application/json]", "v")
+                    .entrySet()) {
+                MockEnvironment environment =
+                        new MockEnvironment().withProperty(inactive + property.getKey(), property.getValue());
+                assertThat(isSpringApiVersioningConfigured(environment, context))
+                        .as("inactive %s", property.getKey())
+                        .isFalse();
+                environment.setProperty(active + property.getKey(), property.getValue());
+                assertThat(isSpringApiVersioningConfigured(environment, context))
+                        .as("active %s", property.getKey())
+                        .isTrue();
+                environment.setProperty(active + property.getKey(), " ");
+                assertThat(isSpringApiVersioningConfigured(environment, context))
+                        .as("blank %s", property.getKey())
+                        .isFalse();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void obsoleteSpringApiVersioningKeysAreNotEvidence(boolean reactive) {
+        try (GenericApplicationContext context =
+                reactive ? new GenericReactiveWebApplicationContext() : new GenericApplicationContext()) {
+            String prefix = reactive ? "spring.webflux.apiversion." : "spring.mvc.apiversion.";
+            MockEnvironment environment = new MockEnvironment()
+                    .withProperty(prefix + "use.path", "0")
+                    .withProperty(prefix + "use.media-type", "application/json");
+            assertThat(isSpringApiVersioningConfigured(environment, context)).isFalse();
+        }
+    }
+
     @Test
-    void springMvcApiVersioningPropertyDetectionHonorsConfiguredKeys() {
-        MockEnvironment environment = new MockEnvironment();
+    void springApiVersioningKeysMatchTheActualBootPropertyBindingShape() {
+        // Boot 4.1.1 WebMvcProperties and WebFluxProperties both declare pathSegment and a mediaTypeParameter map.
+        for (String prefix : List.of("spring.mvc", "spring.webflux")) {
+            MockEnvironment environment = new MockEnvironment()
+                    .withProperty(prefix + ".apiversion.supported[0]", "1")
+                    .withProperty(prefix + ".apiversion.default", "1")
+                    .withProperty(prefix + ".apiversion.use.header", "X-Api-Version")
+                    .withProperty(prefix + ".apiversion.use.path-segment", "0")
+                    .withProperty(prefix + ".apiversion.use.query-parameter", "api-version")
+                    .withProperty(prefix + ".apiversion.use.media-type-parameter[application/json]", "v");
+            Object versioning = prefix.equals("spring.mvc")
+                    ? Binder.get(environment)
+                            .bind(prefix, WebMvcProperties.class)
+                            .get()
+                            .getApiversion()
+                    : Binder.get(environment)
+                            .bind(prefix, WebFluxProperties.class)
+                            .get()
+                            .getApiversion();
+            assertThat(versioning)
+                    .extracting(
+                            "supported",
+                            "defaultVersion",
+                            "use.header",
+                            "use.pathSegment",
+                            "use.queryParameter",
+                            "use.mediaTypeParameter")
+                    .containsExactly(
+                            List.of("1"),
+                            "1",
+                            "X-Api-Version",
+                            0,
+                            "api-version",
+                            Map.of(MediaType.APPLICATION_JSON, "v"));
+        }
+    }
 
-        assertThat(isSpringMvcApiVersioningConfigured(environment)).isFalse();
-        environment.setProperty("spring.mvc.apiversion.use.path", " ");
-        assertThat(isSpringMvcApiVersioningConfigured(environment)).isFalse();
-
-        for (String key : List.of(
-                "spring.mvc.apiversion.supported",
-                "spring.mvc.apiversion.default",
-                "spring.mvc.apiversion.use.header",
-                "spring.mvc.apiversion.use.path",
-                "spring.mvc.apiversion.use.query-parameter",
-                "spring.mvc.apiversion.use.media-type")) {
-            environment = new MockEnvironment();
-            environment.setProperty(key, "v1");
-            assertThat(isSpringMvcApiVersioningConfigured(environment)).isTrue();
+    @Test
+    void restApiScannerFactoryRemainsLazyAndReadsBasePackagesLive() {
+        try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
+            BasePackageProvider provider = mock(BasePackageProvider.class);
+            when(provider.basePackages()).thenReturn(List.of("com.example.first"), List.of("com.example.second"));
+            RestApiScanner scanner =
+                    new BootUiEngineConfiguration().bootUiRestApiScanner(provider, new MockEnvironment(), context);
+            verifyNoInteractions(provider);
+            assertThat(scanner.initialReport().basePackages()).containsExactly("com.example.first");
+            assertThat(scanner.initialReport().basePackages()).containsExactly("com.example.second");
+            assertThat(scanner.initialReport().scan().status()).isEqualTo("NOT_SCANNED");
         }
     }
 
@@ -442,14 +531,15 @@ class BootUiEngineConfigurationTests {
         return returnType == boolean.class ? Boolean.FALSE : null;
     }
 
-    private static boolean isSpringMvcApiVersioningConfigured(Environment environment) {
+    private static boolean isSpringApiVersioningConfigured(
+            Environment environment, ApplicationContext applicationContext) {
         try {
             Method method = BootUiEngineConfiguration.class.getDeclaredMethod(
-                    "isSpringMvcApiVersioningConfigured", Environment.class);
+                    "isSpringApiVersioningConfigured", Environment.class, ApplicationContext.class);
             method.setAccessible(true);
-            return (boolean) method.invoke(null, environment);
+            return (boolean) method.invoke(null, environment, applicationContext);
         } catch (ReflectiveOperationException ex) {
-            throw new AssertionError("Failed to invoke isSpringMvcApiVersioningConfigured", ex);
+            throw new AssertionError("Failed to invoke isSpringApiVersioningConfigured", ex);
         }
     }
 

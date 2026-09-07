@@ -213,8 +213,10 @@ It detects the project's build system — Maven or Gradle, with or without the w
 command (`./mvnw`/`mvn -Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`). It then
 packages the resulting executable — named after the resolved `artifactId` — into a minimal, distroless runtime image
 (`gcr.io/distroless/base-debian12:nonroot`). That image runs as a non-root user and carries no shell/curl/perl/tar,
-keeping the OS-package CVE surface near zero; the binary is built *mostly static* so it needs only glibc, and the build
-stage installs a known, pinned Maven/Gradle release when the project has no wrapper.
+reducing the included tooling. The binary requests *mostly static* linking with `--static-nolibc`, but some workloads
+still need `libstdc++`, `libgcc`, or dynamically loaded native libraries. Inspect the executable's dependencies and test
+it in the exact runtime image rather than assuming the scaffold is complete. The build stage installs a known,
+pinned Maven/Gradle release when the project has no wrapper.
 
 :::
 
