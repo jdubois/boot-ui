@@ -194,7 +194,7 @@ class SecurityTransformedMetadataTest {
                     }
                 });
         if (transformer != null) {
-            builder.addAnnotationTransformer(transformer);
+            builder.addAnnotationTransformation(transformer);
         }
         var processor = builder.build();
         processor.process();
