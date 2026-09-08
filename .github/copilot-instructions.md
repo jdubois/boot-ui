@@ -64,3 +64,8 @@ worktree isolation.
 Detailed rules are path-scoped under `.github/instructions/` and apply automatically by file path. Two custom agents
 under `.github/agents/` are available: `bootui-vertical-pr` for end-to-end feature delivery, and `bootui-release` for
 conducting a release or changing release machinery. They supplement rather than replace repository safety rules.
+
+For substantive Java development or Maven failure diagnosis, load the `bootui-java-development` repository skill at
+`.github/skills/bootui-java-development/SKILL.md`. It covers investigation, reliable LSP use, focused validation, and
+on-demand change recipes. If the host cannot invoke skills, read that file directly. This develops BootUI itself;
+`skills/bootui/SKILL.md` is the separate consumer skill for installing and using BootUI in another application.
