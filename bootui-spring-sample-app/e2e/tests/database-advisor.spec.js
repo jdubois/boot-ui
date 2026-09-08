@@ -32,7 +32,7 @@ test.describe('Database view', () => {
     await page.locator('a[href$="#/overview"]').first().click()
     const card = page.locator('.scanner-card').filter({hasText: 'Database'})
     await expect(card.locator('.scanner-score')).toHaveText(String(expectedAdvisorScore(report)))
-    await expect(card).toContainText('Results available')
+    await expect(card.locator('.scanner-status')).toHaveText('Scan complete')
     await expect(page.locator('.assessment-summary')).toContainText('scan notes')
   })
 })
