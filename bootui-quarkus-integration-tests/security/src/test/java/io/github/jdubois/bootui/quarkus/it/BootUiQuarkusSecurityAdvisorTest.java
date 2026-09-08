@@ -44,6 +44,14 @@ class BootUiQuarkusSecurityAdvisorTest {
                 .post("/bootui/api/security/scan", Map.of("Content-Type", "application/json"));
 
         assertThat(response.status()).isEqualTo(200);
+        assertThat(response.json().path("evidence").path("usable").asBoolean()).isTrue();
+        assertThat(response.json().path("evidence").path("coverageComplete").isBoolean())
+                .isTrue();
+        assertThat(new BootUiHttpProbe(baseUrl.toExternalForm())
+                        .get("/bootui/api/security")
+                        .json()
+                        .path("evidence"))
+                .isEqualTo(response.json().path("evidence"));
         assertThat(response.json().path("results"))
                 .anySatisfy(result -> assertThat(result.path("id").asText()).isEqualTo("QS-AUTH-013"));
     }

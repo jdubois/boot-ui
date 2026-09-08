@@ -31,6 +31,18 @@ final class ArchitectureRuleSupport {
 
     private ArchitectureRuleSupport() {}
 
+    static <T> com.tngtech.archunit.base.DescribedPredicate<T> observed(
+            com.tngtech.archunit.base.DescribedPredicate<T> predicate, ArchitectureContext context) {
+        return new com.tngtech.archunit.base.DescribedPredicate<T>(predicate.getDescription()) {
+            @Override
+            public boolean test(T target) {
+                boolean matches = predicate.test(target);
+                if (matches) context.evidence().observed();
+                return matches;
+            }
+        };
+    }
+
     static ArchitectureRuleResultDto pass(ArchitectureRuleDefinition definition) {
         return result(definition, PASS, 0, List.of());
     }
@@ -65,6 +77,7 @@ final class ArchitectureRuleSupport {
     static ArchitectureRuleResultDto evaluate(
             ArchitectureRuleDefinition definition, ArchRule rule, ArchitectureContext context) {
         EvaluationResult evaluation = rule.allowEmptyShould(true).evaluate(context.classes());
+        context.evidence().complete(evaluation.hasViolation());
         if (!evaluation.hasViolation()) {
             return pass(definition);
         }

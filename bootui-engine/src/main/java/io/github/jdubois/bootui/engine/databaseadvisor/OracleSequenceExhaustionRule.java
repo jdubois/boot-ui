@@ -30,7 +30,11 @@ final class OracleSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.schemasOf(Dialect.ORACLE);
         String reason = VendorRuleSupport.skipReason(
-                schemas, VendorFindingKinds.ORACLE_SEQUENCES, "No Oracle datasource was detected.");
+                context,
+                definition().id(),
+                schemas,
+                VendorFindingKinds.ORACLE_SEQUENCES,
+                "No Oracle datasource was detected.");
         if (reason != null) {
             return skipped(reason);
         }

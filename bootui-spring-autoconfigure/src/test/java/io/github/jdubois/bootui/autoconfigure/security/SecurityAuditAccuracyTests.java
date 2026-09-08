@@ -158,6 +158,12 @@ class SecurityAuditAccuracyTests {
             assertThat(chain.hasFilter("CsrfFilter")).isTrue();
             assertThat(chain.hasFilter("HeaderWriterFilter")).isTrue();
             assertThat(chain.hasFilter("SessionManagementFilter")).isFalse();
+            assertThat(chain.details().filtersKnown())
+                    .as("Native filters: %s", chain.filterNames())
+                    .isTrue();
+            assertThat(chain.details().headersKnown())
+                    .as("Native headers: %s", chain.headerWriterNames())
+                    .isTrue();
             assertThat(chain.sessionFixationDisabled()).isFalse();
             assertThat(application.getBeansOfType(org.springframework.security.crypto.password.PasswordEncoder.class))
                     .isEmpty();
@@ -167,6 +173,94 @@ class SecurityAuditAccuracyTests {
                     .extracting(SecurityRuleResultDto::id)
                     .doesNotContain("SEC-AUTH-001", "SEC-AUTH-002", "SEC-AUTH-003", "SEC-SESSION-001");
         }
+    }
+
+    @Test
+    void absentAuthorizationOrderingTargetIsNotAnIncompleteAssessmentOrCompletedPass() {
+        var context = context(
+                new FilterChainModel(0, "any request", List.of(), null, null, List.of()), new MockEnvironment());
+        var result = new AuthorizationRuleShadowedRule().evaluate(context);
+        assertThat(result.status()).isEqualTo("PASS");
+        var evidence = context.evidence().evaluation().evidence(List.of());
+        assertThat(evidence.coverageComplete()).isTrue();
+        assertThat(evidence.usable()).isFalse();
+    }
+
+    @Test
+    void absentOauthCorsAndRememberMeTargetsAreNotMissingEvidenceOrCompletedPasses() throws Exception {
+        Filter custom = (request, response, chain) -> {
+            throw new AssertionError("Application filter must not run during inspection");
+        };
+        var chain = model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, custom));
+        assertThat(chain.details().filtersKnown()).isFalse();
+        var context = context(chain, new MockEnvironment());
+        for (var rule : List.of(
+                new ResourceServerValidationRule(),
+                new JwtAudienceValidationRule(),
+                new CorsWildcardOriginRule(),
+                new WeakRememberMeKeyRule())) {
+            rule.evaluate(context);
+        }
+        var evidence = context.evidence().evaluation().evidence(List.of());
+        assertThat(evidence.coverageComplete()).isTrue();
+        assertThat(evidence.usable()).isFalse();
+    }
+
+    @Test
+    void nativeCustomCsrfMatcherLimitsOnlyApplicableCsrfEvidenceWithoutInvokingIt() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        try (var application = new AnnotationConfigApplicationContext(NativeSecurityConfiguration.class)) {
+            var nativeChain = application.getBean("applicationChain", SecurityFilterChain.class);
+            nativeChain.getFilters().stream()
+                    .filter(org.springframework.security.web.csrf.CsrfFilter.class::isInstance)
+                    .map(org.springframework.security.web.csrf.CsrfFilter.class::cast)
+                    .forEach(filter -> filter.setRequireCsrfProtectionMatcher(request -> {
+                        calls.incrementAndGet();
+                        throw new AssertionError("CSRF matcher must not be called");
+                    }));
+            var chain = model(nativeChain);
+            assertThat(chain.details().filtersKnown()).isTrue();
+            assertThat(chain.details().csrfKnown()).isFalse();
+            var context = context(chain, new MockEnvironment());
+            new CsrfDisabledStatefulRule().evaluate(context);
+            assertThat(context.evidence().evaluation().evidence(List.of()).coverageComplete())
+                    .isFalse();
+            context.evidence().evaluation().reset();
+            new HstsHeaderRule().evaluate(context);
+            assertThat(context.evidence().evaluation().evidence(List.of()).coverageComplete())
+                    .isTrue();
+            assertThat(context.evidence().evaluation().evidence(List.of()).usable())
+                    .isTrue();
+            assertThat(calls).hasValue(0);
+        }
+    }
+
+    @Test
+    void completeStatelessEvidenceWithAbsentOptionalFeaturesProducesScannedStatus() {
+        var chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("AuthorizationFilter"),
+                false,
+                false,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                true,
+                null,
+                null);
+        var context = withEvidence(
+                context(chain, new MockEnvironment()),
+                new SecurityContext.Evidence(List.of(), true, false, Set.of(), Set.of(), true));
+        var report = new SecurityScanner(context, Clock.systemUTC()).scan();
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.evidence().coverageComplete()).isTrue();
+        assertThat(report.evidence().limitations()).isEmpty();
+        assertThat(report.evidence().usable()).isTrue();
     }
 
     @Configuration(proxyBeanMethods = false)

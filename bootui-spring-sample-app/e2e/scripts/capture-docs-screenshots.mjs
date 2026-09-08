@@ -2736,7 +2736,7 @@ const dependencies = {
   vulnerable: 2,
   scanningEnabled: true,
   scan: {
-    status: 'COMPLETED',
+    status: 'SCANNED',
     scanner: 'OSV.dev',
     message: 'Scan completed with 3 advisories across 2 dependencies.',
     scannedAt: new Date(nowMillis - 90_000).toISOString()
@@ -5285,15 +5285,41 @@ const webSockets = {
   warnings: []
 }
 
+// These deterministic screenshot reports each include assessed applicable checks.
+for (const report of [
+  architecture,
+  memoryAdvisor,
+  restApi,
+  spring,
+  databaseAdvisor,
+  hibernate,
+  security,
+  pentesting,
+  dependencies,
+  quarkusAdvisor,
+  quarkusSecurity
+]) {
+  report.evidence = {
+    usable: true,
+    coverageComplete: report.scan.status === 'SCANNED',
+    limitations: []
+  }
+}
+
 const screenshots = [
   [
     'overview',
     'Overview',
     'bootui-overview.webp',
     async (page) => {
-      await page.getByRole('button', {name: /Run all scanners/}).click()
-      await page.getByText('10 of 10 scanners scored').waitFor()
-      await page.getByText('1 security alert(s)').waitFor()
+      await page.getByRole('button', {name: /Re-run all scanners/}).click()
+      await page.getByText('9 of 9 advisors assessed').waitFor()
+      await page.getByText('Code scanning alerts: 1 open').waitFor()
+      await page.getByRole('img', {name: /Overall score: \d+ out of 100 — Average of 10 scores/}).waitFor()
+      await page.locator('.overall-gauge').waitFor()
+      await page.getByText('Points deducted per score', {exact: true}).waitFor()
+      await page.locator('.overall-contributions li').nth(9).waitFor()
+      await page.getByRole('img', {name: 'GitHub security-alert score: 90 out of 100', exact: true}).waitFor()
     }
   ],
   ['github', 'GitHub', 'bootui-github.webp', waitForText('Open pull requests')],
@@ -5423,7 +5449,18 @@ const screenshots = [
   ['spring-security', 'Spring Security', 'bootui-spring-security.webp', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.webp', waitForText('AUTHENTICATION_SUCCESS')],
   ['security', 'Security', 'bootui-security.webp', waitForText('SEC-ACT-002')],
-  ['pentesting', 'Pentesting', 'bootui-pentesting.webp', waitForText('CORS allows credentialed cross-origin requests')],
+  [
+    'pentesting',
+    'Pentesting',
+    'bootui-pentesting.webp',
+    async (page) => {
+      await page.getByText('CORS allows credentialed cross-origin requests').waitFor()
+      await page.getByRole('heading', {name: 'Findings by severity', exact: true}).waitFor()
+      if (await page.getByText('OWASP Top 10 coverage', {exact: true}).count()) {
+        throw new Error('Pentesting still renders the removed OWASP coverage panel')
+      }
+    }
+  ],
   [
     'vulnerabilities',
     'Vulnerabilities',

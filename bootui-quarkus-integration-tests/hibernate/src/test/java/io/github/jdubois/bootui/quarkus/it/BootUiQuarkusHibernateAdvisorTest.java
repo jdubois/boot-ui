@@ -85,6 +85,11 @@ class BootUiQuarkusHibernateAdvisorTest {
         Response scan = probe().post("/bootui/api/hibernate/scan", JSON_HEADERS);
         assertThat(scan.status()).as("POST /bootui/api/hibernate/scan status").isEqualTo(200);
         JsonNode scanned = scan.json();
+        assertThat(scanned.path("evidence").path("usable").asBoolean()).isTrue();
+        assertThat(scanned.path("evidence").path("coverageComplete").asBoolean(true))
+                .isFalse();
+        assertThat(scanned.path("evidence").path("limitations")).isNotEmpty();
+        assertThat(probe().get("/bootui/api/hibernate").json().path("evidence")).isEqualTo(scanned.path("evidence"));
         assertThat(scanned.path("scan").path("status").asText())
                 .as("missing required evidence must not be presented as a complete clean evaluation")
                 .isEqualTo("PARTIAL");

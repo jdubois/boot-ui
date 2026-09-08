@@ -207,13 +207,27 @@ the classpath) are simply not advertised.
 ### Reading a bounded result
 
 Advisor tool success means a report was returned, not that its assessment is complete or healthy. Inspect
-`scan.status` and the retained diagnostics: only `SCANNED` reports are eligible for the UI's numeric score;
-`PARTIAL`, `ERROR`, and `DISABLED` reports remain useful but unscored. Vulnerability scoring also requires
-`coverage.status=COMPLETE` and no active UNKNOWN severity findings. Missing coverage is unknown; NONE (CVSS zero)
-has no penalty, and dismissed findings are excluded from the severity summary.
+`scan.status`, `evidence`, and the retained diagnostics. `SCANNED` and `PARTIAL` reports can establish a UI score
+when `evidence.usable` is true and the severity data is valid. The additive `evidence` object contains boolean
+`usable`, boolean `coverageComplete`, and immutable, bounded, sanitized `limitations`.
+Usability means at least one applicable check completed or a genuine known-severity finding was observed before
+filtering or dismissal; missing-evidence notices cannot establish it. Missing metadata, failed checks, and unknown
+evidence must not be interpreted as passes. `ERROR`, `DISABLED`, and `NOT_SCANNED` remain unscored.
+Incomplete usable evidence retains scan notes, even at 100. UI numbers are **Known-findings scores**, not app-health
+grades. Dismissals alter penalties, not application safety. Valid explicit backend evidence alone establishes eligibility;
+legacy reports without it remain unscored, with their findings still visible.
 
-The aggregate Overview score is calculated in the browser, not by a separate MCP or CLI scorer. `get_overview`
-(`bootui overview`) returns application context, not that aggregate. CLI transport success and unchanged JSON output
+For Vulnerabilities also inspect inventory `coverage` and each dependency's `assessment.queryComplete` and
+`assessment.detailAssessmentComplete`. Both flags and a genuinely empty retained advisory list establish a completed
+no-finding dependency. Known findings (including NONE) can establish eligibility despite other gaps. UNKNOWN incurs
+no penalty but UNKNOWN-only findings stay unscored after dismissal unless independent usable evidence exists.
+Dismissals remove penalties, not coverage gaps; optional EPSS availability does not determine eligibility.
+See [Score eligibility](features/advisors.md#score-eligibility). Existing MCP/CLI commands return the additive facts;
+no new tool or backend numeric scorer is introduced.
+
+Advisor scores and the Overall score are calculated in the browser, not by a separate MCP/CLI scorer. Overview averages
+eligible visible advisor scores and GitHub's eligible security-alert score; missing signals never supply a fake 100.
+`get_overview` (`bootui overview`) returns application context, not that aggregate. CLI transport success and JSON output
 must not be interpreted as a passing assessment.
 
 Every search- or list-style tool returns its rows next to the same `page` envelope, so one reading applies to all of

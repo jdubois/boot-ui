@@ -6,6 +6,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
+import static io.github.jdubois.bootui.engine.architecture.ArchitectureRuleSupport.observed;
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
@@ -65,8 +66,10 @@ abstract class AbstractArchitectureRule implements ArchitectureRule {
     @Override
     public ArchitectureRuleResultDto evaluate(ArchitectureContext context) {
         try {
+            if (context != null) context.evidence().reset();
             ArchRule rule = rule(context);
             if (rule == null) {
+                if (context != null) context.evidence().complete(false);
                 return ArchitectureRuleSupport.skipped(definition, "Rule is not applicable to the imported classes.");
             }
             return ArchitectureRuleSupport.evaluate(definition, rule, context);
@@ -200,7 +203,8 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
                 ArchitectureCategory.PACKAGE_STRUCTURE,
                 "HIGH",
                 "Detects cyclic dependencies between the top-level package slices under the application base package.",
-                "Break the dependency cycle by extracting shared types or inverting one of the dependencies so packages form a directed acyclic graph.",
+                "Break the dependency cycle by extracting shared types or inverting one of the dependencies so"
+                        + " packages form a directed acyclic graph.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_cycle_checks"));
     }
 
@@ -212,9 +216,20 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
     @Override
     public ArchitectureRuleResultDto evaluate(ArchitectureContext context) {
         try {
+            if (context != null) context.evidence().reset();
             int totalViolations = 0;
             List<String> samples = new ArrayList<>();
             for (String basePackage : context.basePackages()) {
+                Set<String> slices = new HashSet<>();
+                for (JavaClass type : context.classes()) {
+                    if (type.getPackageName().startsWith(basePackage + ".")) {
+                        slices.add(type.getPackageName()
+                                .substring(basePackage.length() + 1)
+                                .split("\\.", 2)[0]);
+                    }
+                }
+                if (slices.size() < 2) continue;
+                context.evidence().observed();
                 ArchRule rule = SlicesRuleDefinition.slices()
                         .matching(basePackage + ".(*)..")
                         .should()
@@ -225,6 +240,7 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
                     continue;
                 }
                 List<String> details = evaluation.getFailureReport().getDetails();
+                context.evidence().usable |= !details.isEmpty();
                 totalViolations += details.size();
                 for (String detail : details) {
                     if (samples.size() >= MAX_SAMPLES) {
@@ -233,6 +249,7 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
                     samples.add(ArchitectureRuleSupport.detail(detail));
                 }
             }
+            context.evidence().complete(totalViolations > 0);
             if (totalViolations == 0) {
                 return ArchitectureRuleSupport.pass(definition());
             }
@@ -260,12 +277,14 @@ final class NoStandardStreamsRule extends AbstractArchitectureRule {
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
                 "Detects direct use of System.out or System.err instead of a logging framework.",
-                "Replace System.out / System.err calls with a logger (e.g. SLF4J) so output is structured and configurable.",
+                "Replace System.out / System.err calls with a logger (e.g. SLF4J) so output is structured and"
+                        + " configurable.",
                 "https://docs.spring.io/spring-boot/reference/features/logging.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
+        if (!context.classes().isEmpty()) context.evidence().observed();
         return GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
     }
 }
@@ -288,6 +307,7 @@ final class NoGenericExceptionsRule extends AbstractArchitectureRule {
 
     @Override
     ArchRule rule(ArchitectureContext context) {
+        if (!context.classes().isEmpty()) context.evidence().observed();
         return GeneralCodingRules.NO_CLASSES_SHOULD_THROW_GENERIC_EXCEPTIONS;
     }
 }
@@ -310,6 +330,7 @@ final class NoJavaUtilLoggingRule extends AbstractArchitectureRule {
 
     @Override
     ArchRule rule(ArchitectureContext context) {
+        if (!context.classes().isEmpty()) context.evidence().observed();
         return GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING;
     }
 }
@@ -332,6 +353,7 @@ final class NoJodaTimeRule extends AbstractArchitectureRule {
 
     @Override
     ArchRule rule(ArchitectureContext context) {
+        if (!context.classes().isEmpty()) context.evidence().observed();
         return GeneralCodingRules.NO_CLASSES_SHOULD_USE_JODATIME;
     }
 }
@@ -356,14 +378,18 @@ final class NoPrintStackTraceRule extends AbstractArchitectureRule {
                 "Classes should not call Throwable.printStackTrace(PrintStream/PrintWriter)",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects calls to the Throwable.printStackTrace(PrintStream) or printStackTrace(PrintWriter) overloads, which bypass structured logging. The no-arg printStackTrace() overload is covered by ARCH-CODE-001 (it writes directly to System.err).",
-                "Log the exception through the project logging facade (e.g. SLF4J) instead of calling printStackTrace().",
+                "Detects calls to the Throwable.printStackTrace(PrintStream) or printStackTrace(PrintWriter)"
+                        + " overloads, which bypass structured logging. The no-arg printStackTrace() overload is covered"
+                        + " by ARCH-CODE-001 (it writes directly to System.err).",
+                "Log the exception through the project logging facade (e.g. SLF4J) instead of calling"
+                        + " printStackTrace().",
                 "https://docs.spring.io/spring-boot/reference/features/logging.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
                 .should()
                 .callMethodWhere(
                         new DescribedPredicate<JavaMethodCall>(
@@ -415,6 +441,7 @@ final class NoSystemExitRule extends AbstractArchitectureRule {
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
                 .should()
                 .callMethodWhere(
                         new DescribedPredicate<JavaMethodCall>(
@@ -466,7 +493,8 @@ final class NoJdkInternalApiRule extends AbstractArchitectureRule {
                 "Classes should not access JDK-internal APIs",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects dependencies on unsupported JDK-internal packages such as sun.., jdk.internal.., or com.sun..internal.. subtrees.",
+                "Detects dependencies on unsupported JDK-internal packages such as sun.., jdk.internal.., or"
+                        + " com.sun..internal.. subtrees.",
                 "Depend only on public, supported APIs so the code stays portable across JDK versions.",
                 "https://openjdk.org/jeps/260"));
     }
@@ -474,6 +502,7 @@ final class NoJdkInternalApiRule extends AbstractArchitectureRule {
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
                 .should()
                 .dependOnClassesThat()
                 .resideInAnyPackage("sun..", "jdk.internal..", "com.sun..internal..");
@@ -492,13 +521,16 @@ final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
                 "Classes should not use legacy date and time classes",
                 ArchitectureCategory.CODING_PRACTICES,
                 "INFO",
-                "Detects use of legacy date/time classes such as java.util.Date, Calendar, GregorianCalendar, or java.sql date types.",
-                "Prefer the java.time API (LocalDate, Instant, ZonedDateTime, ...) for clearer, immutable date/time handling.",
+                "Detects use of legacy date/time classes such as java.util.Date, Calendar, GregorianCalendar, or"
+                        + " java.sql date types.",
+                "Prefer the java.time API (LocalDate, Instant, ZonedDateTime, ...) for clearer, immutable date/time"
+                        + " handling.",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/time/package-summary.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
+        if (!context.classes().isEmpty()) context.evidence().observed();
         return GeneralCodingRules.OLD_DATE_AND_TIME_CLASSES_SHOULD_NOT_BE_USED;
     }
 }
@@ -521,6 +553,7 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
 
     @Override
     ArchRule rule(ArchitectureContext context) {
+        if (!context.classes().isEmpty()) context.evidence().observed();
         return GeneralCodingRules.DEPRECATED_API_SHOULD_NOT_BE_USED;
     }
 }
@@ -551,13 +584,15 @@ final class NoFieldInjectionRule extends AbstractArchitectureRule {
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
                 "Detects @Autowired or @Value on fields instead of constructor injection.",
-                "Prefer constructor injection so dependencies are explicit, final, and easy to test; in Kotlin, take the dependency as a constructor val instead of an @Autowired lateinit var.",
+                "Prefer constructor injection so dependencies are explicit, final, and easy to test; in Kotlin, take"
+                        + " the dependency as a constructor val instead of an @Autowired lateinit var.",
                 "https://docs.spring.io/spring-boot/reference/using/spring-beans-and-dependency-injection.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noFields()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
                 .should(BE_ANNOTATED_WITH_SPRING_INJECTION_ANNOTATION)
                 .as("no classes should use Spring field injection");
     }
@@ -598,6 +633,7 @@ final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractA
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noFields()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
                 .should(BE_ANNOTATED_WITH_STANDARD_INJECTION_ANNOTATION)
                 .as("no classes should use standard-annotation field injection");
     }
@@ -615,15 +651,17 @@ final class ControllersShouldNotDependOnRepositoriesRule extends AbstractArchite
                 "Controllers should not depend on repositories",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Controller / @RestController classes that depend directly on @Repository beans, bypassing a service layer.",
-                "Introduce a service layer between controllers and repositories to keep web and persistence concerns separated.",
+                "Detects @Controller / @RestController classes that depend directly on @Repository beans, bypassing a"
+                        + " service layer.",
+                "Introduce a service layer between controllers and repositories to keep web and persistence concerns"
+                        + " separated.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_layer_checks"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
-                .that(SpringStereotypes.CONTROLLER_ANNOTATED)
+                .that(observed(SpringStereotypes.CONTROLLER_ANNOTATED, context))
                 .should()
                 .dependOnClassesThat(SpringStereotypes.REPOSITORY_ANNOTATED);
     }
@@ -640,15 +678,17 @@ final class RepositoriesShouldNotDependOnControllersRule extends AbstractArchite
                 "Repositories should not depend on controllers",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Repository beans that depend on @Controller / @RestController classes, inverting the expected layering.",
-                "Keep persistence code free of web concerns; dependencies should flow from controllers toward repositories, not back.",
+                "Detects @Repository beans that depend on @Controller / @RestController classes, inverting the"
+                        + " expected layering.",
+                "Keep persistence code free of web concerns; dependencies should flow from controllers toward"
+                        + " repositories, not back.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_layer_checks"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
-                .that(SpringStereotypes.REPOSITORY_ANNOTATED)
+                .that(observed(SpringStereotypes.REPOSITORY_ANNOTATED, context))
                 .should()
                 .dependOnClassesThat(SpringStereotypes.CONTROLLER_ANNOTATED);
     }
@@ -667,8 +707,12 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                 "Beans should not self-invoke their own proxied methods",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "HIGH",
-                "Detects direct self-invocation of methods that are proxied through @Transactional, @Async, or @Cacheable (declared on the method, or @Async/@Cacheable declared on the class), which bypasses the Spring proxy and silently disables the behaviour.",
-                "Refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or, only if necessary, inject a @Lazy self-reference and call through it. Kotlin behaves identically here: marking the function open does not make a this-call go through the proxy.",
+                "Detects direct self-invocation of methods that are proxied through @Transactional, @Async, or"
+                        + " @Cacheable (declared on the method, or @Async/@Cacheable declared on the class), which"
+                        + " bypasses the Spring proxy and silently disables the behaviour.",
+                "Refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or,"
+                        + " only if necessary, inject a @Lazy self-reference and call through it. Kotlin behaves"
+                        + " identically here: marking the function open does not make a this-call go through the proxy.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
@@ -679,7 +723,9 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
         return noClasses()
                 .should(
                         new ArchCondition<JavaClass>(
-                                "directly call other methods declared in the same class that are proxied through @Transactional, @Async, or @Cacheable on the method (or @Async/@Cacheable on the declaring class)") {
+                                "directly call other methods declared in the same class that are proxied through"
+                                        + " @Transactional, @Async, or @Cacheable on the method (or @Async/@Cacheable on"
+                                        + " the declaring class)") {
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
                                 for (JavaMethodCall call : javaClass.getMethodCallsFromSelf()) {
@@ -712,7 +758,9 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
             return false;
         }
         MethodCallTarget target = call.getTarget();
+        context.evidence().observed();
         Optional<JavaMethod> resolved = target.resolveMember();
+        if (resolved.isEmpty()) context.evidence().requiredUnknown = true;
         if (resolved.isPresent() && ArchitectureRuleSupport.isCompilerGenerated(resolved.get())) {
             // A $default bridge stands in for a declared function, so resolve through it. Any other
             // compiler-generated target — the $suspendImpl body of an open suspend fun, a javac bridge —
@@ -758,15 +806,17 @@ final class StereotypesShouldNotResideInDefaultPackageRule extends AbstractArchi
                 "Spring stereotypes should not reside in the default package",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Component / @Service / @Repository / @Controller / @Configuration classes in the default (unnamed) package.",
-                "Move Spring stereotype beans into a named package so component scanning and proxying work as expected.",
+                "Detects @Component / @Service / @Repository / @Controller / @Configuration classes in the default"
+                        + " (unnamed) package.",
+                "Move Spring stereotype beans into a named package so component scanning and proxying work as"
+                        + " expected.",
                 "https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return classes()
-                .that(SpringStereotypes.STEREOTYPE_ANNOTATED)
+                .that(observed(SpringStereotypes.STEREOTYPE_ANNOTATED, context))
                 .should()
                 .haveNameMatching(".*\\..*")
                 .as("Spring stereotypes should not reside in the default package");
@@ -784,15 +834,17 @@ final class ServicesShouldNotDependOnControllersRule extends AbstractArchitectur
                 "Services should not depend on controllers",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Service beans that depend on @Controller / @RestController classes, violating the expected layering.",
-                "Keep service layer free of web concerns; dependencies should flow from controllers toward services, not back.",
+                "Detects @Service beans that depend on @Controller / @RestController classes, violating the expected"
+                        + " layering.",
+                "Keep service layer free of web concerns; dependencies should flow from controllers toward services,"
+                        + " not back.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_layer_checks"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
-                .that(SpringStereotypes.SERVICE_ANNOTATED)
+                .that(observed(SpringStereotypes.SERVICE_ANNOTATED, context))
                 .should()
                 .dependOnClassesThat(SpringStereotypes.CONTROLLER_ANNOTATED);
     }
@@ -809,8 +861,12 @@ final class ExceptionsShouldBeNamedExceptionRule extends AbstractArchitectureRul
                 "Exceptions should be named ending with Exception",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects classes extending Exception or RuntimeException that do not have names ending with 'Exception'. A nested variant of an exception hierarchy is exempt when an enclosing class carries the suffix, since it is already read as ClaimException.AlreadyAssigned at every call site.",
-                "Rename the class to end with 'Exception' so its purpose is immediately clear, or nest it inside the exception type it specialises.",
+                "Detects classes extending Exception or RuntimeException that do not have names ending with"
+                        + " 'Exception'. A nested variant of an exception hierarchy is exempt when an enclosing class"
+                        + " carries the suffix, since it is already read as ClaimException.AlreadyAssigned at every call"
+                        + " site.",
+                "Rename the class to end with 'Exception' so its purpose is immediately clear, or nest it inside the"
+                        + " exception type it specialises.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_naming_rules"));
     }
 
@@ -822,6 +878,7 @@ final class ExceptionsShouldBeNamedExceptionRule extends AbstractArchitectureRul
                 .should(new ArchCondition<JavaClass>("have a simple name ending with 'Exception'") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
+                        context.evidence().observed();
                         events.add(new SimpleConditionEvent(
                                 javaClass,
                                 isNamedAsException(javaClass),
@@ -871,7 +928,10 @@ final class InterfacesShouldNotHaveInterfaceSuffixRule extends AbstractArchitect
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return noClasses().that().areInterfaces().should().haveSimpleNameEndingWith("Interface");
+        return noClasses()
+                .that(observed(JavaClass.Predicates.INTERFACES, context))
+                .should()
+                .haveSimpleNameEndingWith("Interface");
     }
 }
 
@@ -906,16 +966,16 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                 "Loggers should be private final or container-managed",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects logger fields (SLF4J, Log4j2, Commons Logging, JBoss Logging, java.util.logging, or"
-                        + " Logback) that are not private and final; static is optional. Exempts container-managed injection"
-                        + " points (@Inject/@Autowired/jakarta.annotation.Resource, e.g. Quarkus's"
-                        + " `@Inject Logger log;`, and Quarkus @LoggerName JBoss logger fields) and a"
-                        + " protected, non-static, final logger declared in an abstract base class and initialized"
-                        + " via LoggerFactory.getLogger(getClass()) so each subclass logs under its own name.",
-                "Make logger fields private and final; either static or instance loggers are valid. For a logger shared with subclasses, declare it"
-                        + " protected, non-static, and final in an abstract base class, initialized with"
-                        + " LoggerFactory.getLogger(getClass()). Container-managed logger injection points are"
-                        + " exempt because the container wires them, not the class itself.",
+                "Detects logger fields (SLF4J, Log4j2, Commons Logging, JBoss Logging, java.util.logging, or Logback)"
+                        + " that are not private and final; static is optional. Exempts container-managed injection points"
+                        + " (@Inject/@Autowired/jakarta.annotation.Resource, e.g. Quarkus's `@Inject Logger log;`, and"
+                        + " Quarkus @LoggerName JBoss logger fields) and a protected, non-static, final logger declared in"
+                        + " an abstract base class and initialized via LoggerFactory.getLogger(getClass()) so each"
+                        + " subclass logs under its own name.",
+                "Make logger fields private and final; either static or instance loggers are valid. For a logger"
+                        + " shared with subclasses, declare it protected, non-static, and final in an abstract base class,"
+                        + " initialized with LoggerFactory.getLogger(getClass()). Container-managed logger injection"
+                        + " points are exempt because the container wires them, not the class itself.",
                 "https://www.slf4j.org/faq.html#declared_static"));
     }
 
@@ -938,6 +998,7 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                                 + " point; or a protected instance logger in an abstract base class") {
                             @Override
                             public void check(JavaField field, ConditionEvents events) {
+                                context.evidence().observed();
                                 if (isContainerManagedInjectionPoint(field, context.platform())
                                         || isPrivateFinal(field)
                                         || isProtectedAbstractBaseClassLogger(field)) {
@@ -946,8 +1007,8 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                                 events.add(SimpleConditionEvent.violated(
                                         field,
                                         "Logger field " + field.getFullName()
-                                                + " should be private and final, with static optional (or,"
-                                                + " for a base-class logger shared with subclasses, protected, final, and"
+                                                + " should be private and final, with static optional (or, for a"
+                                                + " base-class logger shared with subclasses, protected, final, and"
                                                 + " initialized via LoggerFactory.getLogger(getClass()) in an abstract"
                                                 + " class)"));
                             }
@@ -1004,14 +1065,17 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
                 "Application classes should not depend on test frameworks",
                 ArchitectureCategory.CODING_PRACTICES,
                 "MEDIUM",
-                "Detects dependencies from application classes to common test-only APIs such as JUnit, Mockito, AssertJ, Hamcrest, Testcontainers, Spring Test, Quarkus's @QuarkusTest, or RestAssured.",
-                "Move test helpers and assertions to test sources; production code should not depend on test frameworks.",
+                "Detects dependencies from application classes to common test-only APIs such as JUnit, Mockito,"
+                        + " AssertJ, Hamcrest, Testcontainers, Spring Test, Quarkus's @QuarkusTest, or RestAssured.",
+                "Move test helpers and assertions to test sources; production code should not depend on test"
+                        + " frameworks.",
                 "https://www.archunit.org/userguide/html/000_Index.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
                 .should()
                 .dependOnClassesThat()
                 .resideInAnyPackage(
@@ -1039,15 +1103,17 @@ final class RepositoriesShouldNotDependOnServicesRule extends AbstractArchitectu
                 "Repositories should not depend on services",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Repository beans that depend directly on @Service beans, coupling persistence code back to business services.",
-                "Keep repository beans focused on persistence concerns; dependencies should flow from services toward repositories, not back.",
+                "Detects @Repository beans that depend directly on @Service beans, coupling persistence code back to"
+                        + " business services.",
+                "Keep repository beans focused on persistence concerns; dependencies should flow from services toward"
+                        + " repositories, not back.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_layer_checks"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
-                .that(SpringStereotypes.REPOSITORY_ANNOTATED)
+                .that(observed(SpringStereotypes.REPOSITORY_ANNOTATED, context))
                 .should()
                 .dependOnClassesThat(SpringStereotypes.SERVICE_ANNOTATED);
     }
@@ -1066,14 +1132,15 @@ final class ServicesAndRepositoriesShouldNotDependOnServletTypesRule extends Abs
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
                 "Detects @Service or @Repository beans that depend on servlet or reactive Spring web request types.",
-                "Extract request data in the web layer and pass plain application values into services and repositories.",
+                "Extract request data in the web layer and pass plain application values into services and"
+                        + " repositories.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_layer_checks"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
-                .that(SpringStereotypes.SERVICE_OR_REPOSITORY_ANNOTATED)
+                .that(observed(SpringStereotypes.SERVICE_OR_REPOSITORY_ANNOTATED, context))
                 .should()
                 .dependOnClassesThat()
                 .resideInAnyPackage(
@@ -1100,7 +1167,8 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
                         "Detects @Transactional on interfaces or interface methods.",
-                        "Declare transaction semantics on concrete implementation classes or methods so proxy and weaving modes behave consistently.",
+                        "Declare transaction semantics on concrete implementation classes or methods so proxy and"
+                                + " weaving modes behave consistently.",
                         "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html"));
     }
 
@@ -1113,6 +1181,7 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                         if (!javaClass.isInterface()) {
                             return;
                         }
+                        context.evidence().observed();
                         if (hasTransactionalAnnotation(javaClass)) {
                             events.add(SimpleConditionEvent.violated(
                                     javaClass,
@@ -1157,8 +1226,14 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
                 "Proxy-driven methods should be interceptable",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects proxy-driven annotations on methods the active runtime cannot intercept. Spring class-based proxies cannot intercept private, static, or final methods. Quarkus Arc cannot intercept private methods, but supports static interception and transforms final intercepted methods by default.",
-                "Use a non-private, non-static, non-final method for portable Spring proxy behaviour; keep it public when the application uses interface-based JDK proxies. In Kotlin, classes and members are final by default: mark them open, or apply the kotlin-spring compiler plugin, which opens Spring-annotated classes for you. On Quarkus, avoid private interceptor-bound methods.",
+                "Detects proxy-driven annotations on methods the active runtime cannot intercept. Spring class-based"
+                        + " proxies cannot intercept private, static, or final methods. Quarkus Arc cannot intercept"
+                        + " private methods, but supports static interception and transforms final intercepted methods by"
+                        + " default.",
+                "Use a non-private, non-static, non-final method for portable Spring proxy behaviour; keep it public"
+                        + " when the application uses interface-based JDK proxies. In Kotlin, classes and members are"
+                        + " final by default: mark them open, or apply the kotlin-spring compiler plugin, which opens"
+                        + " Spring-annotated classes for you. On Quarkus, avoid private interceptor-bound methods.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
@@ -1169,6 +1244,8 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
+                            if (!SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method)) continue;
+                            context.evidence().observed();
                             proxyabilityProblem(method, context.platform())
                                     .ifPresent(reason -> events.add(SimpleConditionEvent.violated(
                                             method,
@@ -1231,8 +1308,12 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
                         "Async methods should return void or Future",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @Async methods that return a value type other than java.util.concurrent.Future, and Kotlin suspending functions annotated with @Async, which Spring's async interceptor does not support.",
-                        "Use void for fire-and-forget async work, or return Future/CompletableFuture when callers need a result. In Kotlin, launch the work in a coroutine (for example withContext(Dispatchers.IO)) instead of annotating a suspending function with @Async.",
+                        "Detects @Async methods that return a value type other than java.util.concurrent.Future, and"
+                                + " Kotlin suspending functions annotated with @Async, which Spring's async interceptor"
+                                + " does not support.",
+                        "Use void for fire-and-forget async work, or return Future/CompletableFuture when callers need"
+                                + " a result. In Kotlin, launch the work in a coroutine (for example"
+                                + " withContext(Dispatchers.IO)) instead of annotating a suspending function with @Async.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/annotation/Async.html"));
     }
 
@@ -1247,14 +1328,15 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
                             if (!asyncClass && !SpringStereotypes.ASYNC_ANNOTATED.test(method)) {
                                 continue;
                             }
+                            context.evidence().observed();
                             if (KotlinBytecode.isSuspendFunction(method)) {
                                 // Unlike @Scheduled, Spring's async interceptor has no coroutine bridge: the
                                 // continuation is never resumed on the executor, so the annotation is inert.
-                                events.add(
-                                        SimpleConditionEvent.violated(
-                                                method,
-                                                "Async method " + method.getFullName()
-                                                        + " is a Kotlin suspending function, which Spring's @Async interceptor does not support"));
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Async method " + method.getFullName()
+                                                + " is a Kotlin suspending function, which Spring's @Async"
+                                                + " interceptor does not support"));
                             } else if (!returnsVoidOrFuture(method)) {
                                 events.add(SimpleConditionEvent.violated(
                                         method,
@@ -1304,8 +1386,14 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                 "Scheduled methods should have supported signatures",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Reviews direct, repeated and composed @Scheduled signatures: source parameters, non-deferred CompletionStage returns, and non-void returns not recognized as standard reactive types. Kotlin suspend results are supported. Runtime adapters and scheduling activation are not inspected.",
-                "Declare scheduled methods without source parameters. Use void/Unit, a Kotlin suspend function (with kotlinx-coroutines-reactor), or a supported deferred reactive type. CompletionStage is not deferred by Spring's standard adapter; ordinary synchronous values are ignored. Verify custom adapters separately.",
+                "Reviews direct, repeated and composed @Scheduled signatures: source parameters, non-deferred"
+                        + " CompletionStage returns, and non-void returns not recognized as standard reactive types."
+                        + " Kotlin suspend results are supported. Runtime adapters and scheduling activation are not"
+                        + " inspected.",
+                "Declare scheduled methods without source parameters. Use void/Unit, a Kotlin suspend function (with"
+                        + " kotlinx-coroutines-reactor), or a supported deferred reactive type. CompletionStage is not"
+                        + " deferred by Spring's standard adapter; ordinary synchronous values are ignored. Verify custom"
+                        + " adapters separately.",
                 "https://docs.spring.io/spring-framework/reference/integration/scheduling.html"));
     }
 
@@ -1317,6 +1405,7 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (hasSchedule(method.getAnnotations(), new HashSet<>())) {
+                                context.evidence().observed();
                                 checkParameters(method, events);
                                 checkReturnType(method, events);
                             }
@@ -1371,7 +1460,8 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                         + " returns " + returnType.getName()
                         + (returnType.isAssignableTo(java.util.concurrent.CompletionStage.class)
                                 ? "; Spring's standard CompletionStage adapter is non-deferred and is rejected for"
-                                        + " reactive scheduling when active; without that adapter the return value is ignored"
+                                        + " reactive scheduling when active; without that adapter the return value is"
+                                        + " ignored"
                                 : "; not recognized as a standard deferred reactive type; synchronous @Scheduled"
                                         + " return values are ignored (custom adapters are not inspected)")));
     }
@@ -1400,7 +1490,8 @@ final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchi
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
                         "Detects @Async on @Configuration classes or methods declared within them.",
-                        "Move asynchronous work to a regular Spring bean; @Async is not supported on methods declared in @Configuration classes.",
+                        "Move asynchronous work to a regular Spring bean; @Async is not supported on methods declared"
+                                + " in @Configuration classes.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/annotation/Async.html"));
     }
 
@@ -1413,6 +1504,7 @@ final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchi
                         if (!SpringStereotypes.CONFIGURATION_ANNOTATED.test(javaClass)) {
                             return;
                         }
+                        context.evidence().observed();
                         if (SpringStereotypes.ASYNC_ANNOTATED.test(javaClass)) {
                             events.add(SimpleConditionEvent.violated(
                                     javaClass,
@@ -1444,13 +1536,15 @@ final class NoAopContextCurrentProxyRule extends AbstractArchitectureRule {
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "LOW",
                 "Detects calls to AopContext.currentProxy(), which couples code to Spring AOP proxy internals.",
-                "Prefer refactoring to avoid self-invocation, or inject a self-reference when a proxy call is truly required.",
+                "Prefer refactoring to avoid self-invocation, or inject a self-reference when a proxy call is truly"
+                        + " required.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
                 .should()
                 .callMethodWhere(new DescribedPredicate<JavaMethodCall>("AopContext.currentProxy() is called") {
                     @Override
@@ -1476,8 +1570,10 @@ final class NoPublicMutableStaticFieldsRule extends AbstractArchitectureRule {
                 "Classes should not have public mutable static fields",
                 ArchitectureCategory.CODING_PRACTICES,
                 "MEDIUM",
-                "Detects public static fields that are not final, which expose shared, globally reachable mutable state.",
-                "Make the field final so it cannot be reassigned, reduce its visibility, or move the mutable state into a managed bean.",
+                "Detects public static fields that are not final, which expose shared, globally reachable mutable"
+                        + " state.",
+                "Make the field final so it cannot be reassigned, reduce its visibility, or move the mutable state"
+                        + " into a managed bean.",
                 "https://www.oracle.com/java/technologies/javase/seccodeguide.html"));
     }
 
@@ -1488,6 +1584,7 @@ final class NoPublicMutableStaticFieldsRule extends AbstractArchitectureRule {
                 .areStatic()
                 .and()
                 .areNotFinal()
+                .and(observed(DescribedPredicate.alwaysTrue(), context))
                 .should()
                 .bePublic()
                 .as("Classes should not have public mutable static fields")
@@ -1507,8 +1604,10 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                 "Utility classes should be final with a private constructor",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects classes that expose only static members but are not final or can be instantiated through a non-private constructor.",
-                "Make utility classes final and give them a single private constructor so they cannot be instantiated or subclassed.",
+                "Detects classes that expose only static members but are not final or can be instantiated through a"
+                        + " non-private constructor.",
+                "Make utility classes final and give them a single private constructor so they cannot be instantiated"
+                        + " or subclassed.",
                 "https://www.oracle.com/java/technologies/javase/seccodeguide.html"));
     }
 
@@ -1523,6 +1622,7 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                                 if (!isUtilityClass(javaClass)) {
                                     return;
                                 }
+                                context.evidence().observed();
                                 if (!javaClass.getModifiers().contains(JavaModifier.FINAL)) {
                                     events.add(SimpleConditionEvent.violated(
                                             javaClass, "Utility class " + javaClass.getName() + " is not final"));
@@ -1596,8 +1696,10 @@ final class ConfigurationPropertiesShouldBeImmutableRule extends AbstractArchite
                         "Configuration properties classes should be immutable",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "INFO",
-                        "Detects @ConfigurationProperties classes with non-final instance fields instead of immutable constructor binding or records.",
-                        "Bind configuration through a record or constructor with final fields so configuration state is immutable; Spring Boot favours immutable @ConfigurationProperties.",
+                        "Detects @ConfigurationProperties classes with non-final instance fields instead of immutable"
+                                + " constructor binding or records.",
+                        "Bind configuration through a record or constructor with final fields so configuration state"
+                                + " is immutable; Spring Boot favours immutable @ConfigurationProperties.",
                         "https://docs.spring.io/spring-boot/reference/features/external-config.html#features.external-config.typesafe-configuration-properties.constructor-binding"));
     }
 
@@ -1607,6 +1709,7 @@ final class ConfigurationPropertiesShouldBeImmutableRule extends AbstractArchite
                 .areDeclaredInClassesThat(SpringStereotypes.CONFIGURATION_PROPERTIES_ANNOTATED)
                 .and()
                 .areNotStatic()
+                .and(observed(DescribedPredicate.alwaysTrue(), context))
                 .should()
                 .beFinal()
                 .as("Configuration properties classes should be immutable")
@@ -1630,8 +1733,13 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
                         "Lite-mode @Bean methods should not call sibling @Bean methods",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "HIGH",
-                        "Detects direct calls between @Bean methods declared in the same class when that class is not a full @Configuration(proxyBeanMethods=true). In lite mode the call is a plain Java invocation that bypasses the container, so it creates whatever the factory method returns instead of resolving the managed bean.",
-                        "Declare the class as @Configuration (the default proxyBeanMethods=true), or pass the dependency as a @Bean method parameter instead of calling the sibling @Bean method directly.",
+                        "Detects direct calls between @Bean methods declared in the same class when that class is not"
+                                + " a full @Configuration(proxyBeanMethods=true). In lite mode the call is a plain Java"
+                                + " invocation that bypasses the container, so it creates whatever the factory method"
+                                + " returns instead of resolving the managed bean.",
+                        "Declare the class as @Configuration (the default proxyBeanMethods=true), or pass the"
+                                + " dependency as a @Bean method parameter instead of calling the sibling @Bean method"
+                                + " directly.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Bean.html"));
     }
 
@@ -1653,10 +1761,12 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
                         if (beanMethods.isEmpty()) {
                             return;
                         }
+                        context.evidence().observed();
                         for (JavaMethod beanMethod : beanMethods) {
                             for (JavaMethodCall call : beanMethod.getMethodCallsFromSelf()) {
                                 Optional<JavaMethod> target = call.getTarget().resolveMember();
                                 if (target.isEmpty()) {
+                                    context.evidence().requiredUnknown = true;
                                     continue;
                                 }
                                 JavaMethod targetMethod = target.get();
@@ -1712,8 +1822,12 @@ final class LifecycleCallbacksShouldNotBeProxyDrivenRule extends AbstractArchite
                 "Lifecycle callbacks should not be proxy-driven",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "HIGH",
-                "Detects @PostConstruct or @PreDestroy methods that are also annotated with @Transactional, @Async, @Cacheable, @CachePut, @CacheEvict, or @Caching. The proxy is not active during bean initialization or destruction, so the transactional, asynchronous, or caching behaviour is silently lost.",
-                "Move the transactional, asynchronous, or cached work to a separate proxied bean method and invoke it after initialization rather than annotating the lifecycle callback itself.",
+                "Detects @PostConstruct or @PreDestroy methods that are also annotated with @Transactional, @Async,"
+                        + " @Cacheable, @CachePut, @CacheEvict, or @Caching. The proxy is not active during bean"
+                        + " initialization or destruction, so the transactional, asynchronous, or caching behaviour is"
+                        + " silently lost.",
+                "Move the transactional, asynchronous, or cached work to a separate proxied bean method and invoke it"
+                        + " after initialization rather than annotating the lifecycle callback itself.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
@@ -1724,13 +1838,16 @@ final class LifecycleCallbacksShouldNotBeProxyDrivenRule extends AbstractArchite
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
-                            if (SpringStereotypes.LIFECYCLE_CALLBACK_ANNOTATED.test(method)
-                                    && SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method)) {
-                                events.add(
-                                        SimpleConditionEvent.violated(
-                                                method,
-                                                "Lifecycle callback " + method.getFullName()
-                                                        + " is annotated with a proxy-driven annotation (@Transactional, @Async, or a Spring cache operation), which does not apply during initialization or destruction"));
+                            if (SpringStereotypes.LIFECYCLE_CALLBACK_ANNOTATED.test(method)) {
+                                context.evidence().observed();
+                                if (!SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method)) continue;
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Lifecycle callback " + method.getFullName()
+                                                + " is annotated with a proxy-driven annotation"
+                                                + " (@Transactional, @Async, or a Spring cache operation),"
+                                                + " which does not apply during initialization or"
+                                                + " destruction"));
                             }
                         }
                     }
@@ -1767,8 +1884,16 @@ final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchite
                         "Async and transactional semantics on one method should be reviewed",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects methods annotated with both @Async and @Transactional. The transaction runs on the async worker thread, so the caller's transaction and security context do not propagate. Transactional event listeners that run after the publishing transaction completed are excluded, including Spring Modulith's @ApplicationModuleListener, because a separate transaction is the intended shape there; a BEFORE_COMMIT listener is still reported.",
-                        "Review the design: usually the transactional work belongs in a separate bean method that the @Async method calls, so the transaction is scoped correctly on the async thread. For an asynchronous BEFORE_COMMIT listener, move to the AFTER_COMMIT phase (or drop @Async) so the listener no longer runs beside the transaction it observes.",
+                        "Detects methods annotated with both @Async and @Transactional. The transaction runs on the"
+                                + " async worker thread, so the caller's transaction and security context do not"
+                                + " propagate. Transactional event listeners that run after the publishing transaction"
+                                + " completed are excluded, including Spring Modulith's @ApplicationModuleListener,"
+                                + " because a separate transaction is the intended shape there; a BEFORE_COMMIT listener"
+                                + " is still reported.",
+                        "Review the design: usually the transactional work belongs in a separate bean method that the"
+                                + " @Async method calls, so the transaction is scoped correctly on the async thread. For"
+                                + " an asynchronous BEFORE_COMMIT listener, move to the AFTER_COMMIT phase (or drop"
+                                + " @Async) so the listener no longer runs beside the transaction it observes.",
                         "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html"));
     }
 
@@ -1783,19 +1908,23 @@ final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchite
                                     || !SpringStereotypes.TRANSACTIONAL_ANNOTATED.test(method)) {
                                 continue;
                             }
+                            context.evidence().observed();
                             Optional<String> phase = transactionalEventListenerPhase(method);
                             if (phase.isEmpty()) {
-                                events.add(
-                                        SimpleConditionEvent.violated(
-                                                method,
-                                                "Method " + method.getFullName()
-                                                        + " combines @Async and @Transactional; the transaction runs on the async thread and the caller's context does not propagate"));
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Method " + method.getFullName()
+                                                + " combines @Async and @Transactional; the transaction runs"
+                                                + " on the async thread and the caller's context does not"
+                                                + " propagate"));
                             } else if (BEFORE_COMMIT_PHASE.equals(phase.get())) {
-                                events.add(
-                                        SimpleConditionEvent.violated(
-                                                method,
-                                                "Asynchronous transactional event listener " + method.getFullName()
-                                                        + " listens in the BEFORE_COMMIT phase; it runs on the async thread while the publishing transaction is still open, so its own transaction observes state that transaction has not committed"));
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Asynchronous transactional event listener " + method.getFullName()
+                                                + " listens in the BEFORE_COMMIT phase; it runs on the async"
+                                                + " thread while the publishing transaction is still open, so"
+                                                + " its own transaction observes state that transaction has"
+                                                + " not committed"));
                             }
                         }
                     }
@@ -1859,8 +1988,11 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
                         "Async event listeners should return void",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @EventListener methods that run through @Async (on the method or declaring class) and return a value. Spring cannot publish that value as a follow-up event for an asynchronous listener.",
-                        "Return void from the asynchronous listener. To publish a follow-up event, inject ApplicationEventPublisher and publish it explicitly.",
+                        "Detects @EventListener methods that run through @Async (on the method or declaring class) and"
+                                + " return a value. Spring cannot publish that value as a follow-up event for an"
+                                + " asynchronous listener.",
+                        "Return void from the asynchronous listener. To publish a follow-up event, inject"
+                                + " ApplicationEventPublisher and publish it explicitly.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/event/EventListener.html"));
     }
 
@@ -1873,8 +2005,9 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
                         boolean classLevelAsync = SpringStereotypes.ASYNC_ANNOTATED.test(javaClass);
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (method.isAnnotatedWith(SpringStereotypes.EVENT_LISTENER)
-                                    && (classLevelAsync || SpringStereotypes.ASYNC_ANNOTATED.test(method))
-                                    && !method.getRawReturnType().isEquivalentTo(void.class)) {
+                                    && (classLevelAsync || SpringStereotypes.ASYNC_ANNOTATED.test(method))) {
+                                context.evidence().observed();
+                                if (method.getRawReturnType().isEquivalentTo(void.class)) continue;
                                 events.add(SimpleConditionEvent.violated(
                                         method,
                                         "Asynchronous event listener " + method.getFullName()
@@ -1902,8 +2035,11 @@ final class LegacyJavaxTransactionalShouldBeMigratedRule extends AbstractArchite
                         "Legacy javax.transaction.Transactional should be migrated",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "HIGH",
-                        "Detects javax.transaction.Transactional on classes or methods. Spring Framework 7 no longer supports legacy javax annotations, so the intended transaction boundary is ignored.",
-                        "Replace javax.transaction.Transactional with org.springframework.transaction.annotation.Transactional or jakarta.transaction.Transactional and use the corresponding Jakarta-era dependency.",
+                        "Detects javax.transaction.Transactional on classes or methods. Spring Framework 7 no longer"
+                                + " supports legacy javax annotations, so the intended transaction boundary is ignored.",
+                        "Replace javax.transaction.Transactional with"
+                                + " org.springframework.transaction.annotation.Transactional or"
+                                + " jakarta.transaction.Transactional and use the corresponding Jakarta-era dependency.",
                         "https://github.com/spring-projects/spring-framework/blob/v7.0.8/spring-tx/src/main/java/org/springframework/transaction/annotation/AnnotationTransactionAttributeSource.java"));
     }
 
@@ -1913,20 +2049,21 @@ final class LegacyJavaxTransactionalShouldBeMigratedRule extends AbstractArchite
                 .should(new ArchCondition<JavaClass>("not use legacy javax.transaction.Transactional") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
+                        context.evidence().observed();
                         if (javaClass.isAnnotatedWith(SpringStereotypes.JAVAX_TRANSACTIONAL)) {
-                            events.add(
-                                    SimpleConditionEvent.violated(
-                                            javaClass,
-                                            "Class " + javaClass.getName()
-                                                    + " uses legacy javax.transaction.Transactional, which Spring Framework 7 ignores"));
+                            events.add(SimpleConditionEvent.violated(
+                                    javaClass,
+                                    "Class " + javaClass.getName()
+                                            + " uses legacy javax.transaction.Transactional, which Spring"
+                                            + " Framework 7 ignores"));
                         }
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (method.isAnnotatedWith(SpringStereotypes.JAVAX_TRANSACTIONAL)) {
-                                events.add(
-                                        SimpleConditionEvent.violated(
-                                                method,
-                                                "Method " + method.getFullName()
-                                                        + " uses legacy javax.transaction.Transactional, which Spring Framework 7 ignores"));
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Method " + method.getFullName()
+                                                + " uses legacy javax.transaction.Transactional, which Spring"
+                                                + " Framework 7 ignores"));
                             }
                         }
                     }
@@ -1950,8 +2087,11 @@ final class BeanPostProcessorFactoryMethodsShouldBeStaticRule extends AbstractAr
                         "BeanPostProcessor and BeanFactoryPostProcessor @Bean methods should be static",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects non-static @Bean methods that return a BeanPostProcessor or BeanFactoryPostProcessor, which forces the configuration class to be instantiated before post-processing is set up and can disable post-processing of other beans.",
-                        "Declare these @Bean methods static so the post-processor can be created without instantiating the surrounding configuration class.",
+                        "Detects non-static @Bean methods that return a BeanPostProcessor or BeanFactoryPostProcessor,"
+                                + " which forces the configuration class to be instantiated before post-processing is set"
+                                + " up and can disable post-processing of other beans.",
+                        "Declare these @Bean methods static so the post-processor can be created without instantiating"
+                                + " the surrounding configuration class.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Bean.html"));
     }
 
@@ -1964,19 +2104,20 @@ final class BeanPostProcessorFactoryMethodsShouldBeStaticRule extends AbstractAr
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
                                 for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
-                                    if (!SpringStereotypes.BEAN_ANNOTATED.test(method)
-                                            || method.getModifiers().contains(JavaModifier.STATIC)) {
+                                    if (!SpringStereotypes.BEAN_ANNOTATED.test(method)) {
                                         continue;
                                     }
                                     JavaClass returnType = method.getRawReturnType();
                                     if (returnType.isAssignableTo(SpringStereotypes.BEAN_FACTORY_POST_PROCESSOR)
                                             || returnType.isAssignableTo(SpringStereotypes.BEAN_POST_PROCESSOR)) {
-                                        events.add(
-                                                SimpleConditionEvent.violated(
-                                                        method,
-                                                        "@Bean method " + method.getFullName() + " returns "
-                                                                + returnType.getName()
-                                                                + " but is not static; post-processor factory methods should be static"));
+                                        context.evidence().observed();
+                                        if (method.getModifiers().contains(JavaModifier.STATIC)) continue;
+                                        events.add(SimpleConditionEvent.violated(
+                                                method,
+                                                "@Bean method " + method.getFullName() + " returns "
+                                                        + returnType.getName()
+                                                        + " but is not static; post-processor factory methods"
+                                                        + " should be static"));
                                     }
                                 }
                             }
@@ -1999,8 +2140,11 @@ final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractAr
                 "Internal packages should not be accessed from other modules",
                 ArchitectureCategory.PACKAGE_STRUCTURE,
                 "HIGH",
-                "Detects dependencies that reach into another module's 'internal' package, e.g. base.order accessing base.inventory.internal. Reaching across an internal boundary couples modules to each other's implementation details.",
-                "Depend only on a module's public API (the packages outside its 'internal' subpackage), or move the shared type into a published package.",
+                "Detects dependencies that reach into another module's 'internal' package, e.g. base.order accessing"
+                        + " base.inventory.internal. Reaching across an internal boundary couples modules to each other's"
+                        + " implementation details.",
+                "Depend only on a module's public API (the packages outside its 'internal' subpackage), or move the"
+                        + " shared type into a published package.",
                 "https://docs.spring.io/spring-modulith/reference/verification.html"));
     }
 
@@ -2025,6 +2169,7 @@ final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractAr
                             if (modulePrefix == null) {
                                 continue;
                             }
+                            context.evidence().observed();
                             if (originPackage.equals(modulePrefix) || originPackage.startsWith(modulePrefix + ".")) {
                                 continue;
                             }
@@ -2091,14 +2236,21 @@ final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
                         "Classes should not directly instantiate Thread",
                         ArchitectureCategory.CODING_PRACTICES,
                         "MEDIUM",
-                        "Reviews new Thread(...) construction, including Thread subclasses, outside an actual ThreadFactory.newThread(Runnable) implementation. Direct construction can bypass executor lifecycle and context management; this check does not prove the thread is started.",
-                        "Prefer Spring's TaskExecutor/@Async or Quarkus's ManagedExecutor, or an application-owned ExecutorService with explicit shutdown. ThreadFactory implementations may construct threads for an executor; plain Executors factories are not automatically container-managed.",
+                        "Reviews new Thread(...) construction, including Thread subclasses, outside an actual"
+                                + " ThreadFactory.newThread(Runnable) implementation. Direct construction can bypass"
+                                + " executor lifecycle and context management; this check does not prove the thread is"
+                                + " started.",
+                        "Prefer Spring's TaskExecutor/@Async or Quarkus's ManagedExecutor, or an application-owned"
+                                + " ExecutorService with explicit shutdown. ThreadFactory implementations may construct"
+                                + " threads for an executor; plain Executors factories are not automatically"
+                                + " container-managed.",
                         "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/ThreadFactory.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
                 .should()
                 .callConstructorWhere(new DescribedPredicate<JavaConstructorCall>("a Thread constructor is called") {
                     @Override
@@ -2136,13 +2288,16 @@ final class AssertionsShouldHaveDetailMessageRule extends AbstractArchitectureRu
                 "Assertions should have a detail message",
                 ArchitectureCategory.CODING_PRACTICES,
                 "INFO",
-                "Detects assert statements (compiled as new AssertionError() with no arguments) that have no detail message, which produce near-useless failure diagnostics.",
-                "Add a detail message, e.g. \"assert x > 0 : \\\"x must be positive\\\";\", so a failure explains what was expected.",
+                "Detects assert statements (compiled as new AssertionError() with no arguments) that have no detail"
+                        + " message, which produce near-useless failure diagnostics.",
+                "Add a detail message, e.g. \"assert x > 0 : \\\"x must be positive\\\";\", so a failure explains what"
+                        + " was expected.",
                 "https://www.archunit.org/userguide/html/000_Index.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
+        if (!context.classes().isEmpty()) context.evidence().observed();
         return GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE;
     }
 }

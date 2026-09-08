@@ -26,7 +26,11 @@ final class PostgresUnvalidatedConstraintRule extends AbstractDatabaseAdvisorRul
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.schemasOf(Dialect.POSTGRESQL);
         String skipReason = VendorRuleSupport.skipReason(
-                schemas, VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, "No PostgreSQL datasource was detected.");
+                context,
+                definition().id(),
+                schemas,
+                VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS,
+                "No PostgreSQL datasource was detected.");
         if (skipReason != null) {
             return skipped(skipReason);
         }

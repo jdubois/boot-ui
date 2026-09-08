@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.quarkusapp;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
@@ -57,7 +58,8 @@ public final class QuarkusAppScanner {
                 0,
                 0,
                 List.of(),
-                List.of());
+                List.of(),
+                AdvisorEvidenceDto.unknown());
     }
 
     public SpringReport scan() {
@@ -89,7 +91,20 @@ public final class QuarkusAppScanner {
                 snap == null || snap.metadata() == null ? 0 : snap.metadata().beanCount(),
                 evaluation.rulesEvaluated(),
                 evaluation.findings(),
-                evaluation.errors());
+                evaluation.errors(),
+                evidence(snap, evaluation));
+    }
+
+    private static AdvisorEvidenceDto evidence(QuarkusAppSnapshot snapshot, QuarkusAppChecks.Evaluation evaluation) {
+        if (snapshot == null) {
+            return AdvisorEvidenceDto.unknown();
+        }
+        return new AdvisorEvidenceDto(
+                evaluation.usable(),
+                evaluation.errors().isEmpty(),
+                evaluation.errors().stream()
+                        .map(error -> error.id() + ": " + error.description())
+                        .toList());
     }
 
     private static List<String> inspected(QuarkusAppSnapshot s) {
@@ -119,7 +134,8 @@ public final class QuarkusAppScanner {
             int componentsAnalyzed,
             int rulesEvaluated,
             List<SpringRuleResultDto> raw,
-            List<SpringRuleResultDto> errors) {
+            List<SpringRuleResultDto> errors,
+            AdvisorEvidenceDto evidence) {
         List<SpringRuleResultDto> violations = raw.stream().sorted(IMPORTANCE).toList();
         SpringScanStatusDto scan = new SpringScanStatusDto(
                 ANALYZER, status, message, scannedAt, rulesEvaluated, componentsAnalyzed, violations.size());
@@ -133,7 +149,8 @@ public final class QuarkusAppScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                errors);
+                errors,
+                evidence);
     }
 
     public SpringReport applyDismissals(SpringReport report, Set<String> dismissedIds) {
@@ -164,7 +181,8 @@ public final class QuarkusAppScanner {
                 severityCounts(active),
                 scan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.evidence());
     }
 
     private List<SpringSeverityCountDto> severityCounts(List<SpringRuleResultDto> results) {

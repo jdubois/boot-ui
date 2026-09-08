@@ -20,6 +20,9 @@ dismissals retain their meaning; retired identifiers are never reused.
 
 ### Evidence and incomplete scans
 
+Missing persistence-unit evidence qualifies usable known-findings scores, without discarding findings from other
+units. See the shared [score eligibility policy](features/advisors.md#score-eligibility).
+
 Factory settings belong to their persistence unit, not to whichever factory was discovered first. The advisor reads an
 allowlisted snapshot of effective Hibernate factory options where available and attributes findings to that unit.
 Factory defaults do not establish per-session overrides, query-cache opt-in, entity-cache eligibility, or workload.

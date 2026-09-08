@@ -44,6 +44,13 @@ abstract class AbstractSpringRule implements SpringRule {
 
     @Override
     public final SpringRuleResultDto evaluate(SpringContext context) {
+        context.observations().evaluation().begin();
+        SpringRuleResultDto result = evaluateObserved(context);
+        context.observations().evaluation().finish(result);
+        return result;
+    }
+
+    private SpringRuleResultDto evaluateObserved(SpringContext context) {
         try {
             return evaluateRule(context);
         } catch (RuntimeException | LinkageError ex) {
@@ -62,8 +69,13 @@ abstract class AbstractSpringRule implements SpringRule {
         return SpringRuleSupport.skipped(definition, reason);
     }
 
-    SpringRuleResultDto unknown() {
-        return skipped("Required non-eager metadata is unavailable or custom; observation is unknown.");
+    SpringRuleResultDto unknown(SpringContext context) {
+        return unknown(context, "Required non-eager metadata is unavailable or custom; observation is unknown.");
+    }
+
+    SpringRuleResultDto unknown(SpringContext context, String reason) {
+        context.observations().evaluation().unknown(reason);
+        return skipped(reason);
     }
 
     SpringRuleResultDto violation(String detail) {
@@ -81,8 +93,9 @@ abstract class AbstractSpringRule implements SpringRule {
                 .collect(Collectors.joining(", "));
     }
 
-    SpringRuleResultDto candidates(List<BeanRef> refs, String subject) {
-        if (refs.stream().anyMatch(ref -> !ref.metadataKnown())) return unknown();
+    SpringRuleResultDto candidates(SpringContext context, List<BeanRef> refs, String subject) {
+        context.applies(!refs.isEmpty());
+        if (refs.stream().anyMatch(ref -> !ref.metadataKnown())) return unknown(context);
         if (refs.size() > 1 && !SpringModel.hasResolvedCandidateMetadata(refs))
             return violation(subject + " default candidate metadata is unresolved: " + names(refs)
                     + ". Qualified/name-matched injection points may be intentional; execution is not established.");
@@ -109,8 +122,9 @@ final class BeanDefinitionOverridingRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         Boolean value = c.observations().get(OVERRIDING, Boolean.class);
+        c.applies(value != null);
         return value == null
-                ? unknown()
+                ? unknown(c)
                 : value
                         ? violation(
                                 "The current bean factory permits bean definition overriding; no actual replacement was inferred.")
@@ -133,8 +147,9 @@ final class CircularReferencesAllowedRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         Boolean value = c.observations().get(CIRCULAR, Boolean.class);
+        c.applies(value != null);
         return value == null
-                ? unknown()
+                ? unknown(c)
                 : value
                         ? violation(
                                 "The current bean factory permits circular-reference resolution; no cycle was inferred.")
@@ -156,13 +171,13 @@ final class DuplicateObjectMapperRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!c.observations().incomplete().isEmpty()) return unknown();
+        if (!c.observations().incomplete().isEmpty()) return unknown(c);
         List<String> details = new ArrayList<>();
         for (List<BeanRef> group : c.objectMappers().stream()
                 .collect(Collectors.groupingBy(BeanRef::group))
                 .values()) {
-            SpringRuleResultDto result = candidates(group, "Same-type JSON mapper");
-            if ("SKIPPED".equals(result.status())) return unknown();
+            SpringRuleResultDto result = candidates(c, group, "Same-type JSON mapper");
+            if ("SKIPPED".equals(result.status())) return unknown(c);
             details.addAll(result.sampleViolations());
         }
         return violation(details);
@@ -185,8 +200,9 @@ final class AmbiguousTaskExecutorRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.asyncEnabled()) return skipped("Async annotation processing is not present.");
         AsyncSelection selection = c.observations().get(ASYNC_SELECTION, AsyncSelection.class);
+        c.applies(selection != null);
         return selection == null
-                ? unknown()
+                ? unknown(c)
                 : selection == AsyncSelection.AMBIGUOUS
                         ? violation(
                                 "Default async candidate metadata is unresolved; explicit qualifiers/configurers and other consumers require separate review.")
@@ -208,7 +224,7 @@ final class AmbiguousDataSourceRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        return c.observations().incomplete().isEmpty() ? candidates(c.dataSources(), "DataSource") : unknown();
+        return c.observations().incomplete().isEmpty() ? candidates(c, c.dataSources(), "DataSource") : unknown(c);
     }
 }
 
@@ -227,8 +243,8 @@ final class AmbiguousTransactionManagerRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (c.transactionManagementConfigurerPresent()
-                || !c.observations().incomplete().isEmpty()) return unknown();
-        return candidates(c.transactionManagers(), "Imperative transaction manager");
+                || !c.observations().incomplete().isEmpty()) return unknown(c);
+        return candidates(c, c.transactionManagers(), "Imperative transaction manager");
     }
 }
 
@@ -246,8 +262,8 @@ final class RestTemplateInUseRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        return c.restTemplates().isEmpty()
-                ? c.observations().incomplete().isEmpty() ? pass() : unknown()
+        return c.targets(c.restTemplates()).isEmpty()
+                ? c.observations().incomplete().isEmpty() ? pass() : unknown(c)
                 : violation("Declared RestTemplate bean(s): " + names(c.restTemplates())
                         + "; review actual call sites before migration.");
     }
@@ -267,7 +283,8 @@ final class DefaultPackageComponentsRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (c.defaultPackageBeans().isEmpty() && !c.observations().incomplete().isEmpty()) return unknown();
+        c.applies(c.beanDefinitionCount() > 0);
+        if (c.defaultPackageBeans().isEmpty() && !c.observations().incomplete().isEmpty()) return unknown(c);
         return violation(c.defaultPackageBeans().stream()
                 .limit(50)
                 .map(name -> "Default-package application product: " + SpringRuleSupport.detail(name))
@@ -289,9 +306,10 @@ final class MutableSingletonFieldRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
+        c.applies(c.beanDefinitionCount() > 0);
         return c.mutableSingletonFields().isEmpty()
                         && !c.observations().incomplete().isEmpty()
-                ? unknown()
+                ? unknown(c)
                 : violation(c.mutableSingletonFields());
     }
 }
@@ -310,11 +328,12 @@ final class LazyInitializationDisabledRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
+        c.applies(c.beanDefinitionCount() > 0);
         if (c.bind("spring.main.lazy-initialization", Boolean.class) != null || c.beanDefinitionCount() <= 300)
             return pass();
         Integer lazy = c.observations().get(LAZY_DEFINITIONS, Integer.class);
         return lazy == null
-                ? unknown()
+                ? unknown(c)
                 : c.beanDefinitionCount() - lazy <= 300
                         ? pass()
                         : violation(
@@ -338,7 +357,7 @@ final class DebugOrTraceLoggingRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         List<String> details = new ArrayList<>();
         for (String key : List.of("debug", "trace"))
-            if (c.isPropertyTrue(key))
+            if (c.observed(c.isPropertyTrue(key)))
                 details.add(
                         key + " is configured for selected diagnostic loggers, not every logger's effective level.");
         for (String logger : List.of("root", "web", "sql", "org.springframework", "org.hibernate")) {
@@ -371,7 +390,7 @@ final class RemovedOrRenamedPropertyRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         List<String> details = new ArrayList<>();
         for (var entry : SpringMigrationProperties.ENTRIES.entrySet())
-            if (c.hasProperty(entry.getKey())) details.add(entry.getKey() + " — " + entry.getValue() + ".");
+            if (c.observed(c.hasProperty(entry.getKey()))) details.add(entry.getKey() + " — " + entry.getValue() + ".");
         return violation(details);
     }
 }
@@ -390,7 +409,7 @@ final class MissingApplicationNameRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        return c.firstProperty("spring.application.name") == null
+        return c.observed(c.firstProperty("spring.application.name")) == null
                 ? violation("spring.application.name is absent; Boot's application-name defaults are unavailable.")
                 : pass();
     }
@@ -410,7 +429,7 @@ final class ConfigOnNotFoundIgnoreRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        return "ignore".equalsIgnoreCase(c.firstProperty("spring.config.on-not-found"))
+        return "ignore".equalsIgnoreCase(c.observed(c.firstProperty("spring.config.on-not-found")))
                 ? violation("Global on-not-found=ignore is configured; no actual missing location was observed.")
                 : pass();
     }
@@ -430,11 +449,11 @@ final class Jackson2DefaultsCompatibilityRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!c.isPropertyTrue("spring.jackson.use-jackson2-defaults")) return pass();
+        if (!c.observed(c.isPropertyTrue("spring.jackson.use-jackson2-defaults"))) return pass();
         return c.observations().yes(JACKSON3_CONFIGURATION)
                 ? violation(
                         "Jackson 3 Boot configuration requests Jackson 2-compatible defaults; document intent and test payload compatibility before any change.")
-                : unknown();
+                : unknown(c);
     }
 }
 
@@ -452,7 +471,7 @@ final class DevToolsOnClasspathRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        return c.devToolsPresent() && c.isProductionProfileActive()
+        return c.applies(c.devToolsPresent()) && c.isProductionProfileActive()
                 ? violation(
                         "DevTools is present with a production-like effective profile name (naming heuristic only); restart and LiveReload activity are not established.")
                 : pass();
@@ -473,7 +492,7 @@ final class ProfileValidationDisabledRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        return c.isPropertyFalse("spring.profiles.validate")
+        return c.observed(c.isPropertyFalse("spring.profiles.validate"))
                 ? violation("Profile-name validation is explicitly disabled; no invalid name was inferred.")
                 : pass();
     }
@@ -494,6 +513,7 @@ final class VirtualThreadsAvailableRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.virtualThreadsSupported()) return skipped("Virtual threads require Java 21+.");
+        c.applies(c.dispatcherServletPresent() || c.bootApplicationTaskExecutorPresent());
         if (c.bind("spring.threads.virtual.enabled", Boolean.class) != null) return pass();
         if (!c.dispatcherServletPresent() && !c.bootApplicationTaskExecutorPresent())
             return skipped("No applicable MVC or Boot task-execution evidence; reactive HTTP alone is inapplicable.");
@@ -516,7 +536,7 @@ final class VirtualThreadsOverriddenByPoolRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        return c.virtualThreadsSupported() && c.isVirtualThreadsEnabled() && c.pooledTaskExecutorPresent()
+        return c.applies(c.virtualThreadsSupported() && c.pooledTaskExecutorPresent()) && c.isVirtualThreadsEnabled()
                 ? violation(
                         "A ThreadPoolTaskExecutor coexists with virtual-thread configuration. Its routing and thread factory are not inferred; review intentional pooling.")
                 : pass();
@@ -539,8 +559,9 @@ final class AsyncWithoutCustomExecutorRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.asyncEnabled()) return skipped("Async annotation processing is not present.");
         AsyncSelection selection = c.observations().get(ASYNC_SELECTION, AsyncSelection.class);
+        c.applies(selection != null);
         return selection == null
-                ? unknown()
+                ? unknown(c)
                 : selection == AsyncSelection.FRAMEWORK_FALLBACK
                         ? violation(
                                 "Default @Async selection falls back to Framework's SimpleAsyncTaskExecutor, creating a new platform thread per task without a configured concurrency limit.")
@@ -564,10 +585,18 @@ final class SchedulerPoolTooSmallRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.schedulingEnabled()) return skipped("Scheduling is not enabled.");
         Integer tasks = c.observations().get(SCHEDULED_TASK_COUNT, Integer.class);
+        c.applies(tasks != null && tasks > 0);
         if (tasks != null && tasks < 2) return pass();
         Integer size = c.observations().get(SCHEDULER_POOL_SIZE, Integer.class);
-        return tasks == null || size == null
-                ? unknown()
+        if (tasks == null)
+            return unknown(
+                    c,
+                    "Scheduled task registrations are unavailable, qualified or customized; their shared scheduler is unknown.");
+        if (c.observations().yes(SCHEDULER_NON_POOL))
+            return skipped(
+                    "The observed scheduler is SimpleAsyncTaskScheduler, not a single-thread task execution pool.");
+        return size == null
+                ? unknown(c, "The selected scheduler or its native execution pool could not be observed safely.")
                 : size == 1
                         ? violation(
                                 "Multiple registered application tasks share an observed one-thread scheduler; review overlap requirements and fixed-delay semantics.")
@@ -591,8 +620,9 @@ final class UnboundedAsyncQueueRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.asyncEnabled()) return skipped("Async annotation processing is not present.");
         Integer capacity = c.observations().get(ASYNC_QUEUE_CAPACITY, Integer.class);
+        c.applies(capacity != null);
         return capacity == null
-                ? unknown()
+                ? unknown(c)
                 : capacity == Integer.MAX_VALUE
                         ? violation(
                                 "The observed default @Async executor queue is effectively unbounded; backlog can increase heap use under sustained load.")
@@ -615,21 +645,27 @@ final class InMemoryCacheManagerRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.cachingEnabled()) return skipped("Caching annotation infrastructure is absent.");
-        var details = c.cacheManagers().stream()
+        var details = c.targets(c.cacheManagers()).stream()
                 .filter(m -> "org.springframework.cache.concurrent.ConcurrentMapCacheManager".equals(m.className()))
                 .limit(50)
                 .map(m -> "ConcurrentMapCacheManager has no built-in capacity/expiry policy: "
                         + SpringRuleSupport.detail(m.name()))
                 .toList();
-        if (!details.isEmpty()) return violation(details);
-        if (c.cacheManagers().isEmpty()
+        boolean missing = c.cacheManagers().isEmpty()
                 || c.cacheManagers().stream()
                         .anyMatch(m -> m.className() == null
                                 || !Set.of(
+                                                "org.springframework.cache.concurrent.ConcurrentMapCacheManager",
                                                 "org.springframework.cache.support.NoOpCacheManager",
                                                 "org.springframework.cache.caffeine.CaffeineCacheManager")
-                                        .contains(m.className()))) return unknown();
-        return pass();
+                                        .contains(m.className()));
+        String reason =
+                "Cache manager provider metadata is unavailable or custom; only native managers and BootUI's own activity decorator can be classified.";
+        if (missing) {
+            if (details.isEmpty()) return unknown(c, reason);
+            c.observations().evaluation().unknown(reason);
+        }
+        return details.isEmpty() ? pass() : violation(details);
     }
 }
 
@@ -647,12 +683,14 @@ final class ResponseCompressionDisabledRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        SpringRuleResultDto result = c.bind("server.compression.enabled", Boolean.class) != null
+        Boolean configured = c.bind("server.compression.enabled", Boolean.class);
+        c.applies(configured != null);
+        SpringRuleResultDto result = configured != null
                 ? pass()
-                : c.observations().yes(BOOT_WEB_SERVER)
+                : c.applies(c.observations().yes(BOOT_WEB_SERVER))
                         ? violation(
                                 "Boot origin compression is not configured. If the edge does not compress, evaluate response sizes, bandwidth and CPU cost.")
-                        : unknown();
+                        : unknown(c);
         return webLink(c, result);
     }
 }
@@ -671,7 +709,7 @@ final class GracefulShutdownDisabledRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!c.observations().yes(BOOT_WEB_SERVER)) return unknown();
+        if (!c.applies(c.observations().yes(BOOT_WEB_SERVER))) return unknown(c);
         String shutdown = c.firstProperty("server.shutdown");
         if (shutdown != null && !Set.of("immediate", "graceful").contains(shutdown.toLowerCase(java.util.Locale.ROOT)))
             throw new IllegalArgumentException();
@@ -698,12 +736,14 @@ final class Http2DisabledRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        SpringRuleResultDto result = c.bind("server.http2.enabled", Boolean.class) != null
+        Boolean configured = c.bind("server.http2.enabled", Boolean.class);
+        c.applies(configured != null);
+        SpringRuleResultDto result = configured != null
                 ? pass()
-                : c.observations().yes(BOOT_WEB_SERVER)
+                : c.applies(c.observations().yes(BOOT_WEB_SERVER))
                         ? violation(
                                 "Boot origin HTTP/2 is not configured; edge HTTP/2 may already satisfy client requirements.")
-                        : unknown();
+                        : unknown(c);
         return webLink(c, result);
     }
 }
@@ -722,7 +762,7 @@ final class ErrorDetailsExposedRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!c.observations().yes(BOOT_ERROR_HANDLING)) return webLink(c, unknown());
+        if (!c.applies(c.observations().yes(BOOT_ERROR_HANDLING))) return webLink(c, unknown(c));
         List<String> details = new ArrayList<>();
         if (c.isPropertyTrue("spring.web.error.include-exception"))
             details.add("Boot fallback error configuration includes exception types; custom responses may differ.");
@@ -754,7 +794,9 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!c.observations().yes(HTTP_CLIENT_DEFAULTS) && !c.observations().yes(HTTP_SERVICE_GROUPS)) return unknown();
+        if (!c.applies(
+                c.observations().yes(HTTP_CLIENT_DEFAULTS) || c.observations().yes(HTTP_SERVICE_GROUPS)))
+            return unknown(c);
         Duration connect = c.bind("spring.http.clients.connect-timeout", Duration.class);
         Duration read = c.bind("spring.http.clients.read-timeout", Duration.class);
         Map<String, Map<String, Object>> groups = SpringProperties.bind(
@@ -799,14 +841,14 @@ final class RedundantTomcatThreadsRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!c.virtualThreadsSupported() || !c.tomcatWebServerPresent())
+        if (!c.applies(c.virtualThreadsSupported() && c.tomcatWebServerPresent()))
             return skipped("Applicable Java/Tomcat support is absent.");
         Integer cap = c.firstIntegerProperty("server.tomcat.threads.max");
         if (cap == null) return pass();
         return c.observations().yes(TOMCAT_VIRTUAL_EXECUTOR)
                 ? violation(
                         "A Boot-managed Tomcat virtual executor is observed alongside an explicit thread cap; review the cap's applicability.")
-                : unknown();
+                : unknown(c);
     }
 }
 
@@ -825,9 +867,24 @@ final class OpenSessionInViewEnabledRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (c.reactive()) return skipped("Servlet Open Session in View does not apply to WebFlux.");
-        String evidence = c.observations().get(OSIV, String.class);
+        var observation = c.observations().get(OSIV, SpringObservations.OsivObservation.class);
+        String evidence = observation == null ? null : observation.registration();
+        if (evidence == null
+                && !c.entityManagerFactoryPresent()
+                && (observation == null || observation.complete())
+                && c.observations().inventoryAvailable()
+                && c.observations().incomplete().isEmpty()) {
+            return skipped("No JPA infrastructure or servlet OSIV registration was observed.");
+        }
+        c.applies(evidence != null || c.entityManagerFactoryPresent());
+        String reason =
+                "Servlet OSIV registration coverage is incomplete: handler mappings or filter registrations are unavailable or custom; configuration alone does not prove absence.";
+        if (observation == null || !observation.complete()) {
+            if (evidence == null) return unknown(c, reason);
+            c.observations().evaluation().unknown(reason);
+        }
         return evidence == null
-                ? unknown()
+                ? pass()
                 : violation(
                         "Observed " + evidence
                                 + "; review persistence-context boundaries and explicit fetching, not inferred connection lifetime.");
@@ -851,8 +908,9 @@ final class InMemoryDatasourceInProductionRule extends AbstractSpringRule {
         if (!c.isProductionProfileActive())
             return skipped("No production-like effective profile name; deployment purpose is not inferred.");
         String kind = c.observations().get(JDBC_KIND, String.class);
+        c.applies(kind != null);
         return kind == null
-                ? unknown()
+                ? unknown(c)
                 : kind.endsWith(" memory")
                         ? violation(
                                 "Observed supported JDBC memory storage with a production-like effective profile name (naming heuristic); review durability. URL omitted.")
@@ -877,7 +935,7 @@ final class InMemoryR2dbcInProductionRule extends AbstractSpringRule {
         if (!c.isProductionProfileActive())
             return skipped("No production-like effective profile name; deployment purpose is not inferred.");
         String kind = c.observations().get(R2DBC_KIND, String.class);
-        if (kind == null) return unknown();
+        if (!c.applies(kind != null)) return unknown(c);
         return kind.equals("H2 memory")
                 ? violation(
                         "Supported Boot R2DBC configuration requests H2 memory storage with a production-like effective profile name (naming heuristic). URL omitted.")
@@ -899,7 +957,7 @@ final class ActuatorExposeAllRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!ActuatorExposure.applicable(c)) return unknown();
+        if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         return ActuatorExposure.exposesAll(c) && ActuatorExposure.anyAccessible(c)
                 ? violation(
                         "Host wildcard web exposure permits applicable Actuator endpoints after exclusions/access policy; network reachability and authorization are not established.")
@@ -921,7 +979,7 @@ final class SensitiveActuatorEndpointsExposedRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!ActuatorExposure.applicable(c)) return unknown();
+        if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         if (ActuatorExposure.exposesAll(c)) return pass();
         List<String> details = new ArrayList<>();
         for (String id : ActuatorExposure.SENSITIVE_READ_ENDPOINTS)
@@ -947,7 +1005,7 @@ final class ActuatorShowValuesAlwaysRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!ActuatorExposure.applicable(c)) return unknown();
+        if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         List<String> details = new ArrayList<>();
         for (String id : List.of("env", "configprops", "health")) {
             String key = "management.endpoint." + id + (id.equals("health") ? ".show-details" : ".show-values");
@@ -978,7 +1036,7 @@ final class DangerousActuatorEndpointsAccessibleRule extends AbstractSpringRule 
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!ActuatorExposure.applicable(c)) return unknown();
+        if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         List<String> details = new ArrayList<>();
         if (ActuatorExposure.shutdownAccessible(c))
             details.add(
@@ -1005,8 +1063,8 @@ final class ReactiveHandlerWithBlockingDatasourceRule extends AbstractSpringRule
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.reactive()) return skipped("This is not a WebFlux application.");
-        if (!c.observations().incomplete().isEmpty()) return unknown();
-        return c.reactiveHandlerMethodCount() > 0 && !c.dataSources().isEmpty()
+        if (!c.observations().incomplete().isEmpty()) return unknown(c);
+        return c.applies(c.reactiveHandlerMethodCount() > 0) && !c.dataSources().isEmpty()
                 ? violation(
                         "Application reactive handlers coexist with JDBC DataSource metadata; review actual call sites. Correct offloading and migration-only usage are not defects.")
                 : pass();
@@ -1030,7 +1088,7 @@ final class UnlimitedCodecAggregationRule extends AbstractSpringRule {
         if (!c.reactive()) return skipped("This is not a WebFlux application.");
         // Validate the current namespace without confusing it with the startup-bound observation.
         c.bind("spring.http.codecs.max-in-memory-size", org.springframework.util.unit.DataSize.class);
-        if (!c.observations().yes(BOOT_CODEC_CONFIGURATION)) return unknown();
+        if (!c.applies(c.observations().yes(BOOT_CODEC_CONFIGURATION))) return unknown(c);
         Long limit = c.observations().get(CODEC_LIMIT, Long.class);
         return limit != null && limit == -1
                 ? violation(

@@ -28,7 +28,11 @@ final class PostgresInvalidIndexRule extends AbstractDatabaseAdvisorRule {
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.schemasOf(Dialect.POSTGRESQL);
         String skipReason = VendorRuleSupport.skipReason(
-                schemas, VendorFindingKinds.POSTGRES_INVALID_INDEXES, "No PostgreSQL datasource was detected.");
+                context,
+                definition().id(),
+                schemas,
+                VendorFindingKinds.POSTGRES_INVALID_INDEXES,
+                "No PostgreSQL datasource was detected.");
         if (skipReason != null) {
             return skipped(skipReason);
         }

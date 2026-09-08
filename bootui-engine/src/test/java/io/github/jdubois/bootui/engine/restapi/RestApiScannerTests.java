@@ -78,6 +78,7 @@ class RestApiScannerTests {
     void scanWithNoBasePackagesCannotClaimACompleteAnalysis() {
         RestApiReport report = scanner(List.of(), false).scan();
 
+        assertSafePartial(report);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.basePackages()).isEmpty();
         assertThat(report.controllersAnalyzed()).isZero();
@@ -93,7 +94,35 @@ class RestApiScannerTests {
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.controllersAnalyzed()).isZero();
         assertThat(report.results()).isEmpty();
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isTrue();
+        assertThat(report.evidence().limitations()).isEmpty();
     }
+
+    @Test
+    void successfulImportOfClassesWithoutSupportedControllersHasCompleteEmptyScope() {
+        JavaClasses classes = new ClassFileImporter().importClasses(NonController.class);
+        RestApiScanner scanner = new RestApiScanner(
+                () -> List.of(FIXTURES),
+                packages -> classes,
+                () -> {
+                    throw new AssertionError("Controller-specific evidence is not applicable without controllers");
+                },
+                () -> {
+                    throw new AssertionError("Controller-specific evidence is not applicable without controllers");
+                },
+                CLOCK);
+        RestApiReport report = scanner.scan();
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.controllersAnalyzed()).isZero();
+        assertThat(report.rulesEvaluated()).isZero();
+        assertThat(report.results()).isEmpty();
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isTrue();
+        assertThat(report.evidence().limitations()).isEmpty();
+    }
+
+    static class NonController {}
 
     @Test
     void malformedPackageScopeNeverExpandsToAClasspathRootImport() {
@@ -200,6 +229,15 @@ class RestApiScannerTests {
     }
 
     @Test
+    void nullImportDoesNotEstablishCompleteEmptyScope() {
+        RestApiScanner scanner =
+                new RestApiScanner(() -> List.of(FIXTURES), packages -> null, () -> false, () -> false, CLOCK);
+        RestApiReport report = scanner.scan();
+        assertSafePartial(report);
+        assertThat(report.evidence().usable()).isFalse();
+    }
+
+    @Test
     void incompleteExtractionSkipsExceptionAbsenceRulesAndRetainsReliableHandlersAndFindings() {
         JavaClasses imported = new ClassFileImporter().importClasses(ScanController.class);
         JavaClass unreadable = mock(JavaClass.class);
@@ -209,11 +247,6 @@ class RestApiScannerTests {
         types.add(unreadable);
         JavaClasses partial = mock(JavaClasses.class);
         when(partial.iterator()).thenAnswer(invocation -> types.iterator());
-        AtomicInteger dependentEvaluations = new AtomicInteger();
-        Function<RestApiRuleDefinition, RestApiRuleResultDto> absenceEvaluation = definition -> {
-            dependentEvaluations.incrementAndGet();
-            return RestApiRuleSupport.fromViolations(definition, List.of("Unreliable missing-handler finding"));
-        };
         RestApiScanner scanner = new RestApiScanner(
                 () -> List.of(FIXTURES),
                 packages -> partial,
@@ -221,13 +254,12 @@ class RestApiScannerTests {
                 () -> false,
                 CLOCK,
                 List.of(
-                        rule("RAPI-ERR-001", absenceEvaluation),
+                        new CentralizedExceptionHandlingRule(),
                         findingRule(),
-                        rule("RAPI-ERR-009", absenceEvaluation)));
+                        new DeclaredExceptionsHaveHandlersRule()));
 
         RestApiReport report = scanner.scan();
         assertSafePartial(report);
-        assertThat(dependentEvaluations).hasValue(0);
         assertThat(report.scan().message()).contains("metadata extraction");
         assertThat(report.controllersAnalyzed()).isEqualTo(1);
         assertThat(report.handlersAnalyzed()).isEqualTo(1);
@@ -267,6 +299,8 @@ class RestApiScannerTests {
         RestApiReport report = scanner.scan();
         assertSafePartial(report);
         assertThat(report.controllersAnalyzed()).isZero();
+        assertThat(report.evidence().limitations())
+                .contains("controller metadata extraction: required REST API evidence was unavailable.");
     }
 
     @Test
@@ -278,12 +312,7 @@ class RestApiScannerTests {
                 }
                 throw new IllegalStateException(SENSITIVE_FAILURE);
             };
-            String dependentId = featureFailure ? "RAPI-DOC-001" : "RAPI-VER-001";
-            AtomicInteger dependentEvaluations = new AtomicInteger();
-            RestApiRule dependent = rule(dependentId, definition -> {
-                dependentEvaluations.incrementAndGet();
-                return RestApiRuleSupport.fromViolations(definition, List.of("Unreliable absence-based finding"));
-            });
+            RestApiRule dependent = featureFailure ? new EndpointsAreDocumentedRule() : new ApiIsVersionedRule();
             RestApiScanner scanner = fixtureScanner(
                     featureFailure ? unavailable : () -> false,
                     featureFailure ? () -> false : unavailable,
@@ -291,9 +320,10 @@ class RestApiScannerTests {
 
             RestApiReport report = scanner.scan();
             assertSafePartial(report);
-            assertThat(dependentEvaluations).hasValue(0);
             assertThat(report.results()).extracting(RestApiRuleResultDto::id).containsExactly("RAPI-TEST-001");
             assertThat(report.rulesEvaluated()).isEqualTo(2);
+            assertThat(report.evidence().usable()).isFalse();
+            assertThat(report.evidence().coverageComplete()).isFalse();
         }
     }
 
@@ -320,6 +350,51 @@ class RestApiScannerTests {
                 .extracting(RestApiRuleResultDto::id)
                 .containsExactly("RAPI-TEST-001", "RAPI-TEST-005");
         assertThat(report.violationsFound()).isEqualTo(2);
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(scanner.applyDismissals(report, java.util.Set.of("RAPI-TEST-001"))
+                        .evidence())
+                .isEqualTo(report.evidence());
+    }
+
+    @Test
+    void failedSkippedAndTargetlessEvaluationsDoNotManufactureCompletedChecks() {
+        RestApiReport failed = fixtureScanner(
+                        () -> false,
+                        () -> false,
+                        List.of(rule(
+                                "RAPI-TEST-001", definition -> RestApiRuleSupport.error(definition, "Unavailable"))))
+                .scan();
+        RestApiReport skipped = fixtureScanner(
+                        () -> false,
+                        () -> false,
+                        List.of(rule(
+                                "RAPI-TEST-001",
+                                definition -> RestApiRuleSupport.skipped(definition, "Not applicable"))))
+                .scan();
+        RestApiReport noExceptionHandlers = fixtureScanner(
+                        () -> false, () -> false, List.of(new PreferProblemDetailRule()))
+                .scan();
+        assertThat(failed.evidence().coverageComplete()).isFalse();
+        for (RestApiReport report : List.of(failed, skipped, noExceptionHandlers)) {
+            assertThat(report.evidence().usable()).isFalse();
+        }
+    }
+
+    @Test
+    void partialPassRetainsCompletedEvidenceBeforeFiltering() {
+        RestApiReport report = fixtureScanner(
+                        () -> false,
+                        () -> false,
+                        List.of(
+                                rule("RAPI-TEST-001", RestApiRuleSupport::pass),
+                                rule(
+                                        "RAPI-TEST-002",
+                                        definition -> RestApiRuleSupport.error(definition, "Unavailable"))))
+                .scan();
+        assertThat(report.results()).isEmpty();
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isFalse();
     }
 
     @Test
@@ -349,12 +424,8 @@ class RestApiScannerTests {
                 List.of(
                         new PreferProblemDetailRule(),
                         new ReturnPagedTypeRule(),
-                        rule("RAPI-MAP-006", definition -> {
-                            throw new AssertionError("Spring path bindings must not be evaluated on pure JAX-RS");
-                        }),
-                        rule("RAPI-MAP-009", definition -> {
-                            throw new AssertionError("Spring token scoping must not be evaluated on pure JAX-RS");
-                        }),
+                        new PathVariablesAreBoundRule(),
+                        new DuplicatePathVariableTokenRule(),
                         findingRule()));
 
         RestApiReport report = scanner.scan();
@@ -454,6 +525,7 @@ class RestApiScannerTests {
     }
 
     private static void assertSafePartial(RestApiReport report) {
+        assertThat(report.evidence().coverageComplete()).isFalse();
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.scan().scannedAt()).isEqualTo(CLOCK.millis());
         assertThat(report.scan().message()).hasSizeLessThan(500).doesNotContain("password", "sensitive", "\n");

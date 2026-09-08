@@ -87,6 +87,12 @@ class BootUiQuarkusDatabaseAdvisorTest {
                 .as("POST /bootui/api/database-advisor/scan status")
                 .isEqualTo(200);
         JsonNode scanned = scan.json();
+        assertThat(scanned.path("evidence").path("usable").asBoolean()).isTrue();
+        assertThat(scanned.path("evidence").path("coverageComplete").asBoolean(true))
+                .isFalse();
+        assertThat(scanned.path("evidence").path("limitations")).isNotEmpty();
+        assertThat(probe().get("/bootui/api/database-advisor").json().path("evidence"))
+                .isEqualTo(scanned.path("evidence"));
         assertThat(scanned.path("scan").path("status").asText())
                 .as("scan status; diagnostics: %s", scanned.path("diagnostics"))
                 .isEqualTo("PARTIAL");

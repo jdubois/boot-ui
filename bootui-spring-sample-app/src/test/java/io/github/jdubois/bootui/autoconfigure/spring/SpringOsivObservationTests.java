@@ -45,11 +45,7 @@ class SpringOsivObservationTests {
         });
         runner.withPropertyValues("spring.jpa.open-in-view=false").run(context -> {
             assertThat(context).doesNotHaveBean("openEntityManagerInViewInterceptor");
-            assertThat(new OpenSessionInViewEnabledRule()
-                            .evaluate(
-                                    SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false))
-                            .status())
-                    .isEqualTo("SKIPPED");
+            assertConfirmedAbsence(SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false));
         });
         runner.withUserConfiguration(NonDelegatingMvc.class).run(context -> {
             assertThat(context)
@@ -63,12 +59,21 @@ class SpringOsivObservationTests {
                     .noneMatch(
                             org.springframework.web.servlet.handler.WebRequestHandlerInterceptorAdapter.class
                                     ::isInstance);
-            assertThat(new OpenSessionInViewEnabledRule()
-                            .evaluate(
-                                    SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false))
-                            .status())
-                    .isEqualTo("SKIPPED");
+            assertConfirmedAbsence(SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false));
         });
+    }
+
+    private static void assertConfirmedAbsence(SpringContext snapshot) {
+        var observation =
+                snapshot.observations().get(SpringObservations.Fact.OSIV, SpringObservations.OsivObservation.class);
+        assertThat(observation.registration()).isNull();
+        assertThat(observation.complete()).isTrue();
+        assertThat(snapshot.entityManagerFactoryPresent()).isTrue();
+        var result = new OpenSessionInViewEnabledRule().evaluate(snapshot);
+        assertThat(result.status()).isEqualTo("PASS");
+        assertThat(result.violationCount()).isZero();
+        assertThat(SpringScanner.evidence(snapshot).usable()).isTrue();
+        assertThat(SpringScanner.evidence(snapshot).coverageComplete()).isTrue();
     }
 
     @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)

@@ -24,6 +24,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Advisors now score usable partial evidence without treating unknown checks as passes.** All nine severity-scored
+  advisors expose `evidence.usable`, `coverageComplete`, and bounded sanitized `limitations`. Genuine findings,
+  including INFO/NONE, remain evidence after dismissal; missing-evidence notices and UNKNOWN-only vulnerability data
+  cannot establish usability. Dependency query/detail completion distinguishes genuine no-match results from missing
+  evidence. Penalties are unchanged, with no missing-check penalty or inferred coverage percentage.
+  Panels show neutral **Known-findings scores**, **Results available**, and accessible, initially collapsed **Scan notes**.
+  Unscored reasons and failures remain prominent. Confirmed empty Architecture/REST API scopes read **Not applicable**
+  and count as assessed without inventing a score. Overview retains its circular Overall score gauge and rounded mean
+  of eligible visible scores, with a contributing count, per-score deductions, and green/amber/red individual scores
+  at the historical 80/50 thresholds, with saturated light-theme colors and a stronger ring. Overview badges read
+  **Scan complete** and **Connected**. GitHub contributes its
+  10-points-per-alert score only when authenticated, connected, and all three security counts are available and valid.
+  Missing reports never supply fake zeros or hundreds. Pentesting now shows **Findings by severity** instead of the
+  separate OWASP Top 10 coverage panel. Cached GET-only refresh and explicit scan controls remain unchanged;
+  dismissal changes penalties, not application safety
+  ([#989](https://github.com/jdubois/boot-ui/issues/989)).
+
 - **Database advisor findings now distinguish incomplete evidence from absence.** Qualified JDBC metadata,
   index/constraint semantics, vendor generator bounds and database-side mapping comparisons are reviewed more
   conservatively. Four unsupported rules are retired without reusing their IDs, and SQL text variation is a
@@ -73,6 +90,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stated where an agent reads it ([#940](https://github.com/jdubois/boot-ui/issues/940)).
 
 ### Fixed
+
+- **Spring Advisor no longer treats native scheduling observability, BootUI-wrapped caches or confirmed OSIV absence
+  as missing evidence.** Scheduler inspection recognizes Boot's observation-only configurer and actual native task
+  registration/selection without excluding application tasks in a BootUI-like package. Cache classification safely
+  unwraps only BootUI's own decorator. Servlet OSIV distinguishes observed presence, confirmed native-registration
+  absence and unknown custom coverage. Specific bounded limitation reasons distinguish missing evidence from evaluation
+  failures; existing findings, severities and score penalties are unchanged
+  ([#989](https://github.com/jdubois/boot-ui/issues/989)).
+
+- **Advisor incompleteness now distinguishes missing applicable evidence from not-applicable checks.** MySQL/Oracle
+  checks on PostgreSQL remain neutral skips without completion credit; unavailable catalogs on an applicable vendor
+  retain missing coverage. Security scan statuses follow rule-owned coverage across MVC, WebFlux, and Quarkus.
+  The MVC passive reader supports embedded Tomcat's native init-parameter map, and unrelated custom filters/CSRF
+  matching no longer invalidate independent observations. The real sample retains usable evidence while honestly
+  reporting its remaining custom-filter, authorization, management-operation, and credential-provenance limitations
+  ([#989](https://github.com/jdubois/boot-ui/issues/989)).
 
 - **Overview now discovers cached advisor reports from panel and agent scans.** Initial and return navigation read
   supported, enabled advisors without starting scans or external queries. Incomplete findings remain visible without

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.architecture;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureScanStatusDto;
@@ -93,7 +94,8 @@ public final class ArchitectureScanner {
         }
         return report(
                 "NOT_SCANNED",
-                "Architecture rules have not run yet. Click Run architecture checks to analyse the application classes.",
+                "Architecture rules have not run yet. Click Run architecture checks to analyse the application"
+                        + " classes.",
                 null,
                 basePackages,
                 0,
@@ -141,12 +143,26 @@ public final class ArchitectureScanner {
                     basePackages,
                     0,
                     0,
-                    List.of());
+                    List.of(),
+                    new AdvisorEvidenceDto(false, true, List.of()));
         }
 
         ArchitectureContext context = new ArchitectureContext(classes, basePackages, platform);
-        List<ArchitectureRuleResultDto> results =
-                rules.stream().map(rule -> rule.evaluate(context)).toList();
+        List<ArchitectureRuleResultDto> results = new java.util.ArrayList<>();
+        boolean usable = false;
+        List<String> unreported = new java.util.ArrayList<>();
+        for (ArchitectureRule rule : rules) {
+            context.evidence().reset();
+            ArchitectureRuleResultDto result = rule.evaluate(context);
+            results.add(result);
+            if (!context.evidence().evaluated && !ArchitectureRuleSupport.ERROR.equals(result.status())) {
+                unreported.add(result.id() + ": evaluator did not supply observation evidence.");
+            }
+            if (context.evidence().requiredUnknown) {
+                unreported.add(result.id() + ": required architecture observations could not be resolved.");
+            }
+            usable |= context.evidence().usable;
+        }
         long errors = results.stream()
                 .filter(result -> ArchitectureRuleSupport.ERROR.equals(result.status()))
                 .count();
@@ -159,7 +175,22 @@ public final class ArchitectureScanner {
                 : "Architecture analysis is incomplete: " + errors + " rule(s) could not be evaluated against "
                         + classes.size() + " application class(es).";
 
-        return report(status, message, clock.millis(), basePackages, classes.size(), results.size(), results);
+        List<String> limitations = java.util.stream.Stream.concat(
+                        unreported.stream(),
+                        results.stream()
+                                .filter(result -> ArchitectureRuleSupport.ERROR.equals(result.status()))
+                                .map(result -> result.id() + ": architecture evaluation failed."))
+                .limit(20)
+                .toList();
+        return report(
+                status,
+                message,
+                clock.millis(),
+                basePackages,
+                classes.size(),
+                results.size(),
+                results,
+                new AdvisorEvidenceDto(usable, errors == 0 && unreported.isEmpty(), limitations));
     }
 
     private List<String> basePackages() {
@@ -200,6 +231,26 @@ public final class ArchitectureScanner {
             int classesAnalyzed,
             int rulesEvaluated,
             List<ArchitectureRuleResultDto> results) {
+        return report(
+                status,
+                message,
+                scannedAt,
+                basePackages,
+                classesAnalyzed,
+                rulesEvaluated,
+                results,
+                AdvisorEvidenceDto.unknown());
+    }
+
+    private ArchitectureReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            List<String> basePackages,
+            int classesAnalyzed,
+            int rulesEvaluated,
+            List<ArchitectureRuleResultDto> results,
+            AdvisorEvidenceDto evidence) {
         List<ArchitectureRuleResultDto> violations = violationResults(results);
         int violationsFound = violations.size();
         ArchitectureScanStatusDto scan = new ArchitectureScanStatusDto(
@@ -214,7 +265,8 @@ public final class ArchitectureScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                evidence);
     }
 
     public ArchitectureReport applyDismissals(ArchitectureReport report, Set<String> dismissedIds) {
@@ -246,7 +298,8 @@ public final class ArchitectureScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.evidence());
     }
 
     static List<ArchitectureRuleResultDto> analysisErrors(List<ArchitectureRuleResultDto> results) {

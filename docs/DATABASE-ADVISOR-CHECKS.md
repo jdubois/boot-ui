@@ -10,6 +10,9 @@ could contain. See [the advisor page](features/advisors.md#database) for availab
 
 ## Availability and bounds
 
+A known-findings score can remain usable with unread schemas or missing metadata, without treating those gaps as
+passes. See the shared [score eligibility policy](features/advisors.md#score-eligibility).
+
 Spring MVC, Spring WebFlux and Quarkus use the same engine and report contract. Native adapters discover and
 de-duplicate datasource beans, including supported routing, delegating and SQL Trace wrappers. A successfully
 empty inventory returns `DISABLED`; failed discovery returns `ERROR`, not a claim that no datasource exists.
@@ -39,6 +42,14 @@ unsupported hints and failed restoration are reported rather than silently ignor
   missing coverage can be reported separately while retaining confirmed findings.
 - The scan is `PARTIAL` when metadata or required evidence is incomplete, and `ERROR` when no discovered schema
   could be read. Normal wrong-dialect or absent optional-feature skips are informational.
+- A PostgreSQL-only inventory makes MySQL/MariaDB and Oracle rules **not applicable**, not incomplete: their
+  `SKIPPED` counters and `INFO` diagnostics remain, but they earn no completed-check credit and add no assessment
+  limitations. An applicable vendor's unavailable/version-unsupported catalog is different: it records missing
+  coverage even when the rule returns early, including mixed readable/unsupported datasource inventories.
+  A feature known not to exist is still inapplicable (for example, publications before PostgreSQL 10);
+  an unknown server version cannot establish that absence.
+  Failed product identification also leaves applicability unknown. Assessment limitations summarize warning/error
+  diagnostics, never these neutral wrong-vendor notes.
 - Diagnostics are bounded and credential-redacted. They do not count as violations. Report status remains
   available to the shared scoring policy independently of retained findings and dismissals.
 

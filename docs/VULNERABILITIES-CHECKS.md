@@ -6,11 +6,21 @@ interpretation; Spring and Quarkus retain their native HTTP/JSON adapters.
 
 This catalogue records the evidence rules and complete audit disposition for
 [#978](https://github.com/jdubois/boot-ui/issues/978). Research did not submit a dependency inventory or run an external
-scan. The change concerns OSV interpretation and reporting, not inventory repairs or a new scanner. **Advisor scores,
-Overview, gauges, score eligibility, and dismissal refresh are handed off to the independent central scoring workstream;
-they are not implemented by this change.** Security and Pentesting remain separate advisors.
+scan. That change concerns OSV interpretation and reporting, not inventory repairs or a new scanner.
+[#989](https://github.com/jdubois/boot-ui/issues/989) adds evidence-based panel/Overview scoring; cached GET-only
+dismissal refresh is retained. Security and Pentesting remain separate advisors.
 
 ## Reading the result
+
+Each dependency exposes `assessment.queryComplete` (all its query pages exhausted) and
+`assessment.detailAssessmentComplete` (all returned details interpreted or conclusively excluded as withdrawn).
+Successful withdrawal is distinct from absent, failed, capped, mismatched, malformed, or unresolved details.
+A genuine no-match has both flags true and an empty retained advisory list. Copies for dismissal and EPSS preserve
+the flags. Known-severity findings (including NONE) or a fully assessed package establish `evidence.usable`.
+UNKNOWN remains visible and excluded from penalties, but cannot establish usability and limits coverage even after
+dismissal. Inventory and query/detail gaps qualify otherwise usable known-findings scores.
+See the shared [score eligibility policy](features/advisors.md#score-eligibility) for the evidence contract and
+dismissal behavior. No extra OSV/EPSS work runs on render.
 
 Keep three kinds of evidence separate:
 
@@ -194,7 +204,8 @@ is added.
 ## Complete audit disposition
 
 **KEEP** preserves an intentional behavior; **UPDATE** belongs to #978; **DEFER** is a known limitation not repaired
-here; **HANDOFF** belongs to independent central scoring work. IDs below identify audit rows, **not public finding IDs**.
+here; **HANDOFF** records the original central-scoring boundary (implemented by #988/#989 below).
+IDs below identify audit rows, **not public finding IDs**.
 Mixed dispositions intentionally preserve an existing behavior while acknowledging its unresolved limitations.
 
 ### Inventory
@@ -284,10 +295,10 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | RPT-05 | KEEP | ERROR may replace cache; DISABLED and busy conflict do not; EPSS failure must not lose OSV report. |
 | UI-01 | KEEP | Initial/disabled means not scanned, error unknown, partial means no finding in partial result—not clean. |
 | UI-02 | KEEP | Surface reported incomplete/unavailable inventory and max-packages omissions; provider limitations still apply. |
-| UI-03 | HANDOFF | Dedicated-panel/Overview score mismatch; complete-evidence eligibility and explicit non-score reasons owned centrally. |
-| UI-04 | HANDOFF | Overview cached-report dismissal refresh, using GET only, owned centrally. |
-| UI-05 | HANDOFF | Overall finite-contribution denominator/scored count with available total unchanged, owned centrally. |
-| UI-06 | HANDOFF | Retain incomplete Overview counts and explicit reason instead of idle hint, owned centrally. |
+| UI-03 | HANDOFF | Resolved by #989: shared evidence-based eligibility and visible partial/non-score reasons in panel and Overview. |
+| UI-04 | HANDOFF | Resolved by #988: Overview cached-report dismissal refresh using GET only; preserved by #989. |
+| UI-05 | HANDOFF | #989 averages only eligible advisor and GitHub scores, with a contributing count; missing evidence never supplies a fake zero or 100. |
+| UI-06 | HANDOFF | #989 retains incomplete Overview counts and explicit qualification/reasons instead of an idle hint. |
 | UI-07 | DEFER | Browser's same-package lexical version sort differs from server Maven ordering; no second comparator. |
 | UI-08 | UPDATE | Applicable-target-only fix list; EPSS copy describes highest available per-CVE prioritization signal. |
 | UI-09 | KEEP / DEFER | Bounded ADVISORY/FIX link priority and known alias links; reference-scheme normalization deferred. |
@@ -314,7 +325,9 @@ These are acceptance cases for the implementation, **not a claim that validation
 - Equivalent neutral results through Jackson 3 and Jackson 2, unchanged cached/dismiss/restore identities and policy,
   no GET-triggered external calls, and retained partial browser rows with accurate local EPSS wording.
 
-Scoring/Overview regression obligations remain with the central scoring change. Inventory repair acceptance cases,
+Scoring/Overview regressions cover partial and complete evidence, UNKNOWN-only dismissal, missing details, completed
+no-match dependencies, malformed metadata, exact penalties, qualified aggregates, and GET-only refresh.
+Inventory repair acceptance cases,
 CVSS v4, total scan deadline, date/model provenance, reachability, automated upgrades, and presentation version sorting
 are deferred, not silently included in this evidence-interpreter change.
 

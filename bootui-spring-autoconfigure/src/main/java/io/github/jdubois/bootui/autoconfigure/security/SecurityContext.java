@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiContributedProperties
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChainModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
+import io.github.jdubois.bootui.engine.security.SecurityEvaluation;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -56,12 +57,43 @@ record SecurityContext(
             boolean bootManagedJwt,
             Set<String> enabledMethodFamilies,
             Set<String> usedMethodFamilies,
-            boolean methodFamiliesKnown) {
+            boolean methodFamiliesKnown,
+            SecurityEvaluation evaluation) {
+        Evidence(
+                List<Operation> operations,
+                boolean operationsKnown,
+                boolean bootManagedJwt,
+                Set<String> enabledMethodFamilies,
+                Set<String> usedMethodFamilies,
+                boolean methodFamiliesKnown) {
+            this(
+                    operations,
+                    operationsKnown,
+                    bootManagedJwt,
+                    enabledMethodFamilies,
+                    usedMethodFamilies,
+                    methodFamiliesKnown,
+                    new SecurityEvaluation());
+        }
+
         Evidence {
             operations = List.copyOf(operations);
             enabledMethodFamilies = Set.copyOf(enabledMethodFamilies);
             usedMethodFamilies = Set.copyOf(usedMethodFamilies);
         }
+    }
+
+    boolean applies(boolean applicable) {
+        return evidence.evaluation().applies(applicable);
+    }
+
+    boolean required(boolean known) {
+        return evidence.evaluation().required(known);
+    }
+
+    <T> List<T> targets(List<T> targets) {
+        applies(!targets.isEmpty());
+        return targets;
     }
 
     SecurityContext(

@@ -3,7 +3,7 @@ import {computed, onMounted, reactive, ref} from 'vue'
 import {formatClockTime} from './format.js'
 import {describeLoadError} from './loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from './scanStatus.js'
-import {advisorAssessment, scoreBandLabel, scoreBandTone} from './scannerScore.js'
+import {advisorAssessment} from './scannerScore.js'
 import {usePanelState} from './panelState.js'
 import {useDismissedRules} from './useDismissedRules.js'
 
@@ -26,7 +26,7 @@ const DEFAULT_SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 
 /**
  * Shared logic for the rule-based advisor panels (Spring, REST API, Architecture,
- * Hibernate, Security, Memory, Pentesting). Each panel renders a scan status,
+ * Hibernate, Database, Security, Memory, Pentesting). Each panel renders a scan status,
  * severity breakdown, and rule/finding results from the same advisor report shape,
  * so the only per-panel differences are the API path and the user-facing copy passed
  * via `options`.
@@ -75,6 +75,7 @@ export function useAdvisorPanel(props, options) {
   const emptyRuleResultsTitle = computed(() => {
     if (!hasScanData.value) return options.emptyScanPrompt
     if (score.value === null) return 'No findings in the available results'
+    if (assessment.value.partial) return 'No findings in the assessed evidence'
     if (!report.value?.rulesEvaluated) return 'No rules were evaluated'
     return options.emptyNoFindings
   })
@@ -200,8 +201,9 @@ export function useAdvisorPanel(props, options) {
     hasScanData,
     score,
     assessment,
-    scoreBandLabel,
-    scoreBandTone,
+    noFindingsLabel: computed(() =>
+      assessment.value.partial ? 'No findings in the assessed evidence' : 'No findings'
+    ),
     visibleResults,
     dismissedResults,
     emptyRuleResultsTitle,

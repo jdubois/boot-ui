@@ -140,6 +140,11 @@ final class SchemaIntrospector {
         requireBudget(budget);
         DatabaseMetaData metaData = connection.getMetaData();
         String productName = safeString(metaData::getDatabaseProductName, budget);
+        if (productName == null || productName.isBlank()) {
+            diagnostics.add(SchemaDiagnostic.warning(
+                    dataSourceName,
+                    "Database product could not be identified; vendor-check applicability is unknown."));
+        }
         String productVersion = safeString(metaData::getDatabaseProductVersion, budget);
         String url = safeString(metaData::getURL, budget);
         Dialect dialect = resolveOracle(

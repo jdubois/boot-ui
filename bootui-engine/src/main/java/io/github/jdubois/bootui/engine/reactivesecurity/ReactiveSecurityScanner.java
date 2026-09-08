@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.reactivesecurity;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
@@ -98,11 +99,8 @@ public final class ReactiveSecurityScanner {
         long inconclusive = results.stream()
                 .filter(result -> "SKIPPED".equals(result.status()))
                 .count();
-        String status = observation.errors().isEmpty()
-                        && inconclusive == 0
-                        && analysisErrors(results).isEmpty()
-                ? "SCANNED"
-                : "PARTIAL";
+        AdvisorEvidenceDto evidence = evidence(observation, context);
+        String status = evidence.coverageComplete() ? "SCANNED" : "PARTIAL";
         String message = "Security Advisor completed against " + chains + " security web filter chain"
                 + (chains == 1 ? "." : "s.");
         if (!observation.errors().isEmpty()) {
@@ -114,7 +112,16 @@ public final class ReactiveSecurityScanner {
         if (!analysisErrors(results).isEmpty()) {
             message += " Some checks failed; see analysis errors.";
         }
-        return report(status, message, clock.millis(), chains, results.size(), results);
+        return report(status, message, clock.millis(), chains, results.size(), results, evidence);
+    }
+
+    private static AdvisorEvidenceDto evidence(
+            ReactiveSecurityObservation observation, ReactiveSecurityContext context) {
+        return context.evaluation()
+                .evidence(
+                        observation.errors().isEmpty()
+                                ? List.of()
+                                : List.of("Some reactive security observations could not be collected."));
     }
 
     /** Applies dismissals to the given report and returns the updated report. */
@@ -147,7 +154,8 @@ public final class ReactiveSecurityScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.evidence());
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -189,6 +197,24 @@ public final class ReactiveSecurityScanner {
             int filterChainsAnalyzed,
             int rulesEvaluated,
             List<SecurityRuleResultDto> results) {
+        return report(
+                status,
+                message,
+                scannedAt,
+                filterChainsAnalyzed,
+                rulesEvaluated,
+                results,
+                AdvisorEvidenceDto.unknown());
+    }
+
+    private SecurityReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            int filterChainsAnalyzed,
+            int rulesEvaluated,
+            List<SecurityRuleResultDto> results,
+            AdvisorEvidenceDto evidence) {
         List<SecurityRuleResultDto> violations = violationResults(results);
         int violationsFound = violations.size();
         SecurityScanStatusDto scan = new SecurityScanStatusDto(
@@ -203,7 +229,8 @@ public final class ReactiveSecurityScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                evidence);
     }
 
     private static List<String> chainDescriptions(ReactiveSecurityContext context) {

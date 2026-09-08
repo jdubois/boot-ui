@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mockStatic;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDataSourceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
@@ -60,6 +63,39 @@ class DatabaseAdvisorScannerTests {
     }
 
     @Test
+    void postgresScanKeepsMysqlAndOracleSkipsNeutralWithoutCompletionCredit() {
+        var findings = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_INVALID_INDEXES, List.of(), false))
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_SEQUENCES, List.of(), false))
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, List.of(), false))
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES, List.of(), false))
+                .build();
+        var postgres = DatabaseAdvisorFixtures.schema("primary", Dialect.POSTGRESQL, List.of(), findings);
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()))
+                    .thenReturn(postgres);
+            var report = scannerFor(List.of(new NamedDataSource("primary", dataSource)))
+                    .scan();
+            assertThat(report.scan().status()).isEqualTo("SCANNED");
+            assertThat(report.evidence().coverageComplete()).isTrue();
+            assertThat(report.evidence().limitations()).isEmpty();
+            assertThat(report.rulesSkipped()).isPositive();
+            assertThat(report.evidence().usable()).isTrue();
+            assertThat(report.diagnostics())
+                    .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-MYSQL-")
+                            || diagnostic.source().startsWith("DB-ORACLE-"))
+                    .hasSize(6)
+                    .allSatisfy(diagnostic -> {
+                        assertThat(diagnostic.level()).isEqualTo("INFO");
+                        assertThat(diagnostic.message()).startsWith("Not applicable:");
+                    });
+        }
+    }
+
+    @Test
     void initialReportIsNotScannedAndHasNoResults() {
         DatabaseAdvisorReport report = scannerFor(List.of()).initialReport();
         assertThat(report.scan().status()).isEqualTo("NOT_SCANNED");
@@ -74,8 +110,22 @@ class DatabaseAdvisorScannerTests {
     void scanReportsDisabledWhenNoDataSourceIsAvailable() {
         DatabaseAdvisorReport report = scannerFor(List.of()).scan();
         assertThat(report.scan().status()).isEqualTo("DISABLED");
+        assertThat(report.evidence().usable()).isFalse();
         assertThat(report.dataSourceNames()).isEmpty();
         assertThat(report.results()).isEmpty();
+    }
+
+    @Test
+    void readableEmptySchemaDoesNotTurnSkippedRulesIntoCompletedChecks() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
+            statement.execute("drop all objects");
+        }
+        DatabaseAdvisorReport report =
+                scannerFor(List.of(new NamedDataSource("empty", dataSource))).scan();
+        assertThat(report.tablesAnalyzed()).isZero();
+        assertThat(report.rulesSkipped()).isPositive();
+        assertThat(report.evidence().usable()).isFalse();
     }
 
     @Test
@@ -86,6 +136,8 @@ class DatabaseAdvisorScannerTests {
                 scannerFor(List.of(new NamedDataSource("broken", broken))).scan();
 
         assertThat(report.scan().status()).isEqualTo("ERROR");
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isFalse();
         assertThat(report.dataSourceNames()).containsExactly("broken");
         assertThat(report.results()).isEmpty();
         assertThat(report.dataSources())
@@ -111,6 +163,7 @@ class DatabaseAdvisorScannerTests {
         assertThat(report.dataSourceNames()).containsExactly("primary");
         assertThat(report.tablesAnalyzed()).isEqualTo(3);
         assertThat(report.results()).isNotEmpty();
+        assertThat(report.evidence().usable()).isTrue();
 
         // H2 automatically creates a supporting index for the "orders.customer_id" foreign key column, so
         // DB-SCHEMA-002 (missing FK index) is exercised directly against synthetic models in
@@ -146,6 +199,9 @@ class DatabaseAdvisorScannerTests {
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.scan().message()).contains("1 datasource(s) could not be read");
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.results()).isNotEmpty();
         assertThat(report.dataSources())
                 .extracting(DatabaseAdvisorDataSourceDto::status)
                 .containsExactlyInAnyOrder("AVAILABLE", "FAILED");
@@ -218,6 +274,8 @@ class DatabaseAdvisorScannerTests {
                 .allSatisfy(result -> assertThat(result.dismissed()).isTrue());
         assertThat(updated.violationsFound()).isEqualTo(report.violationsFound() - 1);
         assertThat(updated.diagnostics()).isEqualTo(report.diagnostics());
+        assertThat(updated.evidence()).isEqualTo(report.evidence());
+        assertThat(updated.evidence().usable()).isTrue();
         assertThat(updated.dataSources()).isEqualTo(report.dataSources());
         assertThat(updated.rulesSkipped()).isEqualTo(report.rulesSkipped());
     }

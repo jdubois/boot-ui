@@ -1,6 +1,6 @@
 <script setup>
 import {computed} from 'vue'
-import {scoreBandLabel, scoreBandTone} from '../../utils/scannerScore.js'
+import {scoreBandTone} from '../../utils/scannerScore.js'
 import SpinnerButton from './SpinnerButton.vue'
 
 const props = defineProps({
@@ -13,8 +13,9 @@ const props = defineProps({
   state: {type: String, default: 'idle'},
   score: {type: Number, default: null},
   hasReport: {type: Boolean, default: false},
-  scoreLabel: {type: String, default: 'Not scored'},
+  scoreLabel: {type: String, default: ''},
   scoreReason: {type: String, default: ''},
+  incomplete: {type: Boolean, default: false},
   severityCounts: {type: Array, default: () => []},
   statusLabel: {type: String, default: null},
   statusTone: {type: String, default: 'secondary'},
@@ -23,7 +24,7 @@ const props = defineProps({
   runLabel: {type: String, default: 'Run scan'},
   rerunLabel: {type: String, default: 'Re-run scan'},
   runDisabled: {type: Boolean, default: false},
-  idleHint: {type: String, default: 'Run this scanner to compute a score.'}
+  idleHint: {type: String, default: 'Run this scanner to inspect findings and assessment coverage.'}
 })
 
 const emit = defineEmits(['run'])
@@ -44,8 +45,7 @@ const topSeverities = computed(() =>
 )
 
 const hasScore = computed(() => Number.isFinite(props.score))
-const bandLabel = computed(() => (hasScore.value ? scoreBandLabel(props.score) : null))
-const bandTone = computed(() => (hasScore.value ? scoreBandTone(props.score) : 'secondary'))
+const coverageLabel = computed(() => props.scoreLabel || 'Coverage unknown')
 
 function severityTone(severity) {
   return SEVERITY_TONES[String(severity).toUpperCase()] || 'text-bg-light border'
@@ -83,20 +83,20 @@ function onRun() {
           <div v-if="hasReport && (state === 'running' || state === 'error')" class="text-muted small my-2">
             Showing the last report.
           </div>
-          <template v-if="hasScore">
+          <div
+            v-if="hasScore"
+            class="scanner-score-summary mb-2"
+            role="img"
+            :aria-label="`${title} known-findings score: ${score} out of 100${incomplete ? ' — Scan notes available' : ''}`"
+          >
             <div class="d-flex align-items-baseline gap-2">
-              <span :class="['scanner-score', `scanner-score--${bandTone}`]">{{ score }}</span>
+              <span :class="['scanner-score', `text-${scoreBandTone(score)}-emphasis`]">{{ score }}</span>
               <span class="text-muted small">/ 100</span>
-              <span :class="['badge', `text-bg-${bandTone}`, 'ms-auto']">{{ bandLabel }}</span>
             </div>
-          </template>
-          <div v-else-if="hasReport">
-            <div class="fw-semibold">{{ scoreLabel }}</div>
-            <div class="text-muted small">{{ scoreReason }}</div>
+            <div class="small text-muted mt-1">Known-findings score</div>
           </div>
-          <div v-else-if="state === 'idle'" class="text-muted small">{{ idleHint }}</div>
           <template v-if="hasReport || hasScore">
-            <div v-if="topSeverities.length" class="d-flex flex-wrap gap-1 mt-2">
+            <div v-if="topSeverities.length" class="d-flex flex-wrap gap-1" aria-label="Retained severity counts">
               <span
                 v-for="entry in topSeverities"
                 :key="entry.severity"
@@ -105,10 +105,13 @@ function onRun() {
                 {{ entry.count }} {{ entry.severity.toLowerCase() }}
               </span>
             </div>
-            <div v-else-if="hasScore" class="text-success small mt-2">
-              <i class="bi bi-check-circle me-1"></i>No findings
+            <div v-else-if="hasScore" class="text-muted small">No retained findings in the assessed evidence</div>
+            <div v-if="!hasScore" class="scanner-assessment small mt-2">
+              <div class="fw-semibold">{{ coverageLabel }}</div>
+              <div v-if="scoreReason" class="text-muted">{{ scoreReason }}</div>
             </div>
           </template>
+          <div v-else-if="state === 'idle'" class="text-muted small">{{ idleHint }}</div>
         </slot>
         <div v-if="warningMessage" class="text-warning-emphasis small mt-2" role="status" aria-live="polite">
           <i class="bi bi-exclamation-circle me-1"></i>{{ warningMessage }}
@@ -136,6 +139,10 @@ function onRun() {
 </template>
 
 <style scoped>
+.scanner-assessment {
+  overflow-wrap: anywhere;
+}
+
 .scanner-card {
   border: 1px solid var(--bootui-border);
   border-radius: var(--bootui-radius-lg);
@@ -192,25 +199,11 @@ function onRun() {
 }
 
 .scanner-score {
+  font-family: var(--bs-font-monospace);
   font-size: 2.1rem;
   font-weight: 850;
   line-height: 1;
-}
-
-.scanner-score--success {
-  color: var(--bootui-green);
-}
-
-.scanner-score--warning {
-  color: var(--bootui-warning-text);
-}
-
-.scanner-score--danger {
-  color: var(--bootui-danger);
-}
-
-.scanner-score--secondary {
-  color: var(--bootui-text-muted, #56667b);
+  color: var(--bootui-text);
 }
 
 .min-w-0 {

@@ -15,11 +15,14 @@ test.describe('Overview view', () => {
     await expect(page.locator('.topbar-subtitle')).toContainText(/Java/)
 
     // Panel header introduces the advisor dashboard.
-    await expect(page.locator('.panel-header')).toContainText('Run the advisors to score')
+    await expect(page.locator('.panel-header')).toContainText('Inspect retained findings')
 
-    // Overall score box and the on-demand "Run all scanners" action.
+    // Overall score starts unscored alongside the on-demand "Run all scanners" action.
     const overall = page.locator('.overall-card').first()
+    await expect(overall).not.toContainText('Known-findings score')
     await expect(overall).toContainText('Overall score')
+    await expect(overall).toContainText('Not scored')
+    await expect(overall.getByRole('img')).toHaveCount(0)
     await expect(overall.getByRole('button', {name: /Run all scanners/})).toBeVisible()
 
     // At least the Architecture scanner card is shown for the sample app.

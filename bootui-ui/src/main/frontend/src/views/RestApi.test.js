@@ -26,6 +26,7 @@ function ruleResult(id, name, severity, status, violationCount = 0) {
 function restApiReport(results, violationsFound = results.filter((result) => result.status === 'VIOLATION').length) {
   return {
     localOnly: true,
+    evidence: {usable: true, coverageComplete: true, limitations: []},
     disclaimer: 'REST API disclaimer.',
     basePackages: ['com.example'],
     controllersAnalyzed: 4,
@@ -118,6 +119,25 @@ describe('RestApi', () => {
     currentRoute = {query: {}}
   })
 
+  it.each([true, false])(
+    'keeps score 91 and forwards scan notes independently of scan status (%s)',
+    async (incomplete) => {
+      const report = restApiReport([ruleResult('RAPI-1', 'Retained finding', 'MEDIUM', 'VIOLATION', 3)])
+      report.evidence.coverageComplete = !incomplete
+      report.evidence.limitations = incomplete ? ['Metadata unavailable.'] : []
+      const wrapper = await mountWithReport(report)
+
+      expect(wrapper.get('.advisor-summary__value').text()).toBe('91')
+      expect(wrapper.get('.advisor-summary__metric--status .badge').text()).toBe('Results available')
+      expect(wrapper.find('.advisor-summary__assessment').exists()).toBe(false)
+      expect(wrapper.find('details.advisor-summary__notes').exists()).toBe(incomplete)
+      if (incomplete) {
+        expect(wrapper.get('details.advisor-summary__notes').element.open).toBe(false)
+        expect(wrapper.get('details.advisor-summary__notes p').text()).toContain('Metadata unavailable.')
+      }
+    }
+  )
+
   it('shows only violation results sorted by importance', async () => {
     const wrapper = await mountWithReport(
       restApiReport([
@@ -128,7 +148,7 @@ describe('RestApi', () => {
       ])
     )
 
-    expect(wrapper.text()).toContain('Scan complete')
+    expect(wrapper.text()).toContain('Results available')
     expect(wrapper.text()).toContain('3 flagged rules, sorted by importance')
     expect(wrapper.text()).toContain('What happened:')
     expect(wrapper.text()).toContain('3 findings found for this rule.')

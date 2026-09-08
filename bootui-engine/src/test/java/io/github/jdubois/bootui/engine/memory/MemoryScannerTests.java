@@ -55,6 +55,37 @@ class MemoryScannerTests {
         assertThat(report.violationsFound()).isZero();
         assertThat(report.results()).isEmpty();
         assertThat(report.summary().heapUsedPercent()).isEqualTo(25);
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations()).isNotEmpty();
+    }
+
+    @Test
+    void completionExcludesSkippedAndFailedRulesAndSurvivesDismissal() {
+        MemoryEvaluation skipped = new RecentGcOverheadRule().evaluateWithEvidence(healthyContext());
+        MemoryRule broken =
+                new AbstractMemoryRule(MemoryRuleRegistry.activeRules().get(0).definition()) {
+                    @Override
+                    MemoryEvaluation evaluateRule(MemoryContext context) {
+                        throw new IllegalStateException("unavailable");
+                    }
+                };
+        MemoryEvaluation failed = broken.evaluateWithEvidence(healthyContext());
+        assertThat(MemoryScanner.evidence(List.of(skipped, failed)).usable()).isFalse();
+        assertThat(MemoryScanner.evidence(List.of(skipped, failed)).coverageComplete())
+                .isFalse();
+        var partial = MemoryScanner.evidence(
+                List.of(skipped, failed, new HighHeapUtilizationRule().evaluateWithEvidence(healthyContext())));
+        assertThat(partial.usable()).isTrue();
+        assertThat(partial.coverageComplete()).isFalse();
+        assertThat(MemoryScanner.evidence(List.of(new BigObjectsRule().evaluateWithEvidence(healthyContext())))
+                        .usable())
+                .isFalse();
+        MemoryScanner scanner = new MemoryScanner(MemoryScannerTests::healthyContext, CLOCK);
+        MemoryReport report = scanner.scan();
+        assertThat(scanner.applyDismissals(report, java.util.Set.of("MEM-T-003"))
+                        .evidence())
+                .isEqualTo(report.evidence());
     }
 
     @Test

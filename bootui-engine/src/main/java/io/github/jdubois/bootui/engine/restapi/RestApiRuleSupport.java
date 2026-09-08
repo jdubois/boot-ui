@@ -23,6 +23,28 @@ final class RestApiRuleSupport {
 
     private RestApiRuleSupport() {}
 
+    static RestApiRuleResultDto springProblemDetails(RestApiRuleDefinition definition) {
+        return skipped(
+                definition,
+                "Not applicable on JAX-RS: RFC 9457 is framework-neutral, but this rule specifically detects"
+                        + " Spring ProblemDetail/ErrorResponse return types; the current model cannot reliably"
+                        + " identify equivalent JAX-RS problem-details payloads.");
+    }
+
+    static RestApiRuleResultDto springPathBinding(RestApiRuleDefinition definition) {
+        return skipped(
+                definition,
+                "Not applicable on JAX-RS: this rule checks Spring @PathVariable bindings or unique path-template"
+                        + " token names. Jakarta REST uses different parameter binding and token scoping semantics.");
+    }
+
+    static RestApiRuleResultDto springDataPagination(RestApiRuleDefinition definition) {
+        return skipped(
+                definition,
+                "Not applicable on JAX-RS: this rule specifically compares Spring Data Pageable inputs with"
+                        + " Page/Slice outputs.");
+    }
+
     static RestApiRuleResultDto pass(RestApiRuleDefinition definition) {
         return result(definition, PASS, 0, List.of());
     }

@@ -7,4 +7,8 @@ interface HibernateRule {
     HibernateRuleDefinition definition();
 
     HibernateRuleResultDto evaluate(HibernateContext context);
+
+    default boolean applicationWide() {
+        return false;
+    }
 }

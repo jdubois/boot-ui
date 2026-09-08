@@ -7,11 +7,10 @@ import {describeLoadError} from '../utils/loadError.js'
 import {scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {
   advisorAssessment,
+  githubSecurityScore,
   isValidSeveritySummary,
   overallScore,
-  scoreBandLabel,
-  scoreBandTone,
-  scoreFromSeverityCounts
+  scoreBandTone
 } from '../utils/scannerScore.js'
 import PanelHeader from './components/PanelHeader.vue'
 import ScannerScoreCard from './components/ScannerScoreCard.vue'
@@ -132,6 +131,8 @@ function newScannerState() {
   return {
     state: 'idle',
     score: null,
+    assessed: false,
+    incomplete: false,
     hasReport: false,
     scoreLabel: '',
     scoreReason: '',
@@ -164,13 +165,15 @@ function applyReport(def, state, report) {
   state.hasReport = true
   state.severityCounts = validSummary ? report.severityCounts : []
   state.score = assessment.score
-  state.scoreLabel = assessment.label
+  state.scoreLabel = assessment.score !== null ? 'Scan complete' : assessment.label
   state.scoreReason = assessment.reason
   const status = report?.scan?.status
-  state.statusLabel = scanStatusLabel(status)
-  state.statusTone = scanStatusBadgeClass(status)
-  state.state = status === 'NOT_SCANNED' ? 'idle' : 'done'
-  state.error = null
+  state.assessed = ['SCANNED', 'PARTIAL'].includes(status) && report.evidence != null
+  state.incomplete = assessment.incomplete
+  state.statusLabel = assessment.score !== null ? state.scoreLabel : scanStatusLabel(status)
+  state.statusTone = assessment.score !== null ? 'text-bg-secondary' : scanStatusBadgeClass(status)
+  state.state = status === 'ERROR' ? 'error' : status === 'NOT_SCANNED' ? 'idle' : 'done'
+  state.error = status === 'ERROR' ? report.scan.message || 'Scan failed' : null
   state.warning = validSummary ? null : 'The report has an invalid severity summary. Its counts cannot be displayed.'
 }
 
@@ -204,8 +207,8 @@ async function runScanner(def) {
 // The dashboard is kept alive (App.vue wraps it in <keep-alive include="Overview">), so its
 // scores survive navigation. Dismissing/restoring an advisor rule in a panel changes that
 // advisor's server-side score, which would otherwise leave the dashboard showing a stale value.
-// Discover panel/agent-originated reports too, even when unscoreable: dismissing UNKNOWN
-// can restore eligibility. Only read endpoints confirmed by the panel manifest.
+// Discover panel/agent-originated reports too, even when unscoreable.
+// Only read endpoints confirmed by the panel manifest.
 async function refreshScanner(def) {
   const state = scanners[def.id]
   if (!def.reportEndpoint || !panelLookup.value.has(def.id) || !panelAvailable(def.id)) return
@@ -232,46 +235,55 @@ function refreshScores() {
   }
 }
 
-// GitHub is not a severity scanner; it is included in the overall score only
-// when the repository is available and the credential is authenticated.
+// GitHub's alert-count heuristic is separate from advisor severity scoring. Refresh remains user-triggered.
 const github = reactive({
   state: 'idle',
+  score: null,
+  hasReport: false,
   connected: false,
   authenticated: false,
   available: true,
-  score: null,
-  severityCounts: [],
+  securitySignals: [],
   statusLabel: null,
   statusTone: 'secondary',
   error: null
 })
 
 const githubVisible = computed(() => panelAvailable('github'))
-
-function githubSeverityCounts(report) {
-  const alerts = (report.securitySignals ?? [])
-    .filter((signal) => signal.status === 'AVAILABLE')
-    .reduce((total, signal) => total + (Number(signal.count) || 0), 0)
-  return alerts > 0 ? [{severity: 'HIGH', count: alerts}] : []
-}
+const overallContributions = computed(() => {
+  const items = visibleScanners.value.map((def) => ({
+    id: def.id,
+    title: displayTitle(def),
+    score: scanners[def.id].score
+  }))
+  if (githubVisible.value) items.push({id: 'github', title: 'GitHub', score: github.score})
+  return items
+    .filter(({score}) => Number.isFinite(score) && score >= 0 && score <= 100)
+    .sort((a, b) => a.score - b.score)
+})
+const contributingScores = computed(() => overallContributions.value.map(({score}) => score))
+const overall = computed(() => overallScore(contributingScores.value))
+const overallBand = computed(() => {
+  const tone = scoreBandTone(overall.value)
+  return {tone, label: {secondary: 'Not scored', success: 'Good', warning: 'Needs attention', danger: 'At risk'}[tone]}
+})
 
 async function connectGithub() {
   github.state = 'running'
   github.error = null
   try {
     const report = await getJson('api/github/refresh', {method: 'POST'})
+    const score = githubSecurityScore(report)
     github.available = report.available !== false
     github.connected = report.connected === true
     github.authenticated = report.credential?.authenticated === true
-    github.statusLabel = report.status
+    github.statusLabel = report.status === 'CONNECTED' ? 'Connected' : report.status
     github.statusTone = 'text-bg-secondary'
-    if (github.connected && github.authenticated) {
-      github.severityCounts = githubSeverityCounts(report)
-      github.score = scoreFromSeverityCounts(github.severityCounts)
-    } else {
-      github.severityCounts = []
-      github.score = null
-    }
+    github.securitySignals = Array.isArray(report.securitySignals)
+      ? report.securitySignals.filter((signal) => signal && typeof signal.label === 'string')
+      : []
+    github.score = score
+    github.hasReport = true
     github.state = 'done'
   } catch (e) {
     github.state = 'error'
@@ -279,35 +291,28 @@ async function connectGithub() {
   }
 }
 
-const githubScored = computed(
-  () => github.state === 'done' && github.connected && github.authenticated && Number.isFinite(github.score)
-)
-
-const contributors = computed(() => {
-  const items = visibleScanners.value
-    .map((def) => ({title: displayTitle(def), score: scanners[def.id].score}))
-    .filter((item) => Number.isFinite(item.score))
-  if (githubVisible.value && githubScored.value) items.push({title: 'GitHub', score: github.score})
-  return items
-})
-
-const overall = computed(() => overallScore(contributors.value.map((item) => item.score)))
-const scoredCount = computed(() => contributors.value.length)
-
-const totalCount = computed(() => visibleScanners.value.length + (githubVisible.value ? 1 : 0))
+const assessedCount = computed(() => visibleScanners.value.filter((def) => scanners[def.id].assessed).length)
+const failedCount = computed(() => visibleScanners.value.filter((def) => scanners[def.id].state === 'error').length)
+const unscannedCount = computed(() => visibleScanners.value.filter((def) => scanners[def.id].state === 'idle').length)
+const incompleteCount = computed(() => visibleScanners.value.filter((def) => scanners[def.id].incomplete).length)
+const hasActions = computed(() => visibleScanners.value.length > 0 || githubVisible.value)
 
 const anyRunning = computed(
   () => github.state === 'running' || visibleScanners.value.some((def) => scanners[def.id].state === 'running')
 )
 
-const overallBandLabel = computed(() => (Number.isFinite(overall.value) ? scoreBandLabel(overall.value) : 'Not scored'))
-const overallBandTone = computed(() => (Number.isFinite(overall.value) ? scoreBandTone(overall.value) : 'secondary'))
-
-const overallContributions = computed(() =>
-  contributors.value
-    .map((item) => ({title: item.title, deduction: item.score - 100}))
-    .sort((a, b) => a.deduction - b.deduction)
-)
+const retainedSeverities = computed(() => {
+  const counts = new Map()
+  for (const def of visibleScanners.value) {
+    for (const entry of scanners[def.id].severityCounts) {
+      const severity = entry.severity.toUpperCase()
+      counts.set(severity, (counts.get(severity) || 0) + entry.count)
+    }
+  }
+  return ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN', 'NONE']
+    .filter((severity) => counts.get(severity) > 0)
+    .map((severity) => ({severity, count: counts.get(severity)}))
+})
 
 // A run-all-scanners nudge toward the MCP Server panel: with the MCP server enabled,
 // an AI agent can read these same scan results and act on them. Only surfaced when the
@@ -320,7 +325,7 @@ async function runAll() {
   const tasks = visibleScanners.value
     .filter((def) => scanners[def.id].state !== 'running')
     .map((def) => runScanner(def))
-  if (githubVisible.value && github.state === 'idle') tasks.push(connectGithub())
+  if (githubVisible.value && github.state !== 'running') tasks.push(connectGithub())
   await Promise.allSettled(tasks)
 }
 
@@ -352,11 +357,11 @@ watch(
 </script>
 
 <template>
-  <div>
+  <div class="overview-scores">
     <PanelHeader
       icon="bi-speedometer2"
       title="Overview"
-      subtitle="Run the advisors to score your app's security, architecture, and runtime health, then open any panel for the details."
+      subtitle="Inspect retained findings and assessment coverage, then open an advisor for evidence and next steps."
       :refreshable="false"
     >
       <template #actions>
@@ -391,77 +396,95 @@ watch(
           ></button>
         </div>
         <div class="card overall-card">
-          <div class="card-body d-flex flex-column flex-lg-row align-items-lg-center gap-4">
-            <div v-if="scoredCount > 0" class="flex-shrink-0 min-w-0">
-              <h3 class="fs-6 text-muted fw-semibold mb-0">Overall score</h3>
-              <div class="d-flex align-items-center gap-3 mt-2">
-                <div :class="['overall-gauge', `overall-gauge--${overallBandTone}`]">
-                  <span class="overall-gauge__value">{{ Number.isFinite(overall) ? overall : '—' }}</span>
-                  <span class="overall-gauge__max">/ 100</span>
-                </div>
-                <div class="min-w-0">
-                  <span
-                    :class="[
-                      'badge',
-                      `text-bg-${overallBandTone}`,
-                      'fs-6',
-                      'text-truncate',
-                      'd-inline-block',
-                      'mw-100'
-                    ]"
-                    >{{ overallBandLabel }}</span
-                  >
-                  <div class="text-muted small mt-2 text-truncate">
-                    {{ scoredCount }} of {{ totalCount }} scanners scored
-                  </div>
-                  <div class="text-muted small">Mean of scored scanners only.</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="flex-grow-1 min-w-0">
-              <template v-if="scoredCount > 0">
-                <div v-if="overallContributions.length" class="row g-2">
+          <div class="card-body">
+            <div class="d-flex flex-column flex-xl-row align-items-xl-center gap-4">
+              <div class="flex-shrink-0 min-w-0">
+                <h2 class="fs-6 text-muted fw-semibold mb-0">Overall score</h2>
+                <div v-if="overall !== null" class="d-flex align-items-center gap-3 mt-2">
                   <div
-                    v-for="item in overallContributions"
-                    :key="item.title"
-                    class="col-sm-6 col-lg-4 d-flex justify-content-between align-items-center small min-w-0"
+                    :class="['overall-score', 'overall-gauge', `overall-gauge--${overallBand.tone}`]"
+                    role="img"
+                    :aria-label="`Overall score: ${overall} out of 100 — Average of ${contributingScores.length} ${contributingScores.length === 1 ? 'score' : 'scores'}`"
                   >
-                    <span class="text-muted text-truncate me-2">{{ item.title }}</span>
+                    <span class="overall-gauge__value overview-score-value">{{ overall }}</span>
+                    <span class="overall-gauge__max">/ 100</span>
+                  </div>
+                  <div>
                     <span
-                      :class="[
-                        'flex-shrink-0',
-                        item.deduction < 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'
-                      ]"
+                      :class="['overall-band', 'badge', `text-bg-${overallBand.tone}`, 'fs-6']"
+                      title="Known-findings score band, not a safety or coverage assessment."
+                      >{{ overallBand.label }}</span
                     >
-                      {{ item.deduction < 0 ? item.deduction : '0' }}
-                    </span>
+                    <p class="small text-muted mt-2 mb-0">
+                      Average of {{ contributingScores.length }}
+                      {{ contributingScores.length === 1 ? 'score' : 'scores' }}
+                    </p>
                   </div>
                 </div>
-                <p v-else class="text-success small mb-0">
-                  <i class="bi bi-check-circle me-1"></i>All scanned advisors are passing.
-                </p>
-              </template>
-              <div v-else>
-                <h3 class="fs-6 text-muted fw-semibold mb-0">Overall score</h3>
-                <p class="text-muted small mb-0 mt-1">
-                  {{ scoredCount }} of {{ totalCount }} scanners scored — run the advisors to compute a combined score
-                  from complete assessments.
+                <p v-else class="mt-2 mb-0">
+                  <strong>Not scored</strong>
+                  <span class="text-muted small"> · Run an available scanner to calculate a score.</span>
                 </p>
               </div>
-            </div>
-
-            <div class="flex-shrink-0 mt-3 mt-lg-0 min-w-0">
+              <div v-if="overallContributions.length" class="overall-contributions flex-grow-1 min-w-0">
+                <div class="small text-muted mb-2">Points deducted per score</div>
+                <ul class="row g-2 list-unstyled mb-0">
+                  <li
+                    v-for="item in overallContributions"
+                    :key="item.id"
+                    class="col-sm-6 col-xl-4 d-flex justify-content-between align-items-center small"
+                  >
+                    <span class="text-muted me-2">{{ item.title }}</span>
+                    <span :class="['fw-semibold', 'flex-shrink-0', item.score < 100 ? 'text-danger' : 'text-success']">
+                      {{ item.score - 100 }}
+                    </span>
+                  </li>
+                </ul>
+              </div>
               <SpinnerButton
                 :loading="anyRunning"
-                :disabled="anyRunning || totalCount === 0"
-                class="btn btn-primary"
+                :disabled="anyRunning || !hasActions"
+                class="btn btn-primary flex-shrink-0 align-self-start align-self-xl-center ms-xl-auto"
                 type="button"
-                :label="scoredCount > 0 ? 'Re-run all scanners' : 'Run all scanners'"
+                :label="assessedCount > 0 ? 'Re-run all scanners' : 'Run all scanners'"
                 loading-label="Running scanners…"
                 @click="runAll"
               />
             </div>
+            <div class="overall-assessment d-flex flex-wrap align-items-center gap-2 mt-3 small">
+              <span>
+                <strong>{{ assessedCount }} of {{ visibleScanners.length }} advisors assessed</strong>
+                <span v-if="unscannedCount"> · {{ unscannedCount }} not scanned</span>
+                <span v-if="failedCount"> · {{ failedCount }} failed</span>
+              </span>
+              <div
+                v-if="retainedSeverities.length"
+                class="d-flex flex-wrap align-items-center gap-2"
+                aria-label="Retained advisor severity counts"
+              >
+                <span class="text-muted">Retained advisor severity counts</span>
+                <span
+                  v-for="entry in retainedSeverities"
+                  :key="entry.severity"
+                  :class="[
+                    'badge',
+                    ['CRITICAL', 'HIGH'].includes(entry.severity)
+                      ? 'text-bg-danger'
+                      : entry.severity === 'MEDIUM'
+                        ? 'text-bg-warning'
+                        : 'text-bg-secondary'
+                  ]"
+                  >{{ entry.count }} {{ entry.severity.toLowerCase() }}</span
+                >
+              </div>
+              <span v-else class="text-muted">
+                No retained advisor findings. An unscanned advisor is not a clean result.
+              </span>
+            </div>
+            <p v-if="incompleteCount > 0" class="assessment-summary small text-muted mb-0 mt-2">
+              {{ incompleteCount }} {{ incompleteCount === 1 ? 'advisor has' : 'advisors have' }} scan notes. Open a
+              panel for details.
+            </p>
           </div>
         </div>
       </div>
@@ -476,8 +499,6 @@ watch(
           to="/github"
           open-label="Open GitHub"
           :state="github.state"
-          :score="github.score"
-          :severity-counts="github.severityCounts"
           :status-label="github.statusLabel"
           :status-tone="github.statusTone"
           :error-message="github.error"
@@ -494,33 +515,52 @@ watch(
                 <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ github.error }}
               </div>
             </template>
-            <template v-else-if="githubScored">
-              <div class="d-flex align-items-baseline gap-2">
-                <span :class="['scanner-score', `scanner-score--${scoreBandTone(github.score)}`]">
-                  {{ github.score }}
-                </span>
-                <span class="text-muted small">/ 100</span>
-                <span :class="['badge', `text-bg-${scoreBandTone(github.score)}`, 'ms-auto']">
-                  {{ scoreBandLabel(github.score) }}
-                </span>
+            <div v-if="github.hasReport && ['running', 'error'].includes(github.state)" class="text-muted small my-2">
+              Showing the last report.
+            </div>
+            <div
+              v-if="github.score !== null"
+              class="mb-2"
+              role="img"
+              :aria-label="`GitHub security-alert score: ${github.score} out of 100`"
+            >
+              <span
+                :class="['overview-score-value', 'scanner-score', `text-${scoreBandTone(github.score)}-emphasis`]"
+                >{{ github.score }}</span
+              >
+              <span class="text-muted small ms-2">/ 100</span>
+              <div class="small text-muted mt-1">Security-alert score · 10 points per alert</div>
+            </div>
+            <template v-if="github.hasReport">
+              <p v-if="github.score === null" class="small mb-2">
+                <strong>Not scored</strong> · Requires an authenticated connection and all three security signals
+                available.
+              </p>
+              <div class="small fw-semibold">
+                {{
+                  !github.available
+                    ? 'Unavailable'
+                    : !github.connected
+                      ? 'Not connected'
+                      : github.authenticated
+                        ? 'Connected · Authenticated'
+                        : 'Connected · Not authenticated'
+                }}
               </div>
-              <div v-if="github.severityCounts.length" class="d-flex flex-wrap gap-1 mt-2">
-                <span v-for="entry in github.severityCounts" :key="entry.severity" class="badge text-bg-danger">
-                  {{ entry.count }} security alert(s)
-                </span>
-              </div>
-              <div v-else class="text-success small mt-2">
-                <i class="bi bi-check-circle me-1"></i>No open security alerts
-              </div>
+              <ul v-if="github.securitySignals.length" class="list-unstyled small mt-2 mb-0">
+                <li v-for="signal in github.securitySignals" :key="signal.label">
+                  {{ signal.label }}:
+                  {{
+                    signal.status === 'AVAILABLE' && Number.isSafeInteger(signal.count) && signal.count >= 0
+                      ? `${signal.count} open`
+                      : 'Unavailable'
+                  }}
+                </li>
+              </ul>
+              <p v-else class="text-muted small mt-2 mb-0">Security signals unavailable.</p>
             </template>
-            <template v-else-if="github.state === 'done'">
-              <div class="text-muted small">
-                <i class="bi bi-cloud-arrow-down me-1"></i>
-                Connect to GitHub to load live security metrics.
-              </div>
-            </template>
-            <template v-else>
-              <div class="text-muted small">Connect to GitHub to score repository security signals.</div>
+            <template v-else-if="github.state === 'idle'">
+              <div class="text-muted small">Connect to GitHub to load repository security signals.</div>
             </template>
           </template>
 
@@ -533,7 +573,7 @@ watch(
               :disabled="github.state === 'running'"
               @click="connectGithub"
             >
-              {{ githubScored ? 'Refresh' : 'Connect to GitHub' }}
+              {{ github.connected && github.authenticated ? 'Refresh' : 'Connect to GitHub' }}
             </SpinnerButton>
             <router-link to="/github" class="btn btn-sm btn-outline-secondary ms-auto">
               Open GitHub<i class="bi bi-arrow-right-short"></i>
@@ -553,6 +593,7 @@ watch(
           :has-report="scanners[def.id].hasReport"
           :score-label="scanners[def.id].scoreLabel"
           :score-reason="scanners[def.id].scoreReason"
+          :incomplete="scanners[def.id].incomplete"
           :severity-counts="scanners[def.id].severityCounts"
           :status-label="scanners[def.id].statusLabel"
           :status-tone="scanners[def.id].statusTone"
@@ -562,7 +603,7 @@ watch(
         />
       </div>
 
-      <div v-if="totalCount === 0" class="col-12">
+      <div v-if="!hasActions" class="col-12">
         <div class="alert alert-secondary mb-0">No technology scanners were detected for this application.</div>
       </div>
     </div>
@@ -570,21 +611,22 @@ watch(
 </template>
 
 <style scoped>
+:global(:root:not([data-bootui-theme='dark'])) .overview-scores {
+  --bs-success-text-emphasis: var(--bootui-green);
+  --bs-warning-text-emphasis: var(--bootui-warning-text);
+  --bs-danger-text-emphasis: var(--bootui-danger);
+}
+
 .overall-gauge {
   align-items: center;
-  border: 0.4rem solid;
+  border: 0.5rem solid;
   border-radius: 50%;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   height: 6.5rem;
   justify-content: center;
   width: 6.5rem;
-}
-
-.overall-gauge__value {
-  font-size: 2rem;
-  font-weight: 850;
-  line-height: 1;
 }
 
 .overall-gauge__max {
@@ -593,44 +635,33 @@ watch(
 }
 
 .overall-gauge--success {
-  border-color: var(--bs-success);
+  border-color: var(--bootui-green);
   color: var(--bs-success-text-emphasis);
 }
 
 .overall-gauge--warning {
-  border-color: var(--bs-warning);
+  border-color: var(--bootui-warning-text);
   color: var(--bs-warning-text-emphasis);
 }
 
 .overall-gauge--danger {
-  border-color: var(--bs-danger);
+  border-color: var(--bootui-danger);
   color: var(--bs-danger-text-emphasis);
 }
 
-.overall-gauge--secondary {
-  border-color: var(--bootui-border-alt);
-  color: var(--bootui-text-muted);
+.overall-contributions {
+  min-width: 0;
 }
 
-.scanner-score {
+.overview-score-value {
+  font-family: var(--bs-font-monospace);
   font-size: 2.1rem;
   font-weight: 850;
   line-height: 1;
+  color: var(--bootui-text);
 }
 
-.scanner-score--success {
-  color: var(--bs-success-text-emphasis);
-}
-
-.scanner-score--warning {
-  color: var(--bs-warning-text-emphasis);
-}
-
-.scanner-score--danger {
-  color: var(--bs-danger-text-emphasis);
-}
-
-.scanner-score--secondary {
-  color: var(--bootui-text-muted);
+.overall-gauge__value {
+  color: inherit;
 }
 </style>

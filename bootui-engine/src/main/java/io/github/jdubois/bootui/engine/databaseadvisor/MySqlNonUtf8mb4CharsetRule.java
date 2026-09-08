@@ -43,7 +43,11 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.mySqlFamilySchemas();
         String skipReason = VendorRuleSupport.skipReason(
-                schemas, VendorFindingKinds.MYSQL_COLUMN_CHARSETS, "No MySQL or MariaDB datasource was detected.");
+                context,
+                definition().id(),
+                schemas,
+                VendorFindingKinds.MYSQL_COLUMN_CHARSETS,
+                "No MySQL or MariaDB datasource was detected.");
         if (skipReason != null
                 && schemas.stream()
                         .noneMatch(schema -> VendorRuleSupport.available(schema, VendorFindingKinds.MYSQL_TABLES))) {

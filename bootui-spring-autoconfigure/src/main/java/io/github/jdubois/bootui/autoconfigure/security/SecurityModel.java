@@ -291,11 +291,15 @@ final class SecurityModel {
          * Whether the bounded shared parser recognizes permissive effective script controls.
          */
         boolean hasWeakCsp() {
+            return Boolean.TRUE.equals(weakCspObservation());
+        }
+
+        Boolean weakCspObservation() {
+            if (!details.headersKnown() || cspReportOnly == null) return null;
+            if (cspReportOnly) return false;
             CspPolicy.Analysis policy = CspPolicy.analyze(cspPolicyDirectives);
-            return details.headersKnown()
-                    && Boolean.FALSE.equals(cspReportOnly)
-                    && policy.complete()
-                    && (policy.unsafeInlineScript() || policy.unsafeEvalScript() || policy.unrestrictedScript());
+            if (!policy.complete()) return null;
+            return policy.unsafeInlineScript() || policy.unsafeEvalScript() || policy.unrestrictedScript();
         }
 
         /** {@code true} when the named directive appears anywhere in the policy (with any value). */
@@ -522,7 +526,19 @@ final class SecurityModel {
             MatcherFacts matcher,
             List<AuthorizationMapping> mappings,
             Boolean bearerSavesSession,
-            boolean httpsRedirect) {
+            boolean httpsRedirect,
+            boolean csrfKnown) {
+        ChainDetails(
+                boolean filtersKnown,
+                boolean headersKnown,
+                boolean unconditional,
+                MatcherFacts matcher,
+                List<AuthorizationMapping> mappings,
+                Boolean bearerSavesSession,
+                boolean httpsRedirect) {
+            this(filtersKnown, headersKnown, unconditional, matcher, mappings, bearerSavesSession, httpsRedirect, true);
+        }
+
         ChainDetails {
             mappings = List.copyOf(mappings);
         }

@@ -445,6 +445,8 @@ beans; and management-path authorization, reverse-proxy TLS policy, handler-leve
 outside the snapshot. Unknown filter, header-writer, or CORS extraction skips dependent conclusions and produces a
 partial observation rather than treating it as an absent protection. Recursive composite header traversal is
 depth-bounded and reports incomplete evidence explicitly.
+Scan status reflects applicable coverage: inapplicable rules do not qualify the
+assessment as incomplete, while missing applicable observations remain `PARTIAL` even without a rule error.
 
 ::: details Rule alignment history
 

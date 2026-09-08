@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.CorsConfigM
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChainModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.MatcherFacts;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
@@ -129,22 +130,26 @@ final class SecurityScanner {
             return report("DISABLED", message, clock.millis(), 0, 0, List.of());
         }
 
+        context.evidence().evaluation().reset();
         List<SecurityRuleResultDto> results = SecurityRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(context))
                 .toList();
         int chains = context.chains().size();
-        boolean incomplete = results.stream()
-                .anyMatch(result -> SecurityRuleSupport.ERROR.equals(result.status())
-                        || SecurityRuleSupport.SKIPPED.equals(result.status()));
-        String status = discovery.errors().isEmpty() && !incomplete ? "SCANNED" : "PARTIAL";
+        AdvisorEvidenceDto evidence = evidence(discovery);
+        boolean incomplete = !evidence.coverageComplete();
+        String status = incomplete ? "PARTIAL" : "SCANNED";
         String message = "Security Advisor completed against " + chains + " filter chain" + (chains == 1 ? "." : "s.");
         if (!discovery.errors().isEmpty()) {
-            message += " Some configuration could not be read: " + String.join("; ", discovery.errors());
+            message += " Some configuration remains unobserved: " + String.join("; ", discovery.errors());
         }
         if (incomplete) {
             message += " Unsupported or incomplete evidence remains unknown; skipped checks are not security passes.";
         }
-        return report(status, message, clock.millis(), chains, results.size(), results);
+        return report(status, message, clock.millis(), chains, results.size(), results, evidence);
+    }
+
+    private static AdvisorEvidenceDto evidence(SecurityDiscovery discovery) {
+        return discovery.context().evidence().evaluation().evidence(discovery.errors());
     }
 
     private SecurityReport report(
@@ -154,6 +159,24 @@ final class SecurityScanner {
             int filterChainsAnalyzed,
             int rulesEvaluated,
             List<SecurityRuleResultDto> results) {
+        return report(
+                status,
+                message,
+                scannedAt,
+                filterChainsAnalyzed,
+                rulesEvaluated,
+                results,
+                AdvisorEvidenceDto.unknown());
+    }
+
+    private SecurityReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            int filterChainsAnalyzed,
+            int rulesEvaluated,
+            List<SecurityRuleResultDto> results,
+            AdvisorEvidenceDto evidence) {
         List<SecurityRuleResultDto> violations = violationResults(results);
         int violationsFound = violations.size();
         SecurityScanStatusDto scan = new SecurityScanStatusDto(
@@ -168,7 +191,8 @@ final class SecurityScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                evidence);
     }
 
     // The most recent context, captured so the report can list chain matchers.
@@ -203,7 +227,8 @@ final class SecurityScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.evidence());
     }
 
     static List<SecurityRuleResultDto> analysisErrors(List<SecurityRuleResultDto> results) {
@@ -300,13 +325,14 @@ final class SecurityScanner {
                     chainFilters.put(i, filters);
                     FilterChainModel model = toChainModel(i, chain);
                     chains.add(model);
-                    if (!model.details().filtersKnown()
-                            || !model.details().headersKnown()
-                            || model.details().matcher() == null
-                            || !model.details().matcher().complete()
-                            || model.hasAuthorizationFilter() && model.permitsAllAnonymous() == null) {
-                        errors.add("Chain " + i + ": some framework metadata is unsupported.");
-                    }
+                    if (!model.details().filtersKnown()) errors.add("Chain " + i + ": custom or unsupported filters.");
+                    if (!model.details().headersKnown())
+                        errors.add("Chain " + i + ": unsupported header-writer policy.");
+                    if (model.details().matcher() == null
+                            || !model.details().matcher().complete())
+                        errors.add("Chain " + i + ": unsupported request-matcher structure.");
+                    if (model.hasAuthorizationFilter() && model.permitsAllAnonymous() == null)
+                        errors.add("Chain " + i + ": authorization is not a supported constant grant or denial.");
                 } catch (RuntimeException | LinkageError ex) {
                     chains.add(unknownChain(i));
                     errors.add("Chain " + i + ": " + safeMessage(ex));
@@ -422,7 +448,8 @@ final class SecurityScanner {
                         matcherFacts,
                         mappings,
                         bearerSavesSession(filters),
-                        unconditionalHttpsRedirect(filters)));
+                        unconditionalHttpsRedirect(filters),
+                        csrfMetadataKnown(filters)));
     }
 
     private static String matcherDescription(SecurityFilterChain chain) {
@@ -1283,9 +1310,12 @@ final class SecurityScanner {
     }
 
     private static boolean filterMetadataKnown(List<Filter> filters) {
+        return filters.stream().noneMatch(filter -> frameworkTypeName(filter).equals("Unknown"));
+    }
+
+    private static boolean csrfMetadataKnown(List<Filter> filters) {
         for (Filter filter : filters) {
             String name = frameworkTypeName(filter);
-            if (name.equals("Unknown")) return false;
             if (name.equals("CsrfFilter")) {
                 Object matcher = readField(filter, "requireCsrfProtectionMatcher");
                 if (matcher == null
@@ -1302,6 +1332,7 @@ final class SecurityScanner {
             ListableBeanFactory beanFactory, List<Object> providers, Environment environment, List<String> errors) {
         List<SecurityContext.Operation> operations = new ArrayList<>();
         boolean operationsKnown = false;
+        boolean operationInventoryFound = false;
         Set<String> enabled = new java.util.LinkedHashSet<>();
         Set<String> used = new java.util.LinkedHashSet<>();
         boolean methodKnown = true;
@@ -1407,6 +1438,7 @@ final class SecurityScanner {
                             .equals(
                                     "org.springframework.boot.webmvc.actuate.endpoint.web.WebMvcEndpointHandlerMapping"))
                         continue;
+                    operationInventoryFound = true;
                     Object endpointMapping = readField(singleton, "endpointMapping");
                     Object prefix = readField(endpointMapping, "path");
                     Object endpoints = readField(singleton, "endpoints");
@@ -1475,6 +1507,9 @@ final class SecurityScanner {
         } catch (SecurityActuatorObservation.ObservationLimitException ex) {
             operationsKnown = false;
             errors.add("Actuator configuration evidence is incomplete.");
+        }
+        if (operationInventoryFound && !operationsKnown) {
+            errors.add("Actuator operation inventory includes unsupported or parameterized operations.");
         }
         return new SecurityContext.Evidence(operations, operationsKnown, bootJwt, enabled, used, methodKnown);
     }

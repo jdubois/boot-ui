@@ -54,6 +54,20 @@ record SpringContext(
         mutableSingletonFields = List.copyOf(mutableSingletonFields);
     }
 
+    boolean applies(boolean applicable) {
+        return observations.evaluation().applies(applicable);
+    }
+
+    <T> List<T> targets(List<T> targets) {
+        applies(!targets.isEmpty());
+        return targets;
+    }
+
+    <T> T observed(T value) {
+        applies(true);
+        return value;
+    }
+
     String firstProperty(String... keys) {
         for (String key : keys) {
             String value = bind(key, String.class);

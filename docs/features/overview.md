@@ -5,40 +5,86 @@
 The Overview panel is BootUI's landing page: a guided "understand your app in minutes" dashboard rather than a static
 summary. It opens with the standard panel header and a link to the running application's homepage.
 
-Its centrepiece is an **on-demand security and health scoring dashboard**. Nothing is scanned on load. Overview reads
+Its centrepiece is an **on-demand findings and coverage summary**. Nothing is scanned on load. Overview reads
 the existing cached reports on initial navigation and when you return from another panel, including scans started in
 an advisor panel or by a local agent. These GET requests never start a scan, probe, or external query. Before any scan
-has run the overall-score card stays honest — it shows how many scanners have been scored and a prompt to run them,
-rather than an empty gauge.
+has run the summary shows how many visible advisors have been assessed and a prompt to run them.
 
-Once at least one scanner has scored, an overall score out of 100 summarizes the application's posture with a
-qualitative band (Good at 80+, Needs attention at 50+, At risk below 50) and a breakdown of what each scanner deducted.
+The prominent **Overall score** is the rounded arithmetic mean of eligible, available, visible advisor scores
+and the GitHub security-alert score when eligible. **Average of N scores** identifies the contributing count.
+The original color-coded circular gauge places the number at its centre, alongside a compact summary and a
+**Points deducted per score** grid. Each eligible contributor shows its own score minus 100; these deductions
+are not added together to calculate the overall score. The gauge's familiar **Good** (80–100), **Needs attention**
+(50–79), and **At risk** (0–49) bands describe the scored results, not application safety or assessment completeness.
+The layout is horizontal on desktop and stacks on narrow screens. Assessment, failure, retained-severity, and
+scan-notes counts remain visible in the summary.
+Unscanned, invalid, missing, and confirmed-empty assessments contribute neither zero nor 100. With no eligible
+scores the summary reads **Not scored** and prompts an explicit scan. Usable partial reports contribute their
+unchanged known-findings scores, without a penalty for missing checks. This is an average of the scored reports,
+not a universal health or coverage verdict; running another clean scanner can change it without fixing a finding.
+GraalVM and CRaC readiness scans do not contribute to this average. Running only those scanners leaves the
+Overview **Not scored**, not zero or **At risk**. A genuine eligible score of zero still contributes normally.
+Retained finding severities and assessment counts remain visible, including findings from reports that cannot score.
+Overview score numbers use green at 80–100, amber at 50–79, and red below 50, including GitHub.
+Light mode uses the more saturated semantic colors for these numbers and a stronger overall ring; dark mode retains
+its light text colors.
+These historical bands help prioritize review; they do not measure safety or coverage. Numeric scores and
+retained severity labels remain visible, so meaning does not depend on color alone.
 **Run all scanners** triggers every available scanner, or run each card individually. After a run-all, a dismissible tip
 points to the MCP Server panel, since enabling it lets an AI agent read these same results and fix the findings for you.
 
-Each scanner card shows its status and retained severity counts, with a 0–100 score only for an eligible assessment.
+Each scanner card leads with a large 0–100 **Known-findings score** for an eligible assessment, followed by retained
+severity counts. Usable scores have a neutral **Scan complete** status: the scan has finished, not necessarily assessed
+every applicable check. Secondary diagnostics remain inside
+each advisor's **Scan notes**, accessible through **Open panel**, without repeated reminders on the cards.
 The severity-based scanners are Architecture,
 Memory, REST API, Spring, Database, Hibernate, Security, Pentesting, and Vulnerabilities. Each starts at 100 and
 subtracts a fixed weighted penalty per finding — critical 25, high 10, medium 3, low 1 — so a complete clean scan stays
-at 100. `PARTIAL` shows **Incomplete**, never a number; `ERROR`, `DISABLED`, and `NOT_SCANNED` do not score.
-Vulnerabilities additionally requires complete dependency inventory coverage and no active UNKNOWN severity;
-NONE has no penalty. Missing coverage is unknown. See [Score eligibility](advisors.md#score-eligibility).
+at 100. Both `SCANNED` and `PARTIAL` can score known findings or completed applicable evidence. Skipped, failed,
+vacuous, or unknown-only evidence cannot establish a score; `ERROR`, `DISABLED`, and `NOT_SCANNED` never score.
+Limited coverage does not change known-finding penalties, even at 100. Overview summarizes the number of
+advisors with scan notes instead of repeating each scanner's coverage explanations. This includes partial scans
+and completed scans whose coverage is incomplete or unknown, even when they cannot establish a score.
+Confirmed empty scope is different: a complete scan with `evidence.usable: false`, `coverageComplete: true`,
+and no limitations stays unscored and reads **Not applicable**, without increasing the scan-notes count or contributing
+a fabricated 100. It counts as assessed, as do accepted `SCANNED`/`PARTIAL` reports with valid explicit evidence,
+even if that evidence cannot support a number. Missing legacy evidence does not count as assessed.
+Unscanned and failed reports do not count as assessed; request failures are shown separately, preserving any last report.
+Unscanned, failed, disabled, and unavailable
+scanners do not inflate the scan-notes count. Full reasons for usable results remain in each panel's keyboard-accessible,
+initially collapsed **Scan notes**. Unscored reasons and failures stay visible. The count is of advisors, never inferred
+checks: report limitations may be aggregated or capped.
+Vulnerabilities can score known findings despite inventory/query/detail gaps; UNKNOWN has no penalty but cannot
+establish eligibility even after dismissal. A clean dependency needs completed query and detail evidence and a
+genuinely empty retained advisory list. See [Score eligibility](advisors.md#score-eligibility).
 
-GitHub is not a severity scanner. It connects to the local repository and contributes a score derived from open security
-alerts, but only when the credential is connected and authenticated.
+GitHub is not a severity scanner and is excluded from advisor counts and severity totals. Its card shows
+connection/authentication state and the reported Dependabot, secret-scanning, and code-scanning signals.
+Its connected status badge reads **Connected**.
+Only available numeric counts are displayed as open alerts; unavailable or missing counts are not zero.
+Its **Security-alert score** subtracts 10 points per reported alert from 100, clamped to 0–100. This is an
+alert-count heuristic, not an assignment of HIGH severity. Eligibility requires an available, connected,
+authenticated report and exactly one `AVAILABLE` signal with a nonnegative safe integer count for each of
+`Dependabot alerts`, `Code scanning alerts`, and `Secret scanning alerts`. Confirmed zeros score 100;
+missing, empty, malformed, duplicate, or unavailable signals leave GitHub **Not scored**, even when another signal
+reports known alerts. Actual counts remain visible, and unscored GitHub is excluded from the overall average.
+Refreshing or a request failure preserves the last accepted report and its score; a newly received unavailable
+report clears that score. Connecting or refreshing remains user-triggered, including
+**Run all scanners** when GitHub is the only available card.
 
-The overall score, scored count, and contribution breakdown include only scanners that actually scored. The available
-scanner total does not shrink when a report is incomplete: "2 of 4 scanners scored" means the mean covers two
-assessments, not that all four passed. Disabled and unavailable panels are excluded; automatic reads wait for the
+No coverage percentage or application-wide completeness claim is inferred. Dismissals remove penalties,
+not safety concerns or evidence gaps.
+Disabled and unavailable panels are excluded; automatic reads wait for the
 panel manifest and only use supported, enabled advisor endpoints.
 Returning from a panel refreshes cached reports with GET requests, including Vulnerabilities after
 dismissal or restoration. A busy or failed request retains the last accepted report with a warning or error; an
-authoritative new incomplete/failed report replaces its old score. A `NOT_SCANNED` response, such as after an application
+authoritative new report replaces its old assessment, scoring usable partial evidence and excluding failed or
+unusable reports. A `NOT_SCANNED` response, such as after an application
 restart, replaces the old findings and returns the card to **Run scan**. An Overview scan already in progress finishes
 before the return-navigation refresh reads its updated report.
 
 The panel is fully available on every adapter. The scoring dashboard is rendered entirely in the browser: the shell
-aggregates each advisor's own scan endpoints and computes the same combined score, so no backend dashboard service is
+reads each advisor's own reports and displays its independent score, so no backend dashboard service is
 involved. The shell chrome around every panel — application name, framework and version, Java version, active profiles,
 and active/disabled status — comes from the same framework-neutral `GET /bootui/api/overview` endpoint both adapters
 expose.
@@ -56,19 +102,19 @@ self-filtered, and bounded exactly as it is there.
 
 ### The nine signals
 
-| Signal        | Type          | Captured from                                                        | Adapters             |
-| ------------- | ------------- | -------------------------------------------------------------------- | -------------------- |
-| Requests      | `REQUEST`     | HTTP Exchanges                                                        | All                  |
-| SQL           | `SQL`         | SQL Trace                                                             | All                  |
-| Exceptions    | `EXCEPTION`   | Exceptions                                                            | All                  |
-| Security      | `SECURITY`    | Security Logs                                                         | All                  |
-| Emails        | `MAIL`        | Email                                                                 | All                  |
-| Scheduled     | `SCHEDULED`   | Spring's scheduling observability hook; Quarkus's CDI execution events | All                  |
-| Messaging     | `MESSAGING`   | Kafka and RabbitMQ everywhere, JMS on Spring only                      | All                  |
-| REST client   | `REST_CLIENT` | REST Client                                                           | Spring MVC, WebFlux, Quarkus |
-| Cache         | `CACHE`       | A dedicated recorder that stores only a hashed key                     | Spring MVC, WebFlux  |
+| Signal      | Type          | Captured from                                                          | Adapters                     |
+| ----------- | ------------- | ---------------------------------------------------------------------- | ---------------------------- |
+| Requests    | `REQUEST`     | HTTP Exchanges                                                         | All                          |
+| SQL         | `SQL`         | SQL Trace                                                              | All                          |
+| Exceptions  | `EXCEPTION`   | Exceptions                                                             | All                          |
+| Security    | `SECURITY`    | Security Logs                                                          | All                          |
+| Emails      | `MAIL`        | Email                                                                  | All                          |
+| Scheduled   | `SCHEDULED`   | Spring's scheduling observability hook; Quarkus's CDI execution events | All                          |
+| Messaging   | `MESSAGING`   | Kafka and RabbitMQ everywhere, JMS on Spring only                      | All                          |
+| REST client | `REST_CLIENT` | REST Client                                                            | Spring MVC, WebFlux, Quarkus |
+| Cache       | `CACHE`       | A dedicated recorder that stores only a hashed key                     | Spring MVC, WebFlux          |
 
-Scheduled-task capture records each `@Scheduled` method *execution* — start, success, failure, duration — without extra
+Scheduled-task capture records each `@Scheduled` method _execution_ — start, success, failure, duration — without extra
 proxying on either adapter. Cache rows summarize the operation and cache name (`MISS orders`), with `WARN` severity for
 a miss and `OK` otherwise; the detail shows only a short hashed key (`key a1b2c3…`), never a raw key or value, even
 under full value exposure.
@@ -115,11 +161,11 @@ cards jump to **Exceptions**, **Health**, **Heap Dump**, **Cache**, and **Schedu
 Clicking a request opens a Symfony-style drawer that correlates that request's signals. It degrades gracefully and
 never fabricates data — every correlation is labelled with how it was established.
 
-| Tier            | How it matches                                        | Labelled     |
-| --------------- | ----------------------------------------------------- | ------------ |
-| Trace id        | Micrometer Tracing's `traceId`, threaded from the MDC  | **exact**    |
-| Serving thread  | The one worker thread that served the request          | **exact**    |
-| Time window     | Method, path, and time window                          | **approximate** |
+| Tier           | How it matches                                        | Labelled        |
+| -------------- | ----------------------------------------------------- | --------------- |
+| Trace id       | Micrometer Tracing's `traceId`, threaded from the MDC | **exact**       |
+| Serving thread | The one worker thread that served the request         | **exact**       |
+| Time window    | Method, path, and time window                         | **approximate** |
 
 A servlet request runs start-to-finish on one worker thread that serves only one request at a time, so statements on
 that thread are unambiguously its own. The time-window fallback applies only when the serving thread cannot be uniquely

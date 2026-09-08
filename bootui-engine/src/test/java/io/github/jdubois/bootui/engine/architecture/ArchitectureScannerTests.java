@@ -173,16 +173,18 @@ class ArchitectureScannerTests {
                 new ArchitectureScanner(() -> List.of(FIXTURES), packages -> null, ArchitecturePlatform.SPRING, CLOCK);
         assertFailedReport(nullImport.scan(), "Application classes could not be imported for analysis");
 
-        ArchitectureScanner emptyImport = new ArchitectureScanner(
-                () -> List.of(FIXTURES),
-                packages -> new ClassFileImporter().importClasses(),
-                ArchitecturePlatform.SPRING,
-                CLOCK);
-        ArchitectureReport report = emptyImport.scan();
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
-        assertThat(report.rulesEvaluated()).isZero();
-        assertThat(report.classesAnalyzed()).isZero();
-        assertThat(report.analysisErrors()).isEmpty();
+        for (ArchitecturePlatform platform : ArchitecturePlatform.values()) {
+            ArchitectureScanner emptyImport = new ArchitectureScanner(
+                    () -> List.of(FIXTURES), packages -> new ClassFileImporter().importClasses(), platform, CLOCK);
+            ArchitectureReport report = emptyImport.scan();
+            assertThat(report.scan().status()).isEqualTo("SCANNED");
+            assertThat(report.rulesEvaluated()).isZero();
+            assertThat(report.classesAnalyzed()).isZero();
+            assertThat(report.analysisErrors()).isEmpty();
+            assertThat(report.evidence().usable()).isFalse();
+            assertThat(report.evidence().coverageComplete()).isTrue();
+            assertThat(report.evidence().limitations()).isEmpty();
+        }
     }
 
     @Test
@@ -197,6 +199,8 @@ class ArchitectureScannerTests {
         ArchitectureReport report = scanner.scan();
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isFalse();
         assertThat(report.scan().message()).contains("incomplete", "1 rule(s)");
         assertThat(report.rulesEvaluated()).isEqualTo(4);
         assertThat(report.classesAnalyzed()).isEqualTo(1);
@@ -220,6 +224,7 @@ class ArchitectureScannerTests {
                 .satisfies(result -> assertThat(result.dismissed()).isTrue());
         assertThat(dismissed.violationsFound()).isZero();
         assertThat(dismissed.analysisErrors()).isEqualTo(report.analysisErrors());
+        assertThat(dismissed.evidence()).isEqualTo(report.evidence());
         assertThat(dismissed.severityCounts())
                 .allSatisfy(count -> assertThat(count.count()).isZero());
     }
@@ -232,6 +237,8 @@ class ArchitectureScannerTests {
             ArchitectureReport report = scannerWithRules(rules).scan();
 
             assertThat(report.scan().status()).isEqualTo("ERROR");
+            assertThat(report.evidence().usable()).isFalse();
+            assertThat(report.evidence().coverageComplete()).isFalse();
             assertThat(report.rulesEvaluated()).isEqualTo(rules.size());
             assertThat(report.classesAnalyzed()).isEqualTo(1);
             assertThat(report.results()).isEmpty();
@@ -248,6 +255,21 @@ class ArchitectureScannerTests {
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.results()).isEmpty();
         assertThat(report.analysisErrors()).hasSize(1);
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+    }
+
+    @Test
+    void skippedAndVacuousRulesDoNotEstablishCompletedEvidence() {
+        ArchitectureReport skipped =
+                scannerWithRules(List.of(new NotApplicableRule())).scan();
+        ArchitectureReport noControllers = scannerWithRules(List.of(new ControllersShouldNotDependOnRepositoriesRule()))
+                .scan();
+        for (ArchitectureReport report :
+                List.of(skipped, noControllers, scanner(List.of()).scan())) {
+            assertThat(report.scan().status()).isEqualTo("SCANNED");
+            assertThat(report.evidence().usable()).isFalse();
+        }
     }
 
     @Test
@@ -299,6 +321,8 @@ class ArchitectureScannerTests {
     }
 
     private static void assertFailedReport(ArchitectureReport report, String message) {
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().usable()).isFalse();
         assertThat(report.scan().status()).isEqualTo("ERROR");
         assertThat(report.scan().message())
                 .startsWith(message)
@@ -376,6 +400,8 @@ class ArchitectureScannerTests {
     void scanWithNoBasePackagesProducesEmptyScannedReport() {
         ArchitectureReport report = scanner(List.of()).scan();
 
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().usable()).isFalse();
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.basePackages()).isEmpty();
         assertThat(report.classesAnalyzed()).isZero();

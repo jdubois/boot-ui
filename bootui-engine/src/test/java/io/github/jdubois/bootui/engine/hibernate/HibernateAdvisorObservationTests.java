@@ -157,6 +157,8 @@ class HibernateAdvisorObservationTests {
             assertThat(result.violationCount()).isEqualTo(1);
             assertThat(result.sampleViolations()).singleElement().asString().contains("insert-ordering");
         });
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
     }
 
     @Test
@@ -169,8 +171,11 @@ class HibernateAdvisorObservationTests {
         assertThat(result(report, "HIB-ID-006").violationCount()).isEqualTo(14);
         assertThat(result(report, "HIB-ID-006").sampleViolations()).hasSize(10);
         assertThat(report.rulesEvaluated()).isEqualTo(1);
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isTrue();
         HibernateReport dismissed = scanner.applyDismissals(report, Set.of("HIB-ID-006"));
         assertThat(dismissed.violationsFound()).isZero();
+        assertThat(dismissed.evidence()).isEqualTo(report.evidence());
         assertThat(dismissed.results())
                 .singleElement()
                 .satisfies(value -> assertThat(value.dismissed()).isTrue());
@@ -194,6 +199,8 @@ class HibernateAdvisorObservationTests {
                     .contains("failed 1", "HIB-TEST-ERROR", "failed-unit")
                     .doesNotContain("secret-jdbc-password");
             assertThat(report.results()).extracting(HibernateRuleResultDto::id).containsExactly("HIB-ID-006");
+            assertThat(report.evidence().usable()).isTrue();
+            assertThat(report.evidence().coverageComplete()).isFalse();
         }
     }
 
@@ -205,6 +212,8 @@ class HibernateAdvisorObservationTests {
         assertThat(missing.scan().status()).isEqualTo("PARTIAL");
         assertThat(missing.results()).isEmpty();
         assertThat(missing.scan().message()).contains("required evidence unavailable 1");
+        assertThat(missing.evidence().usable()).isFalse();
+        assertThat(missing.evidence().coverageComplete()).isFalse();
         HibernateReport panache = scanner(
                         List.of(unit),
                         List.of(),
@@ -216,6 +225,108 @@ class HibernateAdvisorObservationTests {
                 .scan();
         assertThat(panache.scan().status()).isEqualTo("SCANNED");
         assertThat(panache.scan().message()).contains("skipped 4", "required evidence unavailable 0");
+        assertThat(panache.evidence().usable()).isFalse();
+        assertThat(panache.evidence().coverageComplete()).isTrue();
+    }
+
+    @Test
+    void usableUnitOrRetainedFindingSurvivesUnknownRequiredObservations() {
+        HibernateReport partial = scanner(
+                        List.of(
+                                unit("known", settings(25), List.of()),
+                                unit("unknown", HibernateFactorySettings.unknown(), List.of())),
+                        List.of(),
+                        List.of(new JdbcBatchSizeRule()))
+                .scan();
+        assertThat(partial.rulesEvaluated()).isEqualTo(1);
+        assertThat(partial.evidence().usable()).isTrue();
+        assertThat(partial.evidence().coverageComplete()).isFalse();
+
+        HibernateRule uncertain = testRule("HIB-TEST-UNKNOWN", context -> {
+            context.missingEvidence();
+            return HibernateRuleSupport.violation(
+                    new HibernateRuleDefinition(
+                            "HIB-TEST-UNKNOWN", "Test", HibernateCategory.CONFIGURATION, "LOW", "Test", "Review", null),
+                    List.of("A reliable finding alongside unavailable evidence"));
+        });
+        HibernateReport report = scanner(List.of(unit("unit", settings(25), List.of())), List.of(), List.of(uncertain))
+                .scan();
+        assertThat(report.results()).hasSize(1);
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+    }
+
+    @Test
+    void emptyUnitAndFailedRulesDoNotCountAsCompleted() {
+        HibernatePersistenceUnitObservation empty = new HibernatePersistenceUnitObservation(
+                "empty", "empty", List.of(), List.of(), "7.2.19.Final", settings(25), false);
+        HibernateReport mixed = scanner(
+                        List.of(unit("known", settings(25), List.of()), empty),
+                        List.of(),
+                        List.of(new JdbcBatchSizeRule()))
+                .scan();
+        assertThat(mixed.evidence().usable()).isTrue();
+        HibernateReport noTargets = scanner(List.of(empty), List.of(), List.of(new JdbcBatchSizeRule()))
+                .scan();
+        assertThat(noTargets.evidence().usable()).isFalse();
+        HibernateReport failed = scanner(
+                        List.of(unit("known", settings(25), List.of())),
+                        List.of(),
+                        List.of(testRule("HIB-TEST-ERROR", context -> {
+                            throw new IllegalStateException();
+                        })))
+                .scan();
+        assertThat(failed.evidence().usable()).isFalse();
+        assertThat(failed.evidence().coverageComplete()).isFalse();
+    }
+
+    @Test
+    void actualAttributeSelectionAndCompletionAreOwnedByTheEvaluator() {
+        HibernateContext scalar = HibernateContext.observed(
+                new HibernatePersistenceUnitObservation(
+                        "scalar",
+                        "scalar",
+                        List.of(HibernateEntityModel.fromClass(OnlyPrimitiveId.class)),
+                        List.of(),
+                        "7.2.19.Final",
+                        settings(25),
+                        false),
+                APP);
+        assertThat(new EagerFetchRule().evaluate(scalar).status()).isEqualTo("PASS");
+        assertThat(scalar.evidence().applicable).isFalse();
+        assertThat(scalar.evidence().usable).isFalse();
+        assertThat(new IdentityDisablesBatchingRule().evaluate(scalar).status()).isEqualTo("PASS");
+        assertThat(scalar.evidence().usable).isFalse();
+
+        HibernateContext version = HibernateContext.observed(
+                new HibernatePersistenceUnitObservation(
+                        "version",
+                        "version",
+                        List.of(HibernateEntityModel.fromClass(PrimitiveVersion.class)),
+                        List.of(new HibernateRepositoryModel("Repo", PrimitiveVersion.class, List.of(), true)),
+                        "7.2.19.Final",
+                        settings(25),
+                        false),
+                APP);
+        var result = new PrimitiveIdentifierOrVersionRule().evaluate(version);
+        assertThat(result.severity()).isEqualTo("INFO");
+        assertThat(version.evidence().usable).isTrue();
+        assertThat(version.evidence().requiredUnknown).isFalse();
+    }
+
+    @Test
+    void exceptionAfterSelectingRealTargetsDoesNotCompleteEvaluation() {
+        HibernateRule rule = new AbstractHibernateRule(new EagerFetchRule().definition()) {
+            @Override
+            HibernateRuleResultDto evaluateRule(HibernateContext context) {
+                context.targets(context.entities());
+                throw new IllegalStateException("failed after selection");
+            }
+        };
+        HibernateContext context = HibernateContext.observed(unit("orders", settings(25), List.of()), APP);
+        assertThat(rule.evaluate(context).status()).isEqualTo("ERROR");
+        assertThat(context.evidence().applicable).isTrue();
+        assertThat(context.evidence().usable).isFalse();
     }
 
     @Test

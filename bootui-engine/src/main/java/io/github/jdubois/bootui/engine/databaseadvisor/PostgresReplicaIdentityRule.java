@@ -23,8 +23,18 @@ final class PostgresReplicaIdentityRule extends AbstractDatabaseAdvisorRule {
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<SchemaSnapshot> schemas = context.schemasOf(Dialect.POSTGRESQL);
+        // Publications do not exist before PostgreSQL 10. An unknown version is different: it
+        // cannot establish that the feature is absent and must retain its catalog coverage gap.
+        List<SchemaSnapshot> postgres = context.schemasOf(Dialect.POSTGRESQL);
+        List<SchemaSnapshot> schemas = postgres.stream()
+                .filter(schema -> !schema.version().known() || schema.version().atLeast(10, 0))
+                .toList();
+        if (!postgres.isEmpty() && schemas.isEmpty()) {
+            return skipped("Not applicable: publications require PostgreSQL 10 or later.");
+        }
         String reason = VendorRuleSupport.skipReason(
+                context,
+                definition().id(),
                 schemas,
                 VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
                 "No PostgreSQL datasource was detected.");

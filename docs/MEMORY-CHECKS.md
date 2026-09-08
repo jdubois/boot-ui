@@ -10,6 +10,10 @@ Interpret them against representative steady-state and burst workloads.
 
 ## Measurement quality, availability, and cost
 
+Missing histogram, pool, maximum, or other required observations do not turn a no-finding result into a passing check.
+Usable known-findings scores retain these limitations under the shared
+[score eligibility policy](features/advisors.md#score-eligibility).
+
 - **Occupancy is not retained size.** `MemoryUsage` describes a snapshot, including objects that may be
   unreachable but not yet collected. `committed` is capacity available to the JVM for that purpose, not process
   RSS. An undefined maximum (`-1`) is not proof of unlimited memory. A rule requiring a maximum does not

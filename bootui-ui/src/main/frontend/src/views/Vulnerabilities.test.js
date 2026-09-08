@@ -30,6 +30,7 @@ function dependency(packageName, version, vulnerabilities, highestSeverity) {
     source: 'test',
     vulnerabilityCount: vulnerabilities.filter((v) => !v.dismissed).length,
     highestSeverity,
+    assessment: {queryComplete: true, detailAssessmentComplete: true},
     vulnerabilities
   }
 }
@@ -54,6 +55,11 @@ function report(
 ) {
   const base = {
     scanningEnabled: true,
+    evidence: {
+      usable: dependencies.length > 0,
+      coverageComplete: true,
+      limitations: []
+    },
     total: dependencies.length,
     vulnerable,
     severityCounts: [
@@ -113,16 +119,26 @@ describe('Vulnerabilities', () => {
     vi.unstubAllGlobals()
   })
 
-  it.each(['INCOMPLETE', 'UNAVAILABLE', undefined])('withholds scores for %s inventory coverage', async (status) => {
-    const {wrapper} = await mountWithReports([report([], 0, 'SCANNED', {coverage: status ? coverage({status}) : null})])
-    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
-    expect(wrapper.find('.advisor-score-card').text()).toContain('Incomplete')
-    expect(wrapper.find('.advisor-score-card').text()).toContain('coverage')
-  })
+  it.each(['INCOMPLETE', 'UNAVAILABLE', undefined])(
+    'withholds scores without evidence for %s inventory coverage',
+    async (status) => {
+      const {wrapper} = await mountWithReports([
+        report([], 0, 'SCANNED', {coverage: status ? coverage({status}) : null, evidence: undefined})
+      ])
+      expect(wrapper.find('.advisor-summary__score').exists()).toBe(false)
+      expect(wrapper.find('.advisor-score-card').text()).toContain('Not scored')
+      expect(wrapper.find('.advisor-score-card').text()).toContain('coverage')
+    }
+  )
 
-  it('recomputes the score after dismissing and restoring an UNKNOWN finding', async () => {
+  it('keeps UNKNOWN-only unscored after dismissal and restore', async () => {
     const unknown = vulnerability('GHSA-unknown', 'UNKNOWN')
     const active = report([dependency('org.example:sample', '1.0', [unknown], 'UNKNOWN')], 1, 'SCANNED', {
+      evidence: {
+        usable: false,
+        coverageComplete: false,
+        limitations: ['Findings with unknown severity are excluded from score penalties.']
+      },
       severityCounts: [
         {severity: 'UNKNOWN', count: 1},
         {severity: 'NONE', count: 1}
@@ -133,6 +149,7 @@ describe('Vulnerabilities', () => {
       0,
       'SCANNED',
       {
+        evidence: active.evidence,
         severityCounts: [
           {severity: 'UNKNOWN', count: 0},
           {severity: 'NONE', count: 1}
@@ -140,20 +157,20 @@ describe('Vulnerabilities', () => {
       }
     )
     const {wrapper, fetchMock} = await mountWithReports([active, dismissed, active])
-    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
-    expect(wrapper.text()).toContain('Active findings have unknown severity')
+    expect(wrapper.find('.advisor-summary__score').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Findings with unknown severity')
     await wrapper
       .findAll('button')
       .find((b) => b.text().trim() === 'Dismiss')
       .trigger('click')
     await flushPromises()
-    expect(wrapper.find('.advisor-summary__value').text()).toBe('100')
+    expect(wrapper.find('.advisor-summary__score').exists()).toBe(false)
     await wrapper
       .findAll('button')
       .find((b) => b.text().trim() === 'Restore')
       .trigger('click')
     await flushPromises()
-    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
+    expect(wrapper.find('.advisor-summary__score').exists()).toBe(false)
     expect(wrapper.text()).toContain('GHSA-unknown')
     expect(fetchMock.mock.calls.some(([url]) => url.includes('/scan'))).toBe(false)
   })
@@ -198,15 +215,68 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).toContain('None found')
   })
 
+  it('scores known partial evidence while unknown severities and missing query details stay visible', async () => {
+    const known = dependency(
+      'org.example:known',
+      '1',
+      [vulnerability('GHSA-high', 'HIGH'), vulnerability('GHSA-unknown', 'UNKNOWN')],
+      'HIGH'
+    )
+    known.assessment = {queryComplete: true, detailAssessmentComplete: false}
+    const missing = {...dependency('org.example:missing', '1', [], 'NONE'), assessment: undefined}
+    const {wrapper} = await mountWithReports([
+      report([known, missing], 1, 'PARTIAL', {
+        severityCounts: [
+          {severity: 'HIGH', count: 1},
+          {severity: 'UNKNOWN', count: 1}
+        ],
+        coverage: coverage({status: 'INCOMPLETE'}),
+        evidence: {
+          usable: true,
+          coverageComplete: false,
+          limitations: ['Details unavailable.']
+        }
+      })
+    ])
+    expect(wrapper.find('.advisor-summary__value').text()).toBe('90')
+    expect(wrapper.find('.advisor-summary__score').attributes('aria-label')).toContain('Scan notes available')
+    const notes = wrapper.get('details.advisor-summary__notes')
+    expect(notes.element.open).toBe(false)
+    expect(notes.get('summary').text()).toBe('Scan notes')
+    expect(notes.text()).toContain('Details unavailable.')
+    expect(wrapper.text()).toContain('GHSA-unknown')
+    expect(wrapper.text()).toContain('Unknown (assessment incomplete)')
+    expect(wrapper.text()).not.toContain('None found')
+  })
+
+  it('distinguishes proven empty dependency evidence from an unavailable assessment in the same report', async () => {
+    const proven = dependency('org.example:proven', '1', [], 'NONE')
+    const missing = {...dependency('org.example:missing', '1', [], 'NONE'), assessment: undefined}
+    const {wrapper} = await mountWithReports([
+      report([proven, missing], 0, 'PARTIAL', {
+        evidence: {
+          usable: true,
+          coverageComplete: false,
+          limitations: ['Query unavailable.']
+        }
+      })
+    ])
+    expect(wrapper.find('.advisor-summary__value').text()).toBe('100')
+    expect(wrapper.text()).toContain('None found in the assessed evidence')
+    expect(wrapper.text()).toContain('Unknown (assessment incomplete)')
+    expect(wrapper.get('details.advisor-summary__notes').text()).toContain('Query unavailable.')
+  })
+
   it('does not claim a dependency is clean before or during an incomplete scan', async () => {
     const dependencyWithoutFindings = dependency('org.example:unknown', '1.0.0', [], 'NONE')
+    dependencyWithoutFindings.assessment = {queryComplete: true, detailAssessmentComplete: false}
     const {wrapper: notScanned} = await mountWithReports([report([dependencyWithoutFindings], 0, 'NOT_SCANNED')])
 
     expect(notScanned.text()).toContain('Not scanned')
     expect(notScanned.text()).not.toContain('None found')
 
     const {wrapper: partial} = await mountWithReports([report([dependencyWithoutFindings], 0, 'PARTIAL')])
-    expect(partial.text()).toContain('No finding in partial result')
+    expect(partial.text()).toContain('Unknown (assessment incomplete)')
     expect(partial.text()).not.toContain('None found')
   })
 

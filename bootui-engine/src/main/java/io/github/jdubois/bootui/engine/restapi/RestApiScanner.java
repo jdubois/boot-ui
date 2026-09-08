@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.restapi;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.RestApiReport;
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
 import io.github.jdubois.bootui.core.dto.RestApiScanStatusDto;
@@ -37,13 +38,6 @@ public final class RestApiScanner {
             "Heuristic, project-agnostic REST API design rules run against the host application's own controllers "
                     + "only. These checks complement, but do not replace, an API design review or contract testing. "
                     + "Security concerns (CORS, authentication, authorization) are covered by the Security Advisor.";
-    /** Rules tied to Spring's RFC 9457 convenience types; skipped when the model contains only JAX-RS resources. */
-    private static final Set<String> SPRING_PROBLEM_DETAIL_RULE_IDS = Set.of("RAPI-ERR-003", "RAPI-ERR-006");
-
-    private static final Set<String> SPRING_DATA_PAGINATION_RULE_IDS = Set.of("RAPI-PAGE-002");
-    private static final Set<String> SPRING_PATH_BINDING_RULE_IDS = Set.of("RAPI-MAP-006", "RAPI-MAP-009");
-    private static final Set<String> COMPLETE_EXCEPTION_MODEL_RULE_IDS = Set.of("RAPI-ERR-001", "RAPI-ERR-009");
-
     private static final Comparator<RestApiRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (RestApiRuleResultDto result) -> SeverityOrder.rank(result.severity()))
             .thenComparing(Comparator.comparingInt(RestApiRuleResultDto::violationCount)
@@ -125,8 +119,10 @@ public final class RestApiScanner {
         return report(
                 "NOT_SCANNED",
                 failures.isEmpty()
-                        ? "REST API rules have not run yet. Click Run REST API checks to analyse the application controllers."
-                        : "REST API rules have not run yet. Application base packages could not be read; retry the scan.",
+                        ? "REST API rules have not run yet. Click Run REST API checks to analyse the application"
+                                + " controllers."
+                        : "REST API rules have not run yet. Application base packages could not be read; retry the"
+                                + " scan.",
                 null,
                 basePackages,
                 0,
@@ -196,14 +192,16 @@ public final class RestApiScanner {
             return report(
                     failures.isEmpty() ? "SCANNED" : "PARTIAL",
                     failures.isEmpty()
-                            ? "No supported controller or JAX-RS resource declarations were found under the detected base package(s)."
+                            ? "No supported controller or JAX-RS resource declarations were found under the detected"
+                                    + " base package(s)."
                             : incompleteMessage(failures),
                     clock.millis(),
                     basePackages,
                     0,
                     0,
                     0,
-                    List.of());
+                    List.of(),
+                    evidence(false, false, failures));
         }
 
         Boolean openApi = readEvidence(
@@ -221,27 +219,22 @@ public final class RestApiScanner {
                 model.responseStatusExceptionClasses(),
                 model.thrownExceptions(),
                 model.framework());
+        context.evidence().completeExceptionModel = !model.incomplete();
+        context.evidence().openApiKnown = openApi != null;
+        context.evidence().versioningKnown = versioning != null;
 
         List<RestApiRuleResultDto> results = new ArrayList<>();
+        boolean usable = false;
+        boolean requiredUnknown = false;
         for (RestApiRule rule : rules) {
-            String id = rule.definition().id();
-            if (model.incomplete() && COMPLETE_EXCEPTION_MODEL_RULE_IDS.contains(id)) {
-                results.add(
-                        RestApiRuleSupport.skipped(
-                                rule.definition(),
-                                "Controller and exception metadata is incomplete; missing handler declarations cannot be inferred."));
-                continue;
-            }
-            if ((openApi == null && id.startsWith("RAPI-DOC-"))
-                    || (versioning == null && id.equals("RAPI-VER-001") && !context.jaxRs())) {
-                results.add(RestApiRuleSupport.skipped(
-                        rule.definition(), "Required framework evidence could not be read."));
-                continue;
-            }
+            context.evidence().reset();
             RestApiRuleResultDto result = evaluate(rule, context);
             if (RestApiRuleSupport.ERROR.equals(result.status())) {
                 failures.add("rule evaluation");
             }
+            usable |= context.evidence().usable;
+            requiredUnknown |= context.evidence().requiredUnknown
+                    || !context.evidence().evaluated && !RestApiRuleSupport.ERROR.equals(result.status());
             results.add(result);
         }
 
@@ -257,30 +250,22 @@ public final class RestApiScanner {
                 model.controllers().size(),
                 model.handlers().size(),
                 results.size(),
-                results);
+                results,
+                evidence(usable, requiredUnknown, failures));
+    }
+
+    private static AdvisorEvidenceDto evidence(boolean usable, boolean requiredUnknown, Set<String> failures) {
+        List<String> limitations = failures.stream()
+                .map(failure -> failure + ": required REST API evidence was unavailable.")
+                .limit(20)
+                .toList();
+        if (requiredUnknown && limitations.isEmpty())
+            limitations = List.of("Required REST API rule observations were unavailable.");
+        return new AdvisorEvidenceDto(usable, failures.isEmpty() && !requiredUnknown, limitations);
     }
 
     static RestApiRuleResultDto evaluate(RestApiRule rule, RestApiContext context) {
         RestApiRuleDefinition definition = rule.definition();
-        if (context.jaxRs() && SPRING_PROBLEM_DETAIL_RULE_IDS.contains(definition.id())) {
-            return RestApiRuleSupport.skipped(
-                    definition,
-                    "Not applicable on JAX-RS: RFC 9457 is framework-neutral, but this rule specifically detects"
-                            + " Spring ProblemDetail/ErrorResponse return types; the current model cannot reliably"
-                            + " identify equivalent JAX-RS problem-details payloads.");
-        }
-        if (context.jaxRs() && SPRING_DATA_PAGINATION_RULE_IDS.contains(definition.id())) {
-            return RestApiRuleSupport.skipped(
-                    definition,
-                    "Not applicable on JAX-RS: this rule specifically compares Spring Data Pageable inputs with"
-                            + " Page/Slice outputs.");
-        }
-        if (context.jaxRs() && SPRING_PATH_BINDING_RULE_IDS.contains(definition.id())) {
-            return RestApiRuleSupport.skipped(
-                    definition,
-                    "Not applicable on JAX-RS: this rule checks Spring @PathVariable bindings or unique path-template"
-                            + " token names. Jakarta REST uses different parameter binding and token scoping semantics.");
-        }
         try {
             RestApiRuleResultDto result = rule.evaluate(context);
             return result == null || RestApiRuleSupport.ERROR.equals(result.status())
@@ -329,6 +314,28 @@ public final class RestApiScanner {
             int handlersAnalyzed,
             int rulesEvaluated,
             List<RestApiRuleResultDto> results) {
+        return report(
+                status,
+                message,
+                scannedAt,
+                basePackages,
+                controllersAnalyzed,
+                handlersAnalyzed,
+                rulesEvaluated,
+                results,
+                AdvisorEvidenceDto.unknown());
+    }
+
+    private RestApiReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            List<String> basePackages,
+            int controllersAnalyzed,
+            int handlersAnalyzed,
+            int rulesEvaluated,
+            List<RestApiRuleResultDto> results,
+            AdvisorEvidenceDto evidence) {
         List<RestApiRuleResultDto> violations = violationResults(results);
         int violationsFound = violations.size();
         RestApiScanStatusDto scan = new RestApiScanStatusDto(
@@ -350,7 +357,8 @@ public final class RestApiScanner {
                 violationsFound,
                 severityCounts(violations),
                 scan,
-                violations);
+                violations,
+                evidence);
     }
 
     public RestApiReport applyDismissals(RestApiReport report, Set<String> dismissedIds) {
@@ -383,7 +391,8 @@ public final class RestApiScanner {
                 violationsFound,
                 severityCounts(active),
                 updatedScan,
-                marked);
+                marked,
+                report.evidence());
     }
 
     private List<RestApiSeverityCountDto> severityCounts(List<RestApiRuleResultDto> results) {

@@ -21,10 +21,17 @@ final class VendorRuleSupport {
      * @param kind the catalog augmentation the rule reads
      * @param noDatasourceReason the reason to report when no datasource of that dialect exists
      */
-    static String skipReason(List<SchemaSnapshot> schemas, VendorFindingKind<?> kind, String noDatasourceReason) {
+    static String skipReason(
+            DatabaseAdvisorContext context,
+            String ruleId,
+            List<SchemaSnapshot> schemas,
+            VendorFindingKind<?> kind,
+            String noDatasourceReason) {
         if (schemas.isEmpty()) {
-            return noDatasourceReason;
+            return "Not applicable: " + noDatasourceReason;
         }
+        // Journal every applicable datasource before an early return, including supported/unsupported mixes.
+        schemas.forEach(schema -> coverage(context, ruleId, schema, kind));
         List<String> reasons = new ArrayList<>();
         for (SchemaSnapshot schema : schemas) {
             VendorAugmentation<?> augmentation = schema.vendorFindings().augmentation(kind);

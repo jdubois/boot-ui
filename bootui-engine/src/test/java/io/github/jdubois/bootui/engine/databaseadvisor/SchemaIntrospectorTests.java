@@ -544,6 +544,18 @@ class SchemaIntrospectorTests {
         return new DatabaseAdvisorLimits(10, 1, 1, 1, Duration.ofSeconds(30), Duration.ofSeconds(5));
     }
 
+    @Test
+    void failedProductIdentificationLeavesVendorApplicabilityUnknown() throws Exception {
+        Connection connection = connection();
+        when(connection.getMetaData().getDatabaseProductName()).thenThrow(new SQLException("unreadable product"));
+        SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
+        assertThat(snapshot.available()).isTrue();
+        assertThat(snapshot.complete()).isFalse();
+        assertThat(snapshot.diagnostics())
+                .anyMatch(diagnostic -> diagnostic.level().equals("WARNING")
+                        && diagnostic.message().contains("vendor-check applicability is unknown"));
+    }
+
     private static Connection connection() throws Exception {
         Connection connection = mock(Connection.class);
         DatabaseMetaData metadata = mock(DatabaseMetaData.class);

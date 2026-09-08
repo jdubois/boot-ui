@@ -5,7 +5,7 @@ import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
-import {advisorAssessment} from '../utils/scannerScore.js'
+import {advisorAssessment, hasCompletedEmptyDependency} from '../utils/scannerScore.js'
 import {useDismissedRules} from '../utils/useDismissedRules.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -95,12 +95,14 @@ function toggleDismiss(dependency, vulnerability) {
   return vulnerability.dismissed ? restore(key) : dismiss(key)
 }
 
-function emptyAdvisoryText() {
+function emptyAdvisoryText(dependency) {
   const status = data.value?.scan?.status
   if (status === 'NOT_SCANNED' || status === 'DISABLED') return 'Not scanned'
   if (status === 'ERROR') return 'Unknown (scan failed)'
-  if (status === 'PARTIAL') return 'No finding in partial result'
-  return 'None found'
+  if (!['SCANNED', 'PARTIAL'].includes(status)) return 'Unknown (assessment unavailable)'
+  return hasCompletedEmptyDependency(dependency)
+    ? 'None found in the assessed evidence'
+    : 'Unknown (assessment incomplete)'
 }
 
 const filteredDependencies = computed(() => {
@@ -330,6 +332,7 @@ onMounted(loadDependencies)
         :score="assessment.score"
         :score-label="assessment.label"
         :score-reason="assessment.reason"
+        :incomplete="assessment.incomplete"
         :scan-status-label="scanStatusLabel(data.scan.status)"
         :scan-status-class="scanStatusBadgeClass(data.scan.status)"
         :scan-time="scanTime()"
@@ -445,7 +448,7 @@ onMounted(loadDependencies)
                 </td>
                 <td>
                   <span v-if="dependency.vulnerabilities.length === 0" class="text-muted">
-                    {{ emptyAdvisoryText() }}
+                    {{ emptyAdvisoryText(dependency) }}
                   </span>
                   <div v-else class="vulnerability-list">
                     <div

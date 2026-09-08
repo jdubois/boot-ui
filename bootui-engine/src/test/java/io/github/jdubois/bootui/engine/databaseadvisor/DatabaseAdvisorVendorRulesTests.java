@@ -17,6 +17,62 @@ class DatabaseAdvisorVendorRulesTests {
     private static final String VIOLATION = DatabaseAdvisorRuleSupport.VIOLATION;
     private static final String SKIPPED = DatabaseAdvisorRuleSupport.SKIPPED;
 
+    @Test
+    void absentPublicationFeatureIsInapplicableButUnknownServerVersionIsIncomplete() {
+        for (var version : List.of(DatabaseVersion.of(9, 6, "9.6"), DatabaseVersion.UNKNOWN)) {
+            var schema = new SchemaSnapshot(
+                    "pg",
+                    Dialect.POSTGRESQL,
+                    "PostgreSQL",
+                    version,
+                    "LOWER",
+                    List.of(),
+                    VendorFindings.EMPTY,
+                    List.of(),
+                    false,
+                    null);
+            var context = context(schema);
+            assertThat(new PostgresReplicaIdentityRule().evaluate(context).status())
+                    .isEqualTo(SKIPPED);
+            assertThat(context.evaluationDiagnostics().isEmpty()).isEqualTo(version.known());
+        }
+    }
+
+    @Test
+    void missingVendorIsInapplicableButUnreadableOrUnsupportedApplicableCatalogIsIncomplete() {
+        var absent = context(schema("pg", Dialect.POSTGRESQL, List.of()));
+        assertThat(new MySqlNonInnodbEngineRule().evaluate(absent).status()).isEqualTo(SKIPPED);
+        assertThat(absent.evaluationDiagnostics()).isEmpty();
+        for (var augmentation : List.of(
+                VendorAugmentation.notApplicable(VendorFindingKinds.MYSQL_TABLES, "Server version unsupported"),
+                VendorAugmentation.failed(VendorFindingKinds.MYSQL_TABLES, "Catalog unavailable"))) {
+            var applicable = context(vendorSchema("mysql", Dialect.MYSQL, augmentation));
+            assertThat(new MySqlNonInnodbEngineRule().evaluate(applicable).status())
+                    .isEqualTo(SKIPPED);
+            assertThat(applicable.evaluationDiagnostics()).anySatisfy(diagnostic -> {
+                assertThat(diagnostic.level()).isEqualTo("WARNING");
+                assertThat(diagnostic.source()).isEqualTo("DB-MYSQL-001");
+            });
+        }
+    }
+
+    @Test
+    void readableVendorAlongsideUnsupportedVendorDoesNotEarnCompleteCoverage() {
+        var mixed = context(List.of(
+                vendorSchema(
+                        "readable",
+                        Dialect.MYSQL,
+                        VendorAugmentation.available(VendorFindingKinds.MYSQL_TABLES, List.of(), false)),
+                vendorSchema(
+                        "unsupported",
+                        Dialect.MYSQL,
+                        VendorAugmentation.notApplicable(
+                                VendorFindingKinds.MYSQL_TABLES, "Server version unsupported"))));
+        new MySqlNonInnodbEngineRule().evaluate(mixed);
+        assertThat(mixed.evaluationDiagnostics())
+                .anyMatch(diagnostic -> diagnostic.message().contains("unsupported"));
+    }
+
     // --- DB-PG-001: invalid PostgreSQL indexes ---
 
     @Test

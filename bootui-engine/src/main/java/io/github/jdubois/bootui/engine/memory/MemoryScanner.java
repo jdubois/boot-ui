@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.memory;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
 import io.github.jdubois.bootui.core.dto.MemoryScanStatusDto;
@@ -146,16 +147,19 @@ public final class MemoryScanner {
                 .withBufferPoolTrend(bufferPoolTrend)
                 .withOldGenTrend(oldGenTrend);
 
-        List<MemoryRuleResultDto> results = MemoryRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(evaluated))
+        List<MemoryEvaluation> evaluations = MemoryRuleRegistry.activeRules().stream()
+                .map(rule -> rule.evaluateWithEvidence(evaluated))
                 .toList();
+        List<MemoryRuleResultDto> results =
+                evaluations.stream().map(MemoryEvaluation::result).toList();
         boolean hadErrors = results.stream().anyMatch(result -> MemoryRuleSupport.ERROR.equals(result.status()));
         String status = hadErrors ? "PARTIAL" : "SCANNED";
         String message = "Memory Advisor evaluated " + results.size() + " rules against the JVM runtime.";
         if (hadErrors) {
             message += " Some rules could not be evaluated.";
         }
-        return report(status, message, clock.millis(), summary(evaluated), results.size(), results);
+        return report(
+                status, message, clock.millis(), summary(evaluated), results.size(), results, evidence(evaluations));
     }
 
     /**
@@ -245,6 +249,17 @@ public final class MemoryScanner {
             MemorySummaryDto summary,
             int rulesEvaluated,
             List<MemoryRuleResultDto> results) {
+        return report(status, message, scannedAt, summary, rulesEvaluated, results, AdvisorEvidenceDto.unknown());
+    }
+
+    private MemoryReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            MemorySummaryDto summary,
+            int rulesEvaluated,
+            List<MemoryRuleResultDto> results,
+            AdvisorEvidenceDto evidence) {
         List<MemoryRuleResultDto> violations = results.stream()
                 .filter(MemoryScanner::isViolation)
                 .sorted(IMPORTANCE_ORDER)
@@ -261,7 +276,8 @@ public final class MemoryScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                evidence);
     }
 
     public MemoryReport applyDismissals(MemoryReport report, Set<String> dismissedIds) {
@@ -291,7 +307,20 @@ public final class MemoryScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.evidence());
+    }
+
+    static AdvisorEvidenceDto evidence(List<MemoryEvaluation> evaluations) {
+        if (evaluations.isEmpty()) return AdvisorEvidenceDto.unknown();
+        List<String> limitations = evaluations.stream()
+                .filter(MemoryEvaluation::requiredUnknown)
+                .map(evaluation ->
+                        evaluation.result().id() + ": required JVM evidence was unavailable or evaluation failed.")
+                .limit(20)
+                .toList();
+        return new AdvisorEvidenceDto(
+                evaluations.stream().anyMatch(MemoryEvaluation::usable), limitations.isEmpty(), limitations);
     }
 
     static List<MemoryRuleResultDto> analysisErrors(List<MemoryRuleResultDto> results) {

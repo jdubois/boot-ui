@@ -54,6 +54,7 @@ record HibernateContext(
     }
 
     <T> T required(T value) {
+        evidence.applicable |= !entities.isEmpty();
         if (value == null) {
             evidence.requiredUnknown = true;
             throw new HibernateRequiredObservationException();
@@ -65,7 +66,18 @@ record HibernateContext(
         evidence.requiredUnknown = true;
     }
 
+    <T> List<T> targets(List<T> values) {
+        return targets(values, value -> true);
+    }
+
+    <T> List<T> targets(List<T> values, java.util.function.Predicate<T> applicable) {
+        List<T> selected = values.stream().filter(applicable).toList();
+        if (!selected.isEmpty()) evidence.applicable = true;
+        return selected;
+    }
+
     private String property(String key) {
+        evidence.applicable |= !entities.isEmpty();
         if (!observed()) return propertyLookup.apply(key);
         String nativeKey =
                 key.startsWith("spring.jpa.properties.") ? key.substring("spring.jpa.properties.".length()) : key;
@@ -309,9 +321,23 @@ record HibernateContext(
 
 final class HibernateEvaluationEvidence {
     boolean requiredUnknown;
+    boolean applicable;
+    boolean usable;
+    boolean evaluated;
+
+    void complete(io.github.jdubois.bootui.core.dto.HibernateRuleResultDto result) {
+        evaluated = true;
+        boolean conclusive = HibernateRuleSupport.PASS.equals(result.status())
+                || HibernateRuleSupport.VIOLATION.equals(result.status());
+        usable = applicable && !requiredUnknown && conclusive
+                || HibernateRuleSupport.VIOLATION.equals(result.status()) && result.violationCount() > 0;
+    }
 
     void reset() {
         requiredUnknown = false;
+        applicable = false;
+        usable = false;
+        evaluated = false;
     }
 }
 

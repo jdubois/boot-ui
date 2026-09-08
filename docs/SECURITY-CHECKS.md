@@ -16,6 +16,17 @@ or health detail properties, the checks continue to evaluate those values.
 
 ## Availability and bounds
 
+Servlet, reactive, and [Quarkus](QUARKUS-CHECKS.md) reports share the
+[score eligibility policy](features/advisors.md#score-eligibility). Unsupported or unreadable observations limit
+coverage without discarding independent known findings. A score of 100 is not a security endorsement.
+
+`SCANNED` versus `PARTIAL` follows applicable coverage, not the number
+of skipped rules. Absent OAuth2, attached CORS, remember-me, or authorization-ordering targets do not earn completion
+credit or introduce missing-evidence limitations. Genuine applicable unknowns and evaluation failures still do.
+An unrelated custom filter does not invalidate independently inspected configuration, provider, method-security,
+or header-writer facts. Custom CSRF matching is recorded separately from the known filter inventory and limits
+applicable CSRF checks, not unrelated header checks; no matcher is executed.
+
 The panel is available only when Spring Security is on the classpath and at least one application
 `SecurityFilterChain` (servlet) or `SecurityWebFilterChain` (WebFlux) bean exists.
 If Spring Security is absent or no filter chains are registered, BootUI returns a stable empty report with an explanatory
@@ -30,6 +41,16 @@ validated JDK map field; it never writes memory or changes JVM options. If the J
 provide this access, affected configuration remains unknown rather than being treated as absent.
 JDKs may emit deprecation warnings or diagnostic events for the optional internal access.
 Native bootstrap and callback-safety regressions cover Java 17, 21 and 25.
+
+For the standard embedded Tomcat servlet context, the passive reader inspects the exact native facade/context
+init-parameter map rather than blocking all lower configuration sources. Custom contexts, subclasses, unsupported
+maps, and callbacks remain opaque. The real Spring sample regression uses embedded Tomcat and the application's
+actual three filter chains. It now retains completed evidence, but deliberately remains partial: the sample's custom
+CSRF-cookie filter is not a supported framework filter, role-based authorization is not a constant grant/denial,
+parameterized Actuator operations are not completely modeled, and credential-source classification remains
+incomplete for native property-source barriers. This last limitation is not a finding of exposed credentials.
+Missing OAuth2 or remember-me features are not reasons for that partial assessment. The unused demo
+`NoOpPasswordEncoder` bean is not an active-provider finding.
 
 The catalogs were audited against Spring Boot **4.1.1**, which manages Spring Security **7.1.1**.
 Configuration declarations cannot prove ingress TLS, delivered response headers, custom authorization semantics or

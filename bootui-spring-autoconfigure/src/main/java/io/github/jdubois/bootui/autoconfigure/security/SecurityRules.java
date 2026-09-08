@@ -26,35 +26,43 @@ abstract class AbstractSecurityRule implements SecurityRule {
 
     @Override
     public final SecurityRuleResultDto evaluate(SecurityContext context) {
+        context.evidence().evaluation().begin();
+        SecurityRuleResultDto result = evaluateObserved(context);
+        context.evidence().evaluation().finish(result);
+        return result;
+    }
+
+    private SecurityRuleResultDto evaluateObserved(SecurityContext context) {
         try {
             if (definition.category() == SecurityCategory.ACTUATOR
                     && !context.actuator().errors().isEmpty()) {
                 return SecurityRuleSupport.error(definition, "Invalid or conflicting Actuator configuration.");
             }
             if (definition.category() == SecurityCategory.ACTUATOR
-                    && !context.actuator().complete()) {
+                    && !context.required(context.actuator().complete())) {
                 return skipped("Actuator configuration selection exceeded supported observation limits.");
             }
             SecurityRuleResultDto result = evaluateRule(context);
-            if (SecurityRuleSupport.PASS.equals(result.status())
-                    && definition.category() == SecurityCategory.HEADERS
-                    && context.chains().stream()
-                            .anyMatch(chain -> !chain.details().headersKnown())) {
+            if (definition.category() == SecurityCategory.ACTUATOR) {
+                context.required(context.evidence().operationsKnown());
+            }
+            boolean headersKnown = definition.category() != SecurityCategory.HEADERS
+                    || context.required(context.chains().stream()
+                            .allMatch(chain -> chain.details().headersKnown()));
+            if (SecurityRuleSupport.PASS.equals(result.status()) && !headersKnown) {
                 return skipped("Custom, conditional or multiple header writers leave delivered policy unknown.");
             }
-            if (SecurityRuleSupport.PASS.equals(result.status())
-                    && context.chains().stream()
-                            .anyMatch(chain -> !chain.details().filtersKnown())) {
+            // Property, method, provider and header-writer observations are not invalidated by an
+            // unrelated custom filter. Chain-dependent absence still needs a complete inventory.
+            boolean filtersKnown = !context.evidence().evaluation().hasApplicableTargets()
+                    || switch (definition.category()) {
+                        case AUTHORIZATION, CSRF, SESSION ->
+                            context.required(context.chains().stream()
+                                    .allMatch(chain -> chain.details().filtersKnown()));
+                        default -> true;
+                    };
+            if (SecurityRuleSupport.PASS.equals(result.status()) && !filtersKnown) {
                 return skipped("Some ordered chains are unsupported; absence cannot be established.");
-            }
-            if (SecurityRuleSupport.PASS.equals(result.status())
-                    && (definition.id().equals("SEC-AUTH-001")
-                            || definition.id().equals("SEC-AUTH-002")
-                            || definition.id().equals("SEC-AUTH-006"))
-                    && (context.hasFormOrBasicChain()
-                                    && context.passwordEncoders().isEmpty()
-                            || context.passwordEncoderTypes().stream().anyMatch(type -> type.startsWith("Unknown")))) {
-                return skipped("Active provider encoder metadata is unavailable; unrelated beans are not evidence.");
             }
             return result;
         } catch (SecurityRuleSupport.IncompleteObservationException
@@ -80,6 +88,16 @@ abstract class AbstractSecurityRule implements SecurityRule {
     SecurityRuleResultDto violation(String severityOverride, List<String> details) {
         return details.isEmpty() ? pass() : SecurityRuleSupport.violation(definition, severityOverride, details);
     }
+
+    SecurityRuleResultDto encoderViolation(SecurityContext context, List<String> details) {
+        boolean known = context.required(
+                !(context.hasFormOrBasicChain() && context.passwordEncoders().isEmpty())
+                        && context.passwordEncoderTypes().stream().noneMatch(type -> type.startsWith("Unknown")));
+        if (details.isEmpty() && !known) {
+            return skipped("Active provider encoder metadata is unavailable; unrelated beans are not evidence.");
+        }
+        return violation(details);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,12 +120,12 @@ final class NoOpPasswordEncoderRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
-        for (String type : context.passwordEncoderTypes()) {
+        for (String type : context.targets(context.passwordEncoderTypes())) {
             if (type.contains("NoOpPasswordEncoder")) {
                 details.add("An active DAO provider selects " + type + " for encoding without hashing.");
             }
         }
-        return violation(details);
+        return encoderViolation(context, details);
     }
 }
 
@@ -135,7 +153,7 @@ final class WeakPasswordEncoderRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
-        for (String type : context.passwordEncoderTypes()) {
+        for (String type : context.targets(context.passwordEncoderTypes())) {
             if (type.contains("NoOpPasswordEncoder")) {
                 continue;
             }
@@ -146,7 +164,7 @@ final class WeakPasswordEncoderRule extends AbstractSecurityRule {
                 }
             }
         }
-        return violation(details);
+        return encoderViolation(context, details);
     }
 }
 
@@ -165,7 +183,7 @@ final class MissingPasswordEncoderRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.hasFormOrBasicChain()) {
+        if (!context.applies(context.hasFormOrBasicChain())) {
             return pass();
         }
         if (!context.passwordEncoderTypes().isEmpty()) {
@@ -192,7 +210,7 @@ final class DefaultInMemoryUserRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         String password = context.firstProperty("spring.security.user.password");
-        if (!context.generatedUserDetailsManagerPresent() || password == null) {
+        if (!context.applies(context.generatedUserDetailsManagerPresent()) || password == null) {
             return pass();
         }
         return violation(
@@ -216,7 +234,7 @@ final class DefaultLoginPageProductionRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.isProductionProfileActive()) {
+        if (!context.applies(context.isProductionProfileActive())) {
             return pass();
         }
         List<String> details = new ArrayList<>();
@@ -249,12 +267,12 @@ final class WeakBcryptStrengthRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         for (PasswordEncoderModel encoder : context.passwordEncoders()) {
             Integer strength = encoder.bcryptStrength();
-            if (strength != null && strength >= 0 && strength < RECOMMENDED_MINIMUM_STRENGTH) {
+            if (context.applies(strength != null) && strength >= 0 && strength < RECOMMENDED_MINIMUM_STRENGTH) {
                 details.add("PasswordEncoder bean " + encoder.type() + " uses BCrypt strength " + strength
                         + ", below the recommended minimum of " + RECOMMENDED_MINIMUM_STRENGTH + ".");
             }
         }
-        return violation(details);
+        return encoderViolation(context, details);
     }
 }
 
@@ -278,7 +296,7 @@ final class BasicAuthWithoutTlsRule extends AbstractSecurityRule {
         }
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.hasFilter("BasicAuthenticationFilter") && !context.isTlsConfiguredFor(chain)) {
+            if (context.applies(chain.hasFilter("BasicAuthenticationFilter")) && !context.isTlsConfiguredFor(chain)) {
                 details.add(
                         chain.describe()
                                 + " uses Basic without observed direct TLS/chain-local redirect; verify upstream transport enforcement.");
@@ -309,7 +327,8 @@ final class FormLoginWithoutTlsRule extends AbstractSecurityRule {
         }
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.hasFilter("UsernamePasswordAuthenticationFilter") && !context.isTlsConfiguredFor(chain)) {
+            if (context.applies(chain.hasFilter("UsernamePasswordAuthenticationFilter"))
+                    && !context.isTlsConfiguredFor(chain)) {
                 details.add(
                         chain.describe()
                                 + " accepts form credentials without observed direct TLS/chain-local redirect; verify upstream enforcement.");
@@ -335,6 +354,7 @@ final class UsernameEnumerationRiskRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        context.applies(context.hasFormOrBasicChain());
         if (context.hideUserNotFoundExceptionsDisabled()) {
             return violation(
                     List.of(
@@ -363,7 +383,7 @@ final class GeneratedUserInProductionRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.generatedUserDetailsManagerPresent() || !context.isProductionProfileActive()) {
+        if (!context.applies(context.generatedUserDetailsManagerPresent() && context.isProductionProfileActive())) {
             return pass();
         }
         if (context.firstProperty("spring.security.user.password") != null) {
@@ -398,7 +418,7 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.details().filtersKnown() && !chain.hasAuthorizationFilter()) {
+            if (context.applies(chain.details().filtersKnown()) && !chain.hasAuthorizationFilter()) {
                 details.add(chain.describe() + " installs no authorization filter.");
             }
         }
@@ -423,7 +443,11 @@ final class PermitAllCatchAllRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (Boolean.TRUE.equals(chain.permitsAllAnonymous()) && chain.hasRealAuthenticationFilter()) {
+            boolean authenticated = context.applies(chain.hasRealAuthenticationFilter());
+            if (authenticated) {
+                context.required(!chain.hasAuthorizationFilter() || chain.permitsAllAnonymous() != null);
+            }
+            if (Boolean.TRUE.equals(chain.permitsAllAnonymous()) && authenticated) {
                 details.add(chain.describe()
                         + " grants all requests in its scope even though it configures authentication.");
             }
@@ -447,7 +471,7 @@ final class EffectivelyDisabledSecurityRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<FilterChainModel> chains = context.chains();
+        List<FilterChainModel> chains = context.targets(context.chains());
         if (chains.isEmpty()) {
             return pass();
         }
@@ -483,12 +507,13 @@ final class CatchAllChainOrderingRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<FilterChainModel> chains = context.chains();
-        if (chains.size() < 2) {
+        if (!context.applies(chains.size() >= 2)) {
             return pass();
         }
         List<String> details = new ArrayList<>();
         for (int i = 0; i < chains.size() - 1; i++) {
             FilterChainModel chain = chains.get(i);
+            context.required(chain.details().unconditional() || chain.details().matcher() != null);
             if (chain.matchesAnyRequest()) {
                 details.add(chain.describe()
                         + " matches any request but is not the last chain; later chains are unreachable.");
@@ -516,6 +541,9 @@ final class AuthorizationRuleShadowedRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         boolean permissiveShadow = false;
         for (FilterChainModel chain : context.chains()) {
+            if (context.applies(chain.hasAuthorizationFilter())) {
+                context.required(chain.authorizationRuleShadowed() != null);
+            }
             if (Boolean.TRUE.equals(chain.authorizationRuleShadowed())) {
                 String decision = "an unknown decision";
                 var mappings = chain.details().mappings();
@@ -535,6 +563,7 @@ final class AuthorizationRuleShadowedRule extends AbstractSecurityRule {
             }
         }
         if (details.isEmpty()
+                && context.chains().stream().anyMatch(FilterChainModel::hasAuthorizationFilter)
                 && context.chains().stream().noneMatch(chain -> chain.authorizationRuleShadowed() != null)) {
             return skipped("Authorization matcher order could not be inspected for any filter chain.");
         }
@@ -563,8 +592,12 @@ final class CsrfDisabledStatefulRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.browserCredentials() && !chain.hasFilter("CsrfFilter")) {
-                details.add(chain.describe() + " configures browser credentials but does not install a CsrfFilter.");
+            if (context.applies(chain.browserCredentials())) {
+                context.required(chain.details().csrfKnown());
+                if (!chain.hasFilter("CsrfFilter")) {
+                    details.add(
+                            chain.describe() + " configures browser credentials but does not install a CsrfFilter.");
+                }
             }
         }
         return violation(details);
@@ -588,11 +621,12 @@ final class CsrfGloballyDisabledRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (!chain.browserCredentials()
-                    && chain.hasFilter("BasicAuthenticationFilter")
-                    && !chain.hasFilter("CsrfFilter")) {
-                details.add(chain.describe()
-                        + " disables CSRF for HTTP Basic; browsers automatically resend Basic credentials.");
+            if (context.applies(!chain.browserCredentials() && chain.hasFilter("BasicAuthenticationFilter"))) {
+                context.required(chain.details().csrfKnown());
+                if (!chain.hasFilter("CsrfFilter")) {
+                    details.add(chain.describe()
+                            + " disables CSRF for HTTP Basic; browsers automatically resend Basic credentials.");
+                }
             }
         }
         return violation(details);
@@ -622,7 +656,9 @@ final class SessionFixationRule extends AbstractSecurityRule {
         boolean determinable = false;
         boolean applicable = false;
         for (FilterChainModel chain : context.chains()) {
-            applicable |= chain.browserCredentials() || chain.hasFilter("SessionManagementFilter");
+            boolean target = context.applies(chain.browserCredentials() || chain.hasFilter("SessionManagementFilter"));
+            applicable |= target;
+            if (target) context.required(chain.sessionFixationDisabled() != null);
             if (chain.sessionFixationDisabled() != null) {
                 determinable = true;
                 if (Boolean.TRUE.equals(chain.sessionFixationDisabled())) {
@@ -653,6 +689,7 @@ final class SessionCookieSecureRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         String value = context.firstProperty("server.servlet.session.cookie.secure");
+        context.applies(context.hasStatefulChain());
         if ("false".equalsIgnoreCase(String.valueOf(value))) {
             return violation(List.of("server.servlet.session.cookie.secure is explicitly false."));
         }
@@ -680,6 +717,7 @@ final class SessionCookieHttpOnlyRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        context.applies(context.hasStatefulChain());
         if (context.isPropertyFalse("server.servlet.session.cookie.http-only")) {
             return violation(List.of("server.servlet.session.cookie.http-only is explicitly false."));
         }
@@ -702,7 +740,7 @@ final class SessionCookieSameSiteRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.hasStatefulChain()) {
+        if (!context.applies(context.hasStatefulChain())) {
             return pass();
         }
         String value = context.firstProperty("server.servlet.session.cookie.same-site");
@@ -728,7 +766,7 @@ final class SessionTimeoutRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.hasStatefulChain()) {
+        if (!context.applies(context.hasStatefulChain())) {
             return pass();
         }
         String value = context.firstProperty("server.servlet.session.timeout", "spring.session.timeout");
@@ -757,15 +795,15 @@ final class BearerTokenStatefulRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.hasFilter("BearerTokenAuthenticationFilter")
+            if (context.applies(chain.hasFilter("BearerTokenAuthenticationFilter"))
                     && Boolean.TRUE.equals(chain.details().bearerSavesSession())) {
                 details.add(chain.describe() + " explicitly saves bearer authentication in an HTTP session.");
             }
         }
-        if (details.isEmpty()
-                && context.chains().stream()
-                        .anyMatch(chain -> chain.hasFilter("BearerTokenAuthenticationFilter")
-                                && chain.details().bearerSavesSession() == null)) {
+        boolean known = context.required(context.chains().stream()
+                .noneMatch(chain -> chain.hasFilter("BearerTokenAuthenticationFilter")
+                        && chain.details().bearerSavesSession() == null));
+        if (details.isEmpty() && !known) {
             return skipped("Bearer filter save repository is unsupported.");
         }
         return violation(details);
@@ -792,7 +830,8 @@ final class ConcurrentSessionControlRule extends AbstractSecurityRule {
         for (FilterChainModel chain : context.chains()) {
             boolean interactiveLogin = chain.hasFilter("UsernamePasswordAuthenticationFilter")
                     || chain.hasFilter("DefaultLoginPageGeneratingFilter");
-            if (interactiveLogin && chain.isStateful() && !chain.hasFilterContaining("ConcurrentSession")) {
+            if (context.applies(interactiveLogin && chain.isStateful())
+                    && !chain.hasFilterContaining("ConcurrentSession")) {
                 details.add(chain.describe()
                         + " maintains sessions for an interactive login but configures no concurrent-session control.");
             }
@@ -821,6 +860,9 @@ final class WeakRememberMeKeyRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
             Integer keyLength = chain.rememberMeKeyLength();
+            if (context.applies(chain.hasFilter("RememberMeAuthenticationFilter"))) {
+                context.required(keyLength != null);
+            }
             if (keyLength != null && keyLength < MIN_KEY_LENGTH) {
                 details.add(chain.describe() + " configures a remember-me signing key shorter than " + MIN_KEY_LENGTH
                         + " characters.");
@@ -853,6 +895,7 @@ final class SessionCookieNamePrefixRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         String name = context.firstProperty("server.servlet.session.cookie.name");
+        context.applies(context.hasStatefulChain());
         if (name == null || name.startsWith("__Host-") || name.startsWith("__Secure-")) {
             return pass();
         }
@@ -882,8 +925,8 @@ final class HstsHeaderRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.details().headersKnown()
-                    && chain.headerWriterFilterPresent()
+            if (context.applies(chain.headerWriterFilterPresent())
+                    && chain.details().headersKnown()
                     && !chain.hasHeaderWriterContaining("Hsts")) {
                 details.add(
                         chain.describe()
@@ -913,8 +956,9 @@ final class FrameOptionsRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         boolean unknown = false;
         for (FilterChainModel chain : context.chains()) {
-            if (!chain.browserCredentials() || !chain.headerWriterFilterPresent()) continue;
+            if (!context.applies(chain.browserCredentials() && chain.headerWriterFilterPresent())) continue;
             Boolean protectedFromFraming = chain.framingProtected();
+            context.required(protectedFromFraming != null);
             if (protectedFromFraming == null) unknown = true;
             else if (!protectedFromFraming)
                 details.add(
@@ -945,13 +989,16 @@ final class ContentSecurityPolicyRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.details().headersKnown()
-                    && chain.browserCredentials()
-                    && chain.headerWriterFilterPresent()
-                    && (!chain.hasHeaderWriterContaining("ContentSecurityPolicy")
-                            || Boolean.TRUE.equals(chain.cspReportOnly()))) {
-                details.add(chain.describe()
-                        + " has no recognized enforcing Content-Security-Policy; review document responses.");
+            if (context.applies(chain.browserCredentials() && chain.headerWriterFilterPresent())
+                    && chain.details().headersKnown()) {
+                boolean cspPresent = chain.hasHeaderWriterContaining("ContentSecurityPolicy");
+                if (cspPresent) {
+                    context.required(chain.cspPolicyDirectives() != null && chain.cspReportOnly() != null);
+                }
+                if (!cspPresent || Boolean.TRUE.equals(chain.cspReportOnly())) {
+                    details.add(chain.describe()
+                            + " has no recognized enforcing Content-Security-Policy; review document responses.");
+                }
             }
         }
         return violation(details);
@@ -976,8 +1023,8 @@ final class ContentTypeOptionsRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.details().headersKnown()
-                    && chain.headerWriterFilterPresent()
+            if (context.applies(chain.headerWriterFilterPresent())
+                    && chain.details().headersKnown()
                     && !chain.hasHeaderWriterContaining("XContentTypeOptions")) {
                 details.add(chain.describe() + " has no standard nosniff writer; actual responses are not observed.");
             }
@@ -1004,7 +1051,8 @@ final class ReferrerPolicyHeaderRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.headerWriterFilterPresent() && !chain.hasHeaderWriterContaining("ReferrerPolicy")) {
+            if (context.applies(chain.headerWriterFilterPresent())
+                    && !chain.hasHeaderWriterContaining("ReferrerPolicy")) {
                 details.add(chain.describe() + " does not emit a Referrer-Policy header.");
             }
         }
@@ -1030,7 +1078,7 @@ final class PermissionsPolicyHeaderRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.headerWriterFilterPresent()
+            if (context.applies(chain.headerWriterFilterPresent())
                     && !chain.hasHeaderWriterContaining("PermissionsPolicy")
                     && !chain.hasHeaderWriterContaining("FeaturePolicy")) {
                 details.add(chain.describe() + " does not emit a Permissions-Policy header.");
@@ -1061,7 +1109,7 @@ final class HeaderWritersDisabledRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            boolean browserFacing = chain.browserCredentials();
+            boolean browserFacing = context.applies(chain.browserCredentials());
             if (browserFacing && !chain.headerWriterFilterPresent()) {
                 details.add(chain.describe()
                         + " installs no standard HeaderWriterFilter; delivered security headers are unknown.");
@@ -1088,6 +1136,9 @@ final class WeakHstsPolicyRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
+            if (context.applies(chain.hasHeaderWriterContaining("Hsts"))) {
+                context.required(chain.hstsMaxAgeSeconds() != null);
+            }
             if (chain.hasWeakHsts()) {
                 details.add(chain.describe() + " configures HSTS max-age " + chain.hstsMaxAgeSeconds()
                         + (Long.valueOf(0).equals(chain.hstsMaxAgeSeconds())
@@ -1116,7 +1167,11 @@ final class WeakContentSecurityPolicyRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.hasWeakCsp()) {
+            Boolean weak = chain.weakCspObservation();
+            if (context.applies(chain.hasHeaderWriterContaining("ContentSecurityPolicy"))) {
+                context.required(weak != null);
+            }
+            if (Boolean.TRUE.equals(weak)) {
                 details.add(chain.describe() + " configures an enforcing CSP with permissive script execution.");
             }
         }
@@ -1141,9 +1196,8 @@ final class CrossOriginIsolationHeadersRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.details().headersKnown()
-                    && chain.browserCredentials()
-                    && chain.headerWriterFilterPresent()
+            if (context.applies(chain.browserCredentials() && chain.headerWriterFilterPresent())
+                    && chain.details().headersKnown()
                     && (!chain.hasHeaderWriterContaining("CrossOriginOpenerPolicy")
                             || !chain.hasHeaderWriterContaining("CrossOriginEmbedderPolicy"))) {
                 details.add(
@@ -1175,12 +1229,13 @@ final class CorsWildcardOriginRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
-        for (CorsConfigModel cors : context.corsConfigs()) {
+        for (CorsConfigModel cors : context.targets(context.corsConfigs())) {
             if (cors.allowsWildcardOrigin() && !cors.allowsCredentials()) {
                 details.add(cors.describe());
             }
         }
-        if (details.isEmpty() && context.customCorsSourcePresent()) {
+        boolean complete = context.required(!context.customCorsSourcePresent());
+        if (details.isEmpty() && !complete) {
             return skipped(
                     "A custom CorsConfigurationSource is present and cannot be introspected for wildcard origins.");
         }
@@ -1204,7 +1259,7 @@ final class CorsWildcardWithCredentialsRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
-        for (CorsConfigModel cors : context.corsConfigs()) {
+        for (CorsConfigModel cors : context.targets(context.corsConfigs())) {
             if (cors.allowsWildcardOrigin() && cors.allowsCredentials()) {
                 details.add(
                         cors.allowedOrigins().contains("*")
@@ -1212,7 +1267,8 @@ final class CorsWildcardWithCredentialsRule extends AbstractSecurityRule {
                                 : "An attached origin-pattern wildcard reflects arbitrary origins with credentials.");
             }
         }
-        if (details.isEmpty() && context.customCorsSourcePresent()) {
+        boolean complete = context.required(!context.customCorsSourcePresent());
+        if (details.isEmpty() && !complete) {
             return skipped(
                     "A custom CorsConfigurationSource is present and cannot be introspected for wildcard origins with credentials.");
         }
@@ -1236,7 +1292,7 @@ final class CorsNotInSecurityChainRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         if (context.customCorsSourcePresent()) return skipped("Attached CORS handling is dynamic or MVC-managed.");
-        if (!context.corsSourcePresent()) return pass();
+        if (!context.applies(context.corsSourcePresent())) return pass();
         if (context.chains().stream()
                 .anyMatch(chain -> chain.details().filtersKnown()
                         && !chain.hasFilter("CorsFilter")
@@ -1264,7 +1320,7 @@ final class CorsWildcardMethodsHeadersRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
-        for (CorsConfigModel cors : context.corsConfigs()) {
+        for (CorsConfigModel cors : context.targets(context.corsConfigs())) {
             if (!cors.allowsCredentials()) {
                 continue;
             }
@@ -1275,7 +1331,8 @@ final class CorsWildcardMethodsHeadersRule extends AbstractSecurityRule {
                 details.add(cors.describe() + " allows all request headers (*) with allowCredentials=true.");
             }
         }
-        if (details.isEmpty() && context.customCorsSourcePresent()) {
+        boolean complete = context.required(!context.customCorsSourcePresent());
+        if (details.isEmpty() && !complete) {
             return skipped(
                     "A custom CorsConfigurationSource is present and cannot be introspected for wildcard methods/headers with credentials.");
         }
@@ -1304,7 +1361,7 @@ final class BroadCorsOriginPatternRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         boolean credentialed = false;
-        for (CorsConfigModel cors : context.corsConfigs()) {
+        for (CorsConfigModel cors : context.targets(context.corsConfigs())) {
             if (cors.allowsWildcardOrigin()) continue;
             List<String> broad = cors.broadOriginPatterns();
             if (broad.isEmpty()) {
@@ -1314,7 +1371,8 @@ final class BroadCorsOriginPatternRule extends AbstractSecurityRule {
             credentialed = credentialed || cors.allowsCredentials();
             details.add(cors.describe() + " uses " + broad.size() + " broad host pattern(s)" + suffix + ".");
         }
-        if (details.isEmpty() && context.customCorsSourcePresent()) {
+        boolean complete = context.required(!context.customCorsSourcePresent());
+        if (details.isEmpty() && !complete) {
             return skipped(
                     "A custom CorsConfigurationSource is present and cannot be introspected for broad origin patterns.");
         }
@@ -1341,7 +1399,9 @@ final class MethodSecurityAnnotationsIgnoredRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.evidence().methodFamiliesKnown()) return skipped("Method-security family metadata is incomplete.");
+        if (!context.required(context.evidence().methodFamiliesKnown()))
+            return skipped("Method-security family metadata is incomplete.");
+        context.applies(!context.evidence().usedMethodFamilies().isEmpty());
         List<String> disabled = context.evidence().usedMethodFamilies().stream()
                 .filter(family -> !context.evidence().enabledMethodFamilies().contains(family))
                 .map(family ->
@@ -1367,6 +1427,8 @@ final class LegacyGlobalMethodSecurityRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        context.applies(context.methodSecurityEnabled() || context.globalMethodSecurityLegacyPresent());
+        context.required(context.evidence().methodFamiliesKnown());
         if (context.globalMethodSecurityLegacyPresent()) {
             return violation(List.of("@EnableGlobalMethodSecurity is in use; migrate to @EnableMethodSecurity."));
         }
@@ -1397,8 +1459,8 @@ final class ActuatorWildcardExposureRule extends AbstractSecurityRule {
                 || context.actuator().sensitiveEndpoints().isEmpty()) {
             return pass();
         }
-        if (context.evidence().operations().stream()
-                .noneMatch(operation -> context.actuator().sensitiveEndpoints().contains(operation.endpoint()))) {
+        if (!context.applies(context.evidence().operations().stream()
+                .anyMatch(operation -> context.actuator().sensitiveEndpoints().contains(operation.endpoint())))) {
             return context.evidence().operationsKnown()
                     ? pass()
                     : skipped("Actual management operation inventory is incomplete or in another context.");
@@ -1430,8 +1492,8 @@ final class ActuatorSensitiveExposureRule extends AbstractSecurityRule {
             return pass();
         }
         List<String> details = exposed.stream()
-                .filter(id -> context.evidence().operations().stream()
-                        .anyMatch(operation -> operation.endpoint().equals(id)))
+                .filter(id -> context.applies(context.evidence().operations().stream()
+                        .anyMatch(operation -> operation.endpoint().equals(id))))
                 .sorted()
                 .map(value -> "Observed Actuator endpoint '" + value
                         + "' is selected for web exposure; authorization is separate.")
@@ -1468,6 +1530,7 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
             if (operation.endpoint().equals("health")
                     || operation.endpoint().equals("info")
                     || !context.selectedOperation(operation)) continue;
+            context.applies(true);
             boolean matched = false;
             for (FilterChainModel chain : context.chains()) {
                 if (chain.details().matcher() == null) {
@@ -1493,6 +1556,7 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
             }
             if (!matched) unknown = true;
         }
+        context.required(!unknown);
         if (!details.isEmpty()) return violation(details);
         return unknown
                 ? skipped("Exact operation or ordered authorization metadata is incomplete; no callback was executed.")
@@ -1520,6 +1584,7 @@ final class HealthDetailsExposureRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         if (!context.actuator().exposed("health")) return pass();
+        context.applies(context.observedEndpoint("health"));
         List<String> details = new ArrayList<>();
         if ("always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.health.show-details"))) {
             details.add("management.endpoint.health.show-details is set to 'always'.");
@@ -1553,9 +1618,9 @@ final class ShutdownEndpointEnabledRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         if (context.actuator().exposed("shutdown")) {
-            if (context.evidence().operations().stream()
+            if (context.applies(context.evidence().operations().stream()
                     .anyMatch(operation -> operation.endpoint().equals("shutdown")
-                            && !operation.method().equals("GET"))) {
+                            && !operation.method().equals("GET")))) {
                 return violation(
                         List.of(
                                 "Host configuration selects an observed shutdown write operation; verify authorization and network access."));
@@ -1586,10 +1651,10 @@ final class ManagementPortIsolationRule extends AbstractSecurityRule {
         if (!context.exposesBeyondHealthAndInfo()) {
             return pass();
         }
-        if (context.evidence().operations().stream()
-                .noneMatch(operation -> context.selectedOperation(operation)
+        if (!context.applies(context.evidence().operations().stream()
+                .anyMatch(operation -> context.selectedOperation(operation)
                         && !operation.endpoint().equals("health")
-                        && !operation.endpoint().equals("info"))) {
+                        && !operation.endpoint().equals("info")))) {
             return context.evidence().operationsKnown()
                     ? pass()
                     : skipped("Actual management operation inventory is unavailable.");
@@ -1625,6 +1690,7 @@ final class ActuatorShowValuesRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         boolean unknown = false;
+        context.applies(context.observedEndpoint("env") || context.observedEndpoint("configprops"));
         if (context.actuator().exposed("env")
                 && "always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.env.show-values"))) {
             if (!context.observedEndpoint("env")) unknown = !context.evidence().operationsKnown();
@@ -1641,6 +1707,7 @@ final class ActuatorShowValuesRule extends AbstractSecurityRule {
                 details.add(
                         "Selected configprops endpoint has show-values=always; this disclosure setting does not bypass authorization.");
         }
+        context.required(!unknown);
         if (details.isEmpty() && unknown) return skipped("Actual value-disclosure operation metadata is unavailable.");
         return violation(details);
     }
@@ -1672,7 +1739,7 @@ final class ResourceServerValidationRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         boolean bearerChain = context.chains().stream()
                 .anyMatch(chain -> chain.hasFilterContaining("BearerTokenAuthenticationFilter"));
-        if (!bearerChain) {
+        if (!context.applies(bearerChain)) {
             return pass();
         }
         if (!context.jwtDecoderTypes().isEmpty()
@@ -1700,7 +1767,8 @@ final class JwtAudienceValidationRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (context.chains().stream().noneMatch(chain -> chain.hasFilter("BearerTokenAuthenticationFilter")))
+        if (!context.applies(
+                context.chains().stream().anyMatch(chain -> chain.hasFilter("BearerTokenAuthenticationFilter"))))
             return pass();
         if (!context.evidence().bootManagedJwt())
             return skipped("Active Boot-managed decoder provenance is unavailable; custom validation remains unknown.");
@@ -1736,6 +1804,7 @@ final class InsecureJwtMetadataUrlRule extends AbstractSecurityRule {
 
     private static void addIfInsecureUrl(SecurityContext context, List<String> details, String key) {
         String value = context.firstProperty(key);
+        context.applies(value != null);
         if (value != null && value.toLowerCase(Locale.ROOT).startsWith("http://")) {
             details.add(key + " uses plain HTTP.");
         }
@@ -1758,7 +1827,7 @@ final class JwtStaticKeyRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         String publicKey = context.firstProperty("spring.security.oauth2.resourceserver.jwt.public-key-location");
-        if (publicKey == null) {
+        if (!context.applies(publicKey != null)) {
             return pass();
         }
         boolean rotatable = context.firstProperty(
@@ -1793,6 +1862,7 @@ final class SecurityDebugRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        context.applies(!context.chains().isEmpty());
         boolean debugFilterPresent = context.securityDebugFilterPresent()
                 || context.chains().stream().anyMatch(chain -> chain.hasFilter("DebugFilter"));
         if (debugFilterPresent) {
@@ -1818,7 +1888,8 @@ final class H2ConsoleFrameOptionsRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (context.isPropertyTrue("spring.h2.console.enabled") && context.isProductionProfileActive()) {
+        if (context.applies(
+                context.isPropertyTrue("spring.h2.console.enabled") && context.isProductionProfileActive())) {
             return violation(List.of("spring.h2.console.enabled=true while a production profile is active."));
         }
         return pass();
@@ -1841,6 +1912,7 @@ final class ErrorResponseDisclosureRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
+        context.applies(!context.chains().isEmpty());
         for (String suffix : List.of("include-stacktrace", "include-message", "include-binding-errors")) {
             String key = "spring.web.error." + suffix;
             String value = context.firstProperty(key);
@@ -1869,7 +1941,7 @@ final class HttpsEnforcementRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.isProductionProfileActive()
+        if (!context.applies(context.isProductionProfileActive())
                 || context.isTlsConfigured()
                 || context.chains().stream()
                         .anyMatch(chain -> chain.isFormOrBasic() && !context.isTlsConfiguredFor(chain))) {
@@ -1897,8 +1969,10 @@ final class HardcodedSecretPropertyRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         Set<String> keys = context.suspectedHardcodedSecretKeys();
+        boolean complete = context.required(context.secretObservationComplete());
+        context.applies(complete && !context.chains().isEmpty());
         if (keys.isEmpty()) {
-            return context.secretObservationComplete()
+            return complete
                     ? pass()
                     : skipped("External or custom property sources were not read to classify hardcoded credentials.");
         }
@@ -1926,6 +2000,7 @@ final class StrictHttpFirewallWeakenedRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        context.applies(!context.chains().isEmpty());
         if (context.strictHttpFirewallWeakened()) {
             return violation(
                     List.of(
@@ -1950,7 +2025,7 @@ final class SecurityDebugLoggingProductionRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.isProductionProfileActive()) return pass();
+        if (!context.applies(context.isProductionProfileActive())) return pass();
         List<String> details = new ArrayList<>();
         for (String logger : context.securityLoggerNames()) {
             String level = context.firstProperty("logging.level." + logger);
