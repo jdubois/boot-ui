@@ -216,7 +216,9 @@ test.describe('BootUI on Spring WebFlux', () => {
     await page.goto('/bootui/#/security')
     await expect(page.locator('.panel-availability-alert')).toHaveCount(0)
     await page.getByRole('button', {name: 'Run security checks'}).click()
-    await expect(page.getByText('Scan complete', {exact: true})).toBeVisible({timeout: 15_000})
+    await expect(
+      page.locator('.advisor-summary__metric--status').getByText('Results available', {exact: true})
+    ).toBeVisible({timeout: 15_000})
     await expect(page.getByText('Rules evaluated').locator('..')).toContainText('25')
   })
 
