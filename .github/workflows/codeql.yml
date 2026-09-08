@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'java-kotlin', 'javascript-typescript' ]
+        language: [ 'java-kotlin', 'javascript-typescript', 'actions' ]
     steps:
       - name: Check code scanning availability
         id: code-scanning
