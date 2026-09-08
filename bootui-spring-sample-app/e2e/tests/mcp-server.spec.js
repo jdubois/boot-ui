@@ -8,6 +8,26 @@ import {expect, test} from './fixtures.js'
  * alongside the suites that do.
  */
 test.describe('MCP Server client configuration', () => {
+  test('explains how to assess the application above client configuration', async ({openView}) => {
+    const page = await openView('mcp-server', 'MCP Server')
+
+    const assessment = page.getByRole('region', {name: 'Assess your application'})
+    await expect(assessment).toHaveCount(1)
+    await expect(assessment).toBeVisible()
+    await expect(assessment).toContainText('MCP prompt, not a tool')
+    await expect(assessment).toContainText('does not appear under Tools exposed')
+    await expect(assessment.getByRole('link', {name: 'BootUI agent skill'})).toHaveAttribute(
+      'href',
+      /AI-AGENTS\.html#install-the-bootui-agent-skill$/
+    )
+    await expect(assessment.locator('blockquote')).toContainText('ask before fresh scans')
+    await expect(assessment.locator('blockquote')).toContainText('until I approve specific actions')
+    await expect(assessment).toContainText('does not run scans or fixes')
+    expect(await assessment.evaluate((element) => element.nextElementSibling?.textContent)).toContain(
+      'Client configuration'
+    )
+  })
+
   test('offers one snippet per client and moves between them from the keyboard', async ({openView}) => {
     const page = await openView('mcp-server', 'MCP Server')
 

@@ -88,6 +88,24 @@ describe('McpServer', () => {
     expect(wrapper.get('#mcp-enabled-toggle').element.checked).toBe(false)
   })
 
+  it('explains the assessment prompt above client configuration without invoking MCP', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus())))
+
+    wrapper = mount(McpServer)
+    await flushPromises()
+
+    const assessment = wrapper.get('section[aria-labelledby="mcp-assessment-heading"]')
+    expect(assessment.text()).toContain('MCP prompt, not a tool')
+    expect(assessment.text()).toContain('does not appear under Tools exposed')
+    expect(assessment.text()).toContain('Without prompt support')
+    expect(assessment.get('blockquote').text()).toContain('ask before fresh scans')
+    expect(assessment.get('blockquote').text()).toContain('until I approve specific actions')
+    expect(assessment.text()).toContain('does not run scans or fixes')
+    expect(assessment.element.nextElementSibling.textContent).toContain('Client configuration')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith('api/mcp-server', {})
+  })
+
   it('posts the new state when the toggle is flipped', async () => {
     document.cookie = 'XSRF-TOKEN=test-token'
     const fetchMock = vi.fn().mockImplementation((url) => {

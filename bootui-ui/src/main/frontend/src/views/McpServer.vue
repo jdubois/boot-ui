@@ -265,6 +265,44 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manif
         </div>
       </div>
 
+      <section class="card mb-4" aria-labelledby="mcp-assessment-heading">
+        <div class="card-body p-4">
+          <h3 id="mcp-assessment-heading" class="h6 fw-bold mb-3">
+            <i class="bi bi-chat-left-text me-2" aria-hidden="true"></i>Assess your application
+          </h3>
+          <p class="small mb-2">
+            <code>assess_application</code> is an <strong>MCP prompt, not a tool</strong>, so it does not appear under
+            Tools exposed. It guides your coding agent to use the existing BootUI tools, gather runtime evidence, and
+            propose a prioritized action plan.
+          </p>
+          <p class="text-muted small mb-3">
+            Enable the server and connect your client using the configuration below. Then select
+            <code>assess_application</code> in a client that supports MCP prompts. Without prompt support, install the
+            <a
+              href="https://www.julien-dubois.com/boot-ui/AI-AGENTS.html#install-the-bootui-agent-skill"
+              target="_blank"
+              rel="noopener"
+              >BootUI agent skill</a
+            >
+            and send your agent this request:
+          </p>
+          <blockquote class="bg-light border rounded p-3 small mb-3">
+            Assess this application using BootUI. Start with existing evidence and ask before fresh scans. Give me a
+            prioritized, evidence-backed action plan, and do not modify anything until I approve specific actions.
+          </blockquote>
+          <p class="text-muted small mb-0">
+            Selecting the prompt only returns instructions; it does not run scans or fixes. Your external agent carries
+            out the workflow under its own permissions, not this panel.
+            <a
+              href="https://www.julien-dubois.com/boot-ui/AI-AGENTS.html#assess-an-application-and-approve-an-action-plan"
+              target="_blank"
+              rel="noopener"
+              >Assessment and approval guide</a
+            >.
+          </p>
+        </div>
+      </section>
+
       <!-- Client configuration -->
       <div class="card mb-4">
         <div class="card-body p-4">
