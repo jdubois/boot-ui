@@ -16,7 +16,33 @@ public record RestApiReport(
         int violationsFound,
         List<RestApiSeverityCountDto> severityCounts,
         RestApiScanStatusDto scan,
-        List<RestApiRuleResultDto> results) {
+        List<RestApiRuleResultDto> results,
+        AdvisorAssessmentEvidenceDto assessmentEvidence) {
+
+    public RestApiReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> basePackages,
+            int controllersAnalyzed,
+            int handlersAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            List<RestApiSeverityCountDto> severityCounts,
+            RestApiScanStatusDto scan,
+            List<RestApiRuleResultDto> results) {
+        this(
+                localOnly,
+                disclaimer,
+                basePackages,
+                controllersAnalyzed,
+                handlersAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                AdvisorAssessmentEvidenceDto.unknown());
+    }
 
     public RestApiReport {
         basePackages = DtoCollections.immutableCopy(basePackages);

@@ -18,6 +18,23 @@ const baseProps = {
 }
 
 describe('AdvisorSummary', () => {
+  it('keeps numeric partial qualification and missing coverage visible and accessible', () => {
+    const wrapper = mount(AdvisorSummary, {
+      props: {
+        ...baseProps,
+        score: 100,
+        scoreCompleteness: 'partial',
+        scoreLabel: 'Partial assessment',
+        scoreReason: 'Index semantics were not fully assessed.'
+      }
+    })
+    expect(wrapper.find('.advisor-summary__value').text()).toBe('100')
+    expect(wrapper.find('.advisor-score-card').text()).toContain('Partial assessment')
+    expect(wrapper.find('.advisor-score-card').text()).toContain('Index semantics')
+    expect(wrapper.find('[role="img"]').attributes('aria-label')).toContain('Partial assessment')
+    expect(wrapper.text()).not.toMatch(/Good(?!.*evaluated)/)
+  })
+
   it('renders the score gauge, /100, and qualitative band when a score is provided', () => {
     const wrapper = mount(AdvisorSummary, {props: {...baseProps, score: 90}})
     expect(wrapper.find('.advisor-score-card').exists()).toBe(true)

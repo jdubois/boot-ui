@@ -12,6 +12,9 @@ exposes credentials or secrets, or modifies the
 configuration. Findings are heuristic review prompts; the right remediation depends on the application's
 threat model and deployment topology.
 
+`assessmentEvidence` records known evaluated conditions or confirmed findings, not the 42-rule registry size.
+Wholly unknown evidence stays unscored; usable partial scores follow the [shared policy](features/advisors.md#score-eligibility).
+
 OIDC checks aggregate the active default tenant and active named tenants; a tenant with
 `quarkus.oidc[.<tenant>].tenant-enabled=false` is excluded.
 

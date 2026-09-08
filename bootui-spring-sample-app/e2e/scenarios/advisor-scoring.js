@@ -13,12 +13,27 @@ const scannerIds = [
   'github'
 ]
 
+export function expectedAdvisorScore(counts) {
+  const weights = {CRITICAL: 25, HIGH: 10, MEDIUM: 3, LOW: 1, INFO: 0, NONE: 0}
+  return Math.max(0, 100 - counts.reduce((penalty, entry) => penalty + (weights[entry.severity] || 0) * entry.count, 0))
+}
+
+export async function expectPartialAdvisorScore(page, expect, counts = null) {
+  await expect(page.locator('.advisor-score-card')).toContainText('Partial assessment')
+  await expect(page.locator('.advisor-score-card')).toContainText('missing checks are not passes')
+  await expect(page.locator('.advisor-summary__gauge')).toHaveAttribute('aria-label', /Partial assessment/)
+  await expect(page.locator('.advisor-summary__value')).toHaveText(
+    counts ? String(expectedAdvisorScore(counts)) : /^(?:100|[1-9]?[0-9])$/
+  )
+}
+
 function architectureReport(status, dismissed = false) {
   return {
     scan: {status, scannedAt: 1700000000000, message: 'Available evidence retained.'},
     severityCounts: [{severity: 'HIGH', count: dismissed ? 0 : 1}],
     basePackages: ['example.app'],
     rulesEvaluated: 1,
+    assessmentEvidence: {usable: true, incomplete: status === 'PARTIAL'},
     violationsFound: dismissed ? 0 : 1,
     classesAnalyzed: 2,
     disclaimer: 'Heuristic findings.',
@@ -46,7 +61,8 @@ function unscannedReport() {
     severityCounts: [],
     results: [],
     violationsFound: 0,
-    rulesEvaluated: 0
+    rulesEvaluated: 0,
+    assessmentEvidence: {usable: false, incomplete: true}
   }
 }
 
@@ -105,6 +121,7 @@ function vulnerabilityReport(dismissed, coverageStatus = 'COMPLETE') {
         artifactId: 'library',
         version: '1.0.0',
         source: 'test',
+        assessmentComplete: true,
         highestSeverity: dismissed ? 'NONE' : 'UNKNOWN',
         vulnerabilityCount: dismissed ? 0 : 1,
         vulnerabilities: [
@@ -193,12 +210,14 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         }
         await page.getByRole('button', {name: 'Run Hibernate checks', exact: true}).click()
         await expect(page.getByText('Retained Hibernate finding', {exact: true})).toBeVisible()
-        await expect(page.locator('.advisor-score-card')).toContainText('Incomplete')
+        await expect(page.locator('.advisor-score-card')).toContainText('Partial assessment')
+        await expect(page.locator('.advisor-summary__value')).toHaveText('90')
         const readsBeforeReturn = reads
         await page.locator('a[href$="#/overview"]').first().click()
         await expect(card).toContainText('Incomplete')
         await expect(card).toContainText('1 high')
-        await expect(card.locator('.scanner-score')).toHaveCount(0)
+        await expect(card.locator('.scanner-score')).toHaveText('90')
+        await expect(page.locator('.overall-card')).toContainText('Partial assessment')
         expect(reads).toBe(readsBeforeReturn + 1)
         expect(writes).toEqual([`${apiPath}/hibernate/scan`])
         // A restarted server explicitly reports no scan; old findings must disappear.
@@ -279,12 +298,13 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       releaseScan()
       await expect(card).toContainText('Incomplete')
       await expect(card).toContainText('1 high')
-      await expect(card.locator('.scanner-score')).toHaveCount(0)
+      await expect(card.locator('.scanner-score')).toHaveText('90')
+      await expect(page.locator('.overall-card')).toContainText('Partial assessment')
       await expect.poll(() => reads).toBe(3)
       expect(scans).toBe(1)
     })
 
-    test('retains incomplete findings and removes only their score from the aggregate', async ({page}) => {
+    test('includes usable partial findings and removes only unusable scores from the aggregate', async ({page}) => {
       let status = 'NOT_SCANNED'
       let scans = 0
       await page.route(`**${apiPath}/architecture{,/scan}`, async (route) => {
@@ -305,53 +325,59 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       for (const next of ['PARTIAL', 'ERROR', 'DISABLED', 'NOT_SCANNED']) {
         status = next
         await card.getByRole('button', {name: 'Re-run scan', exact: true}).click()
-        await expect(card.locator('.scanner-score')).toHaveCount(0)
+        if (next === 'PARTIAL') {
+          await expect(card.locator('.scanner-score')).toHaveText('90')
+          await expect(overall).toContainText('Partial assessment')
+        } else await expect(card.locator('.scanner-score')).toHaveCount(0)
         await expect(card).toContainText('1 high')
-        await expect(overall).toContainText('0 of 2 scanners scored')
-        await expect(overall.locator('.overall-gauge')).toHaveCount(0)
+        await expect(overall).toContainText(`${next === 'PARTIAL' ? 1 : 0} of 2 scanners scored`)
+        await expect(overall.locator('.overall-gauge')).toHaveCount(next === 'PARTIAL' ? 1 : 0)
       }
       status = 'PARTIAL'
       await card.getByRole('link', {name: 'Open panel'}).click()
-      await expect(page.locator('.advisor-score-card')).toContainText('Incomplete')
+      await expect(page.locator('.advisor-score-card')).toContainText('Partial assessment')
       await expect(page.getByText('Retained architecture finding', {exact: true})).toBeVisible()
-      await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+      await expect(page.locator('.advisor-summary__value')).toHaveText('90')
     })
 
-    test('dismisses and restores a complete report finding with exact score changes', async ({page}) => {
-      let dismissed = false
-      let scans = 0
-      await page.route(`**${apiPath}/architecture{,/scan}`, async (route) => {
-        if (route.request().method() === 'POST') scans++
-        await route.fulfill({json: architectureReport('SCANNED', dismissed)})
+    for (const status of ['SCANNED', 'PARTIAL']) {
+      test(`dismisses and restores a ${status} report finding with exact score changes`, async ({page}) => {
+        let dismissed = false
+        let scans = 0
+        await page.route(`**${apiPath}/architecture{,/scan}`, async (route) => {
+          if (route.request().method() === 'POST') scans++
+          await route.fulfill({json: architectureReport(status, dismissed)})
+        })
+        await page.route(`**${apiPath}/dismissed-rules/ARCH-TEST-1`, async (route) => {
+          expect(['POST', 'DELETE']).toContain(route.request().method())
+          dismissed = route.request().method() === 'POST'
+          await route.fulfill({json: {dismissed: dismissed ? ['ARCH-TEST-1'] : []}})
+        })
+        await page.goto(`${uiPath}/#/architecture`)
+        await expect(page.locator('.advisor-summary__value')).toHaveText('90')
+        const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
+        await page.locator('a[href$="#/overview"]').first().click()
+        await expect(card.locator('.scanner-score')).toHaveText('90')
+        await card.getByRole('link', {name: 'Open panel'}).click()
+        await page.getByRole('button', {name: /Dismiss$/}).click()
+        await expect(page.locator('.list-group-item.opacity-50')).toContainText('ARCH-TEST-1')
+        await expect(page.locator('.advisor-summary__dismissed')).toContainText(
+          '1 dismissed rule(s) excluded from this score'
+        )
+        await expect(page.locator('.advisor-summary__value')).toHaveText('100')
+        await page.locator('a[href$="#/overview"]').first().click()
+        await expect(card.locator('.scanner-score')).toHaveText('100')
+        await card.getByRole('link', {name: 'Open panel'}).click()
+        await page.getByRole('button', {name: /Restore$/}).click()
+        await expect(page.locator('.list-group-item.opacity-50')).toHaveCount(0)
+        await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
+        await expect(page.locator('.advisor-summary__value')).toHaveText('90')
+        await page.locator('a[href$="#/overview"]').first().click()
+        await expect(card.locator('.scanner-score')).toHaveText('90')
+        if (status === 'PARTIAL') await expect(page.locator('.overall-card')).toContainText('Partial assessment')
+        expect(scans).toBe(0)
       })
-      await page.route(`**${apiPath}/dismissed-rules/ARCH-TEST-1`, async (route) => {
-        expect(['POST', 'DELETE']).toContain(route.request().method())
-        dismissed = route.request().method() === 'POST'
-        await route.fulfill({json: {dismissed: dismissed ? ['ARCH-TEST-1'] : []}})
-      })
-      await page.goto(`${uiPath}/#/architecture`)
-      await expect(page.locator('.advisor-summary__value')).toHaveText('90')
-      const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
-      await page.locator('a[href$="#/overview"]').first().click()
-      await expect(card.locator('.scanner-score')).toHaveText('90')
-      await card.getByRole('link', {name: 'Open panel'}).click()
-      await page.getByRole('button', {name: /Dismiss$/}).click()
-      await expect(page.locator('.list-group-item.opacity-50')).toContainText('ARCH-TEST-1')
-      await expect(page.locator('.advisor-summary__dismissed')).toContainText(
-        '1 dismissed rule(s) excluded from this score'
-      )
-      await expect(page.locator('.advisor-summary__value')).toHaveText('100')
-      await page.locator('a[href$="#/overview"]').first().click()
-      await expect(card.locator('.scanner-score')).toHaveText('100')
-      await card.getByRole('link', {name: 'Open panel'}).click()
-      await page.getByRole('button', {name: /Restore$/}).click()
-      await expect(page.locator('.list-group-item.opacity-50')).toHaveCount(0)
-      await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
-      await expect(page.locator('.advisor-summary__value')).toHaveText('90')
-      await page.locator('a[href$="#/overview"]').first().click()
-      await expect(card.locator('.scanner-score')).toHaveText('90')
-      expect(scans).toBe(0)
-    })
+    }
 
     test('refreshes UNKNOWN dismissal and restore eligibility using only cached report GETs', async ({page}) => {
       let dismissed = false
@@ -369,7 +395,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       const card = page.locator('.scanner-card').filter({hasText: 'Vulnerabilities'})
       await expect(card).toBeVisible()
       expect(scans).toBe(0)
-      await expect(card).toContainText('Active findings have unknown severity')
+      await expect(card).toContainText('active finding(s) have unknown severity')
       await expect(card).toContainText('1 unknown')
       await card.getByRole('link', {name: 'Open panel'}).click()
       await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
@@ -390,9 +416,11 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         coverageStatus = next
         await card.getByRole('link', {name: 'Open panel'}).click()
         await expect(page.locator('.advisor-score-card')).toContainText('coverage')
-        await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+        await expect(page.locator('.advisor-summary__value')).toHaveText('100')
+        await expect(page.locator('.advisor-score-card')).toContainText('Partial assessment')
         await page.locator('a[href$="#/overview"]').first().click()
-        await expect(card.locator('.scanner-score')).toHaveCount(0)
+        await expect(card.locator('.scanner-score')).toHaveText('100')
+        await expect(page.locator('.overall-card')).toContainText('Partial assessment')
       }
       expect(scans).toBe(0)
     })
@@ -407,18 +435,123 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         await page.route(`**${apiPath}/architecture`, (route) => route.fulfill({json: architectureReport('PARTIAL')}))
         await page.goto(`${uiPath}/#/architecture`)
         const summary = page.locator('.advisor-score-card')
-        await expect(summary).toContainText('Incomplete')
-        await expect(summary).toContainText('no score is calculated')
-        await expect(summary.locator('[role="img"]')).toHaveCount(0)
+        await expect(summary).toContainText('Partial assessment')
+        await expect(summary).toContainText('missing checks are not passes')
+        await expect(summary.getByRole('img', {name: /90 out of 100.*Partial assessment/})).toBeVisible()
         await expect(page.getByText('Retained architecture finding', {exact: true})).toBeVisible()
         if (Number(width) < 992) await page.getByRole('button', {name: 'Open navigation menu'}).click()
         await page.locator('a[href$="#/overview"]').first().click()
         const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
         await expect(card).toContainText('Incomplete')
         await expect(card).toContainText('1 high')
-        await expect(card.locator('.scanner-score')).toHaveCount(0)
+        await expect(card.locator('.scanner-score')).toHaveText('90')
+        await expect(page.locator('.overall-card')).toContainText('Partial assessment')
+        await expect(
+          page.locator('.overall-card').getByRole('img', {name: /90 out of 100.*Partial assessment/})
+        ).toBeVisible()
+        const gauge = await page.locator('.overall-gauge').boundingBox()
+        expect(Math.abs(gauge.width - gauge.height)).toBeLessThan(1)
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
       })
     }
+
+    for (const [name, status, usable, counts, expected] of [
+      ['completed checks without findings', 'SCANNED', true, [], '100'],
+      ['partial checks without findings', 'PARTIAL', true, [], '100'],
+      ['zero evaluated checks', 'SCANNED', false, [], null],
+      ['all skipped checks', 'PARTIAL', false, [], null],
+      ['wholly failed checks', 'ERROR', false, [{severity: 'HIGH', count: 1}], null],
+      ['disabled advisor', 'DISABLED', false, [{severity: 'HIGH', count: 1}], null],
+      ['invalid counts', 'PARTIAL', true, [{severity: 'HIGH', count: -1}], null]
+    ]) {
+      test(`applies shared evidence policy to ${name} on cached Overview load`, async ({page}) => {
+        const writes = []
+        page.on('request', (request) => {
+          if (request.method() !== 'GET') writes.push(request.method())
+        })
+        await page.route(`**${apiPath}/architecture`, (route) =>
+          route.fulfill({
+            json: {
+              ...architectureReport(String(status)),
+              severityCounts: counts,
+              results: [],
+              violationsFound: 0,
+              rulesEvaluated: name === 'zero evaluated checks' ? 0 : 1,
+              assessmentEvidence: {usable, incomplete: status === 'PARTIAL'}
+            }
+          })
+        )
+        await page.goto(`${uiPath}/#/overview`)
+        const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
+        await expect(card).toBeVisible()
+        if (expected) {
+          await expect(card.locator('.scanner-score')).toHaveText(String(expected))
+          if (status === 'PARTIAL') {
+            await expect(card).toContainText('No findings in evaluated evidence')
+            await expect(page.locator('.overall-card')).toContainText('Partial assessment')
+          }
+        } else {
+          await expect(card.locator('.scanner-score')).toHaveCount(0)
+          await expect(card).toContainText('Not scored')
+          await expect(page.locator('.overall-card')).toContainText('0 of 2 scanners scored')
+        }
+        expect(writes).toEqual([])
+      })
+    }
+
+    test('scores known vulnerability evidence without treating UNKNOWN or incomplete inventory as safe', async ({
+      page
+    }) => {
+      const report = vulnerabilityReport(false, 'INCOMPLETE')
+      const known = {...report.dependencies[0].vulnerabilities[0], id: 'GHSA-test-known', severity: 'HIGH'}
+      report.dependencies[0].vulnerabilities.push(known)
+      report.dependencies[0].vulnerabilityCount = 2
+      report.dependencies[0].highestSeverity = 'HIGH'
+      report.severityCounts.push({severity: 'HIGH', count: 1})
+      const writes = []
+      page.on('request', (request) => {
+        if (request.method() !== 'GET') writes.push(request.method())
+      })
+      await page.route(`**${apiPath}/vulnerabilities`, (route) => route.fulfill({json: report}))
+      await page.goto(`${uiPath}/#/vulnerabilities`)
+      await expect(page.locator('.advisor-summary__value')).toHaveText('90')
+      await expect(page.locator('.advisor-score-card')).toContainText('Partial assessment')
+      await expect(page.locator('.advisor-score-card')).toContainText('not included in the score or considered safe')
+      await expect(page.getByText('GHSA-test-unknown', {exact: true})).toBeVisible()
+      await expect(page.getByText('GHSA-test-known', {exact: true})).toBeVisible()
+      await page.locator('a[href$="#/overview"]').first().click()
+      const card = page.locator('.scanner-card').filter({hasText: 'Vulnerabilities'})
+      await expect(card.locator('.scanner-score')).toHaveText('90')
+      await expect(card).toContainText('1 high')
+      await expect(card).toContainText('1 unknown')
+      await expect(page.locator('.overall-card')).toContainText('Partial assessment')
+      expect(writes).toEqual([])
+    })
+
+    test('uses the exact mean of complete and partial contributions while qualifying the aggregate', async ({page}) => {
+      const report = vulnerabilityReport(false, 'INCOMPLETE')
+      report.dependencies[0].vulnerabilities = [1, 2, 3].map((index) => ({
+        ...report.dependencies[0].vulnerabilities[0],
+        id: `GHSA-test-high-${index}`,
+        severity: 'HIGH'
+      }))
+      report.dependencies[0].vulnerabilityCount = 3
+      report.dependencies[0].highestSeverity = 'HIGH'
+      report.severityCounts = [{severity: 'HIGH', count: 3}]
+      await page.route(`**${apiPath}/architecture`, (route) => route.fulfill({json: architectureReport('SCANNED')}))
+      await page.route(`**${apiPath}/vulnerabilities`, (route) => route.fulfill({json: report}))
+      await page.goto(`${uiPath}/#/overview`)
+      const overall = page.locator('.overall-card')
+      await expect(overall.locator('.overall-gauge__value')).toHaveText('80')
+      await expect(overall).toContainText('2 of 2 scanners scored')
+      await expect(overall).toContainText('Partial assessment')
+      await expect(overall.getByRole('img')).toHaveAttribute('aria-label', /80 out of 100.*Partial assessment/)
+      await expect(
+        page.locator('.scanner-card').filter({hasText: 'Architecture'}).locator('.scanner-score')
+      ).toHaveText('90')
+      await expect(
+        page.locator('.scanner-card').filter({hasText: 'Vulnerabilities'}).locator('.scanner-score')
+      ).toHaveText('70')
+    })
   })
 }

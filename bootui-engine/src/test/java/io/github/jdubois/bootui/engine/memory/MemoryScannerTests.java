@@ -42,6 +42,7 @@ class MemoryScannerTests {
         assertThat(report.results()).isEmpty();
         assertThat(report.rulesEvaluated()).isZero();
         assertThat(report.localOnly()).isTrue();
+        assertThat(report.assessmentEvidence().usable()).isFalse();
     }
 
     @Test
@@ -55,6 +56,27 @@ class MemoryScannerTests {
         assertThat(report.violationsFound()).isZero();
         assertThat(report.results()).isEmpty();
         assertThat(report.summary().heapUsedPercent()).isEqualTo(25);
+        assertThat(report.assessmentEvidence().usable()).isTrue();
+        assertThat(report.assessmentEvidence().incomplete()).isTrue();
+        assertThat(report.scan().message()).contains("lack the observations");
+    }
+
+    @Test
+    void unavailableSamplesDifferFromInapplicableChecksWithoutChangingPublicOutcomes() {
+        MemoryContext context = healthyContext();
+        var unavailable = new BigObjectsRule().evaluateAssessment(context);
+        var baseline = new RecentGcOverheadRule().evaluateAssessment(context);
+        var notApplicable = new MissingHeapSizingInContainerRule().evaluateAssessment(context);
+        var completed = new HighHeapUtilizationRule().evaluateAssessment(context);
+
+        assertThat(unavailable.result().status()).isEqualTo("SKIPPED");
+        assertThat(unavailable.incomplete()).isTrue();
+        assertThat(baseline.result().status()).isEqualTo("SKIPPED");
+        assertThat(baseline.incomplete()).isTrue();
+        assertThat(notApplicable.result().status()).isEqualTo("SKIPPED");
+        assertThat(notApplicable.incomplete()).isFalse();
+        assertThat(completed.result().status()).isEqualTo("PASS");
+        assertThat(completed.incomplete()).isFalse();
     }
 
     @Test

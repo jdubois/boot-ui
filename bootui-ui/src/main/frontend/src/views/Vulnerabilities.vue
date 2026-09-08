@@ -99,7 +99,7 @@ function emptyAdvisoryText() {
   const status = data.value?.scan?.status
   if (status === 'NOT_SCANNED' || status === 'DISABLED') return 'Not scanned'
   if (status === 'ERROR') return 'Unknown (scan failed)'
-  if (status === 'PARTIAL') return 'No finding in partial result'
+  if (assessment.value.completeness !== 'complete') return 'No finding in partial result'
   return 'None found'
 }
 
@@ -328,6 +328,7 @@ onMounted(loadDependencies)
 
       <AdvisorSummary
         :score="assessment.score"
+        :score-completeness="assessment.completeness"
         :score-label="assessment.label"
         :score-reason="assessment.reason"
         :scan-status-label="scanStatusLabel(data.scan.status)"

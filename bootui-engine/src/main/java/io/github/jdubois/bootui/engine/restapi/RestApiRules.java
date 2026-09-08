@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.restapi;
 
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleAssessment;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorBodyCategory;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ControllerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
@@ -39,6 +40,15 @@ abstract class AbstractRestApiRule implements RestApiRule {
 
     @Override
     public final RestApiRuleResultDto evaluate(RestApiContext context) {
+        return evaluateAssessment(context).result();
+    }
+
+    @Override
+    public final AdvisorRuleAssessment<RestApiRuleResultDto> evaluateAssessment(RestApiContext context) {
+        return RestApiRuleSupport.assessment(evaluateSafely(context));
+    }
+
+    private RestApiRuleResultDto evaluateSafely(RestApiContext context) {
         try {
             return doEvaluate(context);
         } catch (RuntimeException | LinkageError ex) {
@@ -1505,13 +1515,13 @@ final class CentralizedExceptionHandlingRule extends AbstractRestApiRule {
             boolean jaxRsDeclarations = context.controllers().stream().anyMatch(ControllerModel::jaxRs)
                     || context.exceptionHandlers().stream().anyMatch(ExceptionHandlerModel::jaxRs);
             if (springDeclarations && jaxRsDeclarations) {
-                return RestApiRuleSupport.skipped(
+                return RestApiRuleSupport.unknown(
                         definition(),
                         "Application-wide error-handling presence cannot be attributed per framework in this mixed"
                                 + " Spring/Jakarta REST model; advice or mapper presence is not transferred between stacks.");
             }
             if (jaxRsDeclarations && context.exceptionHandlers().stream().noneMatch(ExceptionHandlerModel::jaxRs)) {
-                return RestApiRuleSupport.skipped(
+                return RestApiRuleSupport.unknown(
                         definition(),
                         "The aggregate error-handling flag has no corresponding Jakarta REST mapper declaration;"
                                 + " native handling presence cannot be established.");

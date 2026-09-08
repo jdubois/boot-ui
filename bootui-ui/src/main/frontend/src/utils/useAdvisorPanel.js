@@ -74,7 +74,7 @@ export function useAdvisorPanel(props, options) {
 
   const emptyRuleResultsTitle = computed(() => {
     if (!hasScanData.value) return options.emptyScanPrompt
-    if (score.value === null) return 'No findings in the available results'
+    if (assessment.value.completeness !== 'complete') return 'No findings in the available results'
     if (!report.value?.rulesEvaluated) return 'No rules were evaluated'
     return options.emptyNoFindings
   })

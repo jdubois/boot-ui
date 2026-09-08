@@ -335,6 +335,42 @@ class RestApiScannerTests {
         RestApiReport report = scanner.scan();
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.results()).extracting(RestApiRuleResultDto::id).containsExactly("RAPI-TEST-001");
+        assertThat(report.assessmentEvidence().usable()).isTrue();
+        assertThat(report.assessmentEvidence().incomplete()).isFalse();
+    }
+
+    @Test
+    void missingRuleEvidenceQualifiesCompletedChecksWithoutChangingScanStatus() {
+        RestApiScanner scanner = fixtureScanner(
+                () -> false,
+                () -> false,
+                List.of(
+                        rule("RAPI-TEST-001", RestApiRuleSupport::pass),
+                        rule(
+                                "RAPI-TEST-002",
+                                definition -> RestApiRuleSupport.unknown(definition, "Metadata unavailable"))));
+
+        RestApiReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.rulesEvaluated()).isEqualTo(2);
+        assertThat(report.results()).isEmpty();
+        assertThat(report.assessmentEvidence().usable()).isTrue();
+        assertThat(report.assessmentEvidence().incomplete()).isTrue();
+    }
+
+    @Test
+    void allUnevaluatedRulesCannotEstablishUsableEvidence() {
+        for (RestApiRule unevaluated : List.of(
+                rule("RAPI-TEST-001", definition -> RestApiRuleSupport.skipped(definition, "Not applicable")),
+                rule("RAPI-TEST-001", definition -> RestApiRuleSupport.unknown(definition, "Metadata unavailable")))) {
+            RestApiReport report = fixtureScanner(() -> false, () -> false, List.of(unevaluated))
+                    .scan();
+            assertThat(report.scan().status()).isEqualTo("SCANNED");
+            assertThat(report.rulesEvaluated()).isEqualTo(1);
+            assertThat(report.assessmentEvidence().usable()).isFalse();
+            assertThat(report.results()).isEmpty();
+        }
     }
 
     @Test

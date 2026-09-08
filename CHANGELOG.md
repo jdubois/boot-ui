@@ -24,6 +24,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Usable partial advisor assessments now retain their numeric scores.** This deliberately replaces complete-only
+  gating: confirmed findings and completed applicable checks still count when other evidence is missing. Shared
+  evidence facts distinguish actual assessments from attempted or skipped checks; vulnerability package evidence
+  separates query completion from successful advisory interpretation. Panels and Overview show **Partial assessment**,
+  qualify high scores as applying only to evaluated evidence, retain UNKNOWN findings and coverage explanations, and
+  mark the arithmetic-mean aggregate partial when such scores contribute. Weights, backend statuses, findings,
+  dismissal behavior and explicit-scan boundaries remain unchanged
+  ([#989](https://github.com/jdubois/boot-ui/issues/989)).
+
 - **Database advisor findings now distinguish incomplete evidence from absence.** Qualified JDBC metadata,
   index/constraint semantics, vendor generator bounds and database-side mapping comparisons are reviewed more
   conservatively. Four unsupported rules are retired without reusing their IDs, and SQL text variation is a

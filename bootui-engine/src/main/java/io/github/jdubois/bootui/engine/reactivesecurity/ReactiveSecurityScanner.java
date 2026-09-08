@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SecuritySeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorAssessmentEvidence;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.Comparator;
@@ -147,7 +148,8 @@ public final class ReactiveSecurityScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.assessmentEvidence());
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -203,7 +205,9 @@ public final class ReactiveSecurityScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                AdvisorAssessmentEvidence.fromResults(
+                        results, SecurityRuleResultDto::status, "PARTIAL".equals(status)));
     }
 
     private static List<String> chainDescriptions(ReactiveSecurityContext context) {

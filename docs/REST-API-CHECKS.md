@@ -83,6 +83,9 @@ base-package discovery failure.
 Incomplete extraction suppresses absence-based ERR-001 and ERR-009 conclusions while preserving reliable positive
 findings. An unresolved mapper type that the bounded model intentionally cannot resolve also makes ERR-009 `SKIPPED`,
 but that uncertainty alone is not an extraction failure and does not automatically make the scan `PARTIAL`.
+It does mark `assessmentEvidence.incomplete`: usable findings and completed checks can still score, with a partial
+qualification. The same distinction applies when mixed-framework declarations cannot establish native handler presence.
+Retired or wrong-framework checks remain N/A and do not alone make the assessment partial.
 
 Intentional inapplicability is different: retired emissions, unsupported framework facts, and genuinely unknown dynamic
 responses return `SKIPPED` where necessary and do **not** automatically make the scan partial. `SCANNED` means analysis
@@ -117,8 +120,9 @@ Spring or MicroProfile OpenAPI on Quarkus. Both annotation families are recogniz
 mandatory. Missing annotations are not proof that generated or static documentation is absent.
 
 The shared advisor score weights concrete findings, not just violated rule IDs; dismissing a rule removes its
-findings from that calculation. Only a complete `SCANNED` report is score-eligible. This audit does not change the
-score formula or UI.
+findings from that calculation. Under the shared [score eligibility](features/advisors.md#score-eligibility) policy,
+usable `SCANNED` and `PARTIAL` evidence scores with unchanged weights. Missing required evidence qualifies the number
+as **Partial assessment** rather than erasing evaluated results. The evidence audit itself did not change the formula.
 
 ## Routing & HTTP method mapping
 

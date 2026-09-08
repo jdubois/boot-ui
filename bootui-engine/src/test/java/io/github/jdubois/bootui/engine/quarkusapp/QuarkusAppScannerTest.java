@@ -143,6 +143,8 @@ class QuarkusAppScannerTest {
         assertThat(report.componentsAnalyzed()).isEqualTo(4);
         assertThat(report.scan().componentsAnalyzed()).isEqualTo(4);
         assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.assessmentEvidence().usable()).isTrue();
+        assertThat(report.assessmentEvidence().incomplete()).isFalse();
         assertThat(report.scan().scannedAt()).isEqualTo(1000L);
         assertThat(report.violationsFound()).isZero();
         assertThat(report.inspected())

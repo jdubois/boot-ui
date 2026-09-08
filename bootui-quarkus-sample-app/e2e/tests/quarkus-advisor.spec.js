@@ -1,5 +1,6 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {expectPartialAdvisorScore} from '../../../bootui-spring-sample-app/e2e/scenarios/advisor-scoring.js'
 
 /**
  * The Spring advisor is replaced by a framework-aware Quarkus advisor. There is no separate
@@ -29,7 +30,8 @@ test.describe('Quarkus advisor', () => {
     expect(report.scan.message).toBeTruthy()
 
     await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
-    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+    expect(report.assessmentEvidence).toEqual({usable: true, incomplete: true})
+    await expectPartialAdvisorScore(page, expect, report.severityCounts)
     await expect(page.locator('main')).toContainText('Idioms inspected')
   })
 })

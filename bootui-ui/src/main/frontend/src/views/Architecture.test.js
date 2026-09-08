@@ -23,6 +23,7 @@ function architectureReport(
 ) {
   return {
     localOnly: true,
+    assessmentEvidence: {usable: true, incomplete: false},
     disclaimer: 'Architecture disclaimer.',
     basePackages: ['com.example'],
     classesAnalyzed: 12,

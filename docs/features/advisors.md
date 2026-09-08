@@ -2,23 +2,41 @@
 
 BootUI's advisors run explicit, on-demand, rule-based scans and surface severity-ranked findings that feed the weighted
 score on the Overview dashboard. Each advisor is read-only and inspects a different facet of the application — compiled
-architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. A complete advisor
+architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. A usable advisor
 assessment shows the same 0–100 score in its panel and Overview (100 minus the weighted finding penalty).
 
 ### Score eligibility
 
-A diagnostic report is not necessarily eligible for a score. Only `SCANNED` reports with a valid severity summary
-score. `PARTIAL` reports show **Incomplete**, without a numeric score; failed, disabled, and unscanned reports also
-remain unscored. Findings, severity counts, and diagnostics remain available even when the assessment is incomplete.
-Intentionally skipped, inapplicable rules do not by themselves make a scan incomplete.
+A diagnostic report is not necessarily eligible for a score. `SCANNED` and `PARTIAL` reports score when they contain
+usable evaluated evidence and a valid severity summary. A numeric **Partial assessment** score covers only what was
+checked: missing checks are not passes, and a good score does not mean complete health. The scan's **Incomplete**
+status and missing-evidence explanation stay visible. `ERROR`, `DISABLED`, `NOT_SCANNED`, all-skipped/all-failed
+evaluations, and reports with no usable evidence remain unscored. Invalid, negative, fractional, nonfinite or unsafe
+counts never become a perfect score. Findings and diagnostics remain available independently of scoring.
 
-Vulnerabilities also requires `coverage.status=COMPLETE` and no active `UNKNOWN` severity findings. Missing or
-unavailable coverage is unknown, not complete. `NONE` (CVSS zero) is scoreable with no penalty. Dismissing an UNKNOWN
-finding can restore eligibility; restoring it removes the score again. Coverage is only as reliable as the
-inventory provider's report: this presentation policy cannot detect an inventory that incorrectly claims completeness.
+Architecture, Memory, REST API, Spring/Quarkus application, Database, Hibernate, Security and Pentesting expose
+`assessmentEvidence: {usable, incomplete}`. The engine records these facts before filtering passing/skipped results:
+at least one successful applicable evaluation or confirmed finding establishes usable evidence. Registry sizes and
+attempt counters are not proof of a completed check. Intentional wrong-dialect/N/A rules do not by themselves make
+coverage incomplete, and incompatible counters are never converted into a coverage percentage.
 
-During a new request, or if transport fails, the last accepted report remains visible. A newly received incomplete,
-failed, or disabled report replaces the previous assessment and immediately removes its score from Overview.
+Vulnerabilities uses known-severity findings or a dependency whose `assessmentComplete` is true and has no active
+UNKNOWN finding. This field requires completed query pagination, resolved advisory details, and interpreted package
+associations; completed query counts alone are insufficient. `NONE` (CVSS zero) has no penalty. Active `UNKNOWN`
+findings remain visible and explicitly unscored, never considered safe. Known HIGH plus UNKNOWN therefore scores 90
+with **Partial assessment**; wholly UNKNOWN evidence without another usable assessed package has no score.
+Missing/incomplete inventory, skipped packages or incomplete package assessments qualify any usable score as partial.
+Dismissal changes active penalties and can restore eligibility for an otherwise fully assessed UNKNOWN-only package;
+it never removes inventory or query-coverage gaps. Provider overclaims of inventory completeness remain outside this
+presentation policy.
+
+The existing penalties remain CRITICAL 25, HIGH 10, MEDIUM 3, LOW 1, INFO/NONE 0, clamped to 0–100. Overview keeps the
+rounded arithmetic mean of numeric contributors, including usable partial scores, and marks the aggregate partial
+whenever one contributes. Informational and readiness panels do not gain scores.
+
+During a new request, or if transport fails, the last accepted report and its qualification remain visible. A newly
+received authoritative report replaces the previous assessment: usable partial evidence updates its score and
+qualification; failed, disabled, invalid or unusable evidence removes its contribution.
 
 ### Single-flight scans
 
@@ -507,8 +525,9 @@ include raw response bodies, cookie values, credentials, or full issuer URLs. Fi
 proof of exploitability or a replacement for a full security assessment.
 
 The 79 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation. No-finding
-category coverage is informational rather than a pass. Failed or bounded-away evidence produces a `PARTIAL` scan, hides
-the advisor score, and marks affected no-finding coverage `INDETERMINATE`; known findings remain `REVIEW` with limits.
+category coverage is informational rather than a pass. Failed or bounded-away evidence produces a `PARTIAL` scan and
+marks affected no-finding coverage `INDETERMINATE`; known findings remain `REVIEW` with limits. Usable evaluated
+evidence still scores with **Partial assessment** and its missing-coverage explanation.
 See [PENTEST-CHECKS.md](../PENTEST-CHECKS.md) for the
 full catalogue, limits, mappings, and retired IDs.
 
@@ -536,8 +555,8 @@ advisories alphabetized within the same severity.
 
 The [Vulnerabilities checks catalogue](../VULNERABILITIES-CHECKS.md) documents the interpretation rules, official
 sources/version caveats, full audit disposition, and deferred inventory limitations. A completed lookup is not proof
-of application safety or complete runtime discovery. Advisor scoring, Overview/gauges, and dismissal refresh belong
-to the independent central scoring workstream, not the evidence-interpretation change described here.
+of application safety or complete runtime discovery. The shared [score eligibility](#score-eligibility) policy applies
+to both the dedicated panel and Overview, including dismissal refresh and partial coverage.
 
 ### Severity scoring
 

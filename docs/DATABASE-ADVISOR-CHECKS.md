@@ -8,6 +8,10 @@ These are structural observations and review prompts, not workload forecasts, bu
 automatic migration instructions. A finding describes the available evidence, not everything the database
 could contain. See [the advisor page](features/advisors.md#database) for availability.
 
+`assessmentEvidence` retains successful applicable evaluations despite unrelated missing metadata. For example, a
+readable H2 schema may produce a numeric **Partial assessment** while index semantics remain limited. Wrong-dialect
+N/A checks are not missing coverage; see the [shared scoring policy](features/advisors.md#score-eligibility).
+
 ## Availability and bounds
 
 Spring MVC, Spring WebFlux and Quarkus use the same engine and report contract. Native adapters discover and

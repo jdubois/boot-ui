@@ -4,6 +4,12 @@ The Memory advisor evaluates **36 stable rules** against explicit, on-demand JVM
 Spring WebFlux, and Quarkus use the same framework-neutral collector, rules, report, and dismissal IDs. MCP and
 the CLI expose that same report. Reading the cached report does not scan, collect a histogram, or start a recording.
 
+`assessmentEvidence` records actual usable rule outcomes and missing required evidence, not just attempted rules.
+The [shared scoring policy](features/advisors.md#score-eligibility) preserves usable partial scores and their limitations.
+Unavailable metrics, missing histograms, and missing comparison baselines qualify an otherwise usable assessment as
+partial even when the unchanged scan status is `SCANNED`. Genuine N/A conditions, such as container-only checks on a
+host with no detected container limit or collector-specific checks on another collector, do not alone make it partial.
+
 Findings are review prompts, not proof of a leak, a sizing prescription, or a production-readiness assessment.
 All numerical thresholds below are **BootUI heuristics**, not Oracle-endorsed universal warning thresholds.
 Interpret them against representative steady-state and burst workloads.

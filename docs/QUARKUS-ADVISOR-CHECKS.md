@@ -2,7 +2,7 @@
 
 The Quarkus application advisor is the Quarkus flavor of the shared **Spring** panel:
 the panel ID remains `spring`, the endpoint remains `/bootui/api/spring`, and the shared
-`SpringReport` JSON and dismissal contract are unchanged. It is separate from the
+`SpringReport` JSON and dismissal contract remain shared with Spring. It is separate from the
 [Quarkus Security advisor](QUARKUS-CHECKS.md).
 
 The advisor has **13 active rules**. It inspects application-owned build metadata and
@@ -12,6 +12,9 @@ traffic, or changes configuration. Findings are review prompts, not proof of a r
 measured performance failure, or the configuration of an unseen deployment.
 
 ## Evidence and availability
+
+Reports add `assessmentEvidence` for usable checked outcomes and incomplete coverage, without changing rule or scan
+statuses. Usable partial scores follow the [shared policy](features/advisors.md#score-eligibility).
 
 CDI evidence comes from Arc's resolved application class beans, including effective scope
 and injection points, rather than counts of directly declared scope annotations.

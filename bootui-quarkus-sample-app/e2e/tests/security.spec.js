@@ -1,5 +1,6 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {expectPartialAdvisorScore} from '../../../bootui-spring-sample-app/e2e/scenarios/advisor-scoring.js'
 
 /**
  * The Security panel replaces Spring's Spring-Security-coupled advisor with a Quarkus-native ruleset
@@ -15,7 +16,7 @@ test.describe('Security advisor (Quarkus)', () => {
     await page.getByRole('button', {name: 'Run security checks'}).click()
 
     await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete', {timeout: 20_000})
-    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+    await expectPartialAdvisorScore(page, expect)
     await expect(page.locator('main')).toContainText('Heuristic Quarkus rules')
     await expect(page.locator('main')).toContainText('Permission policies')
   })
@@ -33,7 +34,8 @@ test.describe('Security advisor (Quarkus)', () => {
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
     await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
-    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+    expect(report.assessmentEvidence).toEqual({usable: true, incomplete: true})
+    await expectPartialAdvisorScore(page, expect, report.severityCounts)
 
     // quarkus.http.auth.basic=true with insecure-requests=enabled (the sample's default).
     const basicAuthRow = page.locator('.list-group-item', {hasText: 'QS-AUTH-002'})

@@ -16,7 +16,33 @@ public record SecurityReport(
         List<SecuritySeverityCountDto> severityCounts,
         SecurityScanStatusDto scan,
         List<SecurityRuleResultDto> results,
-        List<SecurityRuleResultDto> analysisErrors) {
+        List<SecurityRuleResultDto> analysisErrors,
+        AdvisorAssessmentEvidenceDto assessmentEvidence) {
+
+    public SecurityReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> filterChains,
+            int filterChainsAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            List<SecuritySeverityCountDto> severityCounts,
+            SecurityScanStatusDto scan,
+            List<SecurityRuleResultDto> results,
+            List<SecurityRuleResultDto> analysisErrors) {
+        this(
+                localOnly,
+                disclaimer,
+                filterChains,
+                filterChainsAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                analysisErrors,
+                AdvisorAssessmentEvidenceDto.unknown());
+    }
 
     public SecurityReport {
         filterChains = DtoCollections.immutableCopy(filterChains);

@@ -7,13 +7,14 @@ import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * The fixed Quarkus-native security ruleset (see {@code docs/QUARKUS-CHECKS.md}). Each rule inspects the
  * neutral {@link QuarkusSecuritySnapshot} and, when triggered, emits one {@link SecurityRuleResultDto}
- * with status {@code VIOLATION}. The full set evaluated is {@link #ruleCount()}; only violations are returned.
+ * with status {@code VIOLATION}. The registry size is {@link #ruleCount()}; only violations are returned.
  */
 final class QuarkusSecurityChecks {
 
@@ -30,14 +31,42 @@ final class QuarkusSecurityChecks {
     }
 
     static List<SecurityRuleResultDto> evaluate(QuarkusSecuritySnapshot s) {
+        return assess(s).findings();
+    }
+
+    record Assessment(List<SecurityRuleResultDto> findings, boolean usable) {}
+
+    private static final class Evidence {
+        private final Set<String> unknownRules;
+        private boolean usable;
+
+        private Evidence(Set<String> unknownRules) {
+            this.unknownRules = unknownRules;
+        }
+
+        private boolean observe(String id, boolean finding) {
+            return observe(id, true, finding);
+        }
+
+        private boolean observe(String id, boolean applicable, boolean finding) {
+            usable |= applicable && !unknownRules.contains(id);
+            return finding;
+        }
+    }
+
+    static Assessment assess(QuarkusSecuritySnapshot s) {
+        Evidence evidence = new Evidence(s.evidence().unknownRules());
         List<SecurityRuleResultDto> v = new ArrayList<>();
 
-        if (!s.anyAuthMechanism()
-                && !hasProtectivePolicy(s.permissions())
-                && s.protectiveAnnotationCount() == 0
-                && !s.defaultRolesAllowed()
-                && !s.denyUnannotatedEndpoints()
-                && s.endpointCount() > 0) {
+        if (evidence.observe(
+                "QS-AUTH-001",
+                s.endpointCount() > 0,
+                !s.anyAuthMechanism()
+                        && !hasProtectivePolicy(s.permissions())
+                        && s.protectiveAnnotationCount() == 0
+                        && !s.defaultRolesAllowed()
+                        && !s.denyUnannotatedEndpoints()
+                        && s.endpointCount() > 0)) {
             v.add(rule(
                     "QS-AUTH-001",
                     "No authentication mechanism configured",
@@ -50,7 +79,7 @@ final class QuarkusSecurityChecks {
                     "Add an authentication mechanism and protect endpoints with a permission policy or"
                             + " @RolesAllowed/@PermissionsAllowed."));
         }
-        if (s.basicAuth() && "enabled".equals(s.insecureRequests())) {
+        if (evidence.observe("QS-AUTH-002", s.basicAuth(), s.basicAuth() && "enabled".equals(s.insecureRequests()))) {
             v.add(rule(
                     "QS-AUTH-002",
                     "Basic authentication without TLS",
@@ -62,7 +91,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.http.auth.basic=true, quarkus.http.insecure-requests=enabled"),
                     "Set quarkus.http.insecure-requests=redirect and configure TLS."));
         }
-        if (s.formAuth() && !s.csrfPresent()) {
+        if (evidence.observe("QS-AUTH-003", s.formAuth(), s.formAuth() && !s.csrfPresent())) {
             v.add(rule(
                     "QS-AUTH-003",
                     "Review form authentication CSRF defenses",
@@ -74,7 +103,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.http.auth.form.enabled=true, quarkus-rest-csrf absent"),
                     "Add the io.quarkus:quarkus-rest-csrf extension and embed the CSRF token in forms."));
         }
-        if (s.formAuth() && "enabled".equals(s.insecureRequests())) {
+        if (evidence.observe("QS-AUTH-012", s.formAuth(), s.formAuth() && "enabled".equals(s.insecureRequests()))) {
             v.add(rule(
                     "QS-AUTH-012",
                     "Form authentication without TLS",
@@ -86,7 +115,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.http.auth.form.enabled=true, quarkus.http.insecure-requests=enabled"),
                     "Set quarkus.http.insecure-requests=redirect (or disabled) and configure TLS."));
         }
-        if (s.jwtConfigured() && !s.jwtIssuerConfigured()) {
+        if (evidence.observe("QS-AUTH-004", s.jwtConfigured(), s.jwtConfigured() && !s.jwtIssuerConfigured())) {
             v.add(rule(
                     "QS-AUTH-004",
                     "JWT verification without an expected issuer",
@@ -98,7 +127,7 @@ final class QuarkusSecurityChecks {
                     List.of("mp.jwt.verify.publickey* set, mp.jwt.verify.issuer absent"),
                     "Set mp.jwt.verify.issuer to the expected token issuer."));
         }
-        if (s.embeddedUsersEnabled()) {
+        if (evidence.observe("QS-AUTH-007", s.embeddedUsersEnabled())) {
             v.add(rule(
                     "QS-AUTH-007",
                     "Embedded identity store enabled in the current runtime",
@@ -110,7 +139,8 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.security.users.embedded.enabled=true"),
                     "Use quarkus-elytron-security-jdbc/oidc for real deployments; keep embedded users to %dev/%test."));
         }
-        if (s.embeddedUsersEnabled() && s.embeddedUsersPlainText()) {
+        if (evidence.observe(
+                "QS-AUTH-013", s.embeddedUsersEnabled(), s.embeddedUsersEnabled() && s.embeddedUsersPlainText())) {
             v.add(rule(
                     "QS-AUTH-013",
                     "Embedded users stored with plain-text passwords",
@@ -124,7 +154,7 @@ final class QuarkusSecurityChecks {
                     "Use an identity provider or a supported adaptive password-hashing store for production;"
                             + " the embedded store's legacy digest default is not modern password-storage advice."));
         }
-        if (s.jwtConfigured() && !s.jwtAudiencesConfigured()) {
+        if (evidence.observe("QS-AUTH-008", s.jwtConfigured(), s.jwtConfigured() && !s.jwtAudiencesConfigured())) {
             v.add(rule(
                     "QS-AUTH-008",
                     "JWT verification without audience validation",
@@ -136,7 +166,7 @@ final class QuarkusSecurityChecks {
                     List.of("mp.jwt.verify.publickey* set, mp.jwt.verify.audiences absent"),
                     "Set mp.jwt.verify.audiences to this service's expected audience(s)."));
         }
-        if (s.jwtConfigured() && s.jwtInlinePublicKey()) {
+        if (evidence.observe("QS-AUTH-009", s.jwtConfigured(), s.jwtConfigured() && s.jwtInlinePublicKey())) {
             v.add(rule(
                     "QS-AUTH-009",
                     "Review static JWT trust-anchor rotation",
@@ -148,7 +178,7 @@ final class QuarkusSecurityChecks {
                     List.of("mp.jwt.verify.publickey set"),
                     "Document and test trust-anchor rotation; remote JWKS is optional, not inherently safer."));
         }
-        if (s.jdbcClearPasswordMapperEnabled()) {
+        if (evidence.observe("QS-AUTH-010", s.jdbcClearPasswordMapperEnabled())) {
             v.add(rule(
                     "QS-AUTH-010",
                     "JDBC identity store using clear-text password mapper",
@@ -160,12 +190,15 @@ final class QuarkusSecurityChecks {
                     List.of("principal-query *.clear-password-mapper.enabled=true"),
                     "Switch to bcrypt-password-mapper (or another hashing mapper) and re-hash stored passwords."));
         }
-        if (!hasProtectivePolicy(s.permissions())
-                && s.protectiveAnnotationCount() == 0
-                && !s.defaultRolesAllowed()
-                && !s.denyUnannotatedEndpoints()
-                && s.endpointCount() > 0
-                && s.anyAuthMechanism()) {
+        if (evidence.observe(
+                "QS-AUTHZ-001",
+                s.endpointCount() > 0 && s.anyAuthMechanism(),
+                !hasProtectivePolicy(s.permissions())
+                        && s.protectiveAnnotationCount() == 0
+                        && !s.defaultRolesAllowed()
+                        && !s.denyUnannotatedEndpoints()
+                        && s.endpointCount() > 0
+                        && s.anyAuthMechanism())) {
             v.add(rule(
                     "QS-AUTHZ-001",
                     "No path or role authorization",
@@ -188,7 +221,7 @@ final class QuarkusSecurityChecks {
                 permitAll.add(p.name() + " (" + (p.paths() == null ? "/*" : p.paths()) + ")");
             }
         }
-        if (!permitAll.isEmpty()) {
+        if (evidence.observe("QS-AUTHZ-002", !permitAll.isEmpty())) {
             v.add(rule(
                     "QS-AUTHZ-002",
                     "Permission policy permits all paths",
@@ -200,10 +233,13 @@ final class QuarkusSecurityChecks {
                     permitAll,
                     "Scope the path, or use policy=authenticated/roles instead of permit."));
         }
-        if (s.anyAuthMechanism()
-                && !s.denyUnannotatedEndpoints()
-                && !s.defaultRolesAllowed()
-                && uncoveredEndpoints(s) > 0) {
+        if (evidence.observe(
+                "QS-AUTHZ-004",
+                s.endpointCount() > 0 && s.anyAuthMechanism(),
+                s.anyAuthMechanism()
+                        && !s.denyUnannotatedEndpoints()
+                        && !s.defaultRolesAllowed()
+                        && uncoveredEndpoints(s) > 0)) {
             v.add(
                     rule(
                             "QS-AUTHZ-004",
@@ -216,7 +252,7 @@ final class QuarkusSecurityChecks {
                             List.of(uncoveredEndpoints(s) + " declared endpoint(s) without a supported restriction"),
                             "Set quarkus.security.jaxrs.deny-unannotated-endpoints=true and mark public endpoints @PermitAll."));
         }
-        if ("enabled".equals(s.insecureRequests())) {
+        if (evidence.observe("QS-TLS-001", "enabled".equals(s.insecureRequests()))) {
             v.add(rule(
                     "QS-TLS-001",
                     "Insecure requests enabled",
@@ -228,7 +264,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.http.insecure-requests=enabled"),
                     "Prefer redirect once TLS is available, or document the terminating proxy."));
         }
-        if (!s.sslConfigured()) {
+        if (evidence.observe("QS-TLS-002", !s.sslConfigured())) {
             v.add(rule(
                     "QS-TLS-002",
                     "No TLS configured for the main HTTP listener",
@@ -241,7 +277,7 @@ final class QuarkusSecurityChecks {
                     List.of("no quarkus.http.ssl.* / selected quarkus.tls.* server keystore"),
                     "Configure TLS or document the terminating proxy."));
         }
-        if (s.tlsTrustAll()) {
+        if (evidence.observe("QS-TLS-003", s.tlsTrustAll())) {
             v.add(rule(
                     "QS-TLS-003",
                     "TLS certificate validation disabled",
@@ -254,7 +290,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.tls.trust-all=true (default or a named bucket)"),
                     "Remove trust-all; import the peer's CA into a trust-store instead."));
         }
-        if (s.insecureIdentityProviderUrl()) {
+        if (evidence.observe("QS-TLS-004", s.insecureIdentityProviderUrl())) {
             v.add(rule(
                     "QS-TLS-004",
                     "Identity-provider and JWK endpoints should use HTTPS",
@@ -266,7 +302,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.oidc.auth-server-url or mp.jwt.verify.publickey.location uses http://"),
                     "Use HTTPS identity-provider and JWK endpoints with certificate validation enabled."));
         }
-        if (!s.tlsHostnameVerificationDisabled().isEmpty()) {
+        if (evidence.observe("QS-TLS-005", !s.tlsHostnameVerificationDisabled().isEmpty())) {
             v.add(
                     rule(
                             "QS-TLS-005",
@@ -281,7 +317,7 @@ final class QuarkusSecurityChecks {
                             "Enable hostname verification for each applicable consumer; registry defaults depend on the consumer."));
         }
         boolean explicitWildcardCors = s.corsEnabled() && isExplicitWildcardOrigin(s.corsOrigins());
-        if (explicitWildcardCors && s.corsCredentials()) {
+        if (evidence.observe("QS-CORS-002", s.corsEnabled(), explicitWildcardCors && s.corsCredentials())) {
             v.add(rule(
                     "QS-CORS-002",
                     "CORS wildcard origin with credentials",
@@ -291,7 +327,7 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("a universal configured origin is allowed with credentials"),
                     "Pin explicit origins; never combine wildcard with credentials."));
-        } else if (explicitWildcardCors) {
+        } else if (evidence.observe("QS-CORS-001", s.corsEnabled(), explicitWildcardCors)) {
             v.add(rule(
                     "QS-CORS-001",
                     "CORS allows any origin",
@@ -303,7 +339,7 @@ final class QuarkusSecurityChecks {
                     List.of("a universal noncredentialed origin is configured"),
                     "Set quarkus.http.cors.origins to explicit origins."));
         }
-        if (s.hstsHeader() && isWeakHsts(s.hstsHeaderValue())) {
+        if (evidence.observe("QS-HDR-001", s.hstsHeader(), s.hstsHeader() && isWeakHsts(s.hstsHeaderValue()))) {
             v.add(rule(
                     "QS-HDR-001",
                     "Weak Strict-Transport-Security policy",
@@ -315,7 +351,10 @@ final class QuarkusSecurityChecks {
                     List.of("configured Strict-Transport-Security lifetime requires review"),
                     "Use max-age=31536000 (1 year); add includeSubDomains only when every subdomain is HTTPS-ready."));
         }
-        if (s.cspHeader() && isWeakCsp(s.cspHeaderValue())) {
+        if (evidence.observe(
+                "QS-HDR-002",
+                s.cspHeader() && CspPolicy.analyze(s.cspHeaderValue()).complete(),
+                s.cspHeader() && isWeakCsp(s.cspHeaderValue()))) {
             v.add(rule(
                     "QS-HDR-002",
                     "Weak Content-Security-Policy",
@@ -327,7 +366,7 @@ final class QuarkusSecurityChecks {
                     List.of("configured enforcing CSP permits unsafe or unrestricted script execution"),
                     "Remove unsafe-inline/unsafe-eval and wildcard sources; use nonces/hashes for scripts."));
         }
-        if (!s.hstsHeader() && s.sslConfigured()) {
+        if (evidence.observe("QS-HDR-003", s.sslConfigured(), !s.hstsHeader() && s.sslConfigured())) {
             v.add(rule(
                     "QS-HDR-003",
                     "Missing Strict-Transport-Security header",
@@ -340,7 +379,7 @@ final class QuarkusSecurityChecks {
                     "Add quarkus.http.header.\"Strict-Transport-Security\".value=max-age=31536000;"
                             + " includeSubDomains only when every subdomain is HTTPS-ready."));
         }
-        if (!s.cspHeader()) {
+        if (evidence.observe("QS-HDR-004", !s.cspHeader())) {
             v.add(rule(
                     "QS-HDR-004",
                     "Missing Content-Security-Policy header",
@@ -357,7 +396,7 @@ final class QuarkusSecurityChecks {
         boolean framingRestricted = s.cspHeader() && cspAnalysis.frameAncestorsPresent()
                 ? cspAnalysis.restrictiveFrameAncestors()
                 : s.xFrameOptionsHeader();
-        if (cspFramingKnown && !framingRestricted) {
+        if (evidence.observe("QS-HDR-005", cspFramingKnown, cspFramingKnown && !framingRestricted)) {
             v.add(rule(
                     "QS-HDR-005",
                     "Missing clickjacking protection",
@@ -371,7 +410,7 @@ final class QuarkusSecurityChecks {
                     "Use restrictive enforcing frame-ancestors, for example 'none'. X-Frame-Options=DENY is an"
                             + " alternative only when no enforcing ancestor directive overrides it."));
         }
-        if (!s.xContentTypeOptionsHeader()) {
+        if (evidence.observe("QS-HDR-006", !s.xContentTypeOptionsHeader())) {
             v.add(rule(
                     "QS-HDR-006",
                     "Missing X-Content-Type-Options header",
@@ -383,7 +422,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.http.header.\"X-Content-Type-Options\".value absent"),
                     "Add quarkus.http.header.\"X-Content-Type-Options\".value=nosniff."));
         }
-        if (s.oidcTlsVerificationNone()) {
+        if (evidence.observe("QS-DEV-001", s.oidcTlsVerificationNone())) {
             v.add(rule(
                     "QS-DEV-001",
                     "OIDC TLS verification disabled",
@@ -396,7 +435,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.oidc.tls.verification=none"),
                     "Remove the override outside local dev; never ship with verification disabled."));
         }
-        if (s.swaggerUiAlwaysInclude() || s.graphqlUiAlwaysInclude()) {
+        if (evidence.observe("QS-DEV-002", s.swaggerUiAlwaysInclude() || s.graphqlUiAlwaysInclude())) {
             List<String> alwaysIncluded = new ArrayList<>();
             if (s.swaggerUiAlwaysInclude()) {
                 alwaysIncluded.add("swagger-ui.always-include=true");
@@ -415,7 +454,7 @@ final class QuarkusSecurityChecks {
                     alwaysIncluded,
                     "Restrict to dev, or remove always-include."));
         }
-        if (s.healthUiAlwaysInclude()) {
+        if (evidence.observe("QS-DEV-003", s.healthUiAlwaysInclude())) {
             v.add(rule(
                     "QS-DEV-003",
                     "SmallRye Health UI always included",
@@ -428,7 +467,10 @@ final class QuarkusSecurityChecks {
                     "Remove the override so the Health UI is only available outside production, or protect it"
                             + " via the management interface / a permission policy."));
         }
-        if (s.oidcConfigured() && s.oidcServiceTokenConsumer() && !s.oidcAudienceConfigured()) {
+        if (evidence.observe(
+                "QS-OIDC-001",
+                s.oidcConfigured() && s.oidcServiceTokenConsumer(),
+                s.oidcConfigured() && s.oidcServiceTokenConsumer() && !s.oidcAudienceConfigured())) {
             v.add(rule(
                     "QS-OIDC-001",
                     "OIDC without token audience validation",
@@ -440,7 +482,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.oidc.auth-server-url set, quarkus.oidc.token.audience absent"),
                     "Set quarkus.oidc.token.audience to this service's expected audience."));
         }
-        if (s.oidcConfigured() && s.oidcIssuerAny()) {
+        if (evidence.observe("QS-OIDC-004", s.oidcConfigured(), s.oidcConfigured() && s.oidcIssuerAny())) {
             v.add(rule(
                     "QS-OIDC-004",
                     "OIDC token issuer validation is bypassed",
@@ -454,7 +496,13 @@ final class QuarkusSecurityChecks {
                             + " resolution when multiple issuers are intentional."));
         }
         boolean oidcWebApp = "web-app".equals(s.oidcApplicationType()) || "hybrid".equals(s.oidcApplicationType());
-        if (s.oidcConfigured() && oidcWebApp && !s.oidcCookieForceSecure() && "enabled".equals(s.insecureRequests())) {
+        if (evidence.observe(
+                "QS-OIDC-002",
+                s.oidcConfigured() && oidcWebApp,
+                s.oidcConfigured()
+                        && oidcWebApp
+                        && !s.oidcCookieForceSecure()
+                        && "enabled".equals(s.insecureRequests()))) {
             v.add(rule(
                     "QS-OIDC-002",
                     "OIDC web-app session cookie not forced secure",
@@ -467,7 +515,10 @@ final class QuarkusSecurityChecks {
                             + ", cookie-force-secure=false, HTTP accepted"),
                     "Disable or redirect HTTP and review cookie-force-secure, including trusted proxy handling."));
         }
-        if (s.oidcConfigured() && oidcWebApp && !s.oidcHasClientSecret() && !s.oidcPkceRequired()) {
+        if (evidence.observe(
+                "QS-OIDC-003",
+                s.oidcConfigured() && oidcWebApp && !s.oidcHasClientSecret(),
+                s.oidcConfigured() && oidcWebApp && !s.oidcHasClientSecret() && !s.oidcPkceRequired())) {
             v.add(rule(
                     "QS-OIDC-003",
                     "Public OIDC client without PKCE",
@@ -481,7 +532,8 @@ final class QuarkusSecurityChecks {
                             + ", no client secret, pkce-required=false"),
                     "Set quarkus.oidc.authentication.pkce-required=true for public clients."));
         }
-        if (s.managementEnabled() && s.managementHostNonLoopback()) {
+        if (evidence.observe(
+                "QS-MGMT-001", s.managementEnabled(), s.managementEnabled() && s.managementHostNonLoopback())) {
             v.add(rule(
                     "QS-MGMT-001",
                     "Management interface on a non-loopback host",
@@ -493,7 +545,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.management.enabled=true on a non-loopback host"),
                     "Bind quarkus.management.host to 127.0.0.1, or protect the management endpoints."));
         }
-        if (s.managementHostUnpinnedForProd()) {
+        if (evidence.observe("QS-MGMT-003", s.managementHostUnpinnedForProd())) {
             v.add(rule(
                     "QS-MGMT-003",
                     "Management interface has no explicit prod-scoped host binding",
@@ -507,7 +559,7 @@ final class QuarkusSecurityChecks {
                             + " %prod.quarkus.management.host absent"),
                     "Explicitly pin %prod.quarkus.management.host to 127.0.0.1, or to the intended bind address."));
         }
-        if (!s.suspectedSecretKeys().isEmpty()) {
+        if (evidence.observe("QS-CFG-001", !s.suspectedSecretKeys().isEmpty())) {
             v.add(rule(
                     "QS-CFG-001",
                     "Possible secret in configuration",
@@ -519,7 +571,7 @@ final class QuarkusSecurityChecks {
                     s.suspectedSecretKeys(),
                     "Move secrets to a vault or environment variables; never commit literals."));
         }
-        if (s.formAuth() && !s.formCookieHttpOnly()) {
+        if (evidence.observe("QS-SESSION-001", s.formAuth(), s.formAuth() && !s.formCookieHttpOnly())) {
             v.add(rule(
                     "QS-SESSION-001",
                     "Form-auth session cookie not HttpOnly",
@@ -531,7 +583,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.http.auth.form.http-only-cookie=false (the Quarkus default)"),
                     "Set quarkus.http.auth.form.http-only-cookie=true."));
         }
-        if (s.formAuth() && s.formCookieSameSiteNone()) {
+        if (evidence.observe("QS-SESSION-002", s.formAuth(), s.formAuth() && s.formCookieSameSiteNone())) {
             v.add(
                     rule(
                             "QS-SESSION-002",
@@ -544,7 +596,7 @@ final class QuarkusSecurityChecks {
                             List.of("quarkus.http.auth.form.cookie-same-site=none"),
                             "Use Secure with SameSite=None and verify independent CSRF defenses; choose Strict/Lax if compatible."));
         }
-        if (s.formAuth() && s.formSessionTimeoutExcessive()) {
+        if (evidence.observe("QS-SESSION-003", s.formAuth(), s.formAuth() && s.formSessionTimeoutExcessive())) {
             v.add(rule(
                     "QS-SESSION-003",
                     "Long form-auth idle timeout",
@@ -556,7 +608,7 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.http.auth.form.timeout >= 8h"),
                     "Lower the timeout (the Quarkus default is 30 minutes) and pair it with new-cookie-interval."));
         }
-        if (s.grpcReflectionEnabledInProd()) {
+        if (evidence.observe("QS-GRPC-001", s.grpcReflectionEnabledInProd())) {
             v.add(rule(
                     "QS-GRPC-001",
                     "gRPC server reflection enabled in the prod profile",
@@ -570,7 +622,8 @@ final class QuarkusSecurityChecks {
                     List.of("%prod quarkus.grpc.server.enable-reflection-service=true"),
                     "Remove the %prod override; keep reflection enabled only in %dev/%test."));
         }
-        if (s.graphqlPresent() && s.graphqlIntrospectionEnabled()) {
+        if (evidence.observe(
+                "QS-GRAPHQL-001", s.graphqlPresent(), s.graphqlPresent() && s.graphqlIntrospectionEnabled())) {
             v.add(rule(
                     "QS-GRAPHQL-001",
                     "GraphQL schema introspection enabled",
@@ -584,7 +637,7 @@ final class QuarkusSecurityChecks {
                     "Add no-introspection to quarkus.smallrye-graphql.field-visibility in %prod unless the"
                             + " schema is meant to be publicly discoverable."));
         }
-        if (!s.insecureMessagingChannels().isEmpty()) {
+        if (evidence.observe("QS-MSG-001", !s.insecureMessagingChannels().isEmpty())) {
             v.add(rule(
                     "QS-MSG-001",
                     "Messaging credentials configured without an encrypted protocol",
@@ -598,9 +651,10 @@ final class QuarkusSecurityChecks {
                     "Set security.protocol=SASL_SSL (or SSL) for each affected channel (or globally via"
                             + " kafka.security.protocol)."));
         }
-        return v.stream()
+        List<SecurityRuleResultDto> findings = v.stream()
                 .filter(result -> !s.evidence().unknownRules().contains(result.id()))
                 .toList();
+        return new Assessment(findings, evidence.usable || !findings.isEmpty());
     }
 
     private static boolean isBroadPath(String paths) {

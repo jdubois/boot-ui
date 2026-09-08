@@ -41,6 +41,7 @@ function advisorReport(results, overrides = {}) {
     violationsFound,
     rulesSkipped: 0,
     rulesErrored: 0,
+    assessmentEvidence: {usable: true, incomplete: false},
     truncated: false,
     severityCounts: [
       {severity: 'HIGH', count: severityCount(results, 'HIGH')},
@@ -176,8 +177,9 @@ describe('DatabaseAdvisor', () => {
     )
 
     expect(wrapper.text()).toContain('Incomplete')
-    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
-    expect(wrapper.text()).toContain('Incomplete scan.')
+    expect(wrapper.find('.advisor-summary__value').text()).toBe('100')
+    expect(wrapper.text()).toContain('Partial assessment')
+    expect(wrapper.text()).toContain('missing checks are not passes')
     expect(wrapper.text()).toContain('1 datasource could not be read')
     expect(wrapper.text()).toContain('Unreadable')
     expect(wrapper.text()).toContain('No findings in the available results')

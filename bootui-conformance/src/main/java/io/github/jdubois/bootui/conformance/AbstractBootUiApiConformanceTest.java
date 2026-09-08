@@ -861,6 +861,11 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(report.path("dependencies").isArray())
                 .as("$.dependencies must be an array")
                 .isTrue();
+        for (JsonNode dependency : report.path("dependencies")) {
+            assertThat(dependency.path("assessmentComplete").isBoolean())
+                    .as("$.dependencies[*].assessmentComplete must be a boolean")
+                    .isTrue();
+        }
         assertThat(report.path("total").isInt())
                 .as("$.total must be an integer")
                 .isTrue();

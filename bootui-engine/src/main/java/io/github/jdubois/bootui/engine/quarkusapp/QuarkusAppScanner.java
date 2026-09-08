@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.quarkusapp;
 
+import io.github.jdubois.bootui.core.dto.AdvisorAssessmentEvidenceDto;
 import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
@@ -133,7 +134,9 @@ public final class QuarkusAppScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                errors);
+                errors,
+                new AdvisorAssessmentEvidenceDto(
+                        rulesEvaluated > 0 || !violations.isEmpty(), "PARTIAL".equals(status) || !errors.isEmpty()));
     }
 
     public SpringReport applyDismissals(SpringReport report, Set<String> dismissedIds) {
@@ -164,7 +167,8 @@ public final class QuarkusAppScanner {
                 severityCounts(active),
                 scan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.assessmentEvidence());
     }
 
     private List<SpringSeverityCountDto> severityCounts(List<SpringRuleResultDto> results) {

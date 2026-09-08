@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorSeverityCountDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorAssessmentEvidence;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
@@ -282,7 +283,8 @@ public final class DatabaseAdvisorScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.diagnostics());
+                report.diagnostics(),
+                report.assessmentEvidence());
     }
 
     private List<DatabaseAdvisorDiagnosticDto> schemaDiagnostics(List<SchemaSnapshot> schemas) {
@@ -549,7 +551,9 @@ public final class DatabaseAdvisorScanner {
                     severityCounts(violations),
                     scan,
                     violations,
-                    List.copyOf(diagnostics));
+                    List.copyOf(diagnostics),
+                    AdvisorAssessmentEvidence.fromResults(
+                            results, DatabaseAdvisorRuleResultDto::status, "PARTIAL".equals(status)));
         }
     }
 }

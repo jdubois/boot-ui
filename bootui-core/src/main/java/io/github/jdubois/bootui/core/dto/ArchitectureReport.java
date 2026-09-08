@@ -16,7 +16,33 @@ public record ArchitectureReport(
         List<ArchitectureSeverityCountDto> severityCounts,
         ArchitectureScanStatusDto scan,
         List<ArchitectureRuleResultDto> results,
-        List<ArchitectureRuleResultDto> analysisErrors) {
+        List<ArchitectureRuleResultDto> analysisErrors,
+        AdvisorAssessmentEvidenceDto assessmentEvidence) {
+
+    public ArchitectureReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> basePackages,
+            int classesAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            List<ArchitectureSeverityCountDto> severityCounts,
+            ArchitectureScanStatusDto scan,
+            List<ArchitectureRuleResultDto> results,
+            List<ArchitectureRuleResultDto> analysisErrors) {
+        this(
+                localOnly,
+                disclaimer,
+                basePackages,
+                classesAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                analysisErrors,
+                AdvisorAssessmentEvidenceDto.unknown());
+    }
 
     public ArchitectureReport {
         basePackages = DtoCollections.immutableCopy(basePackages);

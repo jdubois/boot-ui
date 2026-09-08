@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.restapi;
 
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleAssessment;
 import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +19,7 @@ final class RestApiRuleSupport {
     static final String VIOLATION = "VIOLATION";
     static final String SKIPPED = "SKIPPED";
     static final String ERROR = "ERROR";
+    private static final String REQUIRED_EVIDENCE_UNAVAILABLE = "REQUIRED_EVIDENCE_UNAVAILABLE";
 
     private static final int MAX_SAMPLE_VIOLATIONS = 10;
 
@@ -29,6 +31,30 @@ final class RestApiRuleSupport {
 
     static RestApiRuleResultDto skipped(RestApiRuleDefinition definition, String reason) {
         return result(definition, SKIPPED, 0, List.of(detail(reason)));
+    }
+
+    static RestApiRuleResultDto unknown(RestApiRuleDefinition definition, String reason) {
+        return result(definition, REQUIRED_EVIDENCE_UNAVAILABLE, 0, List.of(detail(reason)));
+    }
+
+    static AdvisorRuleAssessment<RestApiRuleResultDto> assessment(RestApiRuleResultDto result) {
+        if (!REQUIRED_EVIDENCE_UNAVAILABLE.equals(result.status())) {
+            return new AdvisorRuleAssessment<>(result, ERROR.equals(result.status()));
+        }
+        return new AdvisorRuleAssessment<>(
+                new RestApiRuleResultDto(
+                        result.id(),
+                        result.name(),
+                        result.category(),
+                        result.severity(),
+                        result.description(),
+                        SKIPPED,
+                        result.violationCount(),
+                        result.sampleViolations(),
+                        result.recommendation(),
+                        result.learnMoreUrl(),
+                        result.dismissed()),
+                true);
     }
 
     static RestApiRuleResultDto error(RestApiRuleDefinition definition, String reason) {

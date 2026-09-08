@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleAssessment;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,6 +11,7 @@ final class SpringRuleSupport {
     static final String VIOLATION = "VIOLATION";
     static final String SKIPPED = "SKIPPED";
     static final String ERROR = "ERROR";
+    private static final String REQUIRED_EVIDENCE_UNAVAILABLE = "REQUIRED_EVIDENCE_UNAVAILABLE";
 
     static final String CRITICAL = "CRITICAL";
     static final String HIGH = "HIGH";
@@ -34,6 +36,35 @@ final class SpringRuleSupport {
 
     static SpringRuleResultDto error(SpringRuleDefinition definition, String reason) {
         return result(definition, ERROR, 0, List.of(detail(reason)));
+    }
+
+    static SpringRuleResultDto unknown(SpringRuleDefinition definition) {
+        return result(
+                definition,
+                REQUIRED_EVIDENCE_UNAVAILABLE,
+                0,
+                List.of("Required non-eager metadata is unavailable or custom; observation is unknown."));
+    }
+
+    static AdvisorRuleAssessment<SpringRuleResultDto> assessment(SpringRuleResultDto result) {
+        if (!REQUIRED_EVIDENCE_UNAVAILABLE.equals(result.status())) {
+            return new AdvisorRuleAssessment<>(result, ERROR.equals(result.status()));
+        }
+        // The marker is internal; keep the existing SKIPPED rule-result contract.
+        return new AdvisorRuleAssessment<>(
+                new SpringRuleResultDto(
+                        result.id(),
+                        result.name(),
+                        result.category(),
+                        result.severity(),
+                        result.description(),
+                        SKIPPED,
+                        result.violationCount(),
+                        result.sampleViolations(),
+                        result.recommendation(),
+                        result.learnMoreUrl(),
+                        result.dismissed()),
+                true);
     }
 
     static SpringRuleResultDto violation(SpringRuleDefinition definition, List<String> details) {

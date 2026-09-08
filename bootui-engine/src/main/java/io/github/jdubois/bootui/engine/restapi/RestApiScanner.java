@@ -7,6 +7,8 @@ import io.github.jdubois.bootui.core.dto.RestApiScanStatusDto;
 import io.github.jdubois.bootui.core.dto.RestApiSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorAssessmentEvidence;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleAssessment;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -223,6 +225,7 @@ public final class RestApiScanner {
                 model.framework());
 
         List<RestApiRuleResultDto> results = new ArrayList<>();
+        boolean incompleteEvidence = false;
         for (RestApiRule rule : rules) {
             String id = rule.definition().id();
             if (model.incomplete() && COMPLETE_EXCEPTION_MODEL_RULE_IDS.contains(id)) {
@@ -238,7 +241,9 @@ public final class RestApiScanner {
                         rule.definition(), "Required framework evidence could not be read."));
                 continue;
             }
-            RestApiRuleResultDto result = evaluate(rule, context);
+            AdvisorRuleAssessment<RestApiRuleResultDto> assessment = evaluateAssessment(rule, context);
+            RestApiRuleResultDto result = assessment.result();
+            incompleteEvidence |= assessment.incomplete();
             if (RestApiRuleSupport.ERROR.equals(result.status())) {
                 failures.add("rule evaluation");
             }
@@ -251,43 +256,53 @@ public final class RestApiScanner {
                         ? "REST API rules completed against "
                                 + model.controllers().size() + " controller(s) and "
                                 + model.handlers().size() + " handler method(s) under the detected base package(s)."
+                                + (incompleteEvidence ? " Some required observations remain unknown." : "")
                         : incompleteMessage(failures),
                 clock.millis(),
                 basePackages,
                 model.controllers().size(),
                 model.handlers().size(),
                 results.size(),
-                results);
+                results,
+                incompleteEvidence || !failures.isEmpty());
     }
 
     static RestApiRuleResultDto evaluate(RestApiRule rule, RestApiContext context) {
+        return evaluateAssessment(rule, context).result();
+    }
+
+    static AdvisorRuleAssessment<RestApiRuleResultDto> evaluateAssessment(RestApiRule rule, RestApiContext context) {
         RestApiRuleDefinition definition = rule.definition();
         if (context.jaxRs() && SPRING_PROBLEM_DETAIL_RULE_IDS.contains(definition.id())) {
-            return RestApiRuleSupport.skipped(
+            return RestApiRuleSupport.assessment(RestApiRuleSupport.skipped(
                     definition,
                     "Not applicable on JAX-RS: RFC 9457 is framework-neutral, but this rule specifically detects"
                             + " Spring ProblemDetail/ErrorResponse return types; the current model cannot reliably"
-                            + " identify equivalent JAX-RS problem-details payloads.");
+                            + " identify equivalent JAX-RS problem-details payloads."));
         }
         if (context.jaxRs() && SPRING_DATA_PAGINATION_RULE_IDS.contains(definition.id())) {
-            return RestApiRuleSupport.skipped(
+            return RestApiRuleSupport.assessment(RestApiRuleSupport.skipped(
                     definition,
                     "Not applicable on JAX-RS: this rule specifically compares Spring Data Pageable inputs with"
-                            + " Page/Slice outputs.");
+                            + " Page/Slice outputs."));
         }
         if (context.jaxRs() && SPRING_PATH_BINDING_RULE_IDS.contains(definition.id())) {
-            return RestApiRuleSupport.skipped(
-                    definition,
-                    "Not applicable on JAX-RS: this rule checks Spring @PathVariable bindings or unique path-template"
-                            + " token names. Jakarta REST uses different parameter binding and token scoping semantics.");
+            return RestApiRuleSupport.assessment(
+                    RestApiRuleSupport.skipped(
+                            definition,
+                            "Not applicable on JAX-RS: this rule checks Spring @PathVariable bindings or unique path-template"
+                                    + " token names. Jakarta REST uses different parameter binding and token scoping semantics."));
         }
         try {
-            RestApiRuleResultDto result = rule.evaluate(context);
+            AdvisorRuleAssessment<RestApiRuleResultDto> assessment = rule.evaluateAssessment(context);
+            RestApiRuleResultDto result = assessment.result();
             return result == null || RestApiRuleSupport.ERROR.equals(result.status())
-                    ? RestApiRuleSupport.error(definition, "Rule evaluation failed; no conclusion was reached.")
-                    : result;
+                    ? RestApiRuleSupport.assessment(
+                            RestApiRuleSupport.error(definition, "Rule evaluation failed; no conclusion was reached."))
+                    : assessment;
         } catch (RuntimeException | LinkageError ex) {
-            return RestApiRuleSupport.error(definition, "Rule evaluation failed; no conclusion was reached.");
+            return RestApiRuleSupport.assessment(
+                    RestApiRuleSupport.error(definition, "Rule evaluation failed; no conclusion was reached."));
         }
     }
 
@@ -329,6 +344,28 @@ public final class RestApiScanner {
             int handlersAnalyzed,
             int rulesEvaluated,
             List<RestApiRuleResultDto> results) {
+        return report(
+                status,
+                message,
+                scannedAt,
+                basePackages,
+                controllersAnalyzed,
+                handlersAnalyzed,
+                rulesEvaluated,
+                results,
+                "PARTIAL".equals(status));
+    }
+
+    private RestApiReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            List<String> basePackages,
+            int controllersAnalyzed,
+            int handlersAnalyzed,
+            int rulesEvaluated,
+            List<RestApiRuleResultDto> results,
+            boolean incomplete) {
         List<RestApiRuleResultDto> violations = violationResults(results);
         int violationsFound = violations.size();
         RestApiScanStatusDto scan = new RestApiScanStatusDto(
@@ -350,7 +387,8 @@ public final class RestApiScanner {
                 violationsFound,
                 severityCounts(violations),
                 scan,
-                violations);
+                violations,
+                AdvisorAssessmentEvidence.fromResults(results, RestApiRuleResultDto::status, incomplete));
     }
 
     public RestApiReport applyDismissals(RestApiReport report, Set<String> dismissedIds) {
@@ -383,7 +421,8 @@ public final class RestApiScanner {
                 violationsFound,
                 severityCounts(active),
                 updatedScan,
-                marked);
+                marked,
+                report.assessmentEvidence());
     }
 
     private List<RestApiSeverityCountDto> severityCounts(List<RestApiRuleResultDto> results) {

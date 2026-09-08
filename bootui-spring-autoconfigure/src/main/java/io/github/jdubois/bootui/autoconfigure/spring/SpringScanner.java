@@ -6,6 +6,8 @@ import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SpringSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorAssessmentEvidence;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleAssessment;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -81,9 +83,11 @@ final class SpringScanner {
                     0,
                     List.of());
         }
-        List<SpringRuleResultDto> results = SpringRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(context))
+        List<AdvisorRuleAssessment<SpringRuleResultDto>> assessments = SpringRuleRegistry.activeRules().stream()
+                .map(rule -> rule.evaluateAssessment(context))
                 .toList();
+        List<SpringRuleResultDto> results =
+                assessments.stream().map(AdvisorRuleAssessment::result).toList();
         List<String> inspected = new ArrayList<>();
         inspected.add("Bean definitions: " + context.beanDefinitionCount() + "; bounded, non-eager metadata only.");
         inspected.add("Configuration is not proof of execution, authorization, or network reachability.");
@@ -104,7 +108,9 @@ final class SpringScanner {
                 clock.millis(),
                 inspected,
                 context.beanDefinitionCount(),
-                results);
+                results,
+                !context.observations().incomplete().isEmpty()
+                        || assessments.stream().anyMatch(AdvisorRuleAssessment::incomplete));
     }
 
     private SpringReport report(
@@ -114,6 +120,17 @@ final class SpringScanner {
             List<String> inspected,
             int componentsAnalyzed,
             List<SpringRuleResultDto> results) {
+        return report(status, message, scannedAt, inspected, componentsAnalyzed, results, false);
+    }
+
+    private SpringReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            List<String> inspected,
+            int componentsAnalyzed,
+            List<SpringRuleResultDto> results,
+            boolean incomplete) {
         List<SpringRuleResultDto> violations = results.stream()
                 .filter(result -> SpringRuleSupport.VIOLATION.equals(result.status()))
                 .sorted(IMPORTANCE_ORDER)
@@ -130,7 +147,8 @@ final class SpringScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                AdvisorAssessmentEvidence.fromResults(results, SpringRuleResultDto::status, incomplete));
     }
 
     SpringReport applyDismissals(SpringReport report, Set<String> dismissedIds) {
@@ -158,7 +176,8 @@ final class SpringScanner {
                         scan.componentsAnalyzed(),
                         active.size()),
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.assessmentEvidence());
     }
 
     static List<SpringRuleResultDto> analysisErrors(List<SpringRuleResultDto> results) {

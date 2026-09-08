@@ -44,6 +44,7 @@ class SpringScannerTests {
         assertThat(report.violationsFound()).isZero();
         assertThat(report.results()).isEmpty();
         assertThat(report.scan().scannedAt()).isNull();
+        assertThat(report.assessmentEvidence().usable()).isFalse();
     }
 
     @Test
@@ -101,6 +102,7 @@ class SpringScannerTests {
                 .extracting(SpringSeverityCountDto::severity)
                 .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
         assertThat(report.inspected()).isNotEmpty();
+        assertThat(report.assessmentEvidence().usable()).isTrue();
     }
 
     @Test
@@ -121,6 +123,7 @@ class SpringScannerTests {
         assertThat(report.rulesEvaluated()).isEqualTo(RULE_COUNT);
         assertThat(report.violationsFound()).isZero();
         assertThat(report.results()).isEmpty();
+        assertThat(report.assessmentEvidence().usable()).isTrue();
         assertThat(report.severityCounts())
                 .allSatisfy(count -> assertThat(count.count()).isZero());
     }
@@ -193,6 +196,7 @@ class SpringScannerTests {
         assertThat(report.results()).extracting(SpringRuleResultDto::id).contains(dismissedId);
 
         SpringReport dismissed = scanner.applyDismissals(report, Set.of(dismissedId));
+        assertThat(dismissed.assessmentEvidence()).isEqualTo(report.assessmentEvidence());
 
         // The dismissed rule is still present but flagged, so the UI can list it under "Dismissed".
         assertThat(dismissed.results()).hasSameSizeAs(report.results());
