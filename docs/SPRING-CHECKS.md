@@ -10,6 +10,10 @@ The same ruleset runs on Spring MVC and WebFlux. Servlet OSIV guidance is inappl
 
 ## Availability and bounds
 
+`assessmentEvidence` distinguishes completed checks from unavailable required observations and intentional N/A.
+Public rule/scan statuses stay unchanged; the [shared scoring policy](features/advisors.md#score-eligibility) qualifies
+usable incomplete assessments instead of discarding their score.
+
 The panel is always available when the Spring advisor is enabled. Scanning is explicit and on demand; GET returns the cached report. Collection uses bounded, non-eager bean metadata and does not create lazy beans, invoke application customizers, open database connections, or probe remote services. Missing required evidence is unevaluated, not a successful check; inspection failures and invalid bindings are reported without raw exception messages or property values. The Rule results panel lists findings, ordered by severity, finding count, and rule ID.
 
 ## Severity scale

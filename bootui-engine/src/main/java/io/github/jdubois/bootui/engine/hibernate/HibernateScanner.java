@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
+import io.github.jdubois.bootui.core.dto.AdvisorAssessmentEvidenceDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import io.github.jdubois.bootui.core.dto.HibernateScanStatusDto;
@@ -148,6 +149,7 @@ public final class HibernateScanner {
         Set<String> unknown = new LinkedHashSet<>();
         int skipped = 0;
         int attempts = 0;
+        boolean usable = false;
         HibernateApplicationFacts app = observation.application();
         Boolean logging = app.sqlLoggerEnabled();
         if (observation.units().stream()
@@ -197,6 +199,8 @@ public final class HibernateScanner {
                 if (HibernateRuleSupport.ERROR.equals(result.status())) failed.add(identity);
                 if (context.evidence().requiredUnknown) unknown.add(identity);
                 if (HibernateRuleSupport.SKIPPED.equals(result.status())) skipped++;
+                usable |= isViolation(result)
+                        || (HibernateRuleSupport.PASS.equals(result.status()) && !context.evidence().requiredUnknown);
                 if (isViolation(result)) mergeViolation(violations, result, label);
             }
         }
@@ -220,7 +224,8 @@ public final class HibernateScanner {
                 entityPackages(entities),
                 entities.size(),
                 rules.size(),
-                List.copyOf(violations.values()));
+                List.copyOf(violations.values()),
+                usable);
     }
 
     private static boolean applicationRule(String id) {
@@ -302,6 +307,26 @@ public final class HibernateScanner {
             int entitiesAnalyzed,
             int rulesEvaluated,
             List<HibernateRuleResultDto> results) {
+        return report(
+                status,
+                message,
+                scannedAt,
+                entityPackages,
+                entitiesAnalyzed,
+                rulesEvaluated,
+                results,
+                results.stream().anyMatch(HibernateScanner::isViolation));
+    }
+
+    private HibernateReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            List<String> entityPackages,
+            int entitiesAnalyzed,
+            int rulesEvaluated,
+            List<HibernateRuleResultDto> results,
+            boolean usable) {
         List<HibernateRuleResultDto> violations = violationResults(results);
         int violationsFound = violations.size();
         HibernateScanStatusDto scan = new HibernateScanStatusDto(
@@ -315,7 +340,8 @@ public final class HibernateScanner {
                 violationsFound,
                 severityCounts(violations),
                 scan,
-                violations);
+                violations,
+                new AdvisorAssessmentEvidenceDto(usable, "PARTIAL".equals(status)));
     }
 
     public HibernateReport applyDismissals(HibernateReport report, Set<String> dismissedIds) {
@@ -346,7 +372,8 @@ public final class HibernateScanner {
                 violationsFound,
                 severityCounts(active),
                 updatedScan,
-                marked);
+                marked,
+                report.assessmentEvidence());
     }
 
     private EntityDiscovery safeEntityDiscovery() {

@@ -19,6 +19,69 @@ class QuarkusSecurityScannerTest {
 
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC);
 
+    @Test
+    void whollyUnknownRuleEvidenceDoesNotBecomeAPerfectAssessmentFromTheRegistrySize() {
+        Snap snapshot = new Snap();
+        snapshot.evidence = new QuarkusSecurityEvidence(
+                unknownRuleIds(), List.of("No supported observations"), List.of(), List.of(), true);
+        SecurityReport report = scan(snapshot);
+        assertThat(report.rulesEvaluated()).isEqualTo(42);
+        assertThat(report.results()).isEmpty();
+        assertThat(report.assessmentEvidence().usable()).isFalse();
+        assertThat(report.assessmentEvidence().incomplete()).isTrue();
+    }
+
+    @Test
+    void knownButInapplicableMechanismChecksDoNotEstablishUsableEvidence() {
+        Set<String> unknown = unknownRuleIds();
+        unknown.removeAll(Set.of(
+                "QS-AUTH-001",
+                "QS-AUTH-002",
+                "QS-AUTH-003",
+                "QS-AUTH-004",
+                "QS-AUTH-008",
+                "QS-AUTH-009",
+                "QS-AUTH-012",
+                "QS-AUTH-013",
+                "QS-AUTHZ-001",
+                "QS-AUTHZ-004",
+                "QS-OIDC-001",
+                "QS-OIDC-002",
+                "QS-OIDC-003",
+                "QS-OIDC-004",
+                "QS-MGMT-001",
+                "QS-SESSION-001",
+                "QS-SESSION-002",
+                "QS-SESSION-003",
+                "QS-GRAPHQL-001"));
+        Snap snapshot = new Snap();
+        snapshot.basic = false;
+        snapshot.endpoints = 0;
+        snapshot.evidence =
+                new QuarkusSecurityEvidence(unknown, List.of("Other checks unavailable"), List.of(), List.of(), true);
+
+        SecurityReport report = scan(snapshot);
+
+        assertThat(report.results()).isEmpty();
+        assertThat(report.assessmentEvidence().usable()).isFalse();
+        assertThat(report.assessmentEvidence().incomplete()).isTrue();
+
+        snapshot.basic = true;
+        SecurityReport checked = scan(snapshot);
+        assertThat(checked.results()).isEmpty();
+        assertThat(checked.assessmentEvidence().usable()).isTrue();
+        assertThat(checked.assessmentEvidence().incomplete()).isTrue();
+    }
+
+    private static Set<String> unknownRuleIds() {
+        return java.util.stream.Stream.of(
+                        "AUTH", "AUTHZ", "TLS", "CORS", "HDR", "DEV", "OIDC", "MGMT", "CFG", "SESSION", "GRPC",
+                        "GRAPHQL", "MSG")
+                .flatMap(group -> java.util.stream.IntStream.rangeClosed(1, 20)
+                        .mapToObj(number -> "QS-" + group + "-" + String.format(java.util.Locale.ROOT, "%03d", number)))
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
     /**
      * Mutable builder whose defaults describe a hardened Quarkus app that fires zero rules, so each test can
      * flip exactly the fields under test. Mirrors the {@link QuarkusSecuritySnapshot} positional record.
@@ -198,6 +261,8 @@ class QuarkusSecurityScannerTest {
         assertThat(r.violationsFound()).isZero();
         assertThat(r.filterChainsAnalyzed()).isEqualTo(1);
         assertThat(r.scan().status()).isEqualTo("SCANNED");
+        assertThat(r.assessmentEvidence().usable()).isTrue();
+        assertThat(r.assessmentEvidence().incomplete()).isFalse();
     }
 
     @Test
@@ -1107,6 +1172,7 @@ class QuarkusSecurityScannerTest {
         int before = scanned.violationsFound();
         SecurityReport after = scanner.applyDismissals(scanned, Set.of("QS-AUTH-001"));
         assertThat(after.violationsFound()).isEqualTo(before - 1);
+        assertThat(after.assessmentEvidence()).isEqualTo(scanned.assessmentEvidence());
     }
 
     @Test
@@ -1114,6 +1180,7 @@ class QuarkusSecurityScannerTest {
         Snap s = new Snap();
         SecurityReport r = QuarkusSecurityScanner.usingSnapshot(s::build, CLOCK).initialReport();
         assertThat(r.scan().status()).isEqualTo("NOT_SCANNED");
+        assertThat(r.assessmentEvidence().usable()).isFalse();
         assertThat(r.violationsFound()).isZero();
     }
 
@@ -1144,6 +1211,8 @@ class QuarkusSecurityScannerTest {
                 true);
         SecurityReport report = scan(s);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.assessmentEvidence().usable()).isTrue();
+        assertThat(report.assessmentEvidence().incomplete()).isTrue();
         assertThat(find(report, "QS-AUTH-002")).isNotNull();
         assertThat(find(report, "QS-AUTH-004")).isNull();
         assertThat(report.analysisErrors())
@@ -1161,6 +1230,7 @@ class QuarkusSecurityScannerTest {
                         CLOCK)
                 .scan();
         assertThat(report.scan().status()).isEqualTo("ERROR");
+        assertThat(report.assessmentEvidence().usable()).isFalse();
         assertThat(report.analysisErrors()).hasSize(1);
         assertThat(report.toString()).doesNotContain("secret-value");
         assertThat(QuarkusSecurityScanner.usingSnapshot(() -> null, CLOCK)

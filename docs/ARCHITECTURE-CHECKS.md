@@ -4,6 +4,9 @@ The Architecture panel runs a fixed, zero-config [ArchUnit](https://www.archunit
 application's own classes. This page lists every rule that ships with BootUI today, what it inspects, when it fires, and
 what to do about it.
 
+Reports include `assessmentEvidence` from actual rule outcomes before passing/skipped results are filtered.
+Usable partial evidence scores with explicit qualification under the [shared policy](features/advisors.md#score-eligibility).
+
 Each rule is a small class registered in
 [`ArchitectureRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/architecture/ArchitectureRuleRegistry.java)
 and implemented in

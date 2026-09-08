@@ -1,5 +1,6 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {expectPartialAdvisorScore} from '../scenarios/advisor-scoring.js'
 
 test.describe('Hibernate Advisor view', () => {
   test('runs mapped-entity checks and shows the sample advisor fixtures', async ({openView, page}) => {
@@ -18,6 +19,8 @@ test.describe('Hibernate Advisor view', () => {
     expect(report.rulesEvaluated).toBe(70)
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
+    expect(report.assessmentEvidence).toEqual({usable: true, incomplete: true})
+    await expectPartialAdvisorScore(page, expect, report.severityCounts)
     expect(report.entitiesAnalyzed).toBeGreaterThan(0)
     expect(new Set(report.results.map((result) => result.id)).size).toBe(report.results.length)
     for (const id of ['HIB-FETCH-004', 'HIB-MAP-012', 'HIB-MAP-019', 'HIB-ENTITY-003', 'HIB-ENTITY-004']) {

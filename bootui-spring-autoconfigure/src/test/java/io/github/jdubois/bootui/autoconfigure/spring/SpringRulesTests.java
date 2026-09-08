@@ -22,6 +22,24 @@ import org.springframework.mock.env.MockEnvironment;
 
 /** Requirement boundaries; real discovery/provenance is covered separately in SpringInventoryTests. */
 class SpringRulesTests {
+    @Test
+    void assessmentDistinguishesRequiredUnknownFromIntentionalNonApplicabilityWithoutChangingStatuses() {
+        var definition = new BeanDefinitionOverridingRule().definition();
+        var unknown = SpringRuleSupport.assessment(SpringRuleSupport.unknown(definition));
+        var skipped = SpringRuleSupport.assessment(SpringRuleSupport.skipped(definition, "Not applicable"));
+        assertThat(unknown.result().status()).isEqualTo("SKIPPED");
+        assertThat(skipped.result().status()).isEqualTo("SKIPPED");
+        assertThat(unknown.incomplete()).isTrue();
+        assertThat(skipped.incomplete()).isFalse();
+
+        var rule = new BeanDefinitionOverridingRule();
+        var context = SpringContext.builder(new MockEnvironment())
+                .observations(facts(Map.of()))
+                .build();
+        assertThat(rule.evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(rule.evaluateAssessment(context).incomplete()).isTrue();
+    }
+
     static SpringObservations facts(Map<Fact, Object> facts) {
         return new SpringObservations(facts, List.of());
     }

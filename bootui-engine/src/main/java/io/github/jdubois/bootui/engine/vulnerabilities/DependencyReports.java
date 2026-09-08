@@ -298,7 +298,8 @@ public final class DependencyReports {
                 dependency.source(),
                 (int) activeCount,
                 highestSeverity(markedVulnerabilities),
-                markedVulnerabilities);
+                markedVulnerabilities,
+                dependency.assessmentComplete());
     }
 
     /**
@@ -468,7 +469,8 @@ public final class DependencyReports {
                 dependency.source(),
                 dependency.vulnerabilityCount(),
                 dependency.highestSeverity(),
-                updated);
+                updated,
+                dependency.assessmentComplete());
     }
 
     private static DependencyVulnerabilityDto applyEpssScore(

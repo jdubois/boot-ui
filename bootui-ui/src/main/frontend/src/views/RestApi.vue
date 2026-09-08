@@ -135,6 +135,7 @@ watch(contractFilter, () => contract.scheduleReload())
     <template v-if="panel.report">
       <AdvisorSummary
         :score="panel.score"
+        :score-completeness="panel.assessment.completeness"
         :score-label="panel.assessment.label"
         :score-reason="panel.assessment.reason"
         :dismissed-count="panel.dismissedResults.length"
@@ -223,7 +224,9 @@ watch(contractFilter, () => contract.scheduleReload())
           <span
             v-if="panel.score !== null && panel.visibleResults.length === 0 && panel.dismissedResults.length === 0"
             class="badge text-bg-success"
-            >No findings</span
+            >{{
+              panel.assessment.completeness === 'partial' ? 'No findings in evaluated evidence' : 'No findings'
+            }}</span
           >
         </div>
         <div v-if="panel.visibleResults.length === 0" class="card-body text-center text-muted py-5">

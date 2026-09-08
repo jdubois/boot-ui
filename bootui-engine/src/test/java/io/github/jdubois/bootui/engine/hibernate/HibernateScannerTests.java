@@ -72,6 +72,8 @@ class HibernateScannerTests {
         HibernateReport report = scanner.scan();
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.assessmentEvidence().usable()).isTrue();
+        assertThat(report.assessmentEvidence().incomplete()).isTrue();
         assertThat(report.entitiesAnalyzed()).isEqualTo(1);
         assertThat(report.rulesEvaluated()).isEqualTo(RULE_COUNT);
         assertThat(report.results())

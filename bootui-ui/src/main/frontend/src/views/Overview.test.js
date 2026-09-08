@@ -13,7 +13,20 @@ function architectureScore(wrapper) {
 }
 
 function severityReport(severityCounts, status = 'SCANNED') {
-  return {severityCounts, scan: {status}, coverage: {status: 'COMPLETE'}}
+  return {
+    severityCounts,
+    scan: {status},
+    assessmentEvidence: {usable: true, incomplete: status === 'PARTIAL'},
+    coverage: {status: 'COMPLETE'},
+    dependencies: [
+      {
+        assessmentComplete: true,
+        vulnerabilities: severityCounts.flatMap(({severity, count}) =>
+          Array.from({length: count}, () => ({severity, dismissed: false}))
+        )
+      }
+    ]
+  }
 }
 
 function githubReport({connected = true, authenticated = true, alerts = 0} = {}) {
@@ -207,9 +220,9 @@ describe('Overview', () => {
       const card = scannerCard(wrapper, 'Hibernate')
       expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/hibernate'])
       expect(card.text()).toContain('1 high')
-      expect(card.find('.scanner-score').exists()).toBe(status === 'SCANNED')
-      if (status === 'SCANNED') expect(card.find('.scanner-score').text()).toBe('90')
-      if (status === 'PARTIAL') expect(card.text()).toContain('Incomplete')
+      expect(card.find('.scanner-score').exists()).toBe(['SCANNED', 'PARTIAL'].includes(status))
+      if (['SCANNED', 'PARTIAL'].includes(status)) expect(card.find('.scanner-score').text()).toBe('90')
+      if (status === 'PARTIAL') expect(card.text()).toContain('Partial assessment')
       if (status === 'NOT_SCANNED') {
         expect(card.props('state')).toBe('idle')
         expect(card.find('button').text()).toBe('Run scan')
@@ -231,7 +244,8 @@ describe('Overview', () => {
     const card = scannerCard(wrapper, 'Hibernate')
     expect(card.text()).toContain('Incomplete')
     expect(card.text()).toContain('1 high')
-    expect(card.find('.scanner-score').exists()).toBe(false)
+    expect(card.find('.scanner-score').text()).toBe('90')
+    expect(wrapper.find('.overall-card').text()).toContain('Partial assessment')
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/hibernate', 'api/hibernate'])
   })
 
@@ -352,7 +366,8 @@ describe('Overview', () => {
     await flushPromises()
     expect(scannerCard(wrapper, 'Architecture').text()).toContain('Incomplete')
     expect(scannerCard(wrapper, 'Architecture').text()).toContain('1 high')
-    expect(wrapper.text()).toContain('0 of 1 scanners scored')
+    expect(wrapper.text()).toContain('1 of 1 scanners scored')
+    expect(architectureScore(wrapper)).toBe('90')
   })
 
   it('computes a score after running a scanner on demand', async () => {
@@ -521,7 +536,7 @@ describe('Overview', () => {
     await runButton.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Unable to run Architecture')
+    expect(wrapper.text()).toContain('invalid severity summary')
     expect(wrapper.text()).toContain('0 of 1 scanners scored')
     expect(wrapper.text()).not.toContain('100 / 100')
   })
@@ -696,12 +711,12 @@ describe('Overview', () => {
       body = {...body, scan: {status}}
       card.vm.$emit('run')
       await flushPromises()
-      expect(card.find('.scanner-score').exists()).toBe(false)
+      expect(card.find('.scanner-score').exists()).toBe(status === 'PARTIAL')
       expect(card.text()).toContain('1 high')
-      expect(wrapper.text()).toContain('0 of 1 scanners scored')
-      expect(wrapper.find('.overall-gauge').exists()).toBe(false)
+      expect(wrapper.text()).toContain(`${status === 'PARTIAL' ? 1 : 0} of 1 scanners scored`)
+      expect(wrapper.find('.overall-gauge').exists()).toBe(status === 'PARTIAL')
       expect(card.text()).not.toContain('No findings')
-      if (status === 'PARTIAL') expect(card.text()).toContain('Incomplete')
+      if (status === 'PARTIAL') expect(card.text()).toContain('Partial assessment')
     }
   )
 
@@ -719,10 +734,12 @@ describe('Overview', () => {
       .find((b) => b.text().includes('Run all scanners'))
       .trigger('click')
     await flushPromises()
-    expect(wrapper.find('.overall-gauge__value').text()).toBe('80')
-    expect(wrapper.find('.overall-card').text()).toContain('2 of 4 scanners scored')
-    expect(wrapper.find('.overall-card').text()).not.toContain('Security')
-    expect(wrapper.find('.overall-card').text()).not.toContain('Vulnerabilities')
+    expect(wrapper.find('.overall-gauge__value').text()).toBe('90')
+    expect(wrapper.find('.overall-card').text()).toContain('4 of 4 scanners scored')
+    expect(wrapper.find('.overall-card').text()).toContain('Security')
+    expect(wrapper.find('.overall-card').text()).toContain('Vulnerabilities')
+    expect(wrapper.find('.overall-card').text()).toContain('Partial assessment')
+    expect(wrapper.find('.overall-gauge').attributes('aria-label')).toContain('Partial assessment')
     expect(wrapper.find('.overall-card').text()).toContain('Mean of scored scanners only')
   })
 
@@ -736,10 +753,10 @@ describe('Overview', () => {
     const {wrapper, show} = mountKeptAlive(onlyPanels('vulnerabilities'))
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('0 of 1 scanners scored')
+    expect(wrapper.text()).toContain('1 of 1 scanners scored')
     for (const [unknown, score] of [
       [0, '90'],
-      [1, null],
+      [1, '90'],
       [0, '90']
     ]) {
       body = severityReport([
@@ -753,6 +770,7 @@ describe('Overview', () => {
       const card = scannerCard(wrapper, 'Vulnerabilities')
       expect(card.find('.scanner-score').exists()).toBe(score !== null)
       if (score) expect(card.find('.scanner-score').text()).toBe(score)
+      expect(card.props('scoreCompleteness')).toBe(unknown ? 'partial' : 'complete')
       expect(card.text()).toContain('1 high')
     }
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0)
@@ -824,7 +842,8 @@ describe('Overview', () => {
     finishScan(new Response(JSON.stringify(severityReport([], cachedStatus))))
     await flushPromises()
     expect(wrapper.text()).toContain('Incomplete')
-    expect(wrapper.text()).toContain('0 of 1 scanners scored')
+    expect(wrapper.text()).toContain('1 of 1 scanners scored')
+    expect(wrapper.find('.overall-card').text()).toContain('Partial assessment')
     expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(2)
   })
 

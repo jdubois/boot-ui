@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
+import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleAssessment;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryData;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryPoolSnapshot;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.ThreadData;
@@ -31,6 +33,15 @@ abstract class AbstractMemoryRule implements MemoryRule {
 
     @Override
     public final io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluate(MemoryContext context) {
+        return evaluateAssessment(context).result();
+    }
+
+    @Override
+    public final AdvisorRuleAssessment<MemoryRuleResultDto> evaluateAssessment(MemoryContext context) {
+        return MemoryRuleSupport.assessment(evaluateSafely(context));
+    }
+
+    private MemoryRuleResultDto evaluateSafely(MemoryContext context) {
         try {
             if (definition.category() == MemoryCategory.THREADS
                     && context.threads().collectionError() != null) {
@@ -52,6 +63,10 @@ abstract class AbstractMemoryRule implements MemoryRule {
 
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto skipped(String reason) {
         return MemoryRuleSupport.skipped(definition, reason);
+    }
+
+    io.github.jdubois.bootui.core.dto.MemoryRuleResultDto unknown(String reason) {
+        return MemoryRuleSupport.unknown(definition, reason);
     }
 
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto violation(List<String> details) {
@@ -155,7 +170,7 @@ final class HighHeapUtilizationRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         MemoryData memory = context.memory();
         if (memory.heapMax() <= 0) {
-            return skipped("Maximum heap size is not reported by this JVM.");
+            return unknown("Maximum heap size is not reported by this JVM.");
         }
         MemoryContext.PostGcHeapData postGc = context.postGcHeap();
         if (postGc.heapAvailable() && postGc.heapUsed() >= 0) {
@@ -170,7 +185,7 @@ final class HighHeapUtilizationRule extends AbstractMemoryRule {
             return pass();
         }
         if (memory.heapUsed() < 0) {
-            return skipped("Heap usage is unavailable.");
+            return unknown("Heap usage is unavailable.");
         }
         int percent = MemoryFormat.percentOf(memory.heapUsed(), memory.heapMax());
         if (percent >= THRESHOLD_PERCENT) {
@@ -207,7 +222,7 @@ final class OldGenerationNearMaxRule extends AbstractMemoryRule {
         }
         MemoryPoolSnapshot pool = oldGen.get();
         if (pool.max() <= 0) {
-            return skipped("Old-generation pool '" + pool.name() + "' does not report a maximum size.");
+            return unknown("Old-generation pool '" + pool.name() + "' does not report a maximum size.");
         }
         MemoryContext.PostGcHeapData postGc = context.postGcHeap();
         if (postGc.oldGenAvailable() && postGc.oldGenUsed() >= 0) {
@@ -220,7 +235,7 @@ final class OldGenerationNearMaxRule extends AbstractMemoryRule {
             return pass();
         }
         if (pool.used() < 0) {
-            return skipped("Old-generation usage is unavailable.");
+            return unknown("Old-generation usage is unavailable.");
         }
         if (pool.usedPercent() >= THRESHOLD_PERCENT) {
             return violation("Old-generation pool '" + pool.name() + "' is " + pool.usedPercent() + "% full ("
@@ -253,7 +268,7 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
         if (memory.heapMax() <= 0) {
             // HotSpot effectively always reports a bounded max heap; skip rather than fire a
             // spurious violation when getMax() returns -1 on unusual JVMs or startup edge-cases.
-            return skipped("Maximum heap size is not reported by this JVM.");
+            return unknown("Maximum heap size is not reported by this JVM.");
         }
         Long containerLimit = memory.containerMemoryLimitBytes();
         if (containerLimit == null || containerLimit < MIN_CONTAINER_LIMIT) {
@@ -268,7 +283,7 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
         } else if (memory.heapUsed() >= 0) {
             usedPercent = context.heapUsedPercent();
         } else {
-            return skipped("Heap occupancy is unavailable.");
+            return unknown("Heap occupancy is unavailable.");
         }
         if (smallHeap && usedPercent >= PRESSURE_PERCENT) {
             int percent = MemoryFormat.percentOf(memory.heapMax(), containerLimit);
@@ -310,7 +325,7 @@ final class MetaspaceSaturationRule extends AbstractMemoryRule {
         }
         MemoryPoolSnapshot pool = metaspace.get();
         if (pool.used() < 0) {
-            return skipped("Metaspace usage is unavailable.");
+            return unknown("Metaspace usage is unavailable.");
         }
         if (pool.usedPercent() >= THRESHOLD_PERCENT) {
             return violation("Metaspace is " + pool.usedPercent() + "% full (" + MemoryFormat.bytes(pool.used())
@@ -343,7 +358,7 @@ final class CodeCacheSaturationRule extends AbstractMemoryRule {
             return skipped("No code-cache pool is exposed by this JVM.");
         }
         if (segments.stream().noneMatch(pool -> pool.max() > 0 && pool.used() >= 0)) {
-            return skipped("Code-cache usage or maxima are unavailable.");
+            return unknown("Code-cache usage or maxima are unavailable.");
         }
         List<String> details = new ArrayList<>();
         for (MemoryPoolSnapshot pool : segments) {
@@ -377,7 +392,7 @@ final class DirectBufferGrowthRule extends AbstractMemoryRule {
         long capacity = memory.directBufferCapacity();
         long max = memory.maxDirectMemoryBytes();
         if (capacity < 0 || max <= 0) {
-            return skipped(
+            return unknown(
                     "Direct-buffer capacity or its effective maximum is unavailable; a missing cap is not an unlimited cap.");
         }
         int percent = MemoryFormat.percentOf(capacity, max);
@@ -477,7 +492,7 @@ final class DeadlockDetectedRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         ThreadData threads = context.threads();
         if (threads.total() <= 0) {
-            return skipped("No thread snapshot is available to assess platform-thread deadlocks.");
+            return unknown("No thread snapshot is available to assess platform-thread deadlocks.");
         }
         if (!threads.deadlockDetected()) {
             return pass();
@@ -513,7 +528,7 @@ final class HighBlockedThreadRatioRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         ThreadData threads = context.threads();
         if (threads.total() <= 0) {
-            return skipped("No thread snapshot is available.");
+            return unknown("No thread snapshot is available.");
         }
         int blocked = context.blockedThreadCount();
         double ratio = (double) blocked / threads.total();
@@ -548,7 +563,7 @@ final class ThreadPoolExhaustionGapRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         ThreadData threads = context.threads();
         if (threads.total() <= 0) {
-            return skipped("No thread snapshot is available.");
+            return unknown("No thread snapshot is available.");
         }
         long gap = (long) threads.peak() - threads.total();
         if (threads.peak() >= 2L * threads.total() && gap >= MIN_GAP) {
@@ -583,15 +598,15 @@ final class RunawayCpuThreadRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         ThreadData threads = context.threads();
         if (!threads.cpuTimeSupported()) {
-            return skipped("Per-thread CPU timing is not supported or not enabled on this JVM.");
+            return unknown("Per-thread CPU timing is not supported or not enabled on this JVM.");
         }
         if (threads.detailsTruncated()) {
-            return skipped(
+            return unknown(
                     "Per-thread details are capped at 1,000 platform threads; CPU-hot-thread analysis is incomplete.");
         }
         long uptimeMillis = context.runtime().uptimeMillis();
         if (uptimeMillis <= 0) {
-            return skipped("JVM uptime is not available to normalize thread CPU time.");
+            return unknown("JVM uptime is not available to normalize thread CPU time.");
         }
         long minCpuMillis = Math.max(CPU_THRESHOLD_MILLIS, (long) (uptimeMillis * UPTIME_FRACTION));
         List<ThreadInfoDto> hot = new ArrayList<>();
@@ -641,7 +656,7 @@ final class BigObjectsRule extends AbstractMemoryRule {
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         if (!context.heapContent().available()) {
-            return skipped("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
+            return unknown("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
         }
         List<HeapClassHistogramEntryDto> candidates = new ArrayList<>();
         for (HeapClassHistogramEntryDto entry : context.heapContent().histogram()) {
@@ -708,7 +723,7 @@ final class CollectionBloatRule extends AbstractMemoryRule {
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         if (!context.heapContent().available()) {
-            return skipped("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
+            return unknown("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
         }
         long totalBytes = context.heapContent().totalBytes();
         List<HeapClassHistogramEntryDto> candidates = new ArrayList<>();
@@ -727,7 +742,7 @@ final class CollectionBloatRule extends AbstractMemoryRule {
             return pass();
         }
         if (candidateBytes < 0) {
-            return skipped("Collection histogram bytes exceed the numeric range.");
+            return unknown("Collection histogram bytes exceed the numeric range.");
         }
         candidates.sort((left, right) -> Long.compare(right.bytes(), left.bytes()));
         long largest = candidates.get(0).bytes();
@@ -777,11 +792,11 @@ final class DominantClassRule extends AbstractMemoryRule {
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         if (!context.heapContent().available()) {
-            return skipped("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
+            return unknown("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
         }
         long totalBytes = context.heapContent().totalBytes();
         if (totalBytes <= 0) {
-            return skipped("The sampled heap histogram is empty.");
+            return unknown("The sampled heap histogram is empty.");
         }
         return context.heapContent().histogram().stream()
                 .filter(entry -> !isArrayClass(entry.className()))
@@ -863,7 +878,7 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
             return skipped("No container memory limit was detected.");
         }
         if (memory.heapMax() <= 0) {
-            return skipped("Maximum heap is unavailable; the configured envelope cannot be assessed.");
+            return unknown("Maximum heap is unavailable; the configured envelope cannot be assessed.");
         }
         if (memory.heapMax() >= limit) {
             return violation(
@@ -876,14 +891,14 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
             return MemoryRuleSupport.error(definition(), context.threads().collectionError());
         }
         if (context.threads().total() <= 0 || context.runtime().threadStackBytes() <= 0) {
-            return skipped("Platform-thread stack estimate is unavailable.");
+            return unknown("Platform-thread stack estimate is unavailable.");
         }
         long stacks = MemoryFormat.product(
                 context.threads().total(), context.runtime().threadStackBytes());
         long configuredFootprint =
                 MemoryFormat.sum(memory.heapMax(), memory.nonHeapCommitted(), memory.directBufferCapacity(), stacks);
         if (configuredFootprint < 0) {
-            return skipped("Configured memory components are unavailable or exceed the numeric range.");
+            return unknown("Configured memory components are unavailable or exceed the numeric range.");
         }
         if (MemoryFormat.percentOf(configuredFootprint, limit) >= THRESHOLD_PERCENT) {
             int percent = MemoryFormat.percentOf(configuredFootprint, limit);
@@ -927,10 +942,10 @@ final class HighGcOverheadRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         MemoryContext.RuntimeData runtime = context.runtime();
         if (runtime.uptimeMillis() < MIN_UPTIME_MILLIS) {
-            return skipped("JVM uptime is too short to assess lifetime GC overhead.");
+            return unknown("JVM uptime is too short to assess lifetime GC overhead.");
         }
         if (runtime.gcCollectionTimeMillis() < 0) {
-            return skipped("Cumulative GC time is not reported by this JVM.");
+            return unknown("Cumulative GC time is not reported by this JVM.");
         }
         int percent = MemoryFormat.percentOf(runtime.gcCollectionTimeMillis(), runtime.uptimeMillis());
         if (percent >= THRESHOLD_PERCENT) {
@@ -970,7 +985,7 @@ final class UnequalInitialAndMaxHeapRule extends AbstractMemoryRule {
         }
         long initial = context.runtime().initialHeapBytes();
         if (initial <= 0 || memory.heapMax() <= 0) {
-            return skipped("Initial or maximum heap size is not available.");
+            return unknown("Initial or maximum heap size is not available.");
         }
         if (initial < memory.heapMax()) {
             String initialLabel = memory.hasJvmArgumentPrefix("-Xms") ? "-Xms" : "Initial heap";
@@ -1022,7 +1037,7 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
         long boundary = MemoryFormat.product(alignment, COMPRESSED_OOPS_HEAP_PER_ALIGNMENT_BYTE);
         long upperBound = MemoryFormat.sum(boundary, boundary / 4);
         if (boundary <= 0 || upperBound < 0) {
-            return skipped("The compressed-oops alignment boundary exceeds the numeric range.");
+            return unknown("The compressed-oops alignment boundary exceeds the numeric range.");
         }
         if (useCompressedOops != null && !useCompressedOops && heapMax <= boundary) {
             return skipped("Compressed object pointers are disabled (UseCompressedOops=false).");
@@ -1188,12 +1203,12 @@ final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
             return MemoryRuleSupport.error(definition(), context.threads().collectionError());
         }
         if (platformThreads <= 0) {
-            return skipped("No thread snapshot is available.");
+            return unknown("No thread snapshot is available.");
         }
         long stackBytes = context.runtime().threadStackBytes();
         long reserved = MemoryFormat.product(platformThreads, stackBytes);
         if (stackBytes <= 0 || reserved < 0) {
-            return skipped("Platform-thread stack reservation is unavailable or exceeds the numeric range.");
+            return unknown("Platform-thread stack reservation is unavailable or exceeds the numeric range.");
         }
         Long limit = context.memory().containerMemoryLimitBytes();
         boolean relativeBreach =
@@ -1239,11 +1254,11 @@ final class ArrayDominanceRule extends AbstractMemoryRule {
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         if (!context.heapContent().available()) {
-            return skipped("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
+            return unknown("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
         }
         long totalBytes = context.heapContent().totalBytes();
         if (totalBytes <= 0) {
-            return skipped("The sampled heap histogram is empty.");
+            return unknown("The sampled heap histogram is empty.");
         }
         List<HeapClassHistogramEntryDto> arrays = new ArrayList<>();
         long arrayBytes = 0;
@@ -1254,7 +1269,7 @@ final class ArrayDominanceRule extends AbstractMemoryRule {
             }
         }
         if (arrayBytes < 0) {
-            return skipped("Array histogram bytes exceed the numeric range.");
+            return unknown("Array histogram bytes exceed the numeric range.");
         }
         int sharePercent = MemoryFormat.percentOf(arrayBytes, totalBytes);
         if (arrays.isEmpty() || sharePercent < SHARE_PERCENT_THRESHOLD) {
@@ -1298,10 +1313,10 @@ final class RecentGcOverheadRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         MemoryContext.GcTrend trend = context.gcTrend();
         if (!trend.available() || trend.deltaGcTimeMillis() < 0) {
-            return skipped("No comparable GC baseline is available; re-run after a representative workload.");
+            return unknown("No comparable GC baseline is available; re-run after a representative workload.");
         }
         if (trend.deltaUptimeMillis() < MIN_WINDOW_MILLIS) {
-            return skipped("Too little time has passed since the last scan to measure recent GC overhead.");
+            return unknown("Too little time has passed since the last scan to measure recent GC overhead.");
         }
         int percent = MemoryFormat.percentOf(trend.deltaGcTimeMillis(), trend.deltaUptimeMillis());
         if (percent < THRESHOLD_PERCENT) {
@@ -1345,7 +1360,7 @@ final class CompressedClassSpaceRule extends AbstractMemoryRule {
         }
         MemoryContext.MemoryPoolSnapshot ccs = pool.get();
         if (ccs.max() <= 0 || ccs.used() < 0) {
-            return skipped("Compressed Class Space does not report a maximum size on this JVM.");
+            return unknown("Compressed Class Space does not report a maximum size on this JVM.");
         }
         if (ccs.usedPercent() >= THRESHOLD_PERCENT) {
             return violation("Compressed Class Space is " + ccs.usedPercent() + "% full ("
@@ -1384,11 +1399,11 @@ final class ContainerMemoryPressureRule extends AbstractMemoryRule {
         }
         Long current = memory.containerMemoryCurrentBytes();
         if (current == null || current < 0) {
-            return skipped("Current container memory usage is not available (no cgroup files readable).");
+            return unknown("Current container memory usage is not available (no cgroup files readable).");
         }
         Long workingSet = memory.containerMemoryWorkingSetBytes();
         if (workingSet != null && (workingSet < 0 || workingSet > current)) {
-            return skipped("Container working-set usage is inconsistent with current usage.");
+            return unknown("Container working-set usage is inconsistent with current usage.");
         }
         long measuredUsage = workingSet != null ? workingSet : current;
         int percent = MemoryFormat.percentOf(measuredUsage, limit);
@@ -1439,7 +1454,7 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
         }
         long effectiveMemoryBytes = effectiveMemoryBytes(memory, context.runtime());
         if (effectiveMemoryBytes < 0) {
-            return skipped("Available physical or container memory is unknown.");
+            return unknown("Available physical or container memory is unknown.");
         }
         if (effectiveMemoryBytes >= 0 && effectiveMemoryBytes < SERVER_CLASS_MEMORY_THRESHOLD_BYTES) {
             return skipped("Serial GC is expected below Oracle's historical 'server-class machine' ergonomics"
@@ -1485,10 +1500,10 @@ final class G1FullGcFrequencyRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         MemoryContext.GcTrend trend = context.gcTrend();
         if (!trend.available()) {
-            return skipped("No previous scan to compare; re-run the scan to measure G1 Full GC frequency.");
+            return unknown("No previous scan to compare; re-run the scan to measure G1 Full GC frequency.");
         }
         if (!trend.perCollectorDeltas().containsKey("G1 Old Generation")) {
-            return skipped("No comparable G1 Old Generation collection count is available.");
+            return unknown("No comparable G1 Old Generation collection count is available.");
         }
         long fullGcDelta = trend.perCollectorDeltas().getOrDefault("G1 Old Generation", 0L);
         if (fullGcDelta <= 0) {
@@ -1525,18 +1540,18 @@ final class OverProvisionedHeapRule extends AbstractMemoryRule {
     @Override
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         if (context.runtime().uptimeMillis() < MIN_UPTIME_MILLIS) {
-            return skipped("JVM uptime is too short to assess heap over-provisioning.");
+            return unknown("JVM uptime is too short to assess heap over-provisioning.");
         }
         MemoryContext.PostGcHeapData postGc = context.postGcHeap();
         boolean postAvailable = postGc.heapAvailable() && postGc.heapCommitted() >= 0 && postGc.heapUsed() >= 0;
         long committed =
                 postAvailable ? postGc.heapCommitted() : context.memory().heapCommitted();
         if (committed <= 0) {
-            return skipped("Committed heap size is not available.");
+            return unknown("Committed heap size is not available.");
         }
         long used = postAvailable ? postGc.heapUsed() : context.memory().heapUsed();
         if (used < 0 || used > committed) {
-            return skipped("Comparable heap usage and committed capacity are unavailable.");
+            return unknown("Comparable heap usage and committed capacity are unavailable.");
         }
         long slack = committed - used;
         if (used <= committed / COMMITTED_TO_USED_RATIO && slack >= MIN_SLACK_BYTES) {
@@ -1591,7 +1606,7 @@ final class InterpretedJitModeRule extends AbstractMemoryRule {
                             + " (below tier 4); assess whether this is intentional for startup or diagnostics.");
                 }
             } catch (NumberFormatException ex) {
-                return skipped("The compilation tier argument could not be interpreted.");
+                return unknown("The compilation tier argument could not be interpreted.");
             }
         }
         return pass();
@@ -1622,7 +1637,7 @@ final class HighSwapUtilizationRule extends AbstractMemoryRule {
         long totalSwap = context.runtime().totalSwapSpaceBytes();
         long freeSwap = context.runtime().freeSwapSpaceBytes();
         if (totalSwap < 0 || freeSwap < 0 || freeSwap > totalSwap) {
-            return skipped("Swap space statistics are not available on this platform.");
+            return unknown("Swap space statistics are not available on this platform.");
         }
         if (totalSwap == 0) {
             return skipped("No swap space is configured on this host.");
@@ -1670,7 +1685,7 @@ final class GcEventDurationOutlierRule extends AbstractMemoryRule {
         MemoryContext.GcEvent latestGcEvent = context.latestGcEvent();
         long durationMillis = latestGcEvent.durationMillis();
         if (durationMillis < 0) {
-            return skipped("No new application GC event is available (requires a HotSpot JVM and a collection since"
+            return unknown("No new application GC event is available (requires a HotSpot JVM and a collection since"
                     + " the previous scan).");
         }
         if (durationMillis < PAUSE_THRESHOLD_MILLIS) {
@@ -1718,7 +1733,7 @@ final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
                 || direct.get().used() < 0
                 || !trend.available()
                 || !trend.consecutiveIncreaseStreaks().containsKey(direct.get().name())) {
-            return skipped("No comparable direct-buffer usage baseline is available.");
+            return unknown("No comparable direct-buffer usage baseline is available.");
         }
         List<MemoryContext.BufferPoolSnapshot> pools = context.memory().bufferPools();
         List<String> details = new ArrayList<>();
@@ -1774,7 +1789,7 @@ final class OldGenerationTrendingUpwardRule extends AbstractMemoryRule {
     io.github.jdubois.bootui.core.dto.MemoryRuleResultDto evaluateRule(MemoryContext context) {
         MemoryContext.OldGenTrend trend = context.oldGenTrend();
         if (!trend.available()) {
-            return skipped("No previous scan to compare; re-run the scan several times to measure the"
+            return unknown("No previous scan to compare; re-run the scan several times to measure the"
                     + " old-generation trend.");
         }
         if (trend.consecutiveIncreaseStreak() < GROWTH_STREAK_THRESHOLD) {

@@ -239,6 +239,11 @@ class RestApiRuleAccuracyTests {
                 context(RestApiRuleAccuracyFixtures.Responses.class, RestApiRuleAccuracyFixtures.JaxResource.class));
         assertThat(mixed.status()).isEqualTo("SKIPPED");
         assertThat(mixed.sampleViolations()).singleElement().asString().contains("cannot be attributed per framework");
+        assertThat(rule.evaluateAssessment(context(
+                                RestApiRuleAccuracyFixtures.Responses.class,
+                                RestApiRuleAccuracyFixtures.JaxResource.class))
+                        .incomplete())
+                .isTrue();
 
         var springAdviceOnly = rule.evaluate(context(
                 RestApiRuleAccuracyFixtures.DynamicAdvice.class, RestApiRuleAccuracyFixtures.JaxWithoutMapper.class));

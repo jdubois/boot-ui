@@ -5,6 +5,7 @@ import static io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.F
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.AsyncSelection;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleAssessment;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,13 +45,19 @@ abstract class AbstractSpringRule implements SpringRule {
 
     @Override
     public final SpringRuleResultDto evaluate(SpringContext context) {
+        return evaluateAssessment(context).result();
+    }
+
+    @Override
+    public final AdvisorRuleAssessment<SpringRuleResultDto> evaluateAssessment(SpringContext context) {
         try {
-            return evaluateRule(context);
+            return SpringRuleSupport.assessment(evaluateRule(context));
         } catch (RuntimeException | LinkageError ex) {
             // Exception messages, causes and property values can contain credentials.
-            return SpringRuleSupport.error(
-                    definition,
-                    "Required configuration or metadata could not be inspected safely; no runtime conclusion was made.");
+            return SpringRuleSupport.assessment(
+                    SpringRuleSupport.error(
+                            definition,
+                            "Required configuration or metadata could not be inspected safely; no runtime conclusion was made."));
         }
     }
 
@@ -63,7 +70,7 @@ abstract class AbstractSpringRule implements SpringRule {
     }
 
     SpringRuleResultDto unknown() {
-        return skipped("Required non-eager metadata is unavailable or custom; observation is unknown.");
+        return SpringRuleSupport.unknown(definition);
     }
 
     SpringRuleResultDto violation(String detail) {

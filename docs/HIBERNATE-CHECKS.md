@@ -7,6 +7,9 @@ available; it does not intercept runtime queries, invoke repositories, execute S
 The checks are heuristic review prompts. They highlight common Hibernate/JPA performance and maintainability risks, but
 the right remediation still depends on the application's query patterns and data model.
 
+`assessmentEvidence` records actual completed applicable persistence-unit checks or retained findings; the registry
+size is not proof of a usable assessment. Partial scores follow the [shared policy](features/advisors.md#score-eligibility).
+
 ## Availability and bounds
 
 The panel is available only when Hibernate ORM and an `EntityManagerFactory` bean are present. If either is missing, or if

@@ -8,7 +8,8 @@ const report = (status) => ({
   scan: {status},
   severityCounts: [{severity: 'HIGH', count: 1}],
   results: [finding],
-  rulesEvaluated: 1
+  rulesEvaluated: 1,
+  assessmentEvidence: {usable: true, incomplete: status === 'PARTIAL'}
 })
 let panel
 const Host = defineComponent({
@@ -21,16 +22,19 @@ const Host = defineComponent({
 describe('advisor panel scoring', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it.each(['PARTIAL', 'ERROR', 'DISABLED'])('keeps findings from %s without a score', async (status) => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(report(status)))))
-    const wrapper = mount(Host)
-    await flushPromises()
-    expect(panel.hasScanData).toBe(true)
-    expect(panel.score).toBeNull()
-    expect(panel.visibleResults).toEqual([finding])
-    expect(panel.emptyRuleResultsTitle).toBe('No findings in the available results')
-    wrapper.unmount()
-  })
+  it.each(['PARTIAL', 'ERROR', 'DISABLED'])(
+    'keeps findings from %s with evidence-based eligibility',
+    async (status) => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(report(status)))))
+      const wrapper = mount(Host)
+      await flushPromises()
+      expect(panel.hasScanData).toBe(true)
+      expect(panel.score).toBe(status === 'PARTIAL' ? 90 : null)
+      expect(panel.visibleResults).toEqual([finding])
+      expect(panel.emptyRuleResultsTitle).toBe('No findings in the available results')
+      wrapper.unmount()
+    }
+  )
 
   it('replaces accepted scores only when a new report is received', async () => {
     let body = report('SCANNED')
@@ -51,7 +55,8 @@ describe('advisor panel scoring', () => {
     failure = false
     body = report('PARTIAL')
     await panel.runScan()
-    expect(panel.score).toBeNull()
+    expect(panel.score).toBe(90)
+    expect(panel.assessment.completeness).toBe('partial')
     expect(panel.visibleResults).toEqual([finding])
     body = report('SCANNED')
     await panel.runScan()

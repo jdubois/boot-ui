@@ -22,6 +22,7 @@ function ruleResult(id, name, severity, status, violationCount = 0) {
 function advisorReport(results, violationsFound = results.filter((result) => result.status === 'VIOLATION').length) {
   return {
     localOnly: true,
+    assessmentEvidence: {usable: true, incomplete: false},
     disclaimer: 'Security disclaimer.',
     filterChains: ['any request'],
     filterChainsAnalyzed: 1,

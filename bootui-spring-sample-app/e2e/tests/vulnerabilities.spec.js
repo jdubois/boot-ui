@@ -74,7 +74,7 @@ const scannedReport = {
         vulnerability('GHSA-AAAA-0000-0000', 'CRITICAL', 'Critical vulnerability in alpha-lib', '1.0.2')
       ]
     }
-  ]
+  ].map((dependency) => ({...dependency, assessmentComplete: true}))
 }
 
 test.describe('Vulnerabilities view', () => {
@@ -106,6 +106,8 @@ test.describe('Vulnerabilities view', () => {
 
     await page.getByRole('button', {name: 'Scan with OSV.dev'}).click()
     await expect(page.getByText('Scan complete', {exact: true})).toBeVisible()
+    await expect(page.locator('.advisor-summary__value')).toHaveText('39')
+    await expect(page.locator('.advisor-score-card')).not.toContainText('Partial assessment')
     await expect(page.getByText('No vulnerability scan data yet')).toHaveCount(0)
     await expect(page.locator('#vulnerableOnly')).toBeChecked()
     await expect(page.getByText('3 of 4 dependencies')).toBeVisible()
@@ -180,6 +182,7 @@ function dependency(groupId, artifactId, version) {
     source: 'test',
     vulnerabilityCount: 0,
     highestSeverity: 'NONE',
+    assessmentComplete: false,
     vulnerabilities: []
   }
 }

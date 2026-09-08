@@ -16,7 +16,33 @@ public record SpringReport(
         List<SpringSeverityCountDto> severityCounts,
         SpringScanStatusDto scan,
         List<SpringRuleResultDto> results,
-        List<SpringRuleResultDto> analysisErrors) {
+        List<SpringRuleResultDto> analysisErrors,
+        AdvisorAssessmentEvidenceDto assessmentEvidence) {
+
+    public SpringReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> inspected,
+            int componentsAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            List<SpringSeverityCountDto> severityCounts,
+            SpringScanStatusDto scan,
+            List<SpringRuleResultDto> results,
+            List<SpringRuleResultDto> analysisErrors) {
+        this(
+                localOnly,
+                disclaimer,
+                inspected,
+                componentsAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                analysisErrors,
+                AdvisorAssessmentEvidenceDto.unknown());
+    }
 
     public SpringReport {
         inspected = DtoCollections.immutableCopy(inspected);

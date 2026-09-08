@@ -396,22 +396,34 @@ public final class BootUiApiContractCatalog {
     }
 
     private static ReadContract advisor(String panelId, String path, String resultField) {
-        return read(
-                panelId,
-                path,
-                fields(
-                        "localOnly",
-                        JsonType.BOOLEAN,
-                        "disclaimer",
-                        JsonType.STRING,
-                        "severityCounts",
-                        JsonType.ARRAY,
-                        "scan",
-                        JsonType.OBJECT,
-                        "scan.status",
-                        JsonType.STRING,
-                        resultField,
-                        JsonType.ARRAY));
+        Map<String, JsonType> shape = new LinkedHashMap<>(fields(
+                "localOnly",
+                JsonType.BOOLEAN,
+                "disclaimer",
+                JsonType.STRING,
+                "severityCounts",
+                JsonType.ARRAY,
+                "scan",
+                JsonType.OBJECT,
+                "scan.status",
+                JsonType.STRING,
+                resultField,
+                JsonType.ARRAY));
+        if (Set.of(
+                        "architecture",
+                        "memory",
+                        "rest-api",
+                        "spring",
+                        "database-advisor",
+                        "hibernate",
+                        "security",
+                        "pentesting")
+                .contains(panelId)) {
+            shape.put("assessmentEvidence", JsonType.OBJECT);
+            shape.put("assessmentEvidence.usable", JsonType.BOOLEAN);
+            shape.put("assessmentEvidence.incomplete", JsonType.BOOLEAN);
+        }
+        return read(panelId, path, shape);
     }
 
     private static ReadContract memory(String panelId, String path) {

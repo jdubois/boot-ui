@@ -731,9 +731,8 @@ Acceptance criteria:
 Purpose: answer "Which Maven dependencies can the local provider identify, and do any have known vulnerabilities?"
 
 The [Vulnerabilities checks catalogue](VULNERABILITIES-CHECKS.md) defines the supported evidence interpretation,
-official sources/version caveats, full audit disposition, and deferred limitations. Advisor scoring, Overview/gauges,
-score eligibility, and dismissal refresh are handed off to the independent central scoring workstream; they are not
-implemented by this interpretation/reporting change.
+official sources/version caveats, full audit disposition, and deferred limitations. The shared
+[score eligibility policy](features/advisors.md#score-eligibility) applies to the dedicated panel and Overview.
 
 Data sources:
 
@@ -752,14 +751,28 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
-- Calculate the same numeric score in the panel and Overview only for `SCANNED` reports with a valid severity
-  summary, `coverage.status=COMPLETE`, and no active UNKNOWN severity. NONE (CVSS zero) has no penalty; dismissed
-  UNKNOWN findings do not block scoring, but restoring them does. Missing coverage is unknown, not complete.
-  As with every scored advisor, PARTIAL displays Incomplete without a number, and ERROR/DISABLED/NOT_SCANNED never
-  score. Retain findings and diagnostic reports independently of eligibility. Overall averages and counts only
-  eligible scores, without changing the available-scanner total; report refresh after dismissal is GET-only.
-  Preserve the last accepted report on busy or transport failure, but replace its score when a new authoritative
-  incomplete or failed report arrives. Intentional rule inapplicability is not missing required evidence.
+- Calculate the same numeric score in the panel and Overview for `SCANNED` or `PARTIAL` reports with usable assessed
+  evidence and valid, nonnegative integer severity counts. Preserve the penalties (CRITICAL 25, HIGH 10, MEDIUM 3,
+  LOW 1, INFO/NONE 0), clamp to 0–100, and use the rounded arithmetic mean of numeric contributors in Overview.
+  This is an intentional change from complete-only eligibility. A partial score must display **Partial assessment**,
+  qualify its band and accessible gauge name, and explain that missing checks are not passes. No findings after
+  some completed checks may score 100, but only for evaluated evidence, never as complete health.
+- Shared rule reports add immutable `assessmentEvidence: {usable, incomplete}` facts captured before PASS/SKIPPED
+  results are filtered. Registry/attempt counters alone do not establish completed checks. Vulnerability dependency
+  rows add `assessmentComplete`, true only after query pagination, required advisory details and package association
+  interpretation finish. Query counts alone cannot prove successful assessment.
+- Active UNKNOWN findings remain visible and explicitly excluded from penalties, not treated as safe. Known findings
+  or an independently completed package with no active UNKNOWN establish usable evidence. Wholly UNKNOWN evidence
+  without such an assessment has no score. Missing/incomplete inventory, incomplete package assessments, skipped
+  packages and active UNKNOWN qualify a usable score as partial. Dismissed findings no longer contribute penalties,
+  but dismissal never clears missing coverage. Intentional wrong-dialect/N/A checks do not imply incomplete coverage.
+- ERROR/DISABLED/NOT_SCANNED, all-skipped/all-failed or otherwise unusable assessments, and invalid/negative/nonfinite/
+  fractional/unsafe counts never score. Retain findings and diagnostics independently of eligibility. Include partial
+  numeric contributions in Overview and explicitly mark the aggregate partial whenever one contributes, without
+  changing the available-scanner total. Informational/readiness panels remain unscored.
+- Report refresh after dismissal is GET-only. Preserve the last accepted report and its qualification on busy or
+  transport failure; a new authoritative report replaces both. Do not alter backend statuses, trigger scans on load,
+  infer coverage percentages from incompatible counters, or discard findings to obtain a score.
 - Interpret affected entries in the JSON-free shared engine with exact `Maven` ecosystem and package matching, allowing
   only the literal `*` package wildcard, not arbitrary globs or other Maven repository ecosystems. Explicit versions
   and supported Maven `ECOSYSTEM` ranges form a union across matching entries. Applicability is matched, not matched,

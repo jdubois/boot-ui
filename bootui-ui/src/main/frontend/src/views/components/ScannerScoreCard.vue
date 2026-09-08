@@ -12,6 +12,7 @@ const props = defineProps({
   // idle | running | done | error
   state: {type: String, default: 'idle'},
   score: {type: Number, default: null},
+  scoreCompleteness: {type: String, default: 'complete'},
   hasReport: {type: Boolean, default: false},
   scoreLabel: {type: String, default: 'Not scored'},
   scoreReason: {type: String, default: ''},
@@ -44,8 +45,15 @@ const topSeverities = computed(() =>
 )
 
 const hasScore = computed(() => Number.isFinite(props.score))
-const bandLabel = computed(() => (hasScore.value ? scoreBandLabel(props.score) : null))
+const partial = computed(() => props.scoreCompleteness === 'partial')
+const bandLabel = computed(() =>
+  hasScore.value ? `${scoreBandLabel(props.score)}${partial.value ? ' in evaluated evidence' : ''}` : null
+)
 const bandTone = computed(() => (hasScore.value ? scoreBandTone(props.score) : 'secondary'))
+const scoreDescription = computed(
+  () =>
+    `${props.title} score: ${props.score} out of 100 — ${bandLabel.value}${partial.value ? ' — Partial assessment' : ''}`
+)
 
 function severityTone(severity) {
   return SEVERITY_TONES[String(severity).toUpperCase()] || 'text-bg-light border'
@@ -84,17 +92,17 @@ function onRun() {
             Showing the last report.
           </div>
           <template v-if="hasScore">
-            <div class="d-flex align-items-baseline gap-2">
+            <div class="d-flex align-items-baseline gap-2" role="img" :aria-label="scoreDescription">
               <span :class="['scanner-score', `scanner-score--${bandTone}`]">{{ score }}</span>
               <span class="text-muted small">/ 100</span>
-              <span :class="['badge', `text-bg-${bandTone}`, 'ms-auto']">{{ bandLabel }}</span>
+              <span :class="['badge', `text-bg-${bandTone}`, 'ms-auto', 'text-wrap']">{{ bandLabel }}</span>
             </div>
           </template>
-          <div v-else-if="hasReport">
+          <div v-if="hasReport && scoreLabel" class="scanner-assessment mt-2">
             <div class="fw-semibold">{{ scoreLabel }}</div>
             <div class="text-muted small">{{ scoreReason }}</div>
           </div>
-          <div v-else-if="state === 'idle'" class="text-muted small">{{ idleHint }}</div>
+          <div v-else-if="!hasReport && !hasScore && state === 'idle'" class="text-muted small">{{ idleHint }}</div>
           <template v-if="hasReport || hasScore">
             <div v-if="topSeverities.length" class="d-flex flex-wrap gap-1 mt-2">
               <span
@@ -105,8 +113,8 @@ function onRun() {
                 {{ entry.count }} {{ entry.severity.toLowerCase() }}
               </span>
             </div>
-            <div v-else-if="hasScore" class="text-success small mt-2">
-              <i class="bi bi-check-circle me-1"></i>No findings
+            <div v-else-if="hasScore" :class="[partial ? 'text-muted' : 'text-success', 'small mt-2']">
+              <i class="bi bi-check-circle me-1"></i>{{ partial ? 'No findings in evaluated evidence' : 'No findings' }}
             </div>
           </template>
         </slot>
@@ -195,6 +203,11 @@ function onRun() {
   font-size: 2.1rem;
   font-weight: 850;
   line-height: 1;
+  flex-shrink: 0;
+}
+
+.scanner-assessment {
+  overflow-wrap: anywhere;
 }
 
 .scanner-score--success {

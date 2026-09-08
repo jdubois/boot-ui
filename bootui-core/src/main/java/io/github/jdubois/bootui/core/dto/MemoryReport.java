@@ -19,7 +19,31 @@ public record MemoryReport(
         List<MemorySeverityCountDto> severityCounts,
         MemoryScanStatusDto scan,
         List<MemoryRuleResultDto> results,
-        List<MemoryRuleResultDto> analysisErrors) {
+        List<MemoryRuleResultDto> analysisErrors,
+        AdvisorAssessmentEvidenceDto assessmentEvidence) {
+
+    public MemoryReport(
+            boolean localOnly,
+            String disclaimer,
+            int rulesEvaluated,
+            int violationsFound,
+            MemorySummaryDto summary,
+            List<MemorySeverityCountDto> severityCounts,
+            MemoryScanStatusDto scan,
+            List<MemoryRuleResultDto> results,
+            List<MemoryRuleResultDto> analysisErrors) {
+        this(
+                localOnly,
+                disclaimer,
+                rulesEvaluated,
+                violationsFound,
+                summary,
+                severityCounts,
+                scan,
+                results,
+                analysisErrors,
+                AdvisorAssessmentEvidenceDto.unknown());
+    }
 
     public MemoryReport {
         severityCounts = DtoCollections.immutableCopy(severityCounts);

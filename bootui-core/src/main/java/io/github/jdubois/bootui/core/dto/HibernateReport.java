@@ -15,7 +15,31 @@ public record HibernateReport(
         int violationsFound,
         List<HibernateSeverityCountDto> severityCounts,
         HibernateScanStatusDto scan,
-        List<HibernateRuleResultDto> results) {
+        List<HibernateRuleResultDto> results,
+        AdvisorAssessmentEvidenceDto assessmentEvidence) {
+
+    public HibernateReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> entityPackages,
+            int entitiesAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            List<HibernateSeverityCountDto> severityCounts,
+            HibernateScanStatusDto scan,
+            List<HibernateRuleResultDto> results) {
+        this(
+                localOnly,
+                disclaimer,
+                entityPackages,
+                entitiesAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                AdvisorAssessmentEvidenceDto.unknown());
+    }
 
     public HibernateReport {
         entityPackages = DtoCollections.immutableCopy(entityPackages);

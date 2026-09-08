@@ -1,4 +1,4 @@
-import {isCompleteScan, scanStatusLabel} from './scanStatus.js'
+import {scanStatusLabel} from './scanStatus.js'
 
 // Simple weighted-penalty scoring model shared by the advisor panels and Overview.
 // Each finding subtracts a fixed number of points from a perfect score of 100.
@@ -24,51 +24,182 @@ export function isKnownSeverity(severity) {
 
 export function advisorAssessment(report, {vulnerabilities = false} = {}) {
   const status = report?.scan?.status
-  const unscored = (label, reason, invalid = false) => ({score: null, label, reason, invalid})
-  if (!isCompleteScan(status)) {
-    const message = typeof report?.scan?.message === 'string' ? report.scan.message.trim() : ''
-    const withDetails = (reason) => (message ? `${reason} ${message}` : reason)
-    if (status === 'PARTIAL') {
-      return unscored(
-        'Incomplete',
-        withDetails('The scan is incomplete. Available findings are retained, but no score is calculated.')
-      )
-    }
+  const message = typeof report?.scan?.message === 'string' ? report.scan.message.trim() : ''
+  const withDetails = (reason) => (message ? `${reason} ${message}` : reason)
+  const unscored = (reason, code, invalid = false, evidenceReasons = []) => ({
+    score: null,
+    completeness: 'none',
+    label: 'Not scored',
+    reason: withDetails(reason),
+    reasonCodes: [code, ...evidenceReasons],
+    invalid
+  })
+  if (!['SCANNED', 'PARTIAL'].includes(status) || (vulnerabilities && report.scanningEnabled === false)) {
     return unscored(
-      'Not scored',
-      withDetails(
-        status === 'NOT_SCANNED'
-          ? 'Run a scan to calculate a score.'
-          : `${scanStatusLabel(status)}. A completed scan is required to calculate a score.`
-      )
+      status === 'NOT_SCANNED'
+        ? 'Run a scan to calculate a score.'
+        : `${report?.scanningEnabled === false ? 'Scanning disabled' : scanStatusLabel(status)}. No usable assessment is available.`,
+      'SCAN_UNAVAILABLE'
     )
   }
   const counts = report?.severityCounts
   if (!isValidSeveritySummary(counts, {vulnerabilities})) {
-    return unscored('Not scored', 'Scanner returned an invalid severity summary.', true)
+    return unscored('Scanner returned an invalid severity summary.', 'INVALID_SUMMARY', true)
   }
+  if (!validEvidenceCounts(report)) {
+    return unscored('Scanner returned invalid assessment counts.', 'INVALID_COUNTS', true)
+  }
+
+  const reasons = []
+  const reasonCodes = []
+  const addReason = (code, reason) => {
+    reasonCodes.push(code)
+    reasons.push(reason)
+  }
+  if (status === 'PARTIAL') addReason('PARTIAL_SCAN', 'The scan is incomplete.')
+  const knownFindings = counts.some((entry) => entry.severity.toUpperCase() !== 'UNKNOWN' && entry.count > 0)
+  let usable = false
   if (vulnerabilities) {
+    const dependencies = report.dependencies
+    if (
+      dependencies != null &&
+      (!Array.isArray(dependencies) ||
+        dependencies.some(
+          (dependency) =>
+            !dependency ||
+            (dependency.assessmentComplete != null && typeof dependency.assessmentComplete !== 'boolean') ||
+            (Object.hasOwn(dependency, 'vulnerabilityCount') && !validCount(dependency.vulnerabilityCount)) ||
+            !Array.isArray(dependency.vulnerabilities) ||
+            dependency.vulnerabilities.some(
+              (finding) =>
+                !finding ||
+                (Object.hasOwn(finding, 'dismissed') && typeof finding.dismissed !== 'boolean') ||
+                typeof finding.severity !== 'string' ||
+                !(isKnownSeverity(finding.severity) || ['UNKNOWN', 'NONE'].includes(finding.severity.toUpperCase()))
+            )
+        ))
+    ) {
+      return unscored('Scanner returned invalid dependency assessment evidence.', 'INVALID_EVIDENCE', true)
+    }
+    const activeFindings = (dependencies || []).flatMap((dependency) =>
+      dependency.vulnerabilities.filter((finding) => !finding.dismissed)
+    )
+    if (dependencies && !matchingVulnerabilityCounts(counts, activeFindings)) {
+      return unscored('Scanner returned an inconsistent severity summary.', 'INVALID_SUMMARY', true)
+    }
+    const unknownCount = counts
+      .filter((entry) => entry.severity.toUpperCase() === 'UNKNOWN')
+      .reduce((total, entry) => total + entry.count, 0)
+    const completedKnownPackage = (dependencies || []).some(
+      (dependency) =>
+        dependency.assessmentComplete === true &&
+        !dependency.vulnerabilities.some(
+          (finding) => !finding.dismissed && finding.severity.toUpperCase() === 'UNKNOWN'
+        )
+    )
+    usable = knownFindings || completedKnownPackage
     if (report.coverage?.status !== 'COMPLETE') {
-      return unscored(
-        'Incomplete',
+      addReason(
+        'INVENTORY_COVERAGE',
         report.coverage?.status === 'INCOMPLETE'
-          ? 'Dependency inventory coverage is incomplete. Available findings are retained, but no score is calculated.'
-          : 'Dependency inventory coverage is unknown. Complete coverage is required to calculate a score.'
+          ? 'Dependency inventory coverage is incomplete.'
+          : 'Dependency inventory coverage is unknown.'
       )
     }
-    if (counts.some((entry) => entry.severity.toUpperCase() === 'UNKNOWN' && entry.count > 0)) {
-      return unscored(
-        'Incomplete',
-        'Active findings have unknown severity. No score is calculated until their severity is known or they are dismissed.'
+    if (unknownCount > 0) {
+      addReason(
+        'UNKNOWN_SEVERITY',
+        `${unknownCount} active finding(s) have unknown severity. They remain visible but are not included in the score or considered safe.`
       )
+    }
+    if (!dependencies || dependencies.some((dependency) => dependency.assessmentComplete !== true)) {
+      addReason('DEPENDENCY_EVIDENCE', 'Some package queries or advisory details were not fully assessed.')
+    }
+    if (report.scan?.packagesSkipped > 0) {
+      addReason('SKIPPED_PACKAGES', `${report.scan.packagesSkipped} package(s) were not scanned.`)
+    }
+  } else {
+    const evidence = report.assessmentEvidence
+    if (evidence != null && (typeof evidence.usable !== 'boolean' || typeof evidence.incomplete !== 'boolean')) {
+      return unscored('Scanner returned invalid assessment evidence.', 'INVALID_EVIDENCE', true)
+    }
+    usable = evidence ? evidence.usable : knownFindings
+    if (!evidence || evidence.incomplete) {
+      addReason('INCOMPLETE_EVIDENCE', 'Some required checks could not be assessed, or their coverage is unknown.')
     }
   }
-  return {score: scoreFromSeverityCounts(counts), label: '', reason: '', invalid: false}
+  if (!usable) {
+    return unscored(
+      `No usable assessment is available. Skipped, failed, or wholly unknown results do not establish a score.${reasons.length ? ` ${reasons.join(' ')}` : ''}`,
+      'NO_USABLE_EVIDENCE',
+      false,
+      reasonCodes
+    )
+  }
+  const partial = reasonCodes.length > 0
+  return {
+    score: scoreFromSeverityCounts(counts.filter((entry) => entry.severity.toUpperCase() !== 'UNKNOWN')),
+    completeness: partial ? 'partial' : 'complete',
+    label: partial ? 'Partial assessment' : '',
+    reason: partial
+      ? withDetails(`Score covers evaluated evidence only; missing checks are not passes. ${reasons.join(' ')}`)
+      : '',
+    reasonCodes,
+    invalid: false
+  }
+}
+
+function validEvidenceCounts(report) {
+  const fields = [
+    'rulesEvaluated',
+    'rulesSkipped',
+    'rulesErrored',
+    'checksRun',
+    'violationsFound',
+    'findingsFound',
+    'total',
+    'vulnerable'
+  ]
+  if (fields.some((field) => Object.hasOwn(report, field) && !validCount(report[field]))) return false
+  for (const field of [...fields, 'packagesScanned', 'packagesSkipped', 'vulnerabilitiesFound']) {
+    if (Object.hasOwn(report.scan, field) && !validCount(report.scan[field])) return false
+  }
+  if (
+    Number.isInteger(report.rulesSkipped) &&
+    Number.isInteger(report.rulesErrored) &&
+    report.rulesSkipped + report.rulesErrored > report.rulesEvaluated
+  ) {
+    return false
+  }
+  const coverage = report.coverage
+  return ['archivesFound', 'archivesIdentified', 'archivesUnidentified'].every(
+    (field) => !coverage || !Object.hasOwn(coverage, field) || validCount(coverage[field])
+  )
+}
+
+function validCount(count) {
+  return Number.isSafeInteger(count) && count >= 0
+}
+
+function matchingVulnerabilityCounts(counts, findings) {
+  const actual = new Map()
+  for (const finding of findings) {
+    const severity = finding.severity.toUpperCase()
+    actual.set(severity, (actual.get(severity) || 0) + 1)
+  }
+  return (
+    counts.every((entry) => entry.count === (actual.get(entry.severity.toUpperCase()) || 0)) &&
+    [...actual].every(([severity, count]) =>
+      counts.some((entry) => entry.severity.toUpperCase() === severity && entry.count === count)
+    )
+  )
 }
 
 export function isValidSeveritySummary(counts, {vulnerabilities = false} = {}) {
   return (
     Array.isArray(counts) &&
+    new Set(counts.map((entry) => (typeof entry?.severity === 'string' ? entry.severity.toUpperCase() : null))).size ===
+      counts.length &&
     !counts.some(
       (entry) =>
         !entry ||
@@ -80,9 +211,7 @@ export function isValidSeveritySummary(counts, {vulnerabilities = false} = {}) {
             typeof entry.severity === 'string' &&
             ['UNKNOWN', 'NONE'].includes(entry.severity.toUpperCase()))
         ) ||
-        typeof entry.count !== 'number' ||
-        !Number.isFinite(entry.count) ||
-        entry.count < 0
+        !validCount(entry.count)
     )
   )
 }
@@ -108,6 +237,17 @@ export function overallScore(scores) {
   if (!valid.length) return null
   const sum = valid.reduce((total, score) => total + score, 0)
   return clampScore(sum / valid.length)
+}
+
+export function overallAssessment(assessments) {
+  const contributors = assessments.filter((assessment) => Number.isFinite(assessment.score))
+  const partialCount = contributors.filter((assessment) => assessment.completeness === 'partial').length
+  return {
+    score: overallScore(contributors.map((assessment) => assessment.score)),
+    completeness: contributors.length === 0 ? 'none' : partialCount > 0 ? 'partial' : 'complete',
+    partialCount,
+    scoredCount: contributors.length
+  }
 }
 
 // Maps a score to a qualitative band used for color + label.

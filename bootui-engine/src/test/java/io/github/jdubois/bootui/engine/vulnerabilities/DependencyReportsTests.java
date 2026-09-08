@@ -116,10 +116,11 @@ class DependencyReportsTests {
         DependencyVulnerabilityDto vulnerability = new DependencyVulnerabilityDto(
                 id, "summary", "details", "HIGH", 7.5, aliases, List.of(), List.of(), false, null, null, true);
         DependencyDto dependency = new DependencyDto(
-                "org.example", "library", "1", "org.example:library", "test", 0, "NONE", List.of(vulnerability));
+                "org.example", "library", "1", "org.example:library", "test", 0, "NONE", List.of(vulnerability), true);
         List<DependencyDto> result = DependencyReports.applyEpssScores(List.of(dependency), scores);
         assertThat(result.get(0).vulnerabilityCount()).isZero();
         assertThat(result.get(0).highestSeverity()).isEqualTo("NONE");
+        assertThat(result.get(0).assessmentComplete()).isTrue();
         assertThat(vulnerability.epssScore()).isNull();
         return result.get(0).vulnerabilities().get(0);
     }
@@ -134,7 +135,15 @@ class DependencyReportsTests {
         String packageName = groupId + ":" + artifactId;
         List<DependencyVulnerabilityDto> vulnerabilities = List.of(vulnerability("V-" + artifactId, severity));
         return new DependencyDto(
-                groupId, artifactId, version, packageName, "test", vulnerabilities.size(), severity, vulnerabilities);
+                groupId,
+                artifactId,
+                version,
+                packageName,
+                "test",
+                vulnerabilities.size(),
+                severity,
+                vulnerabilities,
+                true);
     }
 
     private static DependencyVulnerabilityDto vulnerability(String id, String severity) {
@@ -334,6 +343,7 @@ class DependencyReportsTests {
         DependenciesReport updated = DependencyReports.applyDismissals(report, Set.of(key));
 
         DependencyDto dependency = updated.dependencies().get(0);
+        assertThat(dependency.assessmentComplete()).isTrue();
         assertThat(dependency.vulnerabilities())
                 .extracting(DependencyVulnerabilityDto::dismissed)
                 .containsExactly(true);

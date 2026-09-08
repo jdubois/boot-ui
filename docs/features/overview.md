@@ -20,20 +20,25 @@ Each scanner card shows its status and retained severity counts, with a 0–100 
 The severity-based scanners are Architecture,
 Memory, REST API, Spring, Database, Hibernate, Security, Pentesting, and Vulnerabilities. Each starts at 100 and
 subtracts a fixed weighted penalty per finding — critical 25, high 10, medium 3, low 1 — so a complete clean scan stays
-at 100. `PARTIAL` shows **Incomplete**, never a number; `ERROR`, `DISABLED`, and `NOT_SCANNED` do not score.
-Vulnerabilities additionally requires complete dependency inventory coverage and no active UNKNOWN severity;
-NONE has no penalty. Missing coverage is unknown. See [Score eligibility](advisors.md#score-eligibility).
+at 100. Usable `PARTIAL` evidence also scores, with **Partial assessment** next to the number and a missing-coverage
+explanation. A good partial score means few problems in evaluated evidence, not complete health.
+`ERROR`, `DISABLED`, `NOT_SCANNED`, invalid counts and reports without usable evidence do not score.
+Vulnerabilities scores known evidence while leaving active UNKNOWN findings visible and explicitly unscored;
+UNKNOWN, incomplete inventory or incomplete package assessments qualify the score as partial. NONE has no penalty.
+See [Score eligibility](advisors.md#score-eligibility).
 
 GitHub is not a severity scanner. It connects to the local repository and contributes a score derived from open security
 alerts, but only when the credential is connected and authenticated.
 
 The overall score, scored count, and contribution breakdown include only scanners that actually scored. The available
 scanner total does not shrink when a report is incomplete: "2 of 4 scanners scored" means the mean covers two
-assessments, not that all four passed. Disabled and unavailable panels are excluded; automatic reads wait for the
+assessments, not that all four passed. The rounded arithmetic mean is **Partial assessment** whenever a partial score
+contributes; the breakdown identifies those contributors and the card states their count. Disabled and unavailable panels are excluded; automatic reads wait for the
 panel manifest and only use supported, enabled advisor endpoints.
 Returning from a panel refreshes cached reports with GET requests, including Vulnerabilities after
 dismissal or restoration. A busy or failed request retains the last accepted report with a warning or error; an
-authoritative new incomplete/failed report replaces its old score. A `NOT_SCANNED` response, such as after an application
+authoritative new report replaces its old score and qualification, withholding the number only if unusable, invalid,
+failed or disabled. A `NOT_SCANNED` response, such as after an application
 restart, replaces the old findings and returns the card to **Run scan**. An Overview scan already in progress finishes
 before the return-navigation refresh reads its updated report.
 

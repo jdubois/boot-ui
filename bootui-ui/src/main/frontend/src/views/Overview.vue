@@ -8,7 +8,7 @@ import {scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {
   advisorAssessment,
   isValidSeveritySummary,
-  overallScore,
+  overallAssessment,
   scoreBandLabel,
   scoreBandTone,
   scoreFromSeverityCounts
@@ -132,6 +132,7 @@ function newScannerState() {
   return {
     state: 'idle',
     score: null,
+    completeness: 'none',
     hasReport: false,
     scoreLabel: '',
     scoreReason: '',
@@ -159,11 +160,11 @@ function nextToken(id) {
 
 function applyReport(def, state, report) {
   const assessment = advisorAssessment(report, {vulnerabilities: def.id === 'vulnerabilities'})
-  if (assessment.invalid) throw new Error(assessment.reason)
   const validSummary = isValidSeveritySummary(report?.severityCounts, {vulnerabilities: def.id === 'vulnerabilities'})
   state.hasReport = true
   state.severityCounts = validSummary ? report.severityCounts : []
   state.score = assessment.score
+  state.completeness = assessment.completeness
   state.scoreLabel = assessment.label
   state.scoreReason = assessment.reason
   const status = report?.scan?.status
@@ -171,7 +172,11 @@ function applyReport(def, state, report) {
   state.statusTone = scanStatusBadgeClass(status)
   state.state = status === 'NOT_SCANNED' ? 'idle' : 'done'
   state.error = null
-  state.warning = validSummary ? null : 'The report has an invalid severity summary. Its counts cannot be displayed.'
+  state.warning = assessment.invalid
+    ? assessment.reason
+    : validSummary
+      ? null
+      : 'The report has an invalid severity summary. Its counts cannot be displayed.'
 }
 
 const visibleScanners = computed(() => scannerDefs.filter((def) => panelAvailable(def.id)))
@@ -285,13 +290,20 @@ const githubScored = computed(
 
 const contributors = computed(() => {
   const items = visibleScanners.value
-    .map((def) => ({title: displayTitle(def), score: scanners[def.id].score}))
+    .map((def) => ({
+      title: displayTitle(def),
+      score: scanners[def.id].score,
+      completeness: scanners[def.id].completeness
+    }))
     .filter((item) => Number.isFinite(item.score))
-  if (githubVisible.value && githubScored.value) items.push({title: 'GitHub', score: github.score})
+  if (githubVisible.value && githubScored.value)
+    items.push({title: 'GitHub', score: github.score, completeness: 'complete'})
   return items
 })
 
-const overall = computed(() => overallScore(contributors.value.map((item) => item.score)))
+const combinedAssessment = computed(() => overallAssessment(contributors.value))
+const overall = computed(() => combinedAssessment.value.score)
+const overallPartial = computed(() => combinedAssessment.value.completeness === 'partial')
 const scoredCount = computed(() => contributors.value.length)
 
 const totalCount = computed(() => visibleScanners.value.length + (githubVisible.value ? 1 : 0))
@@ -300,12 +312,20 @@ const anyRunning = computed(
   () => github.state === 'running' || visibleScanners.value.some((def) => scanners[def.id].state === 'running')
 )
 
-const overallBandLabel = computed(() => (Number.isFinite(overall.value) ? scoreBandLabel(overall.value) : 'Not scored'))
+const overallBandLabel = computed(() =>
+  Number.isFinite(overall.value)
+    ? `${scoreBandLabel(overall.value)}${overallPartial.value ? ' in evaluated evidence' : ''}`
+    : 'Not scored'
+)
 const overallBandTone = computed(() => (Number.isFinite(overall.value) ? scoreBandTone(overall.value) : 'secondary'))
+const overallDescription = computed(
+  () =>
+    `Overall score: ${overall.value} out of 100 — ${overallBandLabel.value}${overallPartial.value ? ' — Partial assessment' : ''}`
+)
 
 const overallContributions = computed(() =>
   contributors.value
-    .map((item) => ({title: item.title, deduction: item.score - 100}))
+    .map((item) => ({title: item.title, deduction: item.score - 100, partial: item.completeness === 'partial'}))
     .sort((a, b) => a.deduction - b.deduction)
 )
 
@@ -395,26 +415,30 @@ watch(
             <div v-if="scoredCount > 0" class="flex-shrink-0 min-w-0">
               <h3 class="fs-6 text-muted fw-semibold mb-0">Overall score</h3>
               <div class="d-flex align-items-center gap-3 mt-2">
-                <div :class="['overall-gauge', `overall-gauge--${overallBandTone}`]">
+                <div
+                  :class="['overall-gauge', `overall-gauge--${overallBandTone}`]"
+                  role="img"
+                  :aria-label="overallDescription"
+                >
                   <span class="overall-gauge__value">{{ Number.isFinite(overall) ? overall : '—' }}</span>
                   <span class="overall-gauge__max">/ 100</span>
                 </div>
                 <div class="min-w-0">
                   <span
-                    :class="[
-                      'badge',
-                      `text-bg-${overallBandTone}`,
-                      'fs-6',
-                      'text-truncate',
-                      'd-inline-block',
-                      'mw-100'
-                    ]"
+                    :class="['badge', `text-bg-${overallBandTone}`, 'fs-6', 'text-wrap', 'd-inline-block', 'mw-100']"
                     >{{ overallBandLabel }}</span
                   >
                   <div class="text-muted small mt-2 text-truncate">
                     {{ scoredCount }} of {{ totalCount }} scanners scored
                   </div>
                   <div class="text-muted small">Mean of scored scanners only.</div>
+                  <div v-if="overallPartial" class="small mt-2">
+                    <strong>Partial assessment</strong>
+                    <div class="text-muted">
+                      {{ combinedAssessment.partialCount }} partial contributor(s). The score covers evaluated evidence,
+                      not complete health.
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -427,7 +451,7 @@ watch(
                     :key="item.title"
                     class="col-sm-6 col-lg-4 d-flex justify-content-between align-items-center small min-w-0"
                   >
-                    <span class="text-muted text-truncate me-2">{{ item.title }}</span>
+                    <span class="text-muted me-2"> {{ item.title }}<span v-if="item.partial"> · Partial</span> </span>
                     <span
                       :class="[
                         'flex-shrink-0',
@@ -439,14 +463,14 @@ watch(
                   </div>
                 </div>
                 <p v-else class="text-success small mb-0">
-                  <i class="bi bi-check-circle me-1"></i>All scanned advisors are passing.
+                  <i class="bi bi-check-circle me-1"></i>No active findings in evaluated evidence.
                 </p>
               </template>
               <div v-else>
                 <h3 class="fs-6 text-muted fw-semibold mb-0">Overall score</h3>
                 <p class="text-muted small mb-0 mt-1">
                   {{ scoredCount }} of {{ totalCount }} scanners scored — run the advisors to compute a combined score
-                  from complete assessments.
+                  from usable assessments.
                 </p>
               </div>
             </div>
@@ -550,6 +574,7 @@ watch(
           :to="def.to"
           :state="scanners[def.id].state"
           :score="scanners[def.id].score"
+          :score-completeness="scanners[def.id].completeness"
           :has-report="scanners[def.id].hasReport"
           :score-label="scanners[def.id].scoreLabel"
           :score-reason="scanners[def.id].scoreReason"
@@ -576,6 +601,7 @@ watch(
   border-radius: 50%;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   height: 6.5rem;
   justify-content: center;
   width: 6.5rem;

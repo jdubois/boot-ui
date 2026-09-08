@@ -42,7 +42,7 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
         }
         if (context.exceptionHandlers().stream()
                 .anyMatch(handler -> handler.handledExceptionTypes().isEmpty())) {
-            return RestApiRuleSupport.skipped(
+            return RestApiRuleSupport.unknown(
                     definition(),
                     "A handler or mapper has unresolved handled-exception types; the imported inventory cannot"
                             + " establish that a declaration is missing.");

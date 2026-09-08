@@ -7,6 +7,8 @@ import io.github.jdubois.bootui.core.dto.MemorySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.MemorySummaryDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorAssessmentEvidence;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleAssessment;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import java.time.Clock;
@@ -146,16 +148,21 @@ public final class MemoryScanner {
                 .withBufferPoolTrend(bufferPoolTrend)
                 .withOldGenTrend(oldGenTrend);
 
-        List<MemoryRuleResultDto> results = MemoryRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(evaluated))
+        List<AdvisorRuleAssessment<MemoryRuleResultDto>> assessments = MemoryRuleRegistry.activeRules().stream()
+                .map(rule -> rule.evaluateAssessment(evaluated))
                 .toList();
+        List<MemoryRuleResultDto> results =
+                assessments.stream().map(AdvisorRuleAssessment::result).toList();
+        boolean incomplete = assessments.stream().anyMatch(AdvisorRuleAssessment::incomplete);
         boolean hadErrors = results.stream().anyMatch(result -> MemoryRuleSupport.ERROR.equals(result.status()));
         String status = hadErrors ? "PARTIAL" : "SCANNED";
         String message = "Memory Advisor evaluated " + results.size() + " rules against the JVM runtime.";
         if (hadErrors) {
             message += " Some rules could not be evaluated.";
+        } else if (incomplete) {
+            message += " Some checks lack the observations needed for an assessment.";
         }
-        return report(status, message, clock.millis(), summary(evaluated), results.size(), results);
+        return report(status, message, clock.millis(), summary(evaluated), results.size(), results, incomplete);
     }
 
     /**
@@ -245,6 +252,17 @@ public final class MemoryScanner {
             MemorySummaryDto summary,
             int rulesEvaluated,
             List<MemoryRuleResultDto> results) {
+        return report(status, message, scannedAt, summary, rulesEvaluated, results, "PARTIAL".equals(status));
+    }
+
+    private MemoryReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            MemorySummaryDto summary,
+            int rulesEvaluated,
+            List<MemoryRuleResultDto> results,
+            boolean incomplete) {
         List<MemoryRuleResultDto> violations = results.stream()
                 .filter(MemoryScanner::isViolation)
                 .sorted(IMPORTANCE_ORDER)
@@ -261,7 +279,8 @@ public final class MemoryScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                AdvisorAssessmentEvidence.fromResults(results, MemoryRuleResultDto::status, incomplete));
     }
 
     public MemoryReport applyDismissals(MemoryReport report, Set<String> dismissedIds) {
@@ -291,7 +310,8 @@ public final class MemoryScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.assessmentEvidence());
     }
 
     static List<MemoryRuleResultDto> analysisErrors(List<MemoryRuleResultDto> results) {

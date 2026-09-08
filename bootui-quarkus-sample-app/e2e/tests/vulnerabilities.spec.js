@@ -1,5 +1,6 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {expectPartialAdvisorScore} from '../../../bootui-spring-sample-app/e2e/scenarios/advisor-scoring.js'
 
 /**
  * The Vulnerabilities panel lists the local runtime JAR inventory (captured at Quarkus build time from
@@ -24,7 +25,10 @@ test.describe('Vulnerabilities (Quarkus)', () => {
 
     // The fixture-backed server is configured with max-packages=3, below the real inventory size.
     await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
-    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+    await expectPartialAdvisorScore(page, expect, [
+      {severity: 'CRITICAL', count: 1},
+      {severity: 'LOW', count: 1}
+    ])
     // A truncated scan must say so rather than letting the result read as a complete one.
     const truncationWarning = page.locator('.alert-warning', {hasText: 'not sent to OSV.dev'})
     await expect(truncationWarning).toBeVisible()

@@ -26,6 +26,7 @@ function ruleResult(id, name, severity, status, violationCount = 0) {
 function restApiReport(results, violationsFound = results.filter((result) => result.status === 'VIOLATION').length) {
   return {
     localOnly: true,
+    assessmentEvidence: {usable: true, incomplete: false},
     disclaimer: 'REST API disclaimer.',
     basePackages: ['com.example'],
     controllersAnalyzed: 4,

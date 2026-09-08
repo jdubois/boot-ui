@@ -47,6 +47,7 @@ const panel = useAdvisorPanel(props, {
     <template v-if="panel.report">
       <AdvisorSummary
         :score="panel.score"
+        :score-completeness="panel.assessment.completeness"
         :score-label="panel.assessment.label"
         :score-reason="panel.assessment.reason"
         :dismissed-count="panel.dismissedResults.length"

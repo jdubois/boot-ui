@@ -30,6 +30,7 @@ function dependency(packageName, version, vulnerabilities, highestSeverity) {
     source: 'test',
     vulnerabilityCount: vulnerabilities.filter((v) => !v.dismissed).length,
     highestSeverity,
+    assessmentComplete: true,
     vulnerabilities
   }
 }
@@ -56,12 +57,12 @@ function report(
     scanningEnabled: true,
     total: dependencies.length,
     vulnerable,
-    severityCounts: [
-      {severity: 'CRITICAL', count: 0},
-      {severity: 'HIGH', count: 0},
-      {severity: 'MEDIUM', count: 0},
-      {severity: 'LOW', count: 0}
-    ],
+    severityCounts: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'NONE', 'UNKNOWN'].map((severity) => ({
+      severity,
+      count: dependencies
+        .flatMap((dependency) => dependency.vulnerabilities)
+        .filter((finding) => !finding.dismissed && finding.severity === severity).length
+    })),
     scan: {
       scanner: 'OSV.dev',
       status,
@@ -113,35 +114,31 @@ describe('Vulnerabilities', () => {
     vi.unstubAllGlobals()
   })
 
-  it.each(['INCOMPLETE', 'UNAVAILABLE', undefined])('withholds scores for %s inventory coverage', async (status) => {
-    const {wrapper} = await mountWithReports([report([], 0, 'SCANNED', {coverage: status ? coverage({status}) : null})])
-    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
-    expect(wrapper.find('.advisor-score-card').text()).toContain('Incomplete')
-    expect(wrapper.find('.advisor-score-card').text()).toContain('coverage')
-  })
+  it.each(['INCOMPLETE', 'UNAVAILABLE', undefined])(
+    'qualifies usable scores for %s inventory coverage',
+    async (status) => {
+      const {wrapper} = await mountWithReports([
+        report([dependency('org.example:sample', '1.0', [], 'NONE')], 0, 'SCANNED', {
+          coverage: status ? coverage({status}) : null
+        })
+      ])
+      expect(wrapper.find('.advisor-summary__value').text()).toBe('100')
+      expect(wrapper.find('.advisor-score-card').text()).toContain('Partial assessment')
+      expect(wrapper.find('.advisor-score-card').text()).toContain('coverage')
+    }
+  )
 
   it('recomputes the score after dismissing and restoring an UNKNOWN finding', async () => {
     const unknown = vulnerability('GHSA-unknown', 'UNKNOWN')
-    const active = report([dependency('org.example:sample', '1.0', [unknown], 'UNKNOWN')], 1, 'SCANNED', {
-      severityCounts: [
-        {severity: 'UNKNOWN', count: 1},
-        {severity: 'NONE', count: 1}
-      ]
-    })
+    const active = report([dependency('org.example:sample', '1.0', [unknown], 'UNKNOWN')])
     const dismissed = report(
       [dependency('org.example:sample', '1.0', [{...unknown, dismissed: true}], 'NONE')],
       0,
-      'SCANNED',
-      {
-        severityCounts: [
-          {severity: 'UNKNOWN', count: 0},
-          {severity: 'NONE', count: 1}
-        ]
-      }
+      'SCANNED'
     )
     const {wrapper, fetchMock} = await mountWithReports([active, dismissed, active])
     expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
-    expect(wrapper.text()).toContain('Active findings have unknown severity')
+    expect(wrapper.text()).toContain('active finding(s) have unknown severity')
     await wrapper
       .findAll('button')
       .find((b) => b.text().trim() === 'Dismiss')

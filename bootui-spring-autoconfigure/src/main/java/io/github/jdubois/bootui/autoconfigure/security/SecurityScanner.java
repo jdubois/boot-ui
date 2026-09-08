@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SecuritySeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorAssessmentEvidence;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -168,7 +169,9 @@ final class SecurityScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                AdvisorAssessmentEvidence.fromResults(
+                        results, SecurityRuleResultDto::status, "PARTIAL".equals(status)));
     }
 
     // The most recent context, captured so the report can list chain matchers.
@@ -203,7 +206,8 @@ final class SecurityScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.assessmentEvidence());
     }
 
     static List<SecurityRuleResultDto> analysisErrors(List<SecurityRuleResultDto> results) {

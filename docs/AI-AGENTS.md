@@ -207,10 +207,13 @@ the classpath) are simply not advertised.
 ### Reading a bounded result
 
 Advisor tool success means a report was returned, not that its assessment is complete or healthy. Inspect
-`scan.status` and the retained diagnostics: only `SCANNED` reports are eligible for the UI's numeric score;
-`PARTIAL`, `ERROR`, and `DISABLED` reports remain useful but unscored. Vulnerability scoring also requires
-`coverage.status=COMPLETE` and no active UNKNOWN severity findings. Missing coverage is unknown; NONE (CVSS zero)
-has no penalty, and dismissed findings are excluded from the severity summary.
+`scan.status`, `assessmentEvidence` and retained diagnostics. `SCANNED` and `PARTIAL` reports with usable evidence
+and valid counts can score; partial scores explicitly cover evaluated evidence only. All-skipped, wholly failed,
+disabled, unscanned or unusable reports remain unscored. For Vulnerabilities, `dependencies[].assessmentComplete`
+records completed query/detail/association evidence, separately from inventory coverage and severity. Known findings
+remain scoreable alongside active UNKNOWN findings, but UNKNOWN is never treated as safe and forces partial
+qualification. Wholly UNKNOWN evidence without another completed known assessment has no score. NONE (CVSS zero)
+has no penalty, and dismissed findings are excluded from the severity summary without erasing coverage gaps.
 
 The aggregate Overview score is calculated in the browser, not by a separate MCP or CLI scorer. `get_overview`
 (`bootui overview`) returns application context, not that aggregate. CLI transport success and unchanged JSON output

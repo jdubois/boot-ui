@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.ArchitectureScanStatusDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorAssessmentEvidence;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.Comparator;
@@ -214,7 +215,9 @@ public final class ArchitectureScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                AdvisorAssessmentEvidence.fromResults(
+                        results, ArchitectureRuleResultDto::status, "PARTIAL".equals(status)));
     }
 
     public ArchitectureReport applyDismissals(ArchitectureReport report, Set<String> dismissedIds) {
@@ -246,7 +249,8 @@ public final class ArchitectureScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.assessmentEvidence());
     }
 
     static List<ArchitectureRuleResultDto> analysisErrors(List<ArchitectureRuleResultDto> results) {

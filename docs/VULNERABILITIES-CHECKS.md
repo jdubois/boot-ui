@@ -6,9 +6,10 @@ interpretation; Spring and Quarkus retain their native HTTP/JSON adapters.
 
 This catalogue records the evidence rules and complete audit disposition for
 [#978](https://github.com/jdubois/boot-ui/issues/978). Research did not submit a dependency inventory or run an external
-scan. The change concerns OSV interpretation and reporting, not inventory repairs or a new scanner. **Advisor scores,
-Overview, gauges, score eligibility, and dismissal refresh are handed off to the independent central scoring workstream;
-they are not implemented by this change.** Security and Pentesting remain separate advisors.
+scan. That change concerned OSV interpretation and reporting, not inventory repairs or a new scanner. Its scoring
+handoff is addressed by the subsequent user-approved [shared scoring policy](features/advisors.md#score-eligibility)
+([#989](https://github.com/jdubois/boot-ui/issues/989)): usable partial evidence scores with explicit qualification.
+Security and Pentesting remain separate advisors.
 
 ## Reading the result
 
@@ -26,7 +27,13 @@ Keep three kinds of evidence separate:
 finding was retained in that partial result. Even a completed lookup does not prove the application safe, reachable code
 free of vulnerabilities, or the upstream database exhaustive.
 
-The immutable DTO fields, routes, MCP tools, CLI commands, configuration defaults, and
+Dependency DTOs additionally expose `assessmentComplete`: query pagination completed, every required detail was
+resolved (including valid withdrawals), and no package association remained unresolved. Unqueried/bounded-away
+packages or failed details cannot masquerade as a clean assessment. This fact does not assert known severity or
+complete inventory. Known findings still count when another detail fails; UNKNOWN findings stay visible and are
+explicitly unscored. A wholly UNKNOWN result without independently usable evidence remains unscored.
+
+Routes, MCP tools, CLI commands, configuration defaults, and
 `advisoryId::packageName` dismissal identities do not change. Findings count **advisory occurrences per dependency**,
 not unique CVEs: different advisory IDs can describe the same CVE.
 
@@ -314,7 +321,8 @@ These are acceptance cases for the implementation, **not a claim that validation
 - Equivalent neutral results through Jackson 3 and Jackson 2, unchanged cached/dismiss/restore identities and policy,
   no GET-triggered external calls, and retained partial browser rows with accurate local EPSS wording.
 
-Scoring/Overview regression obligations remain with the central scoring change. Inventory repair acceptance cases,
+Scoring/Overview regression obligations are covered by the central partial-assessment change; the HANDOFF rows above
+record the original audit boundary, not current score eligibility. Inventory repair acceptance cases,
 CVSS v4, total scan deadline, date/model provenance, reachability, automated upgrades, and presentation version sorting
 are deferred, not silently included in this evidence-interpreter change.
 

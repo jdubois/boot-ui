@@ -4,6 +4,7 @@ import {scoreBandLabel, scoreBandTone} from '../../utils/scannerScore.js'
 
 const props = defineProps({
   score: {type: Number, default: null},
+  scoreCompleteness: {type: String, default: 'complete'},
   scoreLabel: {type: String, default: ''},
   scoreReason: {type: String, default: ''},
   dismissedCount: {type: Number, default: 0},
@@ -14,13 +15,18 @@ const props = defineProps({
 })
 
 const hasScore = computed(() => Number.isFinite(props.score))
+const partial = computed(() => props.scoreCompleteness === 'partial')
 const metricList = computed(
   () => /** @type {Array<{label: string, value: string|number, hint?: string}>} */ (props.metrics || [])
 )
-const bandLabel = computed(() => (hasScore.value ? scoreBandLabel(props.score) : null))
+const bandLabel = computed(() =>
+  hasScore.value ? `${scoreBandLabel(props.score)}${partial.value ? ' in evaluated evidence' : ''}` : null
+)
 const bandTone = computed(() => (hasScore.value ? scoreBandTone(props.score) : 'secondary'))
 const gaugeLabel = computed(() =>
-  hasScore.value ? `Advisor score: ${props.score} out of 100 — ${bandLabel.value}` : null
+  hasScore.value
+    ? `Advisor score: ${props.score} out of 100 — ${bandLabel.value}${partial.value ? ' — Partial assessment' : ''}`
+    : null
 )
 </script>
 
@@ -35,13 +41,13 @@ const gaugeLabel = computed(() =>
           </div>
           <div class="advisor-summary__band">
             <div class="advisor-summary__band-label">Advisor score</div>
-            <span :class="['badge', `text-bg-${bandTone}`, 'fs-6']">{{ bandLabel }}</span>
+            <span :class="['badge', `text-bg-${bandTone}`, 'fs-6', 'text-wrap']">{{ bandLabel }}</span>
           </div>
         </div>
 
         <div v-if="hasScore" class="advisor-summary__divider" aria-hidden="true"></div>
 
-        <div v-if="!hasScore && scoreLabel" class="advisor-summary__assessment">
+        <div v-if="scoreLabel" class="advisor-summary__assessment">
           <div class="fw-semibold">{{ scoreLabel }}</div>
           <div class="small text-muted">{{ scoreReason }}</div>
         </div>
@@ -82,11 +88,13 @@ const gaugeLabel = computed(() =>
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .advisor-summary__assessment {
   flex: 1 1 16rem;
+  overflow-wrap: anywhere;
 }
 
 /* Tone (success/warning/danger) is carried by the global, theme-tuned .text-* utility
@@ -101,6 +109,7 @@ const gaugeLabel = computed(() =>
   height: 4.75rem;
   border: 0.3rem solid currentColor;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .advisor-summary__value {

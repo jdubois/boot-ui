@@ -9,6 +9,9 @@ traffic, or modify security configuration. Credentials, keys and session identif
 The checks are heuristic review prompts. They highlight common Spring Security hardening gaps, but the right remediation
 still depends on the application's threat model and deployment topology.
 
+Both servlet and reactive reports carry `assessmentEvidence` captured from actual rule outcomes before filtering.
+Usable partial evidence remains scoreable with visible limits under the [shared policy](features/advisors.md#score-eligibility).
+
 Actuator exposure checks ignore BootUI's own low-priority local actuator defaults. Those defaults are merged into
 Spring Boot's shared `defaultProperties` source (only for keys the host has not set) so local panels can read Actuator
 data, and host `management.*` settings always win. If the host application explicitly configures actuator exposure
