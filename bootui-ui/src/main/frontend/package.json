@@ -16,8 +16,8 @@
   "dependencies": {
     "bootstrap": "5.3.8",
     "bootstrap-icons": "1.13.1",
-    "vue": "3.5.41",
-    "vue-router": "5.2.0"
+    "vue": "3.5.42",
+    "vue-router": "5.3.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.8",
