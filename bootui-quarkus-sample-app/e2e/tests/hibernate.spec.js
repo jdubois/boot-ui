@@ -1,5 +1,6 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {expectedAdvisorScore} from '../../../bootui-spring-sample-app/e2e/scenarios/advisor-scoring.js'
 
 /**
  * The Hibernate advisor runs the shared engine's mapping/identifier/fetch rules against the live JPA
@@ -30,8 +31,10 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     }
     expect(report.results.some((result) => result.id.startsWith('HIB-QUERY-'))).toBe(false)
 
-    await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
-    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+    await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Results available')
+    expect(report.evidence.usable).toBe(true)
+    await expect(page.locator('.advisor-summary__value')).toHaveText(String(expectedAdvisorScore(report)))
+    await expect(page.getByRole('img', {name: /Known-findings score: .*Scan notes available/})).toHaveCount(1)
     await expect(page.locator('main')).toContainText('Entities analysed')
 
     // Effective batching makes the stronger IDENTITY finding apply, without duplicate generic advice.

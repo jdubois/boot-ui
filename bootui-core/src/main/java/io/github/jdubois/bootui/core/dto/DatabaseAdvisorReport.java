@@ -30,13 +30,48 @@ public record DatabaseAdvisorReport(
         List<DatabaseAdvisorSeverityCountDto> severityCounts,
         DatabaseAdvisorScanStatusDto scan,
         List<DatabaseAdvisorRuleResultDto> results,
-        List<DatabaseAdvisorDiagnosticDto> diagnostics) {
+        List<DatabaseAdvisorDiagnosticDto> diagnostics,
+        AdvisorEvidenceDto evidence) {
 
     public DatabaseAdvisorReport {
+        evidence = evidence == null ? AdvisorEvidenceDto.unknown() : evidence;
         dataSourceNames = DtoCollections.immutableCopy(dataSourceNames);
         dataSources = DtoCollections.immutableCopy(dataSources);
         severityCounts = DtoCollections.immutableCopy(severityCounts);
         results = DtoCollections.immutableCopy(results);
         diagnostics = DtoCollections.immutableCopy(diagnostics);
+    }
+
+    public DatabaseAdvisorReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> dataSourceNames,
+            List<DatabaseAdvisorDataSourceDto> dataSources,
+            int tablesAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            int rulesSkipped,
+            int rulesErrored,
+            boolean truncated,
+            List<DatabaseAdvisorSeverityCountDto> severityCounts,
+            DatabaseAdvisorScanStatusDto scan,
+            List<DatabaseAdvisorRuleResultDto> results,
+            List<DatabaseAdvisorDiagnosticDto> diagnostics) {
+        this(
+                localOnly,
+                disclaimer,
+                dataSourceNames,
+                dataSources,
+                tablesAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                rulesSkipped,
+                rulesErrored,
+                truncated,
+                severityCounts,
+                scan,
+                results,
+                diagnostics,
+                AdvisorEvidenceDto.unknown());
     }
 }

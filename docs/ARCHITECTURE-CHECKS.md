@@ -15,6 +15,9 @@ module, so the exact same ruleset runs unmodified on both the Spring and Quarkus
 
 ## What BootUI does
 
+Import/evaluation gaps qualify usable known-findings scores; they never become passing checks.
+See the shared [score eligibility policy](features/advisors.md#score-eligibility).
+
 The scanner detects the host application's base package(s) — via the Spring adapter's `@SpringBootApplication`
 configuration (`AutoConfigurationPackages`) or, on Quarkus, via a build-time `BasePackageProvider` seam that reduces the
 Jandex application index to a package root antichain (see [`docs/QUARKUS-SUPPORT.md`](QUARKUS-SUPPORT.md)) — imports the
@@ -39,7 +42,11 @@ usable package roots or importable classes were found.
 Known package-discovery or import failures produce an `ERROR` scan, not a successful empty result. If a rule fails,
 the scan is `PARTIAL` when other rules could be evaluated, or `ERROR` if none could; valid findings remain available
 alongside per-rule `analysisErrors`. Failure details identify the error type without exposing arbitrary exception
-messages. An actual empty package/class result is distinguished by its explanatory message and zero evaluated rules.
+messages. A successful import under known base packages that finds no classes records explicit complete-empty
+evidence: `usable: false`, `coverageComplete: true`, and no limitations.
+It stays unscored and **Not applicable**, not incomplete or a fabricated 100. No detectable base packages still means
+unknown coverage even if the scan status is `SCANNED`; its explanatory message and zero rules do not establish absence.
+These distinctions apply to Spring MVC, WebFlux, and Quarkus through the shared scanner.
 
 The exact same rules, including the `SPRING_STEREOTYPES` category below, run unmodified against Quarkus/CDI
 applications: rules keyed on Spring-only annotations (`@Autowired`, `@Component`, `@Service`, …) simply match zero

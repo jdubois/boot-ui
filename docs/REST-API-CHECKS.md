@@ -18,6 +18,10 @@ catalogue; Spring-only checks use Spring declarations, including when both frame
 
 ## What BootUI does
 
+Missing required handler evidence qualifies usable known-findings scores. Retired and deliberately inapplicable
+rules do not themselves create coverage gaps. See the shared
+[score eligibility policy](features/advisors.md#score-eligibility).
+
 The scanner resolves application base packages from Spring's `AutoConfigurationPackages` or Quarkus's build-time
 Jandex index, imports compiled classes with ArchUnit, and derives a bounded, read-only handler model. It records
 observable HTTP methods, paths, binding annotations, media declarations, response shapes, validation annotations,
@@ -77,7 +81,11 @@ with a bounded, sanitized explanation and any reliable findings retained. An imp
 clean empty `SCANNED` report. A successfully analyzed application with no eligible controllers can still have no
 findings. Missing, empty, or malformed base-package names are rejected before importing and produce `PARTIAL` on an
 attempted scan; they never broaden the import to the classpath root. A successful import that finds no supported
-controllers remains `SCANNED`. Before an attempted scan, the initial report remains `NOT_SCANNED` and can explain a
+controllers remains `SCANNED` only when model extraction also completed. It records `usable: false`,
+`coverageComplete: true`, and no limitations, including when the imported class set is empty.
+This confirmed empty scope stays unscored and **Not applicable**, not incomplete or a fabricated 100, on MVC,
+WebFlux, and Quarkus. Failed or incomplete extraction remains incomplete even when no controllers were retained.
+Before an attempted scan, the initial report remains `NOT_SCANNED` and can explain a
 base-package discovery failure.
 
 Incomplete extraction suppresses absence-based ERR-001 and ERR-009 conclusions while preserving reliable positive
@@ -117,8 +125,8 @@ Spring or MicroProfile OpenAPI on Quarkus. Both annotation families are recogniz
 mandatory. Missing annotations are not proof that generated or static documentation is absent.
 
 The shared advisor score weights concrete findings, not just violated rule IDs; dismissing a rule removes its
-findings from that calculation. Only a complete `SCANNED` report is score-eligible. This audit does not change the
-score formula or UI.
+findings from that calculation. `SCANNED` and `PARTIAL` reports can score usable observed evidence, while complete-empty
+scope remains unscored. Coverage gaps remain in scan notes; the penalty formula is unchanged.
 
 ## Routing & HTTP method mapping
 

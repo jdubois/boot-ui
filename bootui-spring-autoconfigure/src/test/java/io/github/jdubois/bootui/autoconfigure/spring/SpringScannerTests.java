@@ -74,6 +74,9 @@ class SpringScannerTests {
 
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.componentsAnalyzed()).isEqualTo(120);
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations()).isNotEmpty();
         assertThat(report.rulesEvaluated()).isEqualTo(RULE_COUNT);
         assertThat(report.violationsFound())
                 .isPositive()
@@ -204,6 +207,7 @@ class SpringScannerTests {
         // Counts and score inputs are recomputed from the active (non-dismissed) violations only.
         assertThat(dismissed.violationsFound()).isEqualTo(report.violationsFound() - 1);
         assertThat(dismissed.scan().violationsFound()).isEqualTo(dismissed.violationsFound());
+        assertThat(dismissed.evidence()).isEqualTo(report.evidence());
         assertThat(dismissed.results())
                 .filteredOn(result -> !result.dismissed())
                 .hasSize(dismissed.violationsFound());
@@ -272,6 +276,60 @@ class SpringScannerTests {
 
         assertThat(errors).extracting(SpringRuleResultDto::id).containsExactly("SPRING-T-003", "SPRING-T-004");
         assertThat(errors).extracting(SpringRuleResultDto::status).containsOnly(SpringRuleSupport.ERROR);
+    }
+
+    @Test
+    void unknownFailedAndVacuousRulesDoNotCountAsCompleted() {
+        SpringContext context = SpringContext.builder(new MockEnvironment()).build();
+        assertThat(SpringScanner.evidence(context).usable()).isFalse();
+        new BeanDefinitionOverridingRule().evaluate(context);
+        new DuplicateObjectMapperRule().evaluate(context);
+        new AbstractSpringRule("TEST-001", "Failure", SpringCategory.CONFIGURATION, "INFO", "", "", "") {
+            @Override
+            SpringRuleResultDto evaluateRule(SpringContext c) {
+                c.applies(true);
+                throw new IllegalStateException("secret-password-in-exception");
+            }
+        }.evaluate(context);
+        var evidence = SpringScanner.evidence(context);
+        assertThat(evidence.usable()).isFalse();
+        assertThat(evidence.coverageComplete()).isFalse();
+        assertThat(evidence.limitations()).anyMatch(reason -> reason.contains("Spring rule evaluation failed"));
+        assertThat(evidence.limitations()).anyMatch(reason -> reason.contains("metadata is unavailable"));
+        assertThat(evidence.limitations()).noneMatch(reason -> reason.contains("secret-password-in-exception"));
+        new DebugOrTraceLoggingRule().evaluate(context);
+        var partial = SpringScanner.evidence(context);
+        assertThat(partial.usable()).isTrue();
+        assertThat(partial.coverageComplete()).isFalse();
+    }
+
+    @Test
+    void evaluatorOwnedApplicabilityDistinguishesEmptyAndObservedCandidates() {
+        SpringContext empty = SpringContext.builder(new MockEnvironment()).build();
+        assertThat(new DuplicateObjectMapperRule().evaluate(empty).status()).isEqualTo("PASS");
+        assertThat(SpringScanner.evidence(empty).usable()).isFalse();
+
+        SpringContext observed = SpringContext.builder(new MockEnvironment())
+                .objectMappers(List.of(new BeanRef("objectMapper", false)))
+                .build();
+        assertThat(new DuplicateObjectMapperRule().evaluate(observed).status()).isEqualTo("PASS");
+        assertThat(SpringScanner.evidence(observed).usable()).isTrue();
+    }
+
+    @Test
+    void scanEvidenceIsResetAndInfoFindingsRemainObservedAfterDismissal() {
+        SpringScanner scanner =
+                new SpringScanner(SpringContext.builder(new MockEnvironment()).build(), CLOCK);
+        SpringReport first = scanner.scan();
+        SpringReport second = scanner.scan();
+        assertThat(second.evidence()).isEqualTo(first.evidence());
+        assertThat(first.evidence().usable()).isTrue();
+        assertThat(first.results()).anySatisfy(result -> {
+            assertThat(result.id()).isEqualTo("SPRING-CONFIG-004");
+            assertThat(result.severity()).isEqualTo("INFO");
+        });
+        assertThat(scanner.applyDismissals(first, Set.of("SPRING-CONFIG-004")).evidence())
+                .isEqualTo(first.evidence());
     }
 
     @Test

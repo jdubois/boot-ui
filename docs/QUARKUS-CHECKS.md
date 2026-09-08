@@ -24,6 +24,11 @@ are not evaluated on Spring.
 
 ## Availability and bounds
 
+Known-findings scores follow the same [score eligibility policy](features/advisors.md#score-eligibility) as Spring.
+A required observation left unknown by native evaluation
+produces `PARTIAL` even when collection succeeded and no finding was emitted. Inapplicable extension checks alone
+do not make coverage incomplete.
+
 The advisor is available on Quarkus without a security extension. Supported configuration facts are collected on
 explicit scans; endpoint declarations are captured at build time. Missing, inactive, unsupported and invalid
 observations are distinct: invalid or unreadable evidence is not silently treated as an absent control.

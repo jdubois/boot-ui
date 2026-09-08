@@ -8,14 +8,14 @@ import org.springframework.cache.CacheManager;
  * {@link CacheManager} — e.g. {@code SpringCacheProvider}'s topology/type inspection — can unwrap it, the
  * same way {@code SqlTracedDataSource} lets connection-pool discovery see past the SQL tracing proxy.
  */
-interface CacheActivityAware {
+public interface CacheActivityAware {
 
     /** The real {@link CacheManager} this instance decorates. */
     CacheManager getTargetCacheManager();
 
-    /** Unwraps {@code manager} if it is activity-decorated, otherwise returns it unchanged. */
+    /** Unwraps only BootUI's final native decorator, never a custom delegate callback. */
     static CacheManager unwrap(CacheManager manager) {
-        return manager instanceof CacheActivityAware aware ? aware.getTargetCacheManager() : manager;
+        return manager instanceof CacheActivityCacheManager activity ? activity.getTargetCacheManager() : manager;
     }
 
     /**

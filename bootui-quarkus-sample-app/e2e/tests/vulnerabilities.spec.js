@@ -23,8 +23,10 @@ test.describe('Vulnerabilities (Quarkus)', () => {
     await page.getByRole('button', {name: 'Scan with OSV.dev'}).click()
 
     // The fixture-backed server is configured with max-packages=3, below the real inventory size.
-    await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
-    await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+    await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Results available')
+    // One CRITICAL (-25) and one LOW (-1) remain usable despite the package cap.
+    await expect(page.locator('.advisor-summary__value')).toHaveText('74')
+    await expect(page.getByRole('img', {name: /Known-findings score: 74.*Scan notes available/})).toHaveCount(1)
     // A truncated scan must say so rather than letting the result read as a complete one.
     const truncationWarning = page.locator('.alert-warning', {hasText: 'not sent to OSV.dev'})
     await expect(truncationWarning).toBeVisible()

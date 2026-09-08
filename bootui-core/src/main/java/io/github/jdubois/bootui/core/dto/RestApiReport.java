@@ -16,11 +16,38 @@ public record RestApiReport(
         int violationsFound,
         List<RestApiSeverityCountDto> severityCounts,
         RestApiScanStatusDto scan,
-        List<RestApiRuleResultDto> results) {
+        List<RestApiRuleResultDto> results,
+        AdvisorEvidenceDto evidence) {
 
     public RestApiReport {
+        evidence = evidence == null ? AdvisorEvidenceDto.unknown() : evidence;
         basePackages = DtoCollections.immutableCopy(basePackages);
         severityCounts = DtoCollections.immutableCopy(severityCounts);
         results = DtoCollections.immutableCopy(results);
+    }
+
+    public RestApiReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> basePackages,
+            int controllersAnalyzed,
+            int handlersAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            List<RestApiSeverityCountDto> severityCounts,
+            RestApiScanStatusDto scan,
+            List<RestApiRuleResultDto> results) {
+        this(
+                localOnly,
+                disclaimer,
+                basePackages,
+                controllersAnalyzed,
+                handlersAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                AdvisorEvidenceDto.unknown());
     }
 }

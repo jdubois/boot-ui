@@ -191,7 +191,8 @@ final class QuarkusAppChecks {
             List<SpringRuleResultDto> findings,
             List<SpringRuleResultDto> errors,
             int rulesEvaluated,
-            boolean evidenceInspected) {}
+            boolean evidenceInspected,
+            boolean usable) {}
 
     static Evaluation evaluate(QuarkusAppSnapshot snapshot) {
         List<SpringRuleResultDto> findings = new ArrayList<>();
@@ -213,8 +214,10 @@ final class QuarkusAppChecks {
                     .forEach(resourceFields::add);
         }
         int evaluated = 0;
+        boolean usable = false;
         boolean inspected = metadata != null && metadata.available();
         for (Check check : CHECKS) {
+            boolean applicableObservation = false;
             List<String> samples = new ArrayList<>();
             String severity = check.severity();
             if (check.configuration()) {
@@ -233,6 +236,7 @@ final class QuarkusAppChecks {
                             continue;
                         }
                         inspected = true;
+                        applicableObservation = true;
                         if (check.triggers().contains(setting.value())) {
                             samples.add(setting.target() + ": " + setting.value() + " (" + setting.provenance() + ")");
                             if (check.id().equals("QA-PROD-002")
@@ -259,6 +263,8 @@ final class QuarkusAppChecks {
                             fail(failures, check.id(), Reason.RUNTIME_JDK_UNAVAILABLE);
                         } else {
                             samples.addAll(metadata.synchronizedVirtualThreadMethods());
+                            applicableObservation =
+                                    !metadata.synchronizedVirtualThreadMethods().isEmpty();
                         }
                     } else {
                         for (QuarkusAppMetadata.SharedField field : metadata.sharedFields()) {
@@ -273,6 +279,7 @@ final class QuarkusAppChecks {
                             if (check.id().equals(fieldRule)
                                     && (field.resource() || !resourceFields.contains(identity))) {
                                 samples.add(identity);
+                                applicableObservation = true;
                             }
                         }
                     }
@@ -280,6 +287,7 @@ final class QuarkusAppChecks {
             }
             List<String> unique = samples.stream().distinct().sorted().toList();
             if (!unique.isEmpty()) {
+                usable = true;
                 inspected = true;
                 findings.add(check.result(
                         severity,
@@ -291,10 +299,11 @@ final class QuarkusAppChecks {
                 errors.add(error(check, failures.get(check.id())));
             } else {
                 evaluated++;
+                usable |= applicableObservation;
                 inspected = true;
             }
         }
-        return new Evaluation(List.copyOf(findings), List.copyOf(errors), evaluated, inspected);
+        return new Evaluation(List.copyOf(findings), List.copyOf(errors), evaluated, inspected, usable);
     }
 
     private static void recordProblem(Map<String, Set<Reason>> failures, QuarkusAppEvidenceProblem problem) {

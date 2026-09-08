@@ -22,6 +22,7 @@ function ruleResult(id, name, severity, status, violationCount = 0) {
 function advisorReport(results, violationsFound = results.filter((result) => result.status === 'VIOLATION').length) {
   return {
     localOnly: true,
+    evidence: {usable: true, coverageComplete: true, limitations: []},
     disclaimer: 'Spring disclaimer.',
     inspected: ['Active profiles: none', 'Bean definitions: 120'],
     componentsAnalyzed: 120,
@@ -68,6 +69,25 @@ describe('Spring', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each([true, false])(
+    'keeps score 91 and forwards scan notes independently of scan status (%s)',
+    async (incomplete) => {
+      const report = advisorReport([ruleResult('SPRING-1', 'Retained finding', 'MEDIUM', 'VIOLATION', 3)])
+      report.evidence.coverageComplete = !incomplete
+      report.evidence.limitations = incomplete ? ['Metadata unavailable.'] : []
+      const wrapper = await mountWithReport(report)
+
+      expect(wrapper.get('.advisor-summary__value').text()).toBe('91')
+      expect(wrapper.get('.advisor-summary__metric--status .badge').text()).toBe('Results available')
+      expect(wrapper.find('.advisor-summary__assessment').exists()).toBe(false)
+      expect(wrapper.find('details.advisor-summary__notes').exists()).toBe(incomplete)
+      if (incomplete) {
+        expect(wrapper.get('details.advisor-summary__notes').element.open).toBe(false)
+        expect(wrapper.get('details.advisor-summary__notes p').text()).toContain('Metadata unavailable.')
+      }
+    }
+  )
+
   it('shows only advisor findings sorted by importance', async () => {
     const wrapper = await mountWithReport(
       advisorReport([
@@ -78,7 +98,7 @@ describe('Spring', () => {
       ])
     )
 
-    expect(wrapper.text()).toContain('Scan complete')
+    expect(wrapper.text()).toContain('Results available')
     expect(wrapper.text()).toContain('3 violating rules, sorted by importance')
     expect(wrapper.text()).toContain('What happened:')
     expect(wrapper.text()).toContain('2 findings found for this rule.')
@@ -145,7 +165,7 @@ describe('Spring', () => {
     // HIGH (10) + MEDIUM (3) penalty => 100 - 13 = 87.
     const scoreCard = wrapper.find('.advisor-score-card')
     expect(scoreCard.exists()).toBe(true)
-    expect(scoreCard.text()).toContain('Advisor score')
+    expect(scoreCard.text()).toContain('Known-findings score')
     expect(scoreCard.text()).toContain('87')
 
     // The first dismiss button targets the highest-importance finding (HIGH).
@@ -155,7 +175,7 @@ describe('Spring', () => {
 
     // Removing the HIGH finding drops the penalty to 3 => 97, and the exclusion is noted.
     expect(wrapper.find('.advisor-score-card').text()).toContain('97')
-    expect(wrapper.text()).toContain('1 dismissed rule(s) excluded from this score')
+    expect(wrapper.text()).toContain('1 dismissed rule(s) excluded from active findings')
   })
 
   it('renders Quarkus advisor copy when the platform is quarkus', async () => {

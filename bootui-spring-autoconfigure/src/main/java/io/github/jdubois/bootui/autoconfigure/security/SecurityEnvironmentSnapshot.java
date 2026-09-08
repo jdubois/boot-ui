@@ -169,6 +169,21 @@ final class SecurityEnvironmentSnapshot extends StandardEnvironment {
                                     "org.springframework.mock.web.MockServletConfig")
                             .contains(raw.getClass().getName())) {
                 raw = field(raw, raw.getClass(), "initParameters");
+            } else if (type.equals("org.springframework.web.context.support.ServletContextPropertySource")
+                    && raw != null
+                    && raw.getClass().getName().equals("org.apache.catalina.core.ApplicationContextFacade")) {
+                // Tomcat's standard facade delegates init parameters to this native map. Do not invoke
+                // ServletContext callbacks, or trust a subclass/custom backing map.
+                Object context = field(raw, raw.getClass(), "context");
+                if (context == null
+                        || !context.getClass().getName().equals("org.apache.catalina.core.ApplicationContext")) {
+                    barrier(name, null);
+                    return;
+                }
+                barrier(
+                        name + " container aliases",
+                        Set.of("org.apache.jasper.XML_VALIDATE_TLD", "org.apache.jasper.XML_BLOCK_EXTERNAL"));
+                raw = field(context, context.getClass(), "parameters");
             } else {
                 barrier(name, null);
                 return;

@@ -521,15 +521,49 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("SKIPPED");
-        assertThat(evaluate(rule, prod, Map.of(OSIV, "Boot servlet interceptor/configurer registration"))
+        assertThat(evaluate(
+                                rule,
+                                prod,
+                                Map.of(
+                                        OSIV,
+                                        new SpringObservations.OsivObservation(
+                                                "Boot servlet interceptor/configurer registration", true)))
                         .severity())
                 .isEqualTo("MEDIUM");
-        assertThat(rule.evaluate(context(prod, Map.of(OSIV, "registration"))
+        assertThat(rule.evaluate(context(
+                                        prod,
+                                        Map.of(OSIV, new SpringObservations.OsivObservation("registration", true)))
                                 .reactive(true)
                                 .build())
                         .status())
                 .isEqualTo("SKIPPED");
         assertThat(rule.definition().description()).contains("does not prove a held JDBC connection");
+    }
+
+    @Test
+    void absentJpaDoesNotCreateAnOsivEvidenceGapButUnreadableJpaStillDoes() {
+        var rule = new OpenSessionInViewEnabledRule();
+        var noJpa = context(new MockEnvironment(), Map.of()).build();
+        assertThat(rule.evaluate(noJpa).status()).isEqualTo("SKIPPED");
+        var noJpaEvidence = noJpa.observations().evaluation().evidence(List.of());
+        assertThat(noJpaEvidence.usable()).isFalse();
+        assertThat(noJpaEvidence.coverageComplete()).isTrue();
+
+        var jpa = context(new MockEnvironment(), Map.of())
+                .entityManagerFactoryPresent(true)
+                .build();
+        assertThat(rule.evaluate(jpa).status()).isEqualTo("SKIPPED");
+        assertThat(jpa.observations().evaluation().evidence(List.of()).coverageComplete())
+                .isFalse();
+
+        var unknownInventory = SpringContext.builder(new MockEnvironment()).build();
+        rule.evaluate(unknownInventory);
+        assertThat(unknownInventory
+                        .observations()
+                        .evaluation()
+                        .evidence(List.of())
+                        .coverageComplete())
+                .isFalse();
     }
 
     @Test

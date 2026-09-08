@@ -1,5 +1,11 @@
 # Security
 
+Security diagnostics and a numeric advisor score are different signals. The Security, Pentesting, and Vulnerabilities
+advisors can score usable observed evidence even when coverage is incomplete; they show **Results available**
+with secondary **Scan notes** in the panel and a notes hint in Overview. A partial 100 is not a security certification or proof that
+unchecked controls passed. Failed, skipped, or UNKNOWN-only evidence cannot establish a score, including after
+dismissal. See [Score eligibility](advisors.md#score-eligibility) for completion and vulnerability query/detail semantics.
+
 ## Spring Security
 
 ![BootUI Spring Security panel](../images/bootui-spring-security.webp)

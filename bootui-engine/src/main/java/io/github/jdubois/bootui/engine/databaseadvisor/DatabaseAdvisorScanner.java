@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDataSourceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
@@ -193,9 +194,21 @@ public final class DatabaseAdvisorScanner {
 
         DatabaseAdvisorContext context = new DatabaseAdvisorContext(
                 schemas, hibernateAvailable, mappedEntities, safeObservedStatements(diagnostics));
-        List<DatabaseAdvisorRuleResultDto> results = DatabaseAdvisorRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(context))
-                .toList();
+        List<DatabaseAdvisorRuleResultDto> results = new ArrayList<>();
+        boolean usable = false;
+        for (DatabaseAdvisorRule rule : DatabaseAdvisorRuleRegistry.activeRules()) {
+            // Each rule gets its own gap journal: a bounded shared journal cannot prove later rules completed.
+            DatabaseAdvisorContext evaluation = new DatabaseAdvisorContext(
+                    schemas, hibernateAvailable, mappedEntities, context.observedStatements());
+            DatabaseAdvisorRuleResultDto result = rule.evaluate(evaluation);
+            results.add(result);
+            usable |= isViolation(result)
+                    || evaluation.evaluationDiagnostics().isEmpty()
+                            && DatabaseAdvisorRuleSupport.PASS.equals(result.status());
+            for (SchemaDiagnostic diagnostic : evaluation.evaluationDiagnostics()) {
+                context.unknown(diagnostic.source(), diagnostic.message());
+            }
+        }
         diagnostics.addAll(ruleDiagnostics(results));
         for (SchemaDiagnostic diagnostic : context.evaluationDiagnostics()) {
             diagnostics.add(
@@ -246,6 +259,18 @@ public final class DatabaseAdvisorScanner {
                 .rulesErrored(rulesErrored)
                 .truncated(truncated)
                 .diagnostics(diagnostics)
+                .evidence(new AdvisorEvidenceDto(
+                        usable,
+                        complete,
+                        complete
+                                ? List.of()
+                                : diagnostics.stream()
+                                        .filter(diagnostic -> SchemaDiagnostic.WARNING.equals(diagnostic.level())
+                                                || SchemaDiagnostic.ERROR.equals(diagnostic.level()))
+                                        .map(diagnostic -> diagnostic.source() + ": " + diagnostic.message())
+                                        .distinct()
+                                        .limit(20)
+                                        .toList()))
                 .build();
     }
 
@@ -282,7 +307,8 @@ public final class DatabaseAdvisorScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.diagnostics());
+                report.diagnostics(),
+                report.evidence());
     }
 
     private List<DatabaseAdvisorDiagnosticDto> schemaDiagnostics(List<SchemaSnapshot> schemas) {
@@ -475,6 +501,7 @@ public final class DatabaseAdvisorScanner {
         private int rulesErrored;
         private boolean truncated;
         private List<DatabaseAdvisorDiagnosticDto> diagnostics = List.of();
+        private AdvisorEvidenceDto evidence = AdvisorEvidenceDto.unknown();
 
         ReportBuilder status(String value) {
             this.status = value;
@@ -531,6 +558,11 @@ public final class DatabaseAdvisorScanner {
             return this;
         }
 
+        ReportBuilder evidence(AdvisorEvidenceDto value) {
+            this.evidence = value;
+            return this;
+        }
+
         DatabaseAdvisorReport build() {
             List<DatabaseAdvisorRuleResultDto> violations = violationResults(results);
             DatabaseAdvisorScanStatusDto scan = new DatabaseAdvisorScanStatusDto(
@@ -549,7 +581,8 @@ public final class DatabaseAdvisorScanner {
                     severityCounts(violations),
                     scan,
                     violations,
-                    List.copyOf(diagnostics));
+                    List.copyOf(diagnostics),
+                    evidence);
         }
     }
 }

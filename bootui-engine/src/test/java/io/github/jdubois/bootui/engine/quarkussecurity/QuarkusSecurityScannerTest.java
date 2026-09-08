@@ -197,7 +197,80 @@ class QuarkusSecurityScannerTest {
         SecurityReport r = scan(s);
         assertThat(r.violationsFound()).isZero();
         assertThat(r.filterChainsAnalyzed()).isEqualTo(1);
-        assertThat(r.scan().status()).isEqualTo("SCANNED");
+        assertThat(r.scan().status()).isEqualTo("PARTIAL");
+        assertThat(r.evidence().usable()).isTrue();
+        assertThat(r.evidence().coverageComplete()).isFalse();
+        assertThat(r.evidence().limitations()).anyMatch(value -> value.contains("QS-AUTHZ-004"));
+    }
+
+    @Test
+    void completedCleanChecksSurvivePartialConfigurationAndDismissals() {
+        Snap snap = new Snap();
+        snap.insecure = "enabled";
+        snap.evidence = new QuarkusSecurityEvidence(
+                Set.of("QS-CFG-001"), List.of("Configuration inventory was bounded."), List.of(), List.of(), true);
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(snap::build, CLOCK);
+        SecurityReport report = scanner.scan();
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(scanner.applyDismissals(report, Set.of("QS-AUTH-002")).evidence())
+                .isEqualTo(report.evidence());
+    }
+
+    @Test
+    void allUnknownObservationsAndFailedCollectionHaveNoCompletedChecks() {
+        Snap snap = new Snap();
+        java.util.Set<String> unknown = new java.util.HashSet<>();
+        for (String category : List.of(
+                "AUTH", "AUTHZ", "TLS", "CORS", "HDR", "DEV", "OIDC", "MGMT", "CFG", "SESSION", "GRPC", "GRAPHQL",
+                "MSG")) {
+            for (int number = 1; number <= 13; number++) {
+                unknown.add("QS-" + category + "-" + String.format("%03d", number));
+            }
+        }
+        snap.evidence = new QuarkusSecurityEvidence(unknown, List.of(), List.of(), List.of(), false);
+        assertThat(scan(snap).evidence().usable()).isFalse();
+        SecurityReport failed = QuarkusSecurityScanner.usingSnapshot(
+                        () -> {
+                            throw new IllegalStateException("private-value");
+                        },
+                        CLOCK)
+                .scan();
+        assertThat(failed.scan().status()).isEqualTo("ERROR");
+        assertThat(failed.evidence().usable()).isFalse();
+        assertThat(failed.evidence().coverageComplete()).isFalse();
+        assertThat(failed.evidence().limitations()).noneMatch(value -> value.contains("private-value"));
+    }
+
+    @Test
+    void authenticationEvaluationOwnsApplicabilityCompletionAndGenuinePartialFindings() {
+        Set<String> unknown = new java.util.HashSet<>();
+        for (String category : List.of(
+                "AUTH", "AUTHZ", "TLS", "CORS", "HDR", "DEV", "OIDC", "MGMT", "CFG", "SESSION", "GRPC", "GRAPHQL",
+                "MSG")) {
+            for (int number = 1; number <= 13; number++) {
+                unknown.add("QS-" + category + "-" + String.format("%03d", number));
+            }
+        }
+        unknown.remove("QS-AUTH-002");
+        Snap snap = new Snap();
+        snap.evidence = new QuarkusSecurityEvidence(unknown, List.of(), List.of(), List.of(), true);
+        snap.basic = false;
+        var skipped = QuarkusSecurityChecks.evaluateObserved(snap.build());
+        assertThat(skipped.evidence().usable()).isFalse();
+
+        snap.basic = true;
+        var clean = QuarkusSecurityChecks.evaluateObserved(snap.build());
+        assertThat(clean.evidence().usable()).isTrue();
+
+        snap.insecure = "enabled";
+        var finding = QuarkusSecurityChecks.evaluateObserved(snap.build());
+        assertThat(finding.evidence().usable()).isTrue();
+        assertThat(finding.evidence().coverageComplete()).isFalse();
+        assertThat(finding.findings())
+                .singleElement()
+                .satisfies(result -> assertThat(result.id()).isEqualTo("QS-AUTH-002"));
     }
 
     @Test

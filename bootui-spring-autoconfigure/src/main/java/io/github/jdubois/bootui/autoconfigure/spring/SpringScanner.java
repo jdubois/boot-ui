@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
@@ -81,6 +82,7 @@ final class SpringScanner {
                     0,
                     List.of());
         }
+        context.observations().evaluation().reset();
         List<SpringRuleResultDto> results = SpringRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(context))
                 .toList();
@@ -104,7 +106,16 @@ final class SpringScanner {
                 clock.millis(),
                 inspected,
                 context.beanDefinitionCount(),
-                results);
+                results,
+                evidence(context));
+    }
+
+    static AdvisorEvidenceDto evidence(SpringContext context) {
+        List<String> limitations = new ArrayList<>();
+        if (!context.observations().incomplete().isEmpty()) {
+            limitations.add("Bounded Spring context discovery was incomplete; see inspected observations.");
+        }
+        return context.observations().evaluation().evidence(limitations);
     }
 
     private SpringReport report(
@@ -114,6 +125,17 @@ final class SpringScanner {
             List<String> inspected,
             int componentsAnalyzed,
             List<SpringRuleResultDto> results) {
+        return report(status, message, scannedAt, inspected, componentsAnalyzed, results, AdvisorEvidenceDto.unknown());
+    }
+
+    private SpringReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            List<String> inspected,
+            int componentsAnalyzed,
+            List<SpringRuleResultDto> results,
+            AdvisorEvidenceDto evidence) {
         List<SpringRuleResultDto> violations = results.stream()
                 .filter(result -> SpringRuleSupport.VIOLATION.equals(result.status()))
                 .sorted(IMPORTANCE_ORDER)
@@ -130,7 +152,8 @@ final class SpringScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                analysisErrors(results));
+                analysisErrors(results),
+                evidence);
     }
 
     SpringReport applyDismissals(SpringReport report, Set<String> dismissedIds) {
@@ -158,7 +181,8 @@ final class SpringScanner {
                         scan.componentsAnalyzed(),
                         active.size()),
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.evidence());
     }
 
     static List<SpringRuleResultDto> analysisErrors(List<SpringRuleResultDto> results) {

@@ -23,8 +23,8 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
                 "Error responses share one contract",
                 RestApiCategory.ERROR_HANDLING,
                 "LOW",
-                "Informative exception-handler body declarations differ for compatible media types."
-                        + " Dynamic/unknown shapes are not contradictions, and distinct negotiated formats can be intentional.",
+                "Informative exception-handler body declarations differ for compatible media types. Dynamic/unknown"
+                        + " shapes are not contradictions, and distinct negotiated formats can be intentional.",
                 "Review whether the declared error representations should align for the same media contract."
                         + " RFC 9457 adoption is optional.",
                 RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
@@ -32,6 +32,13 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.exceptionHandlers().stream()
+                .anyMatch(handler -> handler.rendersBody()
+                        && !handler.returnsVoid()
+                        && !handler.hasResponseParam()
+                        && RestApiRuleHelp.hasUnknownBody(handler))) {
+            context.evidence().requiredUnknown = true;
+        }
         List<ExceptionHandlerModel> rendering = context.exceptionHandlers().stream()
                 .filter(ExceptionHandlerModel::rendersBody)
                 .filter(handler -> !handler.returnsVoid())
@@ -41,6 +48,7 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
         if (rendering.size() < 2) {
             return RestApiRuleSupport.pass(definition());
         }
+        context.evidence().applicable = true;
 
         Map<String, ExceptionHandlerModel> firstByMedia = new LinkedHashMap<>();
         ExceptionHandlerModel first = rendering.get(0);

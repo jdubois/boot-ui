@@ -757,6 +757,10 @@ public abstract class AbstractBootUiApiConformanceTest {
                 .as("POST /bootui/api/architecture/scan content-type")
                 .isTrue();
         JsonNode scanned = scanResponse.json();
+        assertAdvisorEvidence(initial.json());
+        assertAdvisorEvidence(scanned);
+        Response cached = probe.get(api("/architecture"));
+        assertThat(cached.json().path("evidence")).isEqualTo(scanned.path("evidence"));
         assertThat(scanned.path("scan").path("status").isTextual())
                 .as("POST /bootui/api/architecture/scan scan.status must be a string")
                 .isTrue();
@@ -822,12 +826,78 @@ public abstract class AbstractBootUiApiConformanceTest {
 
             Response completed = probe.get(api("/architecture"));
             assertThat(completed.status()).isEqualTo(200);
+            assertAdvisorEvidence(completed.json());
             assertThat(completed.json().path("scan").path("scannedAt").isNumber())
                     .isTrue();
         } finally {
             start.countDown();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void scoredAdvisorReportsExposeConservativeEvidenceWithoutTriggeringScans() {
+        for (String panel : List.of(
+                "architecture",
+                "memory",
+                "rest-api",
+                "spring",
+                "database-advisor",
+                "hibernate",
+                "security",
+                "pentesting",
+                "vulnerabilities")) {
+            if (!isPanelUsableInLiveManifest(panel)) {
+                continue;
+            }
+            Response response = probe().get(api("/" + panel));
+            assertThat(response.status()).as(panel).isEqualTo(200);
+            assertAdvisorEvidence(response.json());
+            if ("vulnerabilities".equals(panel)) {
+                for (JsonNode dependency : response.json().path("dependencies")) {
+                    JsonNode assessment = dependency.path("assessment");
+                    assertThat(assessment.path("queryComplete").isBoolean()).isTrue();
+                    assertThat(assessment.path("detailAssessmentComplete").isBoolean())
+                            .isTrue();
+                    if (assessment.path("detailAssessmentComplete").asBoolean()) {
+                        assertThat(assessment.path("queryComplete").asBoolean()).isTrue();
+                    }
+                }
+            }
+        }
+    }
+
+    private static void assertAdvisorEvidence(JsonNode report) {
+        JsonNode evidence = report.path("evidence");
+        assertThat(evidence.isObject()).isTrue();
+        assertThat(evidence.size()).isEqualTo(3);
+        assertThat(evidence.path("usable").isBoolean()).isTrue();
+        assertThat(evidence.path("coverageComplete").isBoolean()).isTrue();
+        assertThat(evidence.path("limitations").isArray()).isTrue();
+        assertThat(evidence.path("limitations").size()).isLessThanOrEqualTo(20);
+        for (JsonNode limitation : evidence.path("limitations")) {
+            assertThat(limitation.isTextual()).isTrue();
+            assertThat(limitation.textValue().length()).isLessThanOrEqualTo(240);
+        }
+    }
+
+    @Test
+    void databaseAdvisorPreservesPartialEvidenceAcrossScanAndCachedRead() {
+        assumeTrue(isPanelUsableInLiveManifest("database-advisor"));
+        BootUiHttpProbe probe = probe();
+        Response response = probe.request("POST", api("/database-advisor/scan"), stateChangingHeaders(probe), "");
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode report = response.json();
+        assertAdvisorEvidence(report);
+        if (report.path("tablesAnalyzed").asInt() > 0 || !report.path("results").isEmpty()) {
+            assertThat(report.path("evidence").path("usable").asBoolean()).isTrue();
+        }
+        if ("PARTIAL".equals(report.path("scan").path("status").asText())) {
+            assertThat(report.path("evidence").path("coverageComplete").asBoolean())
+                    .isFalse();
+            assertThat(report.path("evidence").path("limitations")).isNotEmpty();
+        }
+        assertThat(probe.get(api("/database-advisor")).json().path("evidence")).isEqualTo(report.path("evidence"));
     }
 
     @Test
@@ -849,6 +919,13 @@ public abstract class AbstractBootUiApiConformanceTest {
                 .as("GET /bootui/api/vulnerabilities content-type")
                 .isTrue();
         JsonNode report = response.json();
+        assertAdvisorEvidence(report);
+        if (List.of("NOT_SCANNED", "DISABLED")
+                .contains(report.path("scan").path("status").asText())) {
+            assertThat(report.path("evidence").path("usable").asBoolean()).isFalse();
+            assertThat(report.path("evidence").path("coverageComplete").asBoolean())
+                    .isFalse();
+        }
         assertThat(report.path("scan").isObject())
                 .as("$.scan must be an object")
                 .isTrue();

@@ -37,13 +37,19 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (!context.evidence().completeExceptionModel) {
+            return missingEvidence(
+                    context,
+                    "Controller and exception metadata is incomplete; missing handler declarations cannot be"
+                            + " inferred.");
+        }
         if (context.exceptionHandlers().isEmpty() || context.thrownExceptions().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
         if (context.exceptionHandlers().stream()
                 .anyMatch(handler -> handler.handledExceptionTypes().isEmpty())) {
-            return RestApiRuleSupport.skipped(
-                    definition(),
+            return missingEvidence(
+                    context,
                     "A handler or mapper has unresolved handled-exception types; the imported inventory cannot"
                             + " establish that a declaration is missing.");
         }
@@ -53,7 +59,7 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
         }
         List<String> violations = new ArrayList<>();
         Set<String> reported = new LinkedHashSet<>();
-        for (ThrownExceptionModel thrown : context.thrownExceptions()) {
+        for (ThrownExceptionModel thrown : context.targets(context.thrownExceptions())) {
             if (isMapped(thrown, mapped)) {
                 continue;
             }

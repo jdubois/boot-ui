@@ -680,10 +680,26 @@ class SecurityRulesTests {
     // --- CORS rules render SKIPPED (not a silent PASS) for a non-introspectable custom source
 
     @Test
+    void corsCompletionRequiresAnActuallyEvaluatedConfiguration() {
+        SecurityContext empty = context(new MockEnvironment());
+        assertThat(new CorsWildcardOriginRule().evaluate(empty).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(empty.evidence().evaluation().evidence(List.of()).usable()).isFalse();
+
+        SecurityContext known = cors(new CorsConfigModel(
+                "/**", List.of("https://app.example"), List.of(), List.of("GET"), List.of(), false));
+        assertThat(new CorsWildcardOriginRule().evaluate(known).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(known.evidence().evaluation().evidence(List.of()).usable()).isTrue();
+    }
+
+    @Test
     void corsWildcardOriginRuleIsSkippedWhenOnlyACustomCorsSourceIsPresent() {
-        SecurityRuleResultDto result = new CorsWildcardOriginRule().evaluate(customCorsSourceOnly());
+        SecurityContext context = customCorsSourceOnly();
+        SecurityRuleResultDto result = new CorsWildcardOriginRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
+        assertThat(context.evidence().evaluation().evidence(List.of()).usable()).isFalse();
+        assertThat(context.evidence().evaluation().evidence(List.of()).coverageComplete())
+                .isFalse();
     }
 
     @Test
@@ -691,25 +707,28 @@ class SecurityRulesTests {
         CorsConfigModel cors =
                 new CorsConfigModel("/**", List.of("*"), List.of(), List.of("GET"), List.of(), Boolean.FALSE);
 
-        SecurityRuleResultDto result = new CorsWildcardOriginRule()
-                .evaluate(new SecurityContext(
-                        List.of(),
-                        List.of(),
-                        List.of(cors),
-                        true,
-                        List.of(),
-                        false,
-                        false,
-                        false,
-                        true,
-                        List.of(),
-                        false,
-                        false,
-                        List.of(),
-                        false,
-                        new MockEnvironment()));
+        SecurityContext context = new SecurityContext(
+                List.of(),
+                List.of(),
+                List.of(cors),
+                true,
+                List.of(),
+                false,
+                false,
+                false,
+                true,
+                List.of(),
+                false,
+                false,
+                List.of(),
+                false,
+                new MockEnvironment());
+        SecurityRuleResultDto result = new CorsWildcardOriginRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(context.evidence().evaluation().evidence(List.of()).usable()).isTrue();
+        assertThat(context.evidence().evaluation().evidence(List.of()).coverageComplete())
+                .isFalse();
     }
 
     @Test

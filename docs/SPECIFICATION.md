@@ -731,9 +731,15 @@ Acceptance criteria:
 Purpose: answer "Which Maven dependencies can the local provider identify, and do any have known vulnerabilities?"
 
 The [Vulnerabilities checks catalogue](VULNERABILITIES-CHECKS.md) defines the supported evidence interpretation,
-official sources/version caveats, full audit disposition, and deferred limitations. Advisor scoring, Overview/gauges,
-score eligibility, and dismissal refresh are handed off to the independent central scoring workstream; they are not
-implemented by this interpretation/reporting change.
+official sources/version caveats, full audit disposition, and deferred limitations. All nine severity-scored advisors
+(Architecture, Memory, REST API, Spring/Quarkus application, Database, Hibernate, Security, Pentesting, and
+Vulnerabilities) use the same browser-only [evidence-based scoring policy](features/advisors.md#score-eligibility).
+Their additive annotation-free `evidence` contract contains boolean `usable`, boolean `coverageComplete`, and an
+immutable, bounded, sanitized `limitations` list. Usability means at least one applicable check completed or a genuine
+known-severity finding was observed, before filtering or dismissal. Missing-evidence INFO notices and UNKNOWN-only
+vulnerability data cannot establish usability; genuine INFO/NONE findings can. Existing counters, status vocabulary,
+severities, and dismissal identities remain unchanged. Security scan status follows applicable coverage: unknowns
+produce `PARTIAL`; inapplicable checks alone do not make coverage incomplete or establish usability.
 
 Data sources:
 
@@ -752,14 +758,60 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
-- Calculate the same numeric score in the panel and Overview only for `SCANNED` reports with a valid severity
-  summary, `coverage.status=COMPLETE`, and no active UNKNOWN severity. NONE (CVSS zero) has no penalty; dismissed
-  UNKNOWN findings do not block scoring, but restoring them does. Missing coverage is unknown, not complete.
-  As with every scored advisor, PARTIAL displays Incomplete without a number, and ERROR/DISABLED/NOT_SCANNED never
-  score. Retain findings and diagnostic reports independently of eligibility. Overall averages and counts only
-  eligible scores, without changing the available-scanner total; report refresh after dismissal is GET-only.
-  Preserve the last accepted report on busy or transport failure, but replace its score when a new authoritative
-  incomplete or failed report arrives. Intentional rule inapplicability is not missing required evidence.
+- Calculate the same numeric score in the panel and Overview for `SCANNED` or `PARTIAL` reports with valid severity
+  and evidence data and `evidence.usable: true`; all-skipped, all-failed, and vacuous passes cannot establish 100.
+  ERROR/DISABLED/NOT_SCANNED and malformed reports never score. Missing metadata is unknown, not complete.
+  Legacy reports without valid explicit
+  evidence remain unscored; findings remain visible. Genuine INFO observations in modern reports remain eligible.
+- Dependency evidence is usable with known-severity findings (including NONE), or a fully assessed
+  package whose retained advisory severities are all known (or whose query result is genuinely empty) with both
+  `assessment.queryComplete` and `assessment.detailAssessmentComplete` true. The former means
+  that dependency exhausted its query pages; the latter means all returned details were interpreted or conclusively
+  withdrawn. Failed, missing, capped, mismatched, or unresolved details cannot establish a no-match. Preserve these
+  flags through cached reports, dismissals, and EPSS enrichment. UNKNOWN remains visible and excluded from penalties;
+  UNKNOWN cannot establish usability and always limits coverage, even after dismissal;
+  UNKNOWN-only evidence remains unscored unless independent usable evidence exists. Dismissed known
+  findings remain observed evidence. An empty active summary is not a genuinely empty retained advisory list.
+- Retain findings and diagnostics independently of eligibility. Usable numeric scores lead with findings and a neutral
+  **Results available** status. Incomplete inventory, query/detail gaps, unknown severity, or incomplete applicable
+  checks remain in an initially collapsed, keyboard-accessible **Scan notes** disclosure in the dedicated panel,
+  even at 100, with **Scan notes available** in score accessible names. Overview counts advisors with notes, not
+  individual checks, and links to each panel. Unscored reasons and whole-scan failures remain prominent.
+  Complete assessments need no additional scope paragraph. Raw statuses, evidence, and eligibility are unchanged.
+  Intentionally inapplicable checks alone do not make
+  coverage incomplete. Penalties stay CRITICAL/HIGH/MEDIUM/LOW/INFO/NONE = 25/10/3/1/0/0 with unchanged clamp,
+  and rounding. Numbers are **Known-findings scores**, not app-health grades; advisor panels keep neutral
+  numbers, including for partial 100. Overview restores a prominent **Overall score**:
+  the rounded arithmetic mean of eligible available visible advisor scores and eligible GitHub, with **Average of N
+  scores**. No eligible scores means **Not scored**, with a prompt to run an available scanner. Invalid, missing,
+  unscanned, and confirmed-empty reports are excluded, not replaced with zero or 100. Usable partial scores retain
+  their existing penalties. Retained finding severities and advisor assessment counts remain visible.
+  The overall summary uses the original color-coded circular gauge, with the numeric score centred in the ring,
+  a horizontal desktop layout that stacks on narrow screens, and a **Points deducted per score** grid of eligible
+  contributors. Each deduction is that contributor's score minus 100, not an additive overall-score calculation.
+  Overall gauge bands are **Good** (80–100), **Needs attention** (50–79), and **At risk** (0–49), qualified as
+  descriptions of scored results rather than application safety or completeness. Individual Overview scores,
+  including GitHub, use the same green/amber/red thresholds with theme-aware text colors, visible numbers,
+  and retained severity labels. Keep assessed, failed, retained-severity, and scan-notes counts visible in the compact summary.
+  Overview uses **Scan complete** for scored report badges and **Connected** for GitHub's connected badge; scan
+  completion does not assert complete coverage. Light-theme score numbers use saturated semantic colors.
+  Confirmed empty scope (`usable: false`, `coverageComplete: true`, no limitations) counts as assessed, not incomplete;
+  unscanned reports and request failures remain distinct.
+  The average is not an application-health or completeness verdict.
+  GitHub is outside advisor counts and severity totals. Its **Security-alert score** is 100 minus 10 per reported
+  alert, clamped to 0–100, not a severity assignment. It requires an available, connected, authenticated report with
+  exactly one `AVAILABLE` signal and a nonnegative safe integer count for each of `Dependabot alerts`,
+  `Code scanning alerts`, and `Secret scanning alerts`. Missing, empty, duplicate, malformed, or unavailable
+  signals leave GitHub unscored and excluded from the average; known available zeros score 100. Connection state,
+  actual counts, unavailable states, and failures remain visible. Refresh is user-triggered only. Retain the last
+  accepted GitHub report and score while refreshing or on request failure; an authoritative unavailable report clears
+  its score. GitHub's numeric score uses the shared green/amber/red thresholds, but has no separate health-grade
+  badge. Unavailable counts are not zero. Coverage status and
+  reasons remain visible with numeric results in each advisor panel. Do not infer percentages, comparable cross-advisor rule counts, or
+  confidence weights. Dismissals change penalties, not application safety or coverage.
+- Report refresh after dismissal is GET-only. Preserve the last accepted report on busy or transport failure, but
+  replace its assessment when a new authoritative report arrives. Cached hydration, request ordering, pending refresh,
+  and NOT_SCANNED restart clearing remain intact. No backend numeric scoring or new MCP/CLI command is added.
 - Interpret affected entries in the JSON-free shared engine with exact `Maven` ecosystem and package matching, allowing
   only the literal `*` package wildcard, not arbitrary globs or other Maven repository ecosystems. Explicit versions
   and supported Maven `ECOSYSTEM` ranges form a union across matching entries. Applicability is matched, not matched,
@@ -941,8 +993,9 @@ Features:
 - Run bounded local checks for common security headers, CORS behavior, cookie flags, verbose error exposure, Spring
   Security wiring, and actuator exposure against the host application rather than BootUI itself.
 - Cross-reference findings with OWASP Top 10 categories such as A01, A02, A04, A07, and A10.
-- Render no-finding category coverage as informational review guidance, never as a pass. Report unavailable or truncated
-  dependent evidence as `NOT_APPLICABLE` or `INDETERMINATE`.
+- Show **Findings by severity**, consistent with other advisors, instead of a separate OWASP Top 10 coverage panel.
+  Category metadata is informational review guidance, never a pass. Report unavailable or truncated dependent
+  evidence honestly, with detailed limitations in the panel's scan notes.
 - Hand off dependency vulnerability coverage to the Vulnerabilities panel.
 - Clearly mark injection payloads and endpoint access-control probing as skipped.
 
@@ -1834,6 +1887,9 @@ Availability:
 
 - The generic rules run for every JDBC-reachable database vendor; databases without vendor-specific augmentation are
   not treated as unsupported.
+- Wrong-vendor checks (such as MySQL/Oracle checks in a PostgreSQL-only application) remain neutral `SKIPPED`/`INFO`
+  diagnostics without incomplete qualification or completion credit. Missing catalog evidence for an applicable
+  vendor, including unsupported server versions and mixed datasource coverage, remains incomplete.
 - Successful discovery of no application `DataSource` returns `DISABLED`; discovery failure, or a scan where no
   discovered schema could be read, returns `ERROR`. Individual failures retain other readable schemas with `PARTIAL`.
   Truncated or otherwise incomplete evidence cannot prove an object absent.

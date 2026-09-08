@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.spring;
 
 import static io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.Fact.*;
 
+import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityAware;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.AsyncSelection;
@@ -193,7 +194,7 @@ final class SpringInventory {
                         !typed("org.springframework.web.client.RestClient").isEmpty())
                 .cachingEnabled(entry("org.springframework.cache.config.internalCacheAdvisor") != null)
                 .cacheManagers(typed("org.springframework.cache.CacheManager").stream()
-                        .map(e -> new CacheManagerRef(e.name(), e.type().getName()))
+                        .map(this::cacheManager)
                         .toList())
                 .schedulingEnabled(scheduling)
                 .entityManagerFactoryPresent(
@@ -217,6 +218,15 @@ final class SpringInventory {
             facts.put(OVERRIDING, listable.isAllowBeanDefinitionOverriding());
         if (factory instanceof AbstractAutowireCapableBeanFactory capable)
             facts.put(CIRCULAR, capable.isAllowCircularReferences());
+    }
+
+    private CacheManagerRef cacheManager(Entry entry) {
+        Object singleton = factory.getSingleton(entry.name());
+        // Never instantiate a lazy manager/FactoryBean or call an application wrapper.
+        Class<?> type = singleton instanceof org.springframework.cache.CacheManager manager
+                ? CacheActivityAware.unwrap(manager).getClass()
+                : entry.type();
+        return new CacheManagerRef(entry.name(), type.getName());
     }
 
     private int inspectApplicationTypes(List<String> packages, List<String> mutable) {
@@ -386,12 +396,19 @@ final class SpringInventory {
         if (!enabled
                 || !complete
                 || typed("org.springframework.scheduling.annotation.SchedulingConfigurer").stream()
-                        .anyMatch(e -> !e.type()
-                                .getName()
-                                .equals("io.github.jdubois.bootui.autoconfigure.scheduled.BootUiSchedulingConfigurer")))
-            return;
+                        .anyMatch(e -> !Set.of(
+                                        "io.github.jdubois.bootui.autoconfigure.scheduled.BootUiSchedulingConfigurer",
+                                        "org.springframework.boot.micrometer.observation.autoconfigure.ScheduledTasksObservationAutoConfiguration$ObservabilitySchedulingConfigurer")
+                                .contains(e.type().getName()))) return;
         Object processor = factory.getSingleton(SCHEDULED_PROCESSOR);
         if (processor == null || processor.getClass() != ScheduledAnnotationBeanPostProcessor.class) return;
+        Object registrar;
+        try {
+            registrar = field(processor, ScheduledAnnotationBeanPostProcessor.class, "registrar");
+            if (!exact(registrar, "org.springframework.scheduling.config.ScheduledTaskRegistrar")) return;
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return;
+        }
         var tasks = ((ScheduledAnnotationBeanPostProcessor) processor).getScheduledTasks();
         if (tasks.size() > MAX_MEMBERS) {
             partial();
@@ -415,15 +432,35 @@ final class SpringInventory {
             if (runnable.getClass() != ScheduledMethodRunnable.class) return;
             ScheduledMethodRunnable method = (ScheduledMethodRunnable) runnable;
             if (method.getQualifier() != null && !method.getQualifier().isEmpty()) return;
-            if (!method.getMethod().getDeclaringClass().getName().startsWith("io.github.jdubois.bootui.")) count++;
+            // BootUI has no @Scheduled housekeeping tasks. A package prefix is not ownership:
+            // applications (including the sample) can legitimately share that prefix.
+            count++;
         }
         facts.put(SCHEDULED_TASK_COUNT, count);
+        if (count < 2) return;
         List<Entry> schedulers = typed("org.springframework.scheduling.TaskScheduler");
         if (!byTypeSelectionObservable(schedulers)) return;
         Entry selected = selectedByType(schedulers);
         if (selected == null) selected = named(schedulers, "taskScheduler");
         if (selected == null) return;
         Object singleton = factory.getSingleton(selected.name());
+        // Check the registrar's actual selected instance, not just today's candidate metadata.
+        // Read the router's already cached value; never invoke its lazy supplier (which resolves beans).
+        try {
+            Object scheduler = field(registrar, registrar.getClass(), "taskScheduler");
+            if (exact(scheduler, "org.springframework.scheduling.config.TaskSchedulerRouter")) {
+                Object supplier = field(scheduler, scheduler.getClass(), "defaultScheduler");
+                if (!exact(supplier, "org.springframework.util.function.SingletonSupplier")) return;
+                scheduler = field(supplier, supplier.getClass(), "singletonInstance");
+            }
+            if (singleton == null || scheduler != singleton) return;
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return;
+        }
+        if (exact(singleton, "org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler")) {
+            facts.put(SCHEDULER_NON_POOL, true);
+            return;
+        }
         if (singleton != null && singleton.getClass() == ThreadPoolTaskScheduler.class) {
             try {
                 facts.put(
@@ -607,6 +644,8 @@ final class SpringInventory {
 
     private void observeOsiv(boolean reactive) {
         if (reactive) return;
+        boolean coverage = complete;
+        String registration = null;
         Entry interceptor = entry("openEntityManagerInViewInterceptor");
         Entry configurer = entry("openEntityManagerInViewInterceptorConfigurer");
         String owner = "org.springframework.boot.jpa.autoconfigure.JpaBaseConfiguration$JpaWebConfiguration";
@@ -614,32 +653,102 @@ final class SpringInventory {
                 && configurer != null
                 && owner.equals(interceptor.factory())
                 && owner.equals(configurer.factory());
-        // A filter bean alone is NOT a servlet registration. Exact registration metadata is safe to read.
-        for (Entry entry : typed("org.springframework.boot.web.servlet.FilterRegistrationBean")) {
+        Set<Object> registeredFilters = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        // A filter bean alone is NOT proof of an active registration. Custom initializers and
+        // registration subclasses cannot establish absence without executing application code.
+        for (Entry entry : typed("org.springframework.boot.web.servlet.ServletContextInitializer")) {
             Object singleton = factory.getSingleton(entry.name());
-            if (!exact(singleton, "org.springframework.boot.web.servlet.FilterRegistrationBean")) continue;
+            if (exact(singleton, "org.springframework.beans.factory.support.NullBean")) continue;
             try {
-                Object enabled = singleton.getClass().getMethod("isEnabled").invoke(singleton);
-                Object filter = singleton.getClass().getMethod("getFilter").invoke(singleton);
-                if (Boolean.TRUE.equals(enabled)
-                        && filter != null
-                        && isType(
-                                filter.getClass(), "org.springframework.orm.jpa.support.OpenEntityManagerInViewFilter"))
-                    facts.put(OSIV, "custom servlet filter registration (review URL/servlet mappings)");
+                if (exact(singleton, "org.springframework.boot.web.servlet.FilterRegistrationBean")) {
+                    Object enabled = singleton.getClass().getMethod("isEnabled").invoke(singleton);
+                    Object filter = singleton.getClass().getMethod("getFilter").invoke(singleton);
+                    if (filter == null) {
+                        coverage = false;
+                        continue;
+                    }
+                    registeredFilters.add(filter);
+                    if (Boolean.TRUE.equals(enabled) && isOsivFilter(filter))
+                        registration = "custom servlet filter registration (review URL/servlet mappings)";
+                    if (Boolean.TRUE.equals(enabled)
+                            && isType(filter.getClass(), "org.springframework.web.filter.DelegatingFilterProxy"))
+                        coverage = false;
+                } else if (exact(
+                        singleton, "org.springframework.boot.web.servlet.DelegatingFilterProxyRegistrationBean")) {
+                    if (!Boolean.TRUE.equals(
+                            singleton.getClass().getMethod("isEnabled").invoke(singleton))) continue;
+                    Object name = field(singleton, singleton.getClass(), "targetBeanName");
+                    Object target = name instanceof String beanName ? factory.getSingleton(beanName) : null;
+                    if (isOsivFilter(target)) {
+                        registration = "custom servlet filter registration (review URL/servlet mappings)";
+                    } else if ((target = nativeSecurityProxy(target)) != null) {
+                        Object chains =
+                                target.getClass().getMethod("getFilterChains").invoke(target);
+                        if (!(chains instanceof List<?> list) || list.size() > MAX_MEMBERS) {
+                            coverage = false;
+                            continue;
+                        }
+                        int filtersInspected = 0;
+                        for (Object chain : list) {
+                            if (!exact(chain, "org.springframework.security.web.DefaultSecurityFilterChain")) {
+                                coverage = false;
+                                continue;
+                            }
+                            Object filters =
+                                    chain.getClass().getMethod("getFilters").invoke(chain);
+                            if (!(filters instanceof List<?> chainFilters)
+                                    || (filtersInspected += chainFilters.size()) > MAX_MEMBERS) {
+                                coverage = false;
+                                break;
+                            }
+                            if (chainFilters.stream().anyMatch(SpringInventory::isOsivFilter))
+                                registration = "servlet security filter chain registration (review request matchers)";
+                        }
+                    } else {
+                        coverage = false;
+                    }
+                } else if (singleton == null
+                        || !Set.of(
+                                        "org.springframework.boot.web.servlet.ServletRegistrationBean",
+                                        "org.springframework.boot.webmvc.autoconfigure.DispatcherServletRegistrationBean",
+                                        "org.springframework.boot.actuate.endpoint.web.ServletEndpointRegistrar")
+                                .contains(singleton.getClass().getName())) {
+                    coverage = false;
+                }
             } catch (ReflectiveOperationException | RuntimeException ex) {
-                partial();
+                coverage = false;
             }
         }
-        for (Entry entry : typed("org.springframework.web.servlet.HandlerMapping")) {
+        // Boot can auto-register Filter beans too; without explicit registration metadata their
+        // enabled/mapping state is unknown, not absent.
+        for (Entry entry : typed("org.springframework.orm.jpa.support.OpenEntityManagerInViewFilter")) {
+            if (!registeredFilters.contains(factory.getSingleton(entry.name()))) coverage = false;
+        }
+        List<Entry> mappings = typed("org.springframework.web.servlet.HandlerMapping");
+        if (mappings.isEmpty()
+                && (!typed("jakarta.persistence.EntityManagerFactory").isEmpty()
+                        || !typed("org.springframework.web.servlet.DispatcherServlet")
+                                .isEmpty())) coverage = false;
+        int inspectedInterceptors = 0;
+        for (Entry entry : mappings) {
             Object mapping = factory.getSingleton(entry.name());
-            if (!exact(mapping, "org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping")
-                    && !exact(mapping, "org.springframework.web.servlet.handler.SimpleUrlHandlerMapping")) continue;
+            // Native MVC factories return a NullBean when no view/default-servlet mapping is needed.
+            // This is an observed null factory result, unlike an uninstantiated lazy mapping.
+            if (exact(mapping, "org.springframework.beans.factory.support.NullBean")) continue;
+            if (mapping == null
+                    || !NATIVE_HANDLER_MAPPINGS.contains(mapping.getClass().getName())) {
+                coverage = false;
+                continue;
+            }
             try {
                 Object value =
                         mapping.getClass().getMethod("getAdaptedInterceptors").invoke(mapping);
-                if (!(value instanceof Object[] interceptors)) continue;
-                if (interceptors.length > MAX_MEMBERS) {
-                    partial();
+                // AbstractHandlerMapping returns null for its native empty adapted list.
+                if (value == null) continue;
+                if (!(value instanceof Object[] interceptors)
+                        || interceptors.length > MAX_MEMBERS
+                        || (inspectedInterceptors += interceptors.length) > MAX_TOTAL_MEMBERS) {
+                    coverage = false;
                     continue;
                 }
                 for (Object registered : interceptors) {
@@ -648,11 +757,20 @@ final class SpringInventory {
                         candidate =
                                 candidate.getClass().getMethod("getInterceptor").invoke(candidate);
                     if (!exact(
-                            candidate, "org.springframework.web.servlet.handler.WebRequestHandlerInterceptorAdapter"))
+                            candidate, "org.springframework.web.servlet.handler.WebRequestHandlerInterceptorAdapter")) {
+                        if (candidate != null
+                                && (isType(
+                                                candidate.getClass(),
+                                                "org.springframework.web.servlet.handler.WebRequestHandlerInterceptorAdapter")
+                                        || isType(
+                                                candidate.getClass(),
+                                                "org.springframework.web.servlet.handler.MappedInterceptor")))
+                            coverage = false;
                         continue;
+                    }
                     Field delegate = candidate.getClass().getDeclaredField("requestInterceptor");
                     if (!delegate.trySetAccessible()) {
-                        partial();
+                        coverage = false;
                         continue;
                     }
                     Object interceptorInstance = delegate.get(candidate);
@@ -660,17 +778,49 @@ final class SpringInventory {
                             && isType(
                                     interceptorInstance.getClass(),
                                     "org.springframework.orm.jpa.support.OpenEntityManagerInViewInterceptor"))
-                        facts.putIfAbsent(
-                                OSIV,
-                                bootInterceptor && interceptorInstance == factory.getSingleton(interceptor.name())
-                                        ? "Boot servlet interceptor applied to MVC handler mappings"
-                                        : "custom servlet interceptor registration (review handler/path mappings)");
+                        if (registration == null)
+                            registration =
+                                    bootInterceptor && interceptorInstance == factory.getSingleton(interceptor.name())
+                                            ? "Boot servlet interceptor applied to MVC handler mappings"
+                                            : "custom servlet interceptor registration (review handler/path mappings)";
                 }
             } catch (ReflectiveOperationException | RuntimeException ex) {
-                partial();
+                coverage = false;
             }
         }
+        facts.put(OSIV, new SpringObservations.OsivObservation(registration, coverage));
     }
+
+    private static boolean isOsivFilter(Object filter) {
+        return filter != null
+                && isType(filter.getClass(), "org.springframework.orm.jpa.support.OpenEntityManagerInViewFilter");
+    }
+
+    private static Object nativeSecurityProxy(Object candidate) throws ReflectiveOperationException {
+        // Same exact native composites as SecurityScanner; string-based here to keep Security optional.
+        for (int depth = 0; candidate != null && depth < 8; depth++) {
+            if (exact(candidate, "org.springframework.security.web.FilterChainProxy")) return candidate;
+            if (!Set.of(
+                            "org.springframework.security.config.annotation.web.configuration.WebSecurityConfiguration$CompositeFilterChainProxy",
+                            "org.springframework.security.config.annotation.web.configuration.WebMvcSecurityConfiguration$CompositeFilterChainProxy")
+                    .contains(candidate.getClass().getName())) return null;
+            candidate = field(candidate, candidate.getClass(), "springSecurityFilterChain");
+        }
+        return null;
+    }
+
+    /** Exact native classes inheriting AbstractHandlerMapping's applied-interceptor metadata. */
+    private static final Set<String> NATIVE_HANDLER_MAPPINGS = Set.of(
+            "org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping",
+            "org.springframework.web.servlet.handler.SimpleUrlHandlerMapping",
+            "org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping",
+            "org.springframework.web.servlet.function.support.RouterFunctionMapping",
+            "org.springframework.web.socket.server.support.WebSocketHandlerMapping",
+            "org.springframework.boot.webmvc.autoconfigure.WelcomePageHandlerMapping",
+            "org.springframework.boot.webmvc.autoconfigure.WelcomePageNotAcceptableHandlerMapping",
+            "org.springframework.boot.webmvc.actuate.endpoint.web.AdditionalHealthEndpointPathsWebMvcHandlerMapping",
+            "org.springframework.boot.webmvc.actuate.endpoint.web.WebMvcEndpointHandlerMapping",
+            "org.springframework.boot.webmvc.actuate.endpoint.web.ControllerEndpointHandlerMapping");
 
     private void observeEndpoints() {
         List<Entry> resolvers = typed("org.springframework.boot.actuate.endpoint.EndpointAccessResolver");
@@ -720,6 +870,12 @@ final class SpringInventory {
 
     private static boolean exact(Object value, String type) {
         return value != null && value.getClass().getName().equals(type);
+    }
+
+    private static Object field(Object value, Class<?> owner, String name) throws ReflectiveOperationException {
+        Field field = owner.getDeclaredField(name);
+        if (!field.trySetAccessible()) throw new IllegalAccessException();
+        return field.get(value);
     }
 
     private static boolean isBoot(Entry entry, String prefix) {

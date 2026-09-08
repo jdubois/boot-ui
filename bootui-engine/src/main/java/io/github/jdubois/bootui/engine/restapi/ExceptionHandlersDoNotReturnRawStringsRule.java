@@ -15,14 +15,17 @@ final class ExceptionHandlersDoNotReturnRawStringsRule extends AbstractRestApiRu
                 "LOW",
                 "An exception handler that returns a raw String exposes an unstructured error contract with no stable"
                         + " fields in its signature. An intentional text error is valid; view names are excluded.",
-                "Consider a typed error DTO or optional RFC 9457 representation if structured metadata benefits clients.",
+                "Consider a typed error DTO or optional RFC 9457 representation if structured metadata benefits"
+                        + " clients.",
                 RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         List<String> violations = new ArrayList<>();
-        for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
+        for (ExceptionHandlerModel handler :
+                context.targets(context.exceptionHandlers(), ExceptionHandlerModel::rendersBody)) {
+            if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().requiredUnknown = true;
             if ("java.lang.String".equals(handler.bodyTypeName()) && handler.rendersBody()) {
                 violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName()
                         + " returns a raw String error body");

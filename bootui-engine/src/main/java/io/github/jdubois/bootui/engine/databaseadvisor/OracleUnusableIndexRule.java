@@ -42,7 +42,11 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.schemasOf(Dialect.ORACLE);
         String skipReason = VendorRuleSupport.skipReason(
-                schemas, VendorFindingKinds.ORACLE_INDEX_DETAILS, "No Oracle datasource was detected.");
+                context,
+                definition().id(),
+                schemas,
+                VendorFindingKinds.ORACLE_INDEX_DETAILS,
+                "No Oracle datasource was detected.");
         if (skipReason != null
                 && schemas.stream()
                         .noneMatch(schema -> VendorRuleSupport.available(

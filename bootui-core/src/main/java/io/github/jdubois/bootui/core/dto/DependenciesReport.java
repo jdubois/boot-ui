@@ -16,12 +16,33 @@ public record DependenciesReport(
         List<DependencySeverityCountDto> severityCounts,
         DependencyScanStatusDto scan,
         DependencyCoverageDto coverage,
-        List<DependencyDto> dependencies) {
+        List<DependencyDto> dependencies,
+        AdvisorEvidenceDto evidence) {
 
     public DependenciesReport {
+        evidence = evidence == null ? AdvisorEvidenceDto.unknown() : evidence;
         severityCounts = DtoCollections.immutableCopy(severityCounts);
         dependencies = DtoCollections.immutableCopy(dependencies);
         coverage = coverage == null ? DependencyCoverageDto.unavailable() : coverage;
+    }
+
+    public DependenciesReport(
+            boolean scanningEnabled,
+            int total,
+            int vulnerable,
+            List<DependencySeverityCountDto> severityCounts,
+            DependencyScanStatusDto scan,
+            DependencyCoverageDto coverage,
+            List<DependencyDto> dependencies) {
+        this(
+                scanningEnabled,
+                total,
+                vulnerable,
+                severityCounts,
+                scan,
+                coverage,
+                dependencies,
+                AdvisorEvidenceDto.unknown());
     }
 
     public String status() {

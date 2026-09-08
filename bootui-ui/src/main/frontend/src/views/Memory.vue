@@ -64,6 +64,7 @@ function formatBytes(value) {
         :score="panel.score"
         :score-label="panel.assessment.label"
         :score-reason="panel.assessment.reason"
+        :incomplete="panel.assessment.incomplete"
         :dismissed-count="panel.dismissedResults.length"
         :scan-status-label="panel.scanStatusLabel(panel.report.scan.status)"
         :scan-status-class="panel.scanStatusBadgeClass(panel.report.scan.status)"
@@ -164,8 +165,8 @@ function formatBytes(value) {
           </div>
           <span
             v-if="panel.score !== null && panel.visibleResults.length === 0 && panel.dismissedResults.length === 0"
-            class="badge text-bg-success"
-            >No findings</span
+            class="badge text-bg-secondary"
+            >{{ panel.noFindingsLabel }}</span
           >
         </div>
         <div v-if="panel.visibleResults.length === 0" class="card-body text-center text-muted py-5">

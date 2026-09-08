@@ -1,5 +1,6 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {expectedAdvisorScore} from '../scenarios/advisor-scoring.js'
 
 /**
  * Removes every dismissed advisor rule so each test starts and ends from a
@@ -38,9 +39,12 @@ async function findingsCount(metric) {
 /**
  * @param {import('@playwright/test').Page} page
  */
-async function expectIncompleteAssessment(page) {
-  await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Incomplete')
-  await expect(page.locator('.advisor-summary__gauge')).toHaveCount(0)
+async function expectIncompleteAssessment(page, report) {
+  await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Results available')
+  await expect(page.locator('.advisor-summary__value')).toHaveText(String(expectedAdvisorScore(report)))
+  await expect(page.getByRole('img', {name: /Known-findings score: .*Scan notes available/})).toHaveCount(1)
+  await expect(page.locator('details.advisor-summary__notes')).toHaveJSProperty('open', false)
+  await expect(page.locator('.advisor-summary__assessment')).toHaveCount(0)
 }
 
 test.describe('Advisor rule dismiss/restore', () => {
@@ -56,7 +60,7 @@ test.describe('Advisor rule dismiss/restore', () => {
     await clearDismissedRules(request)
   })
 
-  test('dismisses and restores a real finding without scoring an incomplete report', async ({openView, page}) => {
+  test('dismisses and restores a real partial finding with exact score changes', async ({openView, page}) => {
     await openView('hibernate', 'Hibernate')
 
     const scanResponse = page.waitForResponse(
@@ -80,7 +84,8 @@ test.describe('Advisor rule dismiss/restore', () => {
     // Nothing is dismissed yet, so the dismissed-note line is absent.
     await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
 
-    await expectIncompleteAssessment(page)
+    expect(report.evidence.usable).toBe(true)
+    await expectIncompleteAssessment(page, report)
 
     // Capture the rule id of the first active finding so we can target it precisely.
     const firstActive = activeItems.first()
@@ -93,9 +98,13 @@ test.describe('Advisor rule dismiss/restore', () => {
     const dismissedItemFor = (id) =>
       page.locator('.list-group-item.opacity-50').filter({has: page.getByText(id, {exact: true})})
 
+    const dismissedReportResponse = page.waitForResponse(
+      (response) => response.request().method() === 'GET' && /\/hibernate$/.test(new URL(response.url()).pathname)
+    )
     await firstActive.getByRole('button', {name: 'Dismiss'}).click()
+    const dismissedReport = await (await dismissedReportResponse).json()
 
-    // Dismissal changes the active findings, not the incomplete assessment's eligibility.
+    // Dismissal removes penalties but preserves observed evidence and partial qualification.
     const dismissedItem = dismissedItemFor(ruleId)
     await expect(dismissedItem).toBeVisible()
     await expect(page.getByText('— not counted in score')).toBeVisible()
@@ -103,18 +112,19 @@ test.describe('Advisor rule dismiss/restore', () => {
       '1 dismissed rule(s) excluded from active findings'
     )
     await expect.poll(async () => findingsCount(findingsCard)).toBe(before - 1)
-    await expectIncompleteAssessment(page)
+    await expectIncompleteAssessment(page, dismissedReport)
+    expect(expectedAdvisorScore(dismissedReport)).toBeGreaterThanOrEqual(expectedAdvisorScore(report))
 
     // The rule is no longer offered as an active (dismissible) finding.
     await expect(activeItemFor(ruleId)).toHaveCount(0)
 
-    // Restoring returns the finding to the active list without inventing a score.
+    // Restoring returns the original penalties while retaining partial coverage.
     await dismissedItem.getByRole('button', {name: 'Restore'}).click()
 
     await expect(dismissedItemFor(ruleId)).toHaveCount(0)
     await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
     await expect.poll(async () => findingsCount(findingsCard)).toBe(before)
-    await expectIncompleteAssessment(page)
+    await expectIncompleteAssessment(page, report)
     await expect(activeItemFor(ruleId)).toHaveCount(1)
   })
 })

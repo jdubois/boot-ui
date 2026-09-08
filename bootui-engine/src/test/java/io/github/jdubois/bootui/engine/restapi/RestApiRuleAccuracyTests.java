@@ -214,7 +214,8 @@ class RestApiRuleAccuracyTests {
         violations(new VoidDeleteReturns204Rule(), context);
         violations(new NoUntypedResponseEntityRule(), context);
         violations(new ExceptionHandlersSetErrorStatusRule(), context);
-        violations(new PreferProblemDetailRule(), context);
+        assertThat(new PreferProblemDetailRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(context.evidence().usable).isFalse();
         violations(new BroadExceptionHandlerRule(), context);
         violations(new CollectionReadsArePaginatedRule(), context);
     }

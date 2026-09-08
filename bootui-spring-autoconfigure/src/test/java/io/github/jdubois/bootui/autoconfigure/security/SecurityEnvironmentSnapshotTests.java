@@ -22,6 +22,20 @@ import org.springframework.mock.env.MockEnvironment;
 
 class SecurityEnvironmentSnapshotTests {
     @Test
+    void customServletContextRemainsOpaqueWithoutCallingItsParameterMethods() {
+        var servletContext = mock(jakarta.servlet.ServletContext.class);
+        var environment = new MockEnvironment().withProperty("server.ssl.enabled", "true");
+        environment
+                .getPropertySources()
+                .addFirst(new org.springframework.web.context.support.ServletContextPropertySource(
+                        "servletContextInitParams", servletContext));
+        var captured = SecurityEnvironmentSnapshot.capture(environment);
+        assertThatThrownBy(() -> captured.getProperty("server.ssl.enabled"))
+                .isInstanceOf(SecurityActuatorObservation.ObservationLimitException.class);
+        verifyNoInteractions(servletContext);
+    }
+
+    @Test
     void nativeManagementPortAliasDoesNotCallItsEnvironmentOrHideOtherKeys() throws Exception {
         Environment callback = mock(Environment.class);
         Class<?> type = Class.forName(

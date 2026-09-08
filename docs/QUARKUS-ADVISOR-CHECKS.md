@@ -13,6 +13,9 @@ measured performance failure, or the configuration of an unseen deployment.
 
 ## Evidence and availability
 
+Inspecting application metadata alone does not establish a passing check. Usable known-findings scores retain
+unrelated evidence gaps under the shared [score eligibility policy](features/advisors.md#score-eligibility).
+
 CDI evidence comes from Arc's resolved application class beans, including effective scope
 and injection points, rather than counts of directly declared scope annotations.
 Application metadata is captured in non-production launch modes; the existing `NORMAL`

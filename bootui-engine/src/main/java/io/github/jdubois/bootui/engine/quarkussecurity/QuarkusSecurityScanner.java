@@ -1,12 +1,12 @@
 package io.github.jdubois.bootui.engine.quarkussecurity;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SecuritySeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
-import io.github.jdubois.bootui.engine.security.CspPolicy;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
@@ -77,18 +77,15 @@ public final class QuarkusSecurityScanner {
                     List.of(),
                     List.of(error("Quarkus security configuration could not be read.")));
         }
-        List<SecurityRuleResultDto> violations = QuarkusSecurityChecks.evaluate(snap);
+        QuarkusSecurityChecks.Evaluation evaluation = QuarkusSecurityChecks.evaluateObserved(snap);
+        List<SecurityRuleResultDto> violations = evaluation.findings();
         List<String> policyLabels = snap.permissions().stream()
                 .map(QuarkusSecurityScanner::policyLabel)
                 .toList();
         List<SecurityRuleResultDto> errors = snap.evidence().failures().stream()
                 .map(QuarkusSecurityScanner::error)
                 .toList();
-        boolean partial = !snap.evidence().incomplete().isEmpty()
-                || !snap.evidence().unknownRules().isEmpty()
-                || !errors.isEmpty()
-                || (snap.cspHeader()
-                        && !CspPolicy.analyze(snap.cspHeaderValue()).complete());
+        boolean partial = !evaluation.evidence().coverageComplete();
         return report(
                 partial ? "PARTIAL" : "SCANNED",
                 partial
@@ -97,7 +94,8 @@ public final class QuarkusSecurityScanner {
                 clock.millis(),
                 policyLabels,
                 violations,
-                errors);
+                errors,
+                evaluation.evidence());
     }
 
     private static String policyLabel(QuarkusSecurityPermission p) {
@@ -130,6 +128,17 @@ public final class QuarkusSecurityScanner {
             List<String> policyLabels,
             List<SecurityRuleResultDto> raw,
             List<SecurityRuleResultDto> errors) {
+        return report(status, message, scannedAt, policyLabels, raw, errors, AdvisorEvidenceDto.unknown());
+    }
+
+    private SecurityReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            List<String> policyLabels,
+            List<SecurityRuleResultDto> raw,
+            List<SecurityRuleResultDto> errors,
+            AdvisorEvidenceDto evidence) {
         List<SecurityRuleResultDto> violations = raw.stream().sorted(IMPORTANCE).toList();
         SecurityScanStatusDto scan = new SecurityScanStatusDto(
                 ANALYZER,
@@ -149,7 +158,8 @@ public final class QuarkusSecurityScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                errors);
+                errors,
+                evidence);
     }
 
     public SecurityReport applyDismissals(SecurityReport report, Set<String> dismissedIds) {
@@ -180,7 +190,8 @@ public final class QuarkusSecurityScanner {
                 severityCounts(active),
                 scan,
                 marked,
-                report.analysisErrors());
+                report.analysisErrors(),
+                report.evidence());
     }
 
     private List<SecuritySeverityCountDto> severityCounts(List<SecurityRuleResultDto> results) {

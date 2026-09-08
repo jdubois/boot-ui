@@ -34,7 +34,11 @@ final class MySqlNonInnodbEngineRule extends AbstractDatabaseAdvisorRule {
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.mySqlFamilySchemas();
         String skipReason = VendorRuleSupport.skipReason(
-                schemas, VendorFindingKinds.MYSQL_TABLES, "No MySQL or MariaDB datasource was detected.");
+                context,
+                definition().id(),
+                schemas,
+                VendorFindingKinds.MYSQL_TABLES,
+                "No MySQL or MariaDB datasource was detected.");
         if (skipReason != null) {
             return skipped(skipReason);
         }

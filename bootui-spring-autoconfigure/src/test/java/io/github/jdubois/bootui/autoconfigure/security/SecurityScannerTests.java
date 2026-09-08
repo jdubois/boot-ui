@@ -99,6 +99,11 @@ class SecurityScannerTests {
         SecurityReport report = scanner.scan();
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(scanner.applyDismissals(report, java.util.Set.of("SEC-AUTHZ-002"))
+                        .evidence())
+                .isEqualTo(report.evidence());
         assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
         assertThat(report.rulesEvaluated()).isEqualTo(RULE_COUNT);
         assertThat(report.violationsFound()).isPositive();
@@ -817,10 +822,50 @@ class SecurityScannerTests {
     }
 
     @Test
+    void noApplicableTargetsAndUnavailableDiscoveryNeverCompleteChecks() {
+        SecurityReport empty = new SecurityScanner(emptyContext(), CLOCK).scan();
+        assertThat(empty.evidence().usable()).isFalse();
+        SecurityReport missing = scannerFor(null, null).scan();
+        assertThat(missing.scan().status()).isEqualTo("DISABLED");
+        assertThat(missing.evidence().usable()).isFalse();
+        assertThat(missing.evidence().coverageComplete()).isFalse();
+    }
+
+    @Test
+    void missingRequiredOperationInventoryMakesScanStatusAndEvidencePartial() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("AuthorizationFilter"),
+                false,
+                false,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                true,
+                null,
+                null);
+        SecurityReport report = new SecurityScanner(contextWith(chain, new MockEnvironment()), CLOCK).scan();
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.results()).isEmpty();
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations()).anyMatch(value -> value.contains("SEC-ACT-"));
+    }
+
+    @Test
     void ruleEvaluationWrapsRuntimeExceptionAsErrorResult() {
-        SecurityRuleResultDto result = new ThrowingRule().evaluate(emptyContext());
+        SecurityContext context = emptyContext();
+        SecurityRuleResultDto result = new ThrowingRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.ERROR);
+        assertThat(context.evidence().evaluation().evidence(List.of()).usable()).isFalse();
+        assertThat(context.evidence().evaluation().evidence(List.of()).coverageComplete())
+                .isFalse();
         assertThat(result.violationCount()).isZero();
         assertThat(result.sampleViolations()).hasSize(1);
         assertThat(result.sampleViolations().get(0))

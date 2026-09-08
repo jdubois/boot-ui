@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.vulnerabilities;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
+import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
 import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencySeverityCountDto;
@@ -15,6 +16,128 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class DependencyReportsTests {
+
+    @Test
+    void unknownAdvisoriesNeverEstablishEligibilityEvenAfterDismissal() {
+        var dependency = vulnerableDependency("org.example", "lib", "1.0.0", "UNKNOWN");
+        var report = DependencyReports.report(true, "PARTIAL", "Details incomplete", 1L, 1, List.of(dependency));
+        var dismissed = DependencyReports.applyDismissals(
+                report, Set.of(DependencyReports.dismissalKey("V-lib", "org.example:lib")));
+
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(dismissed.evidence()).isSameAs(report.evidence());
+        assertThat(dismissed.dependencies().get(0).vulnerabilities().get(0).severity())
+                .isEqualTo("UNKNOWN");
+    }
+
+    @Test
+    void fullyQueriedUnknownSeverityIsStillIncompleteBeforeAndAfterDismissal() {
+        var report = assessedReport("UNKNOWN");
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations())
+                .contains("Findings with unknown severity are excluded from score penalties.");
+        var dismissed =
+                DependencyReports.applyDismissals(report, Set.of(DependencyReports.dismissalKey("V-UNKNOWN", "g:a")));
+        assertThat(dismissed.evidence()).isEqualTo(report.evidence());
+        assertThat(dismissed.severityCounts()).allMatch(count -> count.count() == 0);
+    }
+
+    @Test
+    void mixedKnownAndUnknownFindingsKeepOnlyKnownEligibilityWithoutCompletionCredit() {
+        var report = assessedReport("HIGH", "NONE", "UNKNOWN");
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        var dismissed = DependencyReports.applyDismissals(
+                report,
+                Set.of(
+                        DependencyReports.dismissalKey("V-HIGH", "g:a"),
+                        DependencyReports.dismissalKey("V-NONE", "g:a"),
+                        DependencyReports.dismissalKey("V-UNKNOWN", "g:a")));
+        assertThat(dismissed.evidence()).isEqualTo(report.evidence());
+        assertThat(dismissed.severityCounts()).allMatch(count -> count.count() == 0);
+        assertThat(DependencyReports.applyDismissals(dismissed, Set.of()).evidence())
+                .isEqualTo(report.evidence());
+    }
+
+    @Test
+    void fullyAssessedKnownFindingsAndGenuinelyEmptyQueriesEstablishCompletion() {
+        for (String severity : List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE")) {
+            var report = assessedReport(severity);
+            assertThat(report.evidence().usable()).isTrue();
+            assertThat(report.evidence().coverageComplete()).isTrue();
+            var dismissed = DependencyReports.applyDismissals(
+                    report, Set.of(DependencyReports.dismissalKey("V-" + severity, "g:a")));
+            assertThat(dismissed.evidence()).isEqualTo(report.evidence());
+            assertThat(dismissed.severityCounts()).allMatch(count -> count.count() == 0);
+        }
+        var empty = assessedReport();
+        assertThat(empty.evidence().usable()).isTrue();
+        assertThat(empty.evidence().coverageComplete()).isTrue();
+    }
+
+    @Test
+    void unknownOrFailedEmptyQueriesCannotEstablishCompletionAndLimitsRemainVisible() {
+        for (var assessment : List.of(DependencyAssessmentDto.unknown(), new DependencyAssessmentDto(true, false))) {
+            var dependency = new DependencyDto("g", "a", "1", "g:a", "test", 0, "NONE", List.of(), assessment);
+            var report = DependencyReports.report(
+                    true, "SCANNED", "done", 1L, 1, 0, List.of(dependency), DependencyCoverageDto.of(1, 0, List.of()));
+            assertThat(report.evidence().usable()).isFalse();
+            assertThat(report.evidence().coverageComplete()).isFalse();
+        }
+        var complete = assessedReport();
+        var limited = DependencyReports.report(
+                true, "SCANNED", "done", 1L, 1, 2, complete.dependencies(), complete.coverage());
+        assertThat(limited.evidence().usable()).isTrue();
+        assertThat(limited.evidence().coverageComplete()).isFalse();
+        assertThat(limited.evidence().limitations())
+                .contains("Some inventory packages were excluded by the scan limit.");
+        var noScope = DependencyReports.report(
+                true, "SCANNED", "done", 1L, 0, 0, List.of(), DependencyCoverageDto.of(0, 0, List.of()));
+        assertThat(noScope.evidence().usable()).isFalse();
+        assertThat(noScope.evidence().coverageComplete()).isTrue();
+    }
+
+    private static DependenciesReport assessedReport(String... severities) {
+        var findings = Arrays.stream(severities)
+                .map(severity -> vulnerability("V-" + severity, severity))
+                .toList();
+        var dependency = new DependencyDto(
+                "g",
+                "a",
+                "1",
+                "g:a",
+                "test",
+                findings.size(),
+                DependencyReports.highestSeverity(findings),
+                findings,
+                new DependencyAssessmentDto(true, true));
+        return DependencyReports.report(
+                true, "SCANNED", "done", 1L, 1, 0, List.of(dependency), DependencyCoverageDto.of(1, 0, List.of()));
+    }
+
+    @Test
+    void dismissalRestoreAndEpssPreserveEvidence() {
+        var assessment = new io.github.jdubois.bootui.core.dto.DependencyAssessmentDto(true, true);
+        var evidence =
+                new io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto(true, false, List.of("Inventory incomplete"));
+        DependencyDto dependency = new DependencyDto(
+                "g", "a", "1", "g:a", "test", 1, "UNKNOWN", List.of(vulnerability("V-a", "UNKNOWN")), assessment);
+        DependenciesReport report =
+                new DependenciesReport(true, 1, 1, List.of(), null, null, List.of(dependency), evidence);
+        DependenciesReport dismissed =
+                DependencyReports.applyDismissals(report, Set.of(DependencyReports.dismissalKey("V-a", "g:a")));
+        assertThat(dismissed.evidence()).isSameAs(evidence);
+        assertThat(dismissed.dependencies().get(0).assessment()).isSameAs(assessment);
+        assertThat(dismissed.dependencies().get(0).vulnerabilities()).hasSize(1);
+        DependenciesReport restored = DependencyReports.applyDismissals(dismissed, Set.of());
+        assertThat(restored.evidence()).isSameAs(evidence);
+        assertThat(restored.dependencies().get(0).assessment()).isSameAs(assessment);
+        assertThat(DependencyReports.applyEpssScores(restored.dependencies(), Map.of("CVE-1", new EpssScore(0.1, 0.2)))
+                        .get(0)
+                        .assessment())
+                .isSameAs(assessment);
+    }
 
     @Test
     void fixAvailabilityRequiresAPositivelyComparableNewerCandidate() {

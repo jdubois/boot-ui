@@ -107,6 +107,64 @@ class QuarkusAppScannerTest {
     }
 
     @Test
+    void inspectedMetadataAndInapplicableInventoriesDoNotCompleteChecks() {
+        Snap snap = new Snap();
+        snap.runtimeJdk = 24;
+        SpringReport report = scan(snap);
+        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.inspected()).isNotEmpty();
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isTrue();
+    }
+
+    @Test
+    void genuineInfoFindingSurvivesItsIncompleteEvaluationWithoutACompletedCheck() {
+        Snap snap = new Snap().setting("QA-WEB-001", "default-disabled");
+        snap.metadataProblem("QA-WEB-001");
+        QuarkusAppScanner scanner = QuarkusAppScanner.usingSnapshot(snap::build, CLOCK);
+        QuarkusAppChecks.Evaluation evaluation = QuarkusAppChecks.evaluate(snap.build());
+        SpringReport report = scanner.scan();
+        assertThat(evaluation.usable()).isTrue();
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.results()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("QA-WEB-001");
+            assertThat(result.severity()).isEqualTo("INFO");
+        });
+        assertThat(scanner.applyDismissals(report, Set.of("QA-WEB-001")).evidence())
+                .isEqualTo(report.evidence());
+    }
+
+    @Test
+    void completedCleanSettingSurvivesMissingMetadataWithoutInventingPasses() {
+        Snap snap = new Snap().setting("QA-WEB-001", "enabled");
+        snap.metadata = QuarkusAppMetadata.unavailable();
+        snap.evaluated = Set.of("QA-WEB-001");
+        SpringReport report = scan(snap);
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.results()).isEmpty();
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations()).isNotEmpty();
+    }
+
+    @Test
+    void failedConfigurationDoesNotCountAndDismissalsKeepEvidence() {
+        Snap snap = new Snap().setting("QA-WEB-001", "invalid").setting("QA-WEB-002", "zero");
+        QuarkusAppScanner scanner = QuarkusAppScanner.usingSnapshot(snap::build, CLOCK);
+        SpringReport report = scanner.scan();
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(scanner.applyDismissals(report, Set.of("QA-WEB-002")).evidence())
+                .isEqualTo(report.evidence());
+        assertThat(QuarkusAppScanner.usingSnapshot(() -> null, CLOCK)
+                        .scan()
+                        .evidence()
+                        .usable())
+                .isFalse();
+    }
+
+    @Test
     void completeNineteenRuleAuditKeepsThirteenIdentifiersAndRetiresSixWithoutReuse() {
         assertThat(QuarkusAppChecks.ruleIds())
                 .containsExactly(

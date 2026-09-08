@@ -26,6 +26,39 @@ class ReactiveSecurityScannerTests {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
+    void corsEvaluatorOwnsZeroTargetCompletedAndMissingEvidenceOutcomes() {
+        ReactiveSecurityContext empty =
+                new ReactiveSecurityContext(List.of(), List.of(), true, ReactiveSecurityEnvironmentSnapshot.empty());
+        assertThat(new ReactiveCorsWildcardOriginRule().evaluate(empty).status())
+                .isEqualTo("PASS");
+        assertThat(empty.evaluation().evidence(List.of()).usable()).isFalse();
+
+        CorsConfigObservation safe = new CorsConfigObservation(
+                "/**", List.of("https://app.example"), List.of(), List.of(), List.of(), false);
+        ReactiveSecurityContext known = new ReactiveSecurityContext(
+                List.of(), List.of(safe), true, ReactiveSecurityEnvironmentSnapshot.empty());
+        assertThat(new ReactiveCorsWildcardOriginRule().evaluate(known).status())
+                .isEqualTo("PASS");
+        assertThat(known.evaluation().evidence(List.of()).usable()).isTrue();
+
+        ReactiveSecurityContext missing = new ReactiveSecurityContext(
+                List.of(), List.of(safe), false, ReactiveSecurityEnvironmentSnapshot.empty());
+        assertThat(new ReactiveCorsWildcardOriginRule().evaluate(missing).status())
+                .isEqualTo("SKIPPED");
+        assertThat(missing.evaluation().evidence(List.of()).usable()).isFalse();
+        assertThat(missing.evaluation().evidence(List.of()).coverageComplete()).isFalse();
+
+        CorsConfigObservation unsafe =
+                new CorsConfigObservation("/**", List.of("*"), List.of(), List.of(), List.of(), false);
+        ReactiveSecurityContext partial = new ReactiveSecurityContext(
+                List.of(), List.of(unsafe), false, ReactiveSecurityEnvironmentSnapshot.empty());
+        assertThat(new ReactiveCorsWildcardOriginRule().evaluate(partial).status())
+                .isEqualTo("VIOLATION");
+        assertThat(partial.evaluation().evidence(List.of()).usable()).isTrue();
+        assertThat(partial.evaluation().evidence(List.of()).coverageComplete()).isFalse();
+    }
+
+    @Test
     void initialReportIsNotScanned() {
         ReactiveSecurityScanner scanner = ReactiveSecurityScanner.using(this::minimalObservation, CLOCK);
 
@@ -48,6 +81,8 @@ class ReactiveSecurityScannerTests {
         assertThat(report.violationsFound()).isZero();
         assertThat(report.results()).isEmpty();
         assertThat(report.filterChains()).isEmpty();
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isFalse();
     }
 
     @Test
@@ -72,6 +107,7 @@ class ReactiveSecurityScannerTests {
 
         assertThat(report.scan().status()).isEqualTo("DISABLED");
         assertThat(report.scan().message()).contains("IllegalStateException");
+        assertThat(report.evidence().usable()).isFalse();
     }
 
     @Test
@@ -146,10 +182,67 @@ class ReactiveSecurityScannerTests {
                 Set.of());
         SecurityReport report = scan(minimalObservation().chains().get(0), failed);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
         assertThat(report.analysisErrors()).singleElement().satisfies(result -> {
             assertThat(result.id()).isEqualTo("SEC-RXF-CONFIG-004");
             assertThat(result.status()).isEqualTo("ERROR");
         });
+    }
+
+    @Test
+    void findingDoesNotHideIncompleteCorsCoverage() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthorizationWebFilter"),
+                Boolean.FALSE,
+                List.of("StrictTransportSecurityServerHttpHeadersWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null,
+                null);
+        List<CorsConfigObservation> cors = List.of(
+                new CorsConfigObservation("/first", List.of("*"), List.of(), List.of(), List.of(), false),
+                new CorsConfigObservation("/second", List.of(), List.of("*"), List.of(), List.of(), true),
+                new CorsConfigObservation(
+                        "/third", List.of(), List.of("https://*.example.com"), List.of(), List.of(), true));
+        ReactiveSecurityObservation observation = new ReactiveSecurityObservation(
+                List.of(chain),
+                cors,
+                true,
+                List.of(),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of(),
+                false);
+        ReactiveSecurityScanner scanner = ReactiveSecurityScanner.using(() -> observation, CLOCK);
+        SecurityReport report = scanner.scan();
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-CORS-001", "SEC-RXF-CORS-002");
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations()).anyMatch(value -> value.contains("SEC-RXF-CORS-001"));
+        assertThat(scanner.applyDismissals(report, Set.of("SEC-RXF-CORS-001")).evidence())
+                .isEqualTo(report.evidence());
+    }
+
+    @Test
+    void failedApplicableEvaluationsNeverCountAsCompletedChecks() {
+        Map<String, String> failures = ReactiveSecurityRuleRegistry.activeRules().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        rule -> rule.definition().id(), rule -> "Unavailable"));
+        ReactiveSecurityEnvironmentSnapshot environment = new ReactiveSecurityEnvironmentSnapshot(
+                false, null, null, false, List.of(), false, false, false, false, null, Set.of(), false, false, false,
+                false, false, Set.of(), true, failures, Set.of());
+        SecurityReport report = scan(minimalObservation().chains().get(0), environment);
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.analysisErrors()).hasSize(RULE_COUNT);
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isFalse();
     }
 
     @Test

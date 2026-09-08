@@ -1,24 +1,74 @@
 # Advisors
 
-BootUI's advisors run explicit, on-demand, rule-based scans and surface severity-ranked findings that feed the weighted
-score on the Overview dashboard. Each advisor is read-only and inspects a different facet of the application — compiled
-architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. A complete advisor
-assessment shows the same 0–100 score in its panel and Overview (100 minus the weighted finding penalty).
+BootUI's advisors run explicit, on-demand, rule-based scans and surface severity-ranked findings and coverage limits.
+Each advisor is read-only and inspects a different facet of the application — compiled
+architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. A usable advisor
+assessment shows the same 0–100 **Known-findings score** in its panel and Overview (100 minus the weighted finding
+penalty). This summarizes retained penalties, not application health or safety.
 
 ### Score eligibility
 
-A diagnostic report is not necessarily eligible for a score. Only `SCANNED` reports with a valid severity summary
-score. `PARTIAL` reports show **Incomplete**, without a numeric score; failed, disabled, and unscanned reports also
-remain unscored. Findings, severity counts, and diagnostics remain available even when the assessment is incomplete.
-Intentionally skipped, inapplicable rules do not by themselves make a scan incomplete.
+A diagnostic report is not necessarily eligible for a score. `SCANNED` and `PARTIAL` reports can score when a valid
+severity summary accompanies known-severity observed findings or proven completed applicable checks. An empty
+summary, attempted count, rule registry size, or all-skipped/all-failed report does not establish a clean assessment.
+`ERROR`, `DISABLED`, and `NOT_SCANNED` never score. Malformed evidence or severity data remains unscored with an
+explanation. Findings, severity counts, statuses, and diagnostics are retained independently of eligibility.
 
-Vulnerabilities also requires `coverage.status=COMPLETE` and no active `UNKNOWN` severity findings. Missing or
-unavailable coverage is unknown, not complete. `NONE` (CVSS zero) is scoreable with no penalty. Dismissing an UNKNOWN
-finding can restore eligibility; restoring it removes the score again. Coverage is only as reliable as the
-inventory provider's report: this presentation policy cannot detect an inventory that incorrectly claims completeness.
+The report `evidence` object has three fields:
 
-During a new request, or if transport fails, the last accepted report remains visible. A newly received incomplete,
-failed, or disabled report replaces the previous assessment and immediately removes its score from Overview.
+- `usable`: whether at least one applicable check completed or a genuine known-severity finding was observed,
+  before filtering or dismissal. Genuine INFO/NONE findings can establish usability; informational missing-evidence
+  notices and UNKNOWN-only vulnerability data cannot.
+- `coverageComplete`: whether applicable evidence is complete. Intentionally inapplicable checks are neutral;
+  missing required observations and failures leave coverage incomplete.
+- `limitations`: an immutable, bounded, sanitized list of explanations for incomplete coverage.
+
+Backend evidence is the sole eligibility authority; it exposes no completion or findings counters. Legacy reports
+without valid explicit evidence remain unscored, with their findings visible. The browser does not reconstruct
+applicability from rule IDs, finding lists, or dependency details. For example, MySQL/Oracle checks on a PostgreSQL-only
+application remain neutral skipped diagnostics, not incomplete assessments or completed passes.
+
+Score eligibility is separate from coverage completeness. A `SCANNED` report with `usable: false`,
+`coverageComplete: true`, and no limitations has no score and reads **Not applicable**.
+For example, a successful Architecture import with no classes or complete REST API discovery with no supported
+controllers establishes an empty assessed scope, not a passing check. Overview counts it as assessed, not incomplete,
+without inventing a score. Missing discovery or legacy evidence
+remains unknown; a generic lack of score never establishes that nothing applies.
+
+Inside advisor panels, usable scored results show **Results available**, including when coverage is limited.
+Overview uses **Scan complete** for these results: the scan has finished, but coverage may still be limited.
+Detailed reasons are in a
+collapsed **Scan notes** disclosure in each advisor panel, operable by keyboard and screen reader. Scores with notes
+include **Scan notes available** in their accessible names. Overview summarizes how many advisors have scan notes,
+not how many checks could not run: limitations can be aggregated or capped. Unscored reasons and whole-scan failures
+remain visible, not collapsed. Backend scan statuses and evidence are unchanged.
+Penalties are unchanged: CRITICAL 25, HIGH 10, MEDIUM 3, LOW 1,
+and INFO/NONE 0, clamped and rounded to 0–100. A partial 100 means no active penalties in the assessed evidence,
+not that unchecked work passed. Advisor panels use neutral numbers; Overview restores green/amber/red score colors
+at the historical 80/50 thresholds to prioritize review, without changing eligibility or implying application safety.
+Complete assessments need no additional coverage paragraph. Overview shows an **Overall score**, the rounded
+arithmetic mean of eligible visible advisor scores and GitHub's eligible security-alert score, with the contributing
+score count alongside retained severities and advisor assessment counts. Missing or unscored reports do not
+contribute fake zeros or hundreds. GitHub uses 10 points per alert only when authenticated, connected, and all three
+required security signals have available valid counts; it never contributes fabricated advisor severities.
+See [Overview](overview.md) for its eligibility policy. Three MEDIUM findings keep that advisor at 91 whether
+another advisor runs or not; usable partial evidence is included without a missing-check penalty. No coverage
+percentage, confidence weight, or combined per-rule coverage total is inferred.
+
+Known-severity dependency findings (including NONE) establish usability before dismissal. A fully assessed package
+also establishes usability when every retained advisory has known severity, or the result is genuinely empty, and
+both `assessment.queryComplete` and `assessment.detailAssessmentComplete` are true. Query completion requires
+exhausting that dependency's pages; detail completion requires interpreting every returned advisory or confirming
+withdrawal. Missing, failed, capped, mismatched, or unresolved details are not a no-match. UNKNOWN findings remain
+visible and incur no penalty, but UNKNOWN-only evidence stays unscored even after dismissal unless independent
+usable evidence exists. Dismissed known findings remain evidence while their penalties are removed. Neither an empty
+active count nor dismissing every advisory makes a dependency genuinely empty. Inventory/query/detail gaps and UNKNOWN
+findings qualify otherwise usable scores rather than suppressing them. Optional EPSS enrichment does not decide
+eligibility. Inventory coverage is only as reliable as the provider's report, not independent runtime verification.
+
+During a new request, or if transport fails, the last accepted report remains visible. A newly received report
+replaces that assessment: usable partial evidence contributes a qualified score, while failed, disabled, and unusable
+reports remove the previous score.
 
 ### Single-flight scans
 
@@ -31,7 +81,8 @@ visible and shows the conflict as a warning. Different scanners remain independe
 
 Every advisor finding can be **dismissed** when it does not apply to your project. Each rule result carries a _Dismiss_
 button; dismissing moves the rule into a collapsed "Dismissed rules" list and excludes it from the panel's finding
-count, severity bars, advisor score, and the weighted Overview score. The panel's score recomputes immediately, and the
+count, severity bars, and that advisor's known-findings score in both its panel and Overview. Dismissal changes penalties, not application
+safety, observed evidence, or missing coverage. The panel's score recomputes immediately, and the
 Overview dashboard reads cached reports on initial navigation and when you return to it, without rescanning, so a
 panel-originated scan, dismissal, or restore updates both the score and eligibility in both places.
 Rules can be restored at any time from that list.
@@ -189,6 +240,13 @@ startup conditions. It complements the Architecture panel — which statically a
 the live, wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the
 context, intercepts live traffic, or surfaces secrets. The ruleset detects whether the host runs the servlet (Spring
 MVC) or reactive (Spring WebFlux) stack and adjusts a handful of rules accordingly.
+
+Standard Boot scheduling observability and BootUI's cache-activity decoration do not by themselves make the assessment
+partial. The scheduler check observes registered tasks and the selected native scheduler; the cache check preserves the
+underlying native provider's identity without calling custom delegates. On MVC, OSIV is reported as present, confirmed
+absent, or unknown from actual registration metadata—not inferred absent from `spring.jpa.open-in-view=false`.
+Custom or unavailable registrations retain explicit coverage limitations, and evaluation failures have separate safe
+explanations. These evidence corrections do not change finding severities, score penalties or the report's JSON shape.
 
 This single framework-application advisor is **relabelled per framework**: **Spring** on the Spring Boot adapter,
 **Quarkus** on the Quarkus adapter — the same menu slot, `/bootui/api/spring` contract, and report shape. The
@@ -506,9 +564,11 @@ It intentionally does not crawl discovered endpoints, send SQL/XSS/destructive p
 include raw response bodies, cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not
 proof of exploitability or a replacement for a full security assessment.
 
-The 79 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation. No-finding
-category coverage is informational rather than a pass. Failed or bounded-away evidence produces a `PARTIAL` scan, hides
-the advisor score, and marks affected no-finding coverage `INDETERMINATE`; known findings remain `REVIEW` with limits.
+The 79 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation.
+The panel shows **Findings by severity**, matching the other advisors, rather than a separate OWASP Top 10 coverage
+matrix. Severity bars summarize retained findings; category metadata is not a passing-check count.
+Failed or bounded-away evidence produces a `PARTIAL` scan. Usable known findings still score under the shared
+eligibility policy, with limits in **Scan notes**; skipped, failed, or unknown-only evidence cannot establish a score.
 See [PENTEST-CHECKS.md](../PENTEST-CHECKS.md) for the
 full catalogue, limits, mappings, and retired IDs.
 
@@ -522,8 +582,7 @@ full catalogue, limits, mappings, and retired IDs.
   selected/default/direct HTTP-listener TLS configuration, not unrelated client TLS keys, while explicitly marking
   Spring endpoint/security metadata unavailable. Local HTTP does not assess proxy-edge HTTPS.
 
-The coverage matrix uses platform-specific wording, so neither adapter turns unsupported checks into a false clean
-result.
+Platform-specific limitations remain explicit, so unsupported checks do not become a false clean result.
 
 ## Vulnerabilities
 
@@ -536,8 +595,8 @@ advisories alphabetized within the same severity.
 
 The [Vulnerabilities checks catalogue](../VULNERABILITIES-CHECKS.md) documents the interpretation rules, official
 sources/version caveats, full audit disposition, and deferred inventory limitations. A completed lookup is not proof
-of application safety or complete runtime discovery. Advisor scoring, Overview/gauges, and dismissal refresh belong
-to the independent central scoring workstream, not the evidence-interpretation change described here.
+of application safety or complete runtime discovery. Panel and Overview use the same
+[evidence-based eligibility](#score-eligibility), including qualification after dismissal and GET-only cached refresh.
 
 ### Severity scoring
 

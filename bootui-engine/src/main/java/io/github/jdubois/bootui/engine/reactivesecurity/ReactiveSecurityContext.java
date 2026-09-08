@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.reactivesecurity;
 
+import io.github.jdubois.bootui.engine.security.SecurityEvaluation;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -14,7 +15,24 @@ record ReactiveSecurityContext(
         List<WebFilterChainObservation> chains,
         List<CorsConfigObservation> corsConfigs,
         boolean corsObservationComplete,
-        ReactiveSecurityEnvironmentSnapshot environment) {
+        ReactiveSecurityEnvironmentSnapshot environment,
+        SecurityEvaluation evaluation) {
+
+    ReactiveSecurityContext(
+            List<WebFilterChainObservation> chains,
+            List<CorsConfigObservation> corsConfigs,
+            boolean corsObservationComplete,
+            ReactiveSecurityEnvironmentSnapshot environment) {
+        this(chains, corsConfigs, corsObservationComplete, environment, new SecurityEvaluation());
+    }
+
+    boolean applies(boolean applicable) {
+        return evaluation.applies(applicable);
+    }
+
+    boolean required(boolean known) {
+        return evaluation.required(known);
+    }
 
     private static final List<String> SENSITIVE_ACTUATOR_ENDPOINTS =
             List.of("env", "beans", "configprops", "heapdump", "threaddump", "shutdown", "loggers", "mappings");

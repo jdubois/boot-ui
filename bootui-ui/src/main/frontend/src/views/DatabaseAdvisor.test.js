@@ -58,6 +58,7 @@ function advisorReport(results, overrides = {}) {
       violationsFound
     },
     results,
+    evidence: {usable: true, coverageComplete: true, limitations: []},
     diagnostics: [],
     ...overrides
   }
@@ -105,7 +106,7 @@ describe('DatabaseAdvisor', () => {
       ])
     )
 
-    expect(wrapper.text()).toContain('Scan complete')
+    expect(wrapper.text()).toContain('Results available')
     expect(wrapper.text()).toContain('3 violating rules, sorted by importance')
     expect(wrapper.text()).toContain('What happened:')
     expect(wrapper.text()).toContain('2 findings found for this rule.')
@@ -126,7 +127,8 @@ describe('DatabaseAdvisor', () => {
     )
 
     expect(wrapper.find('.advisor-summary__value').text()).toBe('20')
-    expect(wrapper.text()).toContain('At risk')
+    expect(wrapper.find('.advisor-score-card').text()).toContain('Known-findings score')
+    expect(wrapper.text()).not.toContain('At risk')
   })
 
   it('shows an empty findings state when every evaluated rule passes', async () => {
@@ -175,13 +177,40 @@ describe('DatabaseAdvisor', () => {
       })
     )
 
-    expect(wrapper.text()).toContain('Incomplete')
-    expect(wrapper.find('.advisor-summary__gauge').exists()).toBe(false)
+    expect(wrapper.get('.advisor-summary__metric--status .badge').text()).toBe('Results available')
+    expect(wrapper.find('.advisor-summary__value').text()).toBe('100')
+    expect(wrapper.find('.advisor-summary__score').attributes('aria-label')).toContain('Scan notes available')
     expect(wrapper.text()).toContain('Incomplete scan.')
     expect(wrapper.text()).toContain('1 datasource could not be read')
     expect(wrapper.text()).toContain('Unreadable')
-    expect(wrapper.text()).toContain('No findings in the available results')
+    expect(wrapper.text()).toContain('No findings in the assessed evidence')
     expect(wrapper.text()).not.toContain('No Database findings')
+  })
+
+  it('scores retained partial schema findings with exact arithmetic and visible limitations', async () => {
+    const wrapper = await mountWithReport(
+      advisorReport(
+        [
+          ruleResult('DB-SCHEMA-002', 'Missing indexes', 'HIGH', 'VIOLATION', 8),
+          ruleResult('DB-HIB-002', 'Mapping mismatch', 'MEDIUM', 'VIOLATION', 2)
+        ],
+        {
+          scan: {status: 'PARTIAL', message: 'Some metadata unavailable.'},
+          evidence: {
+            usable: true,
+            coverageComplete: false,
+            limitations: ['Index statistics unavailable.']
+          }
+        }
+      )
+    )
+    expect(wrapper.find('.advisor-summary__value').text()).toBe('14')
+    const notes = wrapper.get('details.advisor-summary__notes')
+    expect(notes.element.open).toBe(false)
+    expect(notes.get('summary').text()).toBe('Scan notes')
+    expect(notes.text()).toContain('Index statistics unavailable.')
+    expect(wrapper.find('.advisor-summary__assessment').exists()).toBe(false)
+    expect(wrapper.text()).toContain('2 violating rules')
   })
 
   it('surfaces truncation and skipped/errored rules as diagnostics on demand', async () => {

@@ -49,6 +49,7 @@ const panel = useAdvisorPanel(props, {
         :score="panel.score"
         :score-label="panel.assessment.label"
         :score-reason="panel.assessment.reason"
+        :incomplete="panel.assessment.incomplete"
         :dismissed-count="panel.dismissedResults.length"
         :scan-status-label="panel.scanStatusLabel(panel.report.scan.status)"
         :scan-status-class="panel.scanStatusBadgeClass(panel.report.scan.status)"
@@ -130,8 +131,8 @@ const panel = useAdvisorPanel(props, {
           </div>
           <span
             v-if="panel.score !== null && panel.visibleResults.length === 0 && panel.dismissedResults.length === 0"
-            class="badge text-bg-success"
-            >No violations</span
+            class="badge text-bg-secondary"
+            >{{ panel.assessment.partial ? panel.noFindingsLabel : 'No violations' }}</span
           >
         </div>
         <div v-if="panel.visibleResults.length === 0" class="card-body text-center text-muted py-5">

@@ -23,6 +23,8 @@ final class HeadHandlersDoNotReturnBodiesRule extends AbstractRestApiRule {
         return handlersMatching(
                 context,
                 handler -> handler.httpMethods().contains("HEAD")
+                        && !handler.httpMethods().contains("GET"),
+                handler -> handler.httpMethods().contains("HEAD")
                         && !handler.httpMethods().contains("GET")
                         && handler.serializesBody()
                         && !handler.returnsVoid()

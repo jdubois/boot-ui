@@ -12,7 +12,14 @@ The same ruleset runs on Spring MVC and WebFlux. Servlet OSIV guidance is inappl
 
 The panel is always available when the Spring advisor is enabled. Scanning is explicit and on demand; GET returns the cached report. Collection uses bounded, non-eager bean metadata and does not create lazy beans, invoke application customizers, open database connections, or probe remote services. Missing required evidence is unevaluated, not a successful check; inspection failures and invalid bindings are reported without raw exception messages or property values. The Rule results panel lists findings, ordered by severity, finding count, and rule ID.
 
+Scheduler, cache-provider and servlet OSIV gaps retain specific, bounded explanations in both inspected observations
+and coverage limitations. A rule evaluation failure is identified separately from unavailable evidence; neither exposes
+exception messages or raw settings. Independently observed findings survive incomplete registration/provider coverage.
+
 ## Severity scale
+
+A `SCANNED` report can still contain unknown observations or analysis errors. Usable known-findings scores retain
+those limitations under the shared [score eligibility policy](features/advisors.md#score-eligibility).
 
 - **CRITICAL** - reserved by the shared report contract; no Spring rule infers this severity from profile names or management-port equality.
 - **HIGH** - a setting that commonly causes problems and usually needs attention before production.
@@ -177,7 +184,7 @@ Dismissed rules remove all of their findings from the score.
 ### SPRING-PERF-005 - Scheduler runs on a single thread
 
 - **Severity**: INFO
-- **Detects**: Known single-thread scheduler selection with multiple relevant registered application tasks. `@EnableScheduling` or an absent pool-size property alone does not establish this; unobservable schedulers, custom routing and configurers remain unknown.
+- **Detects**: Known single-thread scheduler selection with multiple relevant registered application tasks. Native task outcome wrappers, Boot's scheduling-observation configurer and BootUI's observation-only configurer do not obscure that evidence. Application tasks are not excluded by a BootUI-like package name. For multiple tasks, the registrar's already-selected scheduler instance must agree with observable candidate selection before its native pool is read; no lazy scheduler supplier is invoked. Fewer than two registered tasks need no pool-size observation. Exact `SimpleAsyncTaskScheduler` selection is inapplicable to this pool check, not a missing thread-pool size. `@EnableScheduling` or an absent pool-size property alone does not establish selection; ambiguous/unobservable schedulers, qualifiers and custom configurers remain unknown.
 - **Recommendation**: Review whether tasks need to overlap and how delays affect other tasks. Deliberate serialization can be correct. Virtual threads do not universally solve fixed-delay scheduling, and changing fixed-delay to fixed-rate changes semantics.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
@@ -191,7 +198,7 @@ Dismissed rules remove all of their findings from the score.
 ### SPRING-CACHE-001 - Review concurrent-map cache bounds
 
 - **Severity**: INFO
-- **Detects**: An exact known `ConcurrentMapCacheManager` lacks built-in capacity/expiry policy. `NoOpCacheManager` stores nothing and is not an unbounded cache. Custom implementations/subclasses are not assumed to share these limitations.
+- **Detects**: An exact known `ConcurrentMapCacheManager` lacks built-in capacity/expiry policy, including when wrapped by BootUI's own final cache-activity decorator. The same safe unwrapping retains `NoOpCacheManager` and `CaffeineCacheManager` provider identity and completion credit. NoOp stores nothing; a Caffeine pass means this concurrent-map-specific concern does not apply, **not** that every Caffeine configuration is bounded. No application delegate callback is invoked, and custom wrappers/implementations/subclasses remain unknown. A known concurrent-map finding is retained even when another provider remains unclassified.
 - **Recommendation**: If key growth or staleness matters, review bounds/expiry or a suitable provider. Local Caffeine is a valid production choice; shared storage is not universally required.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/io/caching.html>
 
@@ -244,7 +251,7 @@ Dismissed rules remove all of their findings from the score.
 ### SPRING-JPA-001 - Review Open Session in View
 
 - **Severity**: MEDIUM
-- **Detects**: Observed servlet OSIV registration, including the interceptor actually adapted into an MVC handler mapping. Boot interceptor/configurer definitions alone are insufficient: custom MVC configuration can omit applying those configurers. Custom mapping limits are stated, WebFlux is inapplicable, and an open persistence context does not itself prove a held JDBC connection or N+1 queries.
+- **Detects**: Observed servlet OSIV registration, including the interceptor actually adapted into an MVC handler mapping. Boot interceptor/configurer definitions alone are insufficient: custom MVC configuration can omit applying those configurers. Collection distinguishes observed presence, confirmed absence and unknown registration coverage. Absence requires inspection of native applied MVC/resource/WebSocket/Actuator handler mappings and servlet filter registration metadata, including native Spring Security filter-chain proxies. Native empty interceptor lists and completed null-returning mapping factories are known empty; lazy mappings, custom handler mappings, custom registration subclasses/initializers and unresolved filter targets suppress absence claims. `spring.jpa.open-in-view=false` alone is never proof of absence. Independently observed registrations still produce the existing MEDIUM finding when other coverage is incomplete. Custom mapping limits are stated, WebFlux is inapplicable, and an open persistence context does not itself prove a held JDBC connection or N+1 queries.
 - **Recommendation**: Review whether request-wide persistence access is intentional. Prefer explicit fetch boundaries (fetch joins, entity graphs, DTO projections) where appropriate; disable Boot OSIV with `spring.jpa.open-in-view=false` or adjust custom registrations separately.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-entity-manager-in-view>
 

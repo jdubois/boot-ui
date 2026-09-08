@@ -39,8 +39,11 @@ abstract class AbstractRestApiRule implements RestApiRule {
 
     @Override
     public final RestApiRuleResultDto evaluate(RestApiContext context) {
+        context.evidence().reset();
         try {
-            return doEvaluate(context);
+            RestApiRuleResultDto result = doEvaluate(context);
+            context.evidence().complete(result);
+            return result;
         } catch (RuntimeException | LinkageError ex) {
             return RestApiRuleSupport.error(
                     definition, "Rule could not be evaluated (" + ex.getClass().getSimpleName() + ").");
@@ -52,13 +55,26 @@ abstract class AbstractRestApiRule implements RestApiRule {
     /** Collects one violation detail per handler that matches the predicate. */
     RestApiRuleResultDto handlersMatching(
             RestApiContext context, Predicate<HandlerMethodModel> predicate, String suffix) {
+        return handlersMatching(context, handler -> true, predicate, suffix);
+    }
+
+    RestApiRuleResultDto handlersMatching(
+            RestApiContext context,
+            Predicate<HandlerMethodModel> applicable,
+            Predicate<HandlerMethodModel> predicate,
+            String suffix) {
         List<String> violations = new ArrayList<>();
-        for (HandlerMethodModel handler : context.handlers()) {
+        for (HandlerMethodModel handler : context.targets(context.handlers(), applicable)) {
             if (predicate.test(handler)) {
                 violations.add(handler.describe() + (suffix.isEmpty() ? "" : " — " + suffix));
             }
         }
         return RestApiRuleSupport.fromViolations(definition, violations);
+    }
+
+    RestApiRuleResultDto missingEvidence(RestApiContext context, String reason) {
+        context.evidence().requiredUnknown = true;
+        return RestApiRuleSupport.skipped(definition, reason);
     }
 }
 
@@ -446,7 +462,10 @@ final class UseHttpMethodSpecificMappingsRule extends AbstractRestApiRule {
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
-                context, handler -> !handler.jaxRs() && !handler.explicitHttpMethod(), "no HTTP method declared");
+                context,
+                handler -> !handler.jaxRs(),
+                handler -> !handler.explicitHttpMethod(),
+                "no HTTP method declared");
     }
 }
 
@@ -467,7 +486,7 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         Map<RouteKey, List<String>> byRoute = new LinkedHashMap<>();
-        for (HandlerMethodModel handler : context.handlers()) {
+        for (HandlerMethodModel handler : context.targets(context.handlers())) {
             List<String> methods = handler.httpMethods().isEmpty() ? List.of("ANY") : handler.httpMethods();
             String condition = conditionKey(handler);
             for (String method : methods) {
@@ -535,6 +554,7 @@ final class StateChangingHandlersNotOnGetRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> handler.httpMethods().contains("GET"),
                 handler -> handler.nameLooksStateChanging()
                         && handler.httpMethods().contains("GET"),
                 "mutation-like name mapped to GET; review safety");
@@ -566,7 +586,9 @@ final class PreferClassLevelBasePathRule extends AbstractRestApiRule {
                     .add(handler);
         }
         List<String> violations = new ArrayList<>();
-        for (ControllerModel controller : context.controllers()) {
+        for (ControllerModel controller : context.targets(
+                context.controllers(),
+                candidate -> !candidate.declaredOnInterface() && candidate.handlerCount() >= 2)) {
             if (controller.declaredOnInterface()
                     || !controller.typeLevelPaths().isEmpty()
                     || controller.handlerCount() < 2) {
@@ -624,7 +646,8 @@ final class ConsistentPathStyleRule extends AbstractRestApiRule {
                 RestApiCategory.ROUTING,
                 "INFO",
                 "Trailing or doubled slashes may differ from a project's URL convention. This is optional style;"
-                        + " Spring distinguishes trailing-slash variants, while other frameworks have different semantics.",
+                        + " Spring distinguishes trailing-slash variants, while other frameworks have different"
+                        + " semantics.",
                 "Review literal slash conventions without rewriting intentional paths or regex templates.",
                 RestApiRuleHelp.SPRING_WEB_DOCS));
     }
@@ -633,7 +656,7 @@ final class ConsistentPathStyleRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         List<String> violations = new ArrayList<>();
         for (ControllerModel controller : context.controllers()) {
-            for (String path : controller.typeLevelPaths()) {
+            for (String path : context.targets(controller.typeLevelPaths())) {
                 if (hasIrregularSlash(path)) {
                     violations.add(controller.simpleName() + " — class-level mapping path '" + path
                             + "' has an irregular slash");
@@ -641,7 +664,7 @@ final class ConsistentPathStyleRule extends AbstractRestApiRule {
             }
         }
         for (HandlerMethodModel handler : context.handlers()) {
-            for (String path : handler.mappingPaths()) {
+            for (String path : context.targets(handler.mappingPaths())) {
                 if (hasIrregularSlash(path)) {
                     violations.add(handler.describe() + " — mapping path '" + path + "' has an irregular slash");
                 }
@@ -692,6 +715,7 @@ final class PathVariablesAreBoundRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.jaxRs()) return RestApiRuleSupport.springPathBinding(definition());
         List<String> violations = new ArrayList<>();
         for (HandlerMethodModel handler : context.handlers()) {
             if (handler.jaxRs()
@@ -704,6 +728,7 @@ final class PathVariablesAreBoundRule extends AbstractRestApiRule {
                     continue;
                 }
                 Set<String> tokens = RestApiRuleHelp.pathVariableTokens(path);
+                context.evidence().applicable = true;
                 List<String> unmatched = new ArrayList<>();
                 for (String name : handler.pathVariableNames()) {
                     if (!tokens.contains(name)) {
@@ -727,9 +752,10 @@ final class NoRequestBodyOnBodylessMethodsRule extends AbstractRestApiRule {
                 "Review request entities on GET/HEAD/DELETE",
                 RestApiCategory.ROUTING,
                 "MEDIUM",
-                "GET, HEAD and DELETE request content has no generally defined semantics in RFC 9110."
-                        + " Private agreements are possible, but intermediary and client interoperability needs review.",
-                "Prefer query/path parameters or POST/PUT/PATCH unless a private request-content agreement is intentional.",
+                "GET, HEAD and DELETE request content has no generally defined semantics in RFC 9110. Private"
+                        + " agreements are possible, but intermediary and client interoperability needs review.",
+                "Prefer query/path parameters or POST/PUT/PATCH unless a private request-content agreement is"
+                        + " intentional.",
                 RestApiRuleHelp.REST_GUIDELINES));
     }
 
@@ -737,6 +763,7 @@ final class NoRequestBodyOnBodylessMethodsRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                NoRequestBodyOnBodylessMethodsRule::hasBodylessMethod,
                 handler -> handler.hasRequestBody() && hasBodylessMethod(handler),
                 "request entity declared on a GET/HEAD/DELETE handler");
     }
@@ -766,7 +793,7 @@ final class ResourcePathsAreNounsRule extends AbstractRestApiRule {
         List<String> violations = new ArrayList<>();
         for (HandlerMethodModel handler : context.handlers()) {
             for (String path : handler.effectivePaths()) {
-                for (String segment : RestApiRuleHelp.staticSegments(path)) {
+                for (String segment : context.targets(RestApiRuleHelp.staticSegments(path))) {
                     if (RestApiRuleHelp.isVerbSegment(segment)) {
                         violations.add(handler.describe() + " — verb-like path segment '" + segment + "'");
                         break;
@@ -844,6 +871,7 @@ final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
                 if (staticSegments.isEmpty()) {
                     continue;
                 }
+                context.evidence().applicable = true;
                 String last = staticSegments.get(staticSegments.size() - 1);
                 String lower = last.toLowerCase(Locale.ROOT);
                 if (!lower.endsWith("s") && !IRREGULAR_PLURALS.contains(lower) && !UNCOUNTABLE_NOUNS.contains(lower)) {
@@ -874,7 +902,7 @@ final class PathSegmentsAreKebabCaseRule extends AbstractRestApiRule {
         List<String> violations = new ArrayList<>();
         for (HandlerMethodModel handler : context.handlers()) {
             for (String path : handler.effectivePaths()) {
-                for (String segment : RestApiRuleHelp.staticSegments(path)) {
+                for (String segment : context.targets(RestApiRuleHelp.staticSegments(path))) {
                     if (RestApiRuleHelp.isNonKebab(segment)) {
                         violations.add(handler.describe() + " — non-kebab-case path segment '" + segment + "'");
                         break;
@@ -908,6 +936,8 @@ final class CreationReturns201Rule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler ->
+                        handler.httpMethods().contains("POST") && RestApiRuleHelp.isCreationName(handler.methodName()),
                 handler -> handler.httpMethods().contains("POST")
                         && RestApiRuleHelp.isCreationName(handler.methodName())
                         && handler.serializesBody()
@@ -925,8 +955,8 @@ final class VoidDeleteReturns204Rule extends AbstractRestApiRule {
                 "Void DELETE returns 204 No Content",
                 RestApiCategory.RESPONSES,
                 "LOW",
-                "A Spring DELETE with a no-body return and no visible status selection may use the default 200."
-                        + " Review whether 204 more precisely describes completed deletion; explicit statuses are preserved.",
+                "A Spring DELETE with a no-body return and no visible status selection may use the default 200. Review"
+                        + " whether 204 more precisely describes completed deletion; explicit statuses are preserved.",
                 "Annotate void DELETE handlers with @ResponseStatus(HttpStatus.NO_CONTENT) or return"
                         + " ResponseEntity.noContent().",
                 RestApiRuleHelp.REST_GUIDELINES));
@@ -936,6 +966,7 @@ final class VoidDeleteReturns204Rule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> !handler.jaxRs() && handler.httpMethods().contains("DELETE") && handler.returnsVoid(),
                 handler -> !handler.jaxRs()
                         && handler.httpMethods().contains("DELETE")
                         && handler.returnsVoid()
@@ -957,7 +988,8 @@ final class NoUntypedResponseEntityRule extends AbstractRestApiRule {
                 "A raw or dynamic generic response envelope limits body-schema inference from the signature."
                         + " Explicit schemas can still document dynamic responses; non-generic JAX-RS Response is not"
                         + " a raw generic declaration.",
-                "Use a concrete response-envelope payload type where practical, or document its dynamic schema explicitly.",
+                "Use a concrete response-envelope payload type where practical, or document its dynamic schema"
+                        + " explicitly.",
                 RestApiRuleHelp.SPRING_WEB_DOCS));
     }
 
@@ -965,6 +997,8 @@ final class NoUntypedResponseEntityRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> !RestApiModel.Types.JAXRS_RESPONSE.equals(handler.bodyTypeName())
+                        && handler.returnsBodyEnvelope(),
                 handler -> !RestApiModel.Types.JAXRS_RESPONSE.equals(handler.bodyTypeName())
                         && handler.returnsBodyEnvelope()
                         && (handler.bodyIsUntyped()
@@ -983,7 +1017,8 @@ final class ReadEndpointsReturnRepresentationRule extends AbstractRestApiRule {
                 RestApiCategory.RESPONSES,
                 "INFO",
                 "A scalar is a valid representation, but adding fields later may require a contract change.",
-                "Consider a DTO/record if the read representation is expected to grow; scalar and text APIs can be intentional.",
+                "Consider a DTO/record if the read representation is expected to grow; scalar and text APIs can be"
+                        + " intentional.",
                 RestApiRuleHelp.SPRING_WEB_DOCS));
     }
 
@@ -991,6 +1026,7 @@ final class ReadEndpointsReturnRepresentationRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> handler.httpMethods().contains("GET") && handler.serializesBody(),
                 handler -> handler.httpMethods().contains("GET")
                         && handler.bodyIsScalar()
                         && !handler.returnsCollection()
@@ -1031,6 +1067,7 @@ final class VoidReadEndpointsReturnContentRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> handler.httpMethods().contains("GET") && handler.serializesBody(),
                 handler -> handler.httpMethods().contains("GET")
                         && handler.returnsVoid()
                         && handler.serializesBody()
@@ -1048,8 +1085,8 @@ final class NoContentResponsesHaveNoBodyRule extends AbstractRestApiRule {
                 "204 No Content responses carry no body",
                 RestApiCategory.RESPONSES,
                 "HIGH",
-                "204 forbids response content. A content-capable return declaration alongside @ResponseStatus(NO_CONTENT)"
-                        + " deserves review, but does not prove that content is transmitted.",
+                "204 forbids response content. A content-capable return declaration alongside"
+                        + " @ResponseStatus(NO_CONTENT) deserves review, but does not prove that content is transmitted.",
                 "Return void (or ResponseEntity) for 204 responses, or use 200 OK when a body is required.",
                 RestApiRuleHelp.REST_GUIDELINES));
     }
@@ -1058,6 +1095,7 @@ final class NoContentResponsesHaveNoBodyRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> !handler.jaxRs() && "NO_CONTENT".equals(handler.responseStatusValue()),
                 handler -> !handler.jaxRs()
                         && "NO_CONTENT".equals(handler.responseStatusValue())
                         && !handler.returnsVoid()
@@ -1076,8 +1114,8 @@ final class ResponseStatusIgnoredWithResponseEntityRule extends AbstractRestApiR
                 "Review overlapping ResponseStatus and ResponseEntity declarations",
                 RestApiCategory.RESPONSES,
                 "MEDIUM",
-                "A status-bearing ResponseEntity normally selects status instead of a method-level @ResponseStatus."
-                        + " A nonempty annotation reason may short-circuit Spring response processing; inspect precedence.",
+                "A status-bearing ResponseEntity normally selects status instead of a method-level @ResponseStatus. A"
+                        + " nonempty annotation reason may short-circuit Spring response processing; inspect precedence.",
                 "Choose an intentional status-selection path. Before removing @ResponseStatus, check whether its"
                         + " reason participates in the framework's error dispatch.",
                 RestApiRuleHelp.SPRING_WEB_DOCS));
@@ -1087,6 +1125,7 @@ final class ResponseStatusIgnoredWithResponseEntityRule extends AbstractRestApiR
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> !handler.jaxRs() && handler.methodHasResponseStatus(),
                 handler -> !handler.jaxRs() && handler.methodHasResponseStatus() && handler.returnsResponseEntity(),
                 "method-level @ResponseStatus and status-bearing ResponseEntity both declared; review precedence");
     }
@@ -1101,7 +1140,8 @@ final class RequestBodyIsValidatedRule extends AbstractRestApiRule {
                 "LOW",
                 "A complex request payload without a recognized cascade-validation annotation warrants review."
                         + " Constraints, programmatic validation and actual validation execution are not established.",
-                "If payload fields need cascade bean-validation, use @Valid and declare constraints on the payload DTO.",
+                "If payload fields need cascade bean-validation, use @Valid and declare constraints on the payload"
+                        + " DTO.",
                 RestApiRuleHelp.VALIDATION_DOCS));
     }
 
@@ -1109,6 +1149,7 @@ final class RequestBodyIsValidatedRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                HandlerMethodModel::hasRequestBody,
                 handler ->
                         handler.hasRequestBody() && !handler.requestBodyValidated() && !handler.requestBodyIsSimple(),
                 "complex request payload has no recognized cascade-validation annotation");
@@ -1131,7 +1172,10 @@ final class NoMassAssignmentViaEntitiesRule extends AbstractRestApiRule {
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
-                context, HandlerMethodModel::requestBodyIsEntity, "request payload declared as a JPA @Entity");
+                context,
+                HandlerMethodModel::hasRequestBody,
+                HandlerMethodModel::requestBodyIsEntity,
+                "request payload declared as a JPA @Entity");
     }
 }
 
@@ -1154,6 +1198,7 @@ final class OptionalPrimitiveRequestParamRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> !handler.jaxRs(),
                 handler -> !handler.jaxRs() && handler.hasUnboundedPrimitiveRequestParam(),
                 "optional primitive @RequestParam can fail binding when omitted");
     }
@@ -1180,6 +1225,7 @@ final class NoEntitiesInResponsesRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> !handler.returnsVoid() && handler.serializesBody(),
                 handler -> handler.bodyIsEntity() && !handler.returnsVoid() && handler.serializesBody(),
                 "response body is a JPA @Entity");
     }
@@ -1202,6 +1248,7 @@ final class NoUntypedResponseBodiesRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> !handler.returnsVoid() && !handler.returnsBodyEnvelope() && handler.serializesBody(),
                 handler -> handler.bodyIsUntyped()
                         && !handler.returnsVoid()
                         && !handler.returnsBodyEnvelope()
@@ -1226,7 +1273,12 @@ final class DtosAreImmutableRule extends AbstractRestApiRule {
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         List<String> violations = new ArrayList<>();
-        for (HandlerMethodModel handler : context.handlers()) {
+        for (HandlerMethodModel handler : context.targets(
+                context.handlers(), candidate -> !candidate.returnsVoid() && candidate.serializesBody())) {
+            if (handler.bodyIsUntyped()) {
+                // Object/Map/JsonNode does not describe an inspected DTO's members.
+                context.evidence().requiredUnknown = true;
+            }
             if (handler.bodyExposesSetters() && !handler.returnsVoid() && handler.serializesBody()) {
                 violations.add(
                         handler.describe() + " — response DTO '" + handler.bodyTypeName() + "' exposes public setters");
@@ -1249,7 +1301,8 @@ final class CollectionReadsArePaginatedRule extends AbstractRestApiRule {
                 "LOW",
                 "A collection return without visible pagination input warrants a bounded-result review."
                         + " The signature does not establish database load, response size or internal limits.",
-                "Consider page/size/cursor input or document a fixed bound; explicitly declared streams have different semantics.",
+                "Consider page/size/cursor input or document a fixed bound; explicitly declared streams have different"
+                        + " semantics.",
                 RestApiRuleHelp.PAGINATION_DOCS));
     }
 
@@ -1257,6 +1310,9 @@ final class CollectionReadsArePaginatedRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> handler.httpMethods().contains("GET")
+                        && handler.returnsCollection()
+                        && handler.serializesBody(),
                 handler -> handler.httpMethods().contains("GET")
                         && handler.returnsCollection()
                         && !handler.returnsPageOrSlice()
@@ -1296,8 +1352,10 @@ final class ReturnPagedTypeRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.jaxRs()) return RestApiRuleSupport.springDataPagination(definition());
         return handlersMatching(
                 context,
+                HandlerMethodModel::hasPageable,
                 handler -> !handler.jaxRs()
                         && handler.hasPageable()
                         && handler.returnsCollection()
@@ -1327,6 +1385,7 @@ final class ConsistentPaginationVocabularyRule extends AbstractRestApiRule {
         Set<String> families = new LinkedHashSet<>();
         for (HandlerMethodModel handler : context.handlers()) {
             if (!handler.paginationParamFamily().isEmpty()) {
+                context.evidence().applicable = true;
                 families.add(handler.paginationParamFamily());
             }
         }
@@ -1361,6 +1420,9 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (!context.jaxRs() && !context.evidence().versioningKnown) {
+            return missingEvidence(context, "Required framework evidence could not be read.");
+        }
         if (context.handlers().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
@@ -1371,6 +1433,7 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
                 continue;
             }
             versionable.add(handler);
+            context.evidence().applicable = true;
             if (!RestApiRuleHelp.hasVersionSignal(handler)
                     && (handler.jaxRs() || !context.globalVersioningConfigured())) {
                 unversioned.add(handler);
@@ -1412,6 +1475,7 @@ final class MutatingEndpointsDeclareMediaTypesRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> isMutating(handler) && handler.hasRequestBody(),
                 handler -> isMutating(handler)
                         && handler.hasRequestBody()
                         && handler.effectiveConsumes().isEmpty(),
@@ -1457,14 +1521,16 @@ final class PatchUsesPatchMediaTypeRule extends AbstractRestApiRule {
                 "INFO",
                 "A PATCH without a positive concrete consumes declaration leaves the patch format unspecified by"
                         + " the mapping. RFC 5789 does not mandate JSON or any single patch format.",
-                "Declare and document the accepted patch format: JSON, XML, vendor and binary formats can all be valid.",
+                "Declare and document the accepted patch format: JSON, XML, vendor and binary formats can all be"
+                        + " valid.",
                 RestApiRuleHelp.PATCH_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         List<String> violations = new ArrayList<>();
-        for (HandlerMethodModel handler : context.handlers()) {
+        for (HandlerMethodModel handler : context.targets(
+                context.handlers(), candidate -> candidate.httpMethods().contains("PATCH"))) {
             if (!handler.httpMethods().contains("PATCH")) {
                 continue;
             }
@@ -1496,23 +1562,31 @@ final class CentralizedExceptionHandlingRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (!context.evidence().completeExceptionModel) {
+            return missingEvidence(
+                    context,
+                    "Controller and exception metadata is incomplete; missing handler declarations cannot be"
+                            + " inferred.");
+        }
         if (context.controllers().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
+        context.evidence().applicable = true;
         if (context.hasExceptionHandling()) {
             boolean springDeclarations = context.controllers().stream().anyMatch(controller -> !controller.jaxRs())
                     || context.exceptionHandlers().stream().anyMatch(handler -> !handler.jaxRs());
             boolean jaxRsDeclarations = context.controllers().stream().anyMatch(ControllerModel::jaxRs)
                     || context.exceptionHandlers().stream().anyMatch(ExceptionHandlerModel::jaxRs);
             if (springDeclarations && jaxRsDeclarations) {
-                return RestApiRuleSupport.skipped(
-                        definition(),
+                return missingEvidence(
+                        context,
                         "Application-wide error-handling presence cannot be attributed per framework in this mixed"
-                                + " Spring/Jakarta REST model; advice or mapper presence is not transferred between stacks.");
+                                + " Spring/Jakarta REST model; advice or mapper presence is not transferred between"
+                                + " stacks.");
             }
             if (jaxRsDeclarations && context.exceptionHandlers().stream().noneMatch(ExceptionHandlerModel::jaxRs)) {
-                return RestApiRuleSupport.skipped(
-                        definition(),
+                return missingEvidence(
+                        context,
                         "The aggregate error-handling flag has no corresponding Jakarta REST mapper declaration;"
                                 + " native handling presence cannot be established.");
             }
@@ -1535,7 +1609,8 @@ final class NoBroadThrowsOnHandlersRule extends AbstractRestApiRule {
                 "Handlers declaring throws Exception or Throwable obscure the real failure modes and discourage"
                         + " targeted exception handling.",
                 "Prefer specific declared failures and native exception handlers where useful; this is maintainability"
-                        + " guidance, not an HTTP requirement. Missing Kotlin throws declarations do not prove no failures.",
+                        + " guidance, not an HTTP requirement. Missing Kotlin throws declarations do not prove no"
+                        + " failures.",
                 RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
     }
 
@@ -1553,19 +1628,27 @@ final class PreferProblemDetailRule extends AbstractRestApiRule {
                 "Prefer RFC 9457 ProblemDetail",
                 RestApiCategory.ERROR_HANDLING,
                 "INFO",
-                "Spring's ProblemDetail/ErrorResponse types can simplify optional RFC 9457 adoption."
-                        + " A custom error DTO may already implement that contract; declarations alone do not prove nonconformance.",
-                "Consider Spring ProblemDetail/ErrorResponse if RFC 9457 fits the error policy; custom contracts remain valid.",
+                "Spring's ProblemDetail/ErrorResponse types can simplify optional RFC 9457 adoption. A custom error"
+                        + " DTO may already implement that contract; declarations alone do not prove nonconformance.",
+                "Consider Spring ProblemDetail/ErrorResponse if RFC 9457 fits the error policy; custom contracts"
+                        + " remain valid.",
                 RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.jaxRs()) return RestApiRuleSupport.springProblemDetails(definition());
         if (context.exceptionHandlers().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
         List<String> violations = new ArrayList<>();
-        for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
+        for (ExceptionHandlerModel handler : context.targets(
+                context.exceptionHandlers(),
+                candidate -> !candidate.jaxRs()
+                        && candidate.rendersBody()
+                        && !candidate.returnsVoid()
+                        && !candidate.hasResponseParam())) {
+            if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().requiredUnknown = true;
             if (!handler.jaxRs()
                     && !handler.returnsProblemType()
                     && handler.rendersBody()
@@ -1606,7 +1689,13 @@ final class ExceptionHandlersSetErrorStatusRule extends AbstractRestApiRule {
             return RestApiRuleSupport.pass(definition());
         }
         List<String> violations = new ArrayList<>();
-        for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
+        for (ExceptionHandlerModel handler : context.targets(
+                context.exceptionHandlers(),
+                candidate -> !candidate.jaxRs()
+                        && candidate.rendersBody()
+                        && !candidate.returnsVoid()
+                        && !candidate.hasResponseParam())) {
+            if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().requiredUnknown = true;
             if (!handler.jaxRs()
                     && handler.rendersBody()
                     && !handler.returnsResponseEntity()
@@ -1637,17 +1726,23 @@ final class EndpointsAreDocumentedRule extends AbstractRestApiRule {
                 "INFO",
                 "OpenAPI annotations are available but some handlers have no explicit @Operation enrichment."
                         + " Generated, static or filtered documentation may already describe them.",
-                "Consider @Operation summaries/descriptions where they add useful information beyond generated documentation.",
+                "Consider @Operation summaries/descriptions where they add useful information beyond generated"
+                        + " documentation.",
                 RestApiRuleHelp.OPENAPI_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (!context.evidence().openApiKnown)
+            return missingEvidence(context, "Required framework evidence could not be read.");
         if (!context.openApiAnnotationsPresent()) {
             return RestApiRuleSupport.skipped(definition(), "No OpenAPI annotations were found on the host classpath.");
         }
         return handlersMatching(
-                context, handler -> !handler.hasOperationAnnotation() && !handler.hidden(), "no @Operation annotation");
+                context,
+                handler -> !handler.hidden(),
+                handler -> !handler.hasOperationAnnotation(),
+                "no @Operation annotation");
     }
 }
 
@@ -1666,6 +1761,8 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (!context.evidence().openApiKnown)
+            return missingEvidence(context, "Required framework evidence could not be read.");
         if (!context.openApiAnnotationsPresent()) {
             return RestApiRuleSupport.skipped(definition(), "No OpenAPI annotations were found on the host classpath.");
         }
@@ -1676,7 +1773,7 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
             }
         }
         List<String> violations = new ArrayList<>();
-        for (ControllerModel controller : context.controllers()) {
+        for (ControllerModel controller : context.targets(context.controllers(), candidate -> !candidate.hidden())) {
             if (controller.hidden()) {
                 continue;
             }
@@ -1708,7 +1805,8 @@ final class MutatingItemMethodsTargetResourceRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return RestApiRuleSupport.skipped(
                 definition(),
-                "Retired heuristic: literal URIs identify resources; missing template variables do not establish a defect.");
+                "Retired heuristic: literal URIs identify resources; missing template variables do not establish a"
+                        + " defect.");
     }
 }
 
@@ -1722,7 +1820,8 @@ final class CreatedResponsesExposeLocationRule extends AbstractRestApiRule {
                 "A declared 201 is an optional discoverability review opportunity, not proof of a missing Location."
                         + " RFC 9110 identifies the primary resource by Location when present, otherwise the target URI."
                         + " Filters/advice may supply headers.",
-                "Consider Location when it helps clients discover a newly created resource distinct from the target URI.",
+                "Consider Location when it helps clients discover a newly created resource distinct from the target"
+                        + " URI.",
                 RestApiRuleHelp.CREATED_DOCS));
     }
 
@@ -1730,10 +1829,12 @@ final class CreatedResponsesExposeLocationRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> "CREATED".equals(handler.responseStatusValue()),
                 handler -> "CREATED".equals(handler.responseStatusValue())
                         && !handler.returnsResponseEntity()
                         && !handler.hasResponseParam(),
-                "declares 201 Created; optionally review resource discoverability (Location is not universally required)");
+                "declares 201 Created; optionally review resource discoverability (Location is not universally"
+                        + " required)");
     }
 }
 
@@ -1754,7 +1855,8 @@ final class ResponseProducingEndpointsDeclareProducesRule extends AbstractRestAp
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         Set<String> controllersDeclaringProduces = new LinkedHashSet<>();
-        for (HandlerMethodModel handler : context.handlers()) {
+        for (HandlerMethodModel handler : context.targets(
+                context.handlers(), ResponseProducingEndpointsDeclareProducesRule::serializesRepresentation)) {
             if (serializesRepresentation(handler)
                     && !handler.effectiveProduces().isEmpty()) {
                 controllersDeclaringProduces.add(handler.controllerClassName());
@@ -1795,12 +1897,13 @@ final class DuplicatePathVariableTokenRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.jaxRs()) return RestApiRuleSupport.springPathBinding(definition());
         List<String> violations = new ArrayList<>();
         for (HandlerMethodModel handler : context.handlers()) {
             if (handler.jaxRs()) {
                 continue;
             }
-            for (String path : handler.effectivePaths()) {
+            for (String path : context.targets(handler.effectivePaths())) {
                 List<String> duplicates = duplicateTokens(path);
                 if (!duplicates.isEmpty()) {
                     violations.add(handler.describe() + " — path '" + path + "' has duplicate token(s): " + duplicates);
@@ -1915,8 +2018,10 @@ final class FormatSuffixInPathRule extends AbstractRestApiRule {
                 "No format-extension suffixes in path segments",
                 RestApiCategory.NAMING,
                 "LOW",
-                "Retired heuristic: explicitly mapped dotted paths are valid and do not depend on implicit suffix matching.",
-                "Keep intentional literal suffixes; choose Accept negotiation only when it suits the representation contract.",
+                "Retired heuristic: explicitly mapped dotted paths are valid and do not depend on implicit suffix"
+                        + " matching.",
+                "Keep intentional literal suffixes; choose Accept negotiation only when it suits the representation"
+                        + " contract.",
                 RestApiRuleHelp.SPRING_WEB_DOCS));
     }
 
@@ -1924,7 +2029,8 @@ final class FormatSuffixInPathRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return RestApiRuleSupport.skipped(
                 definition(),
-                "Retired heuristic: literal dotted mappings remain valid independently of implicit suffix negotiation.");
+                "Retired heuristic: literal dotted mappings remain valid independently of implicit suffix"
+                        + " negotiation.");
     }
 }
 
@@ -1953,6 +2059,7 @@ final class MixedVersioningStrategiesRule extends AbstractRestApiRule {
             if (RestApiRuleHelp.isNonApiEndpoint(handler)) {
                 continue;
             }
+            context.evidence().applicable = true;
             strategies.addAll(RestApiRuleHelp.versioningStrategies(handler));
         }
         if (strategies.size() <= 1) {
@@ -1986,7 +2093,9 @@ final class BroadExceptionHandlerRule extends AbstractRestApiRule {
             return RestApiRuleSupport.pass(definition());
         }
         List<String> violations = new ArrayList<>();
-        for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
+        for (ExceptionHandlerModel handler : context.targets(
+                context.exceptionHandlers(),
+                candidate -> !candidate.jaxRs() && candidate.catchesExceptionOrThrowable())) {
             if (handler.jaxRs()
                     || !handler.catchesExceptionOrThrowable()
                     || !handler.hasResponseStatus()
@@ -2029,6 +2138,7 @@ final class ResponseStatusOnExceptionRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.jaxRs()) return RestApiRuleSupport.springProblemDetails(definition());
         if (context.responseStatusExceptionClasses().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
@@ -2038,7 +2148,10 @@ final class ResponseStatusOnExceptionRule extends AbstractRestApiRule {
             return RestApiRuleSupport.pass(definition());
         }
         List<String> violations = new ArrayList<>();
-        for (String className : context.responseStatusExceptionClasses()) {
+        for (String className : context.targets(
+                context.responseStatusExceptionClasses(),
+                candidate -> context.thrownExceptions().stream()
+                        .anyMatch(thrown -> thrown.exceptionTypeName().equals(candidate)))) {
             if (context.thrownExceptions().stream()
                     .noneMatch(thrown -> thrown.exceptionTypeName().equals(className))) {
                 continue;
@@ -2077,8 +2190,8 @@ final class UnboundedMapRequestParamRule extends AbstractRestApiRule {
                 "Avoid @RequestParam Map/MultiValueMap on public endpoints",
                 RestApiCategory.VALIDATION,
                 "LOW",
-                "An unnamed Spring @RequestParam Map/MultiValueMap aggregates query parameters. Its signature"
-                        + " does not establish individual typing or allowlisting; explicit documentation and validation may exist.",
+                "An unnamed Spring @RequestParam Map/MultiValueMap aggregates query parameters. Its signature does not"
+                        + " establish individual typing or allowlisting; explicit documentation and validation may exist.",
                 "Declare each accepted query parameter explicitly with a typed @RequestParam so the contract is"
                         + " self-documenting and validatable.",
                 RestApiRuleHelp.VALIDATION_DOCS));
@@ -2088,6 +2201,7 @@ final class UnboundedMapRequestParamRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> !handler.jaxRs(),
                 handler -> !handler.jaxRs() && handler.hasUnboundedMapRequestParam(),
                 "aggregate @RequestParam Map/MultiValueMap; per-key typing and allowlisting are not visible");
     }
@@ -2111,6 +2225,7 @@ final class LegacyDateInDtoRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler -> !handler.returnsVoid() && handler.serializesBody(),
                 handler -> handler.bodyHasLegacyDateField() && !handler.returnsVoid() && handler.serializesBody(),
                 "response DTO contains java.util.Date/Calendar fields — prefer java.time types");
     }
@@ -2135,6 +2250,8 @@ final class IdempotencyKeyOnCreationEndpointsRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
+                handler ->
+                        handler.httpMethods().contains("POST") && RestApiRuleHelp.isCreationName(handler.methodName()),
                 handler -> handler.httpMethods().contains("POST")
                         && RestApiRuleHelp.isCreationName(handler.methodName())
                         && !handler.hasIdempotencyKeyHeader(),
@@ -2151,15 +2268,19 @@ final class DeprecatedEndpointsSignalDeprecationRule extends AbstractRestApiRule
                 "INFO",
                 "Retired heuristic: generators can infer Java/Kotlin deprecation; static documents and filters can"
                         + " also supply it without an Operation annotation.",
-                "Review generated documentation and optionally use Deprecation/Sunset response headers for lifecycle policy.",
+                "Review generated documentation and optionally use Deprecation/Sunset response headers for lifecycle"
+                        + " policy.",
                 RestApiRuleHelp.DEPRECATION_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (!context.evidence().openApiKnown)
+            return missingEvidence(context, "Required framework evidence could not be read.");
         return RestApiRuleSupport.skipped(
                 definition(),
-                "Retired heuristic: missing explicit OpenAPI deprecation annotations do not prove missing client signals.");
+                "Retired heuristic: missing explicit OpenAPI deprecation annotations do not prove missing client"
+                        + " signals.");
     }
 }
 
@@ -2183,7 +2304,8 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         List<String> violations = new ArrayList<>();
-        for (HandlerMethodModel handler : context.handlers()) {
+        for (HandlerMethodModel handler : context.targets(
+                context.handlers(), candidate -> THROTTLING_STATUS_NAMES.contains(candidate.responseStatusValue()))) {
             if (THROTTLING_STATUS_NAMES.contains(handler.responseStatusValue())
                     && !handler.returnsResponseEntity()
                     && !handler.hasResponseParam()) {
@@ -2192,7 +2314,9 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
             }
         }
 
-        for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
+        for (ExceptionHandlerModel handler : context.targets(
+                context.exceptionHandlers(),
+                candidate -> THROTTLING_STATUS_NAMES.contains(candidate.responseStatusValue()))) {
             if (THROTTLING_STATUS_NAMES.contains(handler.responseStatusValue())
                     && !handler.returnsResponseEntity()
                     && !handler.hasResponseParam()) {

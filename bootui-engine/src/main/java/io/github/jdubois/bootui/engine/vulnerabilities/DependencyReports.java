@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.vulnerabilities;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
@@ -112,7 +113,47 @@ public final class DependencyReports {
                         Math.max(0, packagesSkipped),
                         vulnerabilitiesFound),
                 coverage,
-                orderedDependencies);
+                orderedDependencies,
+                evidence(status, orderedDependencies, coverage, packagesSkipped));
+    }
+
+    private static AdvisorEvidenceDto evidence(
+            String status, List<DependencyDto> dependencies, DependencyCoverageDto coverage, int packagesSkipped) {
+        if (!"SCANNED".equals(status) && !"PARTIAL".equals(status)) {
+            return AdvisorEvidenceDto.unknown();
+        }
+        List<String> limitations = new ArrayList<>();
+        boolean usable = dependencies.stream()
+                .anyMatch(dependency -> dependency.assessment().queryComplete()
+                                && dependency.assessment().detailAssessmentComplete()
+                                && dependency.vulnerabilities().stream().allMatch(DependencyReports::hasKnownSeverity)
+                        || dependency.vulnerabilities().stream().anyMatch(DependencyReports::hasKnownSeverity));
+        if (dependencies.stream()
+                .anyMatch(dependency -> !dependency.assessment().queryComplete())) {
+            limitations.add("Some dependency queries were not completed.");
+        }
+        if (dependencies.stream()
+                .anyMatch(dependency -> dependency.assessment().queryComplete()
+                        && !dependency.assessment().detailAssessmentComplete())) {
+            limitations.add("Some advisory details were unavailable or could not be fully interpreted.");
+        }
+        if (coverage == null || !DependencyCoverageDto.COMPLETE.equals(coverage.status())) {
+            limitations.add("Dependency inventory coverage is incomplete or unavailable.");
+        }
+        if (packagesSkipped > 0) {
+            limitations.add("Some inventory packages were excluded by the scan limit.");
+        }
+        if (dependencies.stream()
+                .flatMap(dependency -> dependency.vulnerabilities().stream())
+                .anyMatch(vulnerability -> !hasKnownSeverity(vulnerability))) {
+            limitations.add("Findings with unknown severity are excluded from score penalties.");
+        }
+        return new AdvisorEvidenceDto(usable, limitations.isEmpty(), limitations);
+    }
+
+    private static boolean hasKnownSeverity(DependencyVulnerabilityDto vulnerability) {
+        return VULNERABILITY_SEVERITIES.contains(vulnerability.severity())
+                && !"UNKNOWN".equals(vulnerability.severity());
     }
 
     /**
@@ -279,7 +320,8 @@ public final class DependencyReports {
                 severityCounts(marked),
                 updatedScan,
                 report.coverage(),
-                marked);
+                marked,
+                report.evidence());
     }
 
     private static DependencyDto markDismissals(DependencyDto dependency, Set<String> dismissedIds) {
@@ -298,7 +340,8 @@ public final class DependencyReports {
                 dependency.source(),
                 (int) activeCount,
                 highestSeverity(markedVulnerabilities),
-                markedVulnerabilities);
+                markedVulnerabilities,
+                dependency.assessment());
     }
 
     /**
@@ -468,7 +511,8 @@ public final class DependencyReports {
                 dependency.source(),
                 dependency.vulnerabilityCount(),
                 dependency.highestSeverity(),
-                updated);
+                updated,
+                dependency.assessment());
     }
 
     private static DependencyVulnerabilityDto applyEpssScore(

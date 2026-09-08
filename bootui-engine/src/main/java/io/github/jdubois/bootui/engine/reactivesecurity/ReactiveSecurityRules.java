@@ -27,6 +27,7 @@ final class ReactiveAuthorizationFilterRule extends AbstractReactiveSecurityRule
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
+            context.applies(chain.filtersObserved());
             if (Boolean.FALSE.equals(chain.authorizationFilterPresent())) {
                 details.add(chain.describe() + " installs no observed AuthorizationWebFilter.");
             }
@@ -52,15 +53,16 @@ final class ReactiveCatchAllOrderRule extends AbstractReactiveSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
+        context.applies(context.chains().size() > 1);
         for (int i = 0; i + 1 < context.chains().size(); i++) {
             WebFilterChainObservation chain = context.chains().get(i);
             if (chain.matchesAnyRequest()) {
                 details.add(chain.describe() + " is unconditional and precedes later chains in first-match order.");
             }
         }
-        if (details.isEmpty()
-                && context.chains().size() > 1
-                && context.chains().stream().anyMatch(chain -> chain.unconditionalMatcher() == null)) {
+        boolean complete = context.required(context.chains().size() <= 1
+                || context.chains().stream().allMatch(chain -> chain.unconditionalMatcher() != null));
+        if (details.isEmpty() && !complete) {
             return skipped("Chain matcher structure or order is not fully known.");
         }
         return violation(details);
@@ -88,12 +90,16 @@ final class ReactiveCsrfDisabledLoginRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.filtersObserved() && chain.hasObservedInteractiveLoginFilter() && !chain.hasCsrfWebFilter()) {
+            if (chain.filtersObserved()
+                    && context.applies(chain.hasObservedInteractiveLoginFilter())
+                    && !chain.hasCsrfWebFilter()) {
                 details.add(chain.describe()
                         + " has an OAuth2/OIDC or formLogin() login filter but no CsrfWebFilter is installed.");
             }
         }
-        if (details.isEmpty() && context.chains().stream().anyMatch(chain -> !chain.authenticationObserved())) {
+        boolean complete =
+                context.required(context.chains().stream().allMatch(WebFilterChainObservation::authenticationObserved));
+        if (details.isEmpty() && !complete) {
             return skipped("Authentication converter metadata is unsupported.");
         }
         return filterViolation(context, details);
@@ -118,15 +124,16 @@ final class ReactiveBasicCsrfRule extends AbstractReactiveSecurityRule {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
             if (chain.filtersObserved()
-                    && chain.basicAuthentication()
-                    && !chain.hasObservedInteractiveLoginFilter()
+                    && context.applies(chain.basicAuthentication() && !chain.hasObservedInteractiveLoginFilter())
                     && !chain.hasCsrfWebFilter()) {
                 details.add(
                         chain.describe()
                                 + " configures HTTP Basic without CsrfWebFilter; browsers can attach Basic credentials automatically.");
             }
         }
-        if (details.isEmpty() && context.chains().stream().anyMatch(chain -> !chain.authenticationObserved())) {
+        boolean complete =
+                context.required(context.chains().stream().allMatch(WebFilterChainObservation::authenticationObserved));
+        if (details.isEmpty() && !complete) {
             return skipped("Authentication converter metadata is unsupported.");
         }
         return filterViolation(context, details);
@@ -214,6 +221,8 @@ final class ReactiveBroadCorsOriginPatternRule extends AbstractReactiveSecurityR
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         boolean credentialed = false;
+        context.applies(!context.corsConfigs().isEmpty());
+        context.required(context.corsObservationComplete());
         for (CorsConfigObservation config : context.corsConfigs()) {
             if (config.hasWildcardOrigin() || config.hasWildcardOriginPattern()) {
                 continue;
@@ -257,7 +266,8 @@ final class ReactiveHstsHeaderRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if ((context.environment().globalTlsConfigured() || chain.hasHttpsRedirectFilter())
+            context.required(context.environment().globalTlsObserved());
+            if (context.applies(context.environment().globalTlsConfigured() || chain.hasHttpsRedirectFilter())
                     && chain.headerWritersObserved()
                     && chain.hasHeaderWriterWebFilter()
                     && !chain.hasHstsWriter()) {
@@ -288,9 +298,9 @@ final class ReactiveFrameOptionsRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.headerWritersObserved()
+            if (context.applies(chain.hasHeaderWriterWebFilter())
+                    && chain.headerWritersObserved()
                     && chain.cspObserved()
-                    && chain.hasHeaderWriterWebFilter()
                     && (!chain.hasFrameOptionsWriter() || chain.hasEnforcingFrameAncestorsDirective())
                     && !chain.hasEnforcingFrameAncestorsPolicy()) {
                 details.add(
@@ -320,8 +330,8 @@ final class ReactiveContentTypeOptionsRule extends AbstractReactiveSecurityRule 
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.headerWritersObserved()
-                    && chain.hasHeaderWriterWebFilter()
+            if (context.applies(chain.hasHeaderWriterWebFilter())
+                    && chain.headerWritersObserved()
                     && !chain.hasContentTypeOptionsWriter()) {
                 details.add(chain.describe() + " applies security headers without X-Content-Type-Options (nosniff).");
             }
@@ -347,6 +357,7 @@ final class ReactiveContentSecurityPolicyRule extends AbstractReactiveSecurityRu
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
+            context.applies(chain.hasHeaderWriterWebFilter());
             if (!chain.headerWritersObserved()) {
                 continue;
             }
@@ -381,7 +392,8 @@ final class ReactiveHeadersDisabledRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            boolean hasSecurityFilters = chain.hasAuthorizationWebFilter() || chain.hasAuthenticationFilter();
+            boolean hasSecurityFilters =
+                    context.applies(chain.hasAuthorizationWebFilter() || chain.hasAuthenticationFilter());
             if (chain.filtersObserved() && hasSecurityFilters && !chain.hasHeaderWriterWebFilter()) {
                 details.add(
                         chain.describe()
@@ -410,7 +422,7 @@ final class ReactiveWeakHstsPolicyRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.hasHstsWriter() && chain.hasWeakHsts()) {
+            if (context.applies(chain.hasHstsWriter()) && chain.hasWeakHsts()) {
                 details.add(
                         chain.describe()
                                 + " configures HSTS with a max-age of "
@@ -420,9 +432,9 @@ final class ReactiveWeakHstsPolicyRule extends AbstractReactiveSecurityRule {
                                         : " seconds, below Spring's one-year default; confirm an intentional rollout (RFC 6797 mandates no universal minimum)."));
             }
         }
-        if (details.isEmpty()
-                && context.chains().stream()
-                        .anyMatch(chain -> chain.hasHstsWriter() && chain.hstsMaxAgeSeconds() == null)) {
+        boolean complete = context.required(context.chains().stream()
+                .noneMatch(chain -> chain.hasHstsWriter() && chain.hstsMaxAgeSeconds() == null));
+        if (details.isEmpty() && !complete) {
             return skipped("HSTS max-age could not be observed.");
         }
         return headerViolation(context, details);
@@ -449,6 +461,7 @@ final class ReactiveActuatorWildcardExposureRule extends AbstractReactiveSecurit
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         String include = context.environment().managementExposureInclude();
+        context.applies(context.environment().actuatorObservationComplete());
         if ("*".equals(include) && !context.effectiveSensitiveActuatorExposure().isEmpty()) {
             return violation(List.of("Wildcard Actuator web selection permits sensitive endpoint configuration: "
                     + String.join(", ", context.effectiveSensitiveActuatorExposure())
@@ -484,6 +497,7 @@ final class ReactiveActuatorSensitiveExposureRule extends AbstractReactiveSecuri
                     ? pass()
                     : skipped("Effective Actuator configuration could not be fully observed.");
         }
+        context.applies(true);
         return violation(List.of(
                 "Sensitive Actuator endpoint configuration selected for web exposure: " + String.join(", ", exposed)
                         + ". Verify actual endpoint availability, authentication and restricted network access."));
@@ -505,7 +519,7 @@ final class ReactiveActuatorAuthorizationReviewRule extends AbstractReactiveSecu
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (!context.exposesBeyondHealthAndInfo()) {
+        if (!context.applies(context.exposesBeyondHealthAndInfo())) {
             return context.environment().actuatorObservationComplete()
                     ? pass()
                     : skipped("Effective Actuator configuration could not be fully observed.");
@@ -544,7 +558,7 @@ final class ReactiveManagementPortIsolationRule extends AbstractReactiveSecurity
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (!context.exposesBeyondHealthAndInfo()) {
+        if (!context.applies(context.exposesBeyondHealthAndInfo())) {
             return context.environment().actuatorObservationComplete()
                     ? pass()
                     : skipped("Effective Actuator configuration could not be fully observed.");
@@ -576,13 +590,13 @@ final class ReactiveActuatorShowValuesRule extends AbstractReactiveSecurityRule 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
-        if (context.environment().managementEnvShowValuesAlways()
-                && context.environment().managementEnvWebExposed()) {
+        if (context.applies(context.environment().managementEnvWebExposed())
+                && context.environment().managementEnvShowValuesAlways()) {
             details.add(
                     "Host management.endpoint.env.show-values=always permits unsanitized values for authorized endpoint callers; anonymous reachability is not established.");
         }
-        if (context.environment().managementConfigPropsShowValuesAlways()
-                && context.environment().managementConfigPropsWebExposed()) {
+        if (context.applies(context.environment().managementConfigPropsWebExposed())
+                && context.environment().managementConfigPropsShowValuesAlways()) {
             details.add(
                     "Host management.endpoint.configprops.show-values=always permits unsanitized values for endpoint callers; anonymous reachability is not established.");
         }
@@ -612,7 +626,7 @@ final class ReactiveJwtStaticKeyRule extends AbstractReactiveSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (context.environment().oauth2JwtStaticPublicKeyConfigured()) {
+        if (context.applies(context.environment().oauth2JwtStaticPublicKeyConfigured())) {
             return violation(
                     List.of(
                             "spring.security.oauth2.resourceserver.jwt.public-key-location declares a supported static verification key; review its out-of-band rotation process. Custom decoder settings are not inferred."));
@@ -636,7 +650,7 @@ final class ReactiveInsecureJwtMetadataUrlRule extends AbstractReactiveSecurityR
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (!context.isProductionProfileActive()) {
+        if (!context.applies(context.isProductionProfileActive())) {
             return pass();
         }
         List<String> details = new ArrayList<>();
@@ -665,7 +679,7 @@ final class ReactiveInsecureOpaqueTokenIntrospectionUrlRule extends AbstractReac
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (!context.isProductionProfileActive()
+        if (!context.applies(context.isProductionProfileActive())
                 || !context.environment().oauth2OpaqueTokenIntrospectionUsesPlainHttp()) {
             return pass();
         }
@@ -681,6 +695,11 @@ final class ReactiveInsecureOpaqueTokenIntrospectionUrlRule extends AbstractReac
 
 final class ReactiveHttpsEnforcementRule extends AbstractReactiveSecurityRule {
 
+    @Override
+    boolean usesChainEvidence() {
+        return true;
+    }
+
     ReactiveHttpsEnforcementRule() {
         super(new ReactiveSecurityRuleDefinition(
                 "SEC-RXF-CONFIG-002",
@@ -694,7 +713,7 @@ final class ReactiveHttpsEnforcementRule extends AbstractReactiveSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (!context.isProductionProfileActive()) {
+        if (!context.applies(context.isProductionProfileActive())) {
             return pass();
         }
         if (context.isTlsConfigured()) {
@@ -731,6 +750,7 @@ final class ReactiveHardcodedSecretPropertyRule extends AbstractReactiveSecurity
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         Set<String> suspected = context.suspectedHardcodedSecretKeys();
+        context.applies(true);
         if (suspected.isEmpty()) {
             return pass();
         }
@@ -757,7 +777,7 @@ final class ReactiveSecurityDebugLoggingProductionRule extends AbstractReactiveS
 
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
-        if (!context.isProductionProfileActive()) {
+        if (!context.applies(context.isProductionProfileActive())) {
             return pass();
         }
         String level = context.environment().securityLoggingLevel();
@@ -791,13 +811,15 @@ final class ReactiveMixedBearerAndLoginRule extends AbstractReactiveSecurityRule
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.bearerTokenAuthentication() && chain.hasObservedInteractiveLoginFilter()) {
+            if (context.applies(chain.bearerTokenAuthentication()) && chain.hasObservedInteractiveLoginFilter()) {
                 details.add(
                         chain.describe()
                                 + " configures both bearer-token authentication and an OAuth2/OIDC or formLogin() browser filter; review whether separate chains would express the two security models more safely.");
             }
         }
-        if (details.isEmpty() && context.chains().stream().anyMatch(chain -> !chain.authenticationObserved())) {
+        boolean complete =
+                context.required(context.chains().stream().allMatch(WebFilterChainObservation::authenticationObserved));
+        if (details.isEmpty() && !complete) {
             return skipped("Authentication converter metadata is unsupported.");
         }
         return filterViolation(context, details);

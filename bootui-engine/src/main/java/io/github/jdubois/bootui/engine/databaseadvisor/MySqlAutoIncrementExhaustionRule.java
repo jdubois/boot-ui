@@ -32,6 +32,8 @@ final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SchemaSnapshot> schemas = context.mySqlFamilySchemas();
         String skipReason = VendorRuleSupport.skipReason(
+                context,
+                definition().id(),
                 schemas,
                 VendorFindingKinds.MYSQL_AUTO_INCREMENT_COLUMNS,
                 "No MySQL or MariaDB datasource was detected.");
