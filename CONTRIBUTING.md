@@ -99,6 +99,37 @@ integration-test module and let Maven build its dependencies:
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests -am install
 ```
 
+### Docker builds behind a corporate npm registry
+
+Standard Docker builds remain the default and need no npm configuration:
+
+```bash
+docker build -t bootui-sample-app .
+```
+
+Only if your network requires a corporate npm registry and you already have a
+working `~/.npmrc`, pass that file as an optional BuildKit secret:
+
+```bash
+docker build --secret id=npmrc,src="$HOME/.npmrc" -t bootui-sample-app .
+```
+
+The same optional secret works with `-f Dockerfile-aot`, `-f Dockerfile-crac`,
+`-f Dockerfile-native`, `-f Dockerfile-webflux`, and `-f Dockerfile-quarkus`.
+For example:
+
+```bash
+docker build --secret id=npmrc,src="$HOME/.npmrc" -f Dockerfile-native -t bootui-sample-app-native .
+```
+
+BuildKit mounts the file in the build user's home only for the Maven step:
+`/root/.npmrc` for the Spring images and `/home/bootui/.npmrc` for Quarkus.
+The secret file is not copied into image layers. `.dockerignore` intentionally
+excludes all `.npmrc` files, including project-level files, from the build context;
+use the secret rather than copying registry credentials into the project.
+Without `--secret`, npm keeps its default registry configuration. There is no
+new requirement for normal developers or CI, and no secret is needed at runtime.
+
 ### Software Bill of Materials (SBOM)
 
 Generate a CycloneDX SBOM covering every dependency across the whole reactor after an install:

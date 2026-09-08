@@ -1,6 +1,7 @@
 .git
 .gitignore
 **/node_modules
+**/.npmrc
 **/dist
 **/.vite
 **/.eslintcache

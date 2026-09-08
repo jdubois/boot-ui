@@ -38,6 +38,11 @@
 #   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app
 #   # then open http://localhost:8080/bootui
 #
+# Optional corporate npm registry (requires an existing ~/.npmrc):
+#   docker build --secret id=npmrc,src="$HOME/.npmrc" -t bootui-sample-app .
+# The secret is mounted only during Maven and is not stored in image layers.
+# Without it, npm keeps its default registry configuration.
+#
 # Enable the sample database migrations (to populate the BootUI Flyway/Liquibase panels):
 # The sample app can apply two pending Flyway migrations and two Liquibase change sets on startup
 # so those panels have data to show. They are off by default for a faster boot; turn them back on
@@ -76,6 +81,7 @@ RUN chmod +x mvnw
 # image size. (Requires BuildKit, the default in modern Docker.)
 RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=cache,target=/root/.npm \
+    --mount=type=secret,id=npmrc,target=/root/.npmrc \
     ./mvnw -B -ntp -DskipTests -pl bootui-spring-sample-app -am clean package
 
 # Explode the repackaged Spring Boot jar into its layers (dependencies,

@@ -51,6 +51,11 @@
 #   docker run --rm -p 8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
 #   # then open http://localhost:8082/bootui
 #
+# Optional corporate npm registry (requires an existing ~/.npmrc):
+#   docker build --secret id=npmrc,src="$HOME/.npmrc" -f Dockerfile-quarkus -t bootui-sample-app-quarkus .
+# The secret is mounted only during Maven and is not stored in image layers.
+# Without it, npm keeps its default registry configuration.
+#
 # Populate the Flyway/Liquibase panels with the sample migrations (off by default for a faster boot):
 #   docker run --rm -p 8082:8082 \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
@@ -95,7 +100,8 @@ ENV HOME=/home/bootui
 # time, not as a Maven dependency. Without it, the runtime extension-descriptor check fails and the
 # sample's augmentation can't resolve the deployment artifact. `install` publishes it to the (cached)
 # local repository so augmentation finds it.
-RUN ./mvnw -B -ntp -DskipTests -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am clean install
+RUN --mount=type=secret,id=npmrc,target=/home/bootui/.npmrc,uid=1001,gid=1001 \
+    ./mvnw -B -ntp -DskipTests -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am clean install
 
 # Bind all interfaces so the published port is reachable from the host. 8082 matches the Quarkus
 # sample app's own local dev default (quarkus.http.port=8082 in application.properties), so this image
