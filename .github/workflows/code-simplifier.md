@@ -8,6 +8,11 @@ permissions:
   issues: read
   pull-requests: read
 
+network:
+  allowed:
+    - defaults
+    - "java"
+
 safe-outputs:
   create-pull-request:
     title-prefix: "[code-simplifier] "
