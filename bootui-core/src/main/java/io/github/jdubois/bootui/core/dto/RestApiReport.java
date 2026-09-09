@@ -25,29 +25,4 @@ public record RestApiReport(
         severityCounts = DtoCollections.immutableCopy(severityCounts);
         results = DtoCollections.immutableCopy(results);
     }
-
-    public RestApiReport(
-            boolean localOnly,
-            String disclaimer,
-            List<String> basePackages,
-            int controllersAnalyzed,
-            int handlersAnalyzed,
-            int rulesEvaluated,
-            int violationsFound,
-            List<RestApiSeverityCountDto> severityCounts,
-            RestApiScanStatusDto scan,
-            List<RestApiRuleResultDto> results) {
-        this(
-                localOnly,
-                disclaimer,
-                basePackages,
-                controllersAnalyzed,
-                handlersAnalyzed,
-                rulesEvaluated,
-                violationsFound,
-                severityCounts,
-                scan,
-                results,
-                AdvisorEvidenceDto.unknown());
-    }
 }

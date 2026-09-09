@@ -26,29 +26,4 @@ public record ArchitectureReport(
         results = DtoCollections.immutableCopy(results);
         analysisErrors = DtoCollections.immutableCopy(analysisErrors);
     }
-
-    public ArchitectureReport(
-            boolean localOnly,
-            String disclaimer,
-            List<String> basePackages,
-            int classesAnalyzed,
-            int rulesEvaluated,
-            int violationsFound,
-            List<ArchitectureSeverityCountDto> severityCounts,
-            ArchitectureScanStatusDto scan,
-            List<ArchitectureRuleResultDto> results,
-            List<ArchitectureRuleResultDto> analysisErrors) {
-        this(
-                localOnly,
-                disclaimer,
-                basePackages,
-                classesAnalyzed,
-                rulesEvaluated,
-                violationsFound,
-                severityCounts,
-                scan,
-                results,
-                analysisErrors,
-                AdvisorEvidenceDto.unknown());
-    }
 }

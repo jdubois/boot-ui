@@ -24,27 +24,4 @@ public record HibernateReport(
         severityCounts = DtoCollections.immutableCopy(severityCounts);
         results = DtoCollections.immutableCopy(results);
     }
-
-    public HibernateReport(
-            boolean localOnly,
-            String disclaimer,
-            List<String> entityPackages,
-            int entitiesAnalyzed,
-            int rulesEvaluated,
-            int violationsFound,
-            List<HibernateSeverityCountDto> severityCounts,
-            HibernateScanStatusDto scan,
-            List<HibernateRuleResultDto> results) {
-        this(
-                localOnly,
-                disclaimer,
-                entityPackages,
-                entitiesAnalyzed,
-                rulesEvaluated,
-                violationsFound,
-                severityCounts,
-                scan,
-                results,
-                AdvisorEvidenceDto.unknown());
-    }
 }

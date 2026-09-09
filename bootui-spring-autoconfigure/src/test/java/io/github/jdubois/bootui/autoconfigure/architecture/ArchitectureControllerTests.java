@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureScanStatusDto;
@@ -44,7 +45,8 @@ class ArchitectureControllerTests {
                 new ArchitectureScanStatusDto(
                         "BootUI ArchUnit hygiene", status, "message", null, 5, 10, violationsFound),
                 List.of(),
-                List.of());
+                List.of(),
+                AdvisorEvidenceDto.unknown());
     }
 
     @Test
@@ -113,7 +115,8 @@ class ArchitectureControllerTests {
                 base.severityCounts(),
                 base.scan(),
                 base.results(),
-                List.of(error));
+                List.of(error),
+                base.evidence());
         when(scanner.initialReport()).thenReturn(report("NOT_SCANNED", 0));
         when(scanner.scan()).thenReturn(scanned);
         when(dismissedRules.load()).thenReturn(Set.of());

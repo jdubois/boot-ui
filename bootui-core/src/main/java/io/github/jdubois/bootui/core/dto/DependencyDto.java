@@ -20,25 +20,4 @@ public record DependencyDto(
         vulnerabilities = DtoCollections.immutableCopy(vulnerabilities);
         assessment = assessment == null ? DependencyAssessmentDto.unknown() : assessment;
     }
-
-    public DependencyDto(
-            String groupId,
-            String artifactId,
-            String version,
-            String packageName,
-            String source,
-            int vulnerabilityCount,
-            String highestSeverity,
-            List<DependencyVulnerabilityDto> vulnerabilities) {
-        this(
-                groupId,
-                artifactId,
-                version,
-                packageName,
-                source,
-                vulnerabilityCount,
-                highestSeverity,
-                vulnerabilities,
-                DependencyAssessmentDto.unknown());
-    }
 }

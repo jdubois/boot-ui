@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateScanStatusDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
@@ -40,7 +41,8 @@ class HibernateControllerTests {
                 violationsFound,
                 List.of(),
                 new HibernateScanStatusDto("BootUI Hibernate Advisor", status, "message", null, 12, 4, violationsFound),
-                List.of());
+                List.of(),
+                AdvisorEvidenceDto.unknown());
     }
 
     @Test

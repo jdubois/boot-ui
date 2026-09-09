@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import jakarta.inject.Inject;
@@ -93,6 +94,15 @@ public class QuarkusDependencyProvider implements DependencyProvider {
             return null;
         }
         String packageName = groupId + ":" + artifactId;
-        return new DependencyDto(groupId, artifactId, version, packageName, SOURCE, 0, "NONE", List.of());
+        return new DependencyDto(
+                groupId,
+                artifactId,
+                version,
+                packageName,
+                SOURCE,
+                0,
+                "NONE",
+                List.of(),
+                DependencyAssessmentDto.unknown());
     }
 }

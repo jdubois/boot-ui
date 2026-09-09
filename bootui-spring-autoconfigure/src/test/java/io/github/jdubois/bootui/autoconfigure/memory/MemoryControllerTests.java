@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryScanStatusDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
@@ -39,7 +40,8 @@ class MemoryControllerTests {
                 List.of(),
                 new MemoryScanStatusDto("BootUI Memory Advisor", status, "message", null, 31, violationsFound),
                 List.of(),
-                List.of());
+                List.of(),
+                AdvisorEvidenceDto.unknown());
     }
 
     @Test
