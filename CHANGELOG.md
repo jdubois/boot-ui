@@ -5,9 +5,25 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.0] - 2026-09-09
+
+Feature release focused on evidence-led diagnostics and agent-guided application assessment. A new MCP prompt and
+expanded BootUI skill turn runtime evidence into a prioritized plan that awaits approval before changes. Advisor
+audits reduce misleading findings, while known-findings scores distinguish usable evidence from incomplete coverage.
+The release also improves Kotlin and Spring Modulith handling, wrapped datasource discovery, MCP client setup,
+configuration search, and recovery after backend rebuilds.
 
 ### Added
+
+- **An application-assessment workflow that proposes a plan before changing the application.** The BootUI skill and
+  new `assess_application` MCP prompt guide a coding agent through capability discovery, bounded collection, and cached
+  runtime evidence on Spring MVC, WebFlux, and Quarkus. Fresh scans require an explicitly approved scope; the plan
+  identifies prioritized actions, supporting evidence, dependencies, risks, and acceptance criteria, then stops for
+  approval of selected actions. Changed application context requires reassessment, and approved fixes are compared
+  against the retained baseline. This is guidance for an external agent, whose permissions govern execution, not an
+  embedded LLM, server-side assessment job, new scan tool, or `bootui assess` command. The MCP Server panel now explains
+  the prompt and skill, provides a ready-to-use assessment request, and links to the assessment and approval guide
+  ([#981](https://github.com/jdubois/boot-ui/pull/981), [#990](https://github.com/jdubois/boot-ui/pull/990)).
 
 - **The MCP Server panel now shows a configuration snippet per client, and says out loud that a non-loopback agent
   needs the bearer header.** The card carried a single VS Code `servers` block, which is not the shape Claude Code or
@@ -39,7 +55,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Missing reports never supply fake zeros or hundreds. Pentesting now shows **Findings by severity** instead of the
   separate OWASP Top 10 coverage panel. Cached GET-only refresh and explicit scan controls remain unchanged;
   dismissal changes penalties, not application safety
-  ([#989](https://github.com/jdubois/boot-ui/issues/989)).
+  ([#954](https://github.com/jdubois/boot-ui/issues/954), [#989](https://github.com/jdubois/boot-ui/issues/989)).
 
 - **Database advisor findings now distinguish incomplete evidence from absence.** Qualified JDBC metadata,
   index/constraint semantics, vendor generator bounds and database-side mapping comparisons are reviewed more
@@ -143,8 +159,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Base-only validation, and later OSV pagination failures retain earlier results with accurate completed-query counts.
   Optional EPSS enrichment preserves partial data and selects the highest available per-CVE signal without changing
   OSV status. The new [checks catalogue](docs/VULNERABILITIES-CHECKS.md) records sources and every audit disposition;
-  inventory repairs and CVSS v4 remain deferred, and scoring/Overview changes belong to the independent central
-  scoring workstream ([#978](https://github.com/jdubois/boot-ui/issues/978)).
+  remaining inventory limitations and CVSS v4 support are documented as deferred. Vulnerabilities uses the shared
+  usable-evidence scoring policy described above, retaining findings and scan notes when coverage is incomplete
+  ([#978](https://github.com/jdubois/boot-ui/issues/978)).
 
 - **The Pentesting advisor now distinguishes observed evidence from unverified exposure.** The exhaustive 80-check
   audit updates 61 checks, retains 18, and retires the ordinary error-path metadata check `PT-A05-045`, leaving 79 active
@@ -184,11 +201,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   remain, with 52 potentially emitting rules and calibrated severities. Observed analysis failures report `PARTIAL`
   while retaining reliable findings. The REST checks reference includes the complete audit dispositions and limits
   ([#962](https://github.com/jdubois/boot-ui/issues/962)).
-
-- **Advisor scores now exclude incomplete and failed assessments without hiding their findings.** Panels and Overview
-  share eligibility, including complete inventory coverage and no active UNKNOWN severity for Vulnerabilities.
-  Dismissal/restore refreshes vulnerability eligibility, and Overview's mean and scored count use the same contributors
-  ([#954](https://github.com/jdubois/boot-ui/issues/954)).
 
 - **Memory advisor findings now preserve measurement uncertainty.** Unknown buffer readings and discontinuous GC
   counters no longer become healthy zeros, and missing observations break consecutive-growth evidence. Histogram
@@ -265,20 +277,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and source its property source gave. Fixed once in `bootui-engine`, so Spring MVC, WebFlux, and Quarkus behave
   identically ([#939](https://github.com/jdubois/boot-ui/issues/939)).
 
-- **The Security Advisor no longer reports an actuator protected inside a single `anyRequest` chain as unprotected.**
-  `SEC-ACT-003` decided whether the actuator was covered by looking for the base path in a chain's `securityMatcher`
-  *description*. A whole-application chain renders as `any request` and never mentions `/actuator`, so an application
-  following Spring Boot's own reference — one chain whose `authorizeHttpRequests` requires a role for
-  `EndpointRequest.toAnyEndpoint()` / `/actuator/**` — was reported as having "no security filter chain" for that path.
-  The rule now asks the question it is actually about: it finds the chain that matches the actuator path (a catch-all
-  chain counts, exactly as it does at runtime) and simulates an anonymous request against that chain's authorization
-  rules. A denial is protection and the rule stays silent. The check also stops passing configurations it never
-  verified: a chain that *does* match the actuator path but grants anonymous access is now reported as such, naming the
-  chain, and a chain whose authorization rules cannot be read is skipped rather than guessed at. Fixing the simulated
-  request the advisor probes with — it lacked the servlet mapping Spring dereferences while parsing a request path —
-  also restores every other path-scoped anonymous authorization simulation, which had been silently degrading to
-  "indeterminate" since Spring Security switched to `PathPatternRequestMatcher`.
-  ([#922](https://github.com/jdubois/boot-ui/issues/922))
+- **The Security Advisor no longer infers Actuator protection from a filter chain's description.** `SEC-ACT-003`
+  reviews exact observed, selected operations beyond health/info and reports a supported unconditional grant in the
+  first matching chain, accounting for operation HTTP methods. A single `anyRequest` chain is not labeled unprotected
+  merely because its description omits `/actuator`, and a protected base path cannot stand in for every operation.
+  Inspection is passive: it does not execute application authorization managers, custom matchers, or endpoint
+  operations. Unsupported earlier chains or mappings, custom authorization, missing matching chains, and separate
+  management contexts remain unknown rather than being treated as anonymous access or confirmed protection
+  ([#922](https://github.com/jdubois/boot-ui/issues/922), [#965](https://github.com/jdubois/boot-ui/issues/965)).
 - **The Spring advisor and the pentest panel no longer report BootUI's own actuator default as a host
   misconfiguration.** BootUI contributes `management.endpoint.health.show-details=always` as a lowest-priority default
   so its Health panel works, and `SPRING-MGMT-003` (MEDIUM) and `PT-A05-050` (LOW) then reported that value against the
