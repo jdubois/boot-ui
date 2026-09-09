@@ -10,7 +10,6 @@ import com.tngtech.archunit.lang.EvaluationResult;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import io.github.jdubois.bootui.engine.support.DetailText;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -82,13 +81,10 @@ final class ArchitectureRuleSupport {
             return pass(definition);
         }
         List<String> details = evaluation.getFailureReport().getDetails();
-        List<String> samples = new ArrayList<>();
-        for (String detail : details) {
-            if (samples.size() >= MAX_SAMPLE_VIOLATIONS) {
-                break;
-            }
-            samples.add(detail(detail));
-        }
+        List<String> samples = details.stream()
+                .limit(MAX_SAMPLE_VIOLATIONS)
+                .map(ArchitectureRuleSupport::detail)
+                .toList();
         return result(definition, VIOLATION, details.size(), samples);
     }
 
