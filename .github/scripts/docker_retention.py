@@ -41,6 +41,10 @@ class RetentionError(RuntimeError):
     pass
 
 
+class ManifestDeleteBlocked(RetentionError):
+    pass
+
+
 @dataclass(frozen=True)
 class Response:
     status: int
@@ -77,6 +81,9 @@ def read_inventory(path, namespace):
     data = json.loads(Path(path).read_text())
     if data.get("version") != 1 or data.get("namespace") != namespace:
         raise RetentionError("Inventory version or namespace does not match")
+    history_version = data.get("history_version", 0)
+    if type(history_version) is not int or history_version not in (0, 1):
+        raise RetentionError("Unsupported inventory history version")
     repositories = data["repositories"]
     if not isinstance(repositories, dict) or set(repositories) - set(REPOSITORIES):
         raise RetentionError("Inventory contains unexpected repositories")
@@ -86,7 +93,7 @@ def read_inventory(path, namespace):
         for digest, pushed in records.items():
             check_digest(digest)
             timestamp(pushed)
-    return repositories
+    return data
 
 
 def write_json(path, value):
@@ -254,6 +261,11 @@ class DockerHub:
         response = self.transport("DELETE", url, headers, None)
         if response.status == 404:
             return
+        if response.status == 403:
+            raise ManifestDeleteBlocked(
+                f"Deleting {repo}@{digest}: HTTP 403; "
+                "check delete permission and remaining references"
+            )
         # Docker documents that 500 can mean deletion was queued. Do not submit
         # it again; confirm absence before deleting any dependent manifests.
         if response.status not in (202, 500):
@@ -327,7 +339,9 @@ class Graph:
         return list(reversed(ordered))
 
 
-def plan_retention(client, inventory, now, days=7, repositories=REPOSITORIES):
+def plan_retention(
+    client, inventory, now, days=7, repositories=REPOSITORIES, history_version=0
+):
     if days < 1:
         raise RetentionError("Retention must be at least one day")
     cutoff = now - timedelta(days=days)
@@ -338,7 +352,12 @@ def plan_retention(client, inventory, now, days=7, repositories=REPOSITORIES):
         "cutoff": iso(cutoff),
         "repositories": {},
     }
-    journal = {"version": 1, "namespace": client.namespace, "repositories": {}}
+    journal = {
+        "version": 1,
+        "history_version": history_version,
+        "namespace": client.namespace,
+        "repositories": {},
+    }
     for repo in repositories:
         tags = client.tags(repo)
         if "latest" not in tags:
@@ -371,7 +390,8 @@ def plan_retention(client, inventory, now, days=7, repositories=REPOSITORIES):
         }
         print(
             f"{repo}: {len(expired)} expired tags, {len(candidates)} expired manifests, "
-            f"{len(protected)} protected manifests"
+            f"{len(protected)} protected manifests",
+            flush=True,
         )
     return plan, journal
 
@@ -387,6 +407,8 @@ def apply_plan(client, plan, now, dry_run=False):
         raise RetentionError("Unsafe retention cutoff")
     if not dry_run and not client.token:
         raise RetentionError("DOCKERHUB_TOKEN is required for deletion")
+    blocked = []
+    confirmed = 0
     for repo, operations in plan["repositories"].items():
         if repo not in REPOSITORIES:
             raise RetentionError("Plan contains unexpected repository")
@@ -421,17 +443,40 @@ def apply_plan(client, plan, now, dry_run=False):
         # reference checks are the final guard against changes after this read.
         manifests = [d for d in operations["manifests"] if d not in protected]
         for name in planned_tags:
-            print(f"{'Would delete' if dry_run else 'Deleting'} tag {repo}:{name}")
+            print(
+                f"{'Would delete' if dry_run else 'Deleting'} tag {repo}:{name}",
+                flush=True,
+            )
             if not dry_run:
                 client.delete_tag(repo, name)
         for digest in manifests:
-            print(f"{'Would delete' if dry_run else 'Deleting'} manifest {repo}@{digest}")
+            print(
+                f"{'Would delete' if dry_run else 'Deleting'} manifest {repo}@{digest}",
+                flush=True,
+            )
             if not dry_run:
-                client.delete_manifest(repo, digest)
+                try:
+                    client.delete_manifest(repo, digest)
+                except ManifestDeleteBlocked as error:
+                    # A legacy reference must not prevent independent images or
+                    # repositories from being reclaimed. Still fail the job and
+                    # leave the saved journal intact for every blocked digest.
+                    blocked.append(f"{repo}@{digest}")
+                    print(f"::error::{error}; retained in the retry inventory", flush=True)
+                else:
+                    confirmed += 1
+                    print(f"Confirmed absent: {repo}@{digest}", flush=True)
+    if blocked:
+        raise RetentionError(
+            f"Cleanup incomplete: {confirmed} manifest deletions confirmed, "
+            f"{len(blocked)} blocked by HTTP 403. See the errors above; "
+            "the saved inventory preserves every blocked digest for retry."
+        )
     print(
         "Dry run: no tags, manifests, or blobs deleted."
         if dry_run
-        else "Manifest deletion confirmed. Docker Hub reclaims unreferenced layers asynchronously."
+        else "Manifest deletion confirmed. Docker Hub reclaims unreferenced layers asynchronously.",
+        flush=True,
     )
 
 
@@ -452,7 +497,13 @@ def main():
     now = datetime.now(timezone.utc)
     if args.operation == "plan":
         inventory = read_inventory(args.inventory, client.namespace)
-        plan, journal = plan_retention(client, inventory, now, args.days)
+        plan, journal = plan_retention(
+            client,
+            inventory["repositories"],
+            now,
+            args.days,
+            history_version=inventory.get("history_version", 0),
+        )
         write_json(args.inventory_out, journal)
         write_json(args.output, plan)
     else:

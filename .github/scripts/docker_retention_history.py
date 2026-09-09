@@ -27,6 +27,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 API = "https://api.github.com"
 WORKFLOW = ".github/workflows/docker-publish.yml"
 ARTIFACT = "docker-retention-inventory"
+HISTORY_VERSION = 1
 REPOSITORIES = tuple(
     "bootui-sample-app" + suffix
     for suffix in ("", "-aot", "-crac", "-native", "-webflux", "-quarkus")
@@ -208,6 +209,9 @@ def validate_inventory(value, namespace):
     repositories = value.get("repositories")
     if not isinstance(repositories, dict) or set(repositories) - set(REPOSITORIES):
         raise HistoryError("Inventory contains unexpected repositories")
+    history_version = value.get("history_version", 0)
+    if type(history_version) is not int or not 0 <= history_version <= HISTORY_VERSION:
+        raise HistoryError("Unsupported inventory history version")
     for records in repositories.values():
         if not isinstance(records, dict):
             raise HistoryError("Inventory manifest records must be objects")
@@ -217,6 +221,7 @@ def validate_inventory(value, namespace):
             timestamp(pushed)
     return {
         "version": 1,
+        "history_version": history_version,
         "namespace": namespace,
         "repositories": {repo: repositories.get(repo, {}) for repo in REPOSITORIES},
     }
@@ -307,8 +312,11 @@ def merge_digests(content, namespace, repository):
     for _, line in log_lines(content):
         copied = copy.fullmatch(line)
         pushed = push.fullmatch(line)
-        if copied and copied[1] == copied[2]:
-            found.add(copied[1])
+        if copied:
+            # Buildx flattens attested per-platform indexes. The copied child
+            # and its source wrapper are distinct manifests in this repository;
+            # leaving the wrapper behind prevents deletion of the child.
+            found.update((copied[1], copied[2]))
         if pushed:
             found.add(pushed[1])
     return found
@@ -355,12 +363,18 @@ def build_digests(content, namespace, repository, steps):
 def bootstrap(github, namespace, workflow_id, current_run, now):
     since = now - timedelta(days=90)
     warn(
-        f"No prior inventory: recovering available Docker publish logs since {iso(since)}. "
+        f"Recovering available Docker publish logs since {iso(since)}. "
         "History is incomplete outside the 90-day Actions retention window; "
         "expired/deleted logs and older untagged manifests cannot be recovered."
     )
     inventory = validate_inventory(
-        {"version": 1, "namespace": namespace, "repositories": {}}, namespace
+        {
+            "version": 1,
+            "history_version": HISTORY_VERSION,
+            "namespace": namespace,
+            "repositories": {},
+        },
+        namespace,
     )
     recovered_runs = 0
     unavailable = 0
@@ -459,9 +473,21 @@ def recover(github, namespace, current_run, now=None):
     if workflow.get("path") != WORKFLOW or type(workflow.get("id")) is not int:
         raise HistoryError("Docker publish workflow identity does not match")
     restored = restore_inventory(github, namespace, workflow["id"], now)
-    if restored is not None:
+    if restored is not None and restored["history_version"] == HISTORY_VERSION:
         return restored
-    return bootstrap(github, namespace, workflow["id"], current_run, now)
+    if restored is not None:
+        warn(
+            "Refreshing legacy inventory to recover source wrapper indexes. "
+            "Existing retry records will be preserved."
+        )
+    recovered = bootstrap(github, namespace, workflow["id"], current_run, now)
+    if restored is not None:
+        for repo, records in restored["repositories"].items():
+            merged = recovered["repositories"][repo]
+            for digest, pushed in records.items():
+                if digest not in merged or timestamp(pushed) > timestamp(merged[digest]):
+                    merged[digest] = pushed
+    return recovered
 
 
 def main(argv=None):

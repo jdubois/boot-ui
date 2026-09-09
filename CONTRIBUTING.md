@@ -148,6 +148,10 @@ indexes, and their unreferenced platform manifests, in that order. Layers are ne
 deleted directly: Docker Hub reclaims unreferenced layers asynchronously and keeps
 layers shared with retained images. Registry permission failures and unconfirmed
 deletions fail the job rather than silently skipping cleanup.
+An HTTP 403 for an individual manifest is reported immediately without stopping
+independent deletions in the other images and repositories. The job still fails
+at the end with the confirmed/blocked counts; blocked digests stay in the saved
+inventory. Other API failures still stop execution.
 
 The `docker-retention-inventory-*` Actions artifact is a write-ahead journal, uploaded
 **before** any tags are removed. The next run restores it, including from a failed
@@ -157,6 +161,11 @@ without overwriting the previous one. On first use, the workflow recovers legacy
 digests from available Docker publish logs; expired or
 missing logs limit that recovery and are reported explicitly. Content that predates
 available history may still need manual inventory through Docker Hub Image Management.
+History recovery includes the source wrapper indexes that older attested builds
+used before flattening their platform and attestation manifests into release
+indexes. Journals created before this recovery fix trigger a one-time history
+refresh, merged with the existing retry records, so those wrappers are deleted
+before their children rather than leaving the children blocked by references.
 
 Use **Run workflow** with `cleanup_only=true` to run retention without rebuilding.
 Set `prune_dry_run=true` to preview **both tag and manifest deletion** without deleting

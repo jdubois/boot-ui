@@ -22,6 +22,7 @@ NEW = "2026-09-08T08:04:00Z"
 def inventory(namespace="jdubois"):
     return {
         "version": 1,
+        "history_version": history.HISTORY_VERSION,
         "namespace": namespace,
         "repositories": {
             repo: ({D1: OLD} if repo == REPO else {})
@@ -171,6 +172,40 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(inventory(), self.recover(client))
         self.assertEqual(["/actions/artifacts/1/zip"], client.requested)
         self.assertIsNone(client.bounds)
+
+    def test_refreshes_legacy_inventory_without_losing_retry_records_or_newer_pushes(self):
+        prior = inventory()
+        prior.pop("history_version")
+        prior["repositories"][REPO] = {D1: history.iso(NOW), BASE: OLD}
+        source_copy = log(f"#1 0.000 copying {D1} from {IMAGE}@{CONFIG} to {IMAGE}")
+        client = FakeGitHub(
+            [artifact()], [run()], jobs={10: [merge_job()]},
+            downloads={
+                "/actions/artifacts/1/zip": archive(prior),
+                "/actions/jobs/20/logs": merge_log() + source_copy,
+            },
+        )
+        result = self.recover(client)
+        self.assertEqual(history.HISTORY_VERSION, result["history_version"])
+        self.assertEqual(
+            {D1: history.iso(NOW), D2: NEW, D3: NEW, CONFIG: NEW, BASE: OLD},
+            result["repositories"][REPO],
+        )
+        self.assertIn("Refreshing legacy inventory", self.stderr.getvalue())
+        self.assertIsNotNone(client.bounds)
+
+    def test_failed_legacy_refresh_does_not_return_a_successful_partial_inventory(self):
+        prior = inventory()
+        prior.pop("history_version")
+        client = FakeGitHub(
+            [artifact()], [run()], jobs={10: [merge_job()]},
+            downloads={
+                "/actions/artifacts/1/zip": archive(prior),
+                "/actions/jobs/20/logs": history.APIError(403),
+            },
+        )
+        with self.assertRaises(history.APIError):
+            self.recover(client)
 
     def test_selects_freshest_by_creation_and_id_not_run_status(self):
         client = FakeGitHub(
@@ -426,7 +461,7 @@ class ParserTests(unittest.TestCase):
         content = merge_log() + log(
             f"Run actions/checkout@{BASE}",
             f"#1 FROM docker.io/library/ubuntu@{CONFIG}",
-            f"#1 0.0 copying {BASE} from {IMAGE}@{CONFIG} to {IMAGE}",
+            f"#1 0.0 copying {BASE} from docker.io/other/{REPO}@{CONFIG} to {IMAGE}",
             f"#1 0.0 pushing {CONFIG} to {IMAGE}-evil:latest",
             f"#1 0.0 pushing {CONFIG} to docker.io/other/{REPO}:latest",
             f"#1 0.0 pushing {CONFIG} to ghcr.io/jdubois/{REPO}:latest",
@@ -435,6 +470,20 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(
             {D1, D2, D3},
             history.merge_digests(content.replace(b"***", b"jdubois"), "jdubois", REPO),
+        )
+
+    def test_merge_recovers_attested_source_wrapper_and_flattened_children(self):
+        wrapper = CONFIG
+        image = D1
+        attestation = D2
+        content = log(
+            f"#1 0.000 copying {image} from {IMAGE}@{wrapper} to {IMAGE}",
+            f"#1 0.000 copying {attestation} from {IMAGE}@{wrapper} to {IMAGE}",
+            f"#1 0.344 pushing {D3} to {IMAGE}:latest",
+        )
+        self.assertEqual(
+            {wrapper, image, attestation, D3},
+            history.merge_digests(content, "jdubois", REPO),
         )
 
     def test_build_requires_export_and_successful_push_within_exact_step(self):

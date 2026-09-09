@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from docker_retention import (
     DockerHub,
+    ManifestDeleteBlocked,
     NoRedirect,
     REPOSITORIES,
     Response,
@@ -228,6 +229,69 @@ class RetentionTests(unittest.TestCase):
         )
         apply_plan(self.hub, plan, NOW)
 
+    def test_flattened_attested_wrapper_is_deleted_before_its_shared_children(self):
+        from docker_retention_history import merge_digests
+
+        self.hub.images[digest("wrapper")] = [digest("old-arm"), digest("attestation")]
+        self.hub.images[digest("attestation")] = []
+        self.hub.images[digest("old-index")] = [
+            digest("old-arm"), digest("attestation"), digest("shared")
+        ]
+        image = f"docker.io/***/{REPO}"
+        content = (
+            f"{OLD} #1 0.000 copying {digest('old-arm')} "
+            f"from {image}@{digest('wrapper')} to {image}\n"
+            f"{OLD} #1 0.344 pushing {digest('old-index')} to {image}:latest\n"
+        ).encode()
+        recovered = {d: OLD for d in merge_digests(content, "jdubois", REPO)}
+        plan, _ = self.plan({REPO: recovered})
+        candidates = plan["repositories"][REPO]["manifests"]
+        for parent in ("wrapper", "old-index"):
+            for child in ("old-arm", "attestation"):
+                self.assertLess(
+                    candidates.index(digest(parent)), candidates.index(digest(child))
+                )
+        apply_plan(self.hub, plan, NOW)
+        self.assertNotIn(digest("wrapper"), self.hub.images)
+        self.assertNotIn(digest("old-arm"), self.hub.images)
+
+    def test_blocked_legacy_child_does_not_prevent_other_repositories_from_cleaning(self):
+        repositories = {repo: FakeHub() for repo in REPOSITORIES}
+        client = Mock(namespace="jdubois", token="test")
+        client.tags.side_effect = lambda repo: repositories[repo].tags(repo)
+        client.manifest.side_effect = lambda repo, d: repositories[repo].manifest(repo, d)
+        client.delete_tag.side_effect = lambda repo, name: repositories[repo].delete_tag(repo, name)
+        first_repo = REPOSITORIES[0]
+
+        def delete(repo, d):
+            if repo == first_repo and d == digest("old-arm"):
+                raise ManifestDeleteBlocked(f"{repo}@{d}: HTTP 403")
+            repositories[repo].delete_manifest(repo, d)
+
+        client.delete_manifest.side_effect = delete
+        plan, journal = plan_retention(client, {}, NOW)
+        with self.assertRaisesRegex(
+            RetentionError, "11 manifest deletions confirmed, 1 blocked"
+        ):
+            apply_plan(client, plan, NOW)
+        self.assertIn("::error::", self.output.getvalue())
+        self.assertIn("Confirmed absent:", self.output.getvalue())
+        self.assertIn(digest("old-arm"), journal["repositories"][first_repo])
+        self.assertIn(digest("old-arm"), repositories[first_repo].images)
+        for repo in REPOSITORIES[1:]:
+            self.assertNotIn(digest("old-arm"), repositories[repo].images)
+
+    def test_all_permission_denials_still_fail_instead_of_reporting_cleanup_success(self):
+        self.hub.delete_manifest = Mock(
+            side_effect=ManifestDeleteBlocked("HTTP 403; check permission and references")
+        )
+        plan, _ = self.plan()
+        with self.assertRaisesRegex(
+            RetentionError, "0 manifest deletions confirmed, 2 blocked"
+        ):
+            apply_plan(self.hub, plan, NOW)
+        self.assertNotIn("Manifest deletion confirmed.", self.output.getvalue())
+
     def test_cycle_is_rejected(self):
         self.hub.images[digest("shared")] = [digest("new-index")]
         with self.assertRaisesRegex(RetentionError, "Cyclic"):
@@ -277,13 +341,24 @@ class RetentionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "inventory.json"
             write_json(path, journal)
-            self.assertEqual(read_inventory(path, "jdubois"), journal["repositories"])
+            self.assertEqual(read_inventory(path, "jdubois"), journal)
             with self.assertRaises(RetentionError):
                 read_inventory(path, "someone-else")
             journal["repositories"]["unexpected"] = {}
             write_json(path, journal)
             with self.assertRaises(RetentionError):
                 read_inventory(path, "jdubois")
+
+    def test_history_revision_survives_planning_and_inventory_round_trip(self):
+        plan, journal = plan_retention(
+            self.hub, {}, NOW, repositories=(REPO,), history_version=1
+        )
+        self.assertEqual(1, journal["history_version"])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "inventory.json"
+            write_json(path, journal)
+            self.assertEqual(1, read_inventory(path, "jdubois")["history_version"])
+        apply_plan(self.hub, plan, NOW)
 
 
 class ApiTests(unittest.TestCase):
@@ -628,7 +703,10 @@ class HttpIntegrationTests(unittest.TestCase):
             plan, inventory = plan_retention(client, {}, NOW)
             journal = Path(directory) / "inventory.json"
             write_json(journal, inventory)
-            self.assertEqual(set(read_inventory(journal, "jdubois")), set(REPOSITORIES))
+            self.assertEqual(
+                set(read_inventory(journal, "jdubois")["repositories"]),
+                set(REPOSITORIES),
+            )
             apply_plan(client, plan, NOW, dry_run=True)
             self.assertFalse(any(method == "DELETE" for method, _ in calls))
             apply_plan(client, plan, NOW)
