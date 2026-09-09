@@ -27,13 +27,19 @@ class AdvisorEvidenceDtoTests {
                 .hasSize(20);
     }
 
+    /**
+     * A report deserialized from an older BootUI version has no {@code evidence} or {@code assessment}
+     * property, so the mapper passes {@code null}. That absence must read as "unknown", never as a
+     * completed assessment.
+     */
     @Test
-    void compatibilityConstructorsNeverInventCompletedEvidence() {
-        DependencyDto dependency = new DependencyDto("g", "a", "1", "g:a", "test", 0, "NONE", List.of());
-        DependenciesReport report = new DependenciesReport(true, 1, 0, List.of(), null, null, List.of(dependency));
+    void absentEvidenceNeverInventsCompletedEvidence() {
+        DependencyDto dependency = new DependencyDto("g", "a", "1", "g:a", "test", 0, "NONE", List.of(), null);
+        DependenciesReport report =
+                new DependenciesReport(true, 1, 0, List.of(), null, null, List.of(dependency), null);
         assertThat(dependency.assessment()).isEqualTo(new DependencyAssessmentDto(false, false));
         assertThat(report.evidence()).isEqualTo(AdvisorEvidenceDto.unknown());
-        assertThat(new MemoryReport(true, "", 20, 0, null, List.of(), null, List.of(), List.of())
+        assertThat(new MemoryReport(true, "", 20, 0, null, List.of(), null, List.of(), List.of(), null)
                         .evidence()
                         .usable())
                 .isFalse();

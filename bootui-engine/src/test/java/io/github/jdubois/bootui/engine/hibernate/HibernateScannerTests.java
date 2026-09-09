@@ -302,7 +302,7 @@ class HibernateScannerTests {
             HibernateRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
 
             assertThat(queryResult.status()).isNotEqualTo(HibernateRuleSupport.VIOLATION);
-            assertThat(context.evidence().requiredUnknown).isTrue();
+            assertThat(context.evidence().requiredUnknown()).isTrue();
             assertThat(configResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
             assertThat(configResult.sampleViolations())
                     .anySatisfy(sample -> assertThat(sample).contains("not proven"));

@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
@@ -36,7 +37,16 @@ class VulnerabilitiesControllerTests {
 
     private static DependencyDto dependency(String groupId, String artifactId, String version) {
         String packageName = groupId + ":" + artifactId;
-        return new DependencyDto(groupId, artifactId, version, packageName, "test", 0, "NONE", List.of());
+        return new DependencyDto(
+                groupId,
+                artifactId,
+                version,
+                packageName,
+                "test",
+                0,
+                "NONE",
+                List.of(),
+                DependencyAssessmentDto.unknown());
     }
 
     private static DependencyDto vulnerableDependency(
@@ -45,7 +55,15 @@ class VulnerabilitiesControllerTests {
         List<DependencyVulnerabilityDto> vulnerabilities = List.of(new DependencyVulnerabilityDto(
                 vulnerabilityId, null, null, severity, null, List.of(), List.of(), List.of()));
         return new DependencyDto(
-                groupId, artifactId, version, packageName, "test", vulnerabilities.size(), severity, vulnerabilities);
+                groupId,
+                artifactId,
+                version,
+                packageName,
+                "test",
+                vulnerabilities.size(),
+                severity,
+                vulnerabilities,
+                DependencyAssessmentDto.unknown());
     }
 
     private static DismissedRulesStore emptyDismissedRulesStore() {

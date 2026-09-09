@@ -54,16 +54,16 @@ record HibernateContext(
     }
 
     <T> T required(T value) {
-        evidence.applicable |= !entities.isEmpty();
+        evidence.markApplicableIf(!entities.isEmpty());
         if (value == null) {
-            evidence.requiredUnknown = true;
+            evidence.markRequiredUnknown();
             throw new HibernateRequiredObservationException();
         }
         return value;
     }
 
     void missingEvidence() {
-        evidence.requiredUnknown = true;
+        evidence.markRequiredUnknown();
     }
 
     <T> List<T> targets(List<T> values) {
@@ -72,12 +72,12 @@ record HibernateContext(
 
     <T> List<T> targets(List<T> values, java.util.function.Predicate<T> applicable) {
         List<T> selected = values.stream().filter(applicable).toList();
-        if (!selected.isEmpty()) evidence.applicable = true;
+        evidence.markApplicableIf(!selected.isEmpty());
         return selected;
     }
 
     private String property(String key) {
-        evidence.applicable |= !entities.isEmpty();
+        evidence.markApplicableIf(!entities.isEmpty());
         if (!observed()) return propertyLookup.apply(key);
         String nativeKey =
                 key.startsWith("spring.jpa.properties.") ? key.substring("spring.jpa.properties.".length()) : key;
@@ -319,11 +319,48 @@ record HibernateContext(
     }
 }
 
+/**
+ * Scan-local applicability and completion bookkeeping for one Hibernate rule evaluation.
+ *
+ * <p>State is deliberately private. A rule marks what it actually looked at through
+ * {@link #markApplicable(boolean)} (usually via {@link HibernateContext#targets}), and records a missing
+ * required observation through {@link #markRequiredUnknown()}. Only {@link #complete} derives usability,
+ * so "the rule reached a conclusion about something it could see" is decided in one place rather than by
+ * whichever caller last wrote a field.</p>
+ */
 final class HibernateEvaluationEvidence {
-    boolean requiredUnknown;
-    boolean applicable;
-    boolean usable;
-    boolean evaluated;
+    private boolean requiredUnknown;
+    private boolean applicable;
+    private boolean usable;
+    private boolean evaluated;
+
+    boolean applicable() {
+        return applicable;
+    }
+
+    boolean requiredUnknown() {
+        return requiredUnknown;
+    }
+
+    boolean usable() {
+        return usable;
+    }
+
+    boolean evaluated() {
+        return evaluated;
+    }
+
+    void markApplicable(boolean value) {
+        applicable = value;
+    }
+
+    void markApplicableIf(boolean value) {
+        applicable |= value;
+    }
+
+    void markRequiredUnknown() {
+        requiredUnknown = true;
+    }
 
     void complete(io.github.jdubois.bootui.core.dto.HibernateRuleResultDto result) {
         evaluated = true;

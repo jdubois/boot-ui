@@ -16,17 +16,17 @@ class ArchitectureEvaluationEvidenceTests {
     void selectedArchUnitTargetsNotEmptyShouldSuccessEstablishCompletion() {
         ArchitectureContext context = context(NoFields.class);
         assertThat(new NoFieldInjectionRule().evaluate(context).status()).isEqualTo("PASS");
-        assertThat(context.evidence().usable).isFalse();
+        assertThat(context.evidence().usable()).isFalse();
         assertThat(new ControllersShouldNotDependOnRepositoriesRule()
                         .evaluate(context)
                         .status())
                 .isEqualTo("PASS");
-        assertThat(context.evidence().usable).isFalse();
+        assertThat(context.evidence().usable()).isFalse();
         assertThat(new NoFieldInjectionRule().evaluate(context(OneField.class)).status())
                 .isEqualTo("PASS");
         ArchitectureContext field = context(OneField.class);
         new NoFieldInjectionRule().evaluate(field);
-        assertThat(field.evidence().usable).isTrue();
+        assertThat(field.evidence().usable()).isTrue();
     }
 
     @Test
@@ -34,7 +34,7 @@ class ArchitectureEvaluationEvidenceTests {
         ArchitectureContext context = context(RepeatedSchedule.class);
         var result = new ScheduledMethodsShouldHaveSupportedSignaturesRule().evaluate(context);
         assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(context.evidence().usable).isTrue();
+        assertThat(context.evidence().usable()).isTrue();
         assertThat(result.violationCount()).isPositive();
     }
 
@@ -49,7 +49,7 @@ class ArchitectureEvaluationEvidenceTests {
         };
         ArchitectureContext context = context(OneField.class);
         assertThat(broken.evaluate(context).status()).isEqualTo("ERROR");
-        assertThat(context.evidence().usable).isFalse();
+        assertThat(context.evidence().usable()).isFalse();
 
         ArchitectureScanner scanner = new ArchitectureScanner(
                 () -> List.of(getClass().getPackageName()),
@@ -78,7 +78,7 @@ class ArchitectureEvaluationEvidenceTests {
                                             com.tngtech.archunit.core.domain.JavaClass type,
                                             com.tngtech.archunit.lang.ConditionEvents events) {
                                         context.evidence().observed();
-                                        context.evidence().requiredUnknown = true;
+                                        context.evidence().markRequiredUnknown();
                                         events.add(com.tngtech.archunit.lang.SimpleConditionEvent.violated(
                                                 type, "Observed finding"));
                                     }
@@ -87,8 +87,8 @@ class ArchitectureEvaluationEvidenceTests {
         };
         ArchitectureContext context = context(OneField.class);
         assertThat(partial.evaluate(context).status()).isEqualTo("VIOLATION");
-        assertThat(context.evidence().usable).isTrue();
-        assertThat(context.evidence().requiredUnknown).isTrue();
+        assertThat(context.evidence().usable()).isTrue();
+        assertThat(context.evidence().requiredUnknown()).isTrue();
     }
 
     private static ArchitectureContext context(Class<?> type) {

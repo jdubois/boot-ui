@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureScanStatusDto;
@@ -46,7 +47,8 @@ class ArchitectureResourceTests {
                 List.of(),
                 new ArchitectureScanStatusDto("BootUI ArchUnit hygiene", status, "message", 1L, 1, 1, 0),
                 List.of(),
-                List.of(error));
+                List.of(error),
+                AdvisorEvidenceDto.unknown());
         when(scanner.initialReport()).thenReturn(report);
         when(scanner.scan()).thenReturn(report);
         when(scanner.applyDismissals(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));

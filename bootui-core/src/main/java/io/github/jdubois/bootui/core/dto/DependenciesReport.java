@@ -26,25 +26,6 @@ public record DependenciesReport(
         coverage = coverage == null ? DependencyCoverageDto.unavailable() : coverage;
     }
 
-    public DependenciesReport(
-            boolean scanningEnabled,
-            int total,
-            int vulnerable,
-            List<DependencySeverityCountDto> severityCounts,
-            DependencyScanStatusDto scan,
-            DependencyCoverageDto coverage,
-            List<DependencyDto> dependencies) {
-        this(
-                scanningEnabled,
-                total,
-                vulnerable,
-                severityCounts,
-                scan,
-                coverage,
-                dependencies,
-                AdvisorEvidenceDto.unknown());
-    }
-
     public String status() {
         return scan == null ? null : scan.status();
     }

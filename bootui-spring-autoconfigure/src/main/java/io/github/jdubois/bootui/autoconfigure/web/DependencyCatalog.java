@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
 import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
@@ -364,7 +365,8 @@ final class DependencyCatalog implements DependencyProvider {
                                 "CycloneDX SBOM",
                                 0,
                                 "NONE",
-                                List.of()));
+                                List.of(),
+                                DependencyAssessmentDto.unknown()));
             }
             // CycloneDX allows a component to nest the components it in turn assembles.
             collectSbomComponents(component.get("components"), dependencies);
@@ -407,7 +409,16 @@ final class DependencyCatalog implements DependencyProvider {
             return null;
         }
         String packageName = groupId + ":" + artifactId;
-        return new DependencyDto(groupId, artifactId, version, packageName, "Maven metadata", 0, "NONE", List.of());
+        return new DependencyDto(
+                groupId,
+                artifactId,
+                version,
+                packageName,
+                "Maven metadata",
+                0,
+                "NONE",
+                List.of(),
+                DependencyAssessmentDto.unknown());
     }
 
     private List<DependencyDto> javaClassPathDependencies() {
@@ -450,7 +461,16 @@ final class DependencyCatalog implements DependencyProvider {
             return null;
         }
         String packageName = groupId + ":" + artifactId;
-        return new DependencyDto(groupId, artifactId, version, packageName, "Java classpath", 0, "NONE", List.of());
+        return new DependencyDto(
+                groupId,
+                artifactId,
+                version,
+                packageName,
+                "Java classpath",
+                0,
+                "NONE",
+                List.of(),
+                DependencyAssessmentDto.unknown());
     }
 
     private DependencyDto dependencyFromAdjacentPom(Path versionPath, String artifactId, String version) {
@@ -486,7 +506,15 @@ final class DependencyCatalog implements DependencyProvider {
             }
             String packageName = pomGroupId + ":" + artifactId;
             return new DependencyDto(
-                    pomGroupId, artifactId, version, packageName, "Adjacent Maven POM", 0, "NONE", List.of());
+                    pomGroupId,
+                    artifactId,
+                    version,
+                    packageName,
+                    "Adjacent Maven POM",
+                    0,
+                    "NONE",
+                    List.of(),
+                    DependencyAssessmentDto.unknown());
         } catch (IOException | ParserConfigurationException | SAXException | IllegalArgumentException ex) {
             return null;
         }

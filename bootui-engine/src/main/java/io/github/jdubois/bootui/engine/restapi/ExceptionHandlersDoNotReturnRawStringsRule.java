@@ -25,7 +25,7 @@ final class ExceptionHandlersDoNotReturnRawStringsRule extends AbstractRestApiRu
         List<String> violations = new ArrayList<>();
         for (ExceptionHandlerModel handler :
                 context.targets(context.exceptionHandlers(), ExceptionHandlerModel::rendersBody)) {
-            if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().requiredUnknown = true;
+            if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().markRequiredUnknown();
             if ("java.lang.String".equals(handler.bodyTypeName()) && handler.rendersBody()) {
                 violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName()
                         + " returns a raw String error body");

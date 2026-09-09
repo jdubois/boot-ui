@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDataSourceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorScanStatusDto;
@@ -48,7 +49,8 @@ class DatabaseAdvisorControllerTests {
                 new DatabaseAdvisorScanStatusDto(
                         "BootUI Database Advisor", status, "message", null, 8, 4, violationsFound),
                 List.of(),
-                List.of());
+                List.of(),
+                AdvisorEvidenceDto.unknown());
     }
 
     @Test

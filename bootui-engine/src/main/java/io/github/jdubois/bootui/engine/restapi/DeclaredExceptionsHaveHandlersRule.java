@@ -37,7 +37,7 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        if (!context.evidence().completeExceptionModel) {
+        if (!context.evidence().completeExceptionModel()) {
             return missingEvidence(
                     context,
                     "Controller and exception metadata is incomplete; missing handler declarations cannot be"

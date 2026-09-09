@@ -37,7 +37,7 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
                         && !handler.returnsVoid()
                         && !handler.hasResponseParam()
                         && RestApiRuleHelp.hasUnknownBody(handler))) {
-            context.evidence().requiredUnknown = true;
+            context.evidence().markRequiredUnknown();
         }
         List<ExceptionHandlerModel> rendering = context.exceptionHandlers().stream()
                 .filter(ExceptionHandlerModel::rendersBody)
@@ -48,7 +48,7 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
         if (rendering.size() < 2) {
             return RestApiRuleSupport.pass(definition());
         }
-        context.evidence().applicable = true;
+        context.evidence().markApplicable();
 
         Map<String, ExceptionHandlerModel> firstByMedia = new LinkedHashMap<>();
         ExceptionHandlerModel first = rendering.get(0);

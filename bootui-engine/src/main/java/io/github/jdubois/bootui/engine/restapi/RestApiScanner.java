@@ -219,9 +219,7 @@ public final class RestApiScanner {
                 model.responseStatusExceptionClasses(),
                 model.thrownExceptions(),
                 model.framework());
-        context.evidence().completeExceptionModel = !model.incomplete();
-        context.evidence().openApiKnown = openApi != null;
-        context.evidence().versioningKnown = versioning != null;
+        context.evidence().observations(!model.incomplete(), openApi != null, versioning != null);
 
         List<RestApiRuleResultDto> results = new ArrayList<>();
         boolean usable = false;
@@ -232,9 +230,9 @@ public final class RestApiScanner {
             if (RestApiRuleSupport.ERROR.equals(result.status())) {
                 failures.add("rule evaluation");
             }
-            usable |= context.evidence().usable;
-            requiredUnknown |= context.evidence().requiredUnknown
-                    || !context.evidence().evaluated && !RestApiRuleSupport.ERROR.equals(result.status());
+            usable |= context.evidence().usable();
+            requiredUnknown |= context.evidence().requiredUnknown()
+                    || !context.evidence().evaluated() && !RestApiRuleSupport.ERROR.equals(result.status());
             results.add(result);
         }
 

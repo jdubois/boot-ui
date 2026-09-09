@@ -239,7 +239,15 @@ class DependencyReportsTests {
         DependencyVulnerabilityDto vulnerability = new DependencyVulnerabilityDto(
                 id, "summary", "details", "HIGH", 7.5, aliases, List.of(), List.of(), false, null, null, true);
         DependencyDto dependency = new DependencyDto(
-                "org.example", "library", "1", "org.example:library", "test", 0, "NONE", List.of(vulnerability));
+                "org.example",
+                "library",
+                "1",
+                "org.example:library",
+                "test",
+                0,
+                "NONE",
+                List.of(vulnerability),
+                DependencyAssessmentDto.unknown());
         List<DependencyDto> result = DependencyReports.applyEpssScores(List.of(dependency), scores);
         assertThat(result.get(0).vulnerabilityCount()).isZero();
         assertThat(result.get(0).highestSeverity()).isEqualTo("NONE");
@@ -249,7 +257,16 @@ class DependencyReportsTests {
 
     private static DependencyDto dependency(String groupId, String artifactId, String version) {
         String packageName = groupId + ":" + artifactId;
-        return new DependencyDto(groupId, artifactId, version, packageName, "test", 0, "NONE", List.of());
+        return new DependencyDto(
+                groupId,
+                artifactId,
+                version,
+                packageName,
+                "test",
+                0,
+                "NONE",
+                List.of(),
+                DependencyAssessmentDto.unknown());
     }
 
     private static DependencyDto vulnerableDependency(
@@ -257,7 +274,15 @@ class DependencyReportsTests {
         String packageName = groupId + ":" + artifactId;
         List<DependencyVulnerabilityDto> vulnerabilities = List.of(vulnerability("V-" + artifactId, severity));
         return new DependencyDto(
-                groupId, artifactId, version, packageName, "test", vulnerabilities.size(), severity, vulnerabilities);
+                groupId,
+                artifactId,
+                version,
+                packageName,
+                "test",
+                vulnerabilities.size(),
+                severity,
+                vulnerabilities,
+                DependencyAssessmentDto.unknown());
     }
 
     private static DependencyVulnerabilityDto vulnerability(String id, String severity) {
@@ -330,7 +355,15 @@ class DependencyReportsTests {
         DependencyVulnerabilityDto dismissed =
                 vulnerability("V-dismissed", "HIGH").withDismissed(true);
         DependencyDto dependency = new DependencyDto(
-                "org.example", "lib", "1.0.0", "org.example:lib", "test", 1, "CRITICAL", List.of(active, dismissed));
+                "org.example",
+                "lib",
+                "1.0.0",
+                "org.example:lib",
+                "test",
+                1,
+                "CRITICAL",
+                List.of(active, dismissed),
+                DependencyAssessmentDto.unknown());
 
         List<DependencySeverityCountDto> counts = DependencyReports.severityCounts(List.of(dependency));
 
@@ -497,7 +530,15 @@ class DependencyReportsTests {
         List<DependencyVulnerabilityDto> vulnerabilities =
                 List.of(vulnerability("V-critical", "CRITICAL"), vulnerability("V-high", "HIGH"));
         DependencyDto dependencyDto = new DependencyDto(
-                "org.example", "lib", "1.0.0", "org.example:lib", "test", 2, "CRITICAL", vulnerabilities);
+                "org.example",
+                "lib",
+                "1.0.0",
+                "org.example:lib",
+                "test",
+                2,
+                "CRITICAL",
+                vulnerabilities,
+                DependencyAssessmentDto.unknown());
         DependenciesReport report = DependencyReports.report(true, "SCANNED", "done", 1L, 1, List.of(dependencyDto));
         String key = DependencyReports.dismissalKey("V-critical", "org.example:lib");
 
@@ -549,7 +590,15 @@ class DependencyReportsTests {
                 List.of(),
                 List.of());
         DependencyDto dependency = new DependencyDto(
-                "org.example", "lib", "1.0.0", "org.example:lib", "test", 1, "HIGH", List.of(vulnerability));
+                "org.example",
+                "lib",
+                "1.0.0",
+                "org.example:lib",
+                "test",
+                1,
+                "HIGH",
+                List.of(vulnerability),
+                DependencyAssessmentDto.unknown());
 
         assertThat(DependencyReports.cveAliases(List.of(dependency))).containsExactly("CVE-2024-1234", "CVE-2024-5678");
     }
@@ -575,7 +624,15 @@ class DependencyReportsTests {
         DependencyVulnerabilityDto vulnerability = new DependencyVulnerabilityDto(
                 "CVE-2024-1234", null, null, "HIGH", null, List.of(), List.of(), List.of());
         DependencyDto dependency = new DependencyDto(
-                "org.example", "lib", "1.0.0", "org.example:lib", "test", 1, "HIGH", List.of(vulnerability));
+                "org.example",
+                "lib",
+                "1.0.0",
+                "org.example:lib",
+                "test",
+                1,
+                "HIGH",
+                List.of(vulnerability),
+                DependencyAssessmentDto.unknown());
 
         List<DependencyDto> enriched = DependencyReports.applyEpssScores(
                 List.of(dependency), Map.of("CVE-2024-1234", new EpssScore(0.25d, 0.75d)));

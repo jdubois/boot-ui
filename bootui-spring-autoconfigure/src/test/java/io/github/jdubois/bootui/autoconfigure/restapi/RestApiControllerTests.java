@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.RestApiReport;
 import io.github.jdubois.bootui.core.dto.RestApiScanStatusDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
@@ -41,7 +42,8 @@ class RestApiControllerTests {
                 violationsFound,
                 List.of(),
                 new RestApiScanStatusDto("BootUI REST API Advisor", status, "message", null, 6, 4, 12, violationsFound),
-                List.of());
+                List.of(),
+                AdvisorEvidenceDto.unknown());
     }
 
     @Test

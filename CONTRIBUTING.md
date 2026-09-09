@@ -438,6 +438,30 @@ bash .github/scripts/check-release-integrity.sh
    sample-app behavior.
 6. Use the pull request template — it links to the verifications we expect.
 
+### Keeping a PR reviewable
+
+"Small and focused" is about how much *judgement* a reviewer has to apply, not
+about the raw diff size. A few habits keep that cost down:
+
+- **One decision per PR.** A change that alters a scoring or availability policy,
+  reshapes a JSON contract, and restyles the UI asks the reviewer to hold three
+  unrelated arguments at once. Land the policy change first, then build the UI on
+  top of the contract it settled.
+- **Separate mechanical churn from behaviour.** `spotless:apply` reflows, import
+  reordering, and large renames should be their own commit, ideally their own PR.
+  Mixed into a behaviour change they hide the handful of lines that actually
+  matter, and `git log -p` stops being useful later.
+- **Land the wide, repetitive part on its own.** When a change forces the same
+  edit across many rules, panels, or adapters, split it: one commit introduces the
+  mechanism with tests, a second applies it everywhere. The second commit is then
+  safe to skim.
+- **Prefer a guard test over a convention.** If a change makes it possible to
+  break something silently — a rule that forgets to record evidence, a panel that
+  forgets to publish availability — add the test that fails instead of writing the
+  rule down and hoping. See `HibernateRuleCatalogueTests` for the pattern.
+- **Say what you rejected.** A short note in the PR description about the
+  alternatives you discarded saves the reviewer from re-deriving them.
+
 ## Reporting bugs and security issues
 
 - **Bugs**: open an issue using the _Bug report_ template.
