@@ -18,8 +18,8 @@ class RestApiEvaluationEvidenceTests {
         RestApiContext context = context(UntypedController.class);
         var result = new DtosAreImmutableRule().evaluate(context);
         assertThat(result.status()).isEqualTo("PASS");
-        assertThat(context.evidence().usable).isFalse();
-        assertThat(context.evidence().requiredUnknown).isTrue();
+        assertThat(context.evidence().usable()).isFalse();
+        assertThat(context.evidence().requiredUnknown()).isTrue();
     }
 
     @Test
@@ -27,29 +27,29 @@ class RestApiEvaluationEvidenceTests {
         RestApiContext get = context(ReadController.class);
         assertThat(new HeadHandlersDoNotReturnBodiesRule().evaluate(get).status())
                 .isEqualTo("PASS");
-        assertThat(get.evidence().usable).isFalse();
+        assertThat(get.evidence().usable()).isFalse();
         RestApiContext head = context(HeadController.class);
         var finding = new HeadHandlersDoNotReturnBodiesRule().evaluate(head);
         assertThat(finding.status()).isEqualTo("VIOLATION");
         assertThat(finding.severity()).isEqualTo("INFO");
-        assertThat(head.evidence().usable).isTrue();
+        assertThat(head.evidence().usable()).isTrue();
         RestApiContext clean = context(EmptyHeadController.class);
         assertThat(new HeadHandlersDoNotReturnBodiesRule().evaluate(clean).status())
                 .isEqualTo("PASS");
-        assertThat(clean.evidence().usable).isTrue();
+        assertThat(clean.evidence().usable()).isTrue();
     }
 
     @Test
     void requiredObservationsAreCheckedByTheRuleEvenOutsideTheScanner() {
         RestApiContext context = context(ReadController.class);
-        context.evidence().completeExceptionModel = false;
+        context.evidence().observations(false, true, true);
         assertThat(new CentralizedExceptionHandlingRule().evaluate(context).status())
                 .isEqualTo("SKIPPED");
-        assertThat(context.evidence().requiredUnknown).isTrue();
-        assertThat(context.evidence().usable).isFalse();
-        context.evidence().openApiKnown = false;
+        assertThat(context.evidence().requiredUnknown()).isTrue();
+        assertThat(context.evidence().usable()).isFalse();
+        context.evidence().observations(false, false, true);
         assertThat(new EndpointsAreDocumentedRule().evaluate(context).status()).isEqualTo("SKIPPED");
-        assertThat(context.evidence().requiredUnknown).isTrue();
+        assertThat(context.evidence().requiredUnknown()).isTrue();
     }
 
     @Test

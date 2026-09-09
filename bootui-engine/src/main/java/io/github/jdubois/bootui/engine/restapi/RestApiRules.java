@@ -73,7 +73,7 @@ abstract class AbstractRestApiRule implements RestApiRule {
     }
 
     RestApiRuleResultDto missingEvidence(RestApiContext context, String reason) {
-        context.evidence().requiredUnknown = true;
+        context.evidence().markRequiredUnknown();
         return RestApiRuleSupport.skipped(definition, reason);
     }
 }
@@ -728,7 +728,7 @@ final class PathVariablesAreBoundRule extends AbstractRestApiRule {
                     continue;
                 }
                 Set<String> tokens = RestApiRuleHelp.pathVariableTokens(path);
-                context.evidence().applicable = true;
+                context.evidence().markApplicable();
                 List<String> unmatched = new ArrayList<>();
                 for (String name : handler.pathVariableNames()) {
                     if (!tokens.contains(name)) {
@@ -871,7 +871,7 @@ final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
                 if (staticSegments.isEmpty()) {
                     continue;
                 }
-                context.evidence().applicable = true;
+                context.evidence().markApplicable();
                 String last = staticSegments.get(staticSegments.size() - 1);
                 String lower = last.toLowerCase(Locale.ROOT);
                 if (!lower.endsWith("s") && !IRREGULAR_PLURALS.contains(lower) && !UNCOUNTABLE_NOUNS.contains(lower)) {
@@ -1277,7 +1277,7 @@ final class DtosAreImmutableRule extends AbstractRestApiRule {
                 context.handlers(), candidate -> !candidate.returnsVoid() && candidate.serializesBody())) {
             if (handler.bodyIsUntyped()) {
                 // Object/Map/JsonNode does not describe an inspected DTO's members.
-                context.evidence().requiredUnknown = true;
+                context.evidence().markRequiredUnknown();
             }
             if (handler.bodyExposesSetters() && !handler.returnsVoid() && handler.serializesBody()) {
                 violations.add(
@@ -1385,7 +1385,7 @@ final class ConsistentPaginationVocabularyRule extends AbstractRestApiRule {
         Set<String> families = new LinkedHashSet<>();
         for (HandlerMethodModel handler : context.handlers()) {
             if (!handler.paginationParamFamily().isEmpty()) {
-                context.evidence().applicable = true;
+                context.evidence().markApplicable();
                 families.add(handler.paginationParamFamily());
             }
         }
@@ -1420,7 +1420,7 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        if (!context.jaxRs() && !context.evidence().versioningKnown) {
+        if (!context.jaxRs() && !context.evidence().versioningKnown()) {
             return missingEvidence(context, "Required framework evidence could not be read.");
         }
         if (context.handlers().isEmpty()) {
@@ -1433,7 +1433,7 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
                 continue;
             }
             versionable.add(handler);
-            context.evidence().applicable = true;
+            context.evidence().markApplicable();
             if (!RestApiRuleHelp.hasVersionSignal(handler)
                     && (handler.jaxRs() || !context.globalVersioningConfigured())) {
                 unversioned.add(handler);
@@ -1562,7 +1562,7 @@ final class CentralizedExceptionHandlingRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        if (!context.evidence().completeExceptionModel) {
+        if (!context.evidence().completeExceptionModel()) {
             return missingEvidence(
                     context,
                     "Controller and exception metadata is incomplete; missing handler declarations cannot be"
@@ -1571,7 +1571,7 @@ final class CentralizedExceptionHandlingRule extends AbstractRestApiRule {
         if (context.controllers().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
-        context.evidence().applicable = true;
+        context.evidence().markApplicable();
         if (context.hasExceptionHandling()) {
             boolean springDeclarations = context.controllers().stream().anyMatch(controller -> !controller.jaxRs())
                     || context.exceptionHandlers().stream().anyMatch(handler -> !handler.jaxRs());
@@ -1648,7 +1648,7 @@ final class PreferProblemDetailRule extends AbstractRestApiRule {
                         && candidate.rendersBody()
                         && !candidate.returnsVoid()
                         && !candidate.hasResponseParam())) {
-            if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().requiredUnknown = true;
+            if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().markRequiredUnknown();
             if (!handler.jaxRs()
                     && !handler.returnsProblemType()
                     && handler.rendersBody()
@@ -1695,7 +1695,7 @@ final class ExceptionHandlersSetErrorStatusRule extends AbstractRestApiRule {
                         && candidate.rendersBody()
                         && !candidate.returnsVoid()
                         && !candidate.hasResponseParam())) {
-            if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().requiredUnknown = true;
+            if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().markRequiredUnknown();
             if (!handler.jaxRs()
                     && handler.rendersBody()
                     && !handler.returnsResponseEntity()
@@ -1733,7 +1733,7 @@ final class EndpointsAreDocumentedRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        if (!context.evidence().openApiKnown)
+        if (!context.evidence().openApiKnown())
             return missingEvidence(context, "Required framework evidence could not be read.");
         if (!context.openApiAnnotationsPresent()) {
             return RestApiRuleSupport.skipped(definition(), "No OpenAPI annotations were found on the host classpath.");
@@ -1761,7 +1761,7 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        if (!context.evidence().openApiKnown)
+        if (!context.evidence().openApiKnown())
             return missingEvidence(context, "Required framework evidence could not be read.");
         if (!context.openApiAnnotationsPresent()) {
             return RestApiRuleSupport.skipped(definition(), "No OpenAPI annotations were found on the host classpath.");
@@ -2059,7 +2059,7 @@ final class MixedVersioningStrategiesRule extends AbstractRestApiRule {
             if (RestApiRuleHelp.isNonApiEndpoint(handler)) {
                 continue;
             }
-            context.evidence().applicable = true;
+            context.evidence().markApplicable();
             strategies.addAll(RestApiRuleHelp.versioningStrategies(handler));
         }
         if (strategies.size() <= 1) {
@@ -2275,7 +2275,7 @@ final class DeprecatedEndpointsSignalDeprecationRule extends AbstractRestApiRule
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        if (!context.evidence().openApiKnown)
+        if (!context.evidence().openApiKnown())
             return missingEvidence(context, "Required framework evidence could not be read.");
         return RestApiRuleSupport.skipped(
                 definition(),

@@ -37,7 +37,7 @@ abstract class AbstractHibernateRule implements HibernateRule {
         try {
             HibernateRuleResultDto result = evaluateRule(context);
             context.evidence().complete(result);
-            return context.evidence().requiredUnknown && HibernateRuleSupport.PASS.equals(result.status())
+            return context.evidence().requiredUnknown() && HibernateRuleSupport.PASS.equals(result.status())
                     ? skipped("Required observation is unavailable.")
                     : result;
         } catch (HibernateRequiredObservationException ex) {
@@ -196,7 +196,7 @@ final class HibernateRuleModelSupport {
                 HibernateEntityModel domainEntity = HibernateQueryShape.entityRoot(context, method);
                 if (domainEntity == null) continue;
                 Set<String> collectionNames = collectionAttributeNames(domainEntity);
-                if (!collectionNames.isEmpty()) context.evidence().applicable = true;
+                if (!collectionNames.isEmpty()) context.evidence().markApplicable(true);
                 String rootAlias = rootAlias(method.query());
                 if (rootAlias == null) {
                     continue;
@@ -441,7 +441,7 @@ final class SequenceAllocationSizeRule extends AbstractHibernateRule {
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             Annotation entitySequence = entity.annotation("jakarta.persistence.SequenceGenerator");
-            if (entitySequence != null) context.evidence().applicable = true;
+            if (entitySequence != null) context.evidence().markApplicable(true);
             if (allocationSizeIsOne(entitySequence, entity)) {
                 details.add(entity.name() + " declares @SequenceGenerator(allocationSize=1).");
             }
@@ -944,7 +944,7 @@ final class MissingBatchFetchRule extends AbstractHibernateRule {
                         .flatMap(entity -> entity.attributes().stream())
                         .toList(),
                 this::isBatchFetchCandidate);
-        context.evidence().applicable = !candidates.isEmpty();
+        context.evidence().markApplicable(!candidates.isEmpty());
         if (defaultBatchSize != null && defaultBatchSize > 0) {
             return pass();
         }
@@ -1249,7 +1249,7 @@ final class InClausePaddingRule extends AbstractHibernateRule {
                         .toList(),
                 candidate ->
                         !candidate.nativeQuery() && candidate.query() != null && candidate.hasCollectionParameter());
-        context.evidence().applicable = !methods.isEmpty();
+        context.evidence().markApplicable(!methods.isEmpty());
         if (padding) {
             return pass();
         }
@@ -1396,7 +1396,7 @@ final class RiskyDdlAutoRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        context.evidence().applicable = !context.entities().isEmpty();
+        context.evidence().markApplicable(!context.entities().isEmpty());
         String ddlAuto = context.observed()
                 ? null
                 : context.firstProperty(
@@ -2178,7 +2178,7 @@ final class ModifyingClearAutomaticallyRule extends AbstractHibernateRule {
                                         || method.evidence().queryRewriter())) {
                     continue;
                 }
-                context.evidence().applicable = true;
+                context.evidence().markApplicable(true);
                 if (!method.modifyingClearsAutomatically()) {
                     String flushDetail = method.modifyingFlushesAutomatically()
                             ? " flushAutomatically=true does not clear stale managed entities."
@@ -2262,7 +2262,7 @@ final class NativePagedQueryCountRule extends AbstractHibernateRule {
                 if (!method.returnsPage()) {
                     continue;
                 }
-                context.evidence().applicable = true;
+                context.evidence().markApplicable(true);
                 if (!method.hasCountQuery()) {
                     details.add(method.description() + " is a native paged @Query without countQuery.");
                 }
@@ -2297,7 +2297,7 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (method.isDerivedDeleteMethod() && !method.hasQuery()) {
-                    context.evidence().applicable = true;
+                    context.evidence().markApplicable(true);
                     if (context.observed() && !method.evidence().derivedQueryVerified()) {
                         context.missingEvidence();
                         continue;
@@ -2398,7 +2398,7 @@ final class HibernateBuiltinPoolRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        context.evidence().applicable = !context.entities().isEmpty();
+        context.evidence().markApplicable(!context.entities().isEmpty());
         if (!context.observed()
                 || context.factorySettings().connectionProvider()
                         == HibernateFactorySettings.ConnectionProvider.UNKNOWN) {
@@ -2471,7 +2471,7 @@ final class CacheAssociationCoverageRule extends AbstractHibernateRule {
             return pass();
         }
         Map<String, HibernateEntityModel> byJavaType = HibernateRuleModelSupport.entitiesByJavaType(context.entities());
-        context.evidence().applicable = false;
+        context.evidence().markApplicable(false);
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             if (!entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation()) {
@@ -2520,7 +2520,7 @@ final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateRule {
         if (context.observed() && !context.required(context.factorySettings().secondLevelCache()))
             return skipped("Unit second-level cache is disabled.");
         List<String> details = new ArrayList<>();
-        context.evidence().applicable = false;
+        context.evidence().markApplicable(false);
         for (HibernateEntityModel entity :
                 context.targets(context.entities(), candidate -> candidate.hibernateCacheUsageName() != null)) {
             String usage = entity.hibernateCacheUsageName();
@@ -2557,7 +2557,7 @@ final class ImmutableEntityCacheStrategyRule extends AbstractHibernateRule {
         if (context.observed() && !context.required(context.factorySettings().secondLevelCache()))
             return skipped("Unit second-level cache is disabled.");
         List<String> details = new ArrayList<>();
-        context.evidence().applicable = false;
+        context.evidence().markApplicable(false);
         for (HibernateEntityModel entity : context.targets(
                 context.entities(),
                 candidate -> candidate.isImmutable() && candidate.hibernateCacheUsageName() != null)) {
@@ -2829,7 +2829,7 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
                             + " JPA annotations.");
         }
         List<String> details = new ArrayList<>();
-        context.evidence().applicable = false;
+        context.evidence().markApplicable(false);
         List<String> unresolved = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             Set<String> leadingIndexColumns;
@@ -3091,7 +3091,7 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
             if (entity.javaType() == null || !repositoryDomainTypes.contains(entity.javaType())) {
                 continue;
             }
-            context.evidence().applicable = true;
+            context.evidence().markApplicable(true);
             boolean hasGeneratedId = entity.attributes().stream().anyMatch(a -> a.generatedValueAnnotation() != null);
             boolean hasVersion = entity.attributes().stream()
                     .anyMatch(attribute ->
@@ -3159,7 +3159,7 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
                     continue;
                 }
                 List<HibernateAttributeModel> eagerToOne = eagerToOneAssociations(domainEntity);
-                if (!eagerToOne.isEmpty()) context.evidence().applicable = true;
+                if (!eagerToOne.isEmpty()) context.evidence().markApplicable(true);
                 Set<String> fetched = fetchedAttributes(method.query());
                 List<String> uncovered = new ArrayList<>();
                 for (HibernateAttributeModel association : eagerToOne) {
@@ -3239,7 +3239,7 @@ final class EntityProjectionQueryRule extends AbstractHibernateRule {
                 if (!pagedOrStreamed) {
                     continue;
                 }
-                context.evidence().applicable = true;
+                context.evidence().markApplicable(true);
                 if (HibernateRuleModelSupport.selectsWholeRootEntity(method.query())
                         && HibernateQueryShape.entityRoot(context, method) != null) {
                     details.add(method.description()
@@ -3417,7 +3417,7 @@ final class IdentityDisablesBatchingRule extends AbstractHibernateRule {
                             + " for IDENTITY generation to disable.");
         }
         List<String> details = new ArrayList<>();
-        context.evidence().applicable = false;
+        context.evidence().markApplicable(false);
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::hasGeneratedValue)) {
@@ -3464,14 +3464,14 @@ final class CompositeIdentifierContractRule extends AbstractHibernateRule {
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 if (attribute.annotation(EMBEDDED_ID) != null) {
-                    context.evidence().applicable = true;
+                    context.evidence().markApplicable(true);
                     checkCompositeIdClass(
                             attribute.rawType(), attribute.description() + " (@EmbeddedId)", checked, details);
                 }
             }
             Class<?> idClass = idClassValue(entity.annotationInHierarchy(ID_CLASS));
             if (idClass != null) {
-                context.evidence().applicable = true;
+                context.evidence().markApplicable(true);
                 checkCompositeIdClass(idClass, entity.name() + " (@IdClass)", checked, details);
             }
         }
@@ -3637,7 +3637,7 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
                 if (rootAlias == null) {
                     continue;
                 }
-                if (!collectionIsBag.isEmpty()) context.evidence().applicable = true;
+                if (!collectionIsBag.isEmpty()) context.evidence().markApplicable(true);
                 Set<String> fetchedCollections = new LinkedHashSet<>();
                 int bagCount = 0;
                 for (String path : HibernateRuleModelSupport.joinFetchPaths(method.query())) {

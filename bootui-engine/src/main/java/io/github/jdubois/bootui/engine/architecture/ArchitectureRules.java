@@ -240,7 +240,7 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
                     continue;
                 }
                 List<String> details = evaluation.getFailureReport().getDetails();
-                context.evidence().usable |= !details.isEmpty();
+                context.evidence().markUsableIf(!details.isEmpty());
                 totalViolations += details.size();
                 for (String detail : details) {
                     if (samples.size() >= MAX_SAMPLES) {
@@ -760,7 +760,7 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
         MethodCallTarget target = call.getTarget();
         context.evidence().observed();
         Optional<JavaMethod> resolved = target.resolveMember();
-        if (resolved.isEmpty()) context.evidence().requiredUnknown = true;
+        if (resolved.isEmpty()) context.evidence().markRequiredUnknown();
         if (resolved.isPresent() && ArchitectureRuleSupport.isCompilerGenerated(resolved.get())) {
             // A $default bridge stands in for a declared function, so resolve through it. Any other
             // compiler-generated target — the $suspendImpl body of an open suspend fun, a javac bridge —
@@ -1766,7 +1766,7 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
                             for (JavaMethodCall call : beanMethod.getMethodCallsFromSelf()) {
                                 Optional<JavaMethod> target = call.getTarget().resolveMember();
                                 if (target.isEmpty()) {
-                                    context.evidence().requiredUnknown = true;
+                                    context.evidence().markRequiredUnknown();
                                     continue;
                                 }
                                 JavaMethod targetMethod = target.get();

@@ -155,13 +155,13 @@ public final class ArchitectureScanner {
             context.evidence().reset();
             ArchitectureRuleResultDto result = rule.evaluate(context);
             results.add(result);
-            if (!context.evidence().evaluated && !ArchitectureRuleSupport.ERROR.equals(result.status())) {
+            if (!context.evidence().evaluated() && !ArchitectureRuleSupport.ERROR.equals(result.status())) {
                 unreported.add(result.id() + ": evaluator did not supply observation evidence.");
             }
-            if (context.evidence().requiredUnknown) {
+            if (context.evidence().requiredUnknown()) {
                 unreported.add(result.id() + ": required architecture observations could not be resolved.");
             }
-            usable |= context.evidence().usable;
+            usable |= context.evidence().usable();
         }
         long errors = results.stream()
                 .filter(result -> ArchitectureRuleSupport.ERROR.equals(result.status()))

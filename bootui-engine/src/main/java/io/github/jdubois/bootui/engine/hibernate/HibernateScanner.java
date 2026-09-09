@@ -196,12 +196,12 @@ public final class HibernateScanner {
                     result = HibernateRuleSupport.error(rule.definition(), "Rule evaluation failed.");
                 }
                 if (HibernateRuleSupport.ERROR.equals(result.status())) failed.add(identity);
-                if (context.evidence().requiredUnknown
-                        || !context.evidence().evaluated && !HibernateRuleSupport.ERROR.equals(result.status())) {
+                if (context.evidence().requiredUnknown()
+                        || !context.evidence().evaluated() && !HibernateRuleSupport.ERROR.equals(result.status())) {
                     unknown.add(identity);
                 }
                 if (HibernateRuleSupport.SKIPPED.equals(result.status())) skipped++;
-                usable |= context.evidence().usable;
+                usable |= context.evidence().usable();
                 if (isViolation(result)) mergeViolation(violations, result, label);
             }
         }

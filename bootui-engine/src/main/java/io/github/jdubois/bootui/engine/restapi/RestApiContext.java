@@ -67,19 +67,71 @@ record RestApiContext(
 
     <T> List<T> targets(List<T> values, java.util.function.Predicate<T> applicable) {
         List<T> selected = values.stream().filter(applicable).toList();
-        if (!selected.isEmpty()) evidence.applicable = true;
+        evidence.markApplicableIf(!selected.isEmpty());
         return selected;
     }
 }
 
+/**
+ * Scan-local applicability and completion bookkeeping for one REST API rule evaluation.
+ *
+ * <p>State is deliberately private. Scan-wide observations are installed once through
+ * {@link #observations}, a rule marks what it actually looked at through {@link #markApplicableIf} (usually
+ * via {@link RestApiContext#targets}), and records a missing required observation through
+ * {@link #markRequiredUnknown()}. Only {@link #complete} derives usability, so it is decided in one place
+ * rather than by whichever caller last wrote a field.</p>
+ */
 final class RestApiEvaluationEvidence {
-    boolean completeExceptionModel = true;
-    boolean openApiKnown = true;
-    boolean versioningKnown = true;
-    boolean applicable;
-    boolean usable;
-    boolean evaluated;
-    boolean requiredUnknown;
+    private boolean completeExceptionModel = true;
+    private boolean openApiKnown = true;
+    private boolean versioningKnown = true;
+    private boolean applicable;
+    private boolean usable;
+    private boolean evaluated;
+    private boolean requiredUnknown;
+
+    boolean completeExceptionModel() {
+        return completeExceptionModel;
+    }
+
+    boolean openApiKnown() {
+        return openApiKnown;
+    }
+
+    boolean versioningKnown() {
+        return versioningKnown;
+    }
+
+    boolean usable() {
+        return usable;
+    }
+
+    boolean evaluated() {
+        return evaluated;
+    }
+
+    boolean requiredUnknown() {
+        return requiredUnknown;
+    }
+
+    /** Scan-wide observations, established once before any rule runs and unaffected by {@link #reset()}. */
+    void observations(boolean completeExceptionModel, boolean openApiKnown, boolean versioningKnown) {
+        this.completeExceptionModel = completeExceptionModel;
+        this.openApiKnown = openApiKnown;
+        this.versioningKnown = versioningKnown;
+    }
+
+    void markApplicable() {
+        applicable = true;
+    }
+
+    void markApplicableIf(boolean value) {
+        applicable |= value;
+    }
+
+    void markRequiredUnknown() {
+        requiredUnknown = true;
+    }
 
     void reset() {
         applicable = false;

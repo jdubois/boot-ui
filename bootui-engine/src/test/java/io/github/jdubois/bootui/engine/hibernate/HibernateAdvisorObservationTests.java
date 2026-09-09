@@ -293,10 +293,10 @@ class HibernateAdvisorObservationTests {
                         false),
                 APP);
         assertThat(new EagerFetchRule().evaluate(scalar).status()).isEqualTo("PASS");
-        assertThat(scalar.evidence().applicable).isFalse();
-        assertThat(scalar.evidence().usable).isFalse();
+        assertThat(scalar.evidence().applicable()).isFalse();
+        assertThat(scalar.evidence().usable()).isFalse();
         assertThat(new IdentityDisablesBatchingRule().evaluate(scalar).status()).isEqualTo("PASS");
-        assertThat(scalar.evidence().usable).isFalse();
+        assertThat(scalar.evidence().usable()).isFalse();
 
         HibernateContext version = HibernateContext.observed(
                 new HibernatePersistenceUnitObservation(
@@ -310,8 +310,8 @@ class HibernateAdvisorObservationTests {
                 APP);
         var result = new PrimitiveIdentifierOrVersionRule().evaluate(version);
         assertThat(result.severity()).isEqualTo("INFO");
-        assertThat(version.evidence().usable).isTrue();
-        assertThat(version.evidence().requiredUnknown).isFalse();
+        assertThat(version.evidence().usable()).isTrue();
+        assertThat(version.evidence().requiredUnknown()).isFalse();
     }
 
     @Test
@@ -325,8 +325,8 @@ class HibernateAdvisorObservationTests {
         };
         HibernateContext context = HibernateContext.observed(unit("orders", settings(25), List.of()), APP);
         assertThat(rule.evaluate(context).status()).isEqualTo("ERROR");
-        assertThat(context.evidence().applicable).isTrue();
-        assertThat(context.evidence().usable).isFalse();
+        assertThat(context.evidence().applicable()).isTrue();
+        assertThat(context.evidence().usable()).isFalse();
     }
 
     @Test
@@ -418,7 +418,7 @@ class HibernateAdvisorObservationTests {
             } else {
                 assertThat(fetch.violationCount()).isZero();
                 assertThat(guard.violationCount()).isZero();
-                assertThat(context.evidence().requiredUnknown).isTrue();
+                assertThat(context.evidence().requiredUnknown()).isTrue();
             }
         }
         HibernateContext legacy = context(
@@ -438,7 +438,7 @@ class HibernateAdvisorObservationTests {
             HibernateContext context = context("7.2.19.Final", List.of(method(query, null, Order.class, false)));
             assertThat(new CollectionJoinFetchPageableRule().evaluate(context).violationCount())
                     .isZero();
-            assertThat(context.evidence().requiredUnknown).isTrue();
+            assertThat(context.evidence().requiredUnknown()).isTrue();
         }
         HibernateContext harmless = context(
                 "7.2.19.Final",
@@ -463,7 +463,7 @@ class HibernateAdvisorObservationTests {
         assertThat(HibernateQueryShape.entityRoot(context, method).javaType()).isEqualTo(Order.class);
         assertThat(new EagerToOneFetchJoinRule().evaluate(context).violationCount())
                 .isZero();
-        assertThat(context.evidence().requiredUnknown).isTrue();
+        assertThat(context.evidence().requiredUnknown()).isTrue();
     }
 
     @Test
