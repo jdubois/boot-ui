@@ -144,23 +144,24 @@ for file in "${files[@]}"; do
 
     action_name="$action_owner/$action_repository"
 
-    if is_trusted_action "$action_name"; then
-      if [[ ! "$action_ref" =~ ^v[0-9]+$ ]]; then
-        report_error "$file" "$line_number" \
-          "Trusted action '$action_name' must use a major-version tag such as @v4; found @$action_ref."
-      fi
+    if is_trusted_action "$action_name" && [[ "$action_ref" =~ ^v[0-9]+$ ]]; then
       continue
     fi
 
     if [[ ! "$action_ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
-      report_error "$file" "$line_number" \
-        "Non-allowlisted action '$action_name' must use a full 40-character commit SHA."
+      if is_trusted_action "$action_name"; then
+        report_error "$file" "$line_number" \
+          "Trusted action '$action_name' must use a major-version tag such as @v4 or a full 40-character commit SHA; found @$action_ref."
+      else
+        report_error "$file" "$line_number" \
+          "Non-allowlisted action '$action_name' must use a full 40-character commit SHA."
+      fi
       continue
     fi
 
-    if [[ ! "$version_comment" =~ ^v[0-9]+([.][0-9]+){0,2}([.-][0-9A-Za-z]+)*$ ]]; then
+    if [[ ! "$version_comment" =~ ^v[0-9]+([.][0-9]+){0,2}([.-][0-9A-Za-z]+)*([[:space:]].*)?$ ]]; then
       report_error "$file" "$line_number" \
-        "SHA-pinned action '$action_name' must have an inline release comment such as '# v1.2.3'."
+        "SHA-pinned action '$action_name' must have an inline release comment starting with a version such as '# v1.2.3'."
     fi
   done < "$file"
 done

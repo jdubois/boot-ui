@@ -30,6 +30,9 @@ jobs:
       - name: Check GitHub Action references
         run: bash .github/scripts/check-action-references.sh
 
+      - name: Test GitHub Action reference policy
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_action_references.py'
+
       - name: Check release workflow integrity
         run: bash .github/scripts/check-release-integrity.sh
 

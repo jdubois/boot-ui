@@ -349,10 +349,15 @@ New remote actions remain SHA-pinned unless this allowlist is deliberately exten
 relative paths. Dependabot checks action references weekly: major tags receive compatible updates automatically,
 Dependabot proposes new major tags, and SHA-pinned actions receive pull requests for newer release SHAs.
 
-Run the policy check locally with:
+Trusted actions may also remain SHA-pinned, as in generated GitHub Agentic Workflow lock files. Every SHA pin requires
+a release comment beginning with a version; explanatory text such as `# v9.0.0 (source v9)` is allowed. Generated
+`.lock.yml` workflows are checked by the same policy and should be regenerated with `gh aw compile`, not edited manually.
+
+Run the policy check and its regression suite locally with:
 
 ```bash
 bash .github/scripts/check-action-references.sh
+python3 -B -m unittest discover -s .github/scripts -p 'test_action_references.py'
 ```
 
 ## Run the sample app
