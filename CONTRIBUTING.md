@@ -171,6 +171,15 @@ The scripts use Python's standard library. Run their offline regression suite wi
 python3 -B -m unittest discover -s .github/scripts -p 'test_docker_retention*.py'
 ```
 
+The build also validates GitHub Actions expressions with pinned `actionlint`.
+Plain YAML parsing does not catch contexts used outside their allowed scope:
+
+```bash
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 \
+  -shellcheck= -pyflakes= \
+  .github/workflows/docker-publish.yml .github/workflows/build.yml
+```
+
 ### Software Bill of Materials (SBOM)
 
 Generate a CycloneDX SBOM covering every dependency across the whole reactor after an install:

@@ -625,11 +625,13 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       GH_TOKEN: ${{ github.token }}
-      RETENTION_DIR: ${{ runner.temp }}/docker-retention
       PRUNE_DRY_RUN: ${{ inputs.prune_dry_run || false }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Initialize retention directory
+        run: echo "RETENTION_DIR=$RUNNER_TEMP/docker-retention" >> "$GITHUB_ENV"
 
       - name: Restore inventory or recover legacy manifest digests
         run: >

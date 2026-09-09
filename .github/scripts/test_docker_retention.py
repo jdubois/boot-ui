@@ -2,6 +2,8 @@ import copy
 import hashlib
 import io
 import json
+import os
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -462,6 +464,37 @@ class ApiTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_retention_directory_is_initialized_at_step_scope(self):
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/docker-publish.yml"
+        ).read_text()
+        prune = workflow.split("\n  prune:\n")[1]
+        job_env = prune.split("\n    env:\n")[1].split("\n    steps:\n")[0]
+        self.assertNotIn("${{ runner.", job_env)
+        self.assertLess(
+            prune.index("name: Initialize retention directory"),
+            prune.index("name: Restore inventory"),
+        )
+        step = prune.split("      - name: Initialize retention directory\n")[1]
+        script = step.split("\n      - name:")[0].strip().removeprefix("run: ")
+        with tempfile.TemporaryDirectory(prefix="retention test ") as directory:
+            github_env = Path(directory) / "github-env"
+            subprocess.run(
+                ["bash", "-eu", "-c", script],
+                env={
+                    **os.environ,
+                    "RUNNER_TEMP": directory,
+                    "GITHUB_ENV": str(github_env),
+                },
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                github_env.read_text(),
+                f"RETENTION_DIR={directory}/docker-retention\n",
+            )
+
     def test_cleanup_runs_after_failure_and_journal_upload_precedes_deletion(self):
         workflow = (
             Path(__file__).resolve().parents[1] / "workflows/docker-publish.yml"

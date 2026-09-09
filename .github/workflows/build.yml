@@ -33,6 +33,12 @@ jobs:
       - name: Check release workflow integrity
         run: bash .github/scripts/check-release-integrity.sh
 
+      - name: Check Docker workflow expressions
+        run: >
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          -shellcheck= -pyflakes=
+          .github/workflows/docker-publish.yml .github/workflows/build.yml
+
       - name: Test Docker image retention
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_docker_retention*.py'
 
