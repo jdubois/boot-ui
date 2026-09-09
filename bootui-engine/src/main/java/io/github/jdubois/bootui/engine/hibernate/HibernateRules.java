@@ -2471,7 +2471,6 @@ final class CacheAssociationCoverageRule extends AbstractHibernateRule {
             return pass();
         }
         Map<String, HibernateEntityModel> byJavaType = HibernateRuleModelSupport.entitiesByJavaType(context.entities());
-        context.evidence().markApplicable(false);
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             if (!entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation()) {
@@ -2520,7 +2519,6 @@ final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateRule {
         if (context.observed() && !context.required(context.factorySettings().secondLevelCache()))
             return skipped("Unit second-level cache is disabled.");
         List<String> details = new ArrayList<>();
-        context.evidence().markApplicable(false);
         for (HibernateEntityModel entity :
                 context.targets(context.entities(), candidate -> candidate.hibernateCacheUsageName() != null)) {
             String usage = entity.hibernateCacheUsageName();
@@ -2557,7 +2555,6 @@ final class ImmutableEntityCacheStrategyRule extends AbstractHibernateRule {
         if (context.observed() && !context.required(context.factorySettings().secondLevelCache()))
             return skipped("Unit second-level cache is disabled.");
         List<String> details = new ArrayList<>();
-        context.evidence().markApplicable(false);
         for (HibernateEntityModel entity : context.targets(
                 context.entities(),
                 candidate -> candidate.isImmutable() && candidate.hibernateCacheUsageName() != null)) {
@@ -2829,7 +2826,6 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
                             + " JPA annotations.");
         }
         List<String> details = new ArrayList<>();
-        context.evidence().markApplicable(false);
         List<String> unresolved = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             Set<String> leadingIndexColumns;
@@ -3417,7 +3413,6 @@ final class IdentityDisablesBatchingRule extends AbstractHibernateRule {
                             + " for IDENTITY generation to disable.");
         }
         List<String> details = new ArrayList<>();
-        context.evidence().markApplicable(false);
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::hasGeneratedValue)) {
