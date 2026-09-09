@@ -14,7 +14,6 @@ const props = defineProps({
   score: {type: Number, default: null},
   hasReport: {type: Boolean, default: false},
   scoreLabel: {type: String, default: ''},
-  scoreReason: {type: String, default: ''},
   incomplete: {type: Boolean, default: false},
   severityCounts: {type: Array, default: () => []},
   statusLabel: {type: String, default: null},
@@ -45,7 +44,7 @@ const topSeverities = computed(() =>
 )
 
 const hasScore = computed(() => Number.isFinite(props.score))
-const coverageLabel = computed(() => props.scoreLabel || 'Coverage unknown')
+const coverageLabel = computed(() => props.scoreLabel || 'Not scored')
 
 function severityTone(severity) {
   return SEVERITY_TONES[String(severity).toUpperCase()] || 'text-bg-light border'
@@ -95,6 +94,7 @@ function onRun() {
             </div>
             <div class="small text-muted mt-1">Known-findings score</div>
           </div>
+          <div v-else-if="hasReport" class="scanner-assessment fw-semibold mb-2">{{ coverageLabel }}</div>
           <template v-if="hasReport || hasScore">
             <div v-if="topSeverities.length" class="d-flex flex-wrap gap-1" aria-label="Retained severity counts">
               <span
@@ -106,10 +106,6 @@ function onRun() {
               </span>
             </div>
             <div v-else-if="hasScore" class="text-muted small">No retained findings in the assessed evidence</div>
-            <div v-if="!hasScore" class="scanner-assessment small mt-2">
-              <div class="fw-semibold">{{ coverageLabel }}</div>
-              <div v-if="scoreReason" class="text-muted">{{ scoreReason }}</div>
-            </div>
           </template>
           <div v-else-if="state === 'idle'" class="text-muted small">{{ idleHint }}</div>
         </slot>
@@ -129,7 +125,12 @@ function onRun() {
           >
             {{ state === 'idle' ? runLabel : rerunLabel }}
           </SpinnerButton>
-          <router-link v-if="to" :to="to" class="btn btn-sm btn-outline-secondary ms-auto">
+          <router-link
+            v-if="to"
+            :to="to"
+            :aria-label="`${openLabel}: ${title}`"
+            class="btn btn-sm btn-outline-secondary ms-auto"
+          >
             {{ openLabel }}<i class="bi bi-arrow-right-short"></i>
           </router-link>
         </slot>

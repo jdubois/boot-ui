@@ -333,6 +333,90 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
     }
 
     for (const theme of ['light', 'dark']) {
+      test(`keeps unscored advisor cards compact and opens their details in ${theme}`, async ({page}, testInfo) => {
+        await page.addInitScript((value) => localStorage.setItem('bootui.theme', value), theme)
+        await page.setViewportSize({width: theme === 'dark' ? 390 : 1600, height: 900})
+        const ids = scannerIds.filter((id) => id !== 'github')
+        const limitations = Array.from(
+          {length: 20},
+          (_, index) => `Required security observation ${index + 1} could not be inspected in this runtime.`
+        )
+        const report = {
+          ...architectureReport('PARTIAL'),
+          scan: {status: 'PARTIAL', scannedAt: 1700000000000, message: 'Security metadata is unavailable.'},
+          evidence: {usable: false, coverageComplete: false, limitations},
+          severityCounts: [],
+          results: [],
+          violationsFound: 0,
+          rulesEvaluated: 0,
+          filterChainsAnalyzed: 0,
+          filterChains: []
+        }
+        const scans = []
+        await showAdvisors(page, ...ids)
+        for (const id of ids) {
+          await page.route(`**${apiPath}/${id}{,/scan}`, (route) => {
+            if (route.request().method() === 'POST') scans.push(id)
+            return route.fulfill({json: scans.includes(id) ? report : unscannedReport()})
+          })
+        }
+        await page.goto(`${uiPath}/#/overview`)
+        const cards = page.locator('.scanner-card')
+        await expect(cards).toHaveCount(ids.length)
+        expect(scans).toEqual([])
+        await page.getByRole('button', {name: 'Run all scanners', exact: true}).click()
+        await expect(page.locator('.overall-card')).toContainText('9 of 9 advisors assessed')
+        await expect(page.locator('.overall-card').getByRole('img')).toHaveCount(0)
+        await expect(page.locator('.assessment-summary')).toContainText('9 advisors have scan notes')
+        expect([...scans].sort()).toEqual([...ids].sort())
+        for (const card of await cards.all()) {
+          await expect(card.locator('.scanner-status')).toHaveText('Incomplete')
+          await expect(card.locator('.scanner-assessment')).toHaveText('Not scored')
+          await expect(card.locator('.scanner-score')).toHaveCount(0)
+          await expect(card).not.toContainText('No usable assessment evidence')
+          await expect(card).not.toContainText(report.scan.message)
+          for (const reason of limitations) await expect(card).not.toContainText(reason)
+          const geometry = await card.evaluate((element) => {
+            const label = element.querySelector('.scanner-assessment')
+            const style = getComputedStyle(label)
+            return {
+              height: element.getBoundingClientRect().height,
+              labelHeight: label.getBoundingClientRect().height,
+              fontSize: parseFloat(style.fontSize),
+              fontWeight: Number(style.fontWeight),
+              overflow: element.scrollWidth > element.clientWidth
+            }
+          })
+          expect(geometry.height).toBeLessThan(260)
+          expect(geometry.labelHeight).toBeLessThan(30)
+          expect(geometry.fontSize).toBeLessThanOrEqual(18)
+          expect(geometry.fontWeight).toBeGreaterThanOrEqual(600)
+          expect(geometry.overflow).toBe(false)
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+        await page.evaluate(() => {
+          window.scrollTo(0, 0)
+          document.querySelector('.bootui-workspace')?.scrollTo(0, 0)
+        })
+        await page.screenshot({path: testInfo.outputPath(`overview-unscored-${theme}.png`), animations: 'disabled'})
+        const security = cards.filter({hasText: 'Security'})
+        await security.screenshot({path: testInfo.outputPath(`security-unscored-${theme}.png`), animations: 'disabled'})
+        const open = security.getByRole('link', {name: 'Open panel: Security', exact: true})
+        await expect(open).toHaveCount(1)
+        await expect(open).toHaveAttribute('href', new RegExp(`#/security$`))
+        await security.getByRole('button', {name: 'Re-run scan', exact: true}).focus()
+        await page.keyboard.press('Tab')
+        await expect(open).toBeFocused()
+        await page.keyboard.press('Enter')
+        await expect(page).toHaveURL(new RegExp(`#/security$`))
+        const assessment = page.locator('.advisor-summary__assessment')
+        await expect(assessment.getByText('Not scored', {exact: true})).toBeVisible()
+        for (const reason of limitations) await expect(assessment).toContainText(reason)
+        await expect(assessment).toContainText(report.scan.message)
+        await expect(assessment).toBeVisible()
+        expect(scans).toHaveLength(ids.length)
+      })
+
       test(`restores individual score colors in ${theme}`, async ({page}, testInfo) => {
         await page.addInitScript((value) => localStorage.setItem('bootui.theme', value), theme)
         await page.setViewportSize({width: theme === 'dark' ? 390 : 1600, height: 900})
@@ -965,7 +1049,8 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       const card = page.locator('.scanner-card').filter({hasText: 'Vulnerabilities'})
       await expect(card).toBeVisible()
       expect(scans).toBe(0)
-      await expect(card).toContainText('No usable assessment evidence')
+      await expect(card.locator('.scanner-assessment')).toHaveText('Not scored')
+      await expect(card).not.toContainText('No usable assessment evidence')
       await expect(page.locator('.assessment-summary')).toContainText('1 advisor has scan notes')
       await expect(card).toContainText('1 unknown')
       await card.getByRole('link', {name: 'Open panel'}).click()

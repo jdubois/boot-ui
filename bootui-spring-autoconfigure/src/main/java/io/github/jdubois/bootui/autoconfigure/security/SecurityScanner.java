@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
+import static io.github.jdubois.bootui.autoconfigure.security.SecurityRuntimeHints.FRAMEWORK_TYPES;
+
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.AuthorizationMapping;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.ChainDetails;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.CorsConfigModel;
@@ -27,8 +29,10 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.aot.BeanInstanceSupplier;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.SingletonBeanRegistry;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authorization.AuthorizationManager;
@@ -957,9 +961,20 @@ final class SecurityScanner {
                 || !configurable.containsBeanDefinition(name)
                 || configurable.getSingleton(name) != chain) return false;
         var definition = configurable.getBeanDefinition(name);
-        return "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration"
-                        .equals(definition.getFactoryBeanName())
-                && name.equals(definition.getFactoryMethodName());
+        String configuration = "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration";
+        if (!configuration.equals(definition.getFactoryBeanName())) return false;
+        if (name.equals(definition.getFactoryMethodName())) return true;
+        // AOT keeps the factory method in its native BeanInstanceSupplier rather than the
+        // definition's factoryMethodName. Inspect only that final framework implementation;
+        // getResolvedFactoryMethod() could dispatch to a custom InstanceSupplier callback.
+        if (definition instanceof RootBeanDefinition root
+                && root.getInstanceSupplier() instanceof BeanInstanceSupplier<?> supplier) {
+            Method method = supplier.getFactoryMethod();
+            return method != null
+                    && configuration.equals(method.getDeclaringClass().getName())
+                    && name.equals(method.getName());
+        }
+        return false;
     }
 
     private static FilterChainModel unknownChain(int index) {
@@ -989,57 +1004,6 @@ final class SecurityScanner {
                 ? value.getClass().getSimpleName()
                 : "Unknown";
     }
-
-    private static final Set<String> FRAMEWORK_TYPES = Set.of(
-            "org.springframework.security.web.access.intercept.AuthorizationFilter",
-            "org.springframework.security.web.access.intercept.FilterSecurityInterceptor",
-            "org.springframework.security.web.context.SecurityContextHolderFilter",
-            "org.springframework.security.web.context.SecurityContextPersistenceFilter",
-            "org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter",
-            "org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter",
-            "org.springframework.security.web.authentication.www.BasicAuthenticationFilter",
-            "org.springframework.security.web.authentication.AnonymousAuthenticationFilter",
-            "org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter",
-            "org.springframework.security.web.authentication.ui.DefaultLoginPageGeneratingFilter",
-            "org.springframework.security.web.authentication.ui.DefaultLogoutPageGeneratingFilter",
-            "org.springframework.security.web.authentication.ui.DefaultResourcesFilter",
-            "org.springframework.security.web.authentication.logout.LogoutFilter",
-            "org.springframework.security.web.authentication.AuthenticationFilter",
-            "org.springframework.security.web.authentication.preauth.x509.X509AuthenticationFilter",
-            "org.springframework.security.web.csrf.CsrfFilter",
-            "org.springframework.security.web.session.SessionManagementFilter",
-            "org.springframework.security.web.session.ConcurrentSessionFilter",
-            "org.springframework.security.web.session.DisableEncodeUrlFilter",
-            "org.springframework.security.web.access.ExceptionTranslationFilter",
-            "org.springframework.security.web.savedrequest.RequestCacheAwareFilter",
-            "org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter",
-            "org.springframework.security.web.header.HeaderWriterFilter",
-            "org.springframework.security.web.transport.HttpsRedirectFilter",
-            "org.springframework.security.web.access.channel.ChannelProcessingFilter",
-            "org.springframework.security.web.debug.DebugFilter",
-            "org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy",
-            "org.springframework.security.web.authentication.session.SessionFixationProtectionStrategy",
-            "org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy",
-            "org.springframework.security.web.authentication.session.CompositeSessionAuthenticationStrategy",
-            "org.springframework.security.web.authentication.session.ConcurrentSessionControlAuthenticationStrategy",
-            "org.springframework.security.web.authentication.session.RegisterSessionAuthenticationStrategy",
-            "org.springframework.security.web.csrf.CsrfAuthenticationStrategy",
-            "org.springframework.security.web.header.writers.HstsHeaderWriter",
-            "org.springframework.security.web.header.writers.ContentSecurityPolicyHeaderWriter",
-            "org.springframework.security.web.header.writers.XContentTypeOptionsHeaderWriter",
-            "org.springframework.security.web.header.writers.XXssProtectionHeaderWriter",
-            "org.springframework.security.web.header.writers.CacheControlHeadersWriter",
-            "org.springframework.security.web.header.writers.frameoptions.XFrameOptionsHeaderWriter",
-            "org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter",
-            "org.springframework.security.web.header.writers.PermissionsPolicyHeaderWriter",
-            "org.springframework.security.web.header.writers.CrossOriginOpenerPolicyHeaderWriter",
-            "org.springframework.security.web.header.writers.CrossOriginEmbedderPolicyHeaderWriter",
-            "org.springframework.security.web.header.writers.CrossOriginResourcePolicyHeaderWriter",
-            "org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter",
-            "org.springframework.security.oauth2.server.resource.web.OAuth2ProtectedResourceMetadataFilter",
-            "org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter",
-            "org.springframework.security.oauth2.client.web.OAuth2AuthorizationCodeGrantFilter",
-            "org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter");
 
     private static MatcherFacts unknownMatcher() {
         return new MatcherFacts("unknown", null, null, List.of());

@@ -57,8 +57,9 @@ describe('ScannerScoreCard', () => {
         state: 'done',
         hasReport: true,
         score: null,
-        scoreLabel: 'Incomplete',
-        scoreReason: 'No usable assessment evidence.',
+        scoreLabel: 'Not scored',
+        statusLabel: 'Incomplete',
+        to: '/security',
         incomplete: true,
         severityCounts: [
           {severity: 'HIGH', count: 2},
@@ -68,7 +69,10 @@ describe('ScannerScoreCard', () => {
     })
     expect(wrapper.find('.scanner-score').exists()).toBe(false)
     expect(wrapper.text()).toContain('Incomplete')
-    expect(wrapper.get('.scanner-assessment').text()).toContain('No usable assessment evidence.')
+    expect(wrapper.get('.scanner-assessment').text()).toBe('Not scored')
+    expect(wrapper.get('.scanner-body').element.firstElementChild.classList.contains('scanner-assessment')).toBe(true)
+    expect(wrapper.get('router-link-stub').attributes('to')).toBe('/security')
+    expect(wrapper.get('router-link-stub').attributes('aria-label')).toBe('Open panel: Security')
     expect(wrapper.find('details').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Scan notes available in panel.')
     expect(wrapper.text()).toContain('2 high')
@@ -86,7 +90,6 @@ describe('ScannerScoreCard', () => {
         hasReport: true,
         score: 91,
         scoreLabel: 'Partial assessment',
-        scoreReason: 'Detailed coverage explanation.',
         incomplete
       }
     })
@@ -96,7 +99,17 @@ describe('ScannerScoreCard', () => {
     )
     expect(wrapper.text()).not.toContain('Scan notes available in panel.')
     expect(wrapper.find('.scanner-assessment').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('Detailed coverage explanation.')
+  })
+
+  it.each(['Not scored', 'Not applicable'])('keeps the unscored label %s distinct from a numeric score', (label) => {
+    const wrapper = mount(ScannerScoreCard, {
+      global: {stubs: {RouterLink: true}},
+      props: {title: 'Architecture', state: 'done', hasReport: true, scoreLabel: label}
+    })
+    expect(wrapper.get('.scanner-assessment').text()).toBe(label)
+    expect(wrapper.get('.scanner-assessment').classes()).not.toContain('scanner-score')
+    expect(wrapper.find('[role="img"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('/ 100')
   })
 
   it.each(['running', 'error'])('retains the last report while request state is %s', (state) => {
