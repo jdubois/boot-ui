@@ -59,6 +59,11 @@ Typical result: **~40–45 % shorter startup** vs the plain JVM image (Spring-re
 
 ### GraalVM native image
 
+The Security advisor needs BootUI's private-field reflection hints in the executable, not just in a replacement
+JAR. Rebuild older native images to pick up those hints. The real sample retains usable results from its three
+chains, but still reports partial coverage for unsupported security observations; it does not claim a complete
+security assessment. See [Security checks](SECURITY-CHECKS.md#availability-and-bounds).
+
 `jdubois/bootui-sample-app-native` is a [GraalVM](https://www.graalvm.org/) native image that starts in well under a
 second:
 

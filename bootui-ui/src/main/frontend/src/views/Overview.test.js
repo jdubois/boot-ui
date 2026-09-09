@@ -116,6 +116,40 @@ function scannerCard(wrapper, title) {
 }
 
 describe('Overview', () => {
+  it('keeps every unscored advisor compact after a full scan, with details left to its panel', async () => {
+    const ids = onlyPanels()
+      .panels.filter(({id}) => id !== 'github')
+      .map(({id}) => id)
+    const limitations = Array.from({length: 20}, (_, index) => `Required observation ${index + 1} was unavailable.`)
+    const report = {
+      severityCounts: [{severity: 'INFO', count: 1}],
+      scan: {status: 'PARTIAL', message: 'Some required observations could not be collected.'},
+      evidence: {usable: false, coverageComplete: false, limitations}
+    }
+    stubFetch(Object.fromEntries(ids.map((id) => [`api/${id}/scan`, report])))
+    const wrapper = mountOverview(onlyPanels(...ids))
+    await flushPromises()
+    const runAll = wrapper.findAll('button').find((button) => button.text() === 'Run all scanners')
+    await runAll.trigger('click')
+    await flushPromises()
+
+    const cards = wrapper.findAllComponents(ScannerScoreCard)
+    expect(cards).toHaveLength(ids.length)
+    for (const card of cards) {
+      expect(card.get('.scanner-assessment').text()).toBe('Not scored')
+      expect(card.get('.scanner-status').text()).toBe('Incomplete')
+      expect(card.text()).toContain('1 info')
+      expect(card.find('.scanner-score').exists()).toBe(false)
+      expect(card.get('a').attributes('aria-label')).toBe(`Open panel: ${card.props('title')}`)
+      expect(card.text()).not.toContain(report.scan.message)
+      expect(card.text()).not.toContain('No usable assessment evidence')
+      for (const reason of limitations) expect(card.text()).not.toContain(reason)
+    }
+    expect(wrapper.get('.overall-card').text()).toContain('9 of 9 advisors assessed')
+    expect(wrapper.get('.assessment-summary').text()).toContain('9 advisors have scan notes')
+    expect(wrapper.find('.overall-gauge').exists()).toBe(false)
+  })
+
   it.each([
     [0, 'success'],
     [3, 'warning'],

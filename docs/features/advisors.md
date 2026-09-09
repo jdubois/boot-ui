@@ -41,7 +41,9 @@ Detailed reasons are in a
 collapsed **Scan notes** disclosure in each advisor panel, operable by keyboard and screen reader. Scores with notes
 include **Scan notes available** in their accessible names. Overview summarizes how many advisors have scan notes,
 not how many checks could not run: limitations can be aggregated or capped. Unscored reasons and whole-scan failures
-remain visible, not collapsed. Backend scan statuses and evidence are unchanged.
+remain visible, not collapsed, inside advisor panels. Overview keeps unscored cards compact with **Not scored**
+(or **Not applicable** for confirmed empty scope) and **Open panel** for the full explanation; request failures stay
+visible on the card. Backend scan statuses and evidence are unchanged.
 Penalties are unchanged: CRITICAL 25, HIGH 10, MEDIUM 3, LOW 1,
 and INFO/NONE 0, clamped and rounded to 0–100. A partial 100 means no active penalties in the assessed evidence,
 not that unchecked work passed. Advisor panels use neutral numbers; Overview restores green/amber/red score colors
