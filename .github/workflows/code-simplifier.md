@@ -12,6 +12,7 @@ network:
   allowed:
     - defaults
     - "java"
+    - "github"
 
 safe-outputs:
   create-pull-request:
