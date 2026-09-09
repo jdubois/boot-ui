@@ -57,6 +57,25 @@ Typical result: **~40–45 % shorter startup** vs the plain JVM image (Spring-re
 ~70–100 MB larger image (the AOT cache file). The Spring profile can still be overridden at runtime with
 `-e SPRING_PROFILES_ACTIVE=...` — nothing is frozen at build time.
 
+#### Troubleshooting a JVM crash during a scan
+
+JDK 25 through 25.0.4 can crash with `SIGILL` in `~AdapterBlob` when an AOT cache built on one CPU is used on
+another CPU with different instruction support. The app can start normally and only crash when an advisor scan
+exercises the affected code. This is [OpenJDK JDK-8388703](https://bugs.openjdk.org/browse/JDK-8388703), whose
+fix is scheduled for JDK 25.0.5.
+
+`Dockerfile-aot` disables CPU-specific **method adapter caching** during both training and runtime with
+`-XX:+UnlockDiagnosticVMOptions -XX:-AOTAdapterCaching`. Spring AOT and the JDK class loading/linking cache remain
+enabled. For an already-built image that still crashes, apply the same runtime workaround without replacing its
+existing JVM options:
+
+```bash
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+  -e 'JDK_JAVA_OPTIONS=-XX:+UnlockDiagnosticVMOptions -XX:-AOTAdapterCaching' \
+  jdubois/bootui-sample-app-aot
+```
+
 ### GraalVM native image
 
 `jdubois/bootui-sample-app-native` is a [GraalVM](https://www.graalvm.org/) native image that starts in well under a

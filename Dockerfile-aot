@@ -19,7 +19,8 @@
 #      verified, pre-linked class data directly from the cache, bypassing most of
 #      the normal class-loading pipeline. The training run is done inside this
 #      build stage using the same jlink custom runtime that the final container
-#      uses, so the cache is guaranteed to be compatible.
+#      uses. CPU-specific method adapter caching is disabled (see below) so a
+#      cache built on CI does not require the CI host's CPU instruction set.
 #      Result: 20–30 % reduction in class-loading / linking time on top of
 #      the Spring AOT saving.
 #
@@ -156,6 +157,13 @@ RUN mkdir -p /app/training && \
 # GC / heap) setting differs from the running JVM and silently falls back to
 # normal class loading, defeating the cache. The environment variables likewise
 # mirror the runtime ENV declarations so training and production are identical.
+#
+# JDK-8388703: JDK 25 through 25.0.4 can replay cached method adapters containing
+# instructions unsupported by the runtime CPU, causing SIGILL in ~AdapterBlob
+# even after startup succeeds. Disable only adapter caching during both training
+# and runtime; Spring AOT and the JDK class loading/linking cache stay enabled.
+# This matches the upstream fix scheduled for 25.0.5:
+# https://bugs.openjdk.org/browse/JDK-8388703
 # ---------------------------------------------------------------------------
 RUN cd /app/training && \
     SPRING_PROFILES_ACTIVE=dev \
@@ -163,6 +171,7 @@ RUN cd /app/training && \
     SPRING_LIQUIBASE_ENABLED=false \
     /javaruntime/bin/java \
         -XX:AOTCacheOutput=/app/app.aot \
+        -XX:+UnlockDiagnosticVMOptions -XX:-AOTAdapterCaching \
         -Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m \
         -XX:+UseG1GC -XX:+UseCompactObjectHeaders \
         -Dspring.aot.enabled=true \
@@ -211,11 +220,13 @@ ENV SPRING_LIQUIBASE_ENABLED=false
 # JVM flags — same baseline as Dockerfile, extended with:
 #   -XX:AOTCache=/app/app.aot       use the JDK 25 AOT class loading cache
 #   -Dspring.aot.enabled=true       activate Spring AOT-generated factories
+#   -XX:-AOTAdapterCaching         avoid CPU-specific cached method adapters
+#                                  (requires -XX:+UnlockDiagnosticVMOptions)
 #
 # The AOT cache makes the flags -XX:+AlwaysPreTouch and -XX:+UseCompactObjectHeaders
 # slightly less critical (class metadata is pre-linked), but they are kept for
 # consistency with the plain JVM image.
-ENV JAVA_TOOL_OPTIONS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp -XX:AOTCache=/app/app.aot -Dspring.aot.enabled=true"
+ENV JAVA_TOOL_OPTIONS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp -XX:AOTCache=/app/app.aot -XX:+UnlockDiagnosticVMOptions -XX:-AOTAdapterCaching -Dspring.aot.enabled=true"
 
 EXPOSE 8080
 
